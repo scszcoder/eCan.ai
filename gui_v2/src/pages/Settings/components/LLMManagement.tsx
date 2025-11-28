@@ -752,13 +752,13 @@ const LLMManagement = React.forwardRef<
       title: t("pages.settings.llm_provider"),
       dataIndex: "display_name",
       key: "display_name",
-      width: "20%",
+      width: 150,
     },
     {
       title: t("pages.settings.status"),
       dataIndex: "api_key_configured",
       key: "status",
-      width: "15%",
+      width: 100,
       render: (isConfigured: boolean) => (
         <span style={{ color: isConfigured ? "#52c41a" : "#ff4d4f" }}>
           {isConfigured
@@ -771,7 +771,7 @@ const LLMManagement = React.forwardRef<
       title: t("pages.settings.api_key"),
       dataIndex: "api_key",
       key: "api_key",
-      width: "35%",
+      width: 280,
       render: (_: any, record: LLMProvider) => {
         const isEditing = editingProvider === record.name;
 
@@ -874,16 +874,23 @@ const LLMManagement = React.forwardRef<
           );
         }
 
+        const apiKeyText = record.is_local
+          ? "🏠 Local Service"
+          : record.api_key_configured
+          ? visibleApiKeys.has(record.name)
+            ? apiKeyValues.get(record.name) || "••••••••••••••••"
+            : "••••••••••••••••"
+          : t("pages.settings.not_configured");
+
         return (
-          <Space>
-            <span style={{ fontFamily: "monospace" }}>
-              {record.is_local
-                ? "🏠 Local Service"
-                : record.api_key_configured
-                ? visibleApiKeys.has(record.name)
-                  ? apiKeyValues.get(record.name) || "••••••••••••••••"
-                  : "••••••••••••••••"
-                : t("pages.settings.not_configured")}
+          <Space style={{ width: '100%', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <span style={{ 
+              fontFamily: "monospace",
+              wordBreak: 'break-all',
+              whiteSpace: 'pre-wrap',
+              lineHeight: 1.4
+            }}>
+              {apiKeyText}
             </span>
             {record.api_key_configured && !record.is_local && (
               <Tooltip
@@ -914,7 +921,7 @@ const LLMManagement = React.forwardRef<
     {
       title: t("pages.settings.llm_model"),
       key: "model",
-      width: "20%",
+      width: 200,
       render: (_: any, record: LLMProvider) => {
         const options = modelOptionsCache[record.name] || [];
 
@@ -941,7 +948,7 @@ const LLMManagement = React.forwardRef<
         return (
           <Select
             size="small"
-            style={{ minWidth: 220 }}
+            style={{ width: 180 }}
             value={effectiveValue}
             onChange={(value) => handleModelSelection(record.name, value)}
             loading={!!modelLoadingMap[record.name]}
@@ -972,7 +979,7 @@ const LLMManagement = React.forwardRef<
       title: t("pages.settings.default"),
       dataIndex: "name",
       key: "default",
-      width: "15%",
+      width: 80,
       render: (name: string, record: LLMProvider) => {
         // Compare using provider identifier (canonical), not display name
         const providerIdentifier = record.provider;
@@ -1045,7 +1052,7 @@ const LLMManagement = React.forwardRef<
   ];
 
   return (
-    <div style={{ marginTop: "20px" }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", paddingTop: 16 }}>
       <Table
         columns={columns}
         dataSource={providers}
@@ -1053,6 +1060,8 @@ const LLMManagement = React.forwardRef<
         loading={loading}
         pagination={false}
         size="small"
+        sticky={true}
+        scroll={{ y: 'calc(100vh - 280px)', x: undefined }}
       />
     </div>
   );
