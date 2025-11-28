@@ -16,18 +16,17 @@ def _resolve_base_url() -> str:
 
 
 class LightragClient:
-    """Backend adapter to proxy LightRAG WebGUI API calls from frontend IPC.
-
-    NOTE: This is a skeleton. Fill in implementations to call the real LightRAG
-    endpoints and translate responses as needed.
-    """
+    """Backend adapter to proxy LightRAG WebGUI API calls from frontend IPC."""
 
     def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None, token: Optional[str] = None):
         self.base_url = base_url or _resolve_base_url()
         self.session = requests.Session()
-        self.session.headers.update({
-            "Content-Type": "application/json",
-        })
+        self.session.headers.update({"Content-Type": "application/json"})
+        
+        # Configure proxy based on target URL (bypass for localhost/LAN)
+        from agent.ec_skills.system_proxy import configure_requests_session
+        configure_requests_session(self.session, self.base_url)
+        
         if api_key:
             self.session.headers["X-API-Key"] = api_key
         if token:
@@ -444,16 +443,23 @@ class LightragClient:
         """
         Insert text directly into the knowledge base.
         
+        Based on LightRAG API POST /documents/text InsertTextRequest:
+        - text: The text content to insert (required, min 1 char)
+        - file_source: Source identifier for the text (optional)
+        
         Args:
             text: Text content to insert
-            metadata: Optional metadata for the text
+            metadata: Optional metadata containing file_source
             
         Returns:
-            Response with insertion status
+            Response with insertion status and track_id
         """
-        payload = {"text": text}
-        if metadata:
-            payload["metadata"] = metadata
+        # Build payload matching InsertTextRequest schema
+        payload = {"text": text.strip()}
+        
+        # Extract file_source from metadata if provided
+        if metadata and "file_source" in metadata:
+            payload["file_source"] = metadata["file_source"]
         
         try:
             r = self.session.post(
@@ -461,8 +467,17 @@ class LightragClient:
                 json=payload,
                 timeout=60
             )
+            
+            if r.status_code >= 400:
+                logger.error(f"Insert text failed with status {r.status_code}: {r.text}")
+                
             r.raise_for_status()
+            # API returns: {"status": "success", "message": "...", "track_id": "..."}
             return {"status": "success", "data": r.json()}
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response else str(e)
+            logger.error(f"LightragClient.insert_text HTTP error: {error_msg}")
+            return {"status": "error", "message": error_msg}
         except requests.exceptions.RequestException as e:
             logger.error(f"Error inserting text: {e}")
             return {"status": "error", "message": str(e)}

@@ -6,6 +6,7 @@ from agent.mcp.streamablehttp_manager import Streamable_HTTP_Manager
 import asyncio
 import traceback
 from utils.logger_helper import logger_helper as logger
+from agent.ec_skills.system_proxy import create_mcp_httpx_client
 
 
 
@@ -30,7 +31,7 @@ class MCPClientManager:
         """
         try:
             logger.debug(f"Connecting to MCP server at {url} to list tools")
-            async with streamablehttp_client(url) as streams:
+            async with streamablehttp_client(url, httpx_client_factory=create_mcp_httpx_client) as streams:
                 async with ClientSession(streams[0], streams[1]) as session:
                     logger.debug("Initializing MCP session...")
                     await session.initialize()
@@ -45,26 +46,45 @@ class MCPClientManager:
             logger.error(f"Traceback: {traceback.format_exc()}")
             raise
 
-    async def call_tool(self, url, tool_name, arguments):
-        """Calls a tool on an MCP server with robust session handling."""
+    async def call_tool(self, url, tool_name, arguments, timeout: float = 60.0):
+        """Calls a tool on an MCP server with robust session handling.
+        
+        Args:
+            url: MCP server URL
+            tool_name: Name of the tool to call
+            arguments: Tool arguments
+            timeout: Timeout in seconds (default 60s)
+        """
         result = None
         try:
             # First, try using a persistent session for efficiency
             try:
                 mgr = Streamable_HTTP_Manager.get(url)
-                session = await mgr.session()
-                result = await session.call_tool(tool_name, arguments)
+                session = await asyncio.wait_for(mgr.session(), timeout=timeout)
+                result = await asyncio.wait_for(
+                    session.call_tool(tool_name, arguments),
+                    timeout=timeout
+                )
                 logger.debug(f"Tool call via persistent session succeeded for '{tool_name}'")
                 return result
+            except asyncio.TimeoutError:
+                logger.warning(f"Persistent session timed out for '{tool_name}', falling back to ephemeral")
             except BaseException as mgr_err:
                 logger.warning(f"Persistent session failed, falling back to ephemeral: {mgr_err}")
-                # Fallback to a temporary (ephemeral) session
-                async with streamablehttp_client(url, terminate_on_close=False) as streams:
-                    async with ClientSession(streams[0], streams[1]) as session:
-                        await session.initialize()
-                        result = await session.call_tool(tool_name, arguments)
-                        # Allow a brief moment for server-side cleanup before closing
-                        await asyncio.sleep(0.05)
+            
+            # Fallback to a temporary (ephemeral) session
+            async with streamablehttp_client(url, terminate_on_close=False, httpx_client_factory=create_mcp_httpx_client) as streams:
+                async with ClientSession(streams[0], streams[1]) as session:
+                    await asyncio.wait_for(session.initialize(), timeout=timeout)
+                    result = await asyncio.wait_for(
+                        session.call_tool(tool_name, arguments),
+                        timeout=timeout
+                    )
+                    # Allow a brief moment for server-side cleanup before closing
+                    await asyncio.sleep(0.05)
+        except asyncio.TimeoutError:
+            logger.error(f"Tool call timed out for '{tool_name}' after {timeout}s")
+            raise
         except BaseException as e:
             # If a result was obtained but an error occurred during cleanup, prioritize the result
             if result is not None:
@@ -96,13 +116,20 @@ class MCPClientManager:
 # Create a singleton instance for managing MCP client operations
 mcp_client_manager = MCPClientManager()
 
-async def mcp_call_tool(tool_name, args):
-    """Public function to call a tool, using the client manager."""
-    logger.debug(f"MCP client calling tool: {tool_name} with args: {args}")
+async def mcp_call_tool(tool_name, args, timeout: float = 60.0):
+    """Public function to call a tool, using the client manager.
+    
+    Args:
+        tool_name: Name of the MCP tool to call
+        args: Tool arguments
+        timeout: Timeout in seconds (default 60s). Caller should specify appropriate
+                 timeout based on the tool's expected execution time.
+    """
+    logger.debug(f"MCP client calling tool: {tool_name} with args: {args}, timeout: {timeout}s")
     response = None
     try:
         url = mcp_http_base()
-        response = await mcp_client_manager.call_tool(url, tool_name, args)
+        response = await mcp_client_manager.call_tool(url, tool_name, args, timeout=timeout)
         logger.debug(f"Raw response type: {type(response)}")
         return response
     except BaseException as e:

@@ -1,15 +1,65 @@
 from utils.logger_helper import get_traceback
 from utils.logger_helper import logger_helper as logger
+from mcp.types import TextContent
+from knowledge.lightrag_client import get_client
 
-def ragify(mainwin, args):
+
+async def ragify(mainwin, args):
+    """
+    MCP Tool: Ingest documents into LightRAG for RAG indexing.
+    
+    Supports two modes:
+    1. File upload: Upload files from file_paths to LightRAG
+    2. Text insert: Directly insert text content into LightRAG
+    
+    Based on LightRAG API:
+    - POST /documents/upload (file upload)
+    - POST /documents/text (text insert)
+    """
     try:
         rag_result = None
-        if args['input']:
-            logger.debug(f"[MCP][RAGIFY DOCs]: {args['input']}")
+        input_data = args.get('input', {})
+        
+        if not input_data:
+            return [TextContent(type="text", text="Error: No input data provided")]
+            
+        logger.debug(f"[MCP][RAGIFY]: {input_data}")
+        
+        # Extract parameters
+        file_paths = input_data.get("file_paths", [])
+        text = input_data.get("text")
+        file_source = input_data.get("file_source")
+        
+        # Initialize client
+        client = get_client()
+        
+        # Mode 1: File upload
+        if file_paths:
+            rag_result = client.ingest_files(file_paths)
+            logger.info(f"[MCP][RAGIFY] File ingestion result: {rag_result}")
+            msg = f"Ingested {len(file_paths)} file(s)"
+        # Mode 2: Text insert
+        elif text:
+            metadata = {"file_source": file_source} if file_source else None
+            rag_result = client.insert_text(text, metadata)
+            logger.info(f"[MCP][RAGIFY] Text insert result: {rag_result}")
+            msg = "Text inserted successfully"
+        else:
+            rag_result = {"status": "error", "message": "No file_paths or text provided"}
+            msg = "Error: No file_paths or text provided"
 
-        msg = "completed ragify fileds"
-        result = [TextContent(type="text", text=msg)]
-        result.meta = {"rag_result": rag_result}
+        # Build response
+        if rag_result.get("status") == "success":
+            result_text = f"{msg}. Track ID: {rag_result.get('data', {}).get('track_id', 'N/A')}"
+        else:
+            result_text = f"Error: {rag_result.get('message', 'Unknown error')}"
+            
+        result = TextContent(type="text", text=result_text)
+        if isinstance(rag_result, dict):
+            result.meta = rag_result
+        else:
+            result.meta = {"result": str(rag_result)}
+             
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorRagifyTool")
@@ -17,16 +67,99 @@ def ragify(mainwin, args):
         return [TextContent(type="text", text=err_trace)]
 
 
-
-def rag_query(mainwin, args):
+async def rag_query(mainwin, args):
+    """
+    MCP Tool: Query LightRAG knowledge base.
+    
+    Based on LightRAG API POST /query:
+    - query: Query text (required, min 3 chars)
+    - mode: Query mode (local, global, hybrid, naive, mix, bypass), default: mix
+    - only_need_context: Return only context without generating response
+    - only_need_prompt: Return only prompt without generating response
+    - response_type: Response format (e.g., 'Multiple Paragraphs', 'Bullet Points')
+    - top_k: Number of top items to retrieve
+    - conversation_history: Past conversation for context
+    - user_prompt: Custom user prompt
+    - enable_rerank: Enable reranking (default: True)
+    - include_references: Include reference list (default: True)
+    """
     try:
-        answer = ""
-        if args['input']:
-            logger.debug(f"[MCP][RAG QUERY]: {args['input']}")
+        rag_result = None
+        input_data = args.get('input', {})
+        
+        if not input_data:
+            return [TextContent(type="text", text="Error: No input data provided")]
+            
+        logger.debug(f"[MCP][RAG_QUERY]: {input_data}")
+        
+        # Extract query (required)
+        query_text = input_data.get("query")
+        if not query_text or len(query_text.strip()) < 3:
+            return [TextContent(type="text", text="Error: Query must be at least 3 characters")]
+        
+        # Initialize client
+        client = get_client()
+        
+        # Build options from input - map to LightRAG QueryRequest parameters
+        options = {}
+        
+        # Mode: local, global, hybrid, naive, mix, bypass
+        mode = input_data.get("mode", "mix")
+        if mode in ["local", "global", "hybrid", "naive", "mix", "bypass"]:
+            options["mode"] = mode
+        else:
+            options["mode"] = "mix"  # Default to mix
+            
+        # All optional parameters from LightRAG QueryRequest schema
+        OPTIONAL_PARAMS = [
+            "only_need_context",     # bool
+            "only_need_prompt",      # bool
+            "response_type",         # str
+            "top_k",                 # int
+            "chunk_top_k",           # int
+            "max_entity_tokens",     # int
+            "max_relation_tokens",   # int
+            "max_total_tokens",      # int
+            "hl_keywords",           # list[str]
+            "ll_keywords",           # list[str]
+            "conversation_history",  # list[dict]
+            "user_prompt",           # str
+            "enable_rerank",         # bool
+            "include_references",    # bool
+            "include_chunk_content", # bool
+        ]
+        
+        for param in OPTIONAL_PARAMS:
+            if param in input_data and input_data[param] is not None:
+                # Skip empty lists/strings
+                val = input_data[param]
+                if isinstance(val, list) and len(val) == 0:
+                    continue
+                if isinstance(val, str) and not val.strip():
+                    continue
+                options[param] = val
+        
+        # Execute query
+        response = client.query(query_text.strip(), options)
+        
+        if response.get("status") == "success":
+            data = response.get("data", {})
+            # LightRAG returns {"response": "...", "references": [...]}
+            if isinstance(data, dict):
+                answer = data.get("response", str(data))
+            else:
+                answer = str(data)
+            rag_result = response
+        else:
+            answer = f"Error: {response.get('message', 'Query failed')}"
+            rag_result = response
 
-        msg = "completed rag query"
-        result = [TextContent(type="text", text=msg)]
-        result.meta = {"answer": answer}
+        result = TextContent(type="text", text=answer)
+        if isinstance(rag_result, dict):
+            result.meta = rag_result
+        else:
+            result.meta = {"result": str(rag_result)}
+             
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorRagQueryTool")
@@ -34,71 +167,41 @@ def rag_query(mainwin, args):
         return [TextContent(type="text", text=err_trace)]
 
 def add_ragify_tool_schema(tool_schemas):
+    """
+    Add ragify tool schema for document ingestion into LightRAG.
+    
+    Based on LightRAG API:
+    - POST /documents/upload - Upload files for indexing
+    - POST /documents/text - Insert text directly
+    
+    Reference: https://github.com/HKUDS/LightRAG/blob/main/lightrag/api/routers/document_routes.py
+    """
     import mcp.types as types
 
     tool_schema = types.Tool(
-        name="ragify_tool",
-        description="use RAG to vectorized target documents or direct content, refer to: https://github.com/HKUDS/RAG-Anything/tree/main/examples",
+        name="ragify",
+        description="Ingest documents or text into LightRAG for RAG indexing. Supports file upload or direct text insertion. Returns a track_id for monitoring processing status.",
         inputSchema={
             "type": "object",
-            "required": ["input"],  # the root requires *input*
+            "required": ["input"],
             "properties": {
-                "input": {  # nested object
+                "input": {
                     "type": "object",
-                    "required": ["file_paths", "content_list", "output_dir", "api_key", "base_url", "working_dir", "parser", "config"],
                     "properties": {
                         "file_paths": {
                             "type": "array",
-                            "description": "pathes of the files to be ragified (stored in vector DB)",
+                            "description": "List of file paths to upload and index. Supports: pdf, doc, docx, txt, md, html, csv, json, xml, py, js, etc.",
                             "items": {"type": "string"}
                         },
-                        "content_list": {
-                            "type": "array",
-                            "description": "direct content to ragify. refer to: https://github.com/HKUDS/RAG-Anything/blob/main/examples/insert_content_list_example.py#L94",
-                            "items": {"type": "object"}
-                        },
-                        "output_dir": {
+                        "text": {
                             "type": "string",
-                            "description": "path of the output directory",
+                            "description": "Direct text content to insert into the knowledge base (alternative to file_paths)."
                         },
-                        "api_key": {
+                        "file_source": {
                             "type": "string",
-                            "description": "api key for embedding model provider",
-                        },
-                        "base_url": {
-                            "type": "string",
-                            "description": "base url for embedding model provider",
-                        },
-                        "working_dir": {
-                            "type": "string",
-                            "description": "working directory",
-                        },
-                        "parser": {
-                            "type": "string",
-                            "description": "name of the parser function to use",
-                        },
-                        "config": {
-                            "type": "object",
-                            "required": ["max_token_size", "embedding_dim", "embedding_model", "max_workers", "context_window", "context_mode", "timeout_per_file", "parsing_method", "enable_image_processing", "enable_table_processing", "enable_equation_processing", "display_content_stats", "recursive", "show_progress", "skip_installation_check"],
-                            "properties": {
-                                "max_token_size": {"type": "integer"},
-                                "embedding_dim": {"type": "integer"},
-                                "context_window": {"type": "integer"},
-                                "max_workers": {"type": "integer"},
-                                "context_mode": {"type": "string"},
-                                "timeout_per_file": {"type": "integer", "description": "timeout per file in seconds"},
-                                "embedding_model": {"type": "string"},
-                                "parsing_method": {"type": "string"},
-                                "enable_image_processing": {"type": "boolean"},
-                                "enable_table_processing": {"type": "boolean"},
-                                "enable_equation_processing": {"type": "boolean"},
-                                "display_content_stats": {"type": "boolean"},
-                                "recursive": {"type": "boolean"},
-                                "show_progress": {"type": "boolean"},
-                                "skip_installation_check": {"type": "boolean"}
-                            }
-                        },
-                    },
+                            "description": "Optional source identifier for the inserted text."
+                        }
+                    }
                 }
             }
         },
@@ -108,36 +211,117 @@ def add_ragify_tool_schema(tool_schemas):
 
 
 def add_rag_query_tool_schema(tool_schemas):
+    """
+    Add rag_query tool schema for querying LightRAG knowledge base.
+    
+    Based on LightRAG API POST /query QueryRequest schema.
+    Reference: https://github.com/HKUDS/LightRAG/blob/main/lightrag/api/routers/query_routes.py
+    """
     import mcp.types as types
 
     tool_schema = types.Tool(
-        name="rag_query_tool",
-        description="use RAG to query vector DB and retrieve relevant documents and return answer in natural language",
+        name="rag_query",
+        description="Query LightRAG knowledge base using RAG. Retrieves relevant documents and generates natural language answers.",
         inputSchema={
             "type": "object",
-            "required": ["input"],  # the root requires *input*
+            "required": ["input"],
             "properties": {
-                "input": {  # nested object
+                "input": {
                     "type": "object",
-                    "required": ["query", "multimodal_content", "mode"],
+                    "required": ["query"],
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "agent id",
-                        },
-                        "multimodal_content": {
-                            "type": "array",
-                            "description": "a list of multimodal content, refer to: https://github.com/HKUDS/RAG-Anything/blob/main/raganything/query.py",
-                            "items": {
-                                "type": "object",
-                                "description": "this will include, type, latex, caption",
-                            }
+                            "minLength": 3,
+                            "description": "The query text to search for in the knowledge base."
                         },
                         "mode": {
                             "type": "string",
-                            "description": "query mode, local/global/hybrid/naive/mix",
+                            "enum": ["local", "global", "hybrid", "naive", "mix", "bypass"],
+                            "default": "mix",
+                            "description": "Query mode: local (entity-focused), global (relationship patterns), hybrid (combined), naive (vector search), mix (knowledge graph + vector), bypass (direct LLM)."
+                        },
+                        "only_need_context": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": "If true, only returns the retrieved context without generating a response."
+                        },
+                        "only_need_prompt": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": "If true, only returns the generated prompt without producing a response."
+                        },
+                        "response_type": {
+                            "type": "string",
+                            "description": "Defines the response format. Examples: 'Multiple Paragraphs', 'Single Paragraph', 'Bullet Points'."
+                        },
+                        "top_k": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Number of top items to retrieve. Represents entities in 'local' mode and relationships in 'global' mode."
+                        },
+                        "chunk_top_k": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Number of text chunks to retrieve from vector search."
+                        },
+                        "max_entity_tokens": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Maximum tokens for entity context."
+                        },
+                        "max_relation_tokens": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Maximum tokens for relationship context."
+                        },
+                        "max_total_tokens": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Maximum total tokens budget for query context."
+                        },
+                        "hl_keywords": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "High-level keywords to prioritize in retrieval."
+                        },
+                        "ll_keywords": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Low-level keywords to refine retrieval focus."
+                        },
+                        "conversation_history": {
+                            "type": "array",
+                            "description": "Past conversation history for context. Format: [{'role': 'user/assistant', 'content': 'message'}].",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "role": {"type": "string", "enum": ["user", "assistant"]},
+                                    "content": {"type": "string"}
+                                },
+                                "required": ["role", "content"]
+                            }
+                        },
+                        "user_prompt": {
+                            "type": "string",
+                            "description": "Custom user prompt to guide LLM response generation (does not affect retrieval)."
+                        },
+                        "enable_rerank": {
+                            "type": "boolean",
+                            "default": True,
+                            "description": "Enable reranking for retrieved text chunks."
+                        },
+                        "include_references": {
+                            "type": "boolean",
+                            "default": True,
+                            "description": "If true, includes reference list in responses."
+                        },
+                        "include_chunk_content": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": "If true, includes actual chunk text content in references."
                         }
-                    },
+                    }
                 }
             }
         },

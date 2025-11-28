@@ -1,4 +1,11 @@
-# gui/sse_manager.py  ────────────────────────────────────────────────
+"""
+SSE Manager for MCP Client (DEPRECATED - NOT IN USE)
+
+This module was used for SSE (Server-Sent Events) protocol communication with MCP servers.
+It has been replaced by streamablehttp_manager.py which uses the newer Streamable HTTP protocol.
+
+This file is kept for reference only and may be removed in future versions.
+"""
 import anyio
 import anyio.abc
 from contextlib import asynccontextmanager

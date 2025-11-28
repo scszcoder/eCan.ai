@@ -76,6 +76,36 @@ from typing import Optional, Dict, Callable, List
 from utils.logger_helper import logger_helper as logger
 
 
+# ============================================================================
+# NO_PROXY Configuration - Unified list for all proxy bypass checks
+# ============================================================================
+
+# Hosts that should always bypass proxy
+NO_PROXY_HOSTS = frozenset([
+    'localhost', '127.0.0.1', '::1',
+    '47.120.48.82', '52.204.81.197',  # Cloud API servers
+])
+
+# IP prefixes that should bypass proxy (LAN ranges)
+NO_PROXY_PREFIXES = (
+    '10.', '172.16.', '172.17.', '172.18.', '172.19.',
+    '172.20.', '172.21.', '172.22.', '172.23.', '172.24.',
+    '172.25.', '172.26.', '172.27.', '172.28.', '172.29.',
+    '172.30.', '172.31.', '192.168.',
+)
+
+# Domain suffixes that should bypass proxy
+NO_PROXY_SUFFIXES = ('.local', '.lan', '.home', '.internal')
+
+# NO_PROXY string for environment variable (CIDR notation for compatibility)
+NO_PROXY_ENV_VALUE = ','.join([
+    'localhost', '127.0.0.1', '::1',
+    '.local', '.lan', '.home', '.internal',
+    '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16',
+    '47.120.48.82', '52.204.81.197',
+])
+
+
 def get_macos_system_proxy() -> Optional[Dict[str, str]]:
     """
     Read macOS system proxy settings using scutil command.
@@ -400,23 +430,8 @@ class ProxyManager:
                     logger.debug(f"✅ Set HTTP_PROXY: {http_proxy}")
                 
                 # Always set NO_PROXY for local/LAN network
-                no_proxy_list = [
-                    'localhost',
-                    '127.0.0.1',
-                    '::1',
-                    '.local',
-                    '.lan',
-                    '.home',
-                    '.internal',
-                    '10.0.0.0/8',
-                    '172.16.0.0/12',
-                    '192.168.0.0/16',
-                    '47.120.48.82',  # Cloud API server
-                    '52.204.81.197',  # Cloud API server
-                ]
-                no_proxy = ','.join(no_proxy_list)
-                os.environ['NO_PROXY'] = no_proxy
-                os.environ['no_proxy'] = no_proxy
+                os.environ['NO_PROXY'] = NO_PROXY_ENV_VALUE
+                os.environ['no_proxy'] = NO_PROXY_ENV_VALUE
                 
                 self._env_proxies_set = True
                 self._current_proxies = proxies.copy()
@@ -801,24 +816,9 @@ def initialize_proxy_environment(
                     logger.info(f"🌐 Set HTTP_PROXY from system settings: {http_proxy}")
                 
                 # Set NO_PROXY to exclude local and LAN network
-                no_proxy_list = [
-                    'localhost',
-                    '127.0.0.1',
-                    '::1',
-                    '.local',
-                    '.lan',
-                    '.home',
-                    '.internal',
-                    '10.0.0.0/8',
-                    '172.16.0.0/12',
-                    '192.168.0.0/16',
-                    '47.120.48.82',  # Cloud API server
-                    '52.204.81.197',  # Cloud API server
-                ]
-                no_proxy = ','.join(no_proxy_list)
-                os.environ['NO_PROXY'] = no_proxy
-                os.environ['no_proxy'] = no_proxy
-                logger.info(f"🌐 Set NO_PROXY for local/LAN: {no_proxy}")
+                os.environ['NO_PROXY'] = NO_PROXY_ENV_VALUE
+                os.environ['no_proxy'] = NO_PROXY_ENV_VALUE
+                logger.info(f"🌐 Set NO_PROXY for local/LAN: {NO_PROXY_ENV_VALUE}")
                 
                 logger.info("✅ Proxy environment initialized - all external requests will use proxy")
                 logger.info("✅ Proxy settings will be inherited by all subprocess (including lightrag_server)")
@@ -988,3 +988,69 @@ def get_proxy_for_httpx() -> Optional[str]:
         return system_proxies.get('https://') or system_proxies.get('http://')
     
     return None
+
+
+# ============================================================================
+# HTTP Client Proxy Configuration
+# ============================================================================
+
+def should_bypass_proxy(url: str) -> bool:
+    """Check if URL should bypass proxy based on host."""
+    from urllib.parse import urlparse
+    
+    try:
+        host = urlparse(url).hostname if '://' in url else url.split(':')[0]
+        if not host:
+            return False
+        host = host.lower()
+        
+        # Use unified constants defined at module level
+        if host in NO_PROXY_HOSTS:
+            return True
+        if host.startswith(NO_PROXY_PREFIXES):
+            return True
+        if host.endswith(NO_PROXY_SUFFIXES):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def configure_requests_session(session, target_url: str = None):
+    """
+    Configure requests.Session proxy settings based on target URL.
+    
+    Args:
+        session: requests.Session instance
+        target_url: Target URL to check for proxy bypass
+        
+    Usage:
+        from agent.ec_skills.system_proxy import configure_requests_session
+        
+        session = requests.Session()
+        configure_requests_session(session, 'http://127.0.0.1:9621')
+    """
+    if target_url and should_bypass_proxy(target_url):
+        session.proxies = {"http": None, "https": None}
+        session.trust_env = False
+    else:
+        # Use environment proxy settings
+        session.trust_env = True
+
+
+def create_mcp_httpx_client(headers: dict | None = None, timeout: float | None = None, **kwargs):
+    """
+    Create httpx.AsyncClient for MCP (localhost), bypassing proxy.
+    
+    Args:
+        headers: Optional headers (passed by MCP streamable_http client)
+        timeout: Optional timeout (passed by MCP streamable_http client)
+        **kwargs: Additional arguments (ignored for compatibility)
+    """
+    import httpx
+    return httpx.AsyncClient(
+        proxy=None,
+        trust_env=False,
+        headers=headers,
+        timeout=timeout
+    )
