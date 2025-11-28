@@ -5,12 +5,10 @@ import shutil
 import subprocess
 import time
 import traceback
-from typing import TypeVar
 
 # Third-party library imports
 import pyautogui
 import pygetwindow as gw
-from dotenv import load_dotenv
 from pynput.mouse import Controller
 from starlette.types import Receive, Scope, Send
 
@@ -23,22 +21,14 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import CallToolResult, TextContent, Tool
 
 # Local application imports
-from agent.ec_skill import *
-from agent.ec_skills.dom.dom_utils import *
 from agent.mcp.server.ads_power.ads_power import connect_to_adspower
 from agent.mcp.server.tool_schemas import get_tool_schemas
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import (
     api_ecan_ai_get_nodes_prompts,
     api_ecan_ai_ocr_read_screen,
-    ecan_ai_api_get_agent_status,
     ecan_ai_api_query_components,
     ecan_ai_api_query_fom,
     ecan_ai_api_rerank_results,
-)
-from agent.mcp.server.scrapers.amazon_seller.amazon_orders_scrape import fullfill_amazon_fbs_orders
-from agent.mcp.server.scrapers.amazon_seller.amazon_messages_scrape import (
-    answer_amazon_messages,
-    fetch_amazon_messages,
 )
 from agent.mcp.server.scrapers.amazon_seller.amazon_search import amazon_search
 from agent.mcp.server.scrapers.amazon_seller.amazon_listing import (
@@ -66,18 +56,13 @@ from agent.mcp.server.scrapers.amazon_seller.amazon_utils import (
 )
 from agent.mcp.server.scrapers.api_ecan_ai_cloud_search.api_ecan_ai_cloud_search import api_ecan_ai_cloud_search
 from agent.mcp.server.scrapers.ebay_seller.ebay_messages_scrape import ebay_read_all_messages, ebay_respond_to_message, ebay_read_next_message
-from agent.mcp.server.scrapers.ebay_seller.ebay_orders_scrape import ebay_fullfill_next_order, get_ebay_summary,ebay_cancel_orders
+from agent.mcp.server.scrapers.ebay_seller.ebay_orders_scrape import ebay_fullfill_next_order, get_ebay_summary, ebay_cancel_orders
 from agent.mcp.server.scrapers.ebay_seller.ebay_search import ebay_search
-from agent.mcp.server.scrapers.ebay_seller.ebay_listing import ebay_add_listings, ebay_remove_listings, ebay_update_listings, ebay_get_listings, ebay_add_listing_templates, ebay_remove_listing_templates, ebay_update_listing_templates
-from agent.mcp.server.scrapers.ebay_seller.ebay_labels import ebay_gen_labels, ebay_cancel_labels
+from agent.mcp.server.scrapers.ebay_seller.ebay_labels import ebay_gen_labels
 from agent.mcp.server.scrapers.ebay_seller.ebay_cancel_return import ebay_handle_return, ebay_handle_refund
-from agent.mcp.server.scrapers.ebay_seller.ebay_campaign import ebay_collect_campaigns_stats, ebay_adjust_campaigns
-from agent.mcp.server.scrapers.ebay_seller.ebay_performance import ebay_collect_shop_products_stats
 from agent.mcp.server.scrapers.ebay_seller.ebay_utils import ebay_generate_work_summary
 
 
-from agent.mcp.server.scrapers.etsy_seller.etsy_messages_scrape import answer_etsy_messages, fetch_etsy_messages
-from agent.mcp.server.scrapers.etsy_seller.etsy_orders_scrape import fullfill_etsy_orders
 from agent.mcp.server.scrapers.etsy_seller.etsy_search import etsy_search
 from agent.mcp.server.scrapers.etsy_seller.etsy_listing import (
     etsy_add_listings,
@@ -102,7 +87,6 @@ from agent.mcp.server.scrapers.etsy_seller.etsy_performance import (
 from agent.mcp.server.scrapers.etsy_seller.etsy_utils import (
     etsy_generate_work_summary,
 )
-from agent.mcp.server.scrapers.eval_util import calculate_score, get_default_fom_form
 from agent.mcp.server.scrapers.pirate_shipping.purchase_label import pirate_shipping_purchase_labels
 from agent.mcp.server.scrapers.selenium_search_component import (
     selenium_search_component,
@@ -112,9 +96,7 @@ from agent.ec_skills.rag.local_rag_mcp import ragify, rag_query
 from agent.mcp.server.utils.print_utils import reformat_and_print_labels
 from agent.ec_skills.browser_use_for_ai.browser_use_tools import *
 from app_context import AppContext
-from agent.mcp.server.ads_power.ads_power import queryAdspowerProfile, startADSWebDriver
-from agent.ec_skills.ocr.image_prep import carveOutImage, maskOutImage, saveImageToFile, takeScreenShot, readRandomWindow8
-from agent.ec_skills.ocr.post_ocr import  mousePressAndHoldOnScreenWord
+from agent.ec_skills.ocr.image_prep import readRandomWindow8
 from utils.logger_helper import get_traceback
 from utils.logger_helper import logger_helper as logger
 from .event_store import InMemoryEventStore
@@ -122,11 +104,7 @@ from .event_store import InMemoryEventStore
 
 server_main_win = None
 
-Context = TypeVar('Context')
-
 mouse = Controller()
-
-load_dotenv()  # load environment variables from .env
 
 # meca_mcp_server = FastMCP("E-Commerce Agents Service")
 meca_mcp_server = Server("E-Commerce Agents Service")
