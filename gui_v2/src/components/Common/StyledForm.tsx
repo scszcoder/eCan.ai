@@ -23,12 +23,41 @@ export const StyledFormItem = styled(Form.Item)`
     }
   }
   
-  /* AllInput框的统一样式（Exclude TextArea） */
-  .ant-input:not(textarea),
+  /* Input with suffix/prefix (affix wrapper) */
+  .ant-input-affix-wrapper {
+    min-height: 38px !important;
+    border: 1.5px solid rgba(255, 255, 255, 0.15) !important;
+    border-radius: 6px !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+    transition: all 0.3s ease !important;
+    
+    &:hover {
+      border-color: rgba(64, 169, 255, 0.5) !important;
+      background: rgba(255, 255, 255, 0.08) !important;
+    }
+    
+    &:focus,
+    &:focus-within,
+    &.ant-input-affix-wrapper-focused {
+      border-color: #40a9ff !important;
+      background: rgba(255, 255, 255, 0.1) !important;
+      box-shadow: 0 0 0 2px rgba(64, 169, 255, 0.1) !important;
+    }
+    
+    /* Inner input should have no border */
+    .ant-input {
+      border: none !important;
+      background: transparent !important;
+      box-shadow: none !important;
+      min-height: auto !important;
+    }
+  }
+  
+  /* Standalone Input (no suffix/prefix) */
+  .ant-input:not(.ant-input-affix-wrapper .ant-input):not(textarea),
   .ant-input-number,
   .ant-input-number-input,
-  .ant-picker,
-  .ant-select-selector {
+  .ant-picker {
     min-height: 38px !important;
     border: 1.5px solid rgba(255, 255, 255, 0.15) !important;
     border-radius: 6px !important;
@@ -45,6 +74,34 @@ export const StyledFormItem = styled(Form.Item)`
       border-color: #40a9ff !important;
       background: rgba(255, 255, 255, 0.1) !important;
       box-shadow: 0 0 0 2px rgba(64, 169, 255, 0.1) !important;
+    }
+  }
+  
+  /* Password input wrapper */
+  .ant-input-password {
+    min-height: 38px !important;
+    border: 1.5px solid rgba(255, 255, 255, 0.15) !important;
+    border-radius: 6px !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+    transition: all 0.3s ease !important;
+    
+    &:hover {
+      border-color: rgba(64, 169, 255, 0.5) !important;
+      background: rgba(255, 255, 255, 0.08) !important;
+    }
+    
+    &:focus-within,
+    &.ant-input-affix-wrapper-focused {
+      border-color: #40a9ff !important;
+      background: rgba(255, 255, 255, 0.1) !important;
+      box-shadow: 0 0 0 2px rgba(64, 169, 255, 0.1) !important;
+    }
+    
+    .ant-input {
+      border: none !important;
+      background: transparent !important;
+      box-shadow: none !important;
+      min-height: auto !important;
     }
   }
   
@@ -93,8 +150,8 @@ export const StyledFormItem = styled(Form.Item)`
       box-shadow: none !important;
     }
   }
-  
-  /* Select 下拉箭头 */
+
+  /* Select / Picker 箭头颜色（保持 AntD 默认布局） */
   .ant-select-arrow,
   .ant-picker-suffix {
     color: rgba(255, 255, 255, 0.45) !important;
@@ -105,7 +162,7 @@ export const StyledFormItem = styled(Form.Item)`
   textarea::placeholder {
     color: rgba(255, 255, 255, 0.35) !important;
   }
-  
+
   /* Checkbox 和 Radio 样式 */
   .ant-checkbox-wrapper,
   .ant-radio-wrapper {
