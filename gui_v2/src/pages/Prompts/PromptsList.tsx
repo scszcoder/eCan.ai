@@ -82,40 +82,43 @@ const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect
               >
                 <List.Item.Meta
                   title={
-                    <Space size={6} style={{ color: '#fff' }}>
-                      <span>
-                        {(() => {
-                          const rawTitle = (item.title || '').trim();
-                          if (rawTitle) return rawTitle;
-                          const slug = (item.topic || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
-                          const titleKey = `pages.prompts.examples.${slug}.title`;
-                          const titleText = t(titleKey, { defaultValue: '' });
-                          if (titleText && titleText !== titleKey) return titleText;
-                          return t(`pages.prompts.examples.${slug}`, { defaultValue: item.topic });
-                        })()}
-                      </span>
-                      {item.source === 'sample_prompts' && (
-                        <Tag color="blue" style={{ marginLeft: 4 }}>{t('pages.prompts.sampleLabel', { defaultValue: 'Sample' })}</Tag>
-                      )}
-                      {item.readOnly && item.source !== 'sample_prompts' && (
-                        <Tag color="gold" style={{ marginLeft: 4 }}>{t('pages.prompts.readOnlyLabel', { defaultValue: 'Read-only' })}</Tag>
-                      )}
-                    </Space>
+                    <div style={{ color: '#fff', marginBottom: 4 }}>
+                      {(() => {
+                        const rawTitle = (item.title || '').trim();
+                        if (rawTitle) return rawTitle;
+                        const slug = (item.topic || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+                        const titleKey = `pages.prompts.examples.${slug}.title`;
+                        const titleText = t(titleKey, { defaultValue: '' });
+                        if (titleText && titleText !== titleKey) return titleText;
+                        return t(`pages.prompts.examples.${slug}`, { defaultValue: item.topic });
+                      })()}
+                    </div>
                   }
                   description={
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%' }}>
-                      <Space size={6} align="center">
-                        <Badge count={item.usageCount} style={{ backgroundColor: '#3b82f6' }} />
-                        <Typography.Text style={{ color: 'rgba(255,255,255,0.65)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 12, whiteSpace: 'nowrap' }}>
+                      <Space size={4} align="center" style={{ whiteSpace: 'nowrap' }}>
+                        <Badge count={item.usageCount} style={{ backgroundColor: '#3b82f6' }} showZero />
+                        <Typography.Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, whiteSpace: 'nowrap' }}>
                           {t('pages.prompts.uses', { defaultValue: 'uses' })}
                         </Typography.Text>
                       </Space>
-                      <Typography.Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginLeft: 'auto' }}>
+                      <Typography.Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, whiteSpace: 'nowrap', minWidth: 50 }}>
+                        {item.source === 'sample_prompts' 
+                          ? t('pages.prompts.sampleLabel', { defaultValue: 'sample' })
+                          : t('pages.prompts.myLabel', { defaultValue: 'my' })}
+                      </Typography.Text>
+                      <Typography.Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginLeft: 'auto', whiteSpace: 'nowrap', paddingRight: 8 }}>
                         {(() => {
                           if (!item.lastModified) return '';
                           const date = new Date(item.lastModified);
                           if (Number.isNaN(date.getTime())) return item.lastModified;
-                          return date.toLocaleString();
+                          return date.toLocaleString(undefined, { 
+                            year: '2-digit', 
+                            month: '2-digit', 
+                            day: '2-digit', 
+                            hour: '2-digit', 
+                            minute: '2-digit' 
+                          });
                         })()}
                       </Typography.Text>
                     </div>

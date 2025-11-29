@@ -5,8 +5,8 @@ export type PromptSectionType =
   | 'goals'
   | 'guidelines'
   | 'rules'
-  | 'examples'
   | 'instructions'
+  | 'examples'
   | 'variables';
 
 export interface PromptSection {
