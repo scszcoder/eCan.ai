@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import { App, Button, Card, Col, DatePicker, Form, Input, Radio, Row, Select, Tag, Tooltip, TreeSelect, Modal } from 'antd';
+import { App, Button, Card, Col, DatePicker, Form, Input, Radio, Row, Select, Spin, Tag, Tooltip, TreeSelect, Modal } from 'antd';
 import { EditOutlined, SaveOutlined, InfoCircleOutlined, DeleteOutlined, CloseOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
@@ -65,6 +65,292 @@ const knownTitles = [
 const knownTasks = ['task_001', 'task_002', 'task_003'];
 const knownSkills = ['skill_001', 'skill_002', 'skill_003'];
 
+// 多选TagEdit器 - 使用 Select mode="tags" Implementation友好交互
+// Support预Definition选项（国际化）和UserCustomInput
+const TagsEditor: React.FC<{
+  value?: string[];
+  onChange?: (value: string[]) => void;
+  options: string[];
+  disabled?: boolean;
+  placeholder?: string;
+  'aria-label'?: string;
+  id?: string;
+  dataMap?: Map<string, any>;  // Used forDisplayDetailedInformation的DataMap
+  dataType?: 'task' | 'skill';  // DataType，Used forDisplay不同的DetailedInformation
+}> = ({ value, onChange, options, disabled, placeholder, 'aria-label': ariaLabel, id, dataMap, dataType }) => {
+  const { t } = useTranslation();
+  // DetailedInformationModalStatus
+  const [detailModalVisible, setDetailModalVisible] = useState(false);
+  const [selectedDetailItem, setSelectedDetailItem] = useState<any>(null);
+  // GetDisplay文本
+  // If是预Definition选项（如 personality.friendly），Display国际化翻译
+  // If是UserCustomInput，直接Display原文
+  const getDisplayText = useCallback((val: string) => {
+    if (!val) return '';
+
+    // Check是否是预Definition的国际化 key（Include . 的格式）
+    if (val.includes('.')) {
+      const translated = t(val);
+
+      // If翻译Success（翻译Result不等于原 key），返回翻译
+      if (translated && translated !== val) {
+        return translated;
+      }
+      // If翻译Failed，返回 key 的最后一部分作为后备（如 friendly）
+      const parts = val.split('.');
+      return parts[parts.length - 1];
+    }
+
+    // 否则直接返回原Value（UserCustomInput）
+    return val;
+  }, [t]);
+
+  // 使用 useMemo Cache选项，避免重复计算
+  const selectOptions = useMemo(() => {
+    return options.map((opt, index) => {
+      const displayText = getDisplayText(opt);
+      return {
+        label: displayText,  // 下拉List中Display的文本（翻译后）
+        value: opt,          // 实际Storage的Value（国际化 key）
+        key: `option-${index}-${opt}`,  // 使用索引+Value确保唯一性（索引在前更Reliable）
+        title: ''            // 清空title，避免原生tooltip
+      };
+    });
+  }, [options, getDisplayText]);
+
+  // ProcessSelect变化 - WhenUserSelect预Definition选项时，Storage国际化 key；CustomInput时，Storage原文
+  const handleChange = useCallback((newValue: string[]) => {
+    if (!onChange) return;
+
+    // Process每个Value：Check是否是翻译文本，If是则Convert回国际化 key
+    const processedValues = newValue.map(val => {
+      // Check是否已经是国际化 key
+      if (val.includes('.')) {
+        return val;
+      }
+
+      // Check是否是翻译文本，NeedConvert回国际化 key
+      const matchedOption = selectOptions.find(opt => opt.label === val);
+      if (matchedOption) {
+        return matchedOption.value;
+      }
+
+      // 否则是UserCustomInput，直接返回
+      return val;
+    });
+
+    onChange(processedValues);
+  }, [onChange, selectOptions]);
+
+  return (
+    <>
+    <Select
+      id={id}
+      mode="tags"
+      style={{ width: '100%' }}
+      placeholder={placeholder}
+      value={Array.isArray(value) ? value : []}
+      onChange={handleChange}
+      disabled={disabled}
+      maxTagCount="responsive"
+      showSearch
+      allowClear
+      tokenSeparators={[',']}
+      aria-label={ariaLabel}
+      // SearchFilter - Support模糊Searchlabel和value
+      filterOption={(input, option) => {
+        if (!input) return true;
+        const searchText = input.toLowerCase();
+        const label = (option?.label || '').toString().toLowerCase();
+        const value = (option?.value || '').toString().toLowerCase();
+        return label.includes(searchText) || value.includes(searchText);
+      }}
+      // 下拉框Positioning - 避免遮挡Input框
+      popupMatchSelectWidth={false}
+      listHeight={400}
+      placement="bottomLeft"
+      // TagRender - AddtooltipDisplayDescription
+      tagRender={(props) => {
+        const { value: tagValue, closable, onClose } = props;
+        const displayText = getDisplayText(tagValue as string);
+        const isCustom = tagValue && typeof tagValue === 'string' && !tagValue.includes('.');
+        const itemData = dataMap?.get(tagValue as string);
+        const description = itemData?.description || '';
+
+        const tagContent = (
+          <Tag
+            key={`tag-${tagValue}`}  // ✅ Add key
+            color={isCustom ? 'green' : 'blue'}
+            closable={closable && !disabled}
+            onClose={onClose}
+            style={{ marginRight: 3, cursor: itemData ? 'pointer' : 'default' }}
+            onClick={(e) => {
+              if (itemData) {
+                e.stopPropagation();
+                setSelectedDetailItem(itemData);
+                setDetailModalVisible(true);
+              }
+            }}
+          >
+            {displayText}
+          </Tag>
+        );
+
+        // If有DescriptionInformation，Addtooltip
+        if (description && dataMap) {
+          return (
+            <Tooltip 
+              title={
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ flex: 1 }}>{description}</div>
+                  <InfoCircleOutlined 
+                    style={{ fontSize: 14, cursor: 'pointer', color: '#40a9ff' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedDetailItem(itemData);
+                      setDetailModalVisible(true);
+                    }}
+                  />
+                </div>
+              }
+              mouseEnterDelay={0.3}
+            >
+              {tagContent}
+            </Tooltip>
+          );
+        }
+
+        return tagContent;
+      }}
+      // 下拉选项Configuration - 使用Cache的选项
+      options={selectOptions}
+      // Custom下拉选项Render - AddtooltipDisplayDescription
+      optionRender={(option) => {
+        const itemData = dataMap?.get(option.value as string);
+        const description = itemData?.description || '';
+        
+        if (description && dataMap) {
+          return (
+            <Tooltip
+              title={
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ flex: 1 }}>{description}</div>
+                  <InfoCircleOutlined 
+                    style={{ fontSize: 14, cursor: 'pointer', color: '#40a9ff' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedDetailItem(itemData);
+                      setDetailModalVisible(true);
+                    }}
+                  />
+                </div>
+              }
+              placement="right"
+              mouseEnterDelay={0.3}
+            >
+              <div style={{ padding: '4px 0', width: '100%' }}>{option.label}</div>
+            </Tooltip>
+          );
+        }
+        
+        return <div style={{ padding: '4px 0' }}>{option.label}</div>;
+      }}
+      // DisabledSelect自带的titleProperty，避免tooltip冲突
+      optionFilterProp="label"
+      // 不使用 getPopupContainer，让下拉框自然Positioning，避免遮挡
+      // 不Display下拉箭头，更像Input框
+      suffixIcon={null}
+      // 自动Get焦点时不自动Open下拉框
+      open={undefined}
+    />
+    
+    {/* DetailedInformationModal */}
+    {dataMap && selectedDetailItem && (
+      <Modal
+        title={dataType === 'task' ? t('pages.tasks.details', 'Task Details') : t('pages.skills.details', 'Skill Details')}
+        open={detailModalVisible}
+        onCancel={() => setDetailModalVisible(false)}
+        footer={[
+          <Button key="close" onClick={() => setDetailModalVisible(false)}>
+            {t('common.close', 'Close')}
+          </Button>
+        ]}
+        width={600}
+        centered
+      >
+        <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+          {/* Name */}
+          <div style={{ marginBottom: 16 }}>
+            <strong>{t('common.name', 'Name')}:</strong>{' '}
+            <span style={{ color: selectedDetailItem.name || selectedDetailItem.skill ? 'inherit' : '#999' }}>
+              {selectedDetailItem.name || selectedDetailItem.skill || '-'}
+            </span>
+          </div>
+          
+          {/* Description */}
+          <div style={{ marginBottom: 16 }}>
+            <strong>{t('common.description', 'Description')}:</strong>
+            <div style={{ marginTop: 8, padding: 12, background: 'rgba(0,0,0,0.02)', borderRadius: 4, color: selectedDetailItem.description ? 'inherit' : '#999' }}>
+              {selectedDetailItem.description || '-'}
+            </div>
+          </div>
+          
+          {/* Task特有Field */}
+          {dataType === 'task' && (
+            <>
+              <div style={{ marginBottom: 16 }}>
+                <strong>{t('pages.tasks.priorityLabel', 'Priority')}:</strong>{' '}
+                <span style={{ color: selectedDetailItem.priority ? 'inherit' : '#999' }}>
+                  {selectedDetailItem.priority || '-'}
+                </span>
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <strong>{t('pages.tasks.triggerLabel', 'Trigger')}:</strong>{' '}
+                <span style={{ color: selectedDetailItem.trigger ? 'inherit' : '#999' }}>
+                  {selectedDetailItem.trigger || '-'}
+                </span>
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <strong>{t('pages.tasks.statusLabel', 'Status')}:</strong>{' '}
+                <span style={{ color: selectedDetailItem.status ? 'inherit' : '#999' }}>
+                  {selectedDetailItem.status || '-'}
+                </span>
+              </div>
+            </>
+          )}
+          
+          {/* Skill特有Field */}
+          {dataType === 'skill' && (
+            <>
+              <div style={{ marginBottom: 16 }}>
+                <strong>{t('pages.skills.level', 'Level')}:</strong>{' '}
+                <span style={{ color: selectedDetailItem.level !== undefined && selectedDetailItem.level !== null ? 'inherit' : '#999' }}>
+                  {selectedDetailItem.level !== undefined && selectedDetailItem.level !== null ? selectedDetailItem.level : '-'}
+                </span>
+              </div>
+              <div style={{ marginBottom: 16 }}>
+                <strong>{t('pages.skills.statusLabel', 'Status')}:</strong>{' '}
+                <span style={{ color: selectedDetailItem.status ? 'inherit' : '#999' }}>
+                  {selectedDetailItem.status || '-'}
+                </span>
+              </div>
+            </>
+          )}
+          
+          {/* Metadata */}
+          <div style={{ marginBottom: 16 }}>
+            <strong>{t('common.metadata', 'Metadata')}:</strong>
+            <pre style={{ marginTop: 8, padding: 12, background: 'rgba(0,0,0,0.02)', borderRadius: 4, fontSize: 12, overflowX: 'auto', color: selectedDetailItem.metadata ? 'inherit' : '#999' }}>
+              {selectedDetailItem.metadata ? JSON.stringify(selectedDetailItem.metadata, null, 2) : '-'}
+            </pre>
+          </div>
+        </div>
+      </Modal>
+    )}
+  </>
+  );
+};
+
 const AgentDetails: React.FC = () => {
   const { message } = App.useApp();
   const showDeleteConfirm = useDeleteConfirm();
@@ -72,6 +358,16 @@ const AgentDetails: React.FC = () => {
   const location = useLocation();
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
+  const messageRef = useRef(message);
+  const translationRef = useRef(t);
+
+  useEffect(() => {
+    messageRef.current = message;
+  }, [message]);
+
+  useEffect(() => {
+    translationRef.current = t;
+  }, [t]);
   
   // ScrollPositionSave
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -229,29 +525,6 @@ const AgentDetails: React.FC = () => {
     }
   }, [username, fetchVehicles]);
 
-  // Get组织Name的HelperFunction
-  const getOrgName = useCallback((orgId: string) => {
-    const findOrgName = (node: any, targetId: string): string | null => {
-      if (node.id === targetId) {
-        return node.name;
-      }
-      if (node.children && Array.isArray(node.children)) {
-        for (const child of node.children) {
-          const found = findOrgName(child, targetId);
-          if (found) return found;
-        }
-      }
-      return null;
-    };
-
-    if (treeOrgs && treeOrgs.length > 0) {
-      const orgName = findOrgName(treeOrgs[0], orgId);
-      if (orgName) return orgName;
-    }
-    
-    // 回退到翻译键
-    return t(orgId) || orgId;
-  }, [treeOrgs, t]);
 
   // Proactively fetch tasks/skills if empty so dropdowns populate without visiting their pages first
   useEffect(() => {
@@ -285,8 +558,10 @@ const AgentDetails: React.FC = () => {
   const [form] = Form.useForm<AgentDetailsForm>();
   const [editMode, setEditMode] = useState(isNew);
   const [loading, setLoading] = useState(false);
+  // 使用 ref 追踪初始化状态，避免 KeepAlive 恢复时重置
+  const initializedRef = useRef(false);
+  const [, forceUpdate] = useState({});
   // Initialize selectedOrgId 为 defaultOrgId（If存在）
-  const [selectedOrgId, setSelectedOrgId] = useState<string | undefined>(defaultOrgId || undefined);
   // Avatar Status
   const [avatarData, setAvatarData] = useState<AvatarData | undefined>();
 
@@ -312,7 +587,6 @@ const AgentDetails: React.FC = () => {
           const currentOrg = form.getFieldValue('org_id');
           if (!currentOrg || currentOrg !== defaultOrgId) {
             form.setFieldsValue({ org_id: defaultOrgId });
-            setSelectedOrgId(defaultOrgId);
           }
         }
         return;
@@ -331,7 +605,6 @@ const AgentDetails: React.FC = () => {
             // 使用 setTimeout 确保在组织树DataUpdate后再SettingsFormValue
             setTimeout(() => {
               form.setFieldsValue({ org_id: defaultOrgId });
-              setSelectedOrgId(defaultOrgId);
             }, 100);
           }
         } else {
@@ -421,10 +694,6 @@ const AgentDetails: React.FC = () => {
             description: agent.description || '',
             extra_data: extraDataText
           });
-          // Settings选中的组织ID以Display完整Path
-          if (orgId) {
-            setSelectedOrgId(orgId);
-          }
           
           // Settings Avatar Data - 保留完整的Data结构
           if (agent.avatar?.imageUrl) {
@@ -440,80 +709,64 @@ const AgentDetails: React.FC = () => {
           
           // 从 AgentCard Edit进入时，自动进入Edit模式
           setEditMode(true);
+          initializedRef.current = true;
+          forceUpdate({});
         } else {
           // If没有找到 agent Data，DisplayError
-          message.error(t('pages.agents.fetch_failed') || 'Agent not found');
+          messageRef.current.error(translationRef.current('pages.agents.fetch_failed') || 'Agent not found');
+          initializedRef.current = true;
+          forceUpdate({});
         }
       } catch (e) {
         console.error('Failed to fetch agent data:', e);
-        message.error(t('pages.agents.fetch_failed') || 'Failed to fetch agent data');
-      } finally {
-        setLoading(false);
+        messageRef.current.error(translationRef.current('pages.agents.fetch_failed') || 'Failed to fetch agent data');
+        initializedRef.current = true;
+        forceUpdate({});
       }
     };
 
     fetchAgentData();
-  }, [id, isNew, username, form, message, t, defaultOrgId]);
+    // 使用 ref 避免 message 和 t 作为依赖触发重复执行
+  }, [id, isNew, username, form, defaultOrgId, localVehicleId]);
 
   // 不再使用 initialValues，改为在 useEffect 中逐个SettingsField，避免LoopReferenceWarning
 
   // 使用 useEffect 来Settings初始FormValue（仅新建模式）
+  // 合并了原来的两个 effect，减少状态更新次数
+  const initRef = useRef(false); // 防止重复初始化
   useEffect(() => {
-    if (isNew) {
-      // 只有在组织树DataLoadCompleted后才SettingsFormValue
-      if (organizationTreeData.length > 0) {
-        // 使用 setTimeout DelaySettings，确保在下一个EventLoop中Execute
-        const timeoutId = setTimeout(() => {
-          try {
-            // Create completely independent initial values object to avoid any possible references
-            const initialValues: Partial<AgentDetailsForm> = {
-              id: '',
-              name: '',
-              gender: 'gender_options.male' as Gender,
-              birthday: dayjs(),
-              owner: username || t('common.owner') || 'owner',
-              personalities: [], // Use personalities (unified naming)
-              title: [], // New array
-              org_id: defaultOrgId || '',
-              supervisor_id: '',
-              tasks: [], // New array
-              skills: [], // New array
-              vehicle_id: localVehicleId || '',
-              description: '',
-              extra_data: ''
-            };
+    // 防止重复初始化
+    if (initRef.current) return;
+    
+    if (isNew && organizationTreeData.length > 0) {
+      initRef.current = true;
+      
+      // Create completely independent initial values object to avoid any possible references
+      const initialValues: Partial<AgentDetailsForm> = {
+        id: '',
+        name: '',
+        gender: 'gender_options.male' as Gender,
+        birthday: dayjs(),
+        owner: username || 'owner',
+        personalities: [],
+        title: [],
+        org_id: defaultOrgId || '',
+        supervisor_id: '',
+        tasks: [],
+        skills: [],
+        vehicle_id: localVehicleId || '',
+        description: '',
+        extra_data: ''
+      };
 
-            // Use setFieldsValue to set all values at once
-            form.setFieldsValue(initialValues);
-            setEditMode(true);
-
-            // Set selected organization
-            if (defaultOrgId) {
-              setSelectedOrgId(defaultOrgId);
-            }
-          } catch (error) {
-            console.error('[AgentDetails] Error setting initial values:', error);
-          }
-        }, 0);
-
-        // Cleanup function
-        return () => clearTimeout(timeoutId);
-      }
+      // Use setFieldsValue to set all values at once
+      form.setFieldsValue(initialValues);
+      setEditMode(true);
+      initializedRef.current = true;
+      forceUpdate({});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isNew, defaultOrgId, organizationTreeData.length, username, localVehicleId]);
-
-  // Monitor defaultOrgId changes to ensure selectedOrgId is synchronized
-  useEffect(() => {
-    // Only set default if current selection is empty to avoid overwriting user selection
-    const currentOrg = form.getFieldValue('org_id');
-    if (isNew && defaultOrgId && !currentOrg && organizationTreeData.length > 0) {
-      setSelectedOrgId(defaultOrgId);
-      // Also update form field
-      form.setFieldValue('org_id', defaultOrgId);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [defaultOrgId, isNew, organizationTreeData.length]);
+  }, [isNew, organizationTreeData.length]);
 
   // Get supervisor candidates (agents from current and parent organizations)
   useEffect(() => {
@@ -618,295 +871,6 @@ const AgentDetails: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form, defaultOrgId, treeOrgs.length]);
 
-  // 多选TagEdit器 - 使用 Select mode="tags" Implementation友好交互
-  // Support预Definition选项（国际化）和UserCustomInput
-  const TagsEditor: React.FC<{
-    value?: string[];
-    onChange?: (value: string[]) => void;
-    options: string[];
-    disabled?: boolean;
-    placeholder?: string;
-    isOrgField?: boolean;
-    'aria-label'?: string;
-    id?: string;
-    dataMap?: Map<string, any>;  // Used forDisplayDetailedInformation的DataMap
-    dataType?: 'task' | 'skill';  // DataType，Used forDisplay不同的DetailedInformation
-  }> = ({ value, onChange, options, disabled, placeholder, isOrgField, 'aria-label': ariaLabel, id, dataMap, dataType }) => {
-    // DetailedInformationModalStatus
-    const [detailModalVisible, setDetailModalVisible] = React.useState(false);
-    const [selectedDetailItem, setSelectedDetailItem] = React.useState<any>(null);
-    // GetDisplay文本
-    // If是预Definition选项（如 personality.friendly），Display国际化翻译
-    // If是UserCustomInput，直接Display原文
-    const getDisplayText = useCallback((val: string) => {
-      if (!val) return '';
-
-      if (isOrgField) {
-        return getOrgName(val);
-      }
-
-      // Check是否是预Definition的国际化 key（Include . 的格式）
-      if (val.includes('.')) {
-        const translated = t(val);
-
-        // If翻译Success（翻译Result不等于原 key），返回翻译
-        if (translated && translated !== val) {
-          return translated;
-        }
-        // If翻译Failed，返回 key 的最后一部分作为后备（如 friendly）
-        const parts = val.split('.');
-        return parts[parts.length - 1];
-      }
-
-      // 否则直接返回原Value（UserCustomInput）
-      return val;
-    }, [isOrgField, getOrgName, t]);
-
-    // 使用 useMemo Cache选项，避免重复计算
-    const selectOptions = useMemo(() => {
-      return options.map((opt, index) => {
-        const displayText = getDisplayText(opt);
-        return {
-          label: displayText,  // 下拉List中Display的文本（翻译后）
-          value: opt,          // 实际Storage的Value（国际化 key）
-          key: `option-${index}-${opt}`,  // 使用索引+Value确保唯一性（索引在前更Reliable）
-          title: ''            // 清空title，避免原生tooltip
-        };
-      });
-    }, [options, getDisplayText]);
-
-    // ProcessSelect变化 - WhenUserSelect预Definition选项时，Storage国际化 key；CustomInput时，Storage原文
-    const handleChange = useCallback((newValue: string[]) => {
-      if (!onChange) return;
-
-      // Process每个Value：Check是否是翻译文本，If是则Convert回国际化 key
-      const processedValues = newValue.map(val => {
-        // Check是否已经是国际化 key
-        if (val.includes('.')) {
-          return val;
-        }
-
-        // Check是否是翻译文本，NeedConvert回国际化 key
-        const matchedOption = selectOptions.find(opt => opt.label === val);
-        if (matchedOption) {
-          return matchedOption.value;
-        }
-
-        // 否则是UserCustomInput，直接返回
-        return val;
-      });
-
-      onChange(processedValues);
-    }, [onChange, selectOptions]);
-
-    return (
-      <>
-      <Select
-        id={id}
-        mode="tags"
-        style={{ width: '100%' }}
-        placeholder={placeholder}
-        value={Array.isArray(value) ? value : []}
-        onChange={handleChange}
-        disabled={disabled}
-        maxTagCount="responsive"
-        showSearch
-        allowClear
-        tokenSeparators={[',']}
-        aria-label={ariaLabel}
-        // SearchFilter - Support模糊Searchlabel和value
-        filterOption={(input, option) => {
-          if (!input) return true;
-          const searchText = input.toLowerCase();
-          const label = (option?.label || '').toString().toLowerCase();
-          const value = (option?.value || '').toString().toLowerCase();
-          return label.includes(searchText) || value.includes(searchText);
-        }}
-        // 下拉框Positioning - 避免遮挡Input框
-        popupMatchSelectWidth={false}
-        listHeight={400}
-        placement="bottomLeft"
-        // TagRender - AddtooltipDisplayDescription
-        tagRender={(props) => {
-          const { value: tagValue, closable, onClose } = props;
-          const displayText = getDisplayText(tagValue as string);
-          const isCustom = tagValue && typeof tagValue === 'string' && !tagValue.includes('.');
-          const itemData = dataMap?.get(tagValue as string);
-          const description = itemData?.description || '';
-
-          const tagContent = (
-            <Tag
-              key={`tag-${tagValue}`}  // ✅ Add key
-              color={isCustom ? 'green' : 'blue'}
-              closable={closable && !disabled}
-              onClose={onClose}
-              style={{ marginRight: 3, cursor: itemData ? 'pointer' : 'default' }}
-              onClick={(e) => {
-                if (itemData) {
-                  e.stopPropagation();
-                  setSelectedDetailItem(itemData);
-                  setDetailModalVisible(true);
-                }
-              }}
-            >
-              {displayText}
-            </Tag>
-          );
-
-          // If有DescriptionInformation，Addtooltip
-          if (description && dataMap) {
-            return (
-              <Tooltip 
-                title={
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div style={{ flex: 1 }}>{description}</div>
-                    <InfoCircleOutlined 
-                      style={{ fontSize: 14, cursor: 'pointer', color: '#40a9ff' }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedDetailItem(itemData);
-                        setDetailModalVisible(true);
-                      }}
-                    />
-                  </div>
-                }
-                mouseEnterDelay={0.3}
-              >
-                {tagContent}
-              </Tooltip>
-            );
-          }
-
-          return tagContent;
-        }}
-        // 下拉选项Configuration - 使用Cache的选项
-        options={selectOptions}
-        // Custom下拉选项Render - AddtooltipDisplayDescription
-        optionRender={(option) => {
-          const itemData = dataMap?.get(option.value as string);
-          const description = itemData?.description || '';
-          
-          if (description && dataMap) {
-            return (
-              <Tooltip
-                title={
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <div style={{ flex: 1 }}>{description}</div>
-                    <InfoCircleOutlined 
-                      style={{ fontSize: 14, cursor: 'pointer', color: '#40a9ff' }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedDetailItem(itemData);
-                        setDetailModalVisible(true);
-                      }}
-                    />
-                  </div>
-                }
-                placement="right"
-                mouseEnterDelay={0.3}
-              >
-                <div style={{ padding: '4px 0', width: '100%' }}>{option.label}</div>
-              </Tooltip>
-            );
-          }
-          
-          return <div style={{ padding: '4px 0' }}>{option.label}</div>;
-        }}
-        // DisabledSelect自带的titleProperty，避免tooltip冲突
-        optionFilterProp="label"
-        // 不使用 getPopupContainer，让下拉框自然Positioning，避免遮挡
-        // 不Display下拉箭头，更像Input框
-        suffixIcon={null}
-        // 自动Get焦点时不自动Open下拉框
-        open={undefined}
-      />
-      
-      {/* DetailedInformationModal */}
-      {dataMap && selectedDetailItem && (
-        <Modal
-          title={dataType === 'task' ? t('pages.tasks.details', 'Task Details') : t('pages.skills.details', 'Skill Details')}
-          open={detailModalVisible}
-          onCancel={() => setDetailModalVisible(false)}
-          footer={[
-            <Button key="close" onClick={() => setDetailModalVisible(false)}>
-              {t('common.close', 'Close')}
-            </Button>
-          ]}
-          width={600}
-          centered
-        >
-          <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-            {/* Name */}
-            <div style={{ marginBottom: 16 }}>
-              <strong>{t('common.name', 'Name')}:</strong>{' '}
-              <span style={{ color: selectedDetailItem.name || selectedDetailItem.skill ? 'inherit' : '#999' }}>
-                {selectedDetailItem.name || selectedDetailItem.skill || '-'}
-              </span>
-            </div>
-            
-            {/* Description */}
-            <div style={{ marginBottom: 16 }}>
-              <strong>{t('common.description', 'Description')}:</strong>
-              <div style={{ marginTop: 8, padding: 12, background: 'rgba(0,0,0,0.02)', borderRadius: 4, color: selectedDetailItem.description ? 'inherit' : '#999' }}>
-                {selectedDetailItem.description || '-'}
-              </div>
-            </div>
-            
-            {/* Task特有Field */}
-            {dataType === 'task' && (
-              <>
-                <div style={{ marginBottom: 16 }}>
-                  <strong>{t('pages.tasks.priorityLabel', 'Priority')}:</strong>{' '}
-                  <span style={{ color: selectedDetailItem.priority ? 'inherit' : '#999' }}>
-                    {selectedDetailItem.priority || '-'}
-                  </span>
-                </div>
-                <div style={{ marginBottom: 16 }}>
-                  <strong>{t('pages.tasks.triggerLabel', 'Trigger')}:</strong>{' '}
-                  <span style={{ color: selectedDetailItem.trigger ? 'inherit' : '#999' }}>
-                    {selectedDetailItem.trigger || '-'}
-                  </span>
-                </div>
-                <div style={{ marginBottom: 16 }}>
-                  <strong>{t('pages.tasks.statusLabel', 'Status')}:</strong>{' '}
-                  <span style={{ color: selectedDetailItem.status ? 'inherit' : '#999' }}>
-                    {selectedDetailItem.status || '-'}
-                  </span>
-                </div>
-              </>
-            )}
-            
-            {/* Skill特有Field */}
-            {dataType === 'skill' && (
-              <>
-                <div style={{ marginBottom: 16 }}>
-                  <strong>{t('pages.skills.level', 'Level')}:</strong>{' '}
-                  <span style={{ color: selectedDetailItem.level !== undefined && selectedDetailItem.level !== null ? 'inherit' : '#999' }}>
-                    {selectedDetailItem.level !== undefined && selectedDetailItem.level !== null ? selectedDetailItem.level : '-'}
-                  </span>
-                </div>
-                <div style={{ marginBottom: 16 }}>
-                  <strong>{t('pages.skills.statusLabel', 'Status')}:</strong>{' '}
-                  <span style={{ color: selectedDetailItem.status ? 'inherit' : '#999' }}>
-                    {selectedDetailItem.status || '-'}
-                  </span>
-                </div>
-              </>
-            )}
-            
-            {/* Metadata */}
-            <div style={{ marginBottom: 16 }}>
-              <strong>{t('common.metadata', 'Metadata')}:</strong>
-              <pre style={{ marginTop: 8, padding: 12, background: 'rgba(0,0,0,0.02)', borderRadius: 4, fontSize: 12, overflowX: 'auto', color: selectedDetailItem.metadata ? 'inherit' : '#999' }}>
-                {selectedDetailItem.metadata ? JSON.stringify(selectedDetailItem.metadata, null, 2) : '-'}
-              </pre>
-            </div>
-          </div>
-        </Modal>
-      )}
-    </>
-    );
-  };
 
 
 
@@ -1004,7 +968,6 @@ const AgentDetails: React.FC = () => {
           // 第一步：使用返回的 agent Data立即Update UI（FastResponse）
           if (responseData?.agents && Array.isArray(responseData.agents) && responseData.agents.length > 0) {
             savedAgentData = responseData.agents[0];
-            console.log('[AgentDetails] Step 1: Using updated agent from response:', savedAgentData.id);
             
             // TemporaryUpdate agentStore 中的这个 agent（仅Used for立即Display）
             const agentStore = useAgentStore.getState();
@@ -1015,7 +978,6 @@ const AgentDetails: React.FC = () => {
               const newAgents = [...currentAgents];
               newAgents[agentIndex] = savedAgentData;
               agentStore.setAgents(newAgents);
-              console.log('[AgentDetails] Temporarily updated agent in agentStore for immediate UI update');
             }
           }
           
@@ -1024,7 +986,6 @@ const AgentDetails: React.FC = () => {
           // 1. 组织关系正确（If agent Move到了不同组织）
           // 2. 统计Data正确（组织的 agent Count等）
           // 3. All关联Data都是最新的
-          console.log('[AgentDetails] Step 2: Waiting for backend to complete, then refresh all data...');
           await new Promise(resolve => setTimeout(resolve, 500)); // 增加Delay确保BackendCompleted
           
           const refreshResponse = await api.getAllOrgAgents(username);
@@ -1032,7 +993,6 @@ const AgentDetails: React.FC = () => {
           if (refreshResponse?.success && refreshResponse.data) {
             // 这会Update orgStore 和 agentStore，确保AllData一致
             useOrgStore.getState().setAllOrgAgents(refreshResponse.data as any);
-            console.log('[AgentDetails] Step 2 completed: All org and agent data refreshed');
           } else {
             console.error('[AgentDetails] Failed to refresh org data:', refreshResponse);
           }
@@ -1069,7 +1029,6 @@ const AgentDetails: React.FC = () => {
             }
             
             if (updatedAgent) {
-              console.log('[AgentDetails] Updating form with agent data:', updatedAgent.id);
               
               // Convert skills and tasks from objects to names (for Select component)
               // Skills/tasks from backend are objects with {id, name, ...}
@@ -1113,11 +1072,6 @@ const AgentDetails: React.FC = () => {
               };
               
               form.setFieldsValue(formData);
-              
-              // Update组织SelectStatus（Used forDisplay完整Path）
-              if (updatedAgent.org_id) {
-                setSelectedOrgId(updatedAgent.org_id);
-              }
               
               // Update Avatar Data - 保留完整的 avatar Data结构
               if (updatedAgent.avatar) {
@@ -1181,10 +1135,6 @@ const AgentDetails: React.FC = () => {
                 
                 form.setFieldsValue(formData);
                 
-                if (apiAgent.org_id) {
-                  setSelectedOrgId(apiAgent.org_id);
-                }
-                
                 if (apiAgent.avatar?.imageUrl) {
                   setAvatarData({
                     type: apiAgent.avatar.type || 'system',
@@ -1196,7 +1146,6 @@ const AgentDetails: React.FC = () => {
                   });
                 }
                 
-                console.log('[AgentDetails] ✅ Updated form from API fallback');
               }
             }
           } catch (error) {
@@ -1227,6 +1176,22 @@ const AgentDetails: React.FC = () => {
       setLoading(false);
     }
   };
+
+  // 在初始化完成前显示 loading 状态，避免闪烁
+  if (!initializedRef.current) {
+    return (
+      <div style={{ 
+        paddingTop: 70,
+        height: '100%', 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        background: 'var(--bg-primary, #0f172a)'
+      }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
 
   return (
     <>
@@ -1267,8 +1232,8 @@ const AgentDetails: React.FC = () => {
           align-items: center;
         }
       `}</style>
-      <div style={{ padding: 12, height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-        <Card style={{ flex: 1, minHeight: 0, overflow: 'hidden', marginTop: '16px' }} styles={{ body: { padding: 12, height: '100%', overflow: 'hidden' } }}>
+      <div style={{ padding: '70px 16px 16px 16px', height: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <Card style={{ flex: 1, minHeight: 0, overflow: 'hidden' }} styles={{ body: { padding: 16, height: '100%', overflow: 'hidden' } }}>
           <div ref={scrollContainerRef} style={{ height: '100%', overflowY: 'auto', overflowX: 'hidden', paddingRight: 8 }}>
           <Form
             form={form}
@@ -1449,9 +1414,6 @@ const AgentDetails: React.FC = () => {
                     getPopupContainer={(triggerNode) => triggerNode.parentElement || document.body}
                     aria-label={t('pages.agents.organization') || 'Organization'}
                     aria-required="true"
-                    onChange={(value) => {
-                      setSelectedOrgId(value as string);
-                    }}
                   />
                 </StyledFormItem>
               </Col>
@@ -1512,6 +1474,20 @@ const AgentDetails: React.FC = () => {
                   name="tasks"
                   label={t('pages.agents.tasks') || 'Tasks'}
                   htmlFor="agent-tasks"
+                  rules={[
+                    {
+                      required: true,
+                      message: t('pages.agents.tasks_required') || 'Please select at least one task',
+                    },
+                    {
+                      validator: (_, value) => {
+                        if (!value || value.length === 0) {
+                          return Promise.reject(new Error(t('pages.agents.tasks_required') || 'Please select at least one task'));
+                        }
+                        return Promise.resolve();
+                      },
+                    },
+                  ]}
                 >
                   <TagsEditor
                     id="agent-tasks"
@@ -1677,10 +1653,6 @@ const AgentDetails: React.FC = () => {
                         description: agent.description || '',
                         extra_data: agent.extra_data || agent.metadata || ''  // Compatible旧Field metadata
                       });
-                      // Settings选中的组织ID
-                      if (orgId) {
-                        setSelectedOrgId(orgId);
-                      }
                     }
                   });
                 }
