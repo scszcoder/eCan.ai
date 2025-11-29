@@ -237,11 +237,20 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         temperature = float(((inputs.get("temperature") or {}).get("content") or 0.5))
     except Exception:
         temperature = 0.5
+    # Get prompt IDs for saved prompts (if selected)
     prompt_selection = ((inputs.get("promptSelection") or {}).get("content") or "inline").strip()
-    system_prompt_template = ((inputs.get("systemPrompt") or {}).get("content")
-                              or STANDARD_SYS_PROMPT)
-    user_prompt_template = ((inputs.get("prompt") or {}).get("content")
-                            or STANDARD_SYS_PROMPT)
+
+    system_prompt_id = ((inputs.get("systemPromptId") or {}).get("content") or None)
+    user_prompt_id = ((inputs.get("promptId") or {}).get("content") or None)
+
+    # Get inline prompt content
+    inline_system_prompt = ((inputs.get("systemPrompt") or {}).get("content") or STANDARD_SYS_PROMPT)
+    inline_user_prompt = ((inputs.get("prompt") or {}).get("content") or STANDARD_SYS_PROMPT)
+
+    # Load prompts using prompt loader (handles both inline and saved prompts)
+    from agent.ec_skills.prompt_loader import get_prompt_content
+    system_prompt_template = get_prompt_content(system_prompt_id, inline_system_prompt)
+    user_prompt_template = get_prompt_content(user_prompt_id, inline_user_prompt)
     # Infer provider when not explicitly set
     def _infer_provider(host: str, model: str) -> str:
         try:
@@ -1699,16 +1708,30 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     action = (config_metadata or {}).get("action") or "open_page"
     params = (config_metadata or {}).get("params") or {}
     wait_for_done = bool((config_metadata or {}).get("wait_for_done", False))
-    base_task_text = (config_metadata or {}).get("task") or f"{action} {params}".strip()
+    task_text = (config_metadata or {}).get("task") or f"{action} {params}".strip()
 
-    inputs = (config_metadata or {}).get("inputsValues", {}) or {}
-    prompt_selection = ((inputs.get("promptSelection") or {}).get("content") or "inline").strip()
-    inline_system_prompt = ((inputs.get("systemPrompt") or {}).get("content")
-                            or (config_metadata or {}).get("systemPrompt")
-                            or BROWSER_AUTOMATION_SYS_PROMPT)
-    inline_user_prompt = ((inputs.get("prompt") or {}).get("content")
-                          or (config_metadata or {}).get("prompt")
-                          or base_task_text)
+    # Get prompt IDs for saved prompts (if selected)
+    system_prompt_id = ((inputs.get("systemPromptId") or {}).get("content") or None)
+    user_prompt_id = ((inputs.get("promptId") or {}).get("content") or None)
+
+    # Get inline prompt content
+    inline_system_prompt = ((inputs.get("systemPrompt") or {}).get("content") or "")
+    inline_user_prompt = ((inputs.get("prompt") or {}).get("content") or "")
+
+    # Load prompts using prompt loader (handles both inline and saved prompts)
+    from agent.ec_skills.prompt_loader import get_prompt_content
+    system_prompt_content = get_prompt_content(system_prompt_id, inline_system_prompt) if (system_prompt_id or inline_system_prompt) else None
+    user_prompt_content = get_prompt_content(user_prompt_id, inline_user_prompt) if (user_prompt_id or inline_user_prompt) else None
+
+    # If prompts are configured, use them to enhance the task text
+    if system_prompt_content or user_prompt_content:
+        prompt_parts = []
+        if system_prompt_content:
+            prompt_parts.append(f"System Instructions:\n{system_prompt_content}")
+        if user_prompt_content:
+            prompt_parts.append(f"Task:\n{user_prompt_content}")
+        if prompt_parts:
+            task_text = "\n\n".join(prompt_parts)
 
     async def _run_browser_use(task: str, mainwin) -> dict:
         try:
