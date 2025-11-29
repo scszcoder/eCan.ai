@@ -1,6 +1,6 @@
 import React from 'react';
-import { List, Input, Badge, Typography, Button, Dropdown, Tooltip } from 'antd';
-import { SearchOutlined, PlusOutlined, MoreOutlined, ReloadOutlined } from '@ant-design/icons';
+import { List, Input, Badge, Typography, Button, Dropdown, Tooltip, Tag, Space } from 'antd';
+import { SearchOutlined, PlusOutlined, MoreOutlined, ReloadOutlined, CopyOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import type { Prompt } from './types';
 import { useTranslation } from 'react-i18next';
@@ -14,9 +14,10 @@ interface PromptsListProps {
   onAdd: () => void;
   onDelete: (id: string) => void;
   onRefresh: () => void;
+  onClone: (prompt: Prompt) => void;
 }
 
-const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect, search, onSearchChange, onAdd, onDelete, onRefresh }) => {
+const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect, search, onSearchChange, onAdd, onDelete, onRefresh, onClone }) => {
   const { t } = useTranslation();
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -37,50 +38,91 @@ const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect
         <List
           dataSource={prompts}
           renderItem={(item) => (
-            <List.Item
-              onClick={() => onSelect(item.id)}
-              style={{ cursor: 'pointer', paddingLeft: 16, paddingRight: 8, background: selectedId === item.id ? 'rgba(255,255,255,0.06)' : 'transparent' }}
-              actions={[
-                <Dropdown
-                  key="menu"
-                  menu={{ items: [{ key: 'delete', label: t('common.delete'), danger: true }] as MenuProps['items'], onClick: ({ key }) => { if (key === 'delete') onDelete(item.id); } }}
-                  trigger={["click"]}
-                  placement="bottomRight"
-                >
-                  <Button type="text" size="small" onClick={(e) => e.stopPropagation()} icon={<MoreOutlined />} />
-                </Dropdown>
-              ]}
+            <Tooltip
+              key={item.id}
+              placement="right"
+              title={item.source === 'sample_prompts'
+                ? t('pages.prompts.sampleSource', { defaultValue: 'Sample library prompt (read-only)' })
+                : t('pages.prompts.mySource', { defaultValue: 'My prompts directory' })}
             >
-              <List.Item.Meta
-                title={<span style={{ color: '#fff' }}>
-                  {(() => {
-                    const rawTitle = (item.title || '').trim();
-                    if (rawTitle) return rawTitle;
-                    const slug = (item.topic || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
-                    const titleKey = `pages.prompts.examples.${slug}.title`;
-                    const titleText = t(titleKey, { defaultValue: '' });
-                    if (titleText && titleText !== titleKey) return titleText;
-                    return t(`pages.prompts.examples.${slug}`, { defaultValue: item.topic });
-                  })()}
-                </span>}
-                description={
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'rgba(255,255,255,0.65)' }}>
-                    <div>
-                      <Badge count={item.usageCount} style={{ backgroundColor: '#3b82f6' }} />
-                      <Typography.Text style={{ marginLeft: 8, color: 'rgba(255,255,255,0.65)' }}>{t('pages.prompts.uses', { defaultValue: 'uses' })}</Typography.Text>
+              <List.Item
+                onClick={() => onSelect(item.id)}
+                style={{ cursor: 'pointer', paddingLeft: 16, paddingRight: 8, background: selectedId === item.id ? 'rgba(255,255,255,0.06)' : 'transparent' }}
+                actions={(() => {
+                  const menuItems: MenuProps['items'] = [
+                    { key: 'copy', label: t('pages.prompts.copyCreate', { defaultValue: 'Copy & create' }), icon: <CopyOutlined /> },
+                    {
+                      key: 'delete',
+                      label: t('common.delete'),
+                      danger: true,
+                      disabled: !!item.readOnly,
+                    },
+                  ];
+                  return [
+                    <Dropdown
+                      key="menu"
+                      menu={{
+                        items: menuItems,
+                        onClick: ({ key }) => {
+                          if (key === 'delete') {
+                            if (item.readOnly) return;
+                            onDelete(item.id);
+                          } else if (key === 'copy') {
+                            onClone(item);
+                          }
+                        },
+                      }}
+                      trigger={['click']}
+                      placement="bottomRight"
+                    >
+                      <Button type="text" size="small" onClick={(e) => e.stopPropagation()} icon={<MoreOutlined />} />
+                    </Dropdown>,
+                  ];
+                })()}
+              >
+                <List.Item.Meta
+                  title={
+                    <Space size={6} style={{ color: '#fff' }}>
+                      <span>
+                        {(() => {
+                          const rawTitle = (item.title || '').trim();
+                          if (rawTitle) return rawTitle;
+                          const slug = (item.topic || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+                          const titleKey = `pages.prompts.examples.${slug}.title`;
+                          const titleText = t(titleKey, { defaultValue: '' });
+                          if (titleText && titleText !== titleKey) return titleText;
+                          return t(`pages.prompts.examples.${slug}`, { defaultValue: item.topic });
+                        })()}
+                      </span>
+                      {item.source === 'sample_prompts' && (
+                        <Tag color="blue" style={{ marginLeft: 4 }}>{t('pages.prompts.sampleLabel', { defaultValue: 'Sample' })}</Tag>
+                      )}
+                      {item.readOnly && item.source !== 'sample_prompts' && (
+                        <Tag color="gold" style={{ marginLeft: 4 }}>{t('pages.prompts.readOnlyLabel', { defaultValue: 'Read-only' })}</Tag>
+                      )}
+                    </Space>
+                  }
+                  description={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%' }}>
+                      <Space size={6} align="center">
+                        <Badge count={item.usageCount} style={{ backgroundColor: '#3b82f6' }} />
+                        <Typography.Text style={{ color: 'rgba(255,255,255,0.65)' }}>
+                          {t('pages.prompts.uses', { defaultValue: 'uses' })}
+                        </Typography.Text>
+                      </Space>
+                      <Typography.Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginLeft: 'auto' }}>
+                        {(() => {
+                          if (!item.lastModified) return '';
+                          const date = new Date(item.lastModified);
+                          if (Number.isNaN(date.getTime())) return item.lastModified;
+                          return date.toLocaleString();
+                        })()}
+                      </Typography.Text>
                     </div>
-                    <Typography.Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>
-                      {(() => {
-                        if (!item.lastModified) return '';
-                        const date = new Date(item.lastModified);
-                        if (Number.isNaN(date.getTime())) return item.lastModified;
-                        return date.toLocaleString();
-                      })()}
-                    </Typography.Text>
-                  </div>
-                }
-              />
-            </List.Item>
+                  }
+                />
+              </List.Item>
+            </Tooltip>
           )}
         />
       </div>

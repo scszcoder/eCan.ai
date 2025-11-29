@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 const Prompts: React.FC = () => {
   const username = useUserStore((s) => s.username || 'user');
   const { t } = useTranslation();
-  const { prompts, fetch, save, fetched } = usePromptStore();
+  const { prompts, fetch, save, clone, fetched } = usePromptStore();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 
@@ -38,26 +38,35 @@ const Prompts: React.FC = () => {
   };
 
   const handleAdd = () => {
-    const newId = `pr-${Math.floor(Math.random() * 100000)}`;
+    const newId = `pr-${Math.floor(Math.random() * 1_000_000)}`;
     const np: Prompt = {
       id: newId,
       title: t('pages.prompts.newPrompt'),
       topic: t('pages.prompts.newPrompt'),
       usageCount: 0,
-      roleToneContext: '',
-      goals: [],
-      guidelines: [],
-      rules: [],
-      instructions: [],
-      sysInputs: [],
+      sections: [],
       humanInputs: [],
+      source: 'my_prompts',
+      readOnly: false,
     };
-    save(username, np).then(() => setSelectedId(newId));
+    save(username, np).then((saved) => {
+      if (saved) {
+        setSelectedId(saved.id);
+      }
+    });
   };
 
   const handleDelete = (id: string) => {
     usePromptStore.getState().remove(username, id).then(() => {
       if (selectedId === id) setSelectedId(null);
+    });
+  };
+
+  const handleClone = (prompt: Prompt) => {
+    clone(username, prompt).then((copied) => {
+      if (copied) {
+        setSelectedId(copied.id);
+      }
     });
   };
 
@@ -79,6 +88,7 @@ const Prompts: React.FC = () => {
           onAdd={handleAdd}
           onDelete={handleDelete}
           onRefresh={handleRefresh}
+          onClone={handleClone}
         />
       }
       detailsContent={<PromptsDetail prompt={selected} onChange={handleChange} />}

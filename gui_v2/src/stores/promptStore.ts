@@ -10,6 +10,7 @@ interface PromptStoreState {
   fetch: (username: string, force?: boolean) => Promise<void>;
   save: (username: string, prompt: Prompt) => Promise<Prompt | null>;
   remove: (username: string, id: string) => Promise<boolean>;
+  clone: (username: string, prompt: Prompt) => Promise<Prompt | null>;
 }
 
 export const usePromptStore = create<PromptStoreState>((set, get) => ({
@@ -22,26 +23,27 @@ export const usePromptStore = create<PromptStoreState>((set, get) => ({
     set({ loading: true, error: null });
     try {
       const res: APIResponse<{ prompts: Prompt[] }> = await IPCAPI.getInstance().executeRequest('get_prompts', { username });
-      if (res.success) {
-        const list = (res.data?.prompts ?? []) as Prompt[];
-        set({ prompts: list, loading: false, fetched: true });
-      } else {
-        throw new Error(res.error?.message || 'Failed to fetch prompts');
-      }
+      if (!res.success) throw new Error(res.error?.message || 'Failed to fetch prompts');
+      const list = (res.data?.prompts ?? []) as Prompt[];
+      set({ prompts: list, loading: false, fetched: true });
     } catch (e: any) {
       set({ loading: false, error: e?.message || 'Unknown error' });
     }
   },
   save: async (username: string, prompt: Prompt) => {
+    if (prompt.readOnly) {
+      return null;
+    }
     try {
       const res: APIResponse<{ prompt: Prompt }> = await IPCAPI.getInstance().executeRequest('save_prompt', { username, prompt });
       if (!res.success) throw new Error(res.error?.message || 'Failed to save');
       const saved = res.data?.prompt ?? prompt;
       set((state) => {
         const exists = state.prompts.some(p => p.id === saved.id);
-        return {
-          prompts: exists ? state.prompts.map(p => (p.id === saved.id ? saved : p)) : [saved, ...state.prompts],
-        } as Partial<PromptStoreState>;
+        const prompts = exists
+          ? state.prompts.map(p => (p.id === saved.id ? saved : p))
+          : [saved, ...state.prompts];
+        return { prompts } as Partial<PromptStoreState>;
       });
       return saved;
     } catch (e) {
@@ -57,5 +59,20 @@ export const usePromptStore = create<PromptStoreState>((set, get) => ({
     } catch (e) {
       return false;
     }
+  },
+  clone: async (username: string, prompt: Prompt) => {
+    const baseTitle = prompt.title || prompt.topic || 'Prompt';
+    const copyId = `pr-${Math.floor(Math.random() * 1_000_000)}`;
+    const copyTitle = `${baseTitle}${baseTitle.endsWith('_copy') ? '' : '_copy'}`;
+    const clonePayload: Prompt = {
+      ...prompt,
+      id: copyId,
+      title: copyTitle,
+      readOnly: false,
+      source: 'my_prompts',
+    };
+    delete (clonePayload as any).lastModified;
+
+    return get().save(username, clonePayload);
   },
 }));
