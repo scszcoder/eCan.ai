@@ -143,7 +143,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
     const { t, i18n } = useTranslation();
     const { changeTheme } = useTheme();
     const { changeLanguage } = useLanguage();
-    const { message } = App.useApp();
+    const { message, modal } = App.useApp();
     const username = useUserStore((state) => state.username);
     const navigate = useNavigate();
 
@@ -224,7 +224,30 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
                 navigate('/settings');
                 break;
             case 'logout':
-                onLogout();
+                // Show confirmation modal before logout
+                modal.confirm({
+                    title: t('common.logout_confirm_title') || '确认退出',
+                    content: t('common.logout_confirm_message') || '您确定要退出登录吗？',
+                    okText: t('common.confirm') || '确认',
+                    cancelText: t('common.cancel') || '取消',
+                    onOk: () => {
+                        onLogout();
+                    },
+                    centered: true,
+                    zIndex: 1000,
+                    className: 'logout-confirm-modal',
+                    styles: {
+                        body: {
+                            color: '#ffffff !important',
+                        },
+                        header: {
+                            color: '#ffffff !important',
+                        },
+                        content: {
+                            color: '#ffffff !important',
+                        },
+                    },
+                });
                 break;
             default:
                 // ProcessUserCustomMenu项
@@ -236,7 +259,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
         }
         // Close下拉Menu
         setDropdownVisible(false);
-    }, [navigate, onLogout, userMenuItems]);
+    }, [navigate, onLogout, userMenuItems, t, modal]);
 
     // 合并UserMenu和SettingsMenu
     const combinedMenuItems: MenuProps['items'] = [
@@ -324,7 +347,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
                     placement="bottomRight"
                     overlayClassName="user-profile-dropdown"
                     overlayStyle={{
-                        zIndex: 3000,
+                        zIndex: 1050,
                         minWidth: 200,
                     }}
                     getPopupContainer={() => document.body}

@@ -233,12 +233,10 @@ const agentsPathHandler: PathHandler = {
     match: (segments) => segments[0] === 'agents',
     
     generate: (_segments, path, t, navigate, context) => {
-        console.log('[PageBackBreadcrumb] Generating breadcrumb for path:', path);
         const items: BreadcrumbItem[] = [];
         const treeOrgs = context?.treeOrgs || [];
         const searchParams = context?.searchParams;
         const rootNode = treeOrgs[0];
-        console.log('[PageBackBreadcrumb] rootNode:', rootNode?.name);
         
         // Add Agents 根节点
         items.push({
@@ -282,8 +280,6 @@ const agentsPathHandler: PathHandler = {
         if (path.includes('/details/') || path.includes('/add')) {
             // 从URL中GetorgIdParameter
             const orgIdParam = searchParams?.get('orgId');
-            console.log('[PageBackBreadcrumb] URL orgId param:', orgIdParam);
-            console.log('[PageBackBreadcrumb] orgMatches:', orgMatches);
 
             if (orgIdParam && rootNode) {
                 // IfURL中有orgId，构建组织Path
@@ -304,7 +300,6 @@ const agentsPathHandler: PathHandler = {
                     };
 
                     const orgPath = buildOrgPath(node, rootNode);
-                    console.log('[PageBackBreadcrumb] Built org path:', orgPath?.map(n => n.name));
                     if (orgPath) {
                         // IfPath中已经有organization段，则不重复Add
                         if (!orgMatches) {
@@ -312,7 +307,6 @@ const agentsPathHandler: PathHandler = {
                             let currentOrgPath = '/agents';
                             orgPath.slice(1).forEach((orgNode) => {
                                 currentOrgPath += `/organization/${orgNode.id}`;
-                                console.log('[PageBackBreadcrumb] Adding org breadcrumb:', orgNode.name, currentOrgPath);
                                 items.push({
                                     key: currentOrgPath,
                                     title: createClickableLink(orgNode.name, currentOrgPath, navigate),
@@ -321,11 +315,7 @@ const agentsPathHandler: PathHandler = {
                             });
                         }
                     }
-                } else {
-                    console.log('[PageBackBreadcrumb] Node not found for orgId:', orgIdParam);
                 }
-            } else {
-                console.log('[PageBackBreadcrumb] Conditions not met - orgIdParam:', orgIdParam, 'rootNode:', !!rootNode);
             }
 
             // AddDetails/新增Page标题
@@ -339,7 +329,6 @@ const agentsPathHandler: PathHandler = {
             });
         }
         
-        console.log('[PageBackBreadcrumb] Final breadcrumb items:', items.length);
         return items;
     }
 };
