@@ -10,7 +10,6 @@ from utils.logger_helper import logger_helper as logger
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MY_PROMPTS_DIR = PROJECT_ROOT / "my_prompts"
 SAMPLE_PROMPTS_DIR = PROJECT_ROOT / "resource" / "systems" / "sample_prompts"
-print(f"SAMPLE_PROMPTS_DIR:{SAMPLE_PROMPTS_DIR}")
 
 def load_prompt_by_id(prompt_id: str) -> Optional[Dict[str, Any]]:
     """
@@ -25,7 +24,6 @@ def load_prompt_by_id(prompt_id: str) -> Optional[Dict[str, Any]]:
     if not prompt_id or prompt_id == "in-line":
         return None
 
-    print(f"SAMPLE_PROMPTS_DIR:{SAMPLE_PROMPTS_DIR}")
     # Search in my_prompts first
     for directory in [MY_PROMPTS_DIR, SAMPLE_PROMPTS_DIR]:
         if not directory.exists():
@@ -87,8 +85,8 @@ def construct_prompt_from_data(prompt_data: Dict[str, Any]) -> str:
                 "goals": "Goals",
                 "guidelines": "Guidelines",
                 "rules": "Rules",
-                "examples": "Examples",
                 "instructions": "Instructions",
+                "examples": "Examples",
                 "variables": "Variables",
             }
             label = section_labels.get(section_type, section_type.title())

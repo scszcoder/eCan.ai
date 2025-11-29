@@ -14,6 +14,7 @@ import {
 } from '@ant-design/icons';
 import type { Prompt, PromptSection, PromptSectionType } from './types';
 import { useTranslation } from 'react-i18next';
+import styles from './PromptsDetail.module.css';
 
 interface PromptsDetailProps {
   prompt: Prompt | null;
@@ -46,8 +47,8 @@ const SECTION_LABELS: Record<PromptSectionType, string> = {
   goals: 'Goals',
   guidelines: 'Guidelines',
   rules: 'Rules',
-  examples: 'Examples',
   instructions: 'Instructions',
+  examples: 'Examples',
   variables: 'Variables',
 };
 
@@ -429,23 +430,29 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
             <Tooltip title={t('common.undo', { defaultValue: 'Undo' })}>
               <Button
                 type="text"
+                size="small"
                 icon={<UndoOutlined />}
                 onClick={handleUndo}
                 disabled={!editing || !canUndo}
+                className={styles.smallButton}
               />
             </Tooltip>
             <Tooltip title={t('common.redo', { defaultValue: 'Redo' })}>
               <Button
                 type="text"
+                size="small"
                 icon={<RedoOutlined />}
                 onClick={handleRedo}
                 disabled={!editing || !canRedo}
+                className={styles.smallButton}
               />
             </Tooltip>
             <Button
               type={editing ? 'primary' : 'default'}
+              size="small"
               icon={editing ? <SaveOutlined /> : <EditOutlined />}
               onClick={handleToggle}
+              className={styles.smallButtonWithText}
             >
               {editing ? t('common.save') : t('common.edit')}
             </Button>
@@ -499,9 +506,11 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
               <Tooltip title={t('pages.prompts.addSection', { defaultValue: 'Add section' })}>
                 <Button
                   type="primary"
+                  size="small"
                   icon={<AppstoreAddOutlined />}
                   onClick={() => handleSectionAdd(sectionToAdd)}
                   disabled={!isEditable}
+                  className={styles.smallButton}
                 />
               </Tooltip>
             </Space>
@@ -530,7 +539,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
                         <Button
                           type="text"
                           size="small"
-                          style={{ height: 20, width: 20 }}
+                          className={styles.arrowButton}
                           icon={<ArrowUpOutlined style={{ fontSize: 10 }} />}
                           disabled={index === 0 || !isEditable}
                           onClick={() => handleSectionMove(section.id, -1)}
@@ -540,7 +549,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
                         <Button
                           type="text"
                           size="small"
-                          style={{ height: 20, width: 20 }}
+                          className={styles.arrowButton}
                           icon={<ArrowDownOutlined style={{ fontSize: 10 }} />}
                           disabled={index === sortedSections.length - 1 || !isEditable}
                           onClick={() => handleSectionMove(section.id, 1)}
@@ -551,6 +560,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
                           danger
                           type="text"
                           size="small"
+                          className={styles.tinyIconButton}
                           icon={<DeleteOutlined />}
                           disabled={!isEditable}
                           onClick={() => handleSectionRemove(section.id)}
@@ -579,18 +589,22 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
                         <Button
                           danger
                           type="text"
+                          size="small"
                           icon={<DeleteOutlined />}
                           disabled={!isEditable}
                           onClick={() => handleSectionItemRemove(section.id, idx)}
+                          className={styles.tinyIconButton}
                           style={{ marginTop: 4 }}
                         />
                       </div>
                     ))}
                     <Button
                       type="dashed"
+                      size="small"
                       icon={<PlusOutlined />}
                       onClick={() => handleSectionItemAdd(section.id)}
                       disabled={!isEditable}
+                      className={styles.smallButtonWithText}
                     >
                       {t('pages.prompts.addItem', { defaultValue: 'Add item' })}
                     </Button>
@@ -623,18 +637,22 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
                 <Button
                   danger
                   type="text"
+                  size="small"
                   icon={<DeleteOutlined />}
                   disabled={!isEditable}
                   onClick={() => updateFields({ humanInputs: active.humanInputs.filter((_, i) => i !== idx) })}
+                  className={styles.tinyIconButton}
                   style={{ marginTop: 4 }}
                 />
               </div>
             ))}
             <Button
               type="dashed"
+              size="small"
               icon={<PlusOutlined />}
               onClick={() => updateFields({ humanInputs: [...active.humanInputs, ''] })}
               disabled={!isEditable}
+              className={styles.smallButtonWithText}
             >
               {t('common.add')}
             </Button>
@@ -661,7 +679,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
       <div style={{ flex: 1, overflow: 'auto', padding: 16, position: 'relative' }}>
         <div style={{ position: 'absolute', top: 16, right: 16 }}>
           <Tooltip title={t('pages.prompts.copyPreview', { defaultValue: 'Copy preview' })}>
-            <Button icon={<CopyOutlined />} onClick={copyPreview} />
+            <Button size="small" icon={<CopyOutlined />} onClick={copyPreview} className={styles.smallButton} />
           </Tooltip>
         </div>
         <Typography.Text strong style={{ color: '#fff' }}>{t('pages.prompts.preview.title', { defaultValue: 'Preview' })}</Typography.Text>

@@ -17,7 +17,7 @@ from utils.logger_helper import logger_helper as logger
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SYSTEMS_DIR = PROJECT_ROOT / "systems"
 MY_PROMPTS_DIR = PROJECT_ROOT / "my_prompts"
-SAMPLE_PROMPTS_DIR = SYSTEMS_DIR / "sample_prompts"
+SAMPLE_PROMPTS_DIR = PROJECT_ROOT / "resource" / "systems" / "sample_prompts"
 
 SECTION_TYPES: Tuple[str, ...] = (
     "role",
@@ -26,8 +26,8 @@ SECTION_TYPES: Tuple[str, ...] = (
     "goals",
     "guidelines",
     "rules",
-    "examples",
     "instructions",
+    "examples",
     "variables",
 )
 
