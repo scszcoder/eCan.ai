@@ -3296,45 +3296,6 @@ class MainWindow:
         except Exception as e:
             logger.warning(f"[MainWindow] ❌ Error closing cloud session: {e}")
 
-        # Signal all agent TaskRunner loops to stop (while-loops in threads)
-        try:
-            from agent.tasks import TaskRunnerRegistry
-            TaskRunnerRegistry.stop_all()
-            logger.info("[MainWindow] ✅ TaskRunners stopped")
-        except Exception as e:
-            logger.debug(f"[MainWindow] ❌ Error stopping TaskRunners: {e}")
-
-        # Cancel asyncio tasks we manage
-        to_cancel = []
-        for name in (
-            'lan_task', 'peer_task', 'monitor_task', 'chat_task', 'wan_sub_task',
-            'wan_chat_task', 'llm_sub_task', 'cloud_show_sub_task'
-        ):
-            try:
-                t = getattr(self, name, None)
-                if t and not t.done():
-                    t.cancel()
-                    to_cancel.append(t)
-            except Exception:
-                pass
-        if to_cancel:
-            try:
-                await asyncio.gather(*to_cancel, return_exceptions=True)
-                logger.info(f"[MainWindow] ✅ Cancelled {len(to_cancel)} asyncio tasks")
-            except Exception:
-                pass
-
-        # Close Cloud LLM WebSocket and thread
-        try:
-            if hasattr(self, 'cloud_llm_ws') and self.cloud_llm_ws:
-                self.cloud_llm_ws.close()
-                logger.info("[MainWindow] ✅ Cloud LLM WebSocket closed")
-            if hasattr(self, 'cloud_llm_thread') and self.cloud_llm_thread:
-                # Thread is daemon, so it will be terminated when main process exits
-                logger.info("[MainWindow] ✅ Cloud LLM thread will terminate with main process")
-        except Exception as e:
-            logger.debug(f"[MainWindow] ❌ Error closing Cloud LLM WebSocket: {e}")
-
         # Shut down ThreadPoolExecutor
         try:
             if hasattr(self, 'threadPoolExecutor') and self.threadPoolExecutor:

@@ -11,7 +11,11 @@ import { Feedback } from '../feedback';
 import { JsonSchema } from '../../typings';
 import { useNodeRenderContext } from '../../hooks';
 
-export function FormInputs() {
+interface FormInputsProps {
+  extraFilter?: (key: string) => boolean;
+}
+
+export function FormInputs({ extraFilter }: FormInputsProps = {}) {
   const { readonly } = useNodeRenderContext();
 
   // Ensure the PromptEditor receives a FlowValue whose `content` is a string.
@@ -76,7 +80,9 @@ export function FormInputs() {
       );
     }
     const keys = Object.keys(properties);
-    const content = keys.map((key) => {
+    const content = keys
+      .filter((key) => (extraFilter ? extraFilter(key) : true))
+      .map((key) => {
       const property = properties[key];
       try { console.debug('[MCP][FormInputs] rendering field:', key, 'schema=', property); } catch {}
 

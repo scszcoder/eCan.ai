@@ -23,6 +23,7 @@ class AuthManager:
         self.cognito_service = CognitoService()
         self.tokens = None
         self.current_user = None
+        self.user_profile = {}  # Store user profile info (name, picture, etc.)
         self.signed_in = False
         self.machine_role = "Platoon"  # Default role
         self.ecb_data_homepath = getECBotDataHome()
@@ -79,6 +80,72 @@ class AuthManager:
             return f"{parts[0]}_{parts[1].replace('.', '_')}"
         return self.current_user
 
+    def get_user_profile(self):
+        """Get the current user's profile information."""
+        return self.user_profile or {}
+
+    def _fetch_user_profile(self, access_token, id_token=None):
+        """
+        Helper method to fetch and construct the user profile from ID token claims
+        and/or the UserInfo endpoint.
+        """
+        user_profile = {}
+        email = None
+
+        # 1. Try extracting from ID Token
+        if id_token:
+            claims = self.cognito_service.verify_token(id_token, 'id')
+            if claims.get('success'):
+                claim_data = claims['data']
+                logger.debug(f"ID Token Claims: {claim_data}")
+                email = claim_data.get('email') or claim_data.get('username')
+                user_profile = {
+                    'email': email,
+                    'name': claim_data.get('name') or claim_data.get('given_name', ''),
+                    'given_name': claim_data.get('given_name', ''),
+                    'family_name': claim_data.get('family_name', ''),
+                    'picture': claim_data.get('picture', ''),
+                    'email_verified': claim_data.get('email_verified', False),
+                }
+
+        # 2. Fallback/Enrich with UserInfo endpoint
+        if access_token and hasattr(self.cognito_service, 'get_userinfo'):
+            ui = self.cognito_service.get_userinfo(access_token)
+            if ui.get('success'):
+                data = ui.get('data') or {}
+                logger.debug(f"UserInfo Endpoint Data: {data}")
+                if not email:
+                    email = data.get('email') or data.get('username')
+                
+                # Update/Merge profile data
+                name = data.get('name')
+                given_name = data.get('given_name') or user_profile.get('given_name', '')
+                family_name = data.get('family_name') or user_profile.get('family_name', '')
+                
+                # If name is missing but we have parts, construct it
+                if not name and (given_name or family_name):
+                    # Simple check for CJK characters to decide on spacing
+                    has_cjk = False
+                    for s in [given_name, family_name]:
+                        if s and any('\u4e00' <= c <= '\u9fff' for c in s):
+                            has_cjk = True
+                            break
+                    
+                    if has_cjk:
+                        name = f"{family_name}{given_name}"
+                    else:
+                        name = f"{given_name} {family_name}".strip()
+
+                user_profile.update({
+                    'email': data.get('email') or user_profile.get('email'),
+                    'name': name or user_profile.get('name', ''),
+                    'given_name': given_name,
+                    'family_name': family_name,
+                    'picture': data.get('picture') or user_profile.get('picture', ''),
+                    'email_verified': data.get('email_verified') or user_profile.get('email_verified', False),
+                })
+
+        return user_profile, email
 
     def login(self, username, password, role):
         """Handle username/password login logic."""
@@ -91,6 +158,21 @@ class AuthManager:
             if result['success']:
                 self.tokens = result['data']
                 self.signed_in = True
+                
+                # Fetch user profile using AccessToken
+                access_token = self.tokens.get('AccessToken') or self.tokens.get('access_token')
+                # Password login typically doesn't return ID token in the same way or we rely on access token
+                id_token = self.tokens.get('IdToken') or self.tokens.get('id_token')
+                
+                self.user_profile, fetched_email = self._fetch_user_profile(access_token, id_token)
+                
+                # If we got a valid email from the profile, update current_user
+                if fetched_email and '@' in fetched_email:
+                    username = fetched_email
+                
+                logger.info(f"Password Login Final Profile: {self.user_profile}")
+                self.current_user = username
+
                 # Persist username/password and refresh token
                 self._update_saved_login_info(username, password, role)  # Save credentials on success
                 rt = (self.tokens.get('RefreshToken') or self.tokens.get('refresh_token'))
@@ -156,23 +238,14 @@ class AuthManager:
                 self.tokens = tokens
                 self.signed_in = True
 
-                # Parse the user's identity (email) from tokens; fall back to userInfo endpoint.
-                email = None
+                # Reuse the helper to fetch user profile
+                access_token = self.tokens.get('access_token') or self.tokens.get('AccessToken')
                 id_token = self.tokens.get('id_token') or self.tokens.get('IdToken')
-                if id_token:
-                    claims = self.cognito_service.verify_token(id_token, 'id')
-                    if claims.get('success'):
-                        email = claims['data'].get('email') or claims['data'].get('username')
-
-                if not email:
-                    access_token = self.tokens.get('access_token') or self.tokens.get('AccessToken')
-                    if access_token and hasattr(self.cognito_service, 'get_userinfo'):
-                        ui = self.cognito_service.get_userinfo(access_token)
-                        if ui.get('success'):
-                            data = ui.get('data') or {}
-                            email = data.get('email') or data.get('username')
-
-                self.current_user = email or self._get_saved_username() or "unknown@local"
+                
+                self.user_profile, fetched_email = self._fetch_user_profile(access_token, id_token)
+                
+                logger.info(f"Final User Profile: {self.user_profile}")
+                self.current_user = fetched_email or self._get_saved_username() or "unknown@local"
 
                 # Save signed-in user and refresh token for session persistence
                 if self.current_user:

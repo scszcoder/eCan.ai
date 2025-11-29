@@ -1,8 +1,17 @@
 {
   "common": {
     "logout": "Logout",
+    "logout_confirm_title": "Confirm Logout",
+    "logout_confirm_message": "Are you sure you want to logout?",
     "username": "Username",
     "password": "Password",
+    "email": "Email",
+    "role": "Role",
+    "login_time": "Login Time",
+    "login_type": "Login Method",
+    "login_type_password": "Password",
+    "login_type_google": "Google Account",
+    "no_user_info": "No user information available",
     "settings": "Settings",
     "save": "Save",
     "cancel": "Cancel",
@@ -158,22 +167,29 @@
         "title": "Title"
       },
       "sections": {
-        "roleToneContext": "System prompt: role / tone / context",
-        "goals": "System prompt: goals",
-        "guidelines": "System prompt: guidelines",
-        "rules": "System prompt: rules",
-        "instructions": "System prompt: instructions",
-        "systemInputs": "System prompt: inputs",
+        "systemPrompt": "System prompt sections",
+        "roleCharacter": "Role / Character",
+        "tone": "Tone",
+        "background": "Context / Background",
+        "goals": "Goals",
+        "guidelines": "Guidelines",
+        "rules": "Rules",
+        "examples": "Examples",
+        "instructions": "Instructions",
+        "variables": "Variables",
         "humanInputs": "Human prompt: inputs"
       },
       "placeholders": {
         "title": "Title",
-        "roleToneContext": "Describe the assistant role, tone, and context",
-        "addGoal": "Add a goal",
-        "addGuideline": "Add a guideline",
-        "addRule": "Add a rule",
-        "addInstruction": "Add an instruction",
-        "addSystemInput": "Add a system input",
+        "roleCharacter": "Describe the assistant role or persona",
+        "tone": "Describe the tone or speaking style",
+        "background": "Provide context or background information",
+        "goals": "Add a goal",
+        "guidelines": "Add a guideline",
+        "rules": "Add a rule",
+        "instructions": "Add an instruction",
+        "examples": "Add an example",
+        "variables": "Add a variable or input",
         "addHumanInput": "Add a human input"
       },
       "preview": {
@@ -185,6 +201,13 @@
         "instructions": "Instructions",
         "systemInputs": "System inputs",
         "humanInputs": "Human inputs"
+      },
+      "copyCreate": "Copy create",
+      "sampleTag": "Sample",
+      "locationTooltip": "Location: {{location}}",
+      "locations": {
+        "sample": "Sample prompts",
+        "mine": "My prompts"
       },
       "examples": {
         "write_a_marketing_email": {
@@ -336,6 +359,7 @@
       "skill": "Skill",
       "skills": "Skills",
       "skills_required": "Please select at least one skill",
+      "tasks_required": "Please select at least one task",
       "subordinate": "Subordinate",
       "subordinates": "Subordinates",
       "supervisor": "Supervisor",
