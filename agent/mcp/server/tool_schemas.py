@@ -101,6 +101,7 @@ from agent.mcp.server.scrapers.pirate_shipping.purchase_label import add_pirate_
 from agent.mcp.server.utils.print_utils import add_reformat_and_print_labels_tool_schema
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import add_ecan_ai_api_get_agent_status_tool_schema
 from agent.ec_skills.rag.local_rag_mcp import add_ragify_tool_schema, add_rag_query_tool_schema
+from agent.mcp.server.extern_tools_schemas import add_extern_tools_schemas
 
 tool_schemas = []
 
@@ -1864,5 +1865,7 @@ def build_agent_mcp_tools_schemas():
     add_ragify_tool_schema(tool_schemas)
 
     add_rag_query_tool_schema(tool_schemas)
+
+    add_extern_tools_schemas(tool_schemas)
 
     return tool_schemas

@@ -1,13 +1,225 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Input, Typography, Space, Button, Divider, Tooltip, message } from 'antd';
-import { PlusOutlined, DeleteOutlined, EditOutlined, SaveOutlined, CopyOutlined } from '@ant-design/icons';
-import type { Prompt } from './types';
+import { Input, Typography, Space, Button, Divider, Tooltip, message, Select } from 'antd';
+import {
+  PlusOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  SaveOutlined,
+  CopyOutlined,
+  ArrowUpOutlined,
+  ArrowDownOutlined,
+  MinusCircleOutlined,
+} from '@ant-design/icons';
+import type { Prompt, SystemSection, SystemSectionType } from './types';
 import { useTranslation } from 'react-i18next';
 
 interface PromptsDetailProps {
   prompt: Prompt | null;
   onChange: (next: Prompt) => void;
 }
+
+const SECTION_LABELS: Record<SystemSectionType, string> = {
+  roleCharacter: 'pages.prompts.sections.roleCharacter',
+  tone: 'pages.prompts.sections.tone',
+  background: 'pages.prompts.sections.background',
+  goals: 'pages.prompts.sections.goals',
+  guidelines: 'pages.prompts.sections.guidelines',
+  rules: 'pages.prompts.sections.rules',
+  examples: 'pages.prompts.sections.examples',
+  instructions: 'pages.prompts.sections.instructions',
+  variables: 'pages.prompts.sections.variables',
+};
+
+const SECTION_PLACEHOLDERS: Partial<Record<SystemSectionType, string>> = {
+  roleCharacter: 'Describe the assistant role or persona',
+  tone: 'Describe the tone or speaking style',
+  background: 'Provide context or background information',
+  goals: 'Add a goal',
+  guidelines: 'Add a guideline',
+  rules: 'Add a rule',
+  instructions: 'Add an instruction',
+  examples: 'Add an example',
+  variables: 'Add a variable or input',
+};
+
+const SECTION_TYPE_OPTIONS: { labelKey: string; value: SystemSectionType }[] = [
+  { labelKey: SECTION_LABELS.roleCharacter, value: 'roleCharacter' },
+  { labelKey: SECTION_LABELS.tone, value: 'tone' },
+  { labelKey: SECTION_LABELS.background, value: 'background' },
+  { labelKey: SECTION_LABELS.goals, value: 'goals' },
+  { labelKey: SECTION_LABELS.guidelines, value: 'guidelines' },
+  { labelKey: SECTION_LABELS.rules, value: 'rules' },
+  { labelKey: SECTION_LABELS.examples, value: 'examples' },
+  { labelKey: SECTION_LABELS.instructions, value: 'instructions' },
+  { labelKey: SECTION_LABELS.variables, value: 'variables' },
+];
+
+const SECTION_ORDER_PRIORITY: Record<SystemSectionType, number> = {
+  roleCharacter: 0,
+  tone: 1,
+  background: 2,
+  goals: 3,
+  guidelines: 4,
+  rules: 5,
+  examples: 6,
+  instructions: 7,
+  variables: 8,
+};
+
+const tinyIconButtonBaseStyle: React.CSSProperties = {
+  width: 18,
+  height: 18,
+  minWidth: 18,
+  minHeight: 18,
+  borderRadius: 4,
+  border: '1px solid rgba(255,255,255,0.25)',
+  background: 'rgba(255,255,255,0.05)',
+  color: '#fff',
+  padding: 0,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  cursor: 'pointer',
+  transition: 'background 0.2s ease',
+};
+
+type TinyIconButtonProps = {
+  icon: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  ariaLabel?: string;
+};
+
+const TinyIconButton: React.FC<TinyIconButtonProps> = ({ icon, onClick, disabled = false, ariaLabel }) => (
+  <button
+    type="button"
+    onClick={disabled ? undefined : onClick}
+    aria-label={ariaLabel}
+    disabled={disabled}
+    style={{
+      ...tinyIconButtonBaseStyle,
+      cursor: disabled ? 'not-allowed' : 'pointer',
+      opacity: disabled ? 0.35 : 1,
+    }}
+  >
+    {icon}
+  </button>
+);
+
+const createSection = (type: SystemSectionType, items: string[] = [''], readOnly = false): SystemSection => ({
+  id: `${type}_${Math.random().toString(36).slice(2, 10)}`,
+  type,
+  items,
+  readOnly,
+});
+
+const trimItems = (items: string[]): string[] => items.map((item) => item.trim()).filter((item) => item.length > 0);
+
+const sanitizeSections = (sections: SystemSection[]): SystemSection[] =>
+  sections
+    .map((section) => ({
+      ...section,
+      items: trimItems(section.items.length ? section.items : ['']),
+    }))
+    .filter((section) => section.items.length > 0 || section.readOnly);
+
+const hydratePrompt = (source: Prompt | null): Prompt | null => {
+  if (!source) return null;
+  const clone: Prompt = {
+    ...source,
+    systemSections: (source.systemSections || []).map((section) => ({
+      ...section,
+      items: [...(section.items || [''])],
+    })),
+    examples: source.examples ? [...source.examples] : [],
+    goals: [...(source.goals || [])],
+    guidelines: [...(source.guidelines || [])],
+    rules: [...(source.rules || [])],
+    instructions: [...(source.instructions || [])],
+    sysInputs: [...(source.sysInputs || [])],
+    humanInputs: [...(source.humanInputs || [])],
+  };
+
+  if (!clone.systemSections || clone.systemSections.length === 0) {
+    const sections: SystemSection[] = [];
+
+    const roleContent = trimItems([source.roleToneContext || '']);
+    sections.push(createSection('roleCharacter', roleContent.length ? roleContent : ['']));
+    sections.push(createSection('tone', ['']));
+    sections.push(createSection('background', ['']));
+
+    const legacyMap: Array<{ key: keyof Prompt; type: SystemSectionType }> = [
+      { key: 'goals', type: 'goals' },
+      { key: 'guidelines', type: 'guidelines' },
+      { key: 'rules', type: 'rules' },
+      { key: 'instructions', type: 'instructions' },
+    ];
+    legacyMap.forEach(({ key, type }) => {
+      const values = trimItems((source[key] as string[]) || []);
+      if (values.length) {
+        sections.push(createSection(type, values));
+      }
+    });
+
+    const exampleItems = trimItems(source.examples || []);
+    sections.push(createSection('examples', exampleItems.length ? exampleItems : ['']));
+
+    const variableItems = trimItems(source.sysInputs || []);
+    if (variableItems.length) {
+      sections.push(createSection('variables', variableItems));
+    }
+
+    clone.systemSections = sections;
+  }
+
+  clone.systemSections = clone.systemSections
+    .map((section) => ({
+      ...section,
+      items: section.items && section.items.length ? [...section.items] : [''],
+    }))
+    .sort((a, b) => SECTION_ORDER_PRIORITY[a.type] - SECTION_ORDER_PRIORITY[b.type]);
+
+  if (!clone.examples) {
+    clone.examples = [];
+  }
+
+  return clone;
+};
+
+const buildPromptForSave = (draft: Prompt): Prompt => {
+  const sanitizedSections = sanitizeSections(draft.systemSections || []);
+
+  const next: Prompt = {
+    ...draft,
+    systemSections: sanitizedSections,
+  };
+
+  const collect = (type: SystemSectionType): string[] =>
+    sanitizedSections
+      .filter((section) => section.type === type)
+      .flatMap((section) => section.items)
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+  const roleParts: string[] = [];
+  collect('roleCharacter').forEach((item) => roleParts.push(item));
+  collect('tone').forEach((item) => roleParts.push(item));
+  collect('background').forEach((item) => roleParts.push(item));
+
+  next.roleToneContext = roleParts.join('\n\n');
+  next.goals = collect('goals');
+  next.guidelines = collect('guidelines');
+  next.rules = collect('rules');
+  next.instructions = collect('instructions');
+  next.examples = collect('examples');
+  next.sysInputs = collect('variables');
+
+  if (!next.examples?.length) {
+    next.examples = [];
+  }
+
+  return next;
+};
 
 type SectionProps = {
   title: string;
@@ -51,10 +263,10 @@ const RepeatableList: React.FC<{
             style={{ flex: 1, lineHeight: '20px', fontSize: 14 }}
             disabled={disabled}
           />
-          <Button danger icon={<DeleteOutlined />} onClick={() => onRemove(idx)} />
+          {!disabled && <Button danger icon={<DeleteOutlined />} onClick={() => onRemove(idx)} />}
         </div>
       ))}
-      <Button icon={<PlusOutlined />} onClick={onAdd}>{t('common.add')}</Button>
+      {!disabled && <Button icon={<PlusOutlined />} onClick={onAdd}>{t('common.add')}</Button>}
     </Space>
   );
 };
@@ -67,11 +279,12 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
   const [topHeight, setTopHeight] = useState<number>(360); // px
   const [dragging, setDragging] = useState(false);
   const [autoSizeEnabled, setAutoSizeEnabled] = useState(false);
+  const [newSectionType, setNewSectionType] = useState<SystemSectionType>('roleCharacter');
 
   useEffect(() => {
-    setDraft(prompt);
+    setDraft(hydratePrompt(prompt));
     setEditing(false);
-  }, [prompt?.id]);
+  }, [prompt?.id, prompt]);
 
   // Initialize topHeight as 60% of container height on mount
   useEffect(() => {
@@ -149,121 +362,74 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
     instructions: [],
     sysInputs: [],
     humanInputs: [],
+    systemSections: [createSection('roleCharacter'), createSection('tone'), createSection('background'), createSection('examples')],
+    examples: [],
   };
   const active = draft ?? emptyPrompt;
 
   const update = (patch: Partial<Prompt>) =>
     setDraft((prev) => ({ ...((prev ?? active) as Prompt), ...patch }));
 
-  // Derive example slug from topic/title, with fallback matching against known examples
-  const exampleSlug = useMemo(() => {
-    const raw = (active.topic || active.title || '').toLowerCase();
-    let slug = '';
-    if (raw) slug = raw.replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
-    if (slug) return slug;
-
-    // Fallback: try to map localized titles to known example keys
-    const knownKeys = [
-      'write_a_marketing_email',
-      // Add more keys here if needed in future
-    ];
-    const current = (active.title || active.topic || '').trim();
-    for (const key of knownKeys) {
-      // Some examples are simple strings, others have nested title
-      const simple = t(`pages.prompts.examples.${key}`, { defaultValue: '' }) as unknown as string;
-      const nested = t(`pages.prompts.examples.${key}.title`, { defaultValue: '' }) as unknown as string;
-      if (current && (current === simple || current === nested)) {
-        return key;
-      }
-    }
-    return '';
-  }, [active.topic, active.title, t]);
-
-  // Helpers to localize display-only values (do not mutate underlying data)
-  const safeString = (v: any) => (typeof v === 'string' ? v : (v == null ? '' : String(v)));
-  const lx = (path: string, fallback: string) => {
-    const translated = t(path, { defaultValue: fallback }) as unknown as string;
-    if (!translated || translated === path) {
-      return safeString(fallback);
-    }
-    return safeString(translated);
-  };
-  const localizeList = (baseKey: string, list: any) => {
-    try {
-      const arr = Array.isArray(list) ? list : [];
-      return arr.map((v, i) => lx(`${baseKey}.${i}`, safeString(v)));
-    } catch {
-      return Array.isArray(list) ? list.map((v: any) => safeString(v)) : [];
-    }
+  const updateSections = (updater: (sections: SystemSection[]) => SystemSection[]) => {
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const nextSections = updater([...(prev.systemSections || [])]);
+      return {
+        ...prev,
+        systemSections: nextSections,
+      };
+    });
   };
 
   const handleToggle = () => {
-    if (editing && draft) {
-      onChange(draft);
+    if (!editing) {
+      if (active.readOnly) {
+        message.info(t('pages.prompts.readOnlyPrompt', { defaultValue: 'This prompt is read-only. Create a copy to edit.' }));
+        return;
+      }
+      setEditing(true);
+      return;
     }
-    setEditing(!editing);
+
+    if (draft) {
+      const prepared = buildPromptForSave(draft);
+      setDraft(prepared);
+      onChange(prepared);
+    }
+    setEditing(false);
   };
 
   const previewText = useMemo(() => {
     const lines: string[] = [];
 
-    // Resolve display values with localization when showing built-in examples (non-editing + exampleSlug)
-    const viewTitle = editing || !exampleSlug
-      ? active.title
-      : lx(`pages.prompts.examples.${exampleSlug}.title`, active.title);
+    const sanitizedSections = sanitizeSections(active.systemSections || []);
 
-    const viewRoleTone = editing || !exampleSlug
-      ? active.roleToneContext
-      : lx(`pages.prompts.examples.${exampleSlug}.roleToneContext`, active.roleToneContext);
-
-    const viewGoals = (editing || !exampleSlug)
-      ? active.goals
-      : localizeList(`pages.prompts.examples.${exampleSlug}.goals`, active.goals);
-
-    const viewGuidelines = (editing || !exampleSlug)
-      ? active.guidelines
-      : localizeList(`pages.prompts.examples.${exampleSlug}.guidelines`, active.guidelines);
-
-    const viewRules = (editing || !exampleSlug)
-      ? active.rules
-      : localizeList(`pages.prompts.examples.${exampleSlug}.rules`, active.rules);
-
-    const viewInstructions = (editing || !exampleSlug)
-      ? active.instructions
-      : localizeList(`pages.prompts.examples.${exampleSlug}.instructions`, active.instructions);
-
-    const viewSysInputs = (editing || !exampleSlug)
-      ? active.sysInputs
-      : localizeList(`pages.prompts.examples.${exampleSlug}.sysInputs`, active.sysInputs);
-
-    const viewHumanInputs = (editing || !exampleSlug)
-      ? active.humanInputs
-      : localizeList(`pages.prompts.examples.${exampleSlug}.humanInputs`, active.humanInputs);
-
-    if (viewTitle) lines.push(`# ${safeString(viewTitle)}`);
-
-    if (viewRoleTone) {
-      lines.push(t('pages.prompts.preview.systemRoleToneContext', { defaultValue: 'System: role/tone/context' }) + ':');
-      lines.push(safeString(viewRoleTone).trim());
+    if (active.title) {
+      lines.push(`# ${active.title}`);
     }
 
-    const pushList = (label: string, arr: string[]) => {
-      const list = Array.isArray(arr) ? arr : [];
-      if (list.length) {
-        lines.push(label + ':');
-        list.forEach((v) => { const s = safeString(v).trim(); if (s) lines.push(`- ${s}`); });
-      }
-    };
+    sanitizedSections.forEach((section) => {
+      const labelKey = SECTION_LABELS[section.type];
+      const label = t(labelKey, { defaultValue: labelKey.split('.').pop()?.replace(/([A-Z])/g, ' $1') });
+      lines.push(`${label}:`);
+      section.items.forEach((item, idx) => {
+        const content = item.trim();
+        if (!content) return;
+        const prefix = section.items.length > 1 ? `${idx + 1}. ` : '';
+        lines.push(`${prefix}${content}`);
+      });
+    });
 
-    pushList(t('pages.prompts.preview.goals', { defaultValue: 'Goals' }), viewGoals);
-    pushList(t('pages.prompts.preview.guidelines', { defaultValue: 'Guidelines' }), viewGuidelines);
-    pushList(t('pages.prompts.preview.rules', { defaultValue: 'Rules' }), viewRules);
-    pushList(t('pages.prompts.preview.instructions', { defaultValue: 'Instructions' }), viewInstructions);
-    pushList(t('pages.prompts.preview.systemInputs', { defaultValue: 'System inputs' }), viewSysInputs);
-    pushList(t('pages.prompts.preview.humanInputs', { defaultValue: 'Human inputs' }), viewHumanInputs);
+    if ((active.humanInputs || []).length) {
+      lines.push(t('pages.prompts.preview.humanInputs', { defaultValue: 'Human inputs' }) + ':');
+      active.humanInputs.forEach((item) => {
+        const trimmed = typeof item === 'string' ? item.trim() : '';
+        if (trimmed) lines.push(`- ${trimmed}`);
+      });
+    }
 
     return lines.join('\n');
-  }, [active, editing, exampleSlug, t]);
+  }, [active.systemSections, active.title, active.humanInputs, t]);
 
   const copyPreview = async () => {
     try { await navigator.clipboard.writeText(previewText); message.success(t('pages.prompts.copied', { defaultValue: 'Copied' })); } catch {}
@@ -290,7 +456,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
             key={`title-ta-${autoSizeEnabled ? 'auto' : 'fixed'}`}
             autoSize={autoSizeEnabled && editing ? { minRows: 2, maxRows: 6 } : undefined}
             rows={autoSizeEnabled && editing ? undefined : 2}
-            value={safeString(editing ? active.title : (exampleSlug ? lx(`pages.prompts.examples.${exampleSlug}.title`, active.title) : active.title))}
+            value={typeof active.title === 'string' ? active.title : ''}
             onChange={(e) => update({ title: e.target.value })}
             placeholder={t('pages.prompts.placeholders.title', { defaultValue: 'Title' })}
             disabled={!editing}
@@ -299,88 +465,164 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
         </Section>
         <Divider style={{ margin: '0 0 8px' }} />
 
-        <Section title={t('pages.prompts.sections.roleToneContext', { defaultValue: 'System prompt: role / tone / context' })}>
-          <Input.TextArea
-            key={`rtc-ta-${autoSizeEnabled ? 'auto' : 'fixed'}`}
-            autoSize={autoSizeEnabled && editing ? { minRows: 3, maxRows: 8 } : undefined}
-            rows={autoSizeEnabled && editing ? undefined : 3}
-            value={safeString(editing ? active.roleToneContext : (exampleSlug ? lx(`pages.prompts.examples.${exampleSlug}.roleToneContext`, active.roleToneContext) : active.roleToneContext))}
-            onChange={(e) => update({ roleToneContext: e.target.value })}
-            placeholder={t('pages.prompts.placeholders.roleToneContext', { defaultValue: 'Describe the assistant role, tone, and context' })}
-            disabled={!editing}
-            style={{ lineHeight: '20px', fontSize: 14 }}
-          />
-        </Section>
-        <Divider style={{ margin: '0 0 8px' }} />
-
-        <Section title={t('pages.prompts.sections.goals', { defaultValue: 'System prompt: goals' })}>
-          <RepeatableList
-            values={editing || !exampleSlug ? active.goals : localizeList(`pages.prompts.examples.${exampleSlug}.goals`, active.goals)}
-            onAdd={() => update({ goals: [...active.goals, ''] })}
-            onRemove={(idx) => update({ goals: active.goals.filter((_, i) => i !== idx) })}
-            onUpdate={(idx, val) => update({ goals: active.goals.map((g, i) => i === idx ? val : g) })}
-            placeholder={t('pages.prompts.placeholders.addGoal', { defaultValue: 'Add a goal' })}
-            autoSizeEnabled={autoSizeEnabled}
-            disabled={!editing}
-          />
-        </Section>
-        <Divider style={{ margin: '0 0 8px' }} />
-
-        <Section title={t('pages.prompts.sections.guidelines', { defaultValue: 'System prompt: guidelines' })}>
-          <RepeatableList
-            values={editing || !exampleSlug ? active.guidelines : localizeList(`pages.prompts.examples.${exampleSlug}.guidelines`, active.guidelines)}
-            onAdd={() => update({ guidelines: [...active.guidelines, ''] })}
-            onRemove={(idx) => update({ guidelines: active.guidelines.filter((_, i) => i !== idx) })}
-            onUpdate={(idx, val) => update({ guidelines: active.guidelines.map((g, i) => i === idx ? val : g) })}
-            placeholder={t('pages.prompts.placeholders.addGuideline', { defaultValue: 'Add a guideline' })}
-            autoSizeEnabled={autoSizeEnabled}
-            disabled={!editing}
-          />
-        </Section>
-        <Divider style={{ margin: '0 0 8px' }} />
-
-        <Section title={t('pages.prompts.sections.rules', { defaultValue: 'System prompt: rules' })}>
-          <RepeatableList
-            values={editing || !exampleSlug ? active.rules : localizeList(`pages.prompts.examples.${exampleSlug}.rules`, active.rules)}
-            onAdd={() => update({ rules: [...active.rules, ''] })}
-            onRemove={(idx) => update({ rules: active.rules.filter((_, i) => i !== idx) })}
-            onUpdate={(idx, val) => update({ rules: active.rules.map((g, i) => i === idx ? val : g) })}
-            placeholder={t('pages.prompts.placeholders.addRule', { defaultValue: 'Add a rule' })}
-            autoSizeEnabled={autoSizeEnabled}
-            disabled={!editing}
-          />
-        </Section>
-        <Divider style={{ margin: '0 0 8px' }} />
-
-        <Section title={t('pages.prompts.sections.instructions', { defaultValue: 'System prompt: instructions' })}>
-          <RepeatableList
-            values={editing || !exampleSlug ? active.instructions : localizeList(`pages.prompts.examples.${exampleSlug}.instructions`, active.instructions)}
-            onAdd={() => update({ instructions: [...active.instructions, ''] })}
-            onRemove={(idx) => update({ instructions: active.instructions.filter((_, i) => i !== idx) })}
-            onUpdate={(idx, val) => update({ instructions: active.instructions.map((g, i) => i === idx ? val : g) })}
-            placeholder={t('pages.prompts.placeholders.addInstruction', { defaultValue: 'Add an instruction' })}
-            autoSizeEnabled={autoSizeEnabled}
-            disabled={!editing}
-          />
-        </Section>
-        <Divider style={{ margin: '0 0 8px' }} />
-
-        <Section title={t('pages.prompts.sections.systemInputs', { defaultValue: 'System prompt: inputs' })}>
-          <RepeatableList
-            values={editing || !exampleSlug ? active.sysInputs : localizeList(`pages.prompts.examples.${exampleSlug}.sysInputs`, active.sysInputs)}
-            onAdd={() => update({ sysInputs: [...active.sysInputs, ''] })}
-            onRemove={(idx) => update({ sysInputs: active.sysInputs.filter((_, i) => i !== idx) })}
-            onUpdate={(idx, val) => update({ sysInputs: active.sysInputs.map((g, i) => i === idx ? val : g) })}
-            placeholder={t('pages.prompts.placeholders.addSystemInput', { defaultValue: 'Add a system input' })}
-            autoSizeEnabled={autoSizeEnabled}
-            disabled={!editing}
-          />
+        <Section
+          title={t('pages.prompts.sections.systemPrompt', { defaultValue: 'System prompt sections' })}
+          extra={(
+            <Space>
+              <Select<SystemSectionType>
+                size="small"
+                value={newSectionType}
+                onChange={(value) => setNewSectionType(value)}
+                options={SECTION_TYPE_OPTIONS.map((option) => ({
+                  label: t(option.labelKey, { defaultValue: option.labelKey.split('.').pop()?.replace(/([A-Z])/g, ' $1') }),
+                  value: option.value,
+                }))}
+                disabled={!editing}
+                style={{ minWidth: 200 }}
+              />
+              <Button
+                icon={<PlusOutlined />}
+                disabled={!editing}
+                onClick={() => {
+                  const typeToAdd = newSectionType;
+                  setDraft((prev) => {
+                    if (!prev) return prev;
+                    const nextSections = [...(prev.systemSections || []), createSection(typeToAdd)];
+                    return {
+                      ...prev,
+                      systemSections: nextSections,
+                    };
+                  });
+                }}
+              />
+            </Space>
+          )}
+        >
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {(active.systemSections || []).map((section, idx, arr) => {
+              const disabled = !editing || section.readOnly || active.readOnly;
+              const placeholder = SECTION_PLACEHOLDERS[section.type] || '';
+              const labelKey = SECTION_LABELS[section.type];
+              const title = t(labelKey, { defaultValue: labelKey.split('.').pop()?.replace(/([A-Z])/g, ' $1') });
+              return (
+                <Section
+                  key={section.id}
+                  title={`${title}`}
+                  extra={(
+                    <Space size={4}>
+                      <Tooltip title={t('common.moveUp', { defaultValue: 'Move up' })}>
+                        <TinyIconButton
+                          icon={<ArrowUpOutlined style={{ fontSize: 10 }} />}
+                          disabled={disabled || idx === 0}
+                          ariaLabel={t('common.moveUp', { defaultValue: 'Move up' })}
+                          onClick={() => {
+                            if (disabled || idx === 0) return;
+                            updateSections((sections) => {
+                              const next = [...sections];
+                              [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+                              return next;
+                            });
+                          }}
+                        />
+                      </Tooltip>
+                      <Tooltip title={t('common.moveDown', { defaultValue: 'Move down' })}>
+                        <TinyIconButton
+                          icon={<ArrowDownOutlined style={{ fontSize: 10 }} />}
+                          disabled={disabled || idx === arr.length - 1}
+                          ariaLabel={t('common.moveDown', { defaultValue: 'Move down' })}
+                          onClick={() => {
+                            if (disabled || idx === arr.length - 1) return;
+                            updateSections((sections) => {
+                              const next = [...sections];
+                              [next[idx + 1], next[idx]] = [next[idx], next[idx + 1]];
+                              return next;
+                            });
+                          }}
+                        />
+                      </Tooltip>
+                      {!disabled && (
+                        <Tooltip title={t('common.remove', { defaultValue: 'Remove' })}>
+                          <Button
+                            icon={<DeleteOutlined />}
+                            size="small"
+                            danger
+                            onClick={() => {
+                              updateSections((sections) => sections.filter((s) => s.id !== section.id));
+                            }}
+                          />
+                        </Tooltip>
+                      )}
+                    </Space>
+                  )}
+                >
+                  <Space direction="vertical" style={{ width: '100%' }}>
+                    {section.items.map((item, itemIdx) => (
+                      <div key={`${section.id}-item-${itemIdx}`} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                        <Typography.Text style={{ width: 28, color: 'rgba(255,255,255,0.65)', paddingTop: 4 }}>{`${itemIdx + 1})`}</Typography.Text>
+                        <Input.TextArea
+                          autoSize={autoSizeEnabled && !disabled ? { minRows: 2, maxRows: 6 } : undefined}
+                          rows={autoSizeEnabled && !disabled ? undefined : 2}
+                          value={item}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            updateSections((sections) =>
+                              sections.map((s) =>
+                                s.id === section.id
+                                  ? { ...s, items: s.items.map((existing, idxInner) => (idxInner === itemIdx ? value : existing)) }
+                                  : s,
+                              ),
+                            );
+                          }}
+                          placeholder={placeholder ? t(`pages.prompts.placeholders.${section.type}`, { defaultValue: placeholder }) : undefined}
+                          disabled={disabled}
+                          style={{ flex: 1, lineHeight: '20px', fontSize: 14 }}
+                        />
+                        {!disabled && (
+                          <Button
+                            icon={<MinusCircleOutlined />}
+                            danger
+                            onClick={() => {
+                              updateSections((sections) =>
+                                sections
+                                  .map((s) =>
+                                    s.id === section.id
+                                      ? { ...s, items: s.items.filter((_, idxInner) => idxInner !== itemIdx) }
+                                      : s,
+                                  )
+                                  .filter((s) => s.items.length > 0),
+                              );
+                            }}
+                          />
+                        )}
+                      </div>
+                    ))}
+                    {!disabled && (
+                      <Button
+                        icon={<PlusOutlined />}
+                        onClick={() => {
+                          updateSections((sections) =>
+                            sections.map((s) =>
+                              s.id === section.id
+                                ? { ...s, items: [...s.items, ''] }
+                                : s,
+                            ),
+                          );
+                        }}
+                      >
+                        {t('common.add')}
+                      </Button>
+                    )}
+                  </Space>
+                </Section>
+              );
+            })}
+          </Space>
         </Section>
         <Divider style={{ margin: '0 0 8px' }} />
 
         <Section title={t('pages.prompts.sections.humanInputs', { defaultValue: 'Human prompt: inputs' })}>
           <RepeatableList
-            values={editing || !exampleSlug ? active.humanInputs : localizeList(`pages.prompts.examples.${exampleSlug}.humanInputs`, active.humanInputs)}
+            values={active.humanInputs}
             onAdd={() => update({ humanInputs: [...active.humanInputs, ''] })}
             onRemove={(idx) => update({ humanInputs: active.humanInputs.filter((_, i) => i !== idx) })}
             onUpdate={(idx, val) => update({ humanInputs: active.humanInputs.map((g, i) => i === idx ? val : g) })}

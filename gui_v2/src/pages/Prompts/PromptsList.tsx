@@ -14,9 +14,10 @@ interface PromptsListProps {
   onAdd: () => void;
   onDelete: (id: string) => void;
   onRefresh: () => void;
+  onDuplicate: (id: string) => void;
 }
 
-const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect, search, onSearchChange, onAdd, onDelete, onRefresh }) => {
+const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect, search, onSearchChange, onAdd, onDelete, onRefresh, onDuplicate }) => {
   const { t } = useTranslation();
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -43,7 +44,26 @@ const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect
               actions={[
                 <Dropdown
                   key="menu"
-                  menu={{ items: [{ key: 'delete', label: t('common.delete'), danger: true }] as MenuProps['items'], onClick: ({ key }) => { if (key === 'delete') onDelete(item.id); } }}
+                  menu={{
+                    items: (
+                      [
+                        {
+                          key: 'copy',
+                          label: t('pages.prompts.copyCreate', { defaultValue: 'Copy create' }),
+                          icon: <PlusOutlined />,
+                        },
+                        ...(item.readOnly ? [] : [{ key: 'delete', label: t('common.delete'), danger: true }]),
+                      ]
+                    ) as MenuProps['items'],
+                    onClick: ({ key }) => {
+                      if (key === 'delete') {
+                        onDelete(item.id);
+                      }
+                      if (key === 'copy') {
+                        onDuplicate(item.id);
+                      }
+                    },
+                  }}
                   trigger={["click"]}
                   placement="bottomRight"
                 >
@@ -51,35 +71,82 @@ const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect
                 </Dropdown>
               ]}
             >
-              <List.Item.Meta
-                title={<span style={{ color: '#fff' }}>
-                  {(() => {
-                    const rawTitle = (item.title || '').trim();
-                    if (rawTitle) return rawTitle;
-                    const slug = (item.topic || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
-                    const titleKey = `pages.prompts.examples.${slug}.title`;
-                    const titleText = t(titleKey, { defaultValue: '' });
-                    if (titleText && titleText !== titleKey) return titleText;
-                    return t(`pages.prompts.examples.${slug}`, { defaultValue: item.topic });
-                  })()}
-                </span>}
-                description={
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', color: 'rgba(255,255,255,0.65)' }}>
-                    <div>
-                      <Badge count={item.usageCount} style={{ backgroundColor: '#3b82f6' }} />
-                      <Typography.Text style={{ marginLeft: 8, color: 'rgba(255,255,255,0.65)' }}>{t('pages.prompts.uses', { defaultValue: 'uses' })}</Typography.Text>
-                    </div>
-                    <Typography.Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12 }}>
+              {(() => {
+                const locationSlug = (item.location || '').trim();
+                const locationName = (() => {
+                  if (!locationSlug) return '';
+                  if (locationSlug === 'sample_prompts') {
+                    return t('pages.prompts.locations.sample', { defaultValue: 'Sample prompts' });
+                  }
+                  if (locationSlug === 'my_prompts') {
+                    return t('pages.prompts.locations.mine', { defaultValue: 'My prompts' });
+                  }
+                  return locationSlug;
+                })();
+                const tooltipTitle = locationName ? t('pages.prompts.locationTooltip', { defaultValue: 'Location: {{location}}', location: locationName }) : undefined;
+
+                const meta = (
+                  <List.Item.Meta
+                    title={<span style={{ color: '#fff' }}>
                       {(() => {
-                        if (!item.lastModified) return '';
-                        const date = new Date(item.lastModified);
-                        if (Number.isNaN(date.getTime())) return item.lastModified;
-                        return date.toLocaleString();
+                        const rawTitle = (item.title || '').trim();
+                        if (rawTitle) return rawTitle;
+                        const slug = (item.topic || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+                        const titleKey = `pages.prompts.examples.${slug}.title`;
+                        const titleText = t(titleKey, { defaultValue: '' });
+                        if (titleText && titleText !== titleKey) return titleText;
+                        return t(`pages.prompts.examples.${slug}`, { defaultValue: item.topic });
                       })()}
-                    </Typography.Text>
-                  </div>
-                }
-              />
+                    </span>}
+                    description={
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          color: 'rgba(255,255,255,0.65)',
+                          gap: 12,
+                          flexWrap: 'nowrap',
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            flexShrink: 0,
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          <Badge count={item.usageCount} style={{ backgroundColor: '#3b82f6' }} />
+                          <Typography.Text style={{ color: 'rgba(255,255,255,0.65)', whiteSpace: 'nowrap' }}>
+                            {t('pages.prompts.uses', { defaultValue: 'uses' })}
+                          </Typography.Text>
+                          {item.readOnly && (
+                            <Typography.Text style={{ color: '#facc15', fontSize: 12, whiteSpace: 'nowrap' }}>
+                              {t('pages.prompts.sampleTag', { defaultValue: 'Sample' })}
+                            </Typography.Text>
+                          )}
+                        </div>
+                        <Typography.Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                          {(() => {
+                            if (!item.lastModified) return '';
+                            const date = new Date(item.lastModified);
+                            if (Number.isNaN(date.getTime())) return item.lastModified;
+                            return date.toLocaleString();
+                          })()}
+                        </Typography.Text>
+                      </div>
+                    }
+                  />
+                );
+
+                return tooltipTitle ? (
+                  <Tooltip title={tooltipTitle} mouseEnterDelay={0.2}>
+                    <div style={{ width: '100%' }}>{meta}</div>
+                  </Tooltip>
+                ) : meta;
+              })()}
             </List.Item>
           )}
         />

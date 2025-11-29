@@ -1,13 +1,15 @@
 /**
  * Browser Automation node custom form
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
 import { Divider, Select } from '@douyinfe/semi-ui';
 import { defaultFormMeta } from '../default-form-meta';
 import { FormContent, FormHeader, FormItem, FormInputs } from '../../form-components';
 import { DisplayOutputs } from '@flowgram.ai/form-materials';
 import { get_ipc_api } from '../../../../services/ipc_api';
+import { usePromptStore } from '../../../../stores/promptStore';
+import { useUserStore } from '../../../../stores/userStore';
 
 const TOOL_OPTIONS = [
   { label: 'browser-use', value: 'browser-use' },
@@ -44,11 +46,34 @@ async function fetchLLMProviders(): Promise<Map<string, any>> {
 }
 
 export const FormRender = (_props: FormRenderProps<any>) => {
+  const username = useUserStore((s) => s.username || 'user');
+  const { prompts, fetch, fetched } = usePromptStore();
   const [llmProviders, setLlmProviders] = useState<Map<string, any>>(new Map());
 
   useEffect(() => {
     fetchLLMProviders().then(setLlmProviders);
   }, []);
+
+  useEffect(() => {
+    if (!fetched && username) {
+      fetch(username);
+    }
+  }, [fetched, fetch, username]);
+
+  const promptOptions = useMemo(() => {
+    const base = prompts.map((prompt) => {
+      const location = prompt.location === 'sample_prompts' ? 'sample' : 'my';
+      const label = `${location}:${prompt.title || prompt.topic || prompt.id}`;
+      return {
+        label,
+        value: prompt.id,
+      };
+    });
+    return [
+      { label: 'In-line Prompt', value: 'inline' as const },
+      ...base,
+    ];
+  }, [prompts]);
 
   const providers = Array.from(llmProviders.keys());
   const modelMap: Record<string, string[]> = {};
@@ -61,6 +86,20 @@ export const FormRender = (_props: FormRenderProps<any>) => {
       <FormHeader />
       <FormContent>
         <Divider />
+        <FormItem name="promptSelection" type="string" vertical>
+          <Field<string> name="inputsValues.promptSelection.content">
+            {({ field: promptSelectorField }) => (
+              <Select
+                value={(promptSelectorField.value as string) || 'inline'}
+                onChange={(val) => promptSelectorField.onChange(val as string)}
+                optionList={promptOptions}
+                style={{ width: '100%' }}
+                dropdownMatchSelectWidth
+                size="small"
+              />
+            )}
+          </Field>
+        </FormItem>
         {/* Tool selector */}
         <FormItem name="tool" type="string" vertical>
           <Field<string> name="inputsValues.tool.content">
@@ -127,7 +166,22 @@ export const FormRender = (_props: FormRenderProps<any>) => {
         </FormItem>
 
         {/* Render the rest of inputs using the default component (temperature, prompts) */}
-        <FormInputs />
+        <Field<string> name="inputsValues.promptSelection.content">
+          {({ field: promptSelectorField }) => (
+            <Field<string> name="inputsValues.promptSelection.content">
+              {({ field: promptSelectorField }) => (
+                <FormInputs
+                  extraFilter={(key) => {
+                    if ((key === 'systemPrompt' || key === 'prompt') && promptSelectorField.value && promptSelectorField.value !== 'inline') {
+                      return false;
+                    }
+                    return true;
+                  }}
+                />
+              )}
+            </Field>
+          )}
+        </Field>
         <Divider />
         <DisplayOutputs displayFromScope />
       </FormContent>

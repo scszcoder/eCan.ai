@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 const Prompts: React.FC = () => {
   const username = useUserStore((s) => s.username || 'user');
   const { t } = useTranslation();
-  const { prompts, fetch, save, fetched } = usePromptStore();
+  const { prompts, fetch, save, duplicate, fetched } = usePromptStore();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 
@@ -51,6 +51,8 @@ const Prompts: React.FC = () => {
       instructions: [],
       sysInputs: [],
       humanInputs: [],
+      systemSections: [],
+      examples: [],
     };
     save(username, np).then(() => setSelectedId(newId));
   };
@@ -63,6 +65,16 @@ const Prompts: React.FC = () => {
 
   const handleRefresh = () => {
     fetch(username, true);
+  };
+
+  const handleDuplicate = (id: string) => {
+    const source = prompts.find((p) => p.id === id);
+    if (!source) return;
+    duplicate(username, source).then((copy) => {
+      if (copy?.id) {
+        setSelectedId(copy.id);
+      }
+    });
   };
 
   return (
@@ -79,6 +91,7 @@ const Prompts: React.FC = () => {
           onAdd={handleAdd}
           onDelete={handleDelete}
           onRefresh={handleRefresh}
+          onDuplicate={handleDuplicate}
         />
       }
       detailsContent={<PromptsDetail prompt={selected} onChange={handleChange} />}

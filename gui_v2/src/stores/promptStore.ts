@@ -10,6 +10,7 @@ interface PromptStoreState {
   fetch: (username: string, force?: boolean) => Promise<void>;
   save: (username: string, prompt: Prompt) => Promise<Prompt | null>;
   remove: (username: string, id: string) => Promise<boolean>;
+  duplicate: (username: string, source: Prompt) => Promise<Prompt | null>;
 }
 
 export const usePromptStore = create<PromptStoreState>((set, get) => ({
@@ -33,6 +34,9 @@ export const usePromptStore = create<PromptStoreState>((set, get) => ({
     }
   },
   save: async (username: string, prompt: Prompt) => {
+    if (prompt.readOnly) {
+      return null;
+    }
     try {
       const res: APIResponse<{ prompt: Prompt }> = await IPCAPI.getInstance().executeRequest('save_prompt', { username, prompt });
       if (!res.success) throw new Error(res.error?.message || 'Failed to save');
@@ -50,6 +54,10 @@ export const usePromptStore = create<PromptStoreState>((set, get) => ({
   },
   remove: async (username: string, id: string) => {
     try {
+      const target = get().prompts.find((p) => p.id === id);
+      if (target?.readOnly) {
+        return false;
+      }
       const res: APIResponse<any> = await IPCAPI.getInstance().executeRequest('delete_prompt', { username, id });
       if (!res.success) throw new Error(res.error?.message || 'Failed to delete');
       set((state) => ({ prompts: state.prompts.filter(p => p.id !== id) }));
@@ -57,5 +65,42 @@ export const usePromptStore = create<PromptStoreState>((set, get) => ({
     } catch (e) {
       return false;
     }
+  },
+  duplicate: async (username: string, source: Prompt) => {
+    const baseTitle = (source.title || source.topic || 'prompt').trim() || 'prompt';
+    const title = `${baseTitle}_copy`;
+    const topic = `${(source.topic || source.title || baseTitle).trim() || baseTitle}_copy`;
+    const newId = `pr-${Date.now().toString(36)}-${Math.floor(Math.random() * 10000)}`;
+
+    const cloneSection = (section: NonNullable<Prompt['systemSections']>[number]) => ({
+      id: `${section.type}_${Math.random().toString(36).slice(2, 10)}`,
+      type: section.type,
+      items: [...(section.items || [])],
+    });
+
+    const clonePrompt: Prompt = {
+      ...source,
+      id: newId,
+      title,
+      topic,
+      usageCount: 0,
+      lastModified: undefined,
+      readOnly: false,
+      roleToneContext: source.roleToneContext || '',
+      goals: [...(source.goals || [])],
+      guidelines: [...(source.guidelines || [])],
+      rules: [...(source.rules || [])],
+      instructions: [...(source.instructions || [])],
+      sysInputs: [...(source.sysInputs || [])],
+      humanInputs: [...(source.humanInputs || [])],
+      examples: [...(source.examples || [])],
+      systemSections: (source.systemSections || []).map(cloneSection),
+    };
+
+    const saved = await get().save(username, clonePrompt);
+    if (saved) {
+      set((state) => ({ prompts: [saved, ...state.prompts.filter(p => p.id !== saved.id)] }));
+    }
+    return saved;
   },
 }));
