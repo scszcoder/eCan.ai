@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Header } from 'antd/es/layout/layout';
-import { Button, Badge, Dropdown, Space, Avatar, MenuProps } from 'antd';
+import { Button, Badge, Dropdown, Space, MenuProps, Modal } from 'antd';
 import { MenuFoldOutlined, MenuUnfoldOutlined, BellOutlined, UserOutlined, SettingOutlined, GlobalOutlined, SkinOutlined, LogoutOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
@@ -11,6 +11,8 @@ import { App } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { get_ipc_api } from '../../services/ipc_api';
 import { messageManager } from '../../pages/Chat/managers/MessageManager';
+import { userStorageManager, type UserInfo } from '../../services/storage/UserStorageManager';
+import { UserAvatar } from '../Common/UserAvatar';
 
 const StyledHeader = styled(Header)`
     padding: 0 24px;
@@ -118,20 +120,6 @@ const UserSection = styled(Space)`
     }
 `;
 
-const StyledAvatar = styled(Avatar)`
-    background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
-    border: 2px solid rgba(255, 255, 255, 0.2);
-    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
-    flex-shrink: 0;
-    width: 32px;
-    height: 32px;
-    line-height: 32px;
-    
-    .anticon {
-        font-size: 16px;
-    }
-`;
-
 interface AppHeaderProps {
     collapsed: boolean;
     onCollapse: () => void;
@@ -147,8 +135,20 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
     const username = useUserStore((state) => state.username);
     const navigate = useNavigate();
 
+    // 从存储中获取完整的用户信息（支持账号登录和 Google 登录）
+    const storedUserInfo: UserInfo | null = userStorageManager.getUserInfo();
+    // 显示名称优先级：name > username > email
+    const displayName = storedUserInfo?.name || storedUserInfo?.username || storedUserInfo?.email || username || t('common.username');
+    const displayEmail = storedUserInfo?.email;
+    const displayRole = storedUserInfo?.role;
+    const displayPicture = storedUserInfo?.picture;
+    const loginType = storedUserInfo?.login_type;
+    const loginSession = userStorageManager.getLoginSession();
+    const loginTimeText = loginSession ? new Date(loginSession.loginTime).toLocaleString() : null;
+
     // 控制下拉Menu的DisplayStatus
     const [dropdownVisible, setDropdownVisible] = useState(false);
+    const [profileVisible, setProfileVisible] = useState(false);
     
     // CRITICAL: Track total unread count from all chats
     const [totalUnreadCount, setTotalUnreadCount] = useState(0);
@@ -220,6 +220,9 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
     // ProcessMenu项Click
     const handleMenuClick = useCallback((key: string) => {
         switch (key) {
+            case 'profile':
+                setProfileVisible(true);
+                break;
             case 'settings':
                 navigate('/settings');
                 break;
@@ -359,10 +362,75 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
                             setDropdownVisible(!dropdownVisible);
                         }}
                     >
-                        <StyledAvatar icon={<UserOutlined />} />
-                        <span>{username || t('common.username')}</span>
+                        <UserAvatar name={displayName} picture={displayPicture} />
+                        <span>{displayName}</span>
                     </UserSection>
                 </Dropdown>
+                <Modal
+                    title={t('common.profile')}
+                    open={profileVisible}
+                    onCancel={() => setProfileVisible(false)}
+                    footer={[
+                        <Button key="close" type="primary" onClick={() => setProfileVisible(false)}>
+                            {t('common.close')}
+                        </Button>,
+                    ]}
+                    centered
+                    width={480}
+                >
+                    {storedUserInfo ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                            {/* 头像和基本信息 */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 8 }}>
+                                <UserAvatar name={displayName} picture={displayPicture} size={64} style={{ fontSize: 24 }} />
+                                <div>
+                                    <div style={{ fontSize: 18, fontWeight: 600 }}>{storedUserInfo.name || storedUserInfo.username}</div>
+                                    {displayEmail && <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 14 }}>{displayEmail}</div>}
+                                </div>
+                            </div>
+                            
+                            <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: 16 }}>
+                                {/* 用户名 */}
+                                <div style={{ marginBottom: 12 }}>
+                                    <strong>{t('common.username')}:</strong>{' '}
+                                    <span>{displayName}</span>
+                                </div>
+                                
+                                {/* 邮箱 */}
+                                {displayEmail && (
+                                    <div style={{ marginBottom: 12 }}>
+                                        <strong>{t('common.email')}:</strong>{' '}
+                                        <span>{displayEmail}</span>
+                                    </div>
+                                )}
+                                
+                                {/* 角色 */}
+                                {displayRole && (
+                                    <div style={{ marginBottom: 12 }}>
+                                        <strong>{t('common.role')}:</strong>{' '}
+                                        <span>{t(`roles.${displayRole.toLowerCase().replace(' ', '_')}`) || displayRole}</span>
+                                    </div>
+                                )}
+                                
+                                {/* 登录方式 */}
+                                <div style={{ marginBottom: 12 }}>
+                                    <strong>{t('common.login_type')}:</strong>{' '}
+                                    <span>{loginType === 'google' ? t('common.login_type_google') : t('common.login_type_password')}</span>
+                                </div>
+                                
+                                {/* 登录时间 */}
+                                {loginTimeText && (
+                                    <div style={{ marginBottom: 12 }}>
+                                        <strong>{t('common.login_time')}:</strong>{' '}
+                                        <span>{loginTimeText}</span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ) : (
+                        <div>{t('common.no_user_info')}</div>
+                    )}
+                </Modal>
             </HeaderRight>
         </StyledHeader>
     );
