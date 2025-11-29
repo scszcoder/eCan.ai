@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Input, Typography, Space, Button, Divider, Tooltip, Select, message, Card } from 'antd';
 import {
   PlusOutlined,
@@ -9,6 +9,8 @@ import {
   ArrowUpOutlined,
   ArrowDownOutlined,
   AppstoreAddOutlined,
+  UndoOutlined,
+  RedoOutlined,
 } from '@ant-design/icons';
 import type { Prompt, PromptSection, PromptSectionType } from './types';
 import { useTranslation } from 'react-i18next';
@@ -76,6 +78,8 @@ const DEFAULT_PROMPT: Prompt = {
   readOnly: false,
 };
 
+const HISTORY_LIMIT = 250;
+
 const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
   const { t } = useTranslation();
   const [editing, setEditing] = useState(false);
@@ -84,6 +88,23 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
   const [topHeight, setTopHeight] = useState<number>(360); // px
   const [dragging, setDragging] = useState(false);
   const [autoSizeEnabled, setAutoSizeEnabled] = useState(false);
+  const undoStackRef = useRef<Prompt[]>([]);
+  const redoStackRef = useRef<Prompt[]>([]);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  const clonePrompt = useCallback((value: Prompt): Prompt => JSON.parse(JSON.stringify(value)), []);
+
+  const pushUndoStack = useCallback((snapshot: Prompt) => {
+    const stack = undoStackRef.current;
+    stack.push(clonePrompt(snapshot));
+    if (stack.length > HISTORY_LIMIT) {
+      stack.shift();
+    }
+    redoStackRef.current = [];
+    setCanUndo(stack.length > 0);
+    setCanRedo(false);
+  }, [clonePrompt]);
 
   useEffect(() => {
     setDraft(prompt);
@@ -152,12 +173,27 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
     };
   }, [dragging]);
 
+  useEffect(() => {
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    setCanUndo(false);
+    setCanRedo(false);
+  }, [editing, prompt?.id]);
+
   // Avoid early return before hooks to keep hook order stable
   const hasDraft = !!(prompt && draft);
   const active = draft ?? DEFAULT_PROMPT;
 
-  const update = (mutator: (prev: Prompt) => Prompt) =>
-    setDraft((prev) => mutator(prev ?? active));
+  const update = useCallback((mutator: (prev: Prompt) => Prompt) => {
+    setDraft((prev) => {
+      const current = prev ?? DEFAULT_PROMPT;
+      const next = mutator(clonePrompt(current));
+      if (editing && !current.readOnly) {
+        pushUndoStack(current);
+      }
+      return next;
+    });
+  }, [editing, pushUndoStack, clonePrompt]);
 
   const updateFields = (patch: Partial<Prompt>) =>
     update((prev) => ({ ...prev, ...patch }));
@@ -298,6 +334,34 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
     setEditing((prev) => !prev);
   };
 
+  const handleUndo = useCallback(() => {
+    if (!editing || !undoStackRef.current.length) return;
+    setDraft((prev) => {
+      const current = prev ?? DEFAULT_PROMPT;
+      const stack = undoStackRef.current;
+      const previous = stack.pop();
+      if (!previous) return current;
+      redoStackRef.current.push(clonePrompt(current));
+      setCanUndo(stack.length > 0);
+      setCanRedo(true);
+      return previous;
+    });
+  }, [editing, clonePrompt]);
+
+  const handleRedo = useCallback(() => {
+    if (!editing || !redoStackRef.current.length) return;
+    setDraft((prev) => {
+      const current = prev ?? DEFAULT_PROMPT;
+      const stack = redoStackRef.current;
+      const nextState = stack.pop();
+      if (!nextState) return current;
+      undoStackRef.current.push(clonePrompt(current));
+      setCanRedo(stack.length > 0);
+      setCanUndo(true);
+      return nextState;
+    });
+  }, [editing, clonePrompt]);
+
   const previewText = useMemo(() => {
     const lines: string[] = [];
 
@@ -348,11 +412,36 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
           {t('pages.prompts.selectPrompt', { defaultValue: 'Select a prompt to view details' })}
         </div>
       ) : (
-      <div style={{ height: topHeight, minHeight: 150, overflow: 'auto', paddingBottom: 8 }}>
-        {/* Top editable area */}
-        <SectionContainer
-          title={t('pages.prompts.fields.title', { defaultValue: 'Title' })}
-          extra={
+        <>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '12px 16px',
+          borderBottom: '1px solid rgba(148,163,184,0.18)',
+          background: 'rgba(15,23,42,0.75)',
+          zIndex: 2,
+        }}>
+          <Typography.Title level={4} style={{ margin: 0, color: '#fff' }}>
+            {active.title || t('pages.prompts.details', { defaultValue: 'Prompt Details' })}
+          </Typography.Title>
+          <Space size={8}>
+            <Tooltip title={t('common.undo', { defaultValue: 'Undo' })}>
+              <Button
+                type="text"
+                icon={<UndoOutlined />}
+                onClick={handleUndo}
+                disabled={!editing || !canUndo}
+              />
+            </Tooltip>
+            <Tooltip title={t('common.redo', { defaultValue: 'Redo' })}>
+              <Button
+                type="text"
+                icon={<RedoOutlined />}
+                onClick={handleRedo}
+                disabled={!editing || !canRedo}
+              />
+            </Tooltip>
             <Button
               type={editing ? 'primary' : 'default'}
               icon={editing ? <SaveOutlined /> : <EditOutlined />}
@@ -360,7 +449,12 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
             >
               {editing ? t('common.save') : t('common.edit')}
             </Button>
-          }
+          </Space>
+        </div>
+      <div style={{ height: topHeight, minHeight: 150, overflow: 'auto', paddingBottom: 8 }}>
+        {/* Top editable area */}
+        <SectionContainer
+          title={t('pages.prompts.fields.title', { defaultValue: 'Title' })}
         >
           <TextArea
             key={`title-ta-${autoSizeEnabled ? 'auto' : 'fixed'}`}
@@ -547,6 +641,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
           </Space>
         </SectionContainer>
       </div>
+        </>
       )}
 
       {/* Drag handle divider */}
