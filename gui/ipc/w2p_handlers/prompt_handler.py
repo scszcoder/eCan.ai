@@ -286,6 +286,52 @@ def _load_all_prompts() -> List[Dict[str, Any]]:
     return ordered
 
 
+def _find_prompt_file_by_id(prompt_id: str) -> Optional[Path]:
+    if not prompt_id:
+        return None
+    if not MY_PROMPTS_DIR.exists():
+        return None
+    for file_path in MY_PROMPTS_DIR.glob("*.json"):
+        try:
+            with file_path.open("r", encoding="utf-8") as fp:
+                data = json.load(fp)
+            if isinstance(data, dict) and data.get("id") == prompt_id:
+                return file_path
+        except Exception as exc:
+            logger.warning(f"[prompts] failed to inspect {file_path.name}: {exc}")
+    return None
+
+
+def _serialize_prompt_for_storage(prompt: Dict[str, Any]) -> Dict[str, Any]:
+    data: Dict[str, Any] = {
+        "id": prompt.get("id", ""),
+        "title": prompt.get("title", ""),
+        "topic": prompt.get("topic", ""),
+        "usageCount": int(prompt.get("usageCount") or 0),
+        "humanInputs": _coerce_string_list(prompt.get("humanInputs")),
+    }
+
+    sections: List[Dict[str, Any]] = []
+    for entry in prompt.get("sections", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        sec_type = str(entry.get("type") or "").strip().lower()
+        if sec_type not in SECTION_TYPES:
+            continue
+        sec_id = str(entry.get("id") or uuid4().hex)
+        items = entry.get("items", [])
+        if not isinstance(items, list):
+            items = [items]
+        sections.append({
+            "id": sec_id,
+            "type": sec_type,
+            "items": _clean_section_items(_coerce_string_list(items)),
+        })
+
+    data["sections"] = sections
+    return data
+
+
 def _write_prompt_to_file(prompt: Dict[str, Any]) -> Dict[str, Any]:
     _ensure_prompt_dirs()
     prompt = deepcopy(prompt if isinstance(prompt, dict) else {})
