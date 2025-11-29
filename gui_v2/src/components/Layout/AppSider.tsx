@@ -268,30 +268,35 @@ const StyledMenu = styled(Menu)`
 
 interface AppSiderProps {
     collapsed: boolean;
-    onLogoClick: () => void;
     menuItems: MenuProps['items'];
     selectedKey: string;
     onMenuClick: ({ key }: { key: string }) => void;
 }
 
-const AppSider: React.FC<AppSiderProps> = ({ collapsed, onLogoClick, menuItems, selectedKey, onMenuClick }) => (
-    <StyledSider trigger={null} collapsible collapsed={collapsed} theme="dark">
-        <Logo onClick={onLogoClick}>
-            <div className="logo-icon">
-                <img 
-                    src={HLogo1Dark} 
-                    alt="Logo" 
-                    style={{ 
-                        maxWidth: '100%', 
-                        maxHeight: '100%', 
-                        objectFit: 'contain', 
-                        borderRadius: 0, 
-                        display: 'block',
-                        filter: 'drop-shadow(0 2px 8px rgba(59, 130, 246, 0.3))'
-                    }} 
-                />
-            </div>
-        </Logo>
+const AppSider: React.FC<AppSiderProps> = ({ collapsed, menuItems, selectedKey, onMenuClick }) => {
+    const handleLogoClick = () => {
+        // Open official website
+        window.open('https://www.ecan.ai', '_blank');
+    };
+
+    return (
+        <StyledSider trigger={null} collapsible collapsed={collapsed} theme="dark">
+            <Logo onClick={handleLogoClick}>
+                <div className="logo-icon">
+                    <img 
+                        src={HLogo1Dark} 
+                        alt="Logo" 
+                        style={{ 
+                            maxWidth: '100%', 
+                            maxHeight: '100%', 
+                            objectFit: 'contain', 
+                            borderRadius: 0, 
+                            display: 'block',
+                            filter: 'drop-shadow(0 2px 8px rgba(59, 130, 246, 0.3))'
+                        }} 
+                    />
+                </div>
+            </Logo>
         <MenuWrapper>
             <StyledMenu
                 theme="dark"
@@ -302,6 +307,7 @@ const AppSider: React.FC<AppSiderProps> = ({ collapsed, onLogoClick, menuItems, 
             />
         </MenuWrapper>
     </StyledSider>
-);
+    );
+};
 
 export default AppSider;

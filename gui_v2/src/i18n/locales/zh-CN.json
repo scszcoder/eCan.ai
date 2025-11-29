@@ -1,6 +1,8 @@
 {
   "common": {
     "logout": "退出",
+    "logout_confirm_title": "确认退出",
+    "logout_confirm_message": "您确定要退出登录吗？",
     "username": "用户名",
     "password": "密码",
     "settings": "设置",
@@ -332,6 +334,7 @@
       "skill": "技能",
       "skills": "技能",
       "skills_required": "请至少选择一个技能",
+      "tasks_required": "请至少选择一个任务",
       "subordinate": "下属",
       "subordinates": "下属们",
       "supervisor": "上级",

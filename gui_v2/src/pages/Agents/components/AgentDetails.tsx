@@ -1333,7 +1333,7 @@ const AgentDetails: React.FC = () => {
                     wordBreak: 'break-all',
                     userSelect: 'text'
                   }}>
-                    {(form.getFieldValue('id') as string) || id || ''}
+                    {watchedFormId || id || ''}
                   </div>
                 </div>
               </div>

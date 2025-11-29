@@ -1,6 +1,8 @@
 {
   "common": {
     "logout": "Logout",
+    "logout_confirm_title": "Confirm Logout",
+    "logout_confirm_message": "Are you sure you want to logout?",
     "username": "Username",
     "password": "Password",
     "settings": "Settings",
@@ -349,6 +351,7 @@
       "skill": "Skill",
       "skills": "Skills",
       "skills_required": "Please select at least one skill",
+      "tasks_required": "Please select at least one task",
       "subordinate": "Subordinate",
       "subordinates": "Subordinates",
       "supervisor": "Supervisor",
