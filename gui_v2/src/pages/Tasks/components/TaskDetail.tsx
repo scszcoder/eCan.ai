@@ -353,8 +353,6 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
           disabled={!editMode && !isNew}
         >
           <Space direction="vertical" style={{ width: '100%' }} size={24}>
-          <StyledCard>
-            <Space direction="vertical" style={{ width: '100%' }} size={24}>
               <div style={{ marginBottom: '16px' }}>
                 <StyledFormItem
                   name="name"
@@ -620,8 +618,6 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                   </StyledFormItem>
                 </Col>
               </Row>
-            </Space>
-          </StyledCard>
           </Space>
         </Form>
       </FormContainer>
