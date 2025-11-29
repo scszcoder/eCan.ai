@@ -513,7 +513,18 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           )}
         </Field>
         {/* Render the rest of inputs using the default component */}
-        <FormInputs />
+        <Field<string> name="inputsValues.promptSelection.content">
+          {({ field: promptSelectorField }) => (
+            <FormInputs
+              extraFilter={(key) => {
+                if ((key === 'systemPrompt' || key === 'prompt') && promptSelectorField.value && promptSelectorField.value !== 'inline') {
+                  return false;
+                }
+                return true;
+              }}
+            />
+          )}
+        </Field>
         <Divider />
         <DisplayOutputs displayFromScope />
       </FormContent>

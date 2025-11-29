@@ -168,14 +168,18 @@ export const FormRender = (_props: FormRenderProps<any>) => {
         {/* Render the rest of inputs using the default component (temperature, prompts) */}
         <Field<string> name="inputsValues.promptSelection.content">
           {({ field: promptSelectorField }) => (
-            <FormInputs
-              extraFilter={(key) => {
-                if (key === 'prompt' && promptSelectorField.value && promptSelectorField.value !== 'inline') {
-                  return false;
-                }
-                return true;
-              }}
-            />
+            <Field<string> name="inputsValues.promptSelection.content">
+              {({ field: promptSelectorField }) => (
+                <FormInputs
+                  extraFilter={(key) => {
+                    if ((key === 'systemPrompt' || key === 'prompt') && promptSelectorField.value && promptSelectorField.value !== 'inline') {
+                      return false;
+                    }
+                    return true;
+                  }}
+                />
+              )}
+            </Field>
           )}
         </Field>
         <Divider />
