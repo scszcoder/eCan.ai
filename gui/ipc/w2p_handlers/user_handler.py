@@ -29,6 +29,26 @@ def get_message_from_cognito_error(error_code, default_key):
     key = COGNITO_ERROR_MAP.get(error_code, default_key)
     return auth_messages.get_message(key)
 
+def _build_user_info_response(request, token, user_profile, username, machine_role, login_type, message_key):
+    """Helper to build consistent user info response for both login methods."""
+    user_email = user_profile.get('email') or username
+    
+    return create_success_response(request, {
+        'token': token,
+        'message': auth_messages.get_message(message_key),
+        'user_info': {
+            'username': username,
+            'email': user_email,
+            'role': machine_role,
+            'name': user_profile.get('name', ''),
+            'given_name': user_profile.get('given_name', ''),
+            'family_name': user_profile.get('family_name', ''),
+            'picture': user_profile.get('picture', ''),
+            'email_verified': user_profile.get('email_verified', True),
+            'login_type': login_type
+        }
+    })
+
 @IPCHandlerRegistry.handler('login')
 def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Handles login requests with internationalized responses."""
@@ -78,16 +98,12 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
             except Exception as e:
                 logger.debug(f"[user_handler] Could not schedule onboarding check: {e}")
             
-            # Return consistent response format with user_info (like Google login)
-            return create_success_response(request, {
-                'token': token,
-                'message': auth_messages.get_message('login_success'),
-                'user_info': {
-                    'username': username,
-                    'role': machine_role,
-                    'email': username  # For email-based usernames
-                }
-            })
+            # Get user profile from AuthManager (populated during login)
+            user_profile = login.auth_manager.get_user_profile()
+            
+            return _build_user_info_response(
+                request, token, user_profile, username, machine_role, 'password', 'login_success'
+            )
         else:
             error_code = result.get('error', 'login_failed')
             message = get_message_from_cognito_error(error_code, 'login_failed')
@@ -284,9 +300,10 @@ def handle_google_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         if result.get('success'):
             from gui.ipc.token_manager import token_manager
             user_email = login.auth_manager.get_current_user()
+            user_profile = login.auth_manager.get_user_profile()
             session_token = token_manager.generate_token(user_email, machine_role)
             
-            logger.info(f"[GoogleLogin] Completed for {user_email}")
+            logger.info(f"[GoogleLogin] Completed for {user_email}, profile: {user_profile}")
             
             # Trigger onboarding check after successful Google login
             try:
@@ -308,15 +325,9 @@ def handle_google_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -
             except Exception as e:
                 logger.debug(f"[user_handler] Could not schedule onboarding check: {e}")
             
-            return create_success_response(request, {
-                'token': session_token,
-                'message': result.get('message', auth_messages.get_message('google_login_success')),
-                'user_info': {
-                    'username': user_email,
-                    'role': machine_role,
-                    'email': user_email
-                }
-            })
+            return _build_user_info_response(
+                request, session_token, user_profile, user_email, machine_role, 'google', 'google_login_success'
+            )
         else:
             error_msg = result.get('error', 'Unknown error')
             logger.error(f"[GoogleLogin] Failed: {error_msg}")

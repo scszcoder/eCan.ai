@@ -13,6 +13,12 @@ export interface UserInfo {
   username: string;
   role: string;
   email?: string;
+  name?: string;           // Display name (from Google profile)
+  given_name?: string;     // First name
+  family_name?: string;    // Last name
+  picture?: string;        // Avatar URL (from Google)
+  email_verified?: boolean;
+  login_type?: 'password' | 'google';  // Login method
 }
 
 export interface LoginSession {
