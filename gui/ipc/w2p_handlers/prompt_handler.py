@@ -29,6 +29,7 @@ SECTION_TYPES: Tuple[str, ...] = (
     "instructions",
     "examples",
     "variables",
+    "additional",
 )
 
 
@@ -119,6 +120,7 @@ def _normalize_prompt(raw: Any, *, source: str, read_only: bool, last_modified_t
         prompt["usageCount"] = 0
 
     prompt["sections"] = _normalize_sections(data.get("sections"), data)
+    prompt["userSections"] = _normalize_sections(data.get("userSections"), {})
     prompt["humanInputs"] = _coerce_string_list(data.get("humanInputs") or data.get("human_inputs"))
 
     if isinstance(last_modified_ts, (int, float)):
