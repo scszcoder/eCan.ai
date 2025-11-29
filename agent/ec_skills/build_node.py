@@ -1678,6 +1678,12 @@ def build_rag_node(config_metadata: dict, node_name: str, skill_name: str, owner
             state["error"] = f"rag node failed to set tool_result: {err_msg}"
 
         add_to_history(state, ActionMessage(content=f"action: rag {str(query)}; result: {results}; {err_msg}"))
+        return state
+
+    return node_builder(_rag, node_name, skill_name, owner, bp_manager)
+
+
+def build_browser_automation_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
     """Browser automation scaffold.
 
     Config keys (best-effort):
