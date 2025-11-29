@@ -18,6 +18,21 @@ const TOOL_OPTIONS = [
   { label: 'browsebase', value: 'browsebase' },
 ];
 
+const BROWSER_OPTIONS = [
+  { label: 'New Chromium', value: 'new chromium' },
+  { label: 'Existing Chrome', value: 'existing chrome' },
+  { label: 'Ads Power', value: 'ads power' },
+  { label: 'Ziniao', value: 'ziniao' },
+  { label: 'Multi-Login', value: 'multi-login' },
+];
+
+const BROWSER_DRIVER_OPTIONS = [
+  { label: 'Native', value: 'native' },
+  { label: 'Selenium', value: 'selenium' },
+  { label: 'Playwright', value: 'playwright' },
+  { label: 'Puppeteer', value: 'puppeteer' },
+];
+
 // Cache for LLM providers from backend
 let cachedProviders: Map<string, any> = new Map();
 let cacheTime: number = 0;
@@ -112,6 +127,53 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                 style={{ width: '100%' }}
                 dropdownMatchSelectWidth
                 size="small"
+              />
+            )}
+          </Field>
+        </FormItem>
+
+        {/* Browser selector */}
+        <FormItem name="browser" type="string" vertical>
+          <Field<string> name="inputsValues.browser.content">
+            {({ field }) => (
+              <Select
+                value={(field.value as string) || BROWSER_OPTIONS[0].value}
+                onChange={(val) => field.onChange(val as string)}
+                optionList={BROWSER_OPTIONS}
+                style={{ width: '100%' }}
+                dropdownMatchSelectWidth
+                size="small"
+              />
+            )}
+          </Field>
+        </FormItem>
+
+        {/* Browser Driver selector */}
+        <FormItem name="browserDriver" type="string" vertical>
+          <Field<string> name="inputsValues.browserDriver.content">
+            {({ field }) => (
+              <Select
+                value={(field.value as string) || BROWSER_DRIVER_OPTIONS[0].value}
+                onChange={(val) => field.onChange(val as string)}
+                optionList={BROWSER_DRIVER_OPTIONS}
+                style={{ width: '100%' }}
+                dropdownMatchSelectWidth
+                size="small"
+              />
+            )}
+          </Field>
+        </FormItem>
+
+        {/* CDP Port input */}
+        <FormItem name="cdpPort" type="string" vertical>
+          <Field<string> name="inputsValues.cdpPort.content">
+            {({ field }) => (
+              <input
+                type="text"
+                value={(field.value as string) || ''}
+                onChange={(e) => field.onChange(e.target.value)}
+                placeholder="CDP Port (e.g., 9222)"
+                style={{ width: '100%', padding: '6px 12px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '3px' }}
               />
             )}
           </Field>
