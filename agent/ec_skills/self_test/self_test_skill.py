@@ -88,6 +88,13 @@ def test1_node(state: NodeState) -> NodeState:
     mainwin = agent.mainwin
     try:
         print("about to run playwright:", type(state), state)
+        
+        # Check if unified_browser_manager is available
+        if not hasattr(mainwin, 'unified_browser_manager') or mainwin.unified_browser_manager is None:
+            state["error"] = "Unified browser manager not available (system shutting down?)"
+            logger.warning(f"[test1_node] {state['error']}")
+            return state
+            
         bs = mainwin.unified_browser_manager.get_browser_session()
         try:
             loop = asyncio.get_event_loop()
