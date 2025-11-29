@@ -8,6 +8,7 @@ import { Divider, Select, Button, Space, Tag, Tooltip } from '@douyinfe/semi-ui'
 import { IconPaperclip } from '@douyinfe/semi-icons';
 import { defaultFormMeta } from '../default-form-meta';
 import { FormContent, FormHeader, FormItem, FormInputs } from '../../form-components';
+import { PromptInputWithSelector } from '../../form-components/PromptInputWithSelector';
 import { DisplayOutputs, createInferInputsPlugin } from '@flowgram.ai/form-materials';
 import { get_ipc_api } from '../../../../services/ipc_api';
 import { usePromptStore } from '../../../../stores/promptStore';
@@ -512,6 +513,26 @@ export const FormRender = (_props: FormRenderProps<any>) => {
         </FormItem>
           )}
         </Field>
+
+        {/* System Prompt with Selector */}
+        <Divider />
+        <PromptInputWithSelector
+          promptFieldName="inputsValues.systemPrompt"
+          promptIdFieldName="inputsValues.systemPromptId"
+          label="System Prompt"
+          promptType="systemPrompt"
+          schema={{ type: 'string' }}
+        />
+
+        {/* User Prompt with Selector */}
+        <PromptInputWithSelector
+          promptFieldName="inputsValues.prompt"
+          promptIdFieldName="inputsValues.promptId"
+          label="Prompt"
+          promptType="prompt"
+          schema={{ type: 'string' }}
+        />
+
         {/* Render the rest of inputs using the default component */}
         <Field<string> name="inputsValues.promptSelection.content">
           {({ field: promptSelectorField }) => (

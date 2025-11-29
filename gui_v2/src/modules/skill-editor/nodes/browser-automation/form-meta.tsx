@@ -6,6 +6,7 @@ import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-edito
 import { Divider, Select } from '@douyinfe/semi-ui';
 import { defaultFormMeta } from '../default-form-meta';
 import { FormContent, FormHeader, FormItem, FormInputs } from '../../form-components';
+import { PromptInputWithSelector } from '../../form-components/PromptInputWithSelector';
 import { DisplayOutputs } from '@flowgram.ai/form-materials';
 import { get_ipc_api } from '../../../../services/ipc_api';
 import { usePromptStore } from '../../../../stores/promptStore';
@@ -165,7 +166,26 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           </Field>
         </FormItem>
 
-        {/* Render the rest of inputs using the default component (temperature, prompts) */}
+        {/* System Prompt with Selector */}
+        <Divider />
+        <PromptInputWithSelector
+          promptFieldName="inputsValues.systemPrompt"
+          promptIdFieldName="inputsValues.systemPromptId"
+          label="System Prompt"
+          promptType="systemPrompt"
+          schema={{ type: 'string' }}
+        />
+
+        {/* User Prompt with Selector */}
+        <PromptInputWithSelector
+          promptFieldName="inputsValues.prompt"
+          promptIdFieldName="inputsValues.promptId"
+          label="Prompt"
+          promptType="prompt"
+          schema={{ type: 'string' }}
+        />
+
+        {/* Render the rest of inputs using the default component (temperature, etc) */}
         <Field<string> name="inputsValues.promptSelection.content">
           {({ field: promptSelectorField }) => (
             <Field<string> name="inputsValues.promptSelection.content">
