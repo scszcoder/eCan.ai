@@ -31,6 +31,9 @@ export const BrowserAutomationNodeRegistry: FlowNodeRegistry = {
         title: `Browser_${++index}`,
         inputsValues: {
           tool: { type: 'constant', content: 'browser-use' },
+          browser: { type: 'constant', content: 'new chromium' },
+          browserDriver: { type: 'constant', content: 'native' },
+          cdpPort: { type: 'constant', content: '' },
           modelProvider: { type: 'constant', content: 'OpenAI' },
           modelName: { type: 'constant', content: 'gpt-3.5-turbo' },
           temperature: { type: 'constant', content: 0.3 },
@@ -40,9 +43,12 @@ export const BrowserAutomationNodeRegistry: FlowNodeRegistry = {
         },
         inputs: {
           type: 'object',
-          required: ['tool', 'modelProvider', 'modelName', 'temperature', 'prompt'],
+          required: ['tool', 'browser', 'browserDriver', 'modelProvider', 'modelName', 'temperature', 'prompt'],
           properties: {
             tool: { type: 'string', extra: { formComponent: 'input' } },
+            browser: { type: 'string', extra: { formComponent: 'input' } },
+            browserDriver: { type: 'string', extra: { formComponent: 'input' } },
+            cdpPort: { type: 'string', extra: { formComponent: 'input' } },
             modelProvider: { type: 'string', extra: { formComponent: 'input' } },
             modelName: { type: 'string', extra: { formComponent: 'input' } },
             temperature: { type: 'number' },
