@@ -50,6 +50,7 @@ const SECTION_LABELS: Record<PromptSectionType, string> = {
   instructions: 'Instructions',
   examples: 'Examples',
   variables: 'Variables',
+  additional: 'Additional Text',
 };
 
 const SECTION_PLACEHOLDERS: Partial<Record<PromptSectionType, string>> = {
@@ -62,6 +63,7 @@ const SECTION_PLACEHOLDERS: Partial<Record<PromptSectionType, string>> = {
   examples: 'Add an example instruction/output…',
   instructions: 'Add a numbered instruction…',
   variables: 'Add a variable placeholder, e.g. {{customer_name}}…',
+  additional: 'Add additional text or context…',
 };
 
 const AVAILABLE_SECTION_TYPES: { value: PromptSectionType; label: string }[] = (
@@ -74,6 +76,7 @@ const DEFAULT_PROMPT: Prompt = {
   topic: '',
   usageCount: 0,
   sections: [],
+  userSections: [],
   humanInputs: [],
   source: 'my_prompts',
   readOnly: false,
@@ -280,7 +283,108 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
     }));
   };
 
+  const handleHumanInputMove = (index: number, direction: -1 | 1) => {
+    update((prev) => {
+      const inputs = [...prev.humanInputs];
+      const newIndex = index + direction;
+      if (newIndex < 0 || newIndex >= inputs.length) return prev;
+      [inputs[index], inputs[newIndex]] = [inputs[newIndex], inputs[index]];
+      return { ...prev, humanInputs: inputs };
+    });
+  };
+
+  const handleRemoveAllSections = () => {
+    update((prev) => ({
+      ...prev,
+      sections: [],
+    }));
+  };
+
+  const handleUserSectionChange = (sectionId: string, items: string[]) => {
+    update((prev) => ({
+      ...prev,
+      userSections: prev.userSections.map((sec) =>
+        sec.id === sectionId ? { ...sec, items: items.length ? items : [''] } : sec
+      ),
+    }));
+  };
+
+  const handleUserSectionRemove = (sectionId: string) => {
+    update((prev) => ({
+      ...prev,
+      userSections: prev.userSections.filter((sec) => sec.id !== sectionId),
+    }));
+  };
+
+  const handleUserSectionMove = (sectionId: string, direction: -1 | 1) => {
+    update((prev) => {
+      const sections = [...prev.userSections];
+      const index = sections.findIndex((sec) => sec.id === sectionId);
+      if (index === -1) return prev;
+      const newIndex = index + direction;
+      if (newIndex < 0 || newIndex >= sections.length) return prev;
+      [sections[index], sections[newIndex]] = [sections[newIndex], sections[index]];
+      return { ...prev, userSections: sections };
+    });
+  };
+
+  const handleUserSectionAdd = (type: PromptSectionType) => {
+    const newSection: PromptSection = {
+      id: `user-${type}-${Date.now()}`,
+      type,
+      items: [''],
+    };
+    update((prev) => ({
+      ...prev,
+      userSections: [...prev.userSections, newSection],
+    }));
+  };
+
+  const handleUserSectionItemAdd = (sectionId: string) => {
+    update((prev) => ({
+      ...prev,
+      userSections: prev.userSections.map((sec) =>
+        sec.id === sectionId ? { ...sec, items: [...sec.items, ''] } : sec
+      ),
+    }));
+  };
+
+  const handleUserSectionItemRemove = (sectionId: string, index: number) => {
+    update((prev) => ({
+      ...prev,
+      userSections: prev.userSections
+        .map((sec) =>
+          sec.id === sectionId
+            ? { ...sec, items: sec.items.filter((_, idx) => idx !== index) }
+            : sec
+        )
+        .filter((sec) => sec.items.length > 0),
+    }));
+  };
+
+  const handleUserSectionItemUpdate = (sectionId: string, index: number, value: string) => {
+    update((prev) => ({
+      ...prev,
+      userSections: prev.userSections.map((sec) =>
+        sec.id === sectionId
+          ? {
+              ...sec,
+              items: sec.items.map((item, idx) => (idx === index ? value : item)),
+            }
+          : sec
+      ),
+    }));
+  };
+
+  const handleRemoveAllUserSections = () => {
+    update((prev) => ({
+      ...prev,
+      userSections: [],
+    }));
+  };
+
   const [sectionToAdd, setSectionToAdd] = useState<PromptSectionType>('role');
+  const [userSectionToAdd, setUserSectionToAdd] = useState<PromptSectionType>('goals');
 
   // Derive example slug from topic/title, with fallback matching against known examples
   const exampleSlug = useMemo(() => {
@@ -513,6 +617,17 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
                   className={styles.smallButton}
                 />
               </Tooltip>
+              <Tooltip title={t('pages.prompts.removeAllSections', { defaultValue: 'Remove all sections' })}>
+                <Button
+                  danger
+                  type="text"
+                  size="small"
+                  icon={<DeleteOutlined />}
+                  onClick={handleRemoveAllSections}
+                  disabled={!isEditable || sortedSections.length === 0}
+                  className={styles.tinyIconButton}
+                />
+              </Tooltip>
             </Space>
           }
         >
@@ -617,45 +732,138 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
 
         <Divider style={{ margin: '16px 0' }} />
 
-        <SectionContainer title={t('pages.prompts.sections.humanInputs', { defaultValue: 'Human prompt inputs' })}>
-          <Space direction="vertical" style={{ width: '100%' }}>
-            {active.humanInputs.map((item, idx) => (
-              <div key={`human-input-${idx}`} style={{ display: 'flex', gap: 8 }}>
-                <Typography.Text style={{ color: 'rgba(148,163,184,0.9)', minWidth: 28 }}>
-                  {idx + 1})
-                </Typography.Text>
-                <TextArea
-                  autoSize={autoSizeEnabled && editing ? { minRows: 2, maxRows: 4 } : undefined}
-                  rows={autoSizeEnabled && editing ? undefined : 2}
-                  value={item}
-                  placeholder={t('pages.prompts.placeholders.addHumanInput', { defaultValue: 'Add a human input' })}
-                  disabled={isReadOnly}
-                  onChange={(e) => updateFields({
-                    humanInputs: active.humanInputs.map((val, i) => (i === idx ? e.target.value : val)),
-                  })}
+        <SectionContainer
+          title={t('pages.prompts.sections.userPrompt', { defaultValue: 'User Prompt Sections' })}
+          extra={
+            <Space>
+              <Select
+                size="small"
+                value={userSectionToAdd}
+                onChange={(value: PromptSectionType) => setUserSectionToAdd(value)}
+                options={AVAILABLE_SECTION_TYPES.map(({ value, label }) => ({
+                  value,
+                  label: t(`pages.prompts.sectionLabels.${value}`, { defaultValue: label }),
+                }))}
+                style={{ minWidth: 180 }}
+                disabled={!isEditable}
+              />
+              <Tooltip title={t('pages.prompts.addSection', { defaultValue: 'Add section' })}>
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<AppstoreAddOutlined />}
+                  onClick={() => handleUserSectionAdd(userSectionToAdd)}
+                  disabled={!isEditable}
+                  className={styles.smallButton}
                 />
+              </Tooltip>
+              <Tooltip title={t('pages.prompts.removeAllSections', { defaultValue: 'Remove all sections' })}>
                 <Button
                   danger
                   type="text"
                   size="small"
                   icon={<DeleteOutlined />}
-                  disabled={!isEditable}
-                  onClick={() => updateFields({ humanInputs: active.humanInputs.filter((_, i) => i !== idx) })}
+                  onClick={handleRemoveAllUserSections}
+                  disabled={!isEditable || (active.userSections?.length ?? 0) === 0}
                   className={styles.tinyIconButton}
-                  style={{ marginTop: 4 }}
                 />
-              </div>
-            ))}
-            <Button
-              type="dashed"
-              size="small"
-              icon={<PlusOutlined />}
-              onClick={() => updateFields({ humanInputs: [...active.humanInputs, ''] })}
-              disabled={!isEditable}
-              className={styles.smallButtonWithText}
-            >
-              {t('common.add')}
-            </Button>
+              </Tooltip>
+            </Space>
+          }
+        >
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            {(!active.userSections || active.userSections.length === 0) && (
+              <Typography.Text type="secondary">
+                {t('pages.prompts.emptySections', { defaultValue: 'No sections yet. Add one using the selector above.' })}
+              </Typography.Text>
+            )}
+            {(active.userSections ?? []).map((section, index) => {
+              const label = t(`pages.prompts.sectionLabels.${section.type}`, {
+                defaultValue: SECTION_LABELS[section.type] || section.type,
+              });
+              return (
+                <Card
+                  key={section.id}
+                  size="small"
+                  bordered
+                  style={{ background: 'rgba(15,23,42,0.65)', borderColor: 'rgba(148,163,184,0.2)' }}
+                  title={<Typography.Text strong style={{ color: '#fff' }}>{label}</Typography.Text>}
+                  extra={
+                    <Space size={4}>
+                      <Tooltip title={t('pages.prompts.moveUp', { defaultValue: 'Move up' })}>
+                        <Button
+                          type="text"
+                          size="small"
+                          className={styles.arrowButton}
+                          icon={<ArrowUpOutlined style={{ fontSize: 10 }} />}
+                          disabled={index === 0 || !isEditable}
+                          onClick={() => handleUserSectionMove(section.id, -1)}
+                        />
+                      </Tooltip>
+                      <Tooltip title={t('pages.prompts.moveDown', { defaultValue: 'Move down' })}>
+                        <Button
+                          type="text"
+                          size="small"
+                          className={styles.arrowButton}
+                          icon={<ArrowDownOutlined style={{ fontSize: 10 }} />}
+                          disabled={index === (active.userSections?.length ?? 0) - 1 || !isEditable}
+                          onClick={() => handleUserSectionMove(section.id, 1)}
+                        />
+                      </Tooltip>
+                      <Tooltip title={t('common.remove', { defaultValue: 'Remove' })}>
+                        <Button
+                          danger
+                          type="text"
+                          size="small"
+                          className={styles.tinyIconButton}
+                          icon={<DeleteOutlined />}
+                          disabled={!isEditable}
+                          onClick={() => handleUserSectionRemove(section.id)}
+                        />
+                      </Tooltip>
+                    </Space>
+                  }
+                >
+                  <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                    {section.items.map((item, idx) => (
+                      <div key={`${section.id}-${idx}`} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                        <Typography.Text style={{ color: 'rgba(148,163,184,0.9)', minWidth: 28 }}>
+                          {idx + 1})
+                        </Typography.Text>
+                        <TextArea
+                          autoSize={autoSizeEnabled && editing ? { minRows: 2, maxRows: 6 } : undefined}
+                          rows={autoSizeEnabled && editing ? undefined : 2}
+                          value={item}
+                          placeholder={SECTION_PLACEHOLDERS[section.type] || t('pages.prompts.placeholders.addItem', { defaultValue: 'Add an item' })}
+                          disabled={isReadOnly}
+                          onChange={(e) => handleUserSectionItemUpdate(section.id, idx, e.target.value)}
+                        />
+                        <Button
+                          danger
+                          type="text"
+                          size="small"
+                          icon={<DeleteOutlined />}
+                          disabled={!isEditable}
+                          onClick={() => handleUserSectionItemRemove(section.id, idx)}
+                          className={styles.tinyIconButton}
+                          style={{ marginTop: 4 }}
+                        />
+                      </div>
+                    ))}
+                    <Button
+                      type="dashed"
+                      size="small"
+                      icon={<PlusOutlined />}
+                      onClick={() => handleUserSectionItemAdd(section.id)}
+                      disabled={!isEditable}
+                      className={styles.smallButtonWithText}
+                    >
+                      {t('common.add')}
+                    </Button>
+                  </Space>
+                </Card>
+              );
+            })}
           </Space>
         </SectionContainer>
       </div>

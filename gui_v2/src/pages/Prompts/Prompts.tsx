@@ -45,6 +45,7 @@ const Prompts: React.FC = () => {
       topic: t('pages.prompts.newPrompt'),
       usageCount: 0,
       sections: [],
+      userSections: [],
       humanInputs: [],
       source: 'my_prompts',
       readOnly: false,

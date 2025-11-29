@@ -7,7 +7,8 @@ export type PromptSectionType =
   | 'rules'
   | 'instructions'
   | 'examples'
-  | 'variables';
+  | 'variables'
+  | 'additional';
 
 export interface PromptSection {
   id: string;
@@ -20,8 +21,9 @@ export interface Prompt {
   title: string;
   topic: string; // topic phrase for list item
   usageCount: number;
-  sections: PromptSection[];
-  humanInputs: string[]; // user prompt inputs
+  sections: PromptSection[]; // system prompt sections
+  userSections: PromptSection[]; // user prompt sections
+  humanInputs: string[]; // legacy field, kept for backward compatibility
   lastModified?: string;
   source?: 'my_prompts' | 'sample_prompts';
   readOnly?: boolean;
