@@ -64,6 +64,10 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
             type: 'template',
             content: '',
           },
+          promptSelection: {
+            type: 'constant',
+            content: 'inline',
+          },
         },
         inputs: {
           type: 'object',
@@ -102,6 +106,12 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
               type: 'string',
               extra: {
                 formComponent: 'prompt-editor',
+              },
+            },
+            promptSelection: {
+              type: 'string',
+              extra: {
+                skipDefault: true,
               },
             },
           },

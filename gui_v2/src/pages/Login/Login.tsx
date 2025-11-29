@@ -197,13 +197,19 @@ const Login: React.FC = () => {
 				const { token, user_info } = response.data;
 				const username = user_info?.username || values.username;
 
-				// 使用统一的UserStorage管理器
+				// 使用统一的UserStorage管理器，保存完整的用户信息
 				const loginSession = {
 					token,
 					userInfo: {
 						username,
+						email: user_info?.email || username,
 						role: user_info?.role || values.role,
-						email: user_info?.email
+						name: user_info?.name || '',
+						given_name: user_info?.given_name || '',
+						family_name: user_info?.family_name || '',
+						picture: user_info?.picture || '',
+						email_verified: user_info?.email_verified ?? true,
+						login_type: user_info?.login_type || 'password'
 					},
 					loginTime: Date.now()
 				};
@@ -412,15 +418,22 @@ const Login: React.FC = () => {
         setGoogleLoginProgress('success');
 
         const { token, user_info, message } = response.data;
-        const username = user_info.username || user_info.email;
+        // 优先使用 name（显示名称），其次是 username，最后是 email
+        const displayName = user_info.name || user_info.username || user_info.email;
 
-        // 使用统一的UserStorage管理器
+        // 使用统一的UserStorage管理器，保存完整的用户信息
         const loginSession = {
           token,
           userInfo: {
-            username,
+            username: displayName,
+            email: user_info.email,
             role: user_info.role || selectedRole,
-            email: user_info.email
+            name: user_info.name || '',
+            given_name: user_info.given_name || '',
+            family_name: user_info.family_name || '',
+            picture: user_info.picture || '',
+            email_verified: user_info.email_verified ?? false,
+            login_type: user_info.login_type || 'google'
           },
           loginTime: Date.now()
         };

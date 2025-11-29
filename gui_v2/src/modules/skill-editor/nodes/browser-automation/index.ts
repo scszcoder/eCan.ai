@@ -36,6 +36,7 @@ export const BrowserAutomationNodeRegistry: FlowNodeRegistry = {
           temperature: { type: 'constant', content: 0.3 },
           systemPrompt: { type: 'template', content: 'You are a helpful browser automation agent.' },
           prompt: { type: 'template', content: '' },
+          promptSelection: { type: 'constant', content: 'inline' },
         },
         inputs: {
           type: 'object',
@@ -46,7 +47,8 @@ export const BrowserAutomationNodeRegistry: FlowNodeRegistry = {
             modelName: { type: 'string', extra: { formComponent: 'input' } },
             temperature: { type: 'number' },
             systemPrompt: { type: 'string', extra: { formComponent: 'prompt-editor' } },
-            prompt: { type: 'string', extra: { formComponent: 'prompt-editor' } },
+            prompt: { type: 'string', extra: { formComponent: 'prompt-editor', enablePromptLibrary: true } },
+            promptSelection: { type: 'string', extra: { skipDefault: true } },
           },
         },
         outputs: DEFAULT_NODE_OUTPUTS,

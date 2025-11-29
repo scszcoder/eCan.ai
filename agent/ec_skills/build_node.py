@@ -18,7 +18,7 @@ from langchain_openai import ChatOpenAI, AzureChatOpenAI
 from langchain_community.chat_models import ChatAnthropic
 from langchain_community.chat_models import ChatOllama
 from langchain_deepseek import ChatDeepSeek
-from app_context import AppContext
+from gui.ipc.w2p_handlers import prompt_handler
 web_gui = AppContext.get_web_gui()
 
 
@@ -110,6 +110,103 @@ def add_to_history(state, messages):
 
 
 STANDARD_SYS_PROMPT = "You are a helpful AI assistant."
+BROWSER_AUTOMATION_SYS_PROMPT = "You are a helpful browser automation agent."
+
+
+def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_user: str) -> tuple[str, str]:
+    """Resolve system/user prompt templates based on selection."""
+    selection = (prompt_selection or "inline").strip()
+    if selection in ("", "inline"):
+        return inline_system, inline_user
+
+    try:
+        prompts = prompt_handler._load_prompts_from_disk()
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        logger.warning(f"Failed to load prompts from disk for selection '{selection}': {exc}")
+        prompts = []
+
+    prompt_data = next((p for p in prompts if p.get("id") == selection), None)
+    if not prompt_data:
+        logger.warning(f"Prompt selection '{selection}' not found. Falling back to inline prompts.")
+        return inline_system, inline_user
+
+    try:
+        normalized = prompt_handler._normalize_prompt(prompt_data)
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        logger.warning(f"Failed to normalize prompt '{selection}': {exc}")
+        return inline_system, inline_user
+
+    def _join_list(items: list[str]) -> str:
+        lines = []
+        for idx, item in enumerate(items or [], 1):
+            text = str(item).strip()
+            if text:
+                lines.append(f"{idx}. {text}")
+        return "\n".join(lines)
+
+    def _add_section(parts: list[str], title: str | None, content: str) -> None:
+        clean = content.strip()
+        if not clean:
+            return
+        if title:
+            parts.append(f"[{title}]\n{clean}")
+        else:
+            parts.append(clean)
+
+    sys_parts: list[str] = []
+    role_context = str(normalized.get("roleToneContext") or "").strip()
+    if role_context:
+        sys_parts.append(role_context)
+
+    system_sections = normalized.get("systemSections") or []
+    for section in system_sections:
+        if not isinstance(section, dict):
+            continue
+        label = str(section.get("type") or "").strip()
+        items = section.get("items") if isinstance(section.get("items"), list) else []
+        joined = _join_list(items)
+        _add_section(sys_parts, label or None, joined if joined else "")
+
+    for label, field_name in (
+        ("Goals", "goals"),
+        ("Guidelines", "guidelines"),
+        ("Rules", "rules"),
+    ):
+        values = normalized.get(field_name) if isinstance(normalized, dict) else []
+        joined = _join_list(values if isinstance(values, list) else [])
+        if joined:
+            _add_section(sys_parts, label, joined)
+
+    system_text = "\n\n".join(part for part in sys_parts if part) or inline_system
+
+    user_parts: list[str] = []
+    for value in (normalized.get("title"), normalized.get("topic")):
+        text = str(value).strip() if isinstance(value, str) else ""
+        if text:
+            user_parts.append(text)
+
+    instructions = normalized.get("instructions") if isinstance(normalized, dict) else []
+    instructions_joined = _join_list(instructions if isinstance(instructions, list) else [])
+    if instructions_joined:
+        _add_section(user_parts, "Instructions", instructions_joined)
+
+    human_inputs = normalized.get("humanInputs") if isinstance(normalized, dict) else []
+    human_inputs_joined = _join_list(human_inputs if isinstance(human_inputs, list) else [])
+    if human_inputs_joined:
+        _add_section(user_parts, "Provide", human_inputs_joined)
+
+    sys_inputs = normalized.get("sysInputs") if isinstance(normalized, dict) else []
+    sys_inputs_joined = _join_list(sys_inputs if isinstance(sys_inputs, list) else [])
+    if sys_inputs_joined:
+        _add_section(user_parts, "System Inputs", sys_inputs_joined)
+
+    additional_prompt = str(normalized.get("prompt") or "").strip()
+    if additional_prompt:
+        user_parts.append(additional_prompt)
+
+    user_text = "\n\n".join(part for part in user_parts if part) or inline_user
+
+    return system_text, user_text
 def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manager):
     """
     Builds a callable function for a LangGraph node that interacts with an LLM.
@@ -140,6 +237,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         temperature = float(((inputs.get("temperature") or {}).get("content") or 0.5))
     except Exception:
         temperature = 0.5
+    prompt_selection = ((inputs.get("promptSelection") or {}).get("content") or "inline").strip()
     system_prompt_template = ((inputs.get("systemPrompt") or {}).get("content")
                               or STANDARD_SYS_PROMPT)
     user_prompt_template = ((inputs.get("prompt") or {}).get("content")
@@ -208,8 +306,14 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
 
+        active_system_prompt, active_user_prompt = _resolve_prompt_templates(
+            prompt_selection,
+            system_prompt_template,
+            user_prompt_template,
+        )
+
         # Find all variable placeholders (e.g., {var_name}) in the prompts
-        variables = re.findall(r'\{(\w+)\}', system_prompt_template + user_prompt_template)
+        variables = re.findall(r'\{(\w+)\}', active_system_prompt + active_user_prompt)
 
         # Get attributes from state, default to an empty dict if not present
         prompt_refs = state.get("prompt_refs", {})
@@ -225,8 +329,8 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
         # Format the final prompts with values from the state
         try:
-            final_system_prompt = system_prompt_template.format(**format_context)
-            final_user_prompt = user_prompt_template.format(**format_context)
+            final_system_prompt = active_system_prompt.format(**format_context)
+            final_user_prompt = active_user_prompt.format(**format_context)
         except KeyError as e:
             err_msg = f"Error formatting prompt: Missing key {e} in state prompt_refs."
             logger.error(err_msg)
@@ -1574,10 +1678,10 @@ def build_rag_node(config_metadata: dict, node_name: str, skill_name: str, owner
             state["error"] = f"rag node failed to set tool_result: {err_msg}"
 
         add_to_history(state, ActionMessage(content=f"action: rag {str(query)}; result: {results}; {err_msg}"))
-
         return state
 
     return node_builder(_rag, node_name, skill_name, owner, bp_manager)
+
 
 def build_browser_automation_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
     """Browser automation scaffold.
@@ -1595,7 +1699,16 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     action = (config_metadata or {}).get("action") or "open_page"
     params = (config_metadata or {}).get("params") or {}
     wait_for_done = bool((config_metadata or {}).get("wait_for_done", False))
-    task_text = (config_metadata or {}).get("task") or f"{action} {params}".strip()
+    base_task_text = (config_metadata or {}).get("task") or f"{action} {params}".strip()
+
+    inputs = (config_metadata or {}).get("inputsValues", {}) or {}
+    prompt_selection = ((inputs.get("promptSelection") or {}).get("content") or "inline").strip()
+    inline_system_prompt = ((inputs.get("systemPrompt") or {}).get("content")
+                            or (config_metadata or {}).get("systemPrompt")
+                            or BROWSER_AUTOMATION_SYS_PROMPT)
+    inline_user_prompt = ((inputs.get("prompt") or {}).get("content")
+                          or (config_metadata or {}).get("prompt")
+                          or base_task_text)
 
     async def _run_browser_use(task: str, mainwin) -> dict:
         try:
@@ -1628,6 +1741,40 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             return {"error": str(err_msg)}
 
     def _auto(state: dict, *, runtime=None, store=None, **kwargs):
+        active_system_prompt, active_user_prompt = _resolve_prompt_templates(
+            prompt_selection,
+            inline_system_prompt,
+            inline_user_prompt,
+        )
+
+        variables = re.findall(r'\{(\w+)\}', active_system_prompt + active_user_prompt)
+        prompt_refs = state.get("prompt_refs", {}) if isinstance(state, dict) else {}
+        format_context = {}
+        for var in variables:
+            if var in prompt_refs:
+                format_context[var] = prompt_refs[var]
+            else:
+                logger.warning(f"[build_browser_automation_node] Variable '{{{var}}}' missing in prompt_refs; using empty string.")
+                format_context[var] = ""
+
+        try:
+            final_system_prompt = active_system_prompt.format(**format_context)
+            final_user_prompt = active_user_prompt.format(**format_context)
+        except KeyError as exc:
+            err_msg = f"Error formatting browser automation prompt, missing key {exc}"
+            logger.error(err_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            state['error'] = err_msg
+            final_system_prompt = active_system_prompt
+            final_user_prompt = active_user_prompt
+
+        # Combine prompts into task instructions for browser_use agent
+        task_instructions = final_user_prompt.strip() or base_task_text or final_system_prompt.strip()
+        if final_system_prompt.strip():
+            combined_task = f"{final_system_prompt.strip()}\n\n{task_instructions}"
+        else:
+            combined_task = task_instructions
+
         if provider == 'browser-use':
             # Get mainwin from agent via state
             mainwin = None
@@ -1648,7 +1795,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 logger.error(f"[build_browser_automation_node] {err_msg}")
                 web_gui.get_ipc_api().send_skill_editor_log("error", f"[build_browser_automation_node] {err_msg}")
                 state.setdefault("tool_result", {})
-                state["tool_result"][node_name] = {"provider": provider, "task": task_text, "error": err_msg}
+                state["tool_result"][node_name] = {"provider": provider, "task": task_instructions, "error": err_msg}
 
                 add_to_history(state, ActionMessage(content=f"action: browser-use {task_text}; result: {err_msg}"))
 
@@ -1656,25 +1803,30 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             
             info = {}
             try:
-                info = run_async_in_sync(_run_browser_use(task_text, mainwin)) or {}
+                info = run_async_in_sync(_run_browser_use(combined_task, mainwin)) or {}
             except Exception as e:
                 info = {"error": f"browser-use run failed: {e}"}
             state.setdefault("tool_result", {})
-            state["tool_result"][node_name] = {"provider": provider, "task": task_text, **info}
+            state["tool_result"][node_name] = {
+                "provider": provider,
+                "task": task_instructions,
+                "systemPrompt": final_system_prompt,
+                **info,
+            }
             # Optionally interrupt if downstream needs human check
             if wait_for_done and info.get("error"):
                 interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": f"Automation pending: {action}"})
 
-            add_to_history(state, ActionMessage(content=f"action: browser-use {task_text}; result: {info}"))
+            add_to_history(state, ActionMessage(content=f"action: browser-use {task_instructions}; result: {info}"))
 
             return state
         # Fallback: record intent for other providers
         intents = state.setdefault("metadata", {}).setdefault("automation_intents", [])
-        intents.append({"node": node_name, "provider": provider, "action": action, "params": params, "task": task_text})
+        intents.append({"node": node_name, "provider": provider, "action": action, "params": params, "task": combined_task})
         if wait_for_done:
             interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": f"Please perform automation: {action}"})
 
-        add_to_history(state, ActionMessage(content=f"action: non browser-use {task_text}; result: {info}"))
+        add_to_history(state, ActionMessage(content=f"action: non browser-use {task_instructions}; result: {info}"))
 
         return state
 
