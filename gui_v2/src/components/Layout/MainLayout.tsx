@@ -16,6 +16,7 @@ import {
     ReadOutlined,
     ExperimentOutlined,
     UserOutlined,
+    IdcardOutlined,
     ApartmentOutlined,
     ShopOutlined,
     ShoppingOutlined
@@ -129,7 +130,13 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
     const userMenuItems = React.useMemo<MenuProps['items']>(() => [
         { key: 'profile', icon: <UserOutlined />, label: t('common.profile') },
-    ], [t]) as NonNullable<MenuProps['items']>;
+        {
+            key: 'account',
+            icon: <IdcardOutlined />,
+            label: t('common.account'),
+            onClick: () => navigate('/account'),
+        },
+    ], [navigate, t]) as NonNullable<MenuProps['items']>;
 
     // Prevent navigation if already on the target route
     const onMenuClick = ({ key }: { key: string }) => {
