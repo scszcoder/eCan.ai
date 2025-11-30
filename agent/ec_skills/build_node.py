@@ -1191,12 +1191,12 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
     except Exception:
         tool_name = None
 
-    if not tool_name:
-        err_msg = "'tool_name' is missing in config_metadata for mcp_tool_calling_node."
+    if not tool_name or tool_name == "llm auto select":
+        err_msg = "'tool_name' is auto selected by llm."
         logger.error(err_msg)
         web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
 
-        return lambda state: {**state, 'error': 'MCP tool_name not configured'}
+        tool_name = state["tool_name"]
 
     # --- MCP tool input helpers (schema-aware) ---
 
