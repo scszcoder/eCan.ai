@@ -289,7 +289,14 @@ export function useEditorProps(
       /**
        * Running line
        */
-      isFlowingLine: (ctx, line) => ctx.get(WorkflowRuntimeService).isFlowingLine(line),
+      isFlowingLine: (ctx, line) => {
+        try {
+          return ctx.get(WorkflowRuntimeService).isFlowingLine(line);
+        } catch (e) {
+          // WorkflowRuntimeService might not be available in all contexts
+          return false;
+        }
+      },
       /**
        * Shortcuts
        */
