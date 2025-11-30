@@ -6,6 +6,7 @@ import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-edito
 import { Divider, Select } from '@douyinfe/semi-ui';
 import { defaultFormMeta } from '../default-form-meta';
 import { FormContent, FormHeader, FormItem, FormInputs } from '../../form-components';
+import { PromptInputWithSelector } from '../../form-components/PromptInputWithSelector';
 import { DisplayOutputs } from '@flowgram.ai/form-materials';
 import { get_ipc_api } from '../../../../services/ipc_api';
 import { usePromptStore } from '../../../../stores/promptStore';
@@ -15,6 +16,21 @@ const TOOL_OPTIONS = [
   { label: 'browser-use', value: 'browser-use' },
   { label: 'crawl4ai', value: 'crawl4ai' },
   { label: 'browsebase', value: 'browsebase' },
+];
+
+const BROWSER_OPTIONS = [
+  { label: 'New Chromium', value: 'new chromium' },
+  { label: 'Existing Chrome', value: 'existing chrome' },
+  { label: 'Ads Power', value: 'ads power' },
+  { label: 'Ziniao', value: 'ziniao' },
+  { label: 'Multi-Login', value: 'multi-login' },
+];
+
+const BROWSER_DRIVER_OPTIONS = [
+  { label: 'Native', value: 'native' },
+  { label: 'Selenium', value: 'selenium' },
+  { label: 'Playwright', value: 'playwright' },
+  { label: 'Puppeteer', value: 'puppeteer' },
 ];
 
 // Cache for LLM providers from backend
@@ -116,6 +132,53 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           </Field>
         </FormItem>
 
+        {/* Browser selector */}
+        <FormItem name="browser" type="string" vertical>
+          <Field<string> name="inputsValues.browser.content">
+            {({ field }) => (
+              <Select
+                value={(field.value as string) || BROWSER_OPTIONS[0].value}
+                onChange={(val) => field.onChange(val as string)}
+                optionList={BROWSER_OPTIONS}
+                style={{ width: '100%' }}
+                dropdownMatchSelectWidth
+                size="small"
+              />
+            )}
+          </Field>
+        </FormItem>
+
+        {/* Browser Driver selector */}
+        <FormItem name="browserDriver" type="string" vertical>
+          <Field<string> name="inputsValues.browserDriver.content">
+            {({ field }) => (
+              <Select
+                value={(field.value as string) || BROWSER_DRIVER_OPTIONS[0].value}
+                onChange={(val) => field.onChange(val as string)}
+                optionList={BROWSER_DRIVER_OPTIONS}
+                style={{ width: '100%' }}
+                dropdownMatchSelectWidth
+                size="small"
+              />
+            )}
+          </Field>
+        </FormItem>
+
+        {/* CDP Port input */}
+        <FormItem name="cdpPort" type="string" vertical>
+          <Field<string> name="inputsValues.cdpPort.content">
+            {({ field }) => (
+              <input
+                type="text"
+                value={(field.value as string) || ''}
+                onChange={(e) => field.onChange(e.target.value)}
+                placeholder="CDP Port (e.g., 9222)"
+                style={{ width: '100%', padding: '6px 12px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '3px' }}
+              />
+            )}
+          </Field>
+        </FormItem>
+
         {/* Model Provider selector */}
         <FormItem name="modelProvider" type="string" vertical>
           <Field<string> name="inputsValues.modelProvider.content">
@@ -165,7 +228,26 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           </Field>
         </FormItem>
 
-        {/* Render the rest of inputs using the default component (temperature, prompts) */}
+        {/* System Prompt with Selector */}
+        <Divider />
+        <PromptInputWithSelector
+          promptFieldName="inputsValues.systemPrompt"
+          promptIdFieldName="inputsValues.systemPromptId"
+          label="System Prompt"
+          promptType="systemPrompt"
+          schema={{ type: 'string' }}
+        />
+
+        {/* User Prompt with Selector */}
+        <PromptInputWithSelector
+          promptFieldName="inputsValues.prompt"
+          promptIdFieldName="inputsValues.promptId"
+          label="Prompt"
+          promptType="prompt"
+          schema={{ type: 'string' }}
+        />
+
+        {/* Render the rest of inputs using the default component (temperature, etc) */}
         <Field<string> name="inputsValues.promptSelection.content">
           {({ field: promptSelectorField }) => (
             <Field<string> name="inputsValues.promptSelection.content">

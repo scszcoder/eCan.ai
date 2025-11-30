@@ -129,7 +129,7 @@ export const NewPage = ({ disabled }: NewPageProps) => {
   }, [workflowDocument, username, tools, setSkillInfo, skillInfo, breakpoints]);
 
   return (
-    <Tooltip content="New Page">
+    <Tooltip content="New Skill">
       <IconButton
         type="tertiary"
         theme="borderless"

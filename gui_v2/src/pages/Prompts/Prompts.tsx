@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 const Prompts: React.FC = () => {
   const username = useUserStore((s) => s.username || 'user');
   const { t } = useTranslation();
-  const { prompts, fetch, save, duplicate, fetched } = usePromptStore();
+  const { prompts, fetch, save, clone, fetched } = usePromptStore();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
 
@@ -38,23 +38,23 @@ const Prompts: React.FC = () => {
   };
 
   const handleAdd = () => {
-    const newId = `pr-${Math.floor(Math.random() * 100000)}`;
+    const newId = `pr-${Math.floor(Math.random() * 1_000_000)}`;
     const np: Prompt = {
       id: newId,
       title: t('pages.prompts.newPrompt'),
       topic: t('pages.prompts.newPrompt'),
       usageCount: 0,
-      roleToneContext: '',
-      goals: [],
-      guidelines: [],
-      rules: [],
-      instructions: [],
-      sysInputs: [],
+      sections: [],
+      userSections: [],
       humanInputs: [],
-      systemSections: [],
-      examples: [],
+      source: 'my_prompts',
+      readOnly: false,
     };
-    save(username, np).then(() => setSelectedId(newId));
+    save(username, np).then((saved) => {
+      if (saved) {
+        setSelectedId(saved.id);
+      }
+    });
   };
 
   const handleDelete = (id: string) => {
@@ -63,18 +63,16 @@ const Prompts: React.FC = () => {
     });
   };
 
-  const handleRefresh = () => {
-    fetch(username, true);
-  };
-
-  const handleDuplicate = (id: string) => {
-    const source = prompts.find((p) => p.id === id);
-    if (!source) return;
-    duplicate(username, source).then((copy) => {
-      if (copy?.id) {
-        setSelectedId(copy.id);
+  const handleClone = (prompt: Prompt) => {
+    clone(username, prompt).then((copied) => {
+      if (copied) {
+        setSelectedId(copied.id);
       }
     });
+  };
+
+  const handleRefresh = () => {
+    fetch(username, true);
   };
 
   return (
@@ -91,7 +89,7 @@ const Prompts: React.FC = () => {
           onAdd={handleAdd}
           onDelete={handleDelete}
           onRefresh={handleRefresh}
-          onDuplicate={handleDuplicate}
+          onClone={handleClone}
         />
       }
       detailsContent={<PromptsDetail prompt={selected} onChange={handleChange} />}
