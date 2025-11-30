@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useClientContext, usePlayground, usePlaygroundTools, useService, WorkflowSelectService } from '@flowgram.ai/free-layout-editor';
+import { useClientContext, usePlayground, usePlaygroundTools, useService, WorkflowSelectService, FlowNodeFormData } from '@flowgram.ai/free-layout-editor';
 import { useSheetsStore } from '../../stores/sheets-store';
 import blankFlowData from '../../data/blank-flow.json';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
@@ -83,6 +83,46 @@ export const ActiveSheetBinder = () => {
         console.time('[ActiveSheetBinder] fromJSON duration');
         ctx.document.fromJSON(docToLoad);
         console.timeEnd('[ActiveSheetBinder] fromJSON duration');
+        
+        // Restore flip states from loaded document
+        if (docToLoad?.nodes && Array.isArray(docToLoad.nodes)) {
+          setTimeout(() => {
+            docToLoad.nodes.forEach((node: any) => {
+              if (node?.data?.hFlip === true) {
+                console.log('[ActiveSheetBinder] Restoring hFlip for node:', node.id);
+                const loadedNode = ctx.document.getNode(node.id);
+                if (loadedNode) {
+                  // Set in raw data
+                  if (!loadedNode.raw) (loadedNode as any).raw = {};
+                  if (!loadedNode.raw.data) (loadedNode.raw as any).data = {};
+                  loadedNode.raw.data.hFlip = true;
+                  
+                  // Set in JSON
+                  const json = (loadedNode as any).json;
+                  if (json) {
+                    if (!json.data) json.data = {};
+                    json.data.hFlip = true;
+                  }
+                  
+                  // Set in form using setFieldValue (same as node-menu)
+                  try {
+                    const formData = (loadedNode as any).getData?.(FlowNodeFormData);
+                    const formModel = formData?.getFormModel?.();
+                    const formControl = formModel?.formControl as any;
+                    if (formControl?.setFieldValue) {
+                      formControl.setFieldValue('data.hFlip', true);
+                      console.log('[ActiveSheetBinder] Set hFlip via setFieldValue for node:', node.id);
+                    } else {
+                      console.warn('[ActiveSheetBinder] formControl.setFieldValue not available for node:', node.id);
+                    }
+                  } catch (e) {
+                    console.warn('[ActiveSheetBinder] Could not set form field:', e);
+                  }
+                }
+              }
+            });
+          }, 200); // Increased delay to ensure forms are ready
+        }
       } catch (e) {
         console.error('[ActiveSheetBinder] fromJSON error', e);
       }
