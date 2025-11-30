@@ -40,14 +40,27 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
     setSelectedValue(value?.name);
   }, [value]);
 
+  // Create the "llm auto select" option
+  const llmAutoSelectFunction: CallableFunction = {
+    id: 'llm-auto-select',
+    name: 'llm auto select',
+    desc: 'Let the LLM automatically select the appropriate tool based on the context',
+    params: { type: 'object', properties: {} },
+    returns: { type: 'object', properties: {} },
+    type: 'system',
+    source: '',
+  };
+
   // 使用 useMemo OptimizeLocalFilterFunctionList的Performance
   const localFilteredFunctions = useMemo(() => {
+    const allFunctions = [llmAutoSelectFunction, ...propSystemFunctions, ...customFunctions];
+    
     if (!searchText) {
-      return [...propSystemFunctions, ...customFunctions];
+      return allFunctions;
     }
 
     const searchLower = searchText.toLowerCase();
-    return [...propSystemFunctions, ...customFunctions].filter(func => {
+    return allFunctions.filter(func => {
       // CheckFunction名
       if (func.name.toLowerCase().includes(searchLower)) {
         return true;
@@ -69,7 +82,7 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
       }
       return false;
     });
-  }, [searchText, propSystemFunctions]);
+  }, [searchText, propSystemFunctions, llmAutoSelectFunction]);
 
   const handleSelect = (selectedValue: string | number | any[] | Record<string, any> | undefined) => {
     if (typeof selectedValue !== 'string') return;

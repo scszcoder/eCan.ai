@@ -25,6 +25,15 @@ export const MCPNodeRegistry: FlowNodeRegistry = {
       type: 'mcp',
       data: {
         title: `MCP_${++index}`,
+        callable: {
+          id: 'llm-auto-select',
+          name: 'llm auto select',
+          desc: 'Let the LLM automatically select the appropriate tool based on the context',
+          params: { type: 'object', properties: {} },
+          returns: { type: 'object', properties: {} },
+          type: 'system',
+          source: '',
+        },
         inputsValues: {},
         inputs: {
           type: 'object',
