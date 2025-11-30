@@ -1,4 +1,4 @@
-# Contributing to browser-use
+# Contributing to eCan.ai
 
 We love contributions! Please read through these links to get started:
 
