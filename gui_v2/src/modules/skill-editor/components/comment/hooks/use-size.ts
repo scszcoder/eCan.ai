@@ -83,7 +83,7 @@ export const useSize = () => {
       const left = delta.left / zoom;
 
       const minWidth = 120;
-      const minHeight = 80;
+      const minHeight = 40;
 
       const newWidth = Math.max(minWidth, resizeState.originalWidth + right - left);
       const newHeight = Math.max(minHeight, resizeState.originalHeight + bottom - top);
