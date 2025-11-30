@@ -288,7 +288,7 @@ class NodeState(TypedDict):
     attachments: List[FileAttachment]
     prompts: List[dict]
     prompt_refs: dict
-    history: List[Any]
+    history: List[Any]              #raw history
     summary: RunningSummary | None
     messages: List[Any]
     threads: List[dict]

@@ -8,12 +8,14 @@ export type PromptSectionType =
   | 'instructions'
   | 'examples'
   | 'variables'
-  | 'additional';
+  | 'additional'
+  | 'custom';
 
 export interface PromptSection {
   id: string;
   type: PromptSectionType;
   items: string[];
+  customLabel?: string; // For custom sections, user-defined label
 }
 
 export interface Prompt {
