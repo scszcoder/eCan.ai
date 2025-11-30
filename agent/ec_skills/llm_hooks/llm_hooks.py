@@ -289,6 +289,8 @@ def standard_post_llm_hook(askid, node_name, agent, state, response):
         next_prompt_text = response['llm_result'].get('next_prompt', '')
         work_related = response['llm_result'].get('work_related', False)
         prelim = response['llm_result'].get('preliminary_info', [{}])[0]
+        tool_name = response['llm_result'].get('tool_name', '')
+        tool_input = response['llm_result'].get('tool_input', None)
         if work_related:
             if prelim:
                 logger.debug(f"[STANDARD_LLM_POST_HOOKS] prelim: {prelim}")
@@ -318,6 +320,8 @@ def standard_post_llm_hook(askid, node_name, agent, state, response):
             state["history"] = []
         print("ai_message", ai_message)
         state["history"].append(ai_message)
+        state["tool_name"] = tool_name
+        state["tool_input"] = tool_input
         state["messages"].append(json.dumps(response['llm_result']))
         msgs = state["prompts"].append(ai_message)
 

@@ -30,6 +30,7 @@ SECTION_TYPES: Tuple[str, ...] = (
     "examples",
     "variables",
     "additional",
+    "custom",
 )
 
 
@@ -71,11 +72,15 @@ def _normalize_sections(raw_sections: Any, legacy_data: Dict[str, Any]) -> List[
             items = entry.get("items", [])
             if not isinstance(items, list):
                 items = [items]
-            sections.append({
+            section_data = {
                 "id": sec_id,
                 "type": sec_type,
                 "items": _clean_section_items(items),
-            })
+            }
+            # Preserve customLabel for custom sections
+            if sec_type == "custom" and "customLabel" in entry:
+                section_data["customLabel"] = str(entry["customLabel"])
+            sections.append(section_data)
         if sections:
             return sections
 

@@ -51,6 +51,7 @@ const SECTION_LABELS: Record<PromptSectionType, string> = {
   examples: 'Examples',
   variables: 'Variables',
   additional: 'Additional Text',
+  custom: 'Custom Section',
 };
 
 const SECTION_PLACEHOLDERS: Partial<Record<PromptSectionType, string>> = {
@@ -64,6 +65,7 @@ const SECTION_PLACEHOLDERS: Partial<Record<PromptSectionType, string>> = {
   instructions: 'Add a numbered instruction…',
   variables: 'Add a variable placeholder, e.g. {{customer_name}}…',
   additional: 'Add additional text or context…',
+  custom: 'Add custom content…',
 };
 
 const AVAILABLE_SECTION_TYPES: { value: PromptSectionType; label: string }[] = (
@@ -240,11 +242,15 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
       id: `${type}-${Date.now()}`,
       type,
       items: [''],
+      customLabel: type === 'custom' ? (customSectionName.trim() || 'Custom Section') : undefined,
     };
     update((prev) => ({
       ...prev,
       sections: [...prev.sections, newSection],
     }));
+    if (type === 'custom') {
+      setCustomSectionName('');
+    }
   };
 
   const handleSectionItemAdd = (sectionId: string) => {
@@ -333,11 +339,15 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
       id: `user-${type}-${Date.now()}`,
       type,
       items: [''],
+      customLabel: type === 'custom' ? (customUserSectionName.trim() || 'Custom Section') : undefined,
     };
     update((prev) => ({
       ...prev,
       userSections: [...prev.userSections, newSection],
     }));
+    if (type === 'custom') {
+      setCustomUserSectionName('');
+    }
   };
 
   const handleUserSectionItemAdd = (sectionId: string) => {
@@ -385,6 +395,8 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
 
   const [sectionToAdd, setSectionToAdd] = useState<PromptSectionType>('role');
   const [userSectionToAdd, setUserSectionToAdd] = useState<PromptSectionType>('goals');
+  const [customSectionName, setCustomSectionName] = useState<string>('');
+  const [customUserSectionName, setCustomUserSectionName] = useState<string>('');
 
   // Derive example slug from topic/title, with fallback matching against known examples
   const exampleSlug = useMemo(() => {
@@ -475,33 +487,54 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
       ? active.title
       : lx(`pages.prompts.examples.${exampleSlug}.title`, active.title);
 
-    const viewHumanInputs = (editing || !exampleSlug)
-      ? active.humanInputs
-      : localizeList(`pages.prompts.examples.${exampleSlug}.humanInputs`, active.humanInputs);
-
     if (viewTitle) lines.push(`# ${safeString(viewTitle)}`);
+    lines.push(''); // blank line
 
-    const sectionsToRender = (editing || !exampleSlug)
-      ? sortedSections
-      : sortedSections.map((section) => {
-          const localizedItems = localizeList(
-            `pages.prompts.examples.${exampleSlug}.${section.type}`,
-            section.items,
-          );
-          return { ...section, items: localizedItems };
+    // Helper to render sections in tagged Markdown format
+    const renderSectionsTagged = (sections: PromptSection[]) => {
+      const sectionsToRender = (editing || !exampleSlug)
+        ? sections
+        : sections.map((section) => {
+            const localizedItems = localizeList(
+              `pages.prompts.examples.${exampleSlug}.${section.type}`,
+              section.items,
+            );
+            return { ...section, items: localizedItems };
+          });
+
+      sectionsToRender.forEach((section) => {
+        if (!section.items.length) return;
+        // Use customLabel if available, otherwise use standard label
+        const label = section.customLabel || SECTION_LABELS[section.type] || section.type;
+        // Convert label to valid XML tag name (lowercase, replace spaces/special chars with underscore)
+        const tagName = label.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+        
+        lines.push(`<${tagName}>`);
+        section.items.forEach((item) => {
+          const trimmed = safeString(item).trim();
+          if (!trimmed) return;
+          lines.push(`- ${trimmed}`);
         });
-
-    sectionsToRender.forEach((section) => {
-      if (!section.items.length) return;
-      const label = SECTION_LABELS[section.type] || section.type;
-      lines.push(`${label}:`);
-      section.items.forEach((item, idx) => {
-        const trimmed = safeString(item).trim();
-        if (!trimmed) return;
-        const prefix = ['role', 'tone', 'background'].includes(section.type) ? '' : '- ';
-        lines.push(`${prefix}${trimmed}`);
+        lines.push(`</${tagName}>`);
+        lines.push(''); // blank line between sections
       });
-    });
+    };
+
+    // Render system prompt sections
+    if (sortedSections.length > 0) {
+      lines.push('<system_prompt>');
+      renderSectionsTagged(sortedSections);
+      lines.push('</system_prompt>');
+      lines.push('');
+    }
+
+    // Render user prompt sections
+    const userSections = active.userSections || [];
+    if (userSections.length > 0) {
+      lines.push('<user_prompt>');
+      renderSectionsTagged(userSections);
+      lines.push('</user_prompt>');
+    }
 
     return lines.join('\n');
   }, [active, editing, exampleSlug, sortedSections, t]);
@@ -607,6 +640,16 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
                 style={{ minWidth: 180 }}
                 disabled={!isEditable}
               />
+              {sectionToAdd === 'custom' && (
+                <Input
+                  size="small"
+                  value={customSectionName}
+                  onChange={(e) => setCustomSectionName(e.target.value)}
+                  placeholder="Custom section name"
+                  style={{ width: 150 }}
+                  disabled={!isEditable}
+                />
+              )}
               <Tooltip title={t('pages.prompts.addSection', { defaultValue: 'Add section' })}>
                 <Button
                   type="primary"
@@ -638,7 +681,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
               </Typography.Text>
             )}
             {sortedSections.map((section, index) => {
-              const label = t(`pages.prompts.sectionLabels.${section.type}`, {
+              const label = section.customLabel || t(`pages.prompts.sectionLabels.${section.type}`, {
                 defaultValue: SECTION_LABELS[section.type] || section.type,
               });
               return (
@@ -747,6 +790,16 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
                 style={{ minWidth: 180 }}
                 disabled={!isEditable}
               />
+              {userSectionToAdd === 'custom' && (
+                <Input
+                  size="small"
+                  value={customUserSectionName}
+                  onChange={(e) => setCustomUserSectionName(e.target.value)}
+                  placeholder="Custom section name"
+                  style={{ width: 150 }}
+                  disabled={!isEditable}
+                />
+              )}
               <Tooltip title={t('pages.prompts.addSection', { defaultValue: 'Add section' })}>
                 <Button
                   type="primary"
@@ -778,7 +831,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
               </Typography.Text>
             )}
             {(active.userSections ?? []).map((section, index) => {
-              const label = t(`pages.prompts.sectionLabels.${section.type}`, {
+              const label = section.customLabel || t(`pages.prompts.sectionLabels.${section.type}`, {
                 defaultValue: SECTION_LABELS[section.type] || section.type,
               });
               return (
