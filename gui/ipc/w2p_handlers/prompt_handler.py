@@ -7,91 +7,106 @@ import re
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional, Dict, List, Tuple, Set
+from typing import Any, Optional, Dict, List, Tuple
+from uuid import uuid4
 
 from gui.ipc.types import IPCRequest, IPCResponse, create_success_response, create_error_response
 from gui.ipc.registry import IPCHandlerRegistry
 from utils.logger_helper import logger_helper as logger
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-PROMPTS_DIR = PROJECT_ROOT / "my_prompts"
-SAMPLE_PROMPTS_PRIMARY_DIR = PROJECT_ROOT / "resource" / "systems" / "sample_prompts"
-SAMPLE_PROMPTS_FALLBACK_DIR = PROJECT_ROOT / "sample_prompts"
+SYSTEMS_DIR = PROJECT_ROOT / "systems"
+MY_PROMPTS_DIR = PROJECT_ROOT / "my_prompts"
+SAMPLE_PROMPTS_DIR = PROJECT_ROOT / "resource" / "systems" / "sample_prompts"
 
-SYSTEM_SECTION_TYPES = {
-    "roleCharacter",
+SECTION_TYPES: Tuple[str, ...] = (
+    "role",
     "tone",
     "background",
     "goals",
     "guidelines",
     "rules",
+    "instructions",
     "examples",
-    "instructions",
     "variables",
-}
-
-LIST_FIELDS = [
-    "goals",
-    "guidelines",
-    "rules",
-    "instructions",
-    "sysInputs",
-    "humanInputs",
-]
+    "additional",
+)
 
 
-def _normalize_prompt(raw: Any, *, inherited_read_only: bool = False) -> Dict[str, Any]:
+def _ensure_prompt_dirs() -> None:
+    try:
+        MY_PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.error(f"[prompts] failed to create my_prompts directory: {exc}")
+
+
+def _coerce_string_list(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        iterable = value
+    elif isinstance(value, (set, tuple)):
+        iterable = list(value)
+    else:
+        iterable = [value]
+    return ["" if v is None else str(v) for v in iterable]
+
+
+def _clean_section_items(items: List[str]) -> List[str]:
+    cleaned = ["" if item is None else str(item) for item in items]
+    return cleaned if cleaned else [""]
+
+
+def _normalize_sections(raw_sections: Any, legacy_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    sections: List[Dict[str, Any]] = []
+
+    if isinstance(raw_sections, list) and raw_sections:
+        for entry in raw_sections:
+            if not isinstance(entry, dict):
+                continue
+            sec_type = str(entry.get("type") or "").strip().lower()
+            if sec_type not in SECTION_TYPES:
+                continue
+            sec_id = str(entry.get("id") or uuid4().hex)
+            items = entry.get("items", [])
+            if not isinstance(items, list):
+                items = [items]
+            sections.append({
+                "id": sec_id,
+                "type": sec_type,
+                "items": _clean_section_items(items),
+            })
+        if sections:
+            return sections
+
+    # Legacy format fallback
+    legacy_map: List[Tuple[str, Any]] = [
+        ("background", legacy_data.get("roleToneContext")),
+        ("goals", legacy_data.get("goals")),
+        ("guidelines", legacy_data.get("guidelines")),
+        ("rules", legacy_data.get("rules")),
+        ("instructions", legacy_data.get("instructions")),
+        ("variables", legacy_data.get("sysInputs")),
+        ("examples", legacy_data.get("examples")),
+    ]
+
+    for sec_type, value in legacy_map:
+        if sec_type not in SECTION_TYPES:
+            continue
+        values = _coerce_string_list(value)
+        if not values:
+            continue
+        sections.append({
+            "id": uuid4().hex,
+            "type": sec_type,
+            "items": _clean_section_items(values),
+        })
+
+    return sections
+
+
+def _normalize_prompt(raw: Any, *, source: str, read_only: bool, last_modified_ts: Optional[float]) -> Dict[str, Any]:
     data = raw if isinstance(raw, dict) else {}
-
-    def _coerce_list(value: Any) -> List[str]:
-        if value is None:
-            return []
-        if isinstance(value, list):
-            iterable = value
-        elif isinstance(value, (set, tuple)):
-            iterable = list(value)
-        else:
-            iterable = [value]
-        return ["" if v is None else str(v) for v in iterable]
-
-    def _normalize_sections(value: Any, default_read_only: bool) -> List[Dict[str, Any]]:
-        if not isinstance(value, list):
-            return []
-
-        normalized: List[Dict[str, Any]] = []
-        seen_ids: set[str] = set()
-        for idx, raw_section in enumerate(value):
-            if not isinstance(raw_section, dict):
-                continue
-            section_type = str(raw_section.get("type") or "").strip()
-            if section_type not in SYSTEM_SECTION_TYPES:
-                continue
-
-            items = _coerce_list(raw_section.get("items"))
-            if not items and section_type not in {"roleCharacter", "tone", "background", "examples", "variables"}:
-                # Allow empty only for descriptive blocks; skip otherwise to reduce noise
-                continue
-
-            section_id = str(raw_section.get("id") or "").strip()
-            if not section_id:
-                section_id = f"{section_type}_{idx + 1}"
-            if section_id in seen_ids:
-                section_id = f"{section_id}_{len(normalized) + 1}"
-            seen_ids.add(section_id)
-
-            section_read_only = bool(raw_section.get("readOnly")) or default_read_only
-
-            section_payload: Dict[str, Any] = {
-                "id": section_id,
-                "type": section_type,
-                "items": items,
-            }
-            if section_read_only:
-                section_payload["readOnly"] = True
-
-            normalized.append(section_payload)
-
-        return normalized
 
     prompt: Dict[str, Any] = {}
     prompt["id"] = str(data.get("id") or "").strip()
@@ -104,23 +119,23 @@ def _normalize_prompt(raw: Any, *, inherited_read_only: bool = False) -> Dict[st
     except (TypeError, ValueError):
         prompt["usageCount"] = 0
 
-    prompt["roleToneContext"] = str(data.get("roleToneContext") or "")
+    prompt["sections"] = _normalize_sections(data.get("sections"), data)
+    prompt["userSections"] = _normalize_sections(data.get("userSections"), {})
+    prompt["humanInputs"] = _coerce_string_list(data.get("humanInputs") or data.get("human_inputs"))
 
-    for field in LIST_FIELDS:
-        prompt[field] = _coerce_list(data.get(field))
-
-    sections = _normalize_sections(data.get("systemSections"), bool(data.get("readOnly")) or inherited_read_only)
-    prompt["systemSections"] = sections
-    prompt["examples"] = _coerce_list(data.get("examples"))
-    prompt["readOnly"] = bool(data.get("readOnly")) or inherited_read_only
-
-    last_modified = data.get("lastModified")
-    if isinstance(last_modified, (int, float)):
-        prompt["lastModified"] = datetime.fromtimestamp(last_modified).isoformat()
-    elif last_modified:
-        prompt["lastModified"] = str(last_modified)
+    if isinstance(last_modified_ts, (int, float)):
+        prompt["lastModified"] = datetime.fromtimestamp(last_modified_ts).isoformat()
     else:
-        prompt["lastModified"] = ""
+        last_modified = data.get("lastModified")
+        if isinstance(last_modified, (int, float)):
+            prompt["lastModified"] = datetime.fromtimestamp(last_modified).isoformat()
+        elif last_modified:
+            prompt["lastModified"] = str(last_modified)
+        else:
+            prompt["lastModified"] = ""
+
+    prompt["source"] = source
+    prompt["readOnly"] = bool(read_only or data.get("readOnly"))
 
     return prompt
 
@@ -131,12 +146,38 @@ DEFAULT_PROMPTS: List[Dict[str, Any]] = [
         "title": "Write a marketing email",
         "topic": "Marketing email",
         "usageCount": 12,
-        "roleToneContext": "You are a helpful marketing assistant. Tone: friendly, concise.",
-        "goals": ["Introduce new product", "Encourage click-through"],
-        "guidelines": ["Keep under 150 words", "Use American English"],
-        "rules": ["No false claims", "Avoid spammy phrases"],
-        "instructions": ["Start with a hook", "Add a CTA at the end"],
-        "sysInputs": ["Product name", "Key features"],
+        "sections": [
+            {
+                "id": "pr-1-background",
+                "type": "background",
+                "items": ["You are a helpful marketing assistant. Tone: friendly, concise."],
+            },
+            {
+                "id": "pr-1-goals",
+                "type": "goals",
+                "items": ["Introduce new product", "Encourage click-through"],
+            },
+            {
+                "id": "pr-1-guidelines",
+                "type": "guidelines",
+                "items": ["Keep under 150 words", "Use American English"],
+            },
+            {
+                "id": "pr-1-rules",
+                "type": "rules",
+                "items": ["No false claims", "Avoid spammy phrases"],
+            },
+            {
+                "id": "pr-1-instructions",
+                "type": "instructions",
+                "items": ["Start with a hook", "Add a CTA at the end"],
+            },
+            {
+                "id": "pr-1-variables",
+                "type": "variables",
+                "items": ["Product name", "Key features"],
+            },
+        ],
         "humanInputs": ["Audience segment", "Special offers"],
     },
     {
@@ -144,22 +185,41 @@ DEFAULT_PROMPTS: List[Dict[str, Any]] = [
         "title": "Summarize research paper",
         "topic": "Research summary",
         "usageCount": 7,
-        "roleToneContext": "You are a scientific assistant. Tone: neutral, precise.",
-        "goals": ["Capture main contributions", "Note limitations"],
-        "guidelines": ["Use bullet points", "Cite key sections if available"],
-        "rules": ["Avoid speculation"],
-        "instructions": ["Provide 3-5 bullets", "Include 1-sentence abstract"],
-        "sysInputs": ["Paper URL", "Discipline"],
+        "sections": [
+            {
+                "id": "pr-2-background",
+                "type": "background",
+                "items": ["You are a scientific assistant. Tone: neutral, precise."],
+            },
+            {
+                "id": "pr-2-goals",
+                "type": "goals",
+                "items": ["Capture main contributions", "Note limitations"],
+            },
+            {
+                "id": "pr-2-guidelines",
+                "type": "guidelines",
+                "items": ["Use bullet points", "Cite key sections if available"],
+            },
+            {
+                "id": "pr-2-rules",
+                "type": "rules",
+                "items": ["Avoid speculation"],
+            },
+            {
+                "id": "pr-2-instructions",
+                "type": "instructions",
+                "items": ["Provide 3-5 bullets", "Include 1-sentence abstract"],
+            },
+            {
+                "id": "pr-2-variables",
+                "type": "variables",
+                "items": ["Paper URL", "Discipline"],
+            },
+        ],
         "humanInputs": ["Desired length"],
     },
 ]
-
-
-def _ensure_prompts_dir() -> None:
-    try:
-        PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.error(f"[prompts] failed to create prompts directory: {exc}")
 
 
 def _slugify(value: str) -> str:
@@ -169,83 +229,71 @@ def _slugify(value: str) -> str:
     return value or "prompt"
 
 
-def _load_prompts_from_disk() -> List[Dict[str, Any]]:
-    _ensure_prompts_dir()
-    by_id: Dict[str, Dict[str, Any]] = {}
+def _load_prompts_from_directory(dir_path: Path, *, source: str, read_only: bool) -> List[Tuple[Dict[str, Any], float]]:
+    prompts: List[Tuple[Dict[str, Any], float]] = []
+    if not dir_path.exists():
+        return prompts
+
+    for file_path in dir_path.glob("*.json"):
+        try:
+            with file_path.open("r", encoding="utf-8") as fp:
+                data = json.load(fp)
+            if not isinstance(data, dict):
+                continue
+            mtime = file_path.stat().st_mtime
+            normalized = _normalize_prompt(data, source=source, read_only=read_only, last_modified_ts=mtime)
+            if not normalized.get("id"):
+                continue
+            prompts.append((normalized, mtime))
+        except Exception as exc:
+            logger.warning(f"[prompts] failed to load {file_path.name}: {exc}")
+    return prompts
+
+
+def _load_all_prompts() -> List[Dict[str, Any]]:
+    _ensure_prompt_dirs()
+
+    combined: Dict[str, Dict[str, Any]] = {}
     mtimes: Dict[str, float] = {}
 
-    directories: List[Tuple[Path, bool]] = []
-    seen: Set[Path] = set()
+    directories = [
+        (SAMPLE_PROMPTS_DIR, "sample_prompts", True),
+        (MY_PROMPTS_DIR, "my_prompts", False),
+    ]
 
-    for candidate, read_only in [
-        (SAMPLE_PROMPTS_PRIMARY_DIR, True),
-        (SAMPLE_PROMPTS_FALLBACK_DIR, True),
-        (PROMPTS_DIR, False),
-    ]:
-        try:
-            resolved = candidate.resolve()
-        except Exception:
-            resolved = candidate
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        directories.append((candidate, read_only))
+    for dir_path, source, read_only in directories:
+        for prompt, mtime in _load_prompts_from_directory(dir_path, source=source, read_only=read_only):
+            pid = prompt.get("id")
+            if not pid:
+                continue
+            prev = combined.get(pid)
+            prev_mtime = mtimes.get(pid, 0)
+            should_replace = False
 
-    for base_dir, read_only in directories:
-        if not base_dir.exists():
-            continue
-        for file_path in base_dir.glob("*.json"):
-            try:
-                with file_path.open("r", encoding="utf-8") as fp:
-                    data = json.load(fp)
-                if not isinstance(data, dict):
-                    continue
-                normalized = _normalize_prompt(data, inherited_read_only=read_only)
-                if not normalized.get("id"):
-                    continue
-
-                if not normalized.get("title"):
-                    normalized["title"] = normalized["id"]
-                if not normalized.get("topic"):
-                    normalized["topic"] = normalized["title"]
-
-                pid = normalized["id"]
-                mtime = file_path.stat().st_mtime
-                normalized["lastModified"] = datetime.fromtimestamp(mtime).isoformat()
-                normalized["location"] = base_dir.name
-                if read_only:
-                    normalized["readOnly"] = True
-
-                existing_mtime = mtimes.get(pid)
-                existing_prompt = by_id.get(pid)
-
+            if prev is None:
+                should_replace = True
+            elif (not prev.get("readOnly") and prompt.get("readOnly")):
+                # Keep editable prompt over read-only duplicates
                 should_replace = False
-                if existing_prompt is None:
-                    should_replace = True
-                elif read_only and not existing_prompt.get("readOnly"):
-                    # keep writable prompt over read-only fallback
-                    should_replace = False
-                elif not read_only and existing_prompt.get("readOnly"):
-                    should_replace = True
-                elif existing_mtime is None or mtime >= existing_mtime:
-                    should_replace = True
+            elif (prev.get("readOnly") and not prompt.get("readOnly")):
+                should_replace = True
+            elif mtime >= prev_mtime:
+                should_replace = True
 
-                if should_replace:
-                    by_id[pid] = normalized
-                    mtimes[pid] = mtime
-            except Exception as exc:
-                logger.warning(f"[prompts] failed to load {file_path.name}: {exc}")
+            if should_replace:
+                combined[pid] = prompt
+                mtimes[pid] = mtime
 
-    ordered = sorted(by_id.values(), key=lambda item: mtimes.get(item["id"], 0), reverse=True)
+    ordered = sorted(combined.values(), key=lambda item: mtimes.get(item["id"], 0), reverse=True)
     return ordered
 
 
 def _find_prompt_file_by_id(prompt_id: str) -> Optional[Path]:
     if not prompt_id:
         return None
-    if not PROMPTS_DIR.exists():
+    if not MY_PROMPTS_DIR.exists():
         return None
-    for file_path in PROMPTS_DIR.glob("*.json"):
+    for file_path in MY_PROMPTS_DIR.glob("*.json"):
         try:
             with file_path.open("r", encoding="utf-8") as fp:
                 data = json.load(fp)
@@ -256,31 +304,56 @@ def _find_prompt_file_by_id(prompt_id: str) -> Optional[Path]:
     return None
 
 
+def _serialize_prompt_for_storage(prompt: Dict[str, Any]) -> Dict[str, Any]:
+    data: Dict[str, Any] = {
+        "id": prompt.get("id", ""),
+        "title": prompt.get("title", ""),
+        "topic": prompt.get("topic", ""),
+        "usageCount": int(prompt.get("usageCount") or 0),
+        "humanInputs": _coerce_string_list(prompt.get("humanInputs")),
+    }
+
+    sections: List[Dict[str, Any]] = []
+    for entry in prompt.get("sections", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        sec_type = str(entry.get("type") or "").strip().lower()
+        if sec_type not in SECTION_TYPES:
+            continue
+        sec_id = str(entry.get("id") or uuid4().hex)
+        items = entry.get("items", [])
+        if not isinstance(items, list):
+            items = [items]
+        sections.append({
+            "id": sec_id,
+            "type": sec_type,
+            "items": _clean_section_items(_coerce_string_list(items)),
+        })
+
+    data["sections"] = sections
+    return data
+
+
 def _write_prompt_to_file(prompt: Dict[str, Any]) -> Dict[str, Any]:
-    _ensure_prompts_dir()
-    prompt = _normalize_prompt(prompt)
+    _ensure_prompt_dirs()
+    prompt = deepcopy(prompt if isinstance(prompt, dict) else {})
     prompt_id = str(prompt.get("id") or "").strip()
     if not prompt_id:
         raise ValueError("prompt id is required for persistence")
-
-    if prompt.get("readOnly"):
-        raise ValueError("cannot persist read-only prompts")
 
     if not prompt.get("title"):
         prompt["title"] = prompt_id
     if not prompt.get("topic"):
         prompt["topic"] = prompt["title"]
 
-    prompt["lastModified"] = datetime.utcnow().isoformat()
-
-    # Do not persist runtime-only flags
-    prompt.pop("readOnly", None)
+    serialized = _serialize_prompt_for_storage(prompt)
+    serialized["lastModified"] = datetime.utcnow().isoformat()
 
     id_slug = _slugify(prompt_id) or "prompt"
-    base_label = str(prompt.get("title") or prompt.get("topic") or "prompt")
+    base_label = str(serialized.get("title") or serialized.get("topic") or "prompt")
     name_slug = _slugify(base_label) or "prompt"
     filename_base = f"{name_slug}_{id_slug}"
-    target_path = PROMPTS_DIR / f"{filename_base}.json"
+    target_path = MY_PROMPTS_DIR / f"{filename_base}.json"
 
     existing_path = _find_prompt_file_by_id(prompt_id)
     if existing_path and existing_path.exists() and existing_path.resolve() != target_path.resolve():
@@ -292,36 +365,31 @@ def _write_prompt_to_file(prompt: Dict[str, Any]) -> Dict[str, Any]:
     logger.debug(f"[prompts] writing prompt to {target_path}")
     try:
         with target_path.open("w", encoding="utf-8") as fp:
-            json.dump(prompt, fp, indent=2, ensure_ascii=False)
+            json.dump(serialized, fp, indent=2, ensure_ascii=False)
     except Exception as exc:  # pragma: no cover - defensive
         logger.error(f"[prompts] failed to write prompt to {target_path}: {exc}")
         raise
 
-    prompt["location"] = PROMPTS_DIR.name
-    return prompt
+    normalized = _normalize_prompt(serialized, source="my_prompts", read_only=False, last_modified_ts=target_path.stat().st_mtime)
+    return normalized
 
 def _bootstrap_prompts() -> List[Dict[str, Any]]:
-    prompts = _load_prompts_from_disk()
+    prompts = _load_all_prompts()
     if prompts:
         return prompts
 
-    seeded: List[Dict[str, Any]] = []
+    # No prompts found on disk – fall back to defaults (read-only, sample source)
+    fallback: List[Dict[str, Any]] = []
     for default_prompt in DEFAULT_PROMPTS:
-        prompt_copy = _normalize_prompt(deepcopy(default_prompt))
-        if not prompt_copy.get("id"):
-            continue
-        if not prompt_copy.get("title"):
-            prompt_copy["title"] = prompt_copy["id"]
-        if not prompt_copy.get("topic"):
-            prompt_copy["topic"] = prompt_copy["title"]
-        try:
-            _write_prompt_to_file(prompt_copy)
-            seeded.append(prompt_copy)
-        except Exception as exc:
-            logger.error(f"[prompts] failed seeding default prompt {prompt_copy.get('id')}: {exc}")
-
-    prompts = _load_prompts_from_disk()
-    return prompts if prompts else seeded
+        normalized = _normalize_prompt(
+            deepcopy(default_prompt),
+            source="sample_prompts",
+            read_only=True,
+            last_modified_ts=None,
+        )
+        normalized["readOnly"] = True
+        fallback.append(normalized)
+    return fallback
 
 
 def _delete_prompt_file(prompt_id: str) -> bool:
@@ -351,10 +419,10 @@ def handle_save_prompt(request: IPCRequest, params: Optional[dict]) -> IPCRespon
         if not prompt or not isinstance(prompt, dict) or not prompt.get('id'):
             return create_error_response(request, 'INVALID_PARAMS', 'prompt with id is required')
         if prompt.get('readOnly'):
-            return create_error_response(request, 'READ_ONLY_PROMPT', 'Cannot modify a read-only prompt')
-        saved_prompt = _write_prompt_to_file(prompt)
-        logger.debug(f"[prompts] saved prompt {saved_prompt.get('id')} to {PROMPTS_DIR}")
-        return create_success_response(request, {"prompt": saved_prompt})
+            return create_error_response(request, 'READ_ONLY', 'Cannot modify read-only prompt')
+        normalized = _write_prompt_to_file(prompt)
+        logger.debug(f"[prompts] saved prompt {normalized.get('id')} to my_prompts")
+        return create_success_response(request, {"prompt": normalized})
     except Exception as e:
         logger.error(f"[prompts] save_prompt error: {e}")
         return create_error_response(request, 'SAVE_PROMPT_ERROR', str(e))
@@ -365,6 +433,14 @@ def handle_delete_prompt(request: IPCRequest, params: Optional[dict]) -> IPCResp
         pid = (params or {}).get('id')
         if not pid:
             return create_error_response(request, 'INVALID_PARAMS', 'id is required')
+        prompt_meta = None
+        for prompt in _load_all_prompts():
+            if prompt.get('id') == pid:
+                prompt_meta = prompt
+                break
+        if prompt_meta and prompt_meta.get('readOnly'):
+            return create_error_response(request, 'READ_ONLY', 'Cannot delete read-only prompt')
+
         deleted = _delete_prompt_file(str(pid))
         return create_success_response(request, {"deleted": deleted})
     except Exception as e:

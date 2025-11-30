@@ -1,6 +1,6 @@
 import React from 'react';
-import { List, Input, Badge, Typography, Button, Dropdown, Tooltip } from 'antd';
-import { SearchOutlined, PlusOutlined, MoreOutlined, ReloadOutlined } from '@ant-design/icons';
+import { List, Input, Badge, Typography, Button, Dropdown, Tooltip, Tag, Space } from 'antd';
+import { SearchOutlined, PlusOutlined, MoreOutlined, ReloadOutlined, CopyOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
 import type { Prompt } from './types';
 import { useTranslation } from 'react-i18next';
@@ -14,10 +14,10 @@ interface PromptsListProps {
   onAdd: () => void;
   onDelete: (id: string) => void;
   onRefresh: () => void;
-  onDuplicate: (id: string) => void;
+  onClone: (prompt: Prompt) => void;
 }
 
-const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect, search, onSearchChange, onAdd, onDelete, onRefresh, onDuplicate }) => {
+const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect, search, onSearchChange, onAdd, onDelete, onRefresh, onClone }) => {
   const { t } = useTranslation();
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -38,56 +38,51 @@ const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect
         <List
           dataSource={prompts}
           renderItem={(item) => (
-            <List.Item
-              onClick={() => onSelect(item.id)}
-              style={{ cursor: 'pointer', paddingLeft: 16, paddingRight: 8, background: selectedId === item.id ? 'rgba(255,255,255,0.06)' : 'transparent' }}
-              actions={[
-                <Dropdown
-                  key="menu"
-                  menu={{
-                    items: (
-                      [
-                        {
-                          key: 'copy',
-                          label: t('pages.prompts.copyCreate', { defaultValue: 'Copy create' }),
-                          icon: <PlusOutlined />,
-                        },
-                        ...(item.readOnly ? [] : [{ key: 'delete', label: t('common.delete'), danger: true }]),
-                      ]
-                    ) as MenuProps['items'],
-                    onClick: ({ key }) => {
-                      if (key === 'delete') {
-                        onDelete(item.id);
-                      }
-                      if (key === 'copy') {
-                        onDuplicate(item.id);
-                      }
-                    },
-                  }}
-                  trigger={["click"]}
-                  placement="bottomRight"
-                >
-                  <Button type="text" size="small" onClick={(e) => e.stopPropagation()} icon={<MoreOutlined />} />
-                </Dropdown>
-              ]}
+            <Tooltip
+              key={item.id}
+              placement="right"
+              title={item.source === 'sample_prompts'
+                ? t('pages.prompts.sampleSource', { defaultValue: 'Sample library prompt (read-only)' })
+                : t('pages.prompts.mySource', { defaultValue: 'My prompts directory' })}
             >
-              {(() => {
-                const locationSlug = (item.location || '').trim();
-                const locationName = (() => {
-                  if (!locationSlug) return '';
-                  if (locationSlug === 'sample_prompts') {
-                    return t('pages.prompts.locations.sample', { defaultValue: 'Sample prompts' });
-                  }
-                  if (locationSlug === 'my_prompts') {
-                    return t('pages.prompts.locations.mine', { defaultValue: 'My prompts' });
-                  }
-                  return locationSlug;
-                })();
-                const tooltipTitle = locationName ? t('pages.prompts.locationTooltip', { defaultValue: 'Location: {{location}}', location: locationName }) : undefined;
-
-                const meta = (
-                  <List.Item.Meta
-                    title={<span style={{ color: '#fff' }}>
+              <List.Item
+                onClick={() => onSelect(item.id)}
+                style={{ cursor: 'pointer', paddingLeft: 16, paddingRight: 8, background: selectedId === item.id ? 'rgba(255,255,255,0.06)' : 'transparent' }}
+                actions={(() => {
+                  const menuItems: MenuProps['items'] = [
+                    { key: 'copy', label: t('pages.prompts.copyCreate', { defaultValue: 'Copy & create' }), icon: <CopyOutlined /> },
+                    {
+                      key: 'delete',
+                      label: t('common.delete'),
+                      danger: true,
+                      disabled: !!item.readOnly,
+                    },
+                  ];
+                  return [
+                    <Dropdown
+                      key="menu"
+                      menu={{
+                        items: menuItems,
+                        onClick: ({ key }) => {
+                          if (key === 'delete') {
+                            if (item.readOnly) return;
+                            onDelete(item.id);
+                          } else if (key === 'copy') {
+                            onClone(item);
+                          }
+                        },
+                      }}
+                      trigger={['click']}
+                      placement="bottomRight"
+                    >
+                      <Button type="text" size="small" onClick={(e) => e.stopPropagation()} icon={<MoreOutlined />} />
+                    </Dropdown>,
+                  ];
+                })()}
+              >
+                <List.Item.Meta
+                  title={
+                    <div style={{ color: '#fff', marginBottom: 4 }}>
                       {(() => {
                         const rawTitle = (item.title || '').trim();
                         if (rawTitle) return rawTitle;
@@ -97,57 +92,40 @@ const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect
                         if (titleText && titleText !== titleKey) return titleText;
                         return t(`pages.prompts.examples.${slug}`, { defaultValue: item.topic });
                       })()}
-                    </span>}
-                    description={
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          color: 'rgba(255,255,255,0.65)',
-                          gap: 12,
-                          flexWrap: 'nowrap',
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8,
-                            flexShrink: 0,
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          <Badge count={item.usageCount} style={{ backgroundColor: '#3b82f6' }} />
-                          <Typography.Text style={{ color: 'rgba(255,255,255,0.65)', whiteSpace: 'nowrap' }}>
-                            {t('pages.prompts.uses', { defaultValue: 'uses' })}
-                          </Typography.Text>
-                          {item.readOnly && (
-                            <Typography.Text style={{ color: '#facc15', fontSize: 12, whiteSpace: 'nowrap' }}>
-                              {t('pages.prompts.sampleTag', { defaultValue: 'Sample' })}
-                            </Typography.Text>
-                          )}
-                        </div>
-                        <Typography.Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}>
-                          {(() => {
-                            if (!item.lastModified) return '';
-                            const date = new Date(item.lastModified);
-                            if (Number.isNaN(date.getTime())) return item.lastModified;
-                            return date.toLocaleString();
-                          })()}
+                    </div>
+                  }
+                  description={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontSize: 12, whiteSpace: 'nowrap' }}>
+                      <Space size={4} align="center" style={{ whiteSpace: 'nowrap' }}>
+                        <Badge count={item.usageCount} style={{ backgroundColor: '#3b82f6' }} showZero />
+                        <Typography.Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, whiteSpace: 'nowrap' }}>
+                          {t('pages.prompts.uses', { defaultValue: 'uses' })}
                         </Typography.Text>
-                      </div>
-                    }
-                  />
-                );
-
-                return tooltipTitle ? (
-                  <Tooltip title={tooltipTitle} mouseEnterDelay={0.2}>
-                    <div style={{ width: '100%' }}>{meta}</div>
-                  </Tooltip>
-                ) : meta;
-              })()}
-            </List.Item>
+                      </Space>
+                      <Typography.Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12, whiteSpace: 'nowrap', minWidth: 50 }}>
+                        {item.source === 'sample_prompts' 
+                          ? t('pages.prompts.sampleLabel', { defaultValue: 'sample' })
+                          : t('pages.prompts.myLabel', { defaultValue: 'my' })}
+                      </Typography.Text>
+                      <Typography.Text style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginLeft: 'auto', whiteSpace: 'nowrap', paddingRight: 8 }}>
+                        {(() => {
+                          if (!item.lastModified) return '';
+                          const date = new Date(item.lastModified);
+                          if (Number.isNaN(date.getTime())) return item.lastModified;
+                          return date.toLocaleString(undefined, { 
+                            year: '2-digit', 
+                            month: '2-digit', 
+                            day: '2-digit', 
+                            hour: '2-digit', 
+                            minute: '2-digit' 
+                          });
+                        })()}
+                      </Typography.Text>
+                    </div>
+                  }
+                />
+              </List.Item>
+            </Tooltip>
           )}
         />
       </div>

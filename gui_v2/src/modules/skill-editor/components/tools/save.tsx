@@ -161,9 +161,28 @@ export const Save = ({ disabled }: SaveProps) => {
       const diagram = document.toJSON();
 
       // 2. Ensure breakpoints are NOT persisted: strip any break_point flags
+      // 3. SECURITY: Strip API keys from LLM and browser_automation nodes
       diagram.nodes.forEach((node: any) => {
         if (node?.data?.break_point) {
           delete node.data.break_point;
+        }
+        
+        // Strip API keys from LLM nodes
+        if (node?.type === 'llm' && node?.data?.inputsValues) {
+          const inputs = node.data.inputsValues;
+          if (inputs.apiKey?.content) {
+            console.log(`[Save] Stripping API key from LLM node: ${node.data.name || node.id}`);
+            inputs.apiKey.content = '';
+          }
+        }
+        
+        // Strip API keys from browser_automation nodes
+        if (node?.type === 'browser-automation' && node?.data?.inputsValues) {
+          const inputs = node.data.inputsValues;
+          if (inputs.apiKey?.content) {
+            console.log(`[Save] Stripping API key from browser_automation node: ${node.data.name || node.id}`);
+            inputs.apiKey.content = '';
+          }
         }
       });
 
