@@ -719,7 +719,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
                           type="text"
                           size="small"
                           className={styles.tinyIconButton}
-                          icon={<DeleteOutlined />}
+                          icon={<DeleteOutlined style={{ color: '#000' }} />}
                           disabled={!isEditable}
                           onClick={() => handleSectionRemove(section.id)}
                         />
@@ -748,7 +748,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
                           danger
                           type="text"
                           size="small"
-                          icon={<DeleteOutlined />}
+                          icon={<DeleteOutlined style={{ color: '#000' }} />}
                           disabled={!isEditable}
                           onClick={() => handleSectionItemRemove(section.id, idx)}
                           className={styles.tinyIconButton}
@@ -869,7 +869,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
                           type="text"
                           size="small"
                           className={styles.tinyIconButton}
-                          icon={<DeleteOutlined />}
+                          icon={<DeleteOutlined style={{ color: '#000' }} />}
                           disabled={!isEditable}
                           onClick={() => handleUserSectionRemove(section.id)}
                         />
@@ -895,7 +895,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
                           danger
                           type="text"
                           size="small"
-                          icon={<DeleteOutlined />}
+                          icon={<DeleteOutlined style={{ color: '#000' }} />}
                           disabled={!isEditable}
                           onClick={() => handleUserSectionItemRemove(section.id, idx)}
                           className={styles.tinyIconButton}
