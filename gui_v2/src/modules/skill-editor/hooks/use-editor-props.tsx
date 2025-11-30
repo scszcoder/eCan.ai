@@ -28,6 +28,9 @@ import {
   createRuntimePlugin,
   createContextMenuPlugin,
   createVariablePanelPlugin,
+  createCustomLinesPlugin,
+  createSmartLinesPlugin,
+  smartLineContributionFactory,
 } from '../plugins';
 import { defaultFormMeta } from '../nodes/default-form-meta';
 import { WorkflowNodeType } from '../nodes';
@@ -289,7 +292,14 @@ export function useEditorProps(
       /**
        * Running line
        */
-      isFlowingLine: (ctx, line) => ctx.get(WorkflowRuntimeService).isFlowingLine(line),
+      isFlowingLine: (ctx, line) => {
+        try {
+          return ctx.get(WorkflowRuntimeService).isFlowingLine(line);
+        } catch (e) {
+          // WorkflowRuntimeService might not be available in all contexts
+          return false;
+        }
+      },
       /**
        * Shortcuts
        */
@@ -332,11 +342,30 @@ export function useEditorProps(
       },
       plugins: () => [
         /**
-         * Line render plugin
-         * 连线Render插件
+         * Line render plugin - Register FIRST
+         * This registers the default BEZIER contribution
          */
         createFreeLinesPlugin({
           renderInsideLine: LineAddButton,
+        }),
+        /**
+         * CRITICAL: Register smart lines plugin AFTER createFreeLinesPlugin
+         * With the patched FlowGram core, this will OVERWRITE the default BEZIER contribution
+         */
+        createSmartLinesPlugin({
+          gridSize: 20,
+          nodePadding: 15,
+          debug: true,
+          enableLogging: true,
+        }),
+        /**
+         * Custom Lines Plugin - Phase 1 Investigation
+         * Testing if we can intercept and customize line rendering
+         * Note: Added AFTER FreeLinesPlugin to avoid service binding conflicts
+         */
+        createCustomLinesPlugin({
+          debug: true,
+          enableLogging: true,
         }),
         /**
          * Minimap plugin

@@ -11,6 +11,7 @@ import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files
 import { IPCWCClient } from '@/services/ipc/ipcWCClient';
 import { useSheetsStore } from '../../stores/sheets-store';
 import { saveSheetsBundleToPath, saveSheetsBundle } from '../../services/sheets-persistence';
+import { useNodeFlipStore } from '../../stores/node-flip-store';
 // Add File System Access API 的TypeDefinition
 declare global {
   interface Window {
@@ -152,6 +153,7 @@ export const Save = ({ disabled }: SaveProps) => {
   const username = useUserStore((state) => state.username);
   const getAllSheets = useSheetsStore((s) => s.getAllSheets);
   const saveActiveSheetDoc = useSheetsStore((s) => s.saveActiveDocument);
+  const { isFlipped } = useNodeFlipStore();
 
   const handleSave = useCallback(async () => {
     if (!skillInfo) return;
@@ -160,8 +162,21 @@ export const Save = ({ disabled }: SaveProps) => {
       // 1. Get the latest diagram state
       const diagram = document.toJSON();
 
-      // 2. Ensure breakpoints are NOT persisted: strip any break_point flags
-      // 3. SECURITY: Strip API keys from LLM and browser_automation nodes
+      // 2. Ensure flip states are persisted: sync from store to node data
+      diagram.nodes.forEach((node: any) => {
+        if (!node.data) node.data = {};
+        const flipState = isFlipped(node.id);
+        if (flipState) {
+          node.data.hFlip = true;
+          console.log(`[Save] Persisting hFlip state for node: ${node.data.name || node.id}`);
+        } else if (node.data.hFlip) {
+          // Remove hFlip if it's no longer flipped
+          delete node.data.hFlip;
+        }
+      });
+
+      // 3. Ensure breakpoints are NOT persisted: strip any break_point flags
+      // 4. SECURITY: Strip API keys from LLM and browser_automation nodes
       diagram.nodes.forEach((node: any) => {
         if (node?.data?.break_point) {
           delete node.data.break_point;
@@ -441,12 +456,27 @@ export const SaveAs = ({ disabled }: SaveProps) => {
   const username = useUserStore((state) => state.username);
   const getAllSheets = useSheetsStore((s) => s.getAllSheets);
   const saveActiveSheetDoc = useSheetsStore((s) => s.saveActiveDocument);
+  const { isFlipped } = useNodeFlipStore();
 
   const handleSaveAs = useCallback(async () => {
     if (!skillInfo) return;
 
     try {
       const diagram = document.toJSON();
+      
+      // Ensure flip states are persisted: sync from store to node data
+      diagram.nodes.forEach((node: any) => {
+        if (!node.data) node.data = {};
+        const flipState = isFlipped(node.id);
+        if (flipState) {
+          node.data.hFlip = true;
+          console.log(`[SaveAs] Persisting hFlip state for node: ${node.data.name || node.id}`);
+        } else if (node.data.hFlip) {
+          // Remove hFlip if it's no longer flipped
+          delete node.data.hFlip;
+        }
+      });
+      
       // Ensure breakpoints are NOT persisted in Save As as well
       diagram.nodes.forEach((node: any) => {
         if (node?.data?.break_point) {
