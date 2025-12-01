@@ -188,18 +188,51 @@ async def build_agent_skills(mainwin, skill_path=""):
             final_db_skills = db_skills
 
         # Step 4: Convert database skills to skill objects
+        # Skip DB skills that exist as files (file version takes precedence)
         logger.info("[build_agent_skills] Step 4: Converting DB skills to objects...")
         logger.info(f"[build_agent_skills] DB skills to convert: {len(final_db_skills)}")
+        
+        # Get list of file-based skill names to skip from DB
+        file_skill_names = set()
+        try:
+            skills_root = user_skills_root()
+            for entry in skills_root.iterdir():
+                if entry.is_dir() and entry.name.endswith("_skill"):
+                    # Check if it has code_dir or diagram_dir (actual skill, not just empty folder)
+                    if (entry / "code_dir").exists() or (entry / "code_skill").exists() or (entry / "diagram_dir").exists():
+                        # Extract skill name (remove _skill suffix for matching)
+                        skill_name = entry.name[:-6] if entry.name.endswith("_skill") else entry.name
+                        file_skill_names.add(skill_name)
+                        file_skill_names.add(entry.name)  # Also add full name with _skill suffix
+        except Exception as e:
+            logger.warning(f"[build_agent_skills] Failed to scan file skills: {e}")
+        
         memory_skills = []
         for i, db_skill in enumerate(final_db_skills):
             try:
-                logger.debug(f"[build_agent_skills] Converting DB skill {i+1}/{len(final_db_skills)}: {db_skill.get('name', 'unknown')}")
+                db_skill_name = db_skill.get('name', 'unknown')
+                db_skill_source = db_skill.get('source', 'ui')
+                
+                # ERROR CHECK: 'code' skills should NOT be in database
+                # Database should only contain dynamically created ('ui') skills
+                if db_skill_source == 'code':
+                    logger.error(f"[build_agent_skills] ❌ INVALID: Found 'code' skill in database: '{db_skill_name}'. "
+                                f"Code skills should NOT be stored in database! "
+                                f"Please remove this entry from the database manually.")
+                    continue
+                
+                # Skip if this skill exists as a file (file version will be loaded in Step 5)
+                if db_skill_name in file_skill_names or f"{db_skill_name}_skill" in file_skill_names:
+                    logger.info(f"[build_agent_skills] ⏭️ Skipping DB skill '{db_skill_name}' (file version exists)")
+                    continue
+                
+                logger.debug(f"[build_agent_skills] Converting DB skill {i+1}/{len(final_db_skills)}: {db_skill_name}")
                 skill_obj = _convert_db_skill_to_object(db_skill)
                 if skill_obj:
                     memory_skills.append(skill_obj)
                     logger.debug(f"[build_agent_skills] ✅ Successfully converted: {skill_obj.name}")
                 else:
-                    logger.warning(f"[build_agent_skills] ⚠️ Conversion returned None for: {db_skill.get('name', 'unknown')}")
+                    logger.warning(f"[build_agent_skills] ⚠️ Conversion returned None for: {db_skill_name}")
             except Exception as e:
                 logger.error(f"[build_agent_skills] ❌ Failed to convert skill {db_skill.get('name', 'unknown')}: {e}")
                 logger.error(f"[build_agent_skills] Traceback: {traceback.format_exc()}")
@@ -242,8 +275,10 @@ async def build_agent_skills(mainwin, skill_path=""):
         for skill_name, skill in skills_dict.items():
             if skill_name in code_skill_names:
                 skill.source = "code"
-            else:
+            elif skill.source != "code":
                 skill.source = "ui"  # Assuming skills not from code are from UI
+            # Ensure stable ID for code/example skills
+            skill.ensure_stable_id()
             all_skills.append(skill)
 
         # Step 7: Update mainwindow.agent_skills memory
@@ -568,13 +603,21 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
             import importlib
 
             with ExitStack() as stack:
-                stack.enter_context(temp_sys_path([pkg_dir]))
-                stack.enter_context(temp_sys_path(_site_packages(venv_dir)))
-                # Import the discovered module. If pkg_name is None, module lives directly under code_dir.
+                # For flat layout (pkg_name is None), we need to treat code_dir as a package
+                # to support relative imports like "from .helpers import ..."
                 if pkg_name:
+                    # Package layout: add pkg_dir's parent to sys.path
+                    stack.enter_context(temp_sys_path([pkg_dir]))
+                    stack.enter_context(temp_sys_path(_site_packages(venv_dir)))
                     mod = importlib.import_module(f"{pkg_name}.{module_base}")
                 else:
-                    mod = importlib.import_module(f"{module_base}")
+                    # Flat layout: treat code_dir as a package
+                    # Add code_dir's parent to sys.path so code_dir becomes importable as a package
+                    stack.enter_context(temp_sys_path([pkg_dir.parent]))
+                    stack.enter_context(temp_sys_path(_site_packages(venv_dir)))
+                    # Use code_dir's name as the package name
+                    flat_pkg_name = pkg_dir.name  # e.g., "code_dir"
+                    mod = importlib.import_module(f"{flat_pkg_name}.{module_base}")
                 if not hasattr(mod, "build_skill"):
                     where = f"{pkg_name}.{module_base}" if pkg_name else module_base
                     logger.error(f"[build_agent_skills] {where} missing build_skill()")
@@ -638,6 +681,11 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                 if sk:
                     # Mark as code-based skill
                     sk.source = "code"
+                    # Set path to the code directory for reference
+                    sk.path = str(code_dir)
+                    logger.debug(f"[build_agent_skills] Set skill path: {sk.path}")
+                    # Ensure stable ID for code/example skills
+                    sk.ensure_stable_id()
                     
                     mapping_file = skill_root / "data_mapping.json"
                     if mapping_file.exists():
@@ -686,6 +734,9 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
 
                 sk = EC_Skill()
                 sk.name = name
+                # Set path to the JSON file for skill-editor to load
+                sk.path = str(core_path)
+                logger.debug(f"[build_agent_skills] Set skill path: {sk.path}")
                 # Try to set description/config/run_mode if present in core_dict
                 try:
                     sk.description = core_dict.get("description", "") or sk.description
@@ -719,6 +770,17 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                     except Exception as e:
                         logger.warning(f"[build_agent_skills] Failed to load mapping rules: {e}")
                 
+                # source is read from the JSON file if present:
+                # - 'code': code/example skills (read-only)
+                # - 'ui': dynamically created via editor (editable, default)
+                json_source = core_dict.get("source", "ui")
+                # Treat 'example' as 'code' for simplicity
+                if json_source in ("code", "example"):
+                    sk.source = "code"
+                else:
+                    sk.source = "ui"
+                # Ensure stable ID for code/example skills
+                sk.ensure_stable_id()
                 return sk
             except Exception as e:
                 logger.error(f"[build_agent_skills] Diagram load failed at {diagram_dir}: {e}")
@@ -769,9 +831,14 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
             for entry in sorted(root.iterdir()):
                 # Expect entries named <name>_skill
                 if entry.is_dir() and entry.name.endswith("_skill"):
-                    sk = load_one_skill(entry)
-                    if sk is not None:
-                        skills.append(sk)
+                    try:
+                        sk = load_one_skill(entry)
+                        if sk is not None:
+                            skills.append(sk)
+                            logger.info(f"[build_agent_skills] ✅ Loaded skill: {sk.name} (source={sk.source})")
+                    except Exception as e:
+                        logger.error(f"[build_agent_skills] ❌ Failed to load skill from {entry.name}: {e}")
+                        continue
         else:
             sdir = Path(skill_path)
             # If user points to inside code_skill or diagram_dir, go up to the skill root (<name>_skill)

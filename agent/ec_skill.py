@@ -161,6 +161,15 @@ DEFAULT_MAPPING_RULE = {
 }
 
 
+def _generate_stable_id(name: str, source: str) -> str:
+    """Generate a stable ID for code skills based on name, or random UUID for ui skills."""
+    if source == "code":
+        # Use uuid5 with a namespace to generate deterministic ID from name
+        namespace = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")  # UUID namespace for names
+        return str(uuid.uuid5(namespace, f"code:{name}"))
+    return str(uuid.uuid4())
+
+
 class EC_Skill(AgentSkill):
     """Holds a compiled LangGraph runnable and metadata."""
 
@@ -181,7 +190,7 @@ class EC_Skill(AgentSkill):
     level: str = "entry"
     path: str = ""
     run_mode: str = "released"      # has to be either "development" or "released"
-    source: str = "ui"              # "code" for code-based skills, "ui" for UI-created skills
+    source: str = "ui"              # "code" for code-based, "example" for example skills, "ui" for UI-created
     # Optional: per-skill mapping rules for resume/state mapping DSL
     mapping_rules: dict | None = DEFAULT_MAPPING_RULE
 
@@ -192,6 +201,11 @@ class EC_Skill(AgentSkill):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    def ensure_stable_id(self):
+        """Ensure stable ID for code skills. Call this after setting name and source."""
+        if self.source == "code":
+            self.id = _generate_stable_id(self.name, self.source)
+    
     def get_config(self):
         return self.config
 

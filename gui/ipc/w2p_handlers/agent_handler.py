@@ -770,8 +770,9 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
                     logger.error(f"[agent_handler] Failed to query agents from database: db_service returned None")
                 elif not isinstance(db_result, dict):
                     logger.error(f"[agent_handler] Failed to query agents from database: unexpected result type {type(db_result)}")
-                elif db_result.get('success') and db_result.get('data'):
-                    db_agents = db_result['data']
+                elif db_result.get('success'):
+                    # Note: data can be empty list [], which is valid
+                    db_agents = db_result.get('data') or []
                     logger.info(f"[agent_handler] Retrieved {len(db_agents)} agents from database")
                     
                     # Convert to EC_Agent and add to memory
@@ -788,10 +789,8 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
                     
                     logger.info(f"[agent_handler] Synced {len(main_window.agents)} agents to memory")
                 else:
-                    error_msg = db_result.get('error', 'Unknown error') if db_result else 'None result'
+                    error_msg = db_result.get('error', 'Unknown error')
                     logger.error(f"[agent_handler] Failed to query agents from database: {error_msg}")
-                    # Log full result for debugging
-                    logger.debug(f"[agent_handler] Database query result: {db_result}")
             except Exception as e:
                 logger.error(f"[agent_handler] Error syncing agents from database: {e}")
                 logger.debug(traceback.format_exc())

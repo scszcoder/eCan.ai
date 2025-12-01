@@ -123,14 +123,16 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
         if not skill_id:
             return create_error_response(request, 'INVALID_PARAMS', 'Skill ID is required for save operation')
 
-        # Check if this is a code-based skill (read-only)
+        # Check if this is a read-only skill
+        # - 'code': code/example skills (read-only)
+        # - 'ui': dynamically created via editor (editable)
         source = skill_info.get('source', 'ui')
         if source == 'code':
-            logger.warning(f"Attempted to save code-based skill: {skill_info.get('name')}")
+            logger.warning(f"Attempted to save code-based skill: {skill_info.get('name')} (source={source})")
             return create_error_response(
                 request, 
                 'SKILL_READ_ONLY', 
-                'Code-based skills cannot be edited or saved. Please modify the source code file instead.'
+                'Code-based skills cannot be edited. Please modify the source files directly.'
             )
 
         logger.info(f"Saving agent skill for user: {username}, skill_id: {skill_id}")
@@ -332,6 +334,24 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
         skill_id = data['skill_id']
 
         logger.info(f"Deleting agent skill for user: {username}, skill_id: {skill_id}")
+
+        # Check if this is a read-only skill (cannot be deleted from UI)
+        try:
+            main_window = AppContext.get_main_window()
+            if main_window and hasattr(main_window, 'agent_skills'):
+                for skill in (main_window.agent_skills or []):
+                    if hasattr(skill, 'id') and skill.id == skill_id:
+                        source = getattr(skill, 'source', 'ui')
+                        if source == 'code':
+                            logger.warning(f"Attempted to delete code-based skill: {skill_id} (source={source})")
+                            return create_error_response(
+                                request,
+                                'SKILL_READ_ONLY',
+                                'Code-based skills cannot be deleted. Please remove the source files directly.'
+                            )
+                        break
+        except Exception as e:
+            logger.warning(f"[skill_handler] Failed to check skill source: {e}")
 
         # Get database service
         skill_service = _get_skill_service()

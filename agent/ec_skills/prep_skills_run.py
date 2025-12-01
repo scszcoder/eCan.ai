@@ -25,15 +25,45 @@ def _deep_merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, Any]] = None) -> NodeState:
-    """Provide a NodeState-shaped baseline for a new run."""
-    print(f"type of msg {type(msg)}")
+    """Provide a NodeState-shaped baseline for a new run.
+    
+    Note: msg=None is expected for schedule-triggered tasks (they have no input message).
+    This is by design - see tasks.py line 2180: "Scheduled tasks don't have input messages"
+    """
+    _tag = "[_node_state_baseline]"
+    agent_id = agent.card.id if agent and hasattr(agent, 'card') else None
+    
+    # msg=None is expected for schedule/initial triggers - not an error
+    is_empty_msg = msg is None
+    if is_empty_msg:
+        logger.debug(f"{_tag} START: agent_id={agent_id}, task_id={task_id}, msg=None (schedule trigger)")
+    else:
+        logger.debug(f"{_tag} START: agent_id={agent_id}, task_id={task_id}, msg_type={type(msg).__name__}, has_current_state={current_state is not None}")
+    
+    # Track missing fields for summary log (only track unexpected missing fields)
+    missing_fields = []
+    
     try:
         if not isinstance(msg, dict):
-            print("incoming msg: ", msg)
-            params = getattr(msg, "params", None)
+            # Non-dict message (e.g., TaskSendParams object or None for schedule triggers)
+            raw_params = getattr(msg, "params", None) if msg else None
             attachments = []
             msg_txt = ""
-            if params:
+            
+            # Convert TaskSendParams to dict for consistent handling downstream
+            if raw_params is not None:
+                if hasattr(raw_params, "model_dump"):
+                    params = raw_params.model_dump()
+                elif hasattr(raw_params, "dict"):
+                    params = raw_params.dict()
+                else:
+                    params = raw_params
+            else:
+                params = {}
+                if not is_empty_msg:
+                    missing_fields.append("raw_params")
+            
+            if raw_params:
                 msg_parts = msg.params.message.parts
                 for part in msg_parts:
                     if part.type == "text":
@@ -41,38 +71,54 @@ def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, 
                     elif part.type == "file":
                         attachments.append({"filename": part.file.name, "file_url": part.file.uri, "mime_type": part.file.mimeType,
                                     "file_data": part.file.bytes})
-                chat_id = msg.params.metadata["params"]["chatId"]
-                form = msg.params.metadata.get("form", {})
+                meta_params = msg.params.metadata.get("params", {}) if msg.params.metadata else {}
+                if not msg.params.metadata:
+                    missing_fields.append("metadata")
+                chat_id = meta_params.get("chatId", "")
+                if not chat_id:
+                    missing_fields.append("chatId")
+                form = msg.params.metadata.get("form", {}) if msg.params.metadata else {}
             else:
                 chat_id = ""
                 form = {}
-            method = getattr(msg, "method", "")
+            
+            method = getattr(msg, "method", "") if msg else ""
             human = False
-            msg_id = getattr(msg, "id", "")
+            msg_id = getattr(msg, "id", "") if msg else ""
+            if not is_empty_msg:
+                if not method:
+                    missing_fields.append("method")
+                if not msg_id:
+                    missing_fields.append("msg_id")
             form = {}
+            
+            logger.debug(f"{_tag} Non-dict msg parsed: chat_id={chat_id or 'N/A'}, msg_id={msg_id or 'N/A'}, method={method or 'N/A'}, msg_len={len(msg_txt)}, attachments={len(attachments)}, missing={missing_fields or 'none'}")
         else:
-            logger.info("incoming dict msg: "+json.dumps(msg, indent=2))
+            # Dict message
             if "params" in msg:
-                print("hello???")
                 if "content" in msg["params"]:
-                    print("prep response message", msg)
                     msg_txt = msg['params']['content']
-                    print("prep task with message text:", msg_txt)
                     atts = []
                     if msg['params']['attachments']:
                         for att in msg['params']['attachments']:
                             atts.append(FileAttachment(name=att['name'], type=att['type'], url=att['url'], data=""))
 
-                    chat_id = msg['params']['chatId']
-                    msg_id = msg['id']
-                    human = msg['params']['human']
+                    chat_id = msg['params'].get('chatId', '')
+                    msg_id = msg.get('id', '')
+                    human = msg['params'].get('human', False)
                     params = msg['params']
-                    method = msg["method"]
-                    if msg["method"] == "form_submit":
+                    method = msg.get("method", "")
+                    
+                    if not chat_id: missing_fields.append("chatId")
+                    if not msg_id: missing_fields.append("msg_id")
+                    if not method: missing_fields.append("method")
+                    
+                    if msg.get("method") == "form_submit":
                         form = msg["params"].get("formData", {})
                     else:
                         form = {}
                 else:
+                    missing_fields.append("content")
                     msg_id = ""
                     msg_txt = ""
                     attachments = []
@@ -82,7 +128,7 @@ def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, 
                     form = {}
                     chat_id = ""
             else:
-                logger.info("non paramms....")
+                missing_fields.append("params")
                 chat_id = ""
                 msg_id = ""
                 msg_txt = ""
@@ -91,6 +137,8 @@ def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, 
                 params = {}
                 method = ""
                 form = {}
+            
+            logger.debug(f"{_tag} Dict msg parsed: chat_id={chat_id or 'N/A'}, msg_id={msg_id or 'N/A'}, method={method or 'N/A'}, human={human}, msg_len={len(msg_txt) if msg_txt else 0}, missing={missing_fields or 'none'}")
 
         base: NodeState = {
             "input": "",
@@ -121,16 +169,20 @@ def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, 
             "metadata": {"form": form},
         }
         if isinstance(current_state, dict):
-            logger.debug("deep merging current state")
-            base = _deep_merge(base, existing)  # type: ignore[arg-type]
+            base = _deep_merge(base, current_state)  # type: ignore[arg-type]
+            logger.debug(f"{_tag} Merged with current_state (keys={list(current_state.keys())})")
 
-        logger.debug("base node state:", base)
+        # Summary log - warning only for unexpected missing fields (not for empty msg)
+        if missing_fields:
+            logger.warning(f"{_tag} DONE: missing_fields={missing_fields}")
+        elif is_empty_msg:
+            logger.debug(f"{_tag} DONE: empty msg (schedule/initial trigger), using defaults")
+        logger.debug(f"{_tag} DONE: chat_id={chat_id or 'N/A'}, task_id={task_id}, method={method or 'N/A'}")
         return base
     except Exception as e:
         err_msg = get_traceback(e, "ErrorNodeStateBaseline")
-        logger.error(f"{err_msg}")
-        base = None
-    return base
+        logger.error(f"{_tag} ERROR: {err_msg}")
+        return None
 
 
 def _resolve_start_mapping(skill) -> Dict[str, Any]:
@@ -224,25 +276,25 @@ def prep_skills_run(skill, agent, task_id, msg=None, current_state=None):
             # attributes/metadata/tool_input are primary targets from DSP
             attrs = state_patch.get("attributes")
             if isinstance(attrs, dict):
-                print("deep merging node state attributes....")
+                logger.debug("deep merging node state attributes....")
                 node_state["attributes"] = _deep_merge(node_state.get("attributes", {}), attrs)
             md = state_patch.get("metadata")
             if isinstance(md, dict):
-                print("deep merging node state metadata....")
+                logger.debug("deep merging node state metadata....")
                 node_state["metadata"] = _deep_merge(node_state.get("metadata", {}), md)
             tin = state_patch.get("tool_input")
             if isinstance(tin, dict):
-                print("deep merging node state tool_input....")
+                logger.debug("deep merging node state tool_input....")
                 node_state["tool_input"] = _deep_merge(node_state.get("tool_input", {}), tin)
             # Merge any other top-level fields conservatively
             other = {k: v for k, v in state_patch.items() if k not in ("attributes", "metadata", "tool_input")}
             if other:
-                print("deep merging node state other....")
+                logger.debug("deep merging node state other....")
                 node_state = _deep_merge(node_state, other)  # type: ignore[assignment]
     except Exception as e:
         err_msg = get_traceback(e, "ErrorPrepSkillsRun")
-        logger.error(f"{e}")
+        logger.error(f"{err_msg}")
         node_state = None
 
-    print("deep merged node state....", node_state)
+    logger.debug("deep merged node state....", node_state)
     return node_state
