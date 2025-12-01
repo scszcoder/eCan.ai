@@ -353,9 +353,10 @@ jobs:
           echo "Auto-detected channel: $CHANNEL"
         fi
         
-        # Safety check: Prevent branch builds in production/staging
+        # Safety check: Prevent non-production-eligible branch builds in production/staging
+        # Note: main/master branches are production-eligible and allowed
         IS_BRANCH="${{ steps.validate.outputs.is_branch }}"
-        if [[ "$IS_BRANCH" == "true" ]] && [[ "$ENV" == "production" || "$ENV" == "staging" ]]; then
+        if [[ "$IS_BRANCH" == "true" ]] && [[ "$IS_PRODUCTION_ELIGIBLE" == "false" ]] && [[ "$ENV" == "production" || "$ENV" == "staging" ]]; then
           echo "======================================================"
           echo "❌ ERROR: Branch builds cannot be deployed to $ENV"
           echo "======================================================"
