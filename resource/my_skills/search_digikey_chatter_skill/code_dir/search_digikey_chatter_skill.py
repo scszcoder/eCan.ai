@@ -7,6 +7,7 @@ dependencies are injected via run_context inside build_skill().
 """
 from __future__ import annotations
 from typing import Any
+from config.constants import EXTENDED_API_TIMEOUT
 
 # Dependencies from the host app are injected via _init_from_context(run_context)
 # so we avoid importing app modules at import time.
@@ -213,7 +214,8 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
         }
 
         async def run_tool_call():
-            return await mcp_call_tool("api_ecan_ai_query_components", {"input": state["tool_input"]})
+            # Cloud API query may take 60+ seconds, use longer timeout
+            return await mcp_call_tool("api_ecan_ai_query_components", {"input": state["tool_input"]}, timeout=EXTENDED_API_TIMEOUT)
 
         tool_result = run_async_in_sync(run_tool_call())
 
@@ -523,7 +525,8 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
             return state
 
         wf.add_node("prep_query_components", node_builder(prep_query_components, "prep_query_components", THIS_SKILL_NAME, OWNER, bp_manager))
-        wf.add_node("mcp_query_components", build_mcp_tool_calling_node({"tool_name": "api_ecan_ai_query_components"}, "mcp_query_components", THIS_SKILL_NAME, OWNER, bp_manager))
+        from config.constants import EXTENDED_API_TIMEOUT
+        wf.add_node("mcp_query_components", build_mcp_tool_calling_node({"tool_name": "api_ecan_ai_query_components", "timeout": EXTENDED_API_TIMEOUT}, "mcp_query_components", THIS_SKILL_NAME, OWNER, bp_manager))
 
         # extract out paraetric filters
         def post_query_components(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
@@ -532,7 +535,7 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
                 logger.debug("post_query_components tool results:", tool_result)
                 if (hasattr(tool_result, 'content') and
                         tool_result.content and
-                        len(tool_result.content) > 0 and  # Add this check!
+                        len(tool_result.content) > 0 and
                         hasattr(tool_result.content[0], 'text') and
                         tool_result.content[0].text and
                         "completed" in tool_result.content[0].text):
@@ -542,7 +545,7 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
                     meta = getattr(content0, 'meta', None) or getattr(content0, '_meta', None)
                     logger.debug("processing tool result....meta:", meta)
                     state["tool_result"] = meta
-                    state["metadata"]["components"] = meta["components"]
+                    state["metadata"]["components"] = meta.get("components", []) if meta else []
                     components = meta.get("components", []) if isinstance(meta, dict) else meta
                     parametric_filters = []
                     logger.debug("processing tool result....components:", components)
@@ -550,16 +553,46 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
                         logger.debug("processing tool result....parametric_filters:")
                         parametric_filters = components[0].get('parametric_filters', []) or []
 
-                    fe_parametric_filter = {
-                        "id": "technical_query_form",
-                        "type": "normal",
-                        "title": components[0].get('title', 'Component under search') if isinstance(components, list) and components else 'Component under search',
-                        "fields": parametric_filters,
-                    }
-                    state["result"] = {"llm_result": "Here is a parametric search filter form to aid searching the parts you're looking for, please try your best to fill it out and send back to me. if you're not sure about certain parameters, just leave them blank. Also feel free to ask any questions about the meaning and implications of any parameters you're not sure about."}
+                    # Handle empty results - send friendly message instead of empty form
+                    if not components or not parametric_filters:
+                        # Get component name from tool_input (metadata gets overwritten by result)
+                        input_comps = state.get("tool_input", {}).get("input", {}).get("components") or []
+                        component_name = input_comps[0].get("name", "the component") if input_comps else "the component"
+                        
+                        # Detect language
+                        try:
+                            from utils.i18n_helper import detect_language
+                            lang = detect_language()
+                        except Exception:
+                            lang = 'en'
+                        
+                        if lang == 'zh-CN':
+                            no_result_msg = (
+                                f"抱歉，我在数据库中找不到关于 '{component_name}' 的任何匹配组件。\n"
+                                f"可能的原因：\n"
+                                f"1. 组件名称过于笼统或不是标准的电子元件名称\n"
+                                f"2. 尝试使用英文关键词（如 'capacitor', 'resistor'）\n"
+                                f"3. 如果有具体的零件编号，请尝试使用零件编号"
+                            )
+                        else:
+                            no_result_msg = (
+                                f"Sorry, I couldn't find any matching components for '{component_name}'. "
+                                f"Try using more specific terms or part numbers."
+                            )
+                        state["result"] = {"llm_result": no_result_msg}
+                        send_data_back2human("send_chat", "text", {}, state)
+                        logger.info(f"[post_query_components] No results for '{component_name}'")
+                    else:
+                        fe_parametric_filter = {
+                            "id": "technical_query_form",
+                            "type": "normal",
+                            "title": components[0].get('title', 'Component under search') if isinstance(components, list) and components else 'Component under search',
+                            "fields": parametric_filters,
+                        }
+                        state["result"] = {"llm_result": "Here is a parametric search filter form to aid searching the parts you're looking for, please try your best to fill it out and send back to me. if you're not sure about certain parameters, just leave them blank. Also feel free to ask any questions about the meaning and implications of any parameters you're not sure about."}
 
-                    logger.debug("parametric filter info:", fe_parametric_filter)
-                    send_data_back2human("send_chat", "form", fe_parametric_filter, state)
+                        logger.debug("parametric filter info:", fe_parametric_filter)
+                        send_data_back2human("send_chat", "form", fe_parametric_filter, state)
                 elif hasattr(tool_result, 'isError') and tool_result.isError:
                     state["error"] = tool_result.content[0].text if tool_result.content else "Unknown error occurred"
             except Exception as e:
@@ -583,9 +616,10 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
         # Local search (Digikey): prep -> MCP -> post
         def prep_run_search(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
             try:
-                print("prep_run_search------------------->", state)
-                # site_categories = state.get("tool_result", {}).get("components", [{}])
-                site_categories = state.get("metadata", {}).get("components", [{}])[0].get("site_categories", {})
+                logger.debug("prep_run_search------------------->", state)
+                # Get site_categories safely
+                components = state.get("metadata", {}).get("components") or []
+                site_categories = components[0].get("site_categories", {}) if components else {}
                 logger.debug("site_categories:", site_categories)
                 in_pfs = state.get("metadata", {}).get("filled_parametric_filter", {})
                 if in_pfs:
@@ -661,11 +695,23 @@ def build_skill(run_context: dict | None = None, mainwin=None) -> EC_Skill:
 
         def prep_query_fom(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
             try:
-                print("prep_query_fom..........................>", state)
-                # tool_result = state.get("tool_result")
-                # tool_result_data = tool_result.content[0].meta["results"]
-                tool_result_data = state.get("tool_result", [{}])
-                table_headers = list(tool_result_data[0].keys())
+                logger.debug("prep_query_fom..........................>", state)
+                # Get tool_result safely - could be dict, list, or CallToolResult
+                tool_result = state.get("tool_result")
+                tool_result_data = []
+                if isinstance(tool_result, dict):
+                    tool_result_data = [tool_result] if tool_result else []
+                elif isinstance(tool_result, list):
+                    tool_result_data = tool_result
+                elif hasattr(tool_result, 'content'):
+                    # CallToolResult object
+                    try:
+                        meta = getattr(tool_result.content[0], 'meta', None) or {}
+                        tool_result_data = meta.get('results', []) if isinstance(meta, dict) else []
+                    except (IndexError, AttributeError):
+                        tool_result_data = []
+                
+                table_headers = list(tool_result_data[0].keys()) if tool_result_data and isinstance(tool_result_data[0], dict) else []
                 if table_headers:
                     print("table headers:", table_headers)
                     params = convert_table_headers_to_params(table_headers)

@@ -143,7 +143,9 @@ class A2AClient:
     @staticmethod
     def _normalize_timeout(timeout: httpx.Timeout | float | None) -> httpx.Timeout:
         if timeout is None:
-            return httpx.Timeout(timeout=60.0, connect=10.0, read=120.0, write=120.0)
+            # read/write timeout should be >= EXTENDED_API_TIMEOUT for slow cloud APIs
+            from config.constants import EXTENDED_API_TIMEOUT
+            return httpx.Timeout(timeout=60.0, connect=10.0, read=EXTENDED_API_TIMEOUT + 10.0, write=EXTENDED_API_TIMEOUT + 10.0)
         if isinstance(timeout, (int, float)):
             return httpx.Timeout(timeout=timeout)
         if isinstance(timeout, httpx.Timeout):

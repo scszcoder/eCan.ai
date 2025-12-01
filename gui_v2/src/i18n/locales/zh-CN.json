@@ -31,6 +31,7 @@
     "run": "运行",
     "stop": "停止",
     "profile": "个人资料",
+    "account": "账户",
     "yes": "是",
     "no": "否",
     "edit": "编辑",
@@ -166,17 +167,32 @@
         "title": "标题"
       },
       "sections": {
+        "systemPrompt": "系统提示部分",
+        "roleCharacter": "角色 / 人设",
+        "tone": "语气",
+        "background": "场景 / 背景",
         "roleToneContext": "系统提示：角色 / 语气 / 场景",
         "goals": "系统提示：目标",
         "guidelines": "系统提示：指南",
         "rules": "系统提示：规则",
+        "examples": "示例",
         "instructions": "系统提示：指令",
+        "variables": "变量",
         "systemInputs": "系统提示：输入",
         "humanInputs": "用户提示：输入"
       },
       "placeholders": {
         "title": "标题",
+        "roleCharacter": "描述助手的角色或人设",
+        "tone": "描述语气或说话风格",
+        "background": "提供场景或背景信息",
         "roleToneContext": "描述助手的角色、语气和场景",
+        "goals": "添加一个目标",
+        "guidelines": "添加一条指南",
+        "rules": "添加一条规则",
+        "instructions": "添加一条指令",
+        "examples": "添加一个示例",
+        "variables": "添加一个变量或输入",
         "addGoal": "添加一个目标",
         "addGuideline": "添加一条指南",
         "addRule": "添加一条规则",
@@ -193,6 +209,13 @@
         "instructions": "指令",
         "systemInputs": "系统输入",
         "humanInputs": "用户输入"
+      },
+      "copyCreate": "复制创建",
+      "sampleTag": "示例",
+      "locationTooltip": "位置：{{location}}",
+      "locations": {
+        "sample": "示例提示词",
+        "mine": "我的提示词"
       },
       "examples": {
         "write_a_marketing_email": {
@@ -238,6 +261,9 @@
           "goals": {
             "0": "提炼主要贡献",
             "1": "指出局限性"
+          },
+          "guidelines": {
+            "0": "如有可能，引用关键章节"
           }
         }
       }
@@ -1066,6 +1092,7 @@
       "selectTask": "请选择一个任务",
       "repeatSettings": "重复设置",
       "timeSettings": "时间设置",
+      "statusLabel": "状态",
       "status": {
         "SUBMITTED": "已提交",
         "WORKING": "运行中",
@@ -1074,6 +1101,11 @@
         "CANCELED": "已取消",
         "ready": "就绪",
         "running": "运行中",
+        "completed": "已完成",
+        "failed": "失败",
+        "pending": "等待中",
+        "cancelled": "已取消",
+        "timeout": "超时",
         "unknown": "未知"
       },
       "priority": {
@@ -1130,6 +1162,28 @@
       "tabExecution": "执行设置",
       "tabHistory": "执行历史",
       "basicInfo": "基本信息",
+      "executionId": "执行ID",
+      "triggerType": "触发类型",
+      "retryCount": "重试次数",
+      "callChain": "调用链",
+      "steps": "步骤",
+      "inputs": "输入",
+      "outputs": "输出",
+      "noCallChain": "暂无调用链数据",
+      "noExecutions": "暂无执行记录",
+      "executionInputs": "执行输入",
+      "errorInfo": "错误信息",
+      "executionDetail": "执行详情",
+      "viewDetails": "详情",
+      "stillRunning": "执行中...",
+      "chainRunning": "执行中",
+      "chainFailed": "有失败",
+      "chainCompleted": "全部完成",
+      "chainPartial": "部分完成",
+      "nodeId": "节点ID",
+      "nodeType": "节点类型",
+      "nodeDuration": "执行耗时",
+      "totalExecutions": "共 {{total}} 条记录",
       "nameRequired": "请输入任务名称",
       "description": "描述",
       "descriptionPlaceholder": "输入任务描述...",
@@ -1141,11 +1195,9 @@
       "skills": "关联技能",
       "selectSkills": "选择关联技能",
       "statistics": "执行统计",
-      "totalExecutions": "总执行次数",
       "successRate": "成功率",
       "avgDuration": "平均耗时",
       "lastRun": "最后执行",
-      "triggerType": "触发类型",
       "scheduleConfig": "调度配置",
       "cronExpression": "Cron 表达式",
       "repeatPattern": {
@@ -1171,12 +1223,7 @@
       "messageConfig": "消息配置",
       "keywords": "关键词过滤",
       "keywordsPlaceholder": "输入关键词后按回车",
-      "noExecutions": "暂无执行记录",
-      "viewDetails": "查看详情",
-      "executionDetail": "执行详情",
       "duration": "耗时",
-      "callChain": "调用链",
-      "noCallChain": "无调用链数据",
       "inputOutput": "输入/输出",
       "logs": "日志",
       "noLogs": "无日志数据",
@@ -1499,6 +1546,7 @@
           "vectorStorage": "向量存储",
           "graphStorage": "图存储",
           "docStatusStorage": "文档状态存储",
+          "commonStorageSettings": "通用存储设置",
           "commonPostgresSettings": "PostgreSQL 通用配置"
         },
         "fields": {
@@ -1820,7 +1868,18 @@
     "addAgent": "添加代理"
   },
   "skills": {
-    "addSkill": "添加技能"
+    "addSkill": "添加技能",
+    "componentSearch": {
+      "formTitle": "搜索组件",
+      "formPrompt": "以下是参数搜索筛选表单，可帮助您查找所需的零件。请尽量填写表单并发送给我。如果您不确定某些参数，可以留空。如有任何关于参数含义的问题，请随时询问。",
+      "noResultTitle": "未找到组件",
+      "noResultMessage": "抱歉，未能在数据库中找到与 '{{componentName}}' 匹配的组件。",
+      "noResultReasons": "可能的原因：",
+      "noResultReason1": "组件名称过于笼统或不是标准电子元器件",
+      "noResultReason2": "请尝试使用英文关键词（如 capacitor, resistor, microcontroller）",
+      "noResultReason3": "如果有具体型号，请提供型号信息",
+      "noResultSuggestion": "请提供更具体的组件信息或尝试其他搜索词。"
+    }
   },
   "tasks": {
     "addTask": "添加任务"
