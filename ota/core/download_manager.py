@@ -176,5 +176,23 @@ class DownloadManager(QObject):
             return _tr.tr("check_for_updates")
 
 
-# Global instance
-download_manager = DownloadManager.get_instance()
+# Global instance - lazy initialization to avoid circular imports
+_download_manager = None
+
+def get_download_manager():
+    """Get the global download manager instance (lazy initialization)"""
+    global _download_manager
+    if _download_manager is None:
+        _download_manager = DownloadManager.get_instance()
+    return _download_manager
+
+# For backward compatibility - property-like access
+class _DownloadManagerProxy:
+    """Proxy class for lazy access to download_manager"""
+    def __getattr__(self, name):
+        return getattr(get_download_manager(), name)
+    
+    def __setattr__(self, name, value):
+        setattr(get_download_manager(), name, value)
+
+download_manager = _DownloadManagerProxy()

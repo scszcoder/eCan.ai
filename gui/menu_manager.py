@@ -256,20 +256,22 @@ class MenuManager:
     def _connect_download_manager(self):
         """Connect to global download manager for real-time updates"""
         try:
-            from ota.core.download_manager import download_manager
+            from ota.core.download_manager import get_download_manager
+            dm = get_download_manager()
             
             # Connect to download manager signals
-            download_manager.state_changed.connect(self._on_download_state_changed)
-            download_manager.progress_updated.connect(self._on_download_progress)
+            dm.state_changed.connect(self._on_download_state_changed)
+            dm.progress_updated.connect(self._on_download_progress)
             
             logger.info("[MenuManager] Connected to global download manager")
         except Exception as e:
-            logger.warning(f"[MenuManager] Failed to connect to download manager: {e}")
+            logger.debug(f"[MenuManager] Download manager not available yet: {e}")
     
     def _on_download_state_changed(self, state):
         """Handle download state changes"""
         try:
-            from ota.core.download_manager import download_manager, DownloadState
+            from ota.core.download_manager import get_download_manager, DownloadState
+            download_manager = get_download_manager()
             
             if not self.check_update_action:
                 return
@@ -288,8 +290,6 @@ class MenuManager:
     def _on_download_progress(self, progress, speed, remaining):
         """Handle download progress updates"""
         try:
-            from ota.core.download_manager import download_manager
-            
             if not self.check_update_action:
                 logger.warning("[MenuManager] check_update_action is None, cannot update progress")
                 return
