@@ -12,7 +12,7 @@ from typing import Any
 # so we avoid importing app modules at import time.
 
 # Use split-out helpers to keep this module lean
-from helpers import (
+from .helpers import (
     chat_or_work as h_chat_or_work,
     is_preliminary_component_info_ready as h_is_preliminary_component_info_ready,
     are_component_specs_filled as h_are_component_specs_filled,

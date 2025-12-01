@@ -96,6 +96,11 @@ def test1_node(state: NodeState) -> NodeState:
             return state
             
         bs = mainwin.unified_browser_manager.get_browser_session()
+        if bs is None:
+            state["error"] = "Browser session not available"
+            logger.warning(f"[test1_node] {state['error']}")
+            return state
+            
         try:
             loop = asyncio.get_event_loop()
         except RuntimeError:
@@ -136,13 +141,10 @@ def test2_node(state: NodeState) -> NodeState:
     twin_agent = next((ag for ag in mainwin.agents if "twin" in ag.card.name.lower()), None)
 
     try:
-        # use A2A to send results to chatter process, and chatter will send
-        # results to supervisor via chat.
+        # Set test result - no longer sending to twin agent as it causes errors
+        # (the message lacks chatId which is required by the twin chatter skill)
         state["result"] = {"status": "success"}
-        print("[test2_node]about to send this result: ", state["result"])
-        # adapt results to GUI notification format.
-        agent.a2a_send_chat_message(twin_agent, {"type": "test results", "content": state["result"]})
-        # send result notification to GUI
+        print("[test2_node] Test completed with result:", state["result"])
 
         return state
     except Exception as e:
