@@ -19,6 +19,8 @@ from agent.ec_skills.llm_hooks.llm_hooks import llm_node_with_raw_files
 from agent.mcp.server.scrapers.eval_util import get_default_fom_form
 from agent.ec_skills.llm_utils.llm_utils import try_parse_json
 from agent.mcp.server.scrapers.eval_util import get_default_fom_form, get_default_rerank_req
+from utils.i18n_helper import detect_language
+from config.constants import EXTENDED_API_TIMEOUT
 
 
 THIS_SKILL_NAME = "chatter for ecan.ai search parts and components web site"
@@ -456,7 +458,8 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
         }
         
         async def run_tool_call():
-            return await mcp_call_tool("api_ecan_ai_query_components", {"input": state["tool_input"]})
+            # Cloud API query may take 60+ seconds, use longer timeout
+            return await mcp_call_tool("api_ecan_ai_query_components", {"input": state["tool_input"]}, timeout=EXTENDED_API_TIMEOUT)
         
         # Always use a dedicated local loop to avoid interfering with any global loop
         # Run the async call safely from sync
@@ -498,16 +501,47 @@ def query_component_specs_node(state: NodeState, *, runtime: Runtime, store: Bas
                 logger.debug("[search_parts_chatter_skill] about to send back parametric_filters:", parametric_filters)
                 logger.debug("[search_parts_chatter_skill] about to send back parametric_filter:", parametric_filter)
                 logger.debug("[search_parts_chatter_skill] state at the moment:", state)
-                fe_parametric_filter = {
-                    "id": "technical_query_form",
-                    "type": "normal",
-                    "title": components[0].get('title', 'Component under search') if components else 'Component under search',
-                    "fields": parametric_filters
-                }
+                
+                # Handle empty results - send friendly message instead of empty form
+                if not components or not parametric_filters:
+                    # Get component name from tool_input
+                    input_components = state.get("tool_input", {}).get("input", {}).get("components") or []
+                    component_name = input_components[0].get("name", "the component") if input_components else "the component"
+                    
+                    lang = detect_language()
+                    if lang == 'zh-CN':
+                        no_result_msg = (
+                            f"抱歉，我在数据库中找不到关于 '{component_name}' 的任何匹配组件。\n"
+                            f"可能的原因：\n"
+                            f"1. 组件名称过于笼统或不是标准的电子元件名称\n"
+                            f"2. 尝试使用英文关键词（如 'capacitor', 'resistor'）\n"
+                            f"3. 如果有具体的零件编号，请尝试使用零件编号"
+                        )
+                    else:
+                        no_result_msg = (
+                            f"Sorry, I couldn't find any matching components for '{component_name}'. "
+                            f"Try using more specific terms or part numbers."
+                        )
+                    state["result"] = {"llm_result": no_result_msg}
+                    send_data_back2human("send_chat", "text", {}, state)
+                    logger.info(f"[search_parts_chatter_skill] No results for '{component_name}'")
+                else:
+                    fe_parametric_filter = {
+                        "id": "technical_query_form",
+                        "type": "normal",
+                        "title": components[0].get('title', 'Component under search') if components else 'Component under search',
+                        "fields": parametric_filters
+                    }
 
-                state["result"] = {"llm_result": "Here is a parametric search filter form to aid searching the parts you're looking for, please try your best to fill it out and send back to me. if you're not sure about certain parameters, just leave them blank. Also feel free to ask any questions about the meaning and implications of any parameters you're not sure about."}
-                # needs to make sure this is the response prompt......state["result"]["llm_result"]
-                send_data_back2human("send_chat","form", fe_parametric_filter, state)
+                    lang = detect_language()
+                    if lang == 'zh-CN':
+                        msg = "这是一个参数搜索过滤器表单，用于帮助您搜索所需的零件，请尽量填写并发送给我。如果不确定某些参数，请留空。如果您对任何参数的含义有疑问，请随时询问。"
+                    else:
+                        msg = "Here is a parametric search filter form to aid searching the parts you're looking for, please try your best to fill it out and send back to me. if you're not sure about certain parameters, just leave them blank. Also feel free to ask any questions about the meaning and implications of any parameters you're not sure about."
+
+                    state["result"] = {"llm_result": msg}
+                    # needs to make sure this is the response prompt......state["result"]["llm_result"]
+                    send_data_back2human("send_chat","form", fe_parametric_filter, state)
         elif hasattr(tool_result, 'isError') and tool_result.isError:
             state["error"] = tool_result.content[0].text if tool_result.content else "Unknown error occurred"
         else:
