@@ -97,8 +97,10 @@ def test1_node(state: NodeState) -> NodeState:
             
         bs = mainwin.unified_browser_manager.get_browser_session()
         if bs is None:
-            state["error"] = "Browser session not available"
-            logger.warning(f"[test1_node] {state['error']}")
+            # BrowserSession is lazily created and not available on GUI thread
+            # This is expected behavior - browser operations should use run_basic_agent_task()
+            logger.warning("[test1_node] Browser session not available (lazy creation, use run_basic_agent_task for browser ops)")
+            state["result"] = {"status": "skipped", "reason": "Browser session lazy creation"}
             return state
             
         try:

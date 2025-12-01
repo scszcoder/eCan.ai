@@ -362,7 +362,7 @@ try:
             # Get and display the unified startup banner
             # Note: Banner already shows "(Local Dev)" if using fallback data
             banner = get_startup_banner()
-            logger.info(banner)
+            logger.info("\n" + banner)
         except Exception as e:
             # If banner printing fails, just log a simple startup message
             logger.info(f"eCan Application Starting... (Version: {getattr(app_info, 'version', '1.0.0')})")

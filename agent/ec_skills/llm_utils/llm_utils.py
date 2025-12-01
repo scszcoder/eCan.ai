@@ -1751,12 +1751,13 @@ def _deep_merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
 def find_opposite_agent(self_agent, chat_id):
     mainwin = self_agent.mainwin
     this_chat = mainwin.db_chat_service.get_chat_by_id(chat_id, True)
-    logger.debug(f"found chat: {this_chat['data']['id']}")
 
     # Check if chat exists and has data
-    if not this_chat.get("success") or this_chat.get("data") is None:
-        logger.error(f"Chat not found or has no data: {chat_id}, error: {this_chat.get('error')}")
+    if not this_chat or not this_chat.get("success") or this_chat.get("data") is None:
+        logger.error(f"Chat not found or has no data: {chat_id}, result: {this_chat}")
         return None
+    
+    logger.debug(f"found chat: {this_chat['data']['id']}")
 
     members = this_chat["data"].get("members", [])
     logger.debug(f"chat members: {members}")
@@ -1765,7 +1766,10 @@ def find_opposite_agent(self_agent, chat_id):
     oppsite_member = next((ag for ag in members if ag["userId"] != self_agent.card.id), None)
     if oppsite_member:
         opposite_side = get_agent_by_id(oppsite_member["userId"])
-        logger.debug(f"found opposite side agent: {opposite_side.card.name}")
+        if opposite_side:
+            logger.debug(f"found opposite side agent: {opposite_side.card.name}")
+        else:
+            logger.warning(f"Agent not found for userId: {oppsite_member['userId']} (name: {oppsite_member.get('name', 'unknown')})")
     else:
         logger.error("No chat mate found for chat:", chat_id)
         opposite_side = None

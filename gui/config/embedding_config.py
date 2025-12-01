@@ -31,6 +31,8 @@ class EmbeddingProvider(Enum):
     BAIDU_QIANFAN = "baidu_qianfan"
     ALIBABA_QWEN = "alibaba_qwen"
     DOUBAO = "doubao"
+    JINA = "jina"
+    OLLAMA = "ollama"
 
 
 @dataclass
