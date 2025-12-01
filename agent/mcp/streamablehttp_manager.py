@@ -22,16 +22,30 @@ class Streamable_HTTP_Manager:
         if cls._instance is None:
             cls._instance = cls(url)
         return cls._instance
+    
+    @classmethod
+    def reset(cls) -> None:
+        """Reset the singleton instance to allow recreation on next get()."""
+        cls._instance = None
 
     # -------- public API  -------------------------------------------
     async def session(self) -> ClientSession:
         async with self._lock:
             if self._session is None:
                 await self._open()           # first time
-            # Ensure ready
+            # Ensure ready with timeout
             if self._ready is not None:
-                await self._ready.wait()
-        return self._session                 # type: ignore[arg-type]
+                try:
+                    with anyio.fail_after(10):  # 10 second timeout for session ready
+                        await self._ready.wait()
+                except TimeoutError:
+                    logger.warning("Persistent session ready timeout after 10s")
+                    raise
+        
+        # Check if session was actually created
+        if self._session is None:
+            raise RuntimeError("Persistent session failed to initialize")
+        return self._session
 
     async def close(self) -> None:
         async with self._lock:
@@ -77,12 +91,8 @@ class Streamable_HTTP_Manager:
                         logger.debug("Streamable HTTP client session created")
                         self._session = sess
                         self._ready.set()
-                        try:
-                            await sess.send_ping()
-                        except Exception:
-                            pass
                         logger.info("Streamable HTTP client ready")
-                        await anyio.sleep_forever()   # keep everything alive (no timeout here!)
+                        await anyio.sleep_forever()   # keep everything alive
             except TimeoutError:
                 logger.error("Streamable HTTP client initialization timed out after 30s")
                 self._ready.set()  # Unblock waiters on timeout

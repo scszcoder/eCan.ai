@@ -205,7 +205,7 @@ const RerankManagement = React.forwardRef<
         });
       }
     },
-    [message, t]
+    [message, t, providers]
   );
 
   const openDocumentation = useCallback(

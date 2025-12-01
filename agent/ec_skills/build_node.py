@@ -172,7 +172,7 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
         ("Guidelines", "guidelines"),
         ("Rules", "rules"),
     ):
-        values = normalized.get(field_name) if isinstance(normalized, dict) else []
+        values = normalized.get(field_name) or []
         joined = _join_list(values if isinstance(values, list) else [])
         if joined:
             _add_section(sys_parts, label, joined)
@@ -181,21 +181,21 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
 
     user_parts: list[str] = []
     for value in (normalized.get("title"), normalized.get("topic")):
-        text = str(value).strip() if isinstance(value, str) else ""
-        if text:
-            user_parts.append(text)
+        if isinstance(value, str) and value.strip():
+            user_parts.append(value.strip())
 
-    instructions = normalized.get("instructions") if isinstance(normalized, dict) else []
+    # normalized is guaranteed to be dict from _normalize_prompt
+    instructions = normalized.get("instructions") or []
     instructions_joined = _join_list(instructions if isinstance(instructions, list) else [])
     if instructions_joined:
         _add_section(user_parts, "Instructions", instructions_joined)
 
-    human_inputs = normalized.get("humanInputs") if isinstance(normalized, dict) else []
+    human_inputs = normalized.get("humanInputs") or []
     human_inputs_joined = _join_list(human_inputs if isinstance(human_inputs, list) else [])
     if human_inputs_joined:
         _add_section(user_parts, "Provide", human_inputs_joined)
 
-    sys_inputs = normalized.get("sysInputs") if isinstance(normalized, dict) else []
+    sys_inputs = normalized.get("sysInputs") or []
     sys_inputs_joined = _join_list(sys_inputs if isinstance(sys_inputs, list) else [])
     if sys_inputs_joined:
         _add_section(user_parts, "System Inputs", sys_inputs_joined)
@@ -1387,7 +1387,9 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             log_msg = f"Calling MCP tool '{tool_name}' with input: {tool_input}"
             logger.info(log_msg)
             web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
-            return await mcp_call_tool(tool_name, tool_input)
+            from config.constants import DEFAULT_API_TIMEOUT
+            timeout = config_metadata.get('timeout', DEFAULT_API_TIMEOUT)
+            return await mcp_call_tool(tool_name, tool_input, timeout=timeout)
 
         try:
             # Use the utility to run the async function from a sync context

@@ -613,6 +613,20 @@ def start_local_server_in_thread(mwin: 'MainWindow'):
     if server_manager_instance is None:
         server_manager_instance = ServerManager(mwin)
         server_manager_instance.start_in_thread()
+        
+        # MCP session warmup will be triggered by the first MCP call
+        # We don't pre-warmup here because:
+        # 1. The server runs in its own thread with its own event loop
+        # 2. MCP calls happen in the main thread's event loop
+        # 3. Creating session in wrong event loop causes call_tool to hang
+        # 
+        # Instead, we set a flag to trigger warmup on first MCP call
+        try:
+            from agent.mcp.local_client import mark_needs_warmup
+            mark_needs_warmup()
+            logger.info("MCP session will be warmed up on first call")
+        except Exception as e:
+            logger.debug(f"MCP warmup flag not set: {e}")
 
 def is_port_available(host: str, port: int) -> bool:
     """Check if port is available"""

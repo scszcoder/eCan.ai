@@ -28,7 +28,8 @@ import {
 import { Card } from 'antd';
 
 // Helper to merge static providers with system providers
-// Preserves static config (rich UI) for known providers, adds new ones from system, removes missing ones
+// Preserves static config (rich UI) for known providers, adds new ones from system
+// IMPORTANT: Keep all static providers even if not in system list (for offline/fallback)
 const mergeProviders = (staticList: ProviderConfig[], systemList: ProviderConfig[]) => {
   if (!systemList || !Array.isArray(systemList)) return staticList;
   
@@ -69,8 +70,9 @@ const mergeProviders = (staticList: ProviderConfig[], systemList: ProviderConfig
 
       result.push(mergedP);
       systemMap.delete(staticP.id.toLowerCase());
-    } else if (staticP.id === 'null') {
-      // Always preserve the 'null' (disabled) option even if not returned by backend
+    } else {
+      // Keep static provider even if not in system list (for offline/fallback)
+      // This includes 'null' and any providers not returned by backend
       result.push(staticP);
     }
   }
