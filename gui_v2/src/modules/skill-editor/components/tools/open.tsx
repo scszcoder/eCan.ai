@@ -8,6 +8,7 @@ import '../../../../services/ipc/file-api'; // Import file API extensions
 import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files-store';
 import { useSheetsStore } from '../../stores/sheets-store';
 import { SheetsBundle } from '../../services/sheets-persistence';
+import { useNodeFlipStore } from '../../stores/node-flip-store';
 
 interface OpenProps {
   disabled?: boolean;
@@ -22,6 +23,7 @@ export const Open = ({ disabled }: OpenProps) => {
   const setHasUnsavedChanges = useSkillInfoStore((state) => state.setHasUnsavedChanges);
   const addRecentFile = useRecentFilesStore((state) => state.addRecentFile);
   const loadBundle = useSheetsStore((s) => s.loadBundle);
+  const { setFlipped, clear: clearFlipStore } = useNodeFlipStore();
 
   const handleOpen = useCallback(async () => {
     // Always try IPC first, regardless of hasIPCSupport()
@@ -206,10 +208,67 @@ export const Open = ({ disabled }: OpenProps) => {
               setBreakpoints(breakpointIds);
               workflowDocument.clear();
               workflowDocument.fromJSON(diagram);
+              // Restore flip states from saved node data
+              clearFlipStore();
+              
+              // Use setTimeout to ensure nodes are fully loaded before patching
+              setTimeout(() => {
+                diagram.nodes.forEach((node: any) => {
+                  if (node?.data?.hFlip === true) {
+                    console.log('[Open] Restoring hFlip state for node:', node.id);
+                    setFlipped(node.id, true);
+                    
+                    // Also set it directly on the loaded node's raw data
+                    const loadedNode = workflowDocument.getNode(node.id);
+                    if (loadedNode) {
+                      if (loadedNode.raw?.data) {
+                        loadedNode.raw.data.hFlip = true;
+                      }
+                      if (loadedNode.json?.data) {
+                        loadedNode.json.data.hFlip = true;
+                      }
+                      // Force form to update with the flip state
+                      try {
+                        const form = (loadedNode as any).form;
+                        if (form && form.patchValue) {
+                          form.patchValue({ data: { ...form.state?.values?.data, hFlip: true } });
+                          console.log('[Open] Patched form with hFlip for node:', node.id);
+                        } else {
+                          console.warn('[Open] Form not ready for node:', node.id);
+                        }
+                      } catch (e) {
+                        console.warn('[Open] Could not patch form for node:', node.id, e);
+                      }
+                      
+                      // Force node to re-render by triggering an update
+                      try {
+                        (loadedNode as any).update?.();
+                      } catch {}
+                      
+                      console.log('[Open] Set hFlip on loaded node raw data:', node.id);
+                    }
+                  }
+                  if (node?.data?.vFlip === true) {
+                    console.log('[Open] Restoring vFlip state for node:', node.id);
+                    // vFlip support can be added here when implemented
+                  }
+                });
+              }, 100); // Small delay to ensure forms are initialized
+              
               workflowDocument.fitView && workflowDocument.fitView();
             } else {
               workflowDocument.clear();
               workflowDocument.fromJSON(data as any);
+              // Restore flip states for non-workflow format
+              clearFlipStore();
+              if ((data as any).nodes) {
+                (data as any).nodes.forEach((node: any) => {
+                  if (node?.data?.hFlip === true) {
+                    console.log('[Open] Restoring hFlip state for node:', node.id);
+                    setFlipped(node.id, true);
+                  }
+                });
+              }
               workflowDocument.fitView && workflowDocument.fitView();
             }
           } else {
@@ -268,10 +327,50 @@ export const Open = ({ disabled }: OpenProps) => {
               setBreakpoints(breakpointIds);
               workflowDocument.clear();
               workflowDocument.fromJSON(diagram);
+              // Restore flip states from saved node data (web fallback)
+              clearFlipStore();
+              diagram.nodes.forEach((node: any) => {
+                if (node?.data?.hFlip === true) {
+                  console.log('[Open] Restoring hFlip state for node:', node.id);
+                  setFlipped(node.id, true);
+                  
+                  // Also set it directly on the loaded node's raw data
+                  const loadedNode = workflowDocument.getNode(node.id);
+                  if (loadedNode) {
+                    if (loadedNode.raw?.data) {
+                      loadedNode.raw.data.hFlip = true;
+                    }
+                    if (loadedNode.json?.data) {
+                      loadedNode.json.data.hFlip = true;
+                    }
+                    // Force form to update with the flip state
+                    try {
+                      const form = (loadedNode as any).form;
+                      if (form && form.patchValue) {
+                        form.patchValue({ data: { ...form.state?.values?.data, hFlip: true } });
+                        console.log('[Open] Patched form with hFlip for node (web):', node.id);
+                      }
+                    } catch (e) {
+                      console.warn('[Open] Could not patch form for node (web):', node.id, e);
+                    }
+                    console.log('[Open] Set hFlip on loaded node raw data (web):', node.id);
+                  }
+                }
+              });
               workflowDocument.fitView && workflowDocument.fitView();
             } else {
               workflowDocument.clear();
               workflowDocument.fromJSON(data as any);
+              // Restore flip states for non-workflow format (web fallback)
+              clearFlipStore();
+              if ((data as any).nodes) {
+                (data as any).nodes.forEach((node: any) => {
+                  if (node?.data?.hFlip === true) {
+                    console.log('[Open] Restoring hFlip state for node:', node.id);
+                    setFlipped(node.id, true);
+                  }
+                });
+              }
               workflowDocument.fitView && workflowDocument.fitView();
             }
           } catch (error) {
