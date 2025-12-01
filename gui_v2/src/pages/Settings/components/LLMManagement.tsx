@@ -223,7 +223,7 @@ const LLMManagement = React.forwardRef<
         });
       }
     },
-    [message, t]
+    [message, t, providers]
   );
 
   const openDocumentation = useCallback(

@@ -87,6 +87,16 @@ export const RERANKING_PROVIDERS: ProviderConfig[] = [
       { key: 'RERANK_MODEL', label: 'Model', type: 'text', defaultValue: 'bge-m3', placeholder: 'bge-m3', required: true },
       { key: 'RERANK_BINDING_HOST', label: 'API Host', type: 'text', defaultValue: 'http://localhost:11434/api/rerank', placeholder: 'http://localhost:11434/api/rerank' }
     ]
+  },
+  {
+    id: 'baidu_qianfan',
+    name: 'Baidu Qianfan',
+    description: 'Baidu Qianfan reranking service',
+    fields: [
+      { key: 'RERANK_MODEL', label: 'Model', type: 'text', defaultValue: 'bce-reranker-base_v1', placeholder: 'bce-reranker-base_v1', required: true },
+      { key: 'RERANK_BINDING_HOST', label: 'API Host', type: 'text', defaultValue: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/reranker', placeholder: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/reranker' },
+      { key: 'RERANK_BINDING_API_KEY', label: 'API Key', type: 'password', placeholder: 'your_baidu_api_key', required: true }
+    ]
   }
 ];
 
@@ -138,7 +148,7 @@ export const LLM_PROVIDERS: ProviderConfig[] = [
     ]
   },
   {
-    id: 'gemini',
+    id: 'google',
     name: 'Google Gemini',
     description: 'Google Gemini models',
     fields: [
@@ -150,7 +160,7 @@ export const LLM_PROVIDERS: ProviderConfig[] = [
     ]
   },
   {
-    id: 'aws_bedrock',
+    id: 'bedrock',
     name: 'AWS Bedrock',
     description: 'Amazon Bedrock models',
     fields: [
@@ -165,6 +175,56 @@ export const LLM_PROVIDERS: ProviderConfig[] = [
     fields: [
       { key: 'LLM_MODEL', label: 'Model', type: 'text', required: true },
       { key: 'LLM_BINDING_HOST', label: 'API Host', type: 'text', defaultValue: 'http://localhost:9600' }
+    ]
+  },
+  {
+    id: 'dashscope',
+    name: 'Qwen (DashScope)',
+    description: 'Alibaba Qwen models via DashScope',
+    fields: [
+      { key: 'LLM_MODEL', label: 'fields.model', type: 'text', defaultValue: 'qwen-max', required: true },
+      { key: 'LLM_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+      { key: 'LLM_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', placeholder: 'sk-...', required: true }
+    ]
+  },
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    description: 'DeepSeek AI models',
+    fields: [
+      { key: 'LLM_MODEL', label: 'fields.model', type: 'text', defaultValue: 'deepseek-chat', required: true },
+      { key: 'LLM_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'https://api.deepseek.com/v1' },
+      { key: 'LLM_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', placeholder: 'sk-...', required: true }
+    ]
+  },
+  {
+    id: 'anthropic',
+    name: 'Anthropic',
+    description: 'Anthropic Claude models',
+    fields: [
+      { key: 'LLM_MODEL', label: 'fields.model', type: 'text', defaultValue: 'claude-3-5-sonnet-20241022', required: true },
+      { key: 'LLM_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'https://api.anthropic.com' },
+      { key: 'LLM_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', placeholder: 'sk-ant-...', required: true }
+    ]
+  },
+  {
+    id: 'baidu_qianfan',
+    name: 'Baidu Qianfan',
+    description: 'Baidu Qianfan (ERNIE) models',
+    fields: [
+      { key: 'LLM_MODEL', label: 'fields.model', type: 'text', defaultValue: 'ernie-4.0-8k', required: true },
+      { key: 'LLM_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'https://aip.baidubce.com' },
+      { key: 'LLM_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', required: true }
+    ]
+  },
+  {
+    id: 'bytedance',
+    name: 'Bytedance Doubao',
+    description: 'Bytedance Doubao (豆包) models',
+    fields: [
+      { key: 'LLM_MODEL', label: 'fields.model', type: 'text', defaultValue: 'doubao-pro-32k', required: true },
+      { key: 'LLM_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'https://ark.cn-beijing.volces.com/api/v3' },
+      { key: 'LLM_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', required: true }
     ]
   }
 ];
@@ -209,7 +269,7 @@ export const EMBEDDING_PROVIDERS: ProviderConfig[] = [
     ]
   },
   {
-    id: 'gemini',
+    id: 'google',
     name: 'Google Gemini',
     description: 'Google Gemini embedding models',
     fields: [
@@ -230,7 +290,7 @@ export const EMBEDDING_PROVIDERS: ProviderConfig[] = [
     ]
   },
   {
-    id: 'aws_bedrock',
+    id: 'bedrock',
     name: 'AWS Bedrock',
     description: 'AWS Bedrock embedding models',
     fields: [
@@ -245,6 +305,72 @@ export const EMBEDDING_PROVIDERS: ProviderConfig[] = [
     fields: [
       { key: 'EMBEDDING_MODEL', label: 'Model', type: 'text', required: true },
       { key: 'EMBEDDING_BINDING_HOST', label: 'API Host', type: 'text', defaultValue: 'http://localhost:9600' }
+    ]
+  },
+  {
+    id: 'alibaba_qwen',
+    name: 'Qwen (DashScope)',
+    description: 'Alibaba Qwen embedding models',
+    fields: [
+      { key: 'EMBEDDING_MODEL', label: 'fields.model', type: 'text', defaultValue: 'text-embedding-v3', required: true },
+      { key: 'EMBEDDING_DIM', label: 'fields.dimensions', type: 'number', defaultValue: '1024', tooltip: 'tooltips.embeddingDim' },
+      { key: 'EMBEDDING_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+      { key: 'EMBEDDING_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', required: true }
+    ]
+  },
+  {
+    id: 'baidu_qianfan',
+    name: 'Baidu Qianfan',
+    description: 'Baidu Qianfan embedding models',
+    fields: [
+      { key: 'EMBEDDING_MODEL', label: 'fields.model', type: 'text', defaultValue: 'Embedding-V1', required: true },
+      { key: 'EMBEDDING_DIM', label: 'fields.dimensions', type: 'number', defaultValue: '1024', tooltip: 'tooltips.embeddingDim' },
+      { key: 'EMBEDDING_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'https://aip.baidubce.com' },
+      { key: 'EMBEDDING_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', required: true }
+    ]
+  },
+  {
+    id: 'doubao',
+    name: 'Bytedance Doubao',
+    description: 'Bytedance Doubao embedding models',
+    fields: [
+      { key: 'EMBEDDING_MODEL', label: 'fields.model', type: 'text', defaultValue: 'doubao-embedding', required: true },
+      { key: 'EMBEDDING_DIM', label: 'fields.dimensions', type: 'number', defaultValue: '1024', tooltip: 'tooltips.embeddingDim' },
+      { key: 'EMBEDDING_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'https://ark.cn-beijing.volces.com/api/v3' },
+      { key: 'EMBEDDING_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', required: true }
+    ]
+  },
+  {
+    id: 'voyageai',
+    name: 'Voyage AI',
+    description: 'Voyage AI embedding models',
+    fields: [
+      { key: 'EMBEDDING_MODEL', label: 'fields.model', type: 'text', defaultValue: 'voyage-3', required: true },
+      { key: 'EMBEDDING_DIM', label: 'fields.dimensions', type: 'number', defaultValue: '1024', tooltip: 'tooltips.embeddingDim' },
+      { key: 'EMBEDDING_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'https://api.voyageai.com/v1' },
+      { key: 'EMBEDDING_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', required: true }
+    ]
+  },
+  {
+    id: 'cohere',
+    name: 'Cohere',
+    description: 'Cohere embedding models',
+    fields: [
+      { key: 'EMBEDDING_MODEL', label: 'fields.model', type: 'text', defaultValue: 'embed-english-v3.0', required: true },
+      { key: 'EMBEDDING_DIM', label: 'fields.dimensions', type: 'number', defaultValue: '1024', tooltip: 'tooltips.embeddingDim' },
+      { key: 'EMBEDDING_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'https://api.cohere.com/v1' },
+      { key: 'EMBEDDING_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', required: true }
+    ]
+  },
+  {
+    id: 'huggingface',
+    name: 'HuggingFace',
+    description: 'HuggingFace embedding models',
+    fields: [
+      { key: 'EMBEDDING_MODEL', label: 'fields.model', type: 'text', defaultValue: 'sentence-transformers/all-MiniLM-L6-v2', required: true },
+      { key: 'EMBEDDING_DIM', label: 'fields.dimensions', type: 'number', defaultValue: '384', tooltip: 'tooltips.embeddingDim' },
+      { key: 'EMBEDDING_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'https://api-inference.huggingface.co' },
+      { key: 'EMBEDDING_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', required: true }
     ]
   }
 ];

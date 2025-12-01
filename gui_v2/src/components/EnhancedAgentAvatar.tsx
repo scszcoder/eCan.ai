@@ -116,6 +116,7 @@ const EnhancedAgentCard: React.FC<EnhancedAgentCardProps> = ({
           }}>
             {safeDesc}
           </div>
+        )}
       </div>
     );
   }

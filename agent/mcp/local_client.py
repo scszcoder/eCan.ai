@@ -53,14 +53,22 @@ class MCPClientManager:
             url: MCP server URL
             tool_name: Name of the tool to call
             arguments: Tool arguments
-            timeout: Timeout in seconds (default 60s)
+            timeout: Timeout in seconds (default 60s). Caller can specify longer
+                     timeout for slow operations like API queries.
         """
         result = None
+        # Use shorter timeout only for getting persistent session (not for the actual call)
+        persistent_session_timeout = min(5.0, timeout)
+        
         try:
             # First, try using a persistent session for efficiency
             try:
                 mgr = Streamable_HTTP_Manager.get(url)
-                session = await asyncio.wait_for(mgr.session(), timeout=timeout)
+                # Quick check if persistent session is available
+                logger.debug(f"[MCP] Getting persistent session for '{tool_name}'...")
+                session = await asyncio.wait_for(mgr.session(), timeout=persistent_session_timeout)
+                logger.debug(f"[MCP] Got persistent session, calling tool '{tool_name}'...")
+                # Use full timeout for the actual tool call
                 result = await asyncio.wait_for(
                     session.call_tool(tool_name, arguments),
                     timeout=timeout
@@ -69,8 +77,12 @@ class MCPClientManager:
                 return result
             except asyncio.TimeoutError:
                 logger.warning(f"Persistent session timed out for '{tool_name}', falling back to ephemeral")
+                # Reset persistent session so next call can try to recreate it
+                Streamable_HTTP_Manager.reset()
             except BaseException as mgr_err:
                 logger.warning(f"Persistent session failed, falling back to ephemeral: {mgr_err}")
+                # Reset persistent session so next call can try to recreate it
+                Streamable_HTTP_Manager.reset()
             
             # Fallback to a temporary (ephemeral) session
             async with streamablehttp_client(url, terminate_on_close=False, httpx_client_factory=create_mcp_httpx_client) as streams:
@@ -116,15 +128,63 @@ class MCPClientManager:
 # Create a singleton instance for managing MCP client operations
 mcp_client_manager = MCPClientManager()
 
+# Flag to track if persistent session needs warmup
+_needs_warmup = False
+_session_warmed_up = False
+
+def mark_needs_warmup():
+    """Mark that MCP session needs warmup on first call."""
+    global _needs_warmup
+    _needs_warmup = True
+
+async def warmup_mcp_session():
+    """Pre-initialize the persistent MCP session.
+    
+    This should be called from the same event loop where MCP calls will be made.
+    """
+    global _session_warmed_up, _needs_warmup
+    if _session_warmed_up:
+        logger.debug("MCP session already warmed up, skipping")
+        return True
+    
+    _needs_warmup = False  # Clear the flag
+    
+    try:
+        url = mcp_http_base()
+        logger.info(f"Warming up MCP persistent session to {url}...")
+        mgr = Streamable_HTTP_Manager.get(url)
+        # Try to establish session with a reasonable timeout
+        session = await asyncio.wait_for(mgr.session(), timeout=15.0)
+        if session is not None:
+            _session_warmed_up = True
+            logger.info("✅ MCP persistent session warmed up successfully")
+            return True
+        else:
+            logger.warning("MCP session warmup: session is None")
+            return False
+    except asyncio.TimeoutError:
+        logger.warning("MCP session warmup timed out after 15s, will use ephemeral sessions")
+        return False
+    except Exception as e:
+        logger.warning(f"MCP session warmup failed: {e}, will use ephemeral sessions")
+        return False
+
 async def mcp_call_tool(tool_name, args, timeout: float = 60.0):
     """Public function to call a tool, using the client manager.
     
     Args:
         tool_name: Name of the MCP tool to call
         args: Tool arguments
-        timeout: Timeout in seconds (default 60s). Caller should specify appropriate
-                 timeout based on the tool's expected execution time.
+        timeout: Timeout in seconds (default 60s). Caller should specify longer
+                 timeout for slow operations like cloud API queries.
     """
+    global _needs_warmup
+    
+    # Warmup on first call if needed (in the correct event loop)
+    if _needs_warmup and not _session_warmed_up:
+        logger.info("[MCP] First call - warming up persistent session...")
+        await warmup_mcp_session()
+    
     logger.debug(f"MCP client calling tool: {tool_name} with args: {args}, timeout: {timeout}s")
     response = None
     try:
