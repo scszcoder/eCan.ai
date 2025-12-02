@@ -55,6 +55,9 @@ export const RunningNodeNavigator = () => {
       return;
     }
 
+    let timeoutId1: NodeJS.Timeout | null = null;
+    let timeoutId2: NodeJS.Timeout | null = null;
+
     const doCenter = () => {
       tryCenterOnNode(ctx, selectService, runningNodeId);
       pendingCenterRef.current = null;
@@ -65,19 +68,25 @@ export const RunningNodeNavigator = () => {
       // Switch to that sheet; defer centering
       state.openSheet(ownerSheetId);
       pendingCenterRef.current = runningNodeId;
-      setTimeout(() => {
+      timeoutId1 = setTimeout(() => {
         // first attempt after sheet switch
         doCenter();
         // if still pending (rare), retry once more
         if (pendingCenterRef.current) {
-          setTimeout(doCenter, 400);
+          timeoutId2 = setTimeout(doCenter, 400);
         }
       }, 400);
     } else {
       // Already on the right sheet; center now
       doCenter();
     }
-  }, [runningNodeId]);
+
+    // Cleanup timeouts on unmount or re-run
+    return () => {
+      if (timeoutId1) clearTimeout(timeoutId1);
+      if (timeoutId2) clearTimeout(timeoutId2);
+    };
+  }, [runningNodeId, ctx, selectService]);
 
   return null;
 };

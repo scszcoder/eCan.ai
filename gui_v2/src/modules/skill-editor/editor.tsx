@@ -63,14 +63,19 @@ export const Editor = () => {
   const setBreakpoints = useSkillInfoStore((state) => state.setBreakpoints);
   const setCurrentFilePath = useSkillInfoStore((state) => state.setCurrentFilePath);
 
-  // Cache store
+  // Cache store - get stable reference
   const loadCache = useEditorCacheStore((state) => state.loadCache);
   
-  // Load cached data ASYNCHRONOUSLY on mount
+  // Load cached data ASYNCHRONOUSLY on mount - ONLY ONCE
   const [cacheLoaded, setCacheLoaded] = React.useState(false);
   const cachedDataRef = useRef<any>(null);
+  const cacheLoadedOnceRef = useRef(false);
   
   useEffect(() => {
+    // Only load cache once on mount
+    if (cacheLoadedOnceRef.current) return;
+    cacheLoadedOnceRef.current = true;
+    
     let mounted = true;
     
     const loadCacheData = async () => {
@@ -85,11 +90,11 @@ export const Editor = () => {
           console.log('[Editor] Restoring from cache:', {
             timestamp: new Date(cachedData.timestamp).toLocaleString(),
             hasSkillInfo: !!cachedData.skillInfo,
-            sheetsCount: Object.keys(cachedData.sheets.sheets).length,
+            sheetsCount: Object.keys(cachedData.sheets?.sheets || {}).length,
           });
 
           // Restore skill info
-          if (cachedData.skillInfo && !skillInfo) {
+          if (cachedData.skillInfo) {
             setSkillInfo(cachedData.skillInfo);
           }
 
@@ -101,6 +106,22 @@ export const Editor = () => {
           // Restore file path
           if (cachedData.currentFilePath) {
             setCurrentFilePath(cachedData.currentFilePath);
+          }
+          
+          // Restore sheets data (most important for actual content!)
+          if (cachedData.sheets && Object.keys(cachedData.sheets.sheets || {}).length > 0) {
+            const sheetsStore = useSheetsStore.getState();
+            // Load the cached sheets bundle
+            sheetsStore.loadBundle({
+              mainSheetId: cachedData.sheets.order?.[0] || 'main',
+              sheets: Object.values(cachedData.sheets.sheets),
+              openTabs: cachedData.sheets.openTabs,
+              activeSheetId: cachedData.sheets.activeSheetId,
+            });
+            console.log('[Editor] Restored sheets from cache:', {
+              sheetsCount: Object.keys(cachedData.sheets.sheets).length,
+              activeSheetId: cachedData.sheets.activeSheetId,
+            });
           }
         } else {
           console.log('[Editor] No cache found, using initial data');
@@ -119,7 +140,8 @@ export const Editor = () => {
     return () => {
       mounted = false;
     };
-  }, [loadCache, skillInfo, setSkillInfo, setBreakpoints, setCurrentFilePath]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Empty deps - only run once on mount
 
   // Auto-load the most recent file on startup
   // (RouteFileLoader component will override this if there's a route file)
@@ -223,19 +245,25 @@ export const Editor = () => {
     }
   }, [cacheLoaded, preferredDoc, initMain, openSheet, loadBundle]);
 
+  // Memoize sheets state to prevent unnecessary re-renders triggering auto-save
+  const sheetsState = useMemo(() => ({
+    sheets,
+    order,
+    openTabs,
+    activeSheetId,
+  }), [sheets, order, openTabs, activeSheetId]);
+
+  // Stable empty array reference for selectionIds
+  const emptySelectionIds = useMemo(() => [], []);
+
   // Auto-save all editor state to cache
   useAutoSaveCache(
     skillInfo,
-    {
-      sheets,
-      order,
-      openTabs,
-      activeSheetId,
-    },
+    sheetsState,
     breakpoints,
     currentFilePath,
     null, // viewState - can be added later if needed
-    [] // selectionIds - can be added later if needed
+    emptySelectionIds
   );
 
   return (

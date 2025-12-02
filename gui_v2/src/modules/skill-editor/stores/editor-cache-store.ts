@@ -174,8 +174,12 @@ export const useEditorCacheStore = create<EditorCacheState>()((set, get) => ({
   },
 }));
 
+// Import React for useEffect and useRef
+import React from 'react';
+
 /**
  * Hook to auto-save editor state to cache
+ * Uses JSON serialization to detect actual content changes, avoiding unnecessary saves
  */
 export const useAutoSaveCache = (
   skillInfo: SkillInfo | null,
@@ -192,25 +196,59 @@ export const useAutoSaveCache = (
 ) => {
   const saveCache = useEditorCacheStore((state) => state.saveCache);
   const autoSaveEnabled = useEditorCacheStore((state) => state.autoSaveEnabled);
+  
+  // Track last saved content hash to avoid duplicate saves
+  const lastSavedHashRef = React.useRef<string>('');
+  const timeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
-  // Auto-save whenever any data changes
+  // Create a revision counter based on sheets changes
+  // This is more reliable than hashing the entire content
+  const sheetsRevision = React.useMemo(() => {
+    // Create a fingerprint that includes node positions to detect moves
+    const fingerprint = Object.entries(sheets.sheets).map(([id, sheet]) => {
+      const doc = sheet.document;
+      // Include node positions in fingerprint to detect moves
+      const nodePositions = doc?.nodes?.map((n: any) => 
+        `${n.id}:${n.meta?.position?.x ?? 0}:${n.meta?.position?.y ?? 0}`
+      ).join(',') ?? '';
+      return `${id}:${doc?.nodes?.length ?? 0}:${doc?.edges?.length ?? 0}:${nodePositions}`;
+    }).join('|');
+    return `${skillInfo?.skillName}|${sheets.activeSheetId}|${breakpoints.length}|${currentFilePath}|${fingerprint}`;
+  }, [skillInfo?.skillName, sheets.sheets, sheets.activeSheetId, breakpoints, currentFilePath]);
+
+  // Auto-save only when content actually changes
   React.useEffect(() => {
     if (!autoSaveEnabled) return;
+    
+    // Skip if content hasn't changed
+    if (sheetsRevision === lastSavedHashRef.current) {
+      return;
+    }
 
-    const timeoutId = setTimeout(() => {
-      saveCache({
-        skillInfo,
-        sheets,
-        breakpoints,
-        currentFilePath,
-        viewState,
-        selectionIds,
-      });
+    // Clear any pending save
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+
+    timeoutRef.current = setTimeout(() => {
+      // Double-check revision hasn't been saved by another effect
+      if (sheetsRevision !== lastSavedHashRef.current) {
+        lastSavedHashRef.current = sheetsRevision;
+        saveCache({
+          skillInfo,
+          sheets,
+          breakpoints,
+          currentFilePath,
+          viewState,
+          selectionIds,
+        });
+      }
     }, 500); // Debounce 500ms
 
-    return () => clearTimeout(timeoutId);
-  }, [skillInfo, sheets, breakpoints, currentFilePath, viewState, selectionIds, saveCache, autoSaveEnabled]);
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, [sheetsRevision, autoSaveEnabled, saveCache, skillInfo, sheets, breakpoints, currentFilePath, viewState, selectionIds]);
 };
-
-// Import React for useEffect
-import React from 'react';
