@@ -66,12 +66,14 @@ async def req_lan_read_screen8(session, request, token, api_key, local_info, img
     # logger.debug("request qdata:", qdata)
     logger.debug(f"time stamp800: {datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')}")
     jresp = await lan_http_request8(qdata, imgs, session, token, api_key, lan_endpoint)
-    logger.debug(f"milan jresp: {jresp}")
+    logger.debug(f"milan jresp: status={getattr(jresp, 'status_code', 'N/A')}")
     logger.debug(f"time stamp801: {datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')}")
 
     try:
         jresp = jresp.json()  # Convert the response to JSON
-        logger.debug(f"lan jresp: {jresp}")
+        # Truncate long response for logging
+        from utils.logger_helper import truncate_for_log
+        logger.debug(f"lan jresp: {truncate_for_log(jresp, 300)}")
     except Exception as e:
         logger.error(f"Failed to parse JSON from response: {e}")
         logger.error(f"Raw response: {jresp.text}")
