@@ -26,6 +26,13 @@ export const ActiveSheetBinder = () => {
   const setBreakpoints = useSkillInfoStore((s) => s.setBreakpoints);
 
   const lastSheetIdRef = useRef<string | null>(null);
+  const initialFitViewDoneRef = useRef(false);
+  
+  // Store refs for unstable references to avoid infinite loops
+  const toolsRef = useRef(tools);
+  const playgroundRef = useRef(playground);
+  toolsRef.current = tools;
+  playgroundRef.current = playground;
 
   useEffect(() => {
     if (!ctx?.document) return;
@@ -128,24 +135,48 @@ export const ActiveSheetBinder = () => {
       }
     }
     // Restore view state (zoom) if available, otherwise fit view
-    try {
-      const view = getActiveViewState();
-      if (view?.zoom && playground?.config?.updateZoom) {
-        playground.config.updateZoom(view.zoom);
-      } else {
-        console.time('[ActiveSheetBinder] fitView duration');
-        (ctx.document as any).fitView && (ctx.document as any).fitView();
-        console.timeEnd('[ActiveSheetBinder] fitView duration');
-      }
-    } catch {
+    // Use a small delay to ensure the document is fully rendered before fitView
+    const isInitialLoad = !initialFitViewDoneRef.current;
+    const isSheetSwitch = lastId && lastId !== activeSheetId;
+    
+    const doFitView = (retryCount = 0) => {
       try {
-        console.time('[ActiveSheetBinder] fitView duration (catch)');
-        (ctx.document as any).fitView && (ctx.document as any).fitView();
-        console.timeEnd('[ActiveSheetBinder] fitView duration (catch)');
+        const currentPlayground = playgroundRef.current;
+        const currentTools = toolsRef.current;
+        
+        // Check if tools are ready
+        if (!currentTools?.fitView && retryCount < 5) {
+          console.log('[ActiveSheetBinder] tools.fitView not ready, retrying...', retryCount);
+          setTimeout(() => doFitView(retryCount + 1), 200);
+          return;
+        }
+        
+        // Only restore saved zoom when switching between sheets (not on initial load or refresh)
+        const view = getActiveViewState();
+        if (isSheetSwitch && view?.zoom && currentPlayground?.config?.updateZoom) {
+          currentPlayground.config.updateZoom(view.zoom);
+          console.log('[ActiveSheetBinder] Restored zoom for sheet switch:', view.zoom);
+        } else {
+          // For initial load, refresh, or new file: always fitView
+          console.log('[ActiveSheetBinder] Executing fitView (initial/refresh)...');
+          if (currentTools?.fitView) {
+            currentTools.fitView();
+            console.log('[ActiveSheetBinder] fitView completed via tools');
+          } else if ((ctx.document as any).fitView) {
+            (ctx.document as any).fitView();
+            console.log('[ActiveSheetBinder] fitView completed via ctx.document');
+          } else {
+            console.warn('[ActiveSheetBinder] No fitView method available');
+          }
+        }
+        initialFitViewDoneRef.current = true;
       } catch (e) {
         console.error('[ActiveSheetBinder] fitView error', e);
       }
-    }
+    };
+    
+    // Delay fitView to ensure nodes are rendered (longer delay for initial load)
+    const fitViewTimeout = setTimeout(() => doFitView(0), isInitialLoad ? 300 : 100);
 
     // Restore selection for this sheet if any
     try {
@@ -164,6 +195,12 @@ export const ActiveSheetBinder = () => {
     } catch {}
 
     lastSheetIdRef.current = activeSheetId ?? null;
+    
+    // Cleanup timeout on unmount or re-run
+    return () => {
+      clearTimeout(fitViewTimeout);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSheetId, revision, ctx, getActiveDocument, saveActiveDocument]);
 
   return null;
