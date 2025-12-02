@@ -480,6 +480,42 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                 out = {k: _stringify(v) for k, v in out.items()}
             return out
 
+        def _notify_node_status(status_label: str, st: dict) -> None:
+            """Best-effort IPC notification for this node's runtime status.
+
+            Uses the same channel as the existing 'running' status updates,
+            but also emits per-node 'completed' and 'failed' events so the
+            frontend can render accurate node-level indicators.
+            """
+            try:
+                from gui.ipc.api import IPCAPI
+                import time as time_mod
+                ipc = IPCAPI.get_instance()
+                # Get run_id from runtime context if available
+                run_id = "dev_run_singleton"  # default for dev runs
+                try:
+                    run_id = runtime.context.get("run_id", "dev_run_singleton")
+                except Exception:
+                    pass
+                logger.info(f"[SIM][node_builder] sending {status_label} status for node={node_name}, run_id={run_id}")
+                ipc.update_run_stat(
+                    agent_task_id=run_id,
+                    current_node=node_name,
+                    status=status_label,
+                    langgraph_state=st,
+                    timestamp=int(time_mod.time() * 1000)
+                )
+                logger.info(f"[SIM][node_builder] status update sent successfully for node={node_name}, status={status_label}")
+                # For "running" we keep a tiny delay to ensure the frontend
+                # sees the node enter the running state before completion.
+                if status_label == "running":
+                    time_mod.sleep(0.05)
+            except Exception as ex:
+                import traceback
+                logger.error(f"[node_builder] Failed to send {status_label} status for {node_name}: {ex}")
+                logger.error(f"[node_builder] Traceback: {traceback.format_exc()}")
+                pass
+
         # Step-once: pause at the very next node regardless of configured breakpoints
         try:
             step_once = False
@@ -571,32 +607,7 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
 
         # Send running status to frontend before executing node
         # This must be OUTSIDE the retry loop and AFTER breakpoint checks
-        try:
-            from gui.ipc.api import IPCAPI
-            import time as time_mod
-            ipc = IPCAPI.get_instance()
-            # Get run_id from runtime context if available
-            run_id = "dev_run_singleton"  # default for dev runs
-            try:
-                run_id = runtime.context.get("run_id", "dev_run_singleton")
-            except Exception:
-                pass
-            logger.info(f"[SIM][node_builder] sending running status for node={node_name}, run_id={run_id}")
-            ipc.update_run_stat(
-                agent_task_id=run_id,
-                current_node=node_name,
-                status="running",
-                langgraph_state=state,
-                timestamp=int(time_mod.time() * 1000)
-            )
-            logger.info(f"[SIM][node_builder] status update sent successfully for node={node_name}")
-            # Small delay to ensure frontend receives the message before node completes
-            time_mod.sleep(0.05)
-        except Exception as ex:
-            import traceback
-            logger.error(f"[node_builder] Failed to send running status for {node_name}: {ex}")
-            logger.error(f"[node_builder] Traceback: {traceback.format_exc()}")
-            pass
+        _notify_node_status("running", state)
 
         # Execute the node function with retry logic
         while attempts < retries:
@@ -624,6 +635,17 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                     time.sleep(delay)
 
         if last_exc:
+            # Node ultimately failed after exhausting retries; report a
+            # per-node failed status so the UI can render it accurately.
+            try:
+                if isinstance(state, dict) and not state.get("error"):
+                    try:
+                        state["error"] = str(last_exc)
+                    except Exception:
+                        pass
+                _notify_node_status("failed", state)
+            except Exception:
+                pass
             raise last_exc
 
         # Process the result to ensure it's a valid dictionary for state update
@@ -649,6 +671,9 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
             state["result"] = _prune_result(state.get("result", {}))
         except Exception:
             pass
+
+        # Successful completion: notify frontend for this specific node.
+        _notify_node_status("completed", state)
 
         logger.debug("[node_builder]returning state...", state)
         return state
