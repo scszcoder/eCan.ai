@@ -342,6 +342,7 @@ def _serialize_prompt_for_storage(prompt: Dict[str, Any]) -> Dict[str, Any]:
 def _write_prompt_to_file(prompt: Dict[str, Any]) -> Dict[str, Any]:
     _ensure_prompt_dirs()
     prompt = deepcopy(prompt if isinstance(prompt, dict) else {})
+    logger.debug("prompt to be saved:", prompt)
     prompt_id = str(prompt.get("id") or "").strip()
     if not prompt_id:
         raise ValueError("prompt id is required for persistence")
