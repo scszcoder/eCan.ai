@@ -781,15 +781,85 @@ async def cloudAnalyzeImage8(img_file, screen_image, image_bytes, site_page, pag
             jbody = json.loads(result['body'])
         else:
             jbody = json.loads(result['body']['data']['body'])
-            logger.debug("OCR response body: %s", jbody)
+            # Truncate long OCR response for logging
+            from utils.logger_helper import truncate_for_log
+            logger.debug("OCR response body: %s", truncate_for_log(jbody, 300))
 
         # global var "last_screen" always contains information extracted from the last screen shot.
         if len(jbody["data"]) > 0:
-            symTab["last_screen"] = jbody["data"]
-            return jbody["data"]
+            # Simplify OCR data to reduce token usage when stored in history
+            simplified_data = simplify_ocr_result(jbody["data"])
+            symTab["last_screen"] = simplified_data
+            return simplified_data
         else:
             symTab["last_screen"] = []
             return []
+
+
+# Threshold for OCR data simplification (in characters)
+# Only simplify when serialized data exceeds this limit
+OCR_SIMPLIFY_THRESHOLD = 20000
+
+
+def simplify_ocr_result(ocr_data: list, force: bool = False) -> list:
+    """
+    Simplify OCR result data to reduce token usage when stored in chat history.
+    
+    Only simplifies when the data size exceeds OCR_SIMPLIFY_THRESHOLD, unless force=True.
+    
+    Removes verbose structures while preserving essential information:
+    - Keeps: name, text, type, loc (for positioning)
+    - Removes: txt_struct, words, box (detailed word-level data)
+    
+    Args:
+        ocr_data: Raw OCR result data list
+        force: If True, always simplify regardless of size
+        
+    Returns:
+        Simplified OCR data list (or original if below threshold)
+    """
+    if not ocr_data or not isinstance(ocr_data, list):
+        return ocr_data
+    
+    # Check data size - only simplify if exceeds threshold
+    if not force:
+        try:
+            data_size = len(json.dumps(ocr_data, ensure_ascii=False))
+            if data_size <= OCR_SIMPLIFY_THRESHOLD:
+                logger.debug(f"OCR data size ({data_size} chars) below threshold ({OCR_SIMPLIFY_THRESHOLD}), keeping original")
+                return ocr_data
+            logger.debug(f"OCR data size ({data_size} chars) exceeds threshold ({OCR_SIMPLIFY_THRESHOLD}), simplifying...")
+        except Exception:
+            pass  # If serialization fails, proceed with simplification
+    
+    simplified = []
+    for item in ocr_data:
+        if not isinstance(item, dict):
+            simplified.append(item)
+            continue
+        
+        # Keep only essential fields
+        simple_item = {
+            'name': item.get('name', ''),
+            'text': item.get('text', ''),
+            'type': item.get('type', ''),
+        }
+        
+        # Keep loc for positioning (it's small: [y1, x1, y2, x2])
+        if 'loc' in item:
+            simple_item['loc'] = item['loc']
+        
+        # Skip items without meaningful text (except special types)
+        if simple_item['text'] or simple_item['type'] in ('anchor text', 'full page', 'word stats'):
+            simplified.append(simple_item)
+    
+    try:
+        simplified_size = len(json.dumps(simplified, ensure_ascii=False))
+        logger.debug(f"Simplified OCR data: {len(ocr_data)} items -> {len(simplified)} items, size reduced to {simplified_size} chars")
+    except Exception:
+        logger.debug(f"Simplified OCR data: {len(ocr_data)} items -> {len(simplified)} items")
+    
+    return simplified
 
 
 async def req_read_screen8(session, request, token, api_key, local_info, imgs, engine, api_endpoint):
