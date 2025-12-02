@@ -329,13 +329,39 @@ def _serialize_prompt_for_storage(prompt: Dict[str, Any]) -> Dict[str, Any]:
         items = entry.get("items", [])
         if not isinstance(items, list):
             items = [items]
-        sections.append({
+        section_payload = {
             "id": sec_id,
             "type": sec_type,
             "items": _clean_section_items(_coerce_string_list(items)),
-        })
+        }
+        if sec_type == "custom" and entry.get("customLabel"):
+            section_payload["customLabel"] = str(entry.get("customLabel"))
+        sections.append(section_payload)
 
     data["sections"] = sections
+
+    user_sections: List[Dict[str, Any]] = []
+    for entry in prompt.get("userSections", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        sec_type = str(entry.get("type") or "").strip().lower()
+        if sec_type not in SECTION_TYPES:
+            continue
+        sec_id = str(entry.get("id") or uuid4().hex)
+        items = entry.get("items", [])
+        if not isinstance(items, list):
+            items = [items]
+        section_payload = {
+            "id": sec_id,
+            "type": sec_type,
+            "items": _clean_section_items(_coerce_string_list(items)),
+        }
+        if sec_type == "custom" and entry.get("customLabel"):
+            section_payload["customLabel"] = str(entry.get("customLabel"))
+        user_sections.append(section_payload)
+
+    data["userSections"] = user_sections
+
     return data
 
 
