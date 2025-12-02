@@ -102,8 +102,7 @@ export const useRecentFilesStore = create<RecentFilesStore>()(
     }),
     {
       name: 'skill-editor-recent-files', // localStorage key
-      // Only persist if we have full file path support
-      skipHydration: !hasFullFilePaths(),
+      // Always hydrate - platform check is done in addRecentFile
     }
   )
 );

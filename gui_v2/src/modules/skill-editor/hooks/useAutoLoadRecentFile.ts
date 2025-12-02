@@ -7,7 +7,7 @@ import { useEffect, useRef } from 'react';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { useSkillInfoStore } from '../stores/skill-info-store';
 import { useRecentFilesStore } from '../stores/recent-files-store';
-import { hasIPCSupport, hasFullFilePaths } from '../../../config/platform';
+import { useSheetsStore } from '../stores/sheets-store';
 import { SkillInfo } from '../typings/skill-info';
 import '../../../services/ipc/file-api'; // Import file API extensions
 
@@ -35,21 +35,28 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
   const workflowDocument = clientContext?.document;
   const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
   const setBreakpoints = useSkillInfoStore((state) => state.setBreakpoints);
+  const currentFilePath = useSkillInfoStore((state) => state.currentFilePath);
   const setCurrentFilePath = useSkillInfoStore((state) => state.setCurrentFilePath);
   const setHasUnsavedChanges = useSkillInfoStore((state) => state.setHasUnsavedChanges);
-  const skillInfo = useSkillInfoStore((state) => state.skillInfo);
   const getMostRecentFile = useRecentFilesStore((state) => state.getMostRecentFile);
   
   const hasAutoLoaded = useRef(false);
 
   useEffect(() => {
     // Only auto-load once and if enabled
-    if (!enabled || hasAutoLoaded.current || skillInfo) {
+    if (!enabled || hasAutoLoaded.current) {
       return;
     }
 
-    // Only auto-load if we have full file path support (desktop mode)
-    if (!hasIPCSupport() || !hasFullFilePaths()) {
+    // Skip auto-load if a file is already loaded
+    if (currentFilePath) {
+      hasAutoLoaded.current = true;
+      return;
+    }
+
+    // Only auto-load if we have IPC support (desktop mode)
+    const hasIPC = typeof window !== 'undefined' && !!(window as any).ipc;
+    if (!hasIPC) {
       return;
     }
 
@@ -60,31 +67,74 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
 
     const autoLoadRecentFile = async () => {
       try {
-        const mostRecentFile = getMostRecentFile();
-        
-        if (!mostRecentFile) {
-          console.log('[AutoLoad] No recent files found');
-          return;
-        }
-
-        console.log('[AutoLoad] Loading most recent file:', mostRecentFile.filePath);
-        onAutoLoadStart?.();
-
-        // Import IPC API dynamically
+        // First, try to get recent files from backend (more reliable than localStorage)
         const { IPCAPI } = await import('../../../services/ipc/api');
         const ipcApi = IPCAPI.getInstance();
+        
+        let fileToLoad: { filePath: string; fileName: string; timestamp?: number } | null = null;
+        
+        // Try to load recent files from backend
+        try {
+          const cacheResponse = await ipcApi.loadEditorCache<{ 
+            cacheData: any; 
+            recentFiles?: Array<{ filePath: string; fileName: string; skillName?: string; lastOpened?: string }> 
+          }>();
+          
+          if (cacheResponse.success && cacheResponse.data?.recentFiles?.length > 0) {
+            const mostRecent = cacheResponse.data.recentFiles[0];
+            fileToLoad = {
+              filePath: mostRecent.filePath,
+              fileName: mostRecent.fileName,
+              timestamp: mostRecent.lastOpened ? new Date(mostRecent.lastOpened).getTime() : Date.now(),
+            };
+          }
+        } catch (e) {
+          // Backend might not have recent files yet
+        }
+        
+        // Fallback to localStorage if backend has no recent files
+        if (!fileToLoad) {
+          fileToLoad = getMostRecentFile();
+        }
+        
+        // If no recent files, try to load default demo0 skill
+        if (!fileToLoad) {
+          const demo0Path = 'my_skills/demo0_skill/diagram_dir/demo0_skill.json';
+          try {
+            const checkResponse = await ipcApi.readSkillFile(demo0Path);
+            if (checkResponse.success && checkResponse.data) {
+              fileToLoad = {
+                filePath: demo0Path,
+                fileName: 'demo0_skill.json',
+                timestamp: Date.now(),
+              };
+            } else {
+              // No demo0, use initial-data.ts (default)
+              hasAutoLoaded.current = true;
+              return;
+            }
+          } catch (e) {
+            // Error loading demo0, use initial-data.ts (default)
+            hasAutoLoaded.current = true;
+            return;
+          }
+        }
 
-        // Try to read the most recent file
-        const fileResponse = await ipcApi.readSkillFile(mostRecentFile.filePath);
+        onAutoLoadStart?.();
+
+        // Read the file
+        const fileResponse = await ipcApi.readSkillFile(fileToLoad.filePath);
 
         if (fileResponse.success && fileResponse.data) {
           const data = JSON.parse(fileResponse.data.content) as SkillInfo;
           const diagram = data.workFlow;
+          // Use absolute path from backend response
+          const absoluteFilePath = fileResponse.data.filePath || fileToLoad.filePath;
 
           // Normalize skillName from folder when auto-loading
           // Expect path like: <...>/<name>_skill/diagram_dir/<name>_skill.json
           try {
-            const norm = String(mostRecentFile.filePath).replace(/\\/g, '/');
+            const norm = String(absoluteFilePath).replace(/\\/g, '/');
             const parts = norm.split('/');
             const idx = parts.lastIndexOf('diagram_dir');
             if (idx > 0) {
@@ -101,7 +151,7 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
           if (diagram) {
             // Set skill info with file path
             setSkillInfo(data);
-            setCurrentFilePath(mostRecentFile.filePath);
+            setCurrentFilePath(absoluteFilePath);
             setHasUnsavedChanges(false);
 
             // Find and set breakpoints
@@ -115,8 +165,13 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
             workflowDocument.fromJSON(diagram);
             workflowDocument.fitView && workflowDocument.fitView();
 
-            console.log('[AutoLoad] Successfully loaded:', mostRecentFile.fileName);
-            onAutoLoadSuccess?.(mostRecentFile.filePath, data);
+            // Also update sheets store with loaded document
+            const saveActiveDocument = useSheetsStore.getState().saveActiveDocument;
+            if (saveActiveDocument) {
+              saveActiveDocument(diagram);
+            }
+
+            onAutoLoadSuccess?.(absoluteFilePath, data);
           } else {
             // Fallback for older formats
             workflowDocument.clear();
@@ -124,16 +179,19 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
             workflowDocument.fitView && workflowDocument.fitView();
 
             setSkillInfo(data);
-            setCurrentFilePath(mostRecentFile.filePath);
+            setCurrentFilePath(absoluteFilePath);
             setHasUnsavedChanges(false);
 
-            console.log('[AutoLoad] Successfully loaded (legacy format):', mostRecentFile.fileName);
-            onAutoLoadSuccess?.(mostRecentFile.filePath, data);
+            // Also update sheets store
+            const saveActiveDocument = useSheetsStore.getState().saveActiveDocument;
+            if (saveActiveDocument) {
+              saveActiveDocument(data as any);
+            }
+
+            onAutoLoadSuccess?.(absoluteFilePath, data);
           }
-        } else {
-          console.warn('[AutoLoad] Failed to read file:', fileResponse.error);
-          // File might have been moved or deleted, but don't treat as error
         }
+        // If file read failed, just continue with default data
       } catch (error) {
         console.error('[AutoLoad] Error loading recent file:', error);
         onAutoLoadError?.(error as Error);
@@ -151,7 +209,7 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
     };
   }, [
     enabled,
-    skillInfo,
+    currentFilePath,
     workflowDocument,
     setSkillInfo,
     setBreakpoints,
@@ -173,12 +231,5 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
  * Simple auto-load hook with default options
  */
 export function useSimpleAutoLoad() {
-  return useAutoLoadRecentFile({
-    enabled: true,
-    onAutoLoadStart: () => console.log('[AutoLoad] Starting auto-load...'),
-    onAutoLoadSuccess: (filePath, skillInfo) => 
-      console.log(`[AutoLoad] Successfully loaded: ${skillInfo.skillName || 'Untitled'} from ${filePath}`),
-    onAutoLoadError: (error) => 
-      console.error('[AutoLoad] Failed to auto-load recent file:', error.message),
-  });
+  return useAutoLoadRecentFile({ enabled: true });
 }

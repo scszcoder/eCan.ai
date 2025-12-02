@@ -278,14 +278,22 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                                   // Otherwise, keep existing value
 
                                   // === MODEL NAME LOGIC ===
-                                  // Priority: 1. Temp storage -> 2. Configured model -> 3. First in list
+                                  // Priority (when there is NO existing model name):
+                                  //   1. Temp storage -> 2. Configured default_model -> 3. First in list
+                                  // If there is already a model name value (e.g. loaded from skill file
+                                  // or previously chosen by the user), we keep it as-is here and let the
+                                  // separate Model Name selector handle invalid values.
                                   const models = modelMap[currentProvider] || [];
-                                  if (tempSettings.modelName && models.includes(tempSettings.modelName)) {
-                                    setTimeout(() => modelNameField.onChange(tempSettings.modelName!), 0);
-                                  } else if (providerConfig.default_model && models.includes(providerConfig.default_model)) {
-                                    setTimeout(() => modelNameField.onChange(providerConfig.default_model), 0);
-                                  } else if (models.length > 0) {
-                                    setTimeout(() => modelNameField.onChange(models[0]), 0);
+                                  const currentModelValue = (modelNameField.value as string | undefined) || '';
+
+                                  if (!currentModelValue) {
+                                    if (tempSettings.modelName && models.includes(tempSettings.modelName)) {
+                                      setTimeout(() => modelNameField.onChange(tempSettings.modelName!), 0);
+                                    } else if (providerConfig.default_model && models.includes(providerConfig.default_model)) {
+                                      setTimeout(() => modelNameField.onChange(providerConfig.default_model), 0);
+                                    } else if (models.length > 0) {
+                                      setTimeout(() => modelNameField.onChange(models[0]), 0);
+                                    }
                                   }
 
                                 }, [currentProvider, providers]);

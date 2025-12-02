@@ -358,14 +358,14 @@ export const NodeStatePanel: React.FC<NodeStatePanelProps> = ({ schema, value, o
   const topValue = value ?? {};
 
   // Debug: log root-level schema and value once per render to verify what we received
-  try {
-    const rootKeys = Object.keys((topSchema as any)?.properties || {});
-    // Only log a concise snapshot to avoid noisy logs
-    // eslint-disable-next-line no-console
-    console.debug('[NodeStatePanel] root schema keys:', rootKeys, 'value keys:', Object.keys(isObject(topValue) ? topValue : {}));
-  } catch (_) {
-    // ignore
-  }
+  // try {
+  //   const rootKeys = Object.keys((topSchema as any)?.properties || {});
+  //   // Only log a concise snapshot to avoid noisy logs
+  //   // eslint-disable-next-line no-console
+  //   console.debug('[NodeStatePanel] root schema keys:', rootKeys, 'value keys:', Object.keys(isObject(topValue) ? topValue : {}));
+  // } catch (_) {
+  //   // ignore
+  // }
 
   return (
     <div className="node-state-panel" style={{ borderTop: '1px solid #eee', paddingTop: 8 }}>
