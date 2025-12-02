@@ -239,51 +239,78 @@ export function useEditorProps(
       /**
        * Content change
        */
-      onContentChange: debounce((ctx, event) => {
-        if (ctx.document.disposed) return;
-        const raw = ctx.document.toJSON();
+      onContentChange: (() => {
+        // Track last saved content hash to avoid duplicate saves
+        let lastContentHash = '';
+        let isProcessing = false;
+        
+        return debounce((ctx, event) => {
+          // Prevent re-entry during processing
+          if (isProcessing) return;
+          if (ctx.document.disposed) return;
+          
+          isProcessing = true;
+          try {
+            const raw = ctx.document.toJSON();
 
-        // Strip runtime-only node state before persisting
-        const sanitize = (doc: any) => {
-          const clone = { ...doc };
-          if (Array.isArray(clone.nodes)) {
-            clone.nodes = clone.nodes.map((n: any) => {
-              const nn = { ...n };
-              if (nn.data && typeof nn.data === 'object') {
-                const nd = { ...nn.data };
-                if ('state' in nd) {
-                  delete nd.state;
-                }
-                nn.data = nd;
+            // Strip runtime-only node state before persisting
+            const sanitize = (doc: any) => {
+              const clone = { ...doc };
+              if (Array.isArray(clone.nodes)) {
+                clone.nodes = clone.nodes.map((n: any) => {
+                  const nn = { ...n };
+                  if (nn.data && typeof nn.data === 'object') {
+                    const nd = { ...nn.data };
+                    if ('state' in nd) {
+                      delete nd.state;
+                    }
+                    nn.data = nd;
+                  }
+                  // handle nested blocks (loop/group/containers)
+                  if (Array.isArray(nn.blocks)) {
+                    nn.blocks = nn.blocks.map((bn: any) => sanitize({ nodes: [bn] }).nodes?.[0] || bn);
+                  }
+                  return nn;
+                });
               }
-              // handle nested blocks (loop/group/containers)
-              if (Array.isArray(nn.blocks)) {
-                nn.blocks = nn.blocks.map((bn: any) => sanitize({ nodes: [bn] }).nodes?.[0] || bn);
-              }
-              return nn;
+              return clone;
+            };
+
+            const cleaned = sanitize(raw);
+            
+            // Create a hash of the content to detect actual changes
+            const contentHash = JSON.stringify({
+              nodes: cleaned.nodes?.map((n: any) => ({ id: n.id, type: n.type, meta: n.meta, data: n.data })),
+              edges: cleaned.edges,
             });
+            
+            // Skip if content hasn't actually changed
+            if (contentHash === lastContentHash) {
+              return;
+            }
+            lastContentHash = contentHash;
+            
+            console.log('Auto Save: ', event, cleaned);
+
+            // 自动Sync skillInfo 的 workFlow Field (without runtime state)
+            const setSkillInfo = useSkillInfoStore.getState().setSkillInfo;
+            const skillInfo = useSkillInfoStore.getState().skillInfo;
+            if (skillInfo) {
+              setSkillInfo({ ...skillInfo, workFlow: cleaned, lastModified: new Date().toISOString() });
+            }
+
+            // 🔥 IMPORTANT: Also save to the active sheet's document
+            // This ensures multi-sheet data is correctly cached
+            const saveActiveDocument = useSheetsStore.getState().saveActiveDocument;
+            const activeSheetId = useSheetsStore.getState().activeSheetId;
+            if (saveActiveDocument && activeSheetId) {
+              saveActiveDocument(cleaned);
+            }
+          } finally {
+            isProcessing = false;
           }
-          return clone;
-        };
-
-        const cleaned = sanitize(raw);
-        console.log('Auto Save: ', event, cleaned);
-
-        // 自动Sync skillInfo 的 workFlow Field (without runtime state)
-        const setSkillInfo = useSkillInfoStore.getState().setSkillInfo;
-        const skillInfo = useSkillInfoStore.getState().skillInfo;
-        if (skillInfo) {
-          setSkillInfo({ ...skillInfo, workFlow: cleaned, lastModified: new Date().toISOString() });
-        }
-
-        // 🔥 IMPORTANT: Also save to the active sheet's document
-        // This ensures multi-sheet data is correctly cached
-        const saveActiveDocument = useSheetsStore.getState().saveActiveDocument;
-        const activeSheetId = useSheetsStore.getState().activeSheetId;
-        if (saveActiveDocument && activeSheetId) {
-          saveActiveDocument(cleaned);
-        }
-      }, 1000),
+        }, 1000);
+      })(),
       /**
        * Running line
        */

@@ -347,3 +347,37 @@ def get_traceback(e, eType="Error"):
     else:
         ex_stat = f"{eType}: traceback information not available:" + str(e)
     return ex_stat
+
+
+def truncate_for_log(data, max_length: int = 500, suffix: str = "...") -> str:
+    """
+    Truncate data for logging to avoid excessively long log entries.
+    
+    Args:
+        data: Any data to be logged (dict, list, str, etc.)
+        max_length: Maximum length of the output string (default 500)
+        suffix: Suffix to append when truncated (default "...")
+    
+    Returns:
+        Truncated string representation of the data
+    """
+    try:
+        if data is None:
+            return "None"
+        
+        # Convert to string
+        if isinstance(data, (dict, list)):
+            import json
+            try:
+                text = json.dumps(data, ensure_ascii=False, default=str)
+            except Exception:
+                text = str(data)
+        else:
+            text = str(data)
+        
+        # Truncate if needed
+        if len(text) > max_length:
+            return text[:max_length - len(suffix)] + suffix + f" [truncated, total {len(text)} chars]"
+        return text
+    except Exception:
+        return f"<error converting to string: {type(data).__name__}>"
