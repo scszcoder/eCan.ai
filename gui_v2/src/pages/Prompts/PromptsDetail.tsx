@@ -665,7 +665,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
                   danger
                   type="text"
                   size="small"
-                  icon={<DeleteOutlined />}
+                  icon={<DeleteOutlined style={{ color: '#000' }} />}
                   onClick={handleRemoveAllSections}
                   disabled={!isEditable || sortedSections.length === 0}
                   className={styles.tinyIconButton}
@@ -815,7 +815,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
                   danger
                   type="text"
                   size="small"
-                  icon={<DeleteOutlined />}
+                  icon={<DeleteOutlined style={{ color: '#000' }} />}
                   onClick={handleRemoveAllUserSections}
                   disabled={!isEditable || (active.userSections?.length ?? 0) === 0}
                   className={styles.tinyIconButton}
