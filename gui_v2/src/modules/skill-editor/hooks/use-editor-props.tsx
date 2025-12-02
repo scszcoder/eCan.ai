@@ -11,9 +11,13 @@ import { createMinimapPlugin } from '@flowgram.ai/minimap-plugin';
 import { createFreeSnapPlugin } from '@flowgram.ai/free-snap-plugin';
 import { createFreeNodePanelPlugin } from '@flowgram.ai/free-node-panel-plugin';
 import { createFreeLinesPlugin } from '@flowgram.ai/free-lines-plugin';
+import { createFreeHistoryPlugin } from '@flowgram.ai/free-history-plugin';
+import { createFreeStackPlugin } from '@flowgram.ai/free-stack-plugin';
 import {
   FlowNodeBaseType,
   FreeLayoutProps,
+  FreeLayoutPluginContext,
+  WorkflowDocument,
   WorkflowNodeLinesData,
 } from '@flowgram.ai/free-layout-editor';
 import { createFreeGroupPlugin } from '@flowgram.ai/free-group-plugin';
@@ -35,6 +39,7 @@ import { SelectorBoxPopover } from '../components/selector-box-popover';
 import { BaseNode, CommentRender, GroupNodeRender, LineAddButton, NodePanel } from '../components';
 import { useSkillInfoStore } from '../stores/skill-info-store';
 import { useSheetsStore } from '../stores/sheets-store';
+import { getWorkflowDocumentRef, setWorkflowDocumentRef } from '../workflow-document-binding';
 
 export function useEditorProps(
   initialData: FlowDocumentJSON,
@@ -232,13 +237,6 @@ export function useEditorProps(
         enable: true,
       },
       /**
-       * Redo/Undo enable
-       */
-      history: {
-        enable: true,
-        enableChangeNode: true, // Listen Node engine data change
-      },
-      /**
        * Content change
        */
       onContentChange: debounce((ctx, event) => {
@@ -304,14 +302,26 @@ export function useEditorProps(
       /**
        * Bind custom service
        */
-      onBind: ({ bind }) => {
+      onBind: ({ bind, isBound, rebind }) => {
         bind(CustomService).toSelf().inSingletonScope();
+        if (!isBound(WorkflowDocument)) {
+          bind(WorkflowDocument).toDynamicValue(({ container }) => {
+            const context = container.get(FreeLayoutPluginContext);
+            const document = context.document;
+            if (!document) {
+              throw new Error('WorkflowDocument requested before initialisation');
+            }
+            setWorkflowDocumentRef(document);
+            return document;
+          }).inSingletonScope();
+        }
       },
       /**
        * Playground init
        */
       onInit(ctx) {
         console.log('--- Playground init ---');
+        setWorkflowDocumentRef(ctx.document);
       },
       /**
        * Playground render
@@ -326,6 +336,7 @@ export function useEditorProps(
        */
       onDispose() {
         console.log('---- Playground Dispose ----');
+        setWorkflowDocumentRef(null);
       },
       i18n: {
         locale: navigator.language,
@@ -345,6 +356,16 @@ export function useEditorProps(
         createFreeLinesPlugin({
           renderInsideLine: LineAddButton,
         }),
+        /**
+         * History plugin
+         * 历史记录插件
+         */
+        createFreeHistoryPlugin({}),
+        /**
+         * Stacking context plugin
+         * 层级上下文插件
+         */
+        createFreeStackPlugin({}),
         /**
          * Minimap plugin
          * 缩略图插件
