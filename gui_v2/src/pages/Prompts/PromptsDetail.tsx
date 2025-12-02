@@ -99,6 +99,13 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSaveRef = useRef(false);
+  const hasPendingChangesRef = useRef(false);
+  const latestDraftRef = useRef<Prompt | null>(prompt);
+  const editingRef = useRef(editing);
+  const promptReadOnlyRef = useRef<boolean>(!!(prompt?.readOnly));
+
   const clonePrompt = useCallback((value: Prompt): Prompt => JSON.parse(JSON.stringify(value)), []);
 
   const pushUndoStack = useCallback((snapshot: Prompt) => {
@@ -112,10 +119,78 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
     setCanRedo(false);
   }, [clonePrompt]);
 
+  const cancelAutosave = useCallback(() => {
+    if (autosaveTimerRef.current != null) {
+      clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+  }, []);
+
+  const commitSave = useCallback((payload: Prompt) => {
+    pendingSaveRef.current = true;
+    const result = onChange(payload);
+    return Promise.resolve(result).finally(() => {
+      pendingSaveRef.current = false;
+      hasPendingChangesRef.current = false;
+    });
+  }, [onChange]);
+
+  const flushAutosave = useCallback(() => {
+    cancelAutosave();
+    if (!editingRef.current || promptReadOnlyRef.current) return;
+    if (!hasPendingChangesRef.current) return;
+    const currentDraft = latestDraftRef.current;
+    if (!currentDraft) return;
+    commitSave(clonePrompt(currentDraft)).catch(() => {});
+  }, [cancelAutosave, clonePrompt, commitSave]);
+
+  const scheduleAutosave = useCallback(() => {
+    if (!editingRef.current || promptReadOnlyRef.current) return;
+    if (pendingSaveRef.current) return;
+    cancelAutosave();
+    autosaveTimerRef.current = setTimeout(() => {
+      autosaveTimerRef.current = null;
+      if (hasPendingChangesRef.current) {
+        flushAutosave();
+      }
+    }, 2000);
+  }, [cancelAutosave, flushAutosave]);
+
   useEffect(() => {
     setDraft(prompt);
     setEditing(false);
-  }, [prompt?.id]);
+    hasPendingChangesRef.current = false;
+    pendingSaveRef.current = false;
+    latestDraftRef.current = prompt;
+    cancelAutosave();
+  }, [prompt?.id, cancelAutosave]);
+
+  useEffect(() => {
+    return () => {
+      flushAutosave();
+    };
+  }, [prompt?.id, flushAutosave]);
+
+  useEffect(() => {
+    latestDraftRef.current = draft;
+  }, [draft]);
+
+  useEffect(() => {
+    editingRef.current = editing;
+    if (!editing) {
+      cancelAutosave();
+    }
+  }, [editing, cancelAutosave]);
+
+  useEffect(() => {
+    promptReadOnlyRef.current = !!(draft?.readOnly);
+  }, [draft]);
+
+  useEffect(() => {
+    return () => {
+      flushAutosave();
+    };
+  }, [flushAutosave]);
 
   // Initialize topHeight as 60% of container height on mount
   useEffect(() => {
@@ -194,12 +269,14 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
     setDraft((prev) => {
       const current = prev ?? DEFAULT_PROMPT;
       const next = mutator(clonePrompt(current));
-      if (editing && !current.readOnly) {
+      if (editingRef.current && !current.readOnly) {
         pushUndoStack(current);
+        hasPendingChangesRef.current = true;
+        scheduleAutosave();
       }
       return next;
     });
-  }, [editing, pushUndoStack, clonePrompt]);
+  }, [clonePrompt, pushUndoStack, scheduleAutosave]);
 
   const updateFields = (patch: Partial<Prompt>) =>
     update((prev) => ({ ...prev, ...patch }));
@@ -446,7 +523,9 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
       return;
     }
     if (editing && draft) {
-      onChange(draft);
+      cancelAutosave();
+      latestDraftRef.current = draft;
+      commitSave(clonePrompt(draft)).catch(() => {});
     }
     setEditing((prev) => !prev);
   };

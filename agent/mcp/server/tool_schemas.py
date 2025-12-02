@@ -117,7 +117,7 @@ def add_tool_schema(new_schema):
 def build_agent_mcp_tools_schemas():
     tool_schema = types.Tool(
             name="rpa_supervisor_scheduling_work",
-            description="As a RPA supervisor, fetches daily work schedule and run team prep and get ready to dispatch the work to the operator agents on the remote hosts to work on.",
+            description="<category>RPA</category><sub-category>Supervisor</sub-category>As a RPA supervisor, fetches daily work schedule and run team prep and get ready to dispatch the work to the operator agents on the remote hosts to work on.",
             inputSchema={
                 "type": "object",
                 "required": [],
@@ -129,7 +129,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="rpa_operator_dispatch_works",
-        description="As a RPA operator, it dispatches the RPA works to be performed by a platoon of bots on this host computer.",
+        description="<category>RPA</category><sub-category>Supervisor</sub-category>As a RPA operator, it dispatches the RPA works to be performed by a platoon of bots on this host computer.",
         inputSchema={
             "type": "object",
             "required": ["input"],
@@ -152,7 +152,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="rpa_supervisor_process_work_results",
-        description="As an RPA supervisor, update overall result with received operator work report.",
+        description="<category>RPA</category><sub-category>Operator</sub-category>As an RPA supervisor, update overall result with received operator work report.",
         inputSchema={
             "type": "object",
             "required": ["input"],
@@ -175,7 +175,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="rpa_supervisor_run_daily_housekeeping",
-        description="As an RPA supervisor, after all work reports collected, do necessary housekeeping work such as accounting, book keeping etc.",
+        description="<category>RPA</category><sub-category>Operator</sub-category>As an RPA supervisor, after all work reports collected, do necessary housekeeping work such as accounting, book keeping etc.",
         inputSchema={
             "type": "object",
             "required": ["input"],
@@ -198,7 +198,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="rpa_operator_report_work_results",
-        description="As an RPA operator, report work results to supervisor",
+        description="<category>RPA</category><sub-category>Operator</sub-category>As an RPA operator, report work results to supervisor",
         inputSchema={
             "type": "object",
             "required": ["input"],
@@ -221,7 +221,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="os_screen_capture",
-        description="Do a screen shot, save to a png file and stores into a cv2 image data structure",
+        description="<category>OS</category><sub-category>Screen Capture</sub-category>Do a screen shot, save to a png file and stores into a cv2 image data structure",
         inputSchema={
             "type": "object",
             "required": ["input"],
@@ -252,7 +252,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="os_screen_analyze",
-        description="do OCR and icon match on an image and result in structured text in the image",
+        description="<category>OS</category><sub-category>OCR</sub-category>do OCR and icon match on an image and result in structured text in the image",
         inputSchema={
             "type": "object",
             "required": ["input"],
@@ -275,7 +275,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="mouse_click",
-        description="a mouse click function using pyautogui.",
+        description="<category>PyAutoGUI</category><sub-category>Mouse Action</sub-category>a mouse click function using pyautogui.",
         inputSchema={
             "type": "object",
             "required": ["input"],
@@ -306,7 +306,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="mouse_move",
-        description="a mouse move/hover function using pyautogui.",
+        description="<category>PyAutoGUI</category><sub-category>Mouse Action</sub-category>a mouse move/hover function using pyautogui.",
         inputSchema={
             "type": "object",
             "required": ["input"],
@@ -333,7 +333,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="mouse_drag_drop",
-        description="a mouse drag and drop function using pyautogui.",
+        description="<category>PyAutoGUI</category><sub-category>Mouse Action</sub-category>a mouse drag and drop function using pyautogui.",
         inputSchema={
             "type": "object",
             "required": ["input"],
@@ -368,7 +368,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="mouse_scroll",
-        description="a mouse scroll function using pyautogui.",
+        description="<category>PyAutoGUI</category><sub-category>Mouse Action</sub-category>a mouse scroll function using pyautogui.",
         inputSchema={
             "type": "object",
             "required": ["input"],
@@ -399,7 +399,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="keyboard_text_input",
-        description="keyboard type in text string.",
+        description="<category>PyAutoGUI</category><sub-category>Keyboard Action</sub-category>keyboard type in text string.",
         inputSchema={
             "type": "object",
             "required": ["input"],
@@ -430,7 +430,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="keyboard_keys_input",
-        description="keyboard type combo hot keys.",
+        description="<category>PyAutoGUI</category><sub-category>Keyboard Action</sub-category>keyboard type combo hot keys.",
         inputSchema={
             "type": "object",
             "required": ["input"],
@@ -457,7 +457,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="solve_px_captcha",
-        description="solve px captcha, PerimeterX Captcha, by read screen, and emulate pressing and holding button for certin amount of time.",
+        description="<category>PyAutoGUI</category><sub-category>Mouse Action</sub-category>solve px captcha, PerimeterX Captcha, by read screen, and emulate pressing and holding button for certin amount of time.",
         inputSchema={
             "type": "object",
             "required": ["input"],
@@ -484,7 +484,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="os_wait",
-        description="wait a few seconds.",
+        description="<category>OS</category><sub-category>Timer</sub-category>wait a few seconds.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -508,7 +508,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="say_hello",
-        description="just a test.",
+        description="<category>OS</category><sub-category>General</sub-category>just a test.",
         inputSchema={
             "type": "object",
             "required": [],
@@ -521,7 +521,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_wait_for_element",
-        description="use python web tool to wait for web elements.",
+        description="<category>Browser Automation</category><sub-category>Selenium Search Action</sub-category>use python web tool to wait for web elements.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -552,7 +552,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_click_element_by_index",
-        description="use selenium to click on a web element based on index in the selector map.",
+        description="<category>Browser Automation</category><sub-category>Selenium Mouse Action</sub-category>use selenium to click on a web element based on index in the selector map.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -584,7 +584,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_click_element_by_selector",
-        description="use selenium to click on an web element based on selector.",
+        description="<category>Browser Automation</category><sub-category>Selenium Mouse Action</sub-category>use selenium to click on an web element based on selector.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -616,7 +616,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_click_element_by_xpath",
-        description="use selenium to click on an web element based on xpath.",
+        description="<category>Browser Automation</category><sub-category>Selenium Mouse Action</sub-category>use selenium to click on an web element based on xpath.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -648,7 +648,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_click_element_by_text",
-        description="use selenium to click on an web element based on text",
+        description="<category>Browser Automation</category><sub-category>Selenium Mouse Action</sub-category>use selenium to click on an web element based on text",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -680,7 +680,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_input_text",
-        description="key in text on a web page's input field.",
+        description="<category>Browser Automation</category><sub-category>Selenium Keyboard Action</sub-category>key in text on a web page's input field.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -720,7 +720,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_scroll",
-        description="use browser driver like selenium or playwright to scroll within the browser.",
+        description="<category>Browser Automation</category><sub-category>Selenium Mouse Action</sub-category>use browser driver like selenium or playwright to scroll within the browser.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -752,7 +752,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_send_keys",
-        description="use browser driver like selenium or playwright to send hot keys to the web page.",
+        description="<category>Browser Automation</category><sub-category>Selenium Keyboard Action</sub-category>use browser driver like selenium or playwright to send hot keys to the web page.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -777,7 +777,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_scroll_to_text",
-        description="use browser driver like selenium or playwright to scroll to the specified text location.",
+        description="<category>Browser Automation</category><sub-category>Selenium Mouse Action</sub-category>use browser driver like selenium or playwright to scroll to the specified text location.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -800,7 +800,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_get_dropdown_options",
-        description="use browser driver like selenium or playwright to obtains the list of selection options on the drop down list.",
+        description="<category>Browser Automation</category><sub-category>Selenium Mouse Action</sub-category>use browser driver like selenium to obtains the list of selection options on the drop down list.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -824,7 +824,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_select_dropdown_option",
-        description="use browser driver like selenium or playwright to select an item on the drop down selection list.",
+        description="<category>Browser Automation</category><sub-category>Selenium Mouse Action</sub-category>use browser driver like selenium to select an item on the drop down selection list.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -848,7 +848,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_drag_drop",
-        description="use browser driver like selenium or playwright to drag and drop an item.",
+        description="<category>Browser Automation</category><sub-category>Selenium Mouse Action</sub-category>use browser driver like selenium or playwright to drag and drop an item.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -870,33 +870,11 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
-        name="in_browser_multi_actions",
-        description="use browser driver to execute a series of actions specified by the input json data.",
-        inputSchema={
-            "type": "object",
-            "required": ["input"],  # the root requires *input*
-            "properties": {
-                "input": {  # nested object
-                    "type": "object",
-                    "required": ["url"],  # url is required *inside* input
-                    "properties": {
-                        "url": {
-                            "type": "string",
-                            "format": "uri",  # optional JSON-Schema hint
-                            "description": "URL of the web page to open",
-                        }
-                    },
-                }
-            },
-        },
-    )
 
-    add_tool_schema(tool_schema)
 
     tool_schema = types.Tool(
         name="in_browser_extract_content",
-        description="use browser driver like selenium or playwright to drag and drop an item.",
+        description="<category>Browser Automation</category><sub-category>Selenium Search Action</sub-category>use browser driver like selenium or playwright to drag and drop an item.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -921,7 +899,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_switch_tab",
-        description="use browser driver like selenium or playwright to drag and drop an item.",
+        description="<category>Browser Automation</category><sub-category>Selenium Tab Action</sub-category>use browser driver like selenium or playwright to drag and drop an item.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -946,7 +924,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_open_tab",
-        description="use browser driver like selenium or playwright to drag and drop an item.",
+        description="<category>Browser Automation</category><sub-category>Selenium Tab Action</sub-category>use browser driver like selenium or playwright to drag and drop an item.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -971,7 +949,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_close_tab",
-        description="use browser driver like selenium or playwright to drag and drop an item.",
+        description="<category>Browser Automation</category><sub-category>Selenium Tab Action</sub-category>use browser driver like selenium or playwright to drag and drop an item.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -992,32 +970,10 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
-        name="in_browser_scrape_content",
-        description="use browser driver like selenium or playwright to drag and drop an item.",
-        inputSchema={
-            "type": "object",
-            "required": ["input"],  # the root requires *input*
-            "properties": {
-                "input": {  # nested object
-                    "type": "object",
-                    "required": ["tab_title"],  # url is required *inside* input
-                    "properties": {
-                        "tab_title": {
-                            "type": "string",
-                            "description": "title of the web page to open",
-                        }
-                    },
-                }
-            },
-        },
-    )
-
-    add_tool_schema(tool_schema)
 
     tool_schema = types.Tool(
         name="in_browser_execute_javascript",
-        description="use browser driver to execute a javascript on a web page.",
+        description="<category>Browser Automation</category><sub-category>Selenium Run Code Action</sub-category>use browser driver to execute a javascript on a web page.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1038,32 +994,11 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
-        name="in_browser_build_dom_tree",
-        description="build DOM tree of a web page.",
-        inputSchema={
-            "type": "object",
-            "required": ["input"],  # the root requires *input*
-            "properties": {
-                "input": {  # nested object
-                    "type": "object",
-                    "required": ["tab_title"],  # url is required *inside* input
-                    "properties": {
-                        "tab_title": {
-                            "type": "string",
-                            "description": "title of the web page to open",
-                        }
-                    },
-                }
-            },
-        },
-    )
 
-    add_tool_schema(tool_schema)
 
     tool_schema = types.Tool(
         name="in_browser_save_href_to_file",
-        description="download a href pointed file on a web page.",
+        description="<category>Browser Automation</category><sub-category>Selenium Download Action</sub-category>download a href pointed file on a web page.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1086,7 +1021,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_download_file",
-        description="use browser driver like selenium or playwright to drag and drop an item.",
+        description="<category>Browser Automation</category><sub-category>Selenium Download Action</sub-category>use browser driver like selenium or playwright to drag and drop an item.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1111,7 +1046,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_go_to_url",
-        description="use browser driver like selenium or playwright to open a new url site.",
+        description="<category>Browser Automation</category><sub-category>Selenium Tab Action</sub-category>use browser driver like selenium or playwright to open a new url site.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1133,33 +1068,10 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
-        name="in_browser_run_js",
-        description="use browser driver like selenium or playwright to inject js script into the page.",
-        inputSchema={
-            "type": "object",
-            "required": ["input"],  # the root requires *input*
-            "properties": {
-                "input": {  # nested object
-                    "type": "object",
-                    "required": ["url"],  # url is required *inside* input
-                    "properties": {
-                        "url": {
-                            "type": "string",
-                            "format": "uri",  # optional JSON-Schema hint
-                            "description": "URL of the web page to open",
-                        }
-                    },
-                }
-            },
-        },
-    )
-
-    add_tool_schema(tool_schema)
 
     tool_schema = types.Tool(
         name="os_connect_to_adspower",
-        description="connect to an already opened and logged in ADS Power and open a new tab in URL.",
+        description="<category>Browser Automation</category><sub-category>ADSPower Action</sub-category>connect to an already opened and logged in ADS Power and open a new tab in URL.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1183,7 +1095,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="os_connect_to_chrome",
-        description="connect to an already opened chrome and open a new tab in URL.",
+        description="<category>Browser Automation</category><sub-category>Chrome Connection</sub-category>connect to an already opened chrome and open a new tab in URL.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1211,7 +1123,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="os_reconnect_wifi",
-        description="use shell command to reconnect wifi (assume wifi access point porfiles exist).",
+        description="<category>System</category><sub-category>Network</sub-category>use shell command to reconnect wifi (assume wifi access point porfiles exist).",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1238,7 +1150,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="os_open_app",
-        description="in OS, open an app.",
+        description="<category>System</category><sub-category>General Applications</sub-category>in OS, open an app.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1261,7 +1173,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="os_close_app",
-        description="in OS, close an app.",
+        description="<category>System</category><sub-category>General Applications</sub-category>in OS, close an app.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1284,7 +1196,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="os_switch_to_app",
-        description="in OS, switch an app to foreground.",
+        description="<category>System</category><sub-category>General Applications</sub-category>in OS, switch an app to foreground.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1307,7 +1219,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="python_run_extern",
-        description="run a python script",
+        description="<category>System</category><sub-category>Run Code</sub-category>run a python script",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1330,7 +1242,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="os_make_dir",
-        description="in OS, make a directory",
+        description="<category>System</category><sub-category>File System</sub-category>in OS, make a directory",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1353,7 +1265,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="os_delete_dir",
-        description="in OS, delete a directory recursively",
+        description="<category>System</category><sub-category>File System</sub-category>in OS, delete a directory recursively",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1376,7 +1288,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="os_delete_file",
-        description="in OS, delete a file",
+        description="<category>System</category><sub-category>File System</sub-category>in OS, delete a file",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1399,7 +1311,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="os_move_file",
-        description="in OS, move a file from one location to anther",
+        description="<category>System</category><sub-category>File System</sub-category>in OS, move a file from one location to anther",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1426,7 +1338,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="os_copy_file_dir",
-        description="in OS, copy a file or directory from one location to anther",
+        description="<category>System</category><sub-category>File System</sub-category>in OS, copy a file or directory from one location to anther",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1453,7 +1365,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="os_seven_zip",
-        description="zip or unzip using 7z app",
+        description="<category>System</category><sub-category>File System</sub-category>zip or unzip using 7z app",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1480,7 +1392,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="os_kill_processes",
-        description="OS kill processes",
+        description="<category>System</category><sub-category>Process Management</sub-category>OS kill processes",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1503,7 +1415,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="api_ecan_ai_query_components",
-        description="send ecan_ai API to query components and get their parametric filter values.",
+        description="<category>API</category><sub-category>ECAN Search</sub-category>send ecan_ai API to query components and get their parametric filter values.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1529,7 +1441,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="api_ecan_ai_query_fom",
-        description="send ecan_ai API to query figure of merit for an component.",
+        description="<category>API</category><sub-category>ECAN Search</sub-category>send ecan_ai API to query figure of merit for an component.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1572,7 +1484,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="api_ecan_ai_img2text_icons",
-        description="run API to convert image to text and icons matching including generate the text and icons' location cooridnates.",
+        description="<category>API</category><sub-category>ECAN OCR</sub-category>run API to convert image to text and icons matching including generate the text and icons' location cooridnates.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1593,40 +1505,10 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
-        name="api_ecan_ai_get_nodes_prompts",
-        description="run API to obtain the prompts for the langggraph nodes.",
-        inputSchema={
-            "type": "object",
-            "required": ["input"],  # the root requires *input*
-            "properties": {
-                "input": {  # nested object
-                    "type": "object",
-                    "required": ["nodes", "end_point"],
-                    "properties": {
-                        "nodes": {
-                            "type": "array",
-                            "description": "list of nodes json data each with keys 'askid' and 'name'.",
-                            "items": {
-                                "type": "object"
-                            }
-                        },
-                        "end_point": {
-                            "type": "string",
-                            "description": "either local/lan/wan, local means the algorithm runs on this host, lan means the algorithm runs on a remote computer within the LAN, wan means the algorithm runs on a remote computer on the internet, outside of the LAN",
-                        },
-                    },
-                }
-            }
-        },
-    )
-
-    add_tool_schema(tool_schema)
-
 
     tool_schema = types.Tool(
         name="api_ecan_ai_cloud_search",
-        description="run API to search components.",
+        description="<category>API</category><sub-category>ECAN Search</sub-category>run API to search components.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1652,7 +1534,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="api_ecan_ai_rerank_results",
-        description="run cloud API to re-rank search results based on human boss specified figure of merit.",
+        description="<category>API</category><sub-category>ECAN Search</sub-category>run cloud API to re-rank search results based on human boss specified figure of merit.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1681,7 +1563,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="api_ecan_ai_cloud_search",
-        description="run cloud API to do search using cloud hosted search specialist agent.",
+        description="<category>API</category><sub-category>ECAN Search</sub-category>run cloud API to do search using cloud hosted search specialist agent.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1705,7 +1587,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="ecan_local_search_components",
-        description="Locally search components on designated site with parametric filters.",
+        description="<category>Local Search</category><sub-category>ECAN Search</sub-category>Locally search components on designated site with parametric filters.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1745,7 +1627,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="ecan_local_sort_search_results",
-        description="locally sort search results based on certain column header text either in ascending order or descending order, then extract top max_n rows of results.",
+        description="<category>Local Search</category><sub-category>ECAN Search</sub-category>locally sort search results based on certain column header text either in ascending order or descending order, then extract top max_n rows of results.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
