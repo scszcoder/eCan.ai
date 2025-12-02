@@ -307,6 +307,14 @@ def handle_read_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]]
             )
         
         file_path = data['filePath']
+        
+        # Convert relative path to absolute path
+        if not os.path.isabs(file_path):
+            from app_context import AppContext
+            app_context = AppContext()
+            base_dir = app_context.get_app_dir()
+            file_path = os.path.join(base_dir, file_path)
+        
         # Distinct marker for any read attempt
         logger.info(f"[SKILL_IO][BACKEND][READ_ATTEMPT] {file_path}")
         

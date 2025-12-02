@@ -2,6 +2,7 @@ from typing import Any, Optional, Dict, List
 import os
 import json
 from pathlib import Path
+from datetime import datetime
 
 from gui.ipc.types import IPCRequest, IPCResponse, create_success_response, create_error_response
 from gui.ipc.registry import IPCHandlerRegistry
@@ -769,126 +770,188 @@ def handle_test_langgraph2flowgram(request: IPCRequest, params: Optional[Dict[st
 # Skill Editor Cache Handlers
 # ----------------------
 
-def _get_cache_directory() -> Path:
-    """Get the cache directory path in appdata.
+def _get_editor_data_directory() -> Path:
+    """Get the skill editor data directory path in user's data directory.
     
     Returns:
-        Path: Cache directory path (e.g., ~/Library/Application Support/eCan/skill-editor-cache)
+        Path: Data directory path for storing recent-files.json etc.
+              e.g., ~/.eCan/<user>/skill-editor-data/
     """
     try:
-        # Use app_info.appdata_path as base directory
-        from config.app_info import app_info
+        from utils.user_path_helper import ensure_user_data_dir
         
-        base_dir = Path(app_info.appdata_path)
-        cache_dir = base_dir / 'skill-editor-cache'
-        
-        # Create directory if it doesn't exist
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        
-        logger.info(f"[EditorCache] Cache directory: {cache_dir}")
-        return cache_dir
+        # Get user-specific data directory with skill-editor-data subdirectory
+        data_dir = ensure_user_data_dir(subdir='skill-editor-data')
+        return Path(data_dir)
     except Exception as e:
-        logger.error(f"[EditorCache] Failed to get cache directory: {e}")
+        logger.error(f"[SkillEditor] Failed to get data directory: {e}")
         # Fallback to temp directory
         import tempfile
-        fallback = Path(tempfile.gettempdir()) / 'eCan' / 'skill-editor-cache'
+        fallback = Path(tempfile.gettempdir()) / 'eCan' / 'skill-editor-data'
         fallback.mkdir(parents=True, exist_ok=True)
-        logger.warning(f"[EditorCache] Using fallback cache directory: {fallback}")
+        logger.warning(f"[SkillEditor] Using fallback directory: {fallback}")
         return fallback
+
+
+def _get_recent_files_path() -> Path:
+    """Get the path to the recent files JSON file."""
+    data_dir = _get_editor_data_directory()
+    return data_dir / 'recent-files.json'
+
+
+def _load_recent_files() -> list:
+    """Load recent files list from disk."""
+    try:
+        recent_files_path = _get_recent_files_path()
+        if recent_files_path.exists():
+            with open(recent_files_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except Exception as e:
+        logger.warning(f"[RecentFiles] Failed to load: {e}")
+    return []
+
+
+def _save_recent_files(recent_files: list) -> None:
+    """Save recent files list to disk."""
+    try:
+        recent_files_path = _get_recent_files_path()
+        with open(recent_files_path, 'w', encoding='utf-8') as f:
+            json.dump(recent_files, f, indent=2, ensure_ascii=False)
+        logger.debug(f"[RecentFiles] Saved {len(recent_files)} files")
+    except Exception as e:
+        logger.warning(f"[RecentFiles] Failed to save: {e}")
+
+
+def _update_recent_files(file_path: str, skill_name: str = None) -> list:
+    """Update recent files list with a new/updated file. Returns updated list."""
+    MAX_RECENT_FILES = 10
+    
+    recent_files = _load_recent_files()
+    
+    # Remove existing entry for this file path
+    recent_files = [f for f in recent_files if f.get('filePath') != file_path]
+    
+    # Add new entry at the beginning
+    new_entry = {
+        'filePath': file_path,
+        'fileName': Path(file_path).name,
+        'skillName': skill_name or Path(file_path).stem,
+        'lastOpened': datetime.now().isoformat(),
+    }
+    recent_files.insert(0, new_entry)
+    
+    # Keep only the most recent files
+    recent_files = recent_files[:MAX_RECENT_FILES]
+    
+    # Save to disk
+    _save_recent_files(recent_files)
+    
+    return recent_files
 
 
 @IPCHandlerRegistry.handler('save_editor_cache')
 def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Save skill editor cache data to local storage.
+    """Save skill directly to file (NEW: no cache layer, direct file save).
     
     Args:
         request: IPC request object
-        params: Cache data to save
+        params: Cache data containing skillInfo, sheets, and currentFilePath
         
     Returns:
         IPCResponse: Success or error response
     """
     try:
-        logger.debug("[EditorCache] Saving editor cache")
-        
         if not params or 'cacheData' not in params:
             return create_error_response(request, 'INVALID_PARAMS', 'cacheData is required')
         
         cache_data = params['cacheData']
+        current_file_path = cache_data.get('currentFilePath')
+        skill_info = cache_data.get('skillInfo')
+        sheets_data = cache_data.get('sheets', {})
         
-        # Get cache directory
-        cache_dir = _get_cache_directory()
-        cache_file = cache_dir / 'editor-cache.json'
-        
-        # Save cache data to file
-        with open(cache_file, 'w', encoding='utf-8') as f:
-            json.dump(cache_data, f, indent=2, ensure_ascii=False)
-        
-        logger.info(f"[EditorCache] Cache saved successfully to {cache_file}")
-        logger.debug(f"[EditorCache] Cache data: hasSkillInfo={bool(cache_data.get('skillInfo'))}, "
-                    f"sheetsCount={len(cache_data.get('sheets', {}).get('sheets', {}))}, "
-                    f"timestamp={cache_data.get('timestamp')}")
-        
-        return create_success_response(request, {
-            'success': True,
-            'filePath': str(cache_file),
-            'message': 'Editor cache saved successfully'
-        })
+        # NEW ARCHITECTURE: Save directly to file, no cache layer
+        if current_file_path and skill_info:
+            skill_file = Path(current_file_path)
+            
+            # Convert relative path to absolute path
+            if not skill_file.is_absolute():
+                app_context = AppContext()
+                base_dir = Path(app_context.get_app_dir())
+                skill_file = base_dir / skill_file
+            
+            if not skill_file.exists():
+                return create_error_response(request, 'FILE_NOT_FOUND', f'Skill file not found: {skill_file}')
+            
+            # Save main skill file
+            with open(skill_file, 'w', encoding='utf-8') as sf:
+                json.dump(skill_info, sf, indent=2, ensure_ascii=False)
+            logger.info(f"[AutoSave] Saved to skill file: {skill_file}")
+            
+            # Save bundle file if it exists
+            bundle_file_saved = False
+            bundle_file = skill_file.parent / f"{skill_file.stem}_bundle.json"
+            if bundle_file.exists() and sheets_data:
+                try:
+                    bundle_data = {
+                        "sheets": sheets_data.get('sheets', {}),
+                        "order": sheets_data.get('order', []),
+                    }
+                    with open(bundle_file, 'w', encoding='utf-8') as bf:
+                        json.dump(bundle_data, bf, indent=2, ensure_ascii=False)
+                    logger.info(f"[AutoSave] Saved to bundle file: {bundle_file}")
+                    bundle_file_saved = True
+                except Exception as bundle_error:
+                    logger.warning(f"[AutoSave] Failed to save bundle: {bundle_error}")
+            
+            # Update recent files list
+            skill_name = skill_info.get('skillName', Path(current_file_path).stem)
+            _update_recent_files(str(skill_file), skill_name)
+            
+            return create_success_response(request, {
+                'success': True,
+                'filePath': str(skill_file),
+                'bundleFileSynced': bundle_file_saved,
+                'message': 'Skill saved successfully'
+            })
+        else:
+            # No file path - this is a new unsaved skill, return success but don't save
+            logger.debug("[AutoSave] No file path, skipping save (new unsaved skill)")
+            return create_success_response(request, {
+                'success': True,
+                'message': 'New unsaved skill, no file to save'
+            })
         
     except Exception as e:
-        logger.error(f"[EditorCache] Error saving cache: {e} {traceback.format_exc()}")
-        return create_error_response(request, 'SAVE_CACHE_ERROR', f"Failed to save cache: {str(e)}")
+        logger.error(f"[AutoSave] Error saving skill: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'SAVE_ERROR', f"Failed to save skill: {str(e)}")
 
 
 @IPCHandlerRegistry.handler('load_editor_cache')
 def handle_load_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Load skill editor cache data from local storage.
+    """Load editor state including recent files list.
     
     Args:
         request: IPC request object
         params: Optional parameters
         
     Returns:
-        IPCResponse: Cache data or error response
+        IPCResponse: Recent files list for auto-loading
     """
     try:
-        logger.debug("[EditorCache] Loading editor cache")
-        
-        # Get cache directory
-        cache_dir = _get_cache_directory()
-        cache_file = cache_dir / 'editor-cache.json'
-        
-        # Check if cache file exists
-        if not cache_file.exists():
-            logger.info("[EditorCache] No cache file found")
-            return create_success_response(request, {
-                'success': True,
-                'cacheData': None,
-                'message': 'No cache data found'
-            })
-        
-        # Load cache data from file
-        with open(cache_file, 'r', encoding='utf-8') as f:
-            cache_data = json.load(f)
-        
-        logger.info(f"[EditorCache] Cache loaded successfully from {cache_file}")
-        logger.debug(f"[EditorCache] Cache data: hasSkillInfo={bool(cache_data.get('skillInfo'))}, "
-                    f"sheetsCount={len(cache_data.get('sheets', {}).get('sheets', {}))}, "
-                    f"timestamp={cache_data.get('timestamp')}")
+        # Load recent files list from backend
+        recent_files = _load_recent_files()
+        logger.debug(f"[AutoLoad] Loaded {len(recent_files)} recent files")
         
         return create_success_response(request, {
             'success': True,
-            'cacheData': cache_data,
-            'filePath': str(cache_file),
-            'message': 'Editor cache loaded successfully'
+            'cacheData': None,  # No cache, load from file
+            'recentFiles': recent_files,
+            'message': f'Loaded {len(recent_files)} recent files'
         })
         
-    except json.JSONDecodeError as e:
-        logger.error(f"[EditorCache] Invalid JSON in cache file: {e}")
-        return create_error_response(request, 'INVALID_CACHE_DATA', f"Cache file is corrupted: {str(e)}")
     except Exception as e:
-        logger.error(f"[EditorCache] Error loading cache: {e} {traceback.format_exc()}")
-        return create_error_response(request, 'LOAD_CACHE_ERROR', f"Failed to load cache: {str(e)}")
+        logger.error(f"[AutoLoad] Error: {e}")
+        return create_error_response(request, 'LOAD_ERROR', str(e))
 
 
 @IPCHandlerRegistry.handler('clear_editor_cache')

@@ -1,10 +1,9 @@
 import React from 'react';
 import { Dropdown, IconButton, Toast } from '@douyinfe/semi-ui';
-import { IconFolderOpen, IconDeleteStroked, IconExit, IconPlus, IconLayers, IconSave, IconEdit } from '@douyinfe/semi-icons';
+import { IconFolderOpen, IconDeleteStroked, IconExit, IconPlus, IconLayers, IconEdit } from '@douyinfe/semi-icons';
 import { useClientContext, usePlayground, WorkflowSelectService, WorkflowDocument, useService } from '@flowgram.ai/free-layout-editor';
 import { useSheetsStore } from '../../stores/sheets-store';
 import { IPCAPI } from '../../../../services/ipc/api';
-import { useEditorCacheStore } from '../../stores/editor-cache-store';
 
 /**
  * Minimal sheet menu - opens on click of a toolbar icon, similar to Add Node.
@@ -28,11 +27,6 @@ export const SheetsMenu: React.FC = () => {
   const loadBundle = useSheetsStore((s) => s.loadBundle);
   const renameSheet = useSheetsStore((s) => s.renameSheet);
   const getAllSheets = useSheetsStore((s) => s.getAllSheets);
-
-  // Cache management
-  const clearCache = useEditorCacheStore((s) => s.clearCache);
-  const hasCachedData = useEditorCacheStore((s) => s.hasCachedData);
-  const loadCache = useEditorCacheStore((s) => s.loadCache);
 
   const [visible, setVisible] = React.useState(false);
   const sheetList = React.useMemo(() => sheetOrder.map((id) => sheetMap[id]).filter(Boolean), [sheetOrder, sheetMap]);
@@ -144,35 +138,6 @@ export const SheetsMenu: React.FC = () => {
     }
   };
 
-  // Cache management handlers
-  const handleClearCache = () => {
-    const ok = confirm('Clear all cached editor data? This will reset the editor to initial state on next load.');
-    if (!ok) return;
-    clearCache();
-    Toast.success({ content: 'Editor cache cleared' });
-    setVisible(false);
-  };
-
-  const handleViewCacheInfo = () => {
-    const cached = loadCache();
-    if (!cached) {
-      alert('No cached data found.');
-    } else {
-      const info = [
-        `Cache Version: ${cached.version}`,
-        `Last Saved: ${new Date(cached.timestamp).toLocaleString()}`,
-        `Skill Info: ${cached.skillInfo ? 'Yes' : 'No'}`,
-        `Sheets Count: ${Object.keys(cached.sheets.sheets).length}`,
-        `Open Tabs: ${cached.sheets.openTabs.length}`,
-        `Active Sheet: ${cached.sheets.activeSheetId || 'None'}`,
-        `Breakpoints: ${cached.breakpoints.length}`,
-        `File Path: ${cached.currentFilePath || 'None'}`,
-      ].join('\n');
-      alert(`Editor Cache Info:\n\n${info}`);
-    }
-    setVisible(false);
-  };
-
   return (
     <Dropdown
       position="bottomLeft"
@@ -197,9 +162,6 @@ export const SheetsMenu: React.FC = () => {
           <Dropdown.Item icon={<IconDeleteStroked />} onClick={handleClear} disabled={!activeId}>Clear Sheet (blank)</Dropdown.Item>
           <Dropdown.Item icon={<IconExit />} onClick={handleClose} disabled={!activeId}>Close Active Sheet</Dropdown.Item>
           <Dropdown.Item icon={<IconDeleteStroked />} onClick={handleDelete} disabled={!activeId}>Delete Active Sheet</Dropdown.Item>
-          <Dropdown.Divider />
-          <Dropdown.Item icon={<IconSave />} onClick={handleViewCacheInfo}>View Cache Info</Dropdown.Item>
-          <Dropdown.Item icon={<IconDeleteStroked />} onClick={handleClearCache} disabled={!hasCachedData()}>Clear Cache</Dropdown.Item>
           <Dropdown.Divider />
           <Dropdown.Item icon={<IconEdit />} onClick={handleSetupStepSim}>[DEV] setup-step-sim</Dropdown.Item>
           <Dropdown.Item icon={<IconEdit />} onClick={handleStepSim}>[DEV] step-sim</Dropdown.Item>

@@ -56,17 +56,19 @@ export const hasFullFilePaths = () => PLATFORM_CONFIG.features.fullFilePaths;
 export const detectPlatform = (): PlatformType => {
   // Check if we're in a desktop environment with IPC
   if (typeof window !== 'undefined') {
-    // Check for IPC availability as indicator of desktop mode
+    // Check for window.ipc (Qt WebChannel) as indicator of desktop mode
     try {
-      const { get_ipc_api } = require('@/services/ipc_api');
-      const api = get_ipc_api();
-      // More robust check: ensure API exists and has expected methods
-      if (api && typeof api === 'object' && typeof api.call === 'function') {
+      // Primary check: window.ipc from Qt WebChannel
+      if ((window as any).ipc) {
+        return 'desktop';
+      }
+      // Secondary check: webchannel-ready event listener exists
+      if ((window as any).__WEBCHANNEL_READY__) {
         return 'desktop';
       }
       return 'web';
     } catch (error) {
-      console.debug('[Platform] IPC API not available, defaulting to web platform:', error);
+      console.debug('[Platform] IPC check failed:', error);
       return 'web';
     }
   }
