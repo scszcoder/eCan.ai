@@ -283,67 +283,6 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
     logger.debug("normalized event:", event)
 
     return event
-    # try:
-    #     # Accept dict or pydantic-like object with .params
-    #     if hasattr(msg, "params"):
-    #         p = msg.params
-    #         message = getattr(p, "message", None)
-    #         metadata = getattr(p, "metadata", {}) or {}
-    #         event["context"] = {
-    #             "id": getattr(p, "id", None),
-    #             "sessionId": getattr(p, "sessionId", None),
-    #         }
-    #     elif isinstance(msg, dict):
-    #         message = msg.get("params", {}).get("message") or msg.get("message")
-    #         metadata = msg.get("params", {}).get("metadata", {}) or msg.get("metadata", {}) or {}
-    #         event["context"] = {
-    #             "id": _safe_get(msg, "params.id") or msg.get("id"),
-    #             "sessionId": _safe_get(msg, "params.sessionId"),
-    #         }
-    #     else:
-    #         message, metadata = None, {}
-    #
-    #     # Type/source/tag
-    #     mtype = None
-    #     if isinstance(metadata, dict):
-    #         mtype = metadata.get("mtype")
-    #         event["tag"] = metadata.get("i_tag") or metadata.get("tag")
-    #         event["timestamp"] = metadata.get("timestamp")
-    #         # carry over convenient fields
-    #         event["context"].update({
-    #             "chatId": metadata.get("chatId"),
-    #             "msgId": metadata.get("msgId"),
-    #         })
-    #     if event_type:
-    #         event["type"] = event_type
-    #     else:
-    #         event["type"] = _infer_event_type(mtype)
-    #     event["source"] = _infer_event_source(metadata)
-    #
-    #     # Extract primary data
-    #     event_data: Dict[str, Any] = {}
-    #     # message.parts[] text → human_text
-    #     human_text = _extract_text_from_message(message)
-    #     if human_text:
-    #         event_data["human_text"] = human_text
-    #     # known payloads
-    #     if isinstance(metadata, dict):
-    #         for k in ("qa_form_to_agent", "qa_form"):
-    #             if k in metadata:
-    #                 event_data["qa_form_to_agent"] = metadata[k]
-    #                 break
-    #         for k in ("notification_to_agent", "notification"):
-    #             if k in metadata:
-    #                 event_data["notification_to_agent"] = metadata[k]
-    #                 break
-    #         # include full metadata for advanced mapping
-    #         event_data["metadata"] = metadata
-    #     event["data"] = event_data
-    #     print("[normalized_event]:", event)
-    #     return event
-    # except Exception as e:
-    #     logger.debug(f"normalize_event error: {e}")
-    #     return event
 
 
 def _infer_event_type(mtype: Optional[str]) -> str:
@@ -435,50 +374,63 @@ def inject_attributes_into_checkpoint(cp: Any, attrs: Dict[str, Any]) -> None:
 
 
 # ---------- Mapping rules ----------
+
+# Base mappings shared between developing and released modes
+_BASE_MAPPINGS = [
+    {
+        "from": ["event.data.qa_form_to_agent", "event.data.qa_form"],
+        "to": [
+            {"target": "state.attributes.forms.qa_form"},
+            {"target": "resume.qa_form_to_agent"}
+        ],
+        "on_conflict": "merge_deep"
+    },
+    {
+        "from": ["event.data.notification_to_agent", "event.data.notification"],
+        "to": [
+            {"target": "state.attributes.notifications.latest"},
+            {"target": "resume.notification_to_agent"}
+        ],
+        "on_conflict": "merge_deep"
+    },
+    {
+        "from": ["event.data.human_text"],
+        "to": [
+            {"target": "state.attributes.human.last_message"},
+            {"target": "resume.human_text"}
+        ],
+        "transform": "to_string",
+        "on_conflict": "overwrite"
+    },
+    {
+        "from": ["event.tag"],
+        "to": [
+            {"target": "state.attributes.cloud_task_id"}
+        ],
+        "on_conflict": "overwrite"
+    },
+    # Async response mode: controls whether send_response_back sends via A2A or skips
+    {
+        "from": ["event.data.metadata.async_response", "event.context.async_response"],
+        "to": [
+            {"target": "state.attributes.async_response"}
+        ],
+        "on_conflict": "overwrite"
+    }
+]
+
+# Development-specific mapping for debug metadata
+_DEV_DEBUG_MAPPING = {
+    "from": ["event.data.metadata"],
+    "to": [
+        {"target": "state.attributes.debug.last_event_metadata"}
+    ],
+    "on_conflict": "overwrite"
+}
+
 DEFAULT_MAPPINGS: Dict[str, Any] = {
     "developing": {
-        "mappings": [
-            {
-                "from": ["event.data.qa_form_to_agent", "event.data.qa_form"],
-                "to": [
-                    {"target": "state.attributes.forms.qa_form"},
-                    {"target": "resume.qa_form_to_agent"}
-                ],
-                "on_conflict": "merge_deep"
-            },
-            {
-                "from": ["event.data.notification_to_agent", "event.data.notification"],
-                "to": [
-                    {"target": "state.attributes.notifications.latest"},
-                    {"target": "resume.notification_to_agent"}
-                ],
-                "on_conflict": "merge_deep"
-            },
-            {
-                "from": ["event.data.human_text"],
-                "to": [
-                    {"target": "state.attributes.human.last_message"},
-                    {"target": "resume.human_text"}
-                ],
-                "transform": "to_string",
-                "on_conflict": "overwrite"
-            },
-            {
-                "from": ["event.tag"],
-                "to": [
-                    {"target": "state.attributes.cloud_task_id"}
-                ],
-                "on_conflict": "overwrite"
-            },
-            # Development-specific: preserve debug metadata
-            {
-                "from": ["event.data.metadata"],
-                "to": [
-                    {"target": "state.attributes.debug.last_event_metadata"}
-                ],
-                "on_conflict": "overwrite"
-            }
-        ],
+        "mappings": _BASE_MAPPINGS + [_DEV_DEBUG_MAPPING],
         "options": {
             "strict": False,
             "default_on_missing": None,
@@ -486,40 +438,7 @@ DEFAULT_MAPPINGS: Dict[str, Any] = {
         }
     },
     "released": {
-        "mappings": [
-            {
-                "from": ["event.data.qa_form_to_agent", "event.data.qa_form"],
-                "to": [
-                    {"target": "state.attributes.forms.qa_form"},
-                    {"target": "resume.qa_form_to_agent"}
-                ],
-                "on_conflict": "merge_deep"
-            },
-            {
-                "from": ["event.data.notification_to_agent", "event.data.notification"],
-                "to": [
-                    {"target": "state.attributes.notifications.latest"},
-                    {"target": "resume.notification_to_agent"}
-                ],
-                "on_conflict": "merge_deep"
-            },
-            {
-                "from": ["event.data.human_text"],
-                "to": [
-                    {"target": "state.attributes.human.last_message"},
-                    {"target": "resume.human_text"}
-                ],
-                "transform": "to_string",
-                "on_conflict": "overwrite"
-            },
-            {
-                "from": ["event.tag"],
-                "to": [
-                    {"target": "state.attributes.cloud_task_id"}
-                ],
-                "on_conflict": "overwrite"
-            }
-        ],
+        "mappings": _BASE_MAPPINGS,
         "options": {
             "strict": True,
             "default_on_missing": None,
