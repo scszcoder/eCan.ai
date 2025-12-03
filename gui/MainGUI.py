@@ -2319,7 +2319,7 @@ class MainWindow:
                     built_agents.append(result)
                     logger.info(f"[MainWindow] ✅ Built {result[0]} agent ({len(built_agents)}/{len(agent_configs)})")
                 else:
-                    logger.warning(f"[MainWindow] ⚠️ {agent_configs[i]['name']} build returned None")
+                    logger.warning(f"[MainWindow] ⚠️ {agent_configs[i]['name']} agent build returned None")
             
             logger.info(f"[MainWindow] 🎉 Code-built agents completed: {len(built_agents)}/{len(agent_configs)}")
             return built_agents

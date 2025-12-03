@@ -7,8 +7,8 @@ from typing import List, Optional, Tuple, Any
 import inspect
 import json
 from agent.ec_agents.agent_utils import load_agent_skills_from_cloud
-# from agent.ec_skills.ecbot_rpa.ecbot_rpa_chatter_skill import create_rpa_helper_chatter_skill, create_rpa_operator_chatter_skill, create_rpa_supervisor_chatter_skill, create_rpa_supervisor_scheduling_chatter_skill
-# from agent.ec_skills.ecbot_rpa.ecbot_rpa_skill import create_rpa_helper_skill, create_rpa_operator_skill, create_rpa_supervisor_scheduling_skill, create_rpa_supervisor_skill
+from agent.ec_skills.ecbot_rpa.ecbot_rpa_chatter_skill import create_rpa_helper_chatter_skill
+from agent.ec_skills.ecbot_rpa.ecbot_rpa_skill import create_rpa_helper_skill
 from agent.ec_skills.my_twin.my_twin_chatter_skill import create_my_twin_chatter_skill
 # from agent.ec_skills.search_1688.search_1688_skill import create_search_1688_skill
 # from agent.ec_skills.search_digi_key.search_digi_key_skill import create_search_digi_key_skill
@@ -41,10 +41,8 @@ async def build_agent_skills_parallel(mainwin):
 
     # Batch 2: RPA skills (medium complexity)
     rpa_skills = [
-        # ("rpa_helper", create_rpa_helper_skill),
-        # ("rpa_helper_chatter", create_rpa_helper_chatter_skill),
-        # ("rpa_operator", create_rpa_operator_skill),
-        # ("rpa_operator_chatter", create_rpa_operator_chatter_skill),
+        ("rpa_helper", create_rpa_helper_skill),
+        ("rpa_helper_chatter", create_rpa_helper_chatter_skill),
     ]
 
     # Batch 3: Advanced RPA and search skills (more complex)
@@ -301,29 +299,35 @@ async def build_agent_skills(mainwin, skill_path=""):
         return []
 
 
+def _get_skill_service(mainwin):
+    """Get skill service from mainwin - centralized helper to avoid code duplication"""
+    if mainwin and hasattr(mainwin, 'ec_db_mgr'):
+        return mainwin.ec_db_mgr.skill_service
+    # Fallback
+    logger.warning("[build_agent_skills] mainwin.ec_db_mgr not available, using fallback ECDBMgr")
+    from agent.db import ECDBMgr
+    return ECDBMgr().skill_service
+
+
+def _get_username(mainwin):
+    """Get username from mainwin - centralized helper"""
+    if mainwin and hasattr(mainwin, 'user'):
+        return mainwin.user
+    return None
+
+
 async def _load_skills_from_database_async(mainwin):
     """Asynchronously load skill data from local database"""
     try:
         logger.info("[build_agent_skills] Loading skills from database...")
 
-        # Get current user from mainwin
-        if not mainwin or not hasattr(mainwin, 'user'):
+        username = _get_username(mainwin)
+        if not username:
             logger.error("[build_agent_skills] Cannot get username: mainwin or mainwin.user not available")
             return []
         
-        username = mainwin.user
         logger.info(f"[build_agent_skills] Querying skills for user: {username}")
-
-        # Get database service from mainwin (uses correct user-specific database path)
-        if mainwin and hasattr(mainwin, 'ec_db_mgr'):
-            skill_service = mainwin.ec_db_mgr.skill_service
-            logger.info(f"[build_agent_skills] Using database from mainwin.ec_db_mgr")
-        else:
-            # Fallback: create new ECDBMgr (will use current directory)
-            logger.warning("[build_agent_skills] mainwin.ec_db_mgr not available, using fallback ECDBMgr")
-            from agent.db import ECDBMgr
-            db_mgr = ECDBMgr()
-            skill_service = db_mgr.skill_service
+        skill_service = _get_skill_service(mainwin)
 
         skills_result = skill_service.get_skills_by_owner(username)
         if skills_result.get('success'):
@@ -411,23 +415,12 @@ async def _update_database_with_cloud_skills(cloud_skills, mainwin):
     try:
         logger.info(f"[build_agent_skills] Updating database with {len(cloud_skills)} cloud skills...")
 
-        # Get current user from mainwin
-        if not mainwin or not hasattr(mainwin, 'user'):
+        username = _get_username(mainwin)
+        if not username:
             logger.error("[build_agent_skills] Cannot get username: mainwin or mainwin.user not available")
             return
-        
-        username = mainwin.user
 
-        # Get database service from mainwin (uses correct user-specific database path)
-        if mainwin and hasattr(mainwin, 'ec_db_mgr'):
-            skill_service = mainwin.ec_db_mgr.skill_service
-        else:
-            # Fallback: create new ECDBMgr (will use current directory)
-            logger.warning("[build_agent_skills] mainwin.ec_db_mgr not available, using fallback ECDBMgr")
-            from agent.db import ECDBMgr
-            db_mgr = ECDBMgr()
-            skill_service = db_mgr.skill_service
-
+        skill_service = _get_skill_service(mainwin)
         updated_count = 0
         for cloud_skill in cloud_skills:
             try:
@@ -525,17 +518,34 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
         skills: List[object] = []
         logger.debug("build_agent_skills_from_files", mainwin, skill_path)
         def latest_mtime(path: Path) -> float:
+            """Get latest modification time of a path (file or directory recursively)"""
             if not path.exists():
                 return -1.0
             if path.is_file():
                 return path.stat().st_mtime
-            m = -1.0
-            for p in path.rglob("*"):
-                try:
-                    m = max(m, p.stat().st_mtime)
-                except Exception:
-                    pass
-            return m
+            return max((p.stat().st_mtime for p in path.rglob("*")), default=-1.0)
+
+        def load_mapping_rules(sk: EC_Skill, *search_paths: Path) -> None:
+            """Load mapping rules from data_mapping.json, searching in given paths"""
+            for path in search_paths:
+                mapping_file = path / "data_mapping.json" if path.is_dir() else path
+                if mapping_file.exists():
+                    try:
+                        with mapping_file.open("r", encoding="utf-8") as mf:
+                            sk.mapping_rules = json.load(mf)
+                            logger.info(f"[build_agent_skills] Loaded mapping rules for {sk.name}")
+                            return
+                    except Exception as e:
+                        logger.warning(f"[build_agent_skills] Failed to load mapping rules: {e}")
+
+        def finalize_skill(sk: EC_Skill, source: str, path: str, skill_root: Path) -> EC_Skill:
+            """Common finalization: set source, path, stable ID, and load mapping rules"""
+            sk.source = source
+            sk.path = path
+            sk.ensure_stable_id()
+            load_mapping_rules(sk, skill_root)
+            logger.debug(f"[build_agent_skills] Finalized skill: {sk.name} (source={source})")
+            return sk
 
         def find_package_dir_in_code(code_dir: Path) -> Optional[Tuple[Path, Optional[str], str]]:
             """
@@ -676,28 +686,9 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                     logger.error("[build_agent_skills] build_skill() returned unsupported type")
                     return None
 
-                logger.debug(f"[build_agent_skills] Skill ready: {sk.name if sk else None}")
-                # Load mapping rules from data_mapping.json
                 if sk:
-                    # Mark as code-based skill
-                    sk.source = "code"
-                    # Set path to the code directory for reference
-                    sk.path = str(code_dir)
-                    logger.debug(f"[build_agent_skills] Set skill path: {sk.path}")
-                    # Ensure stable ID for code/example skills
-                    sk.ensure_stable_id()
-                    
-                    mapping_file = skill_root / "data_mapping.json"
-                    if mapping_file.exists():
-                        try:
-                            with mapping_file.open("r", encoding="utf-8") as mf:
-                                mapping_data = json.load(mf)
-                                sk.mapping_rules = mapping_data
-                                logger.info(f"[build_agent_skills] Loaded mapping rules for {sk.name}")
-                        except Exception as e:
-                            logger.warning(f"[build_agent_skills] Failed to load mapping rules: {e}")
-                
-                return sk
+                    return finalize_skill(sk, "code", str(code_dir), skill_root)
+                return None
 
         def load_from_diagram(diagram_dir: Path) -> Optional[EC_Skill]:
             # Expect files <name>_skill.json and optional <name>_skill_bundle.json under diagram_dir
@@ -734,94 +725,54 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
 
                 sk = EC_Skill()
                 sk.name = name
-                # Set path to the JSON file for skill-editor to load
-                sk.path = str(core_path)
-                logger.debug(f"[build_agent_skills] Set skill path: {sk.path}")
-                # Try to set description/config/run_mode if present in core_dict
-                try:
-                    sk.description = core_dict.get("description", "") or sk.description
-                except Exception:
-                    pass
-                try:
-                    cfg = core_dict.get("config")
-                    if isinstance(cfg, dict):
-                        sk.config = cfg
-                except Exception:
-                    pass
-                try:
-                    run_mode = core_dict.get("run_mode")
-                    if run_mode in ("developing", "released"):
-                        sk.run_mode = run_mode
-                except Exception:
-                    pass
+                sk.description = core_dict.get("description", "") or ""
+                if isinstance(core_dict.get("config"), dict):
+                    sk.config = core_dict["config"]
+                if core_dict.get("run_mode") in ("developing", "released"):
+                    sk.run_mode = core_dict["run_mode"]
                 sk.set_work_flow(workflow)
                 
-                # Load mapping rules from data_mapping.json (check both diagram_dir and parent skill_root)
-                mapping_file = diagram_dir / "data_mapping.json"
-                if not mapping_file.exists():
-                    mapping_file = skill_root / "data_mapping.json"
-                
-                if mapping_file.exists():
-                    try:
-                        with mapping_file.open("r", encoding="utf-8") as mf:
-                            mapping_data = json.load(mf)
-                            sk.mapping_rules = mapping_data
-                            logger.info(f"[build_agent_skills] Loaded mapping rules for {sk.name}")
-                    except Exception as e:
-                        logger.warning(f"[build_agent_skills] Failed to load mapping rules: {e}")
-                
-                # source is read from the JSON file if present:
-                # - 'code': code/example skills (read-only)
-                # - 'ui': dynamically created via editor (editable, default)
+                # Determine source from JSON ('code'/'example' -> 'code', else 'ui')
                 json_source = core_dict.get("source", "ui")
-                # Treat 'example' as 'code' for simplicity
-                if json_source in ("code", "example"):
-                    sk.source = "code"
-                else:
-                    sk.source = "ui"
-                # Ensure stable ID for code/example skills
+                source = "code" if json_source in ("code", "example") else "ui"
+                
+                # Finalize: set source, path, stable ID, and load mapping rules
+                load_mapping_rules(sk, diagram_dir, skill_root)  # Check both locations
+                sk.source = source
+                sk.path = str(core_path)
                 sk.ensure_stable_id()
                 return sk
             except Exception as e:
                 logger.error(f"[build_agent_skills] Diagram load failed at {diagram_dir}: {e}")
                 return None
 
+        def pick_newer(paths: List[Path]) -> Optional[Path]:
+            """Pick the path with latest mtime from existing paths"""
+            existing = [(p, latest_mtime(p)) for p in paths if p.exists()]
+            return max(existing, key=lambda x: x[1])[0] if existing else None
+
         def load_one_skill(skill_root: Path) -> Optional[EC_Skill]:
             if not skill_root.exists() or not skill_root.is_dir():
                 return None
-            # Support both legacy 'code_skill' and new 'code_dir'
-            code_dir_legacy = skill_root / "code_skill"
-            code_dir_new = skill_root / "code_dir"
-            # Prefer whichever exists; if both exist, pick the newer one
-            if code_dir_legacy.exists() and code_dir_new.exists():
-                code_dir = code_dir_legacy if latest_mtime(code_dir_legacy) >= latest_mtime(code_dir_new) else code_dir_new
-            elif code_dir_new.exists():
-                code_dir = code_dir_new
-            else:
-                code_dir = code_dir_legacy
+            
+            # Find code_dir (prefer newer if both exist)
+            code_dir = pick_newer([skill_root / "code_skill", skill_root / "code_dir"])
             diagram_dir = skill_root / "diagram_dir"
-
-            code_exists = code_dir.exists()
-            diagram_exists = diagram_dir.exists()
-
-            chosen = None
-            if code_exists and not diagram_exists:
-                chosen = ("code", code_dir)
-            elif diagram_exists and not code_exists:
-                chosen = ("diagram", diagram_dir)
-            elif code_exists and diagram_exists:
-                mc = latest_mtime(code_dir)
-                md = latest_mtime(diagram_dir)
-                chosen = ("code", code_dir) if mc >= md else ("diagram", diagram_dir)
-            else:
+            
+            # Build candidates: (kind, path, mtime)
+            candidates = []
+            if code_dir:
+                candidates.append(("code", code_dir, latest_mtime(code_dir)))
+            if diagram_dir.exists():
+                candidates.append(("diagram", diagram_dir, latest_mtime(diagram_dir)))
+            
+            if not candidates:
                 logger.warning(f"[build_agent_skills] No code_skill or diagram_dir under {skill_root}")
                 return None
-
-            kind, path_sel = chosen
-            if kind == "code":
-                return load_from_code(skill_root, path_sel)
-            else:
-                return load_from_diagram(path_sel)
+            
+            # Pick the one with latest mtime and load
+            kind, path, _ = max(candidates, key=lambda x: x[2])
+            return load_from_code(skill_root, path) if kind == "code" else load_from_diagram(path)
 
         # Scan and load
         if not skill_path:

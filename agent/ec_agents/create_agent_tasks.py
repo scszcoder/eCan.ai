@@ -14,740 +14,321 @@ if typing.TYPE_CHECKING:
     from gui.MainGUI import MainWindow
 
 
-def create_my_twin_chat_task(mainwin: 'MainWindow'):
-    agent_skills = mainwin.agent_skills
-    agent_tasks = mainwin.agent_tasks
+def _get_or_create_task(
+    mainwin: 'MainWindow',
+    skill_matcher: typing.Union[str, typing.Callable],
+    task_name: str,
+    description: str,
+    trigger: str = "message",
+    schedule_kwargs: dict = None,
+    state: dict = None,
+    task_id: str = None
+) -> typing.Optional[ManagedTask]:
+    """Generic helper to get or create an agent task based on skill and task name."""
+    try:
+        agent_skills = getattr(mainwin, "agent_skills", [])
+        agent_tasks = getattr(mainwin, "agent_tasks", [])
 
-    if agent_skills:
-        chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for my digital twin"), None)
-    else:
-        chatter_skill = None
-    
-    # Critical check: skill must exist before creating task
-    if chatter_skill is None:
-        logger.error(f"[create_my_twin_chat_task] Cannot find skill 'chatter for my digital twin' in agent_skills")
-        logger.error(f"[create_my_twin_chat_task] Available skills: {[sk.name for sk in agent_skills] if agent_skills else 'None'}")
-        return None
+        # 1. Find Skill
+        if not agent_skills:
+            logger.error(f"[_get_or_create_task] agent_skills is empty or None! Cannot create task '{task_name}'.")
+            return None
+        
+        if isinstance(skill_matcher, str):
+            skill = next((sk for sk in agent_skills if getattr(sk, "name", "") == skill_matcher), None)
+        else:
+            skill = next((sk for sk in agent_skills if skill_matcher(sk)), None)
 
-    if agent_tasks:
-        logger.trace("agent_tasks: ", agent_tasks)
-        # IMPORTANT: match the exact name we create below to ensure reuse instead of duplicating
-        chatter_task = next((task for task in agent_tasks if task.name == "chat:Human Chatter Relay Task"), None)
-    else:
-        chatter_task = None
+        if skill is None:
+            matcher_desc = skill_matcher if isinstance(skill_matcher, str) else "custom_matcher"
+            logger.warning(f"[_get_or_create_task] Cannot find skill '{matcher_desc}' for task '{task_name}', task will be created without skill")
+            # Log available skills for debugging
+            available_skills = [getattr(sk, "name", "UNKNOWN") for sk in agent_skills]
+            logger.debug(f"[_get_or_create_task] Available skills: {available_skills}")
+            # Continue to create task without skill (original behavior)
 
-    if not chatter_task:
-        # Create new task
-        task_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.NONE,
-            repeat_number=1,
-            repeat_unit="day",
-            start_date_time="2025-03-31 23:59:59:000",
-            end_date_time="2035-12-31 23:59:59:000",
-            time_out=120  # seconds.
-        )
+        # 2. Find Existing Task
+        existing_task = None
+        if agent_tasks:
+            existing_task = next((task for task in agent_tasks if getattr(task, "name", "") == task_name), None)
 
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
+        if existing_task:
+            # Update existing task logic
+            updated = False
+            if existing_task.skill is None:
+                existing_task.skill = skill
+                updated = True
+                logger.info(f"[_get_or_create_task] ✅ Updated existing task '{task_name}' with skill '{skill.name}'")
+            
+            # Ensure metadata/state
+            if not hasattr(existing_task, 'metadata') or existing_task.metadata is None:
+                default_state = state or {"top": "ready"}
+                existing_task.metadata = {"state": default_state}
+                existing_task.state = default_state
+                updated = True
+                logger.info(f"[_get_or_create_task] ✅ Updated existing task '{task_name}' with default metadata")
+
+            if updated:
+                 logger.info(f"[_get_or_create_task] Task '{task_name}' updated successfully")
+            
+            return existing_task
+
+        # 3. Create New Task
+        # Default schedule if not provided
+        default_schedule = {
+            "repeat_type": Repeat_Types.NONE,
+            "repeat_number": 1,
+            "repeat_unit": "day",
+            "start_date_time": "2025-03-31 23:59:59:000",
+            "end_date_time": "2035-12-31 23:59:59:000",
+            "time_out": 120
+        }
+        
+        if schedule_kwargs:
+            default_schedule.update(schedule_kwargs)
+            
+        task_schedule = TaskSchedule(**default_schedule)
+        
+        task_state = state or {"top": "ready"}
         status = TaskStatus(state=TaskState.SUBMITTED)
-        chatter_task = ManagedTask(
-            id=task_id,
-            name="chat:Human Chatter Relay Task",
-            description="Represent human to chat with others",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=chatter_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="interaction",
+        
+        new_task = ManagedTask(
+            id=task_id or str(uuid.uuid4()),
+            name=task_name,
+            description=description,
+            status=status,
+            sessionId="",
+            skill=skill,
+            metadata={"state": task_state},
+            state=task_state,
+            resume_from="",
+            trigger=trigger,
             schedule=task_schedule
         )
-        logger.info(f"[create_my_twin_chat_task] Created new task: {chatter_task.name}, skill: {chatter_skill.name if chatter_skill else None}")
-    else:
-        # Found existing task - update skill if needed
-        needs_update = False
         
-        if chatter_task.skill is None and chatter_skill is not None:
-            chatter_task.skill = chatter_skill
-            needs_update = True
-            logger.info(f"[create_my_twin_chat_task] ✅ Updated existing task '{chatter_task.name}' with skill '{chatter_skill.name}'")
+        logger.info(f"[_get_or_create_task] Created new task: {new_task.name}, id: {new_task.id}")
+        return new_task
         
-        # Also ensure metadata and state are set
-        if not hasattr(chatter_task, 'metadata') or chatter_task.metadata is None:
-            state = {"top": "ready"}
-            chatter_task.metadata = {"state": state}
-            chatter_task.state = state
-            needs_update = True
-            logger.info(f"[create_my_twin_chat_task] ✅ Updated existing task '{chatter_task.name}' with metadata")
-        
-        if needs_update:
-            logger.info(f"[create_my_twin_chat_task] Task '{chatter_task.name}' updated successfully")
-        else:
-            logger.debug(f"[create_my_twin_chat_task] Task '{chatter_task.name}' already has skill: {chatter_task.skill.name if chatter_task.skill else None}")
+    except Exception as e:
+        logger.error(f"[_get_or_create_task] Exception while creating task '{task_name}': {e}")
+        logger.error(traceback.format_exc())
+        return None
 
-    return chatter_task
+
+def create_my_twin_chat_task(mainwin: 'MainWindow'):
+    return _get_or_create_task(
+        mainwin,
+        skill_matcher="chatter for my digital twin",
+        task_name="chat:Human Chatter Relay Task",
+        description="Represent human to chat with others",
+        trigger="interaction"
+    )
 
 
 def create_ec_helper_chat_task(mainwin):
-    agent_skills = mainwin.agent_skills
-    agent_tasks = mainwin.agent_tasks
-    if agent_skills:
-        chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecbot rpa helper"), None)
-    else:
-        chatter_skill = None
-
-    if agent_tasks:
-        logger.trace("agent_tasks: ", agent_tasks)
-        chatter_task = next((task for task in agent_tasks if task.name == "chat:ECBot RPA Helper Chatter Task"), None)
-    else:
-        chatter_task = None
-
-    if not chatter_task:
-        task_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.NONE,
-            repeat_number=1,
-            repeat_unit="day",
-            start_date_time="2025-03-31 23:59:59:000",
-            end_date_time="2035-12-31 23:59:59:000",
-            time_out=120  # seconds.
-        )
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        chatter_task = ManagedTask(
-            id=task_id,
-            name="chat:ECBot RPA Helper Chatter Task",
-            description="chat with human about anything related to helper work.",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=chatter_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="message",
-            schedule=task_schedule
-        )
-        logger.info("Created chat task: ", chatter_task.name, chatter_task.id, chatter_task.queue)
-    return chatter_task
+    return _get_or_create_task(
+        mainwin,
+        skill_matcher="chatter for ecbot rpa helper",
+        task_name="chat:ECBot RPA Helper Chatter Task",
+        description="chat with human about anything related to helper work.",
+        trigger="message"
+    )
 
 def create_ec_helper_work_task(mainwin):
-    agent_skills = mainwin.agent_skills
-    agent_tasks = mainwin.agent_tasks
-
-    worker_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa helper"), None)
-    worker_task = next((task for task in agent_tasks if task.name == "work:ECBot RPA Helper Task"), None)
-
-    if not worker_task:
-        task_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.NONE,
-            repeat_number=1,
-            repeat_unit="day",
-            start_date_time="2025-03-31 23:59:59:000",
-            end_date_time="2035-12-31 23:59:59:000",
-            time_out=120  # seconds.
-        )
-
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        worker_task = ManagedTask(
-            id=task_id,
-            name="ECBot RPA Helper Task",
-            description="Help fix errors/failures during e-commerce RPA run",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=worker_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="schedule",
-            schedule=task_schedule
-        )
-        logger.info("Created worker task: ", worker_task.name, worker_task.id, worker_task.queue)
-    return worker_task
+    return _get_or_create_task(
+        mainwin,
+        skill_matcher="ecbot rpa helper",
+        task_name="work:ECBot RPA Helper Task",
+        description="Help fix errors/failures during e-commerce RPA run",
+        trigger="schedule"
+    )
 
 
 def create_ec_customer_support_chat_task(mainwin):
-    agent_skills = mainwin.agent_skills
-    agent_tasks = mainwin.agent_tasks
-
-    chatter_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa customer support internal chatter"), None)
-    chatter_task = next((task for task in agent_tasks if task.name == "chat:ECBot RPA Customer Support Internal Chatter Task"), None)
-
-    if not chatter_task:
-        task_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.BY_DAYS,
-            repeat_number=1,
-            repeat_unit="day",
-            start_date_time="2025-03-31 23:59:59:000",
-            end_date_time="2035-12-31 23:59:59:000",
-            time_out=120  # seconds.
-        )
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        chatter_task = ManagedTask(
-            id=task_id,
-            name="chat:ECBot RPA Customer Support Internal Chatter Task",
-            description="chat with human user about anything related to customer support work.",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=chatter_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="message",
-            schedule=task_schedule
-        )
-        logger.info("Created chat task: ", chatter_task.name, chatter_task.id, chatter_task.queue)
-    return chatter_task
+    return _get_or_create_task(
+        mainwin,
+        skill_matcher="ecbot rpa customer support internal chatter",
+        task_name="chat:ECBot RPA Customer Support Internal Chatter Task",
+        description="chat with human user about anything related to customer support work.",
+        trigger="message",
+        schedule_kwargs={"repeat_type": Repeat_Types.BY_DAYS}
+    )
 
 def create_ec_customer_support_work_task(mainwin):
-    agent_skills = mainwin.agent_skills
-    agent_tasks = mainwin.agent_tasks
-
-    worker_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa customer support"), None)
-    worker_task = next((task for task in agent_tasks if task.name == "work:eCan.ai After Sales Customer Support Work"), None)
-
-    if not worker_task:
-        task_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.BY_DAYS,
-            repeat_number=1,
-            repeat_unit="day",
-            start_date_time="2025-03-31 23:59:59:000",
-            end_date_time="2035-12-31 23:59:59:000",
-            time_out=120  # seconds.
-        )
-
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        worker_task = ManagedTask(
-            id=task_id,
-            name="work:eCan.ai After Sales Customer Support Work",
-            description="eCan.ai After Sales Support Work like shipping prep, customer Q&A, handle return, refund, resend, etc.",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=worker_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="schedule",
-            schedule=task_schedule
-        )
-        logger.info("Created worker task: ", worker_task.name, worker_task.id, worker_task.queue)
-    return worker_task
+    return _get_or_create_task(
+        mainwin,
+        skill_matcher="ecbot rpa customer support",
+        task_name="work:eCan.ai After Sales Customer Support Work",
+        description="eCan.ai After Sales Support Work like shipping prep, customer Q&A, handle return, refund, resend, etc.",
+        trigger="schedule",
+        schedule_kwargs={"repeat_type": Repeat_Types.BY_DAYS}
+    )
 
 
 def create_ec_marketing_chat_task(mainwin):
-    agent_skills = mainwin.agent_skills
-    agent_tasks = mainwin.agent_tasks
-
-    chatter_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa marketing chatter"), None)
-    chatter_task = next((task for task in agent_tasks if task.name == "chat:eCan.ai Marketing Chatter Task"), None)
-
-    if not chatter_task:
-        task_schedule = TaskSchedule(
-                repeat_type=Repeat_Types.BY_DAYS,
-                repeat_number=1,
-                repeat_unit="day",
-                start_date_time="2025-03-31 23:59:59:000",
-                end_date_time="2035-12-31 23:59:59:000",
-                time_out=120                # seconds.
-            )
-
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        chatter_task = ManagedTask(
-            id=task_id,
-            name="chat:eCan.ai Marketing Chatter Task",
-            description="chat with human user about anything related to e-commerce marketing work.",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=chatter_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="message",
-            schedule=task_schedule
-        )
-        logger.info("Created chat task: ", chatter_task.name, chatter_task.id, chatter_task.queue)
-    return chatter_task
+    return _get_or_create_task(
+        mainwin,
+        skill_matcher="ecbot rpa marketing chatter",
+        task_name="chat:eCan.ai Marketing Chatter Task",
+        description="chat with human user about anything related to e-commerce marketing work.",
+        trigger="message",
+        schedule_kwargs={"repeat_type": Repeat_Types.BY_DAYS}
+    )
 
 def create_ec_marketing_work_task(mainwin):
-    agent_skills = mainwin.agent_skills
-    agent_tasks = mainwin.agent_tasks
-
-    worker_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa marketing"), None)
-    worker_task = next((task for task in agent_tasks if task.name == "work:E-Commerce Marketing Work"), None)
-
-    if not worker_task:
-        task_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.BY_DAYS,
-            repeat_number=1,
-            repeat_unit="day",
-            start_date_time="2025-03-31 23:59:59:000",
-            end_date_time="2035-12-31 23:59:59:000",
-            time_out=120  # seconds.
-        )
-
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        worker_task = ManagedTask(
-            id=task_id,
-            name="work:E-Commerce Marketing Work",
-            description="Help fix errors/failures during e-commerce RPA run",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=worker_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="schedule",
-            schedule=task_schedule
-        )
-        logger.info("Created worker task: ", worker_task.name, worker_task.id, worker_task.queue)
-    return worker_task
+    return _get_or_create_task(
+        mainwin,
+        skill_matcher="ecbot rpa marketing",
+        task_name="work:E-Commerce Marketing Work",
+        description="Help fix errors/failures during e-commerce RPA run",
+        trigger="schedule",
+        schedule_kwargs={"repeat_type": Repeat_Types.BY_DAYS}
+    )
 
 def create_ec_procurement_chat_task(mainwin):
-    agent_skills = mainwin.agent_skills
-    agent_tasks = mainwin.agent_tasks
-
-    chatter_skill = next((sk for sk in agent_skills if sk.name == "search_digikey_chatter"), None)
-    chatter_task = next((task for task in agent_tasks if task.name == "chat:eCan.ai Procurement Chatter Task"), None)
-    logger.debug("ec_procurement chatter skill name:", chatter_skill.name if chatter_skill else "None")
-    logger.debug("ec_procurement chatter skill:", chatter_skill)
-    if not chatter_task:
-        task_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.BY_DAYS,
-            repeat_number=1,
-            repeat_unit="day",
-            start_date_time="2025-03-31 01:00:00:000",
-            end_date_time="2035-12-31 01:30:00:000",
-            time_out=1800                # seconds.
-        )
-
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        chatter_task = ManagedTask(
-            id=task_id,
-            name="chat:eCan.ai Procurement Chatter Task",
-            description="chat with human user about anything related to e-commerce procurement work.",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=chatter_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="interaction",
-            schedule=task_schedule
-        )
-        logger.info("Created chat task: ", chatter_task.name, chatter_task.id, chatter_task.queue)
-    return chatter_task
+    # Special schedule for procurement
+    schedule_kwargs = {
+        "repeat_type": Repeat_Types.BY_DAYS,
+        "start_date_time": "2025-03-31 01:00:00:000",
+        "end_date_time": "2035-12-31 01:30:00:000",
+        "time_out": 1800
+    }
+    return _get_or_create_task(
+        mainwin,
+        skill_matcher="search_digikey_chatter",
+        task_name="chat:eCan.ai Procurement Chatter Task",
+        description="chat with human user about anything related to e-commerce procurement work.",
+        trigger="interaction",
+        schedule_kwargs=schedule_kwargs
+    )
 
 def create_ec_procurement_work_task(mainwin):
-    agent_skills = mainwin.agent_skills
-    agent_tasks = mainwin.agent_tasks
-
-    worker_skill = next((sk for sk in agent_skills if "search parts" in sk.name and "chatter" not in sk.name), None)
-    worker_task = next((task for task in agent_tasks if task.name == "work:E-Commerce Part Procurement Task"), None)
-
-    if not worker_task:
-        task_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.BY_DAYS,
-            repeat_number=1,
-            repeat_unit="day",
-            start_date_time="2025-03-31 01:00:00:000",
-            end_date_time="2035-12-31 01:30:00:000",
-            time_out=1800  # seconds.
-        )
-
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        worker_task = ManagedTask(
-            id=task_id,
-            name="work:E-Commerce Part Procurement Task",
-            description="Help sourcing products/parts for product development",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=worker_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="message",
-            schedule=task_schedule
-        )
-        logger.info("Created worker task: ", worker_task.name, worker_task.id, worker_task.queue)
-    return worker_task
+    # Custom matcher for skill: should match 'search_digikey_chatter' or similar
+    # Original matcher was too strict ("search parts" and no "chatter")
+    def skill_matcher(sk):
+        # return "search parts" in sk.name and "chatter" not in sk.name
+        # Allow chatter skill to double as worker skill if needed, or match specific worker skill
+        return "search" in sk.name and "digikey" in sk.name
+        
+    schedule_kwargs = {
+        "repeat_type": Repeat_Types.BY_DAYS,
+        "start_date_time": "2025-03-31 01:00:00:000",
+        "end_date_time": "2035-12-31 01:30:00:000",
+        "time_out": 1800
+    }
+    return _get_or_create_task(
+        mainwin,
+        skill_matcher=skill_matcher,
+        task_name="work:E-Commerce Part Procurement Task",
+        description="Help sourcing products/parts for product development",
+        trigger="message",
+        schedule_kwargs=schedule_kwargs
+    )
 
 def create_ec_rpa_operator_chat_task(mainwin):
-    agent_skills = mainwin.agent_skills
-    agent_tasks = mainwin.agent_tasks
-
-    chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecbot rpa operator run RPA"), None)
-    chatter_task = next((task for task in agent_tasks if task.name == "chat:ECBot RPA Operator Chatter Task"), None)
-
-    if not chatter_task:
-        task_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.NONE,
-            repeat_number=1,
-            repeat_unit="day",
-            start_date_time="2025-03-31 23:59:59:000",
-            end_date_time="2035-12-31 23:59:59:000",
-            time_out=120  # seconds.
-        )
-
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        chatter_task = ManagedTask(
-            id=task_id,
-            name="chat:ECBot RPA Operator Chatter Task",
-            description="chat with human user about anything related to ECBOT RPA work.",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=chatter_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="message",
-            schedule=task_schedule
-        )
-        logger.info("Created chat task: ", chatter_task.name, chatter_task.id, chatter_task.queue)
-    return chatter_task
+    return _get_or_create_task(
+        mainwin,
+        skill_matcher="chatter for ecbot rpa operator run RPA",
+        task_name="chat:ECBot RPA Operator Chatter Task",
+        description="chat with human user about anything related to ECBOT RPA work.",
+        trigger="message"
+    )
 
 def create_ec_rpa_operator_work_task(mainwin):
-    agent_skills = mainwin.agent_skills
-    agent_tasks = mainwin.agent_tasks
-
-    worker_skill = next((sk for sk in agent_skills if "ecbot rpa operator run RPA" in sk.name), None)
-    worker_task = next((task for task in agent_tasks if task.name == "work:ECBot RPA operates daily routine task"), None)
-
-    if not worker_task:
-        task_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.NONE,
-            repeat_number=1,
-            repeat_unit="day",
-            start_date_time="2025-03-31 23:59:59:000",
-            end_date_time="2035-12-31 23:59:59:000",
-            time_out=120  # seconds.
-        )
-
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        worker_task = ManagedTask(
-            id=task_id,
-            name="work:ECBot RPA operates daily routine task",
-            description="Help fix errors/failures during e-commerce RPA run",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=worker_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="schedule",
-            schedule=task_schedule
-        )
-        logger.info("Created worker task: ", worker_task.name, worker_task.id, worker_task.queue)
-    return worker_task
+    # Custom matcher for skill: "ecbot rpa operator run RPA" in name
+    def skill_matcher(sk):
+        return "ecbot rpa operator run RPA" in sk.name
+        
+    return _get_or_create_task(
+        mainwin,
+        skill_matcher=skill_matcher,
+        task_name="work:ECBot RPA operates daily routine task",
+        description="Help fix errors/failures during e-commerce RPA run",
+        trigger="schedule"
+    )
 
 
 def create_ec_rpa_supervisor_chat_task(mainwin):
-    agent_skills = mainwin.agent_skills
-    agent_tasks = mainwin.agent_tasks
-
-    chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecbot rpa supervisor task scheduling"), None)
-    chatter_task = next((task for task in agent_tasks if task.name == "chat:eCan.ai RPA Operator Chatter Task"), None)
-
-    if not chatter_task:
-        task_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.NONE,
-            repeat_number=1,
-            repeat_unit="day",
-            start_date_time="2025-03-31 23:59:59:000",
-            end_date_time="2035-12-31 23:59:59:000",
-            time_out=120  # seconds.
-        )
-
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        chatter_task = ManagedTask(
-            id=task_id,
-            name="chat:eCan.ai RPA Operator Chatter Task",
-            description="chat with human user about anything related to ECBOT RPA work.",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=chatter_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="message",
-            schedule=task_schedule
-        )
-        logger.info("Created chat task: ", chatter_task.name, chatter_task.id, chatter_task.queue)
-    return chatter_task
+    return _get_or_create_task(
+        mainwin,
+        skill_matcher="chatter for ecbot rpa supervisor task scheduling",
+        task_name="chat:eCan.ai RPA Operator Chatter Task",
+        description="chat with human user about anything related to ECBOT RPA work.",
+        trigger="message"
+    )
 
 def create_ec_rpa_supervisor_daily_task(mainwin):
-    agent_skills = mainwin.agent_skills
-    agent_tasks = mainwin.agent_tasks
-
-    schedule_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa supervisor task scheduling"), None)
-    daily_task = next((task for task in agent_tasks if task.name == "work:eCan.ai RPA Supervise Daily Routine Task"), None)
-
-    if not daily_task:
-        task_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.BY_DAYS,
-            repeat_number=1,
-            repeat_unit="day",
-            start_date_time="2025-03-31 03:00:00:000",
-            end_date_time="2035-12-31 23:59:59:000",
-            time_out=120  # seconds.
-        )
-
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        daily_task = ManagedTask(
-            id=task_id,
-            name="work:eCan.ai RPA Supervise Daily Routine Task",
-            description="Do any routine like fetch todays work schedule, prepare operators team and dispatch work to the operators to do.",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=schedule_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="schedule",
-            schedule=task_schedule
-        )
-        logger.info("Created daily_task task: ", daily_task.name, daily_task.id, daily_task.queue)
-    return daily_task
+    # Special schedule for daily supervisor task
+    schedule_kwargs = {
+        "repeat_type": Repeat_Types.BY_DAYS,
+        "start_date_time": "2025-03-31 03:00:00:000",
+        "end_date_time": "2035-12-31 23:59:59:000"
+    }
+    return _get_or_create_task(
+        mainwin,
+        skill_matcher="ecbot rpa supervisor task scheduling",
+        task_name="work:eCan.ai RPA Supervise Daily Routine Task",
+        description="Do any routine like fetch todays work schedule, prepare operators team and dispatch work to the operators to do.",
+        trigger="schedule",
+        schedule_kwargs=schedule_kwargs
+    )
 
 def create_ec_rpa_supervisor_on_request_task(mainwin):
-    agent_skills = mainwin.agent_skills
-    agent_tasks = mainwin.agent_tasks
-
-    serve_request_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa supervisor serve requests"), None)
-    on_request_task = next((task for task in agent_tasks if task.name == "work:eCan.ai RPA Supervisor Service Task"), None)
-
-    if not on_request_task:
-        non_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.NONE,
-            repeat_number=1,
-            repeat_unit="day",
-            start_date_time="2025-03-31 23:59:59:000",
-            end_date_time="2035-12-31 23:59:59:000",
-            time_out=120  # seconds.
-        )
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        on_request_task = ManagedTask(
-            id=task_id,
-            name="work:eCan.ai RPA Supervisor Service Task",
-            description="Serve RPA operators in case they request human in loop or work reports",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=serve_request_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="schedule",
-            schedule=non_schedule
-        )
-        logger.info("Created on_request_task task: ", on_request_task.name, on_request_task.id, on_request_task.queue)
-    return on_request_task
+    return _get_or_create_task(
+        mainwin,
+        skill_matcher="ecbot rpa supervisor serve requests",
+        task_name="work:eCan.ai RPA Supervisor Service Task",
+        description="Serve RPA operators in case they request human in loop or work reports",
+        trigger="schedule"
+    )
 
 
 def create_ec_sales_chat_task(mainwin):
-    agent_skills = mainwin.agent_skills
-    agent_tasks = mainwin.agent_tasks
-
-    chatter_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa sales internal chatter"), None)
-    chatter_task = next((task for task in agent_tasks if task.name == "chat:eCan.ai Sales Chatter Task"), None)
-
-    if not chatter_task:
-        task_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.BY_DAYS,
-            repeat_number=1,
-            repeat_unit="day",
-            start_date_time="2025-03-31 23:59:59:000",
-            end_date_time="2035-12-31 23:59:59:000",
-            time_out=120  # seconds.
-        )
-
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        chatter_task = ManagedTask(
-            id=task_id,
-            name="chat:eCan.ai Sales Chatter Task",
-            description="chat with human user about anything related to e-commerce sales work.",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=chatter_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="message",
-            schedule=task_schedule
-        )
-        logger.info("Created chat task: ", chatter_task.name, chatter_task.id, chatter_task.queue)
-    return chatter_task
+    return _get_or_create_task(
+        mainwin,
+        skill_matcher="ecbot rpa sales internal chatter",
+        task_name="chat:eCan.ai Sales Chatter Task",
+        description="chat with human user about anything related to e-commerce sales work.",
+        trigger="message",
+        schedule_kwargs={"repeat_type": Repeat_Types.BY_DAYS}
+    )
 
 def create_ec_sales_work_task(mainwin):
-    agent_skills = mainwin.agent_skills
-    agent_tasks = mainwin.agent_tasks
-
-    worker_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa sales"), None)
-    worker_task = next((task for task in agent_tasks if task.name == "work:ECBot Sales"), None)
-
-    if not worker_task:
-        task_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.BY_DAYS,
-            repeat_number=1,
-            repeat_unit="day",
-            start_date_time="2025-03-31 23:59:59:000",
-            end_date_time="2035-12-31 23:59:59:000",
-            time_out=120  # seconds.
-        )
-
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        worker_task = ManagedTask(
-            id=task_id,
-            name="work:ECBot Sales",
-            description="Help fix errors/failures during e-commerce RPA run",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=worker_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="schedule",
-            schedule=task_schedule
-        )
-        logger.info("Created worker task: ", worker_task.name, worker_task.id, worker_task.queue)
-    return worker_task
-
-
+    return _get_or_create_task(
+        mainwin,
+        skill_matcher="ecbot rpa sales",
+        task_name="work:ECBot Sales",
+        description="Help fix errors/failures during e-commerce RPA run",
+        trigger="schedule",
+        schedule_kwargs={"repeat_type": Repeat_Types.BY_DAYS}
+    )
 
 
 def create_ec_self_tester_chat_task(mainwin):
-    agent_skills = mainwin.agent_skills
-    agent_tasks = mainwin.agent_tasks
-
-    chatter_skill = next((sk for sk in agent_skills if sk.name == "self_test_chatter"), None)
-    chatter_task = next((task for task in agent_tasks if task.name == "chat:eCan.ai Self Test Chatter Task"), None)
-
-    if not chatter_task:
-        task_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.BY_DAYS,
-            repeat_number=1,
-            repeat_unit="day",
-            start_date_time="2025-03-31 23:59:59:000",
-            end_date_time="2035-12-31 23:59:59:000",
-            time_out=120  # seconds.
-        )
-
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        chatter_task = ManagedTask(
-            id=task_id,
-            name="chat:eCan.ai Self Test Chatter Task",
-            description="chat with human user about anything related to eCan.ai self test work.",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=chatter_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="message",
-            schedule=task_schedule
-        )
-        logger.info("Created chat task: ", chatter_task.name, chatter_task.id, chatter_task.queue)
-    return chatter_task
+    return _get_or_create_task(
+        mainwin,
+        skill_matcher="self_test_chatter",
+        task_name="chat:eCan.ai Self Test Chatter Task",
+        description="chat with human user about anything related to eCan.ai self test work.",
+        trigger="message",
+        schedule_kwargs={"repeat_type": Repeat_Types.BY_DAYS}
+    )
 
 def create_ec_self_tester_work_task(mainwin):
-    agent_skills = mainwin.agent_skills
-    agent_tasks = mainwin.agent_tasks
-
-    worker_skill = next((sk for sk in agent_skills if sk.name == "eCan.ai self test"), None)
-    worker_task = next((task for task in agent_tasks if task.name == "work:eCan.ai self test"), None)
-
-    if not worker_task:
-        task_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.BY_DAYS,
-            repeat_number=1,
-            repeat_unit="day",
-            start_date_time="2025-03-31 01:59:59:000",
-            end_date_time="2035-12-31 01:59:59:000",
-            time_out=120  # seconds.
-        )
-
-        task_id = str(uuid.uuid4())
-        session_id = ""
-        resume_from = ""
-        state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
-        worker_task = ManagedTask(
-            id=task_id,
-            name="work:eCan.ai Self Test",
-            description="eCan.ai app software self test",
-            status=status,  # or whatever default status you need
-            sessionId=session_id,
-            skill=worker_skill,
-            metadata={"state": state},
-            state=state,
-            resume_from=resume_from,
-            trigger="message",
-            schedule=task_schedule
-        )
-        logger.info("Created worker task: ", worker_task.name, worker_task.id, worker_task.queue)
-    return worker_task
+    # Special schedule for self tester
+    schedule_kwargs = {
+        "repeat_type": Repeat_Types.BY_DAYS,
+        "start_date_time": "2025-03-31 01:59:59:000",
+        "end_date_time": "2035-12-31 01:59:59:000"
+    }
+    return _get_or_create_task(
+        mainwin,
+        skill_matcher="eCan.ai self test",
+        task_name="work:eCan.ai Self Test",
+        description="eCan.ai app software self test",
+        trigger="message",
+        schedule_kwargs=schedule_kwargs
+    )
 
 
 
