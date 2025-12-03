@@ -594,6 +594,7 @@ export class IPCHandlers {
         }
 
         // On resume/step/continue, proactively mark runtime state as running so GIF resumes immediately
+        // BUT: don't overwrite terminal states (completed/failed)
         try {
           const isRunLikeEarly = (status === 'running' || status === 'resumed' || status === 'resume' || status === 'step' || status === 'stepping' || status === 'continue' || status === 'continued');
           if (isRunLikeEarly) {
@@ -602,10 +603,22 @@ export class IPCHandlers {
               ? (payload as any).nodeState
               : payload;
             if (effectiveNode) {
-              useRuntimeStateStore.getState().setNodeRuntimeState(effectiveNode, normalized, 'running');
+              const st = useRuntimeStateStore.getState();
+              const prev = st.getNodeRuntimeState(effectiveNode);
+              const prevIsTerminal = prev?.status === 'completed' || prev?.status === 'failed';
+              if (!prevIsTerminal) {
+                st.setNodeRuntimeState(effectiveNode, normalized, 'running');
+              }
             } else if (((window as any).__runningNodeQueue?.showing)) {
               const cur = (window as any).__runningNodeQueue.showing as string;
-              if (cur) useRuntimeStateStore.getState().setNodeRuntimeState(cur, normalized, 'running');
+              if (cur) {
+                const st = useRuntimeStateStore.getState();
+                const prev = st.getNodeRuntimeState(cur);
+                const prevIsTerminal = prev?.status === 'completed' || prev?.status === 'failed';
+                if (!prevIsTerminal) {
+                  st.setNodeRuntimeState(cur, normalized, 'running');
+                }
+              }
             }
           }
         } catch {}
@@ -707,8 +720,21 @@ export class IPCHandlers {
           const uiStatus: 'paused' | 'running' | any = isPausedLike ? 'paused' : (isRunLike ? 'running' : (status || 'running'));
 
           if (effectiveNode) {
-            try { if (RUN_TRACE) console.info('[NodeRuntime] update', { node: effectiveNode, status, uiStatus, normalized }); } catch {}
-            useRuntimeStateStore.getState().setNodeRuntimeState(effectiveNode, normalized, uiStatus);
+            // Prevent 'running' from overwriting terminal states ('completed' or 'failed')
+            // This handles the case where LangGraph calls node_builder multiple times
+            const st = useRuntimeStateStore.getState();
+            const prev = st.getNodeRuntimeState(effectiveNode);
+            const prevStatus = prev?.status;
+            const prevIsTerminal = prevStatus === 'completed' || prevStatus === 'failed';
+            
+            console.log(`[NodeRuntime] node=${effectiveNode}, backend=${status}, ui=${uiStatus}, prev=${prevStatus}, terminal=${prevIsTerminal}`);
+            
+            if (prevIsTerminal && uiStatus === 'running') {
+              // Skip: don't let a stale 'running' overwrite a terminal state
+              console.log(`[NodeRuntime] SKIP: ${effectiveNode} already ${prevStatus}, ignoring ${uiStatus}`);
+            } else {
+              st.setNodeRuntimeState(effectiveNode, normalized, uiStatus);
+            }
           } else if ((isRunLike) && q.showing) {
             // Fallback: when backend omits current_node/this_node on resume, update the currently showing node
             // Only flip to running if this node was previously paused-like to prevent UI churn

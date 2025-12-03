@@ -1870,7 +1870,7 @@ def send_response_back(state: NodeState) -> NodeState:
         #                 "ext": ext,
         #             }
         # as this is the format the GUI will take and display.
-        print("state result:",state["result"])
+        logger.debug("state result:",state["result"])
         if isinstance(state["result"], str):
             next_msg = state["messages"][-1]
         else:
