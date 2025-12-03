@@ -118,7 +118,7 @@ DESCRIPTION = (
 
 def send_data_back2human(msg_type, dtype, data, state) -> NodeState:
     import uuid
-    import time as _time
+    from agent.ec_skills.llm_utils.llm_utils import build_a2a_response_message
     try:
         agent_id = state["attributes"]["agent_id"]
         self_agent = get_agent_by_id(agent_id)
@@ -127,58 +127,30 @@ def send_data_back2human(msg_type, dtype, data, state) -> NodeState:
 
         logger.debug("[search_digikey_chatter_skill] standard_post_llm_hook send_response_back:", state)
         chat_id = state["attributes"]["chat_id"]
-        msg_id = str(uuid.uuid4()),
-
-        if dtype == "form":
-            card, code, form, notification = {}, {}, data, {}
-            logger.debug("found form in msg:", form)
-        elif dtype == "notification":
-            card, code, form, notification = {}, {}, [], data
-        else:
-            card, code, form, notification = {}, {}, [], {}
-
+        msg_id = str(uuid.uuid4())
         llm_result = state.get("result", {}).get("llm_result", "")
         print("llm result:", llm_result)
-        agent_response_message = {
-            "id": str(uuid.uuid4()),
-            "chat": {
-                "input": llm_result,
-                "attachments": [],
-                "messages": [self_agent.card.id, chat_id, msg_id, "", llm_result],
-            },
-            "attributes": {
-                "params": {
-                    "content": {
-                        "text":llm_result,
-                        "mtype": msg_type,
-                        "dtype": dtype,
-                        "card": card,
-                        "code": code,
-                        "form": form,
-                        "notification": notification,
-                    },
-                    "attachments": state.get("attachments", []),
-                    "metadata": {
-                        "mtype": msg_type,
-                        "dtype": dtype,
-                        "card": card,
-                        "code": code,
-                        "form": form,
-                        "notification": notification,
-                    },
-                    "role": "",
-                    "senderId": f"{agent_id}",
-                    "createAt": int(_time.time() * 1000),
-                    "senderName": f"{self_agent.card.name}",
-                    "chatId": chat_id,
-                    "status": "success",
-                    "ext": "",
-                    "human": False,
-                },
-            }
-        }
+
+        # Determine form/notification data
+        form = data if dtype == "form" else None
+        notification = data if dtype == "notification" else None
+
+        # Use standardized message builder
+        agent_response_message = build_a2a_response_message(
+            agent_id=self_agent.card.id,
+            chat_id=chat_id,
+            msg_id=msg_id,
+            task_id="",
+            msg_text=llm_result,
+            sender_name=self_agent.card.name,
+            msg_type=dtype,
+            attachments=state.get("attachments", []),
+            form=form,
+            notification=notification,
+        )
         logger.debug("[search_digikey_chatter_skill] sending response msg back to twin:", agent_response_message)
-        send_result = self_agent.a2a_send_chat_message(twin_agent, agent_response_message)
+        # Use non-blocking send to avoid deadlock
+        send_result = self_agent.a2a_send_chat_message_async(twin_agent, agent_response_message)
         return send_result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorSendResponseBack")

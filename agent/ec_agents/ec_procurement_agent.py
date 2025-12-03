@@ -59,9 +59,18 @@ def set_up_ec_procurement_agent(mainwin):
 
         org_id = "org_rnd_001"
         chatter_task = create_ec_procurement_chat_task(mainwin)
+        if not chatter_task:
+            logger.error("Failed to create chatter task for ec_procurement agent! Aborting setup.")
+            return None
+            
         worker_task = create_ec_procurement_work_task(mainwin)
+        if not worker_task:
+            logger.error("Failed to create worker task for ec_procurement agent! Aborting setup.")
+            return None
+            
         # Use mainwin's unified browser_use_llm instance (shared across all agents)
         browser_use_llm = mainwin.browser_use_llm
+        
         produrement_agent = EC_Agent(mainwin=mainwin, skill_llm=llm,
                                      llm=browser_use_llm,
                                      task="",

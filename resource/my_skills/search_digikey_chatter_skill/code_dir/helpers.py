@@ -14,7 +14,7 @@ from utils.logger_helper import get_traceback
 from agent.ec_skill import NodeState, WorkFlowContext, prompt0
 from agent.agent_service import get_agent_by_id
 from agent.mcp.local_client import mcp_call_tool
-from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync, try_parse_json, get_standard_prompt
+from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync, try_parse_json, get_standard_prompt, build_a2a_response_message
 from agent.ec_skills.llm_hooks.llm_hooks import run_pre_llm_hook, run_post_llm_hook
 from agent.mcp.server.scrapers.eval_util import get_default_rerank_req
 
@@ -29,8 +29,17 @@ def chat_or_work(state: NodeState, *, runtime: Runtime) -> str:
 def is_preliminary_component_info_ready(state: NodeState, *, runtime: Runtime) -> str:
     logger.debug("[search_digikey_chatter_skill] is_preliminary_component_info_ready input:", state)
 
-    # return "query_component_specs" if state.get('condition') else "pend_for_next_human_msg0"
-    return "prep_query_components" if state.get('result').get('llm_result').get('human_confirmed') else "pend_for_next_human_msg0"
+    llm_result = state.get('result', {}).get('llm_result', {})
+    
+    # Only proceed when LLM explicitly confirms (human_confirmed=true)
+    # This ensures the LLM has processed user input and determined it's ready to search
+    if llm_result.get('human_confirmed'):
+        logger.debug("[search_digikey_chatter_skill] human_confirmed=True, proceeding to prep_query_components")
+        return "prep_query_components"
+    
+    # Default: wait for more input from user
+    logger.debug("[search_digikey_chatter_skill] human_confirmed=False, waiting for more input")
+    return "pend_for_next_human_msg0"
 
 
 def are_component_specs_filled(state: NodeState) -> str:
@@ -213,10 +222,13 @@ def pend_for_human_input_node(state: NodeState, *, runtime: Runtime, store: Base
 
     logger.debug(f"qa form: {qa_form}, notification, {notification}, result:, {state['result']}")
 
-    if isinstance(state["result"].get("llm_result", {}), str):
-        prompt_to_human = state["result"].get("llm_result", {})
+    llm_result = state.get("result", {}).get("llm_result", "")
+    if isinstance(llm_result, str):
+        prompt_to_human = llm_result
+    elif isinstance(llm_result, dict):
+        prompt_to_human = llm_result.get("next_prompt") or llm_result.get("casual_chat_response", "")
     else:
-        prompt_to_human = state["result"].get("llm_result", {}).get("casual_chat_response", "")
+        prompt_to_human = ""
 
     resume_payload = interrupt({
         "i_tag": current_node_name,
@@ -489,7 +501,6 @@ def confirm_FOM_node(state: NodeState, *, runtime: Runtime, store: BaseStore):
 
 
 def send_data_back2human(msg_type, dtype, data, state) -> NodeState:
-    import time as _time
     try:
         agent_id = state["messages"][0]
         self_agent = get_agent_by_id(agent_id)
@@ -499,68 +510,28 @@ def send_data_back2human(msg_type, dtype, data, state) -> NodeState:
         logger.debug("[search_digikey_chatter_skill] send_data_back2human:", state)
         chat_id = state["messages"][1]
         msg_id = str(uuid.uuid4())
-
-        if dtype == "form":
-            card, code, form, notification = {}, {}, data, {}
-        elif dtype == "notification":
-            card, code, form, notification = {}, {}, [], data
-        else:
-            card, code, form, notification = {}, {}, [], {}
-
         llm_result = state.get("result", {}).get("llm_result", "")
 
-        agent_response_message = {
-            "id": str(uuid.uuid4()),
-            "chat": {
-                "input": llm_result,
-                "attachments": [],
-                "messages": [self_agent.card.id, chat_id, msg_id, "", llm_result],
-            },
-            # Keep original 'params' for compatibility
-            "params": {
-                "content": llm_result,
-                "attachments": state.get("attachments", []),
-                "metadata": {
-                    "mtype": msg_type,
-                    "dtype": dtype,
-                    "card": card,
-                    "code": code,
-                    "form": form,
-                    "notification": notification,
-                },
-                "role": "",
-                "senderId": f"{agent_id}",
-                "createAt": int(_time.time() * 1000),
-                "senderName": f"{self_agent.card.name}",
-                "status": "success",
-                "ext": "",
-                "human": False,
-            },
-            # Add 'attributes' wrapper expected by ec_agent.a2a_send_chat_message
-            "attributes": {
-                "params": {
-                    "content": llm_result,
-                    "attachments": state.get("attachments", []),
-                    "metadata": {
-                        "mtype": msg_type,
-                        "dtype": dtype,
-                        "card": card,
-                        "code": code,
-                        "form": form,
-                        "notification": notification,
-                    },
-                    "role": "",
-                    "senderId": f"{agent_id}",
-                    "createAt": int(_time.time() * 1000),
-                    "senderName": f"{self_agent.card.name}",
-                    "status": "success",
-                    "ext": "",
-                    "human": False,
-                }
-            },
-        }
+        # Determine form/notification data
+        form = data if dtype == "form" else None
+        notification = data if dtype == "notification" else None
+
+        # Use standardized message builder
+        agent_response_message = build_a2a_response_message(
+            agent_id=self_agent.card.id,
+            chat_id=chat_id,
+            msg_id=msg_id,
+            task_id="",
+            msg_text=llm_result,
+            sender_name=self_agent.card.name,
+            msg_type=dtype,
+            attachments=state.get("attachments", []),
+            form=form,
+            notification=notification,
+        )
         logger.debug("[search_digikey_chatter_skill] sending response msg back to twin:", agent_response_message)
-        send_result = self_agent.a2a_send_chat_message(twin_agent, agent_response_message)
+        # Use non-blocking send to avoid deadlock
+        send_result = self_agent.a2a_send_chat_message_async(twin_agent, agent_response_message)
         return send_result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorSendResponseBack")

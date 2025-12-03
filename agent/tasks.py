@@ -285,18 +285,14 @@ class ManagedTask(Task):
         """Signal the task to cancel its execution."""
         self.cancellation_event.set()
 
-
-    def stream_run(self, in_msg="", *, config=None, context=None, **kwargs):
-        """Run the task's skill with streaming support.
-
-        Args:
-            in_msg: Input message or state for the skill
-            config: Configuration dictionary for the runnable
-            **kwargs: Additional arguments to pass to the runnable's astream method
+    # ==================== Stream Run Helper Methods ====================
+    
+    def _prepare_config(self, config=None, context=None):
+        """Prepare and normalize the config for stream execution.
+        
+        Returns:
+            tuple: (effective_config, context)
         """
-        logger.debug(f"in_msg: {in_msg}, config: {config}, kwargs: {kwargs}")
-        logger.debug(f"self.metadata: {self.metadata}")
-
         # Reuse a persistent config (thread_id) across runs; create and cache if missing
         effective_config = config or self.metadata.get("config")
         if effective_config is None:
@@ -307,16 +303,11 @@ class ManagedTask(Task):
                 }
             }
             self.metadata["config"] = effective_config
-
-        # If a checkpoint is provided as a kwarg, move it into config where LangGraph expects it
-        if "checkpoint" in kwargs:
-            try:
-                effective_config["checkpoint"] = kwargs.pop("checkpoint")
-            except Exception:
-                # ensure config is a dict
-                effective_config = dict(effective_config or {})
-                effective_config["checkpoint"] = kwargs.pop("checkpoint")
-
+        
+        # Ensure configurable dict exists
+        effective_config.setdefault("configurable", {})
+        
+        # Create default context if not provided
         if context is None:
             context = {
                 "id": str(uuid.uuid4()),
@@ -328,47 +319,246 @@ class ManagedTask(Task):
                 "this_node": {"name": ""},
             }
         
-        # Ensure state carries identifiers hooks can read without touching runtime context
-        try:
-            # Align config thread_id with our context id for consistency
-            effective_config.setdefault("configurable", {})
-            effective_config["configurable"].setdefault("thread_id", context.get("id"))
+        # Align config thread_id with context id
+        effective_config["configurable"].setdefault("thread_id", context.get("id"))
+        
+        return effective_config, context
 
-            # Mirror identifiers into the task's state attributes for hooks
+    def _sync_state_identifiers(self, effective_config, context=None):
+        """Sync identifiers (thread_id, run_id) into task state attributes.
+        
+        This ensures hooks can access these IDs without touching runtime context.
+        """
+        try:
+            cfg_thread_id = effective_config.get("configurable", {}).get("thread_id")
+            if context:
+                cfg_thread_id = cfg_thread_id or context.get("id")
+            
             st = self.metadata.get("state") or {}
             attrs = st.get("attributes") or {}
+            
             if "thread_id" not in attrs:
-                attrs["thread_id"] = context.get("id")
-            # Also expose the ManagedTask.run_id for traceability
+                attrs["thread_id"] = cfg_thread_id
             if "run_id" not in attrs:
                 attrs["run_id"] = self.run_id
+                
             st["attributes"] = attrs
             self.metadata["state"] = st
         except Exception:
             pass
 
-        # Merge step/breakpoint control flags into config's configurable dict
-        # These are read by node_builder for step control
-        step_control = {}
+    def _normalize_form_data(self):
+        """Normalize resume form data into state.metadata for downstream nodes."""
+        try:
+            st = self.metadata.get("state") or {}
+            attrs = st.get("attributes") or {}
+            meta = st.get("metadata") or {}
+            
+            # Check if already filled
+            if "filled_parametric_filter" in meta:
+                return
+            
+            # Try to extract from params.metadata.params.formData
+            formData = (
+                (((attrs.get("params") or {}).get("metadata") or {}).get("params") or {})
+            ).get("formData")
+            
+            if formData:
+                meta["filled_parametric_filter"] = formData
+                st["metadata"] = meta
+                self.metadata["state"] = st
+                return
+            
+            # Fallback: check metadata.components[0].parametric_filters
+            comps = meta.get("components") or []
+            if isinstance(comps, list) and comps:
+                pfs = comps[0].get("parametric_filters")
+                if pfs:
+                    meta["filled_parametric_filter"] = {"fields": pfs} if isinstance(pfs, list) else pfs
+                    st["metadata"] = meta
+                    self.metadata["state"] = st
+        except Exception:
+            pass
+
+    def _emit_run_status(self, status: str, node_name: str = "", state_values: dict = None):
+        """Emit run status update to GUI via IPC.
+        
+        Args:
+            status: One of "running", "paused", "completed"
+            node_name: Current node name (optional)
+            state_values: LangGraph state values dict (optional)
+        """
+        try:
+            from gui.ipc.api import IPCAPI
+            ipc = IPCAPI.get_instance()
+            ipc.update_run_stat(
+                agent_task_id=self.run_id,
+                current_node=node_name or "",
+                status=status,
+                langgraph_state=state_values or {},
+                timestamp=int(time.time() * 1000)
+            )
+        except Exception:
+            pass
+
+    def _get_node_name_from_step(self, step: dict, effective_config) -> str:
+        """Extract current node name from step output or state.
+        
+        Args:
+            step: Step output dict from stream
+            effective_config: Config for getting state
+            
+        Returns:
+            Node name string
+        """
+        node_name = ""
+        
+        # Try from step metadata
+        try:
+            meta = step.get("__metadata__", {}) if isinstance(step, dict) else {}
+            node_name = meta.get("langgraph_node") or meta.get("node") or ""
+        except Exception:
+            pass
+        
+        # Fallback: from state attributes
+        if not node_name:
+            try:
+                st = self.skill.runnable.get_state(config=effective_config)
+                st_js = st.values if hasattr(st, "values") else {}
+                node_name = (
+                    ((st_js or {}).get("attributes") or {})
+                    .get("__this_node__", {})
+                    .get("name") or ""
+                )
+            except Exception:
+                pass
+        
+        # Final fallback: next node from state
+        if not node_name:
+            try:
+                st = self.skill.runnable.get_state(config=effective_config)
+                if hasattr(st, "next") and st.next:
+                    node_name = st.next[0]
+            except Exception:
+                pass
+        
+        return node_name
+
+    def _get_state_values(self, effective_config) -> dict:
+        """Get current state values from LangGraph.
+        
+        Returns:
+            State values dict or empty dict on error
+        """
+        try:
+            st = self.skill.runnable.get_state(config=effective_config)
+            return st.values if hasattr(st, "values") else {}
+        except Exception:
+            return {}
+
+    def _handle_interrupt(self, step: dict, effective_config) -> tuple:
+        """Handle interrupt in stream execution.
+        
+        Args:
+            step: Step output containing __interrupt__
+            effective_config: Config for getting state
+            
+        Returns:
+            tuple: (i_tag, checkpoint)
+        """
+        interrupt_obj = step["__interrupt__"][0]
+        i_tag = interrupt_obj.value.get("i_tag", "")
+        
+        # Get checkpoint from LangGraph state
+        current_checkpoint = self.skill.runnable.get_state(config=effective_config)
+        
+        # Store i_tag in checkpoint values
+        try:
+            current_checkpoint.values["attributes"]["i_tag"] = i_tag
+        except Exception:
+            pass
+        
+        # Add to checkpoint nodes
+        self.add_checkpoint_node({"tag": i_tag, "checkpoint": current_checkpoint})
+        
+        # Emit paused status
+        st_js = current_checkpoint.values if hasattr(current_checkpoint, "values") else {}
+        self._emit_run_status("paused", i_tag, st_js)
+        
+        return i_tag, current_checkpoint
+
+    def _finalize_run(self, success: bool, step: dict, current_checkpoint, effective_config) -> dict:
+        """Finalize stream run and return result.
+        
+        Args:
+            success: Whether run completed successfully
+            step: Last step output
+            current_checkpoint: Current checkpoint (may be None)
+            effective_config: Config for getting state
+            
+        Returns:
+            Run result dict
+        """
+        if not current_checkpoint:
+            current_checkpoint = self.skill.runnable.get_state(config=effective_config)
+        
+        run_result = {"success": success, "step": step, "cp": current_checkpoint}
+        
+        # Emit completion status (only if truly completed, not paused)
+        if success:
+            st_js = current_checkpoint.values if hasattr(current_checkpoint, "values") else {}
+            self._emit_run_status("completed", "", st_js)
+        
+        return run_result
+
+    def _validate_skill(self):
+        """Validate that skill has a runnable.
+        
+        Raises:
+            AttributeError: If skill has no runnable
+        """
+        if not hasattr(self.skill, 'runnable') or self.skill.runnable is None:
+            skill_name = self.skill.name if hasattr(self.skill, 'name') else 'UNKNOWN'
+            logger.error(f"[SKILL_MISSING] Task {self.id} skill '{skill_name}' has runnable=None!")
+            logger.error(f"[SKILL_MISSING] Skill type: {type(self.skill)}, Skill attributes: {dir(self.skill)}")
+            raise AttributeError(f"Skill '{skill_name}' has no runnable")
+
+
+    def stream_run(self, in_msg="", *, config=None, context=None, **kwargs):
+        """Run the task's skill with synchronous streaming support.
+
+        Args:
+            in_msg: Input message or state for the skill (can be Command for resume)
+            config: Configuration dictionary for the runnable
+            context: Runtime context with step control flags
+            **kwargs: Additional arguments to pass to the runnable's stream method
+        """
+        logger.debug(f"in_msg: {in_msg}, config: {config}, kwargs: {kwargs}")
+        logger.debug(f"self.metadata: {self.metadata}")
+
+        # Step 1: Prepare config and context
+        effective_config, context = self._prepare_config(config, context)
+        
+        # Handle checkpoint kwarg
+        if "checkpoint" in kwargs:
+            effective_config["checkpoint"] = kwargs.pop("checkpoint")
+
+        # Step 2: Sync state identifiers
+        self._sync_state_identifiers(effective_config, context)
+
+        # Step 3: Merge step/breakpoint control flags
         for key in ["step_once", "skip_bp_once", "step_from"]:
             if key in context:
-                step_control[key] = context[key]
-        
-        if step_control:
-            effective_config.setdefault("configurable", {})
-            effective_config["configurable"].update(step_control)
-        if not hasattr(self.skill, 'runnable') or self.skill.runnable is None:
-            logger.error(f"[SKILL_MISSING] Task {self.id} skill '{self.skill.name if hasattr(self.skill, 'name') else 'UNKNOWN'}' has runnable=None!")
-            logger.error(f"[SKILL_MISSING] Skill type: {type(self.skill)}, Skill attributes: {dir(self.skill)}")
-            raise AttributeError(f"Skill '{self.skill.name if hasattr(self.skill, 'name') else 'UNKNOWN'}' has no runnable")
+                effective_config["configurable"][key] = context[key]
+
+        # Step 4: Validate skill
+        self._validate_skill()
         
         logger.debug(f"[SKILL_CHECK] Task {self.id} using skill: {self.skill.name}, runnable type: {type(self.skill.runnable)}")
         logger.debug(f"current langgraph run time state0: {self.skill.runnable.get_state(config=effective_config)}")
 
-        # Support Command inputs (e.g., Command(resume=...)) and normal state runs
-        # Pass context as kwarg for runtime.context, and step control via config
+        # Step 5: Create stream generator
         if isinstance(in_msg, Command):
-            # in_args = self.metadata.get("state", {})
             logger.debug(f"effective config before resume: {effective_config}")
             agen = self.skill.runnable.stream(in_msg, config=effective_config, context=context, **kwargs)
         else:
@@ -380,125 +570,51 @@ class ManagedTask(Task):
             logger.debug(f"stream running skill: {self.skill.name}, {in_msg}")
             logger.debug(f"stream_run config: {effective_config}")
             logger.debug(f"current langgraph run time state2: {self.skill.runnable.get_state(config=effective_config)}")
-            # Set up default config if not provided
 
-            # Handle Command objects
-            # if isinstance(in_args, Command):
-            #     if in_args == Command.:
-            #         # Handle reset command
-            #         config["configurable"]["thread_id"] = str(uuid.uuid4())
-            #         in_args = {}  # Reset input args
-            # Add other command handling as needed
-
-            # Pass through any additional kwargs to astream
             step = {}
             current_checkpoint = None
-            # Initial emit: show first node as running if available
+            
+            # Step 6: Emit initial running status
+            st0_js = self._get_state_values(effective_config)
+            node0 = ""
             try:
-                from gui.ipc.api import IPCAPI
-                ipc = IPCAPI.get_instance()
                 st0 = self.skill.runnable.get_state(config=effective_config)
-                node0 = ""
-                try:
-                    if hasattr(st0, "next") and st0.next:
-                        node0 = st0.next[0]
-                except Exception:
-                    node0 = ""
-                st0_js = st0.values if hasattr(st0, "values") else {}
-                ipc.update_run_stat(
-                    agent_task_id=self.run_id,
-                    current_node=node0 or "",
-                    status="running",
-                    langgraph_state=st0_js,
-                    timestamp=int(time.time() * 1000)
-                )
+                if hasattr(st0, "next") and st0.next:
+                    node0 = st0.next[0]
             except Exception:
                 pass
+            self._emit_run_status("running", node0, st0_js)
 
+            # Step 7: Process stream
             for step in agen:
-                # print("synced Step output:", step)
-
-                # Check for cancellation signal
+                # Check for cancellation
                 if self.cancellation_event.is_set():
                     logger.info(f"Task {self.name} ({self.run_id}) received cancellation signal. Stopping.")
                     self.status.state = TaskState.CANCELED
                     break
 
-                # self.pause_event.wait()
+                # Update status message
                 self.status.message = Message(
                     role="agent",
                     parts=[TextPart(type="text", text=str(step))]
                 )
-                # Push running status to GUI
-                try:
-                    from gui.ipc.api import IPCAPI  # lazy import to avoid circular deps
-                    ipc = IPCAPI.get_instance()
-                    node_name = ""
-                    try:
-                        meta = step.get("__metadata__", {}) if isinstance(step, dict) else {}
-                        node_name = meta.get("langgraph_node") or meta.get("node") or ""
-                    except Exception:
-                        node_name = ""
-                    try:
-                        st = self.skill.runnable.get_state(config=effective_config)
-                        st_js = st.values if hasattr(st, "values") else {}
-                        # fallback: use node name from state values if available
-                        if not node_name:
-                            try:
-                                node_name = (
-                                    ((st_js or {}).get("attributes") or {})
-                                        .get("__this_node__", {})
-                                        .get("name") or ""
-                                )
-                            except Exception:
-                                pass
-                        # final fallback: next node from state if still missing
-                        if (not node_name) and hasattr(st, "next") and st.next:
-                            try:
-                                node_name = st.next[0]
-                            except Exception:
-                                pass
-                    except Exception:
-                        st_js = {}
-                    ipc.update_run_stat(
-                        agent_task_id=self.run_id,
-                        current_node=node_name or "",
-                        status="running",
-                        langgraph_state=st_js,
-                        timestamp=int(time.time() * 1000)
-                    )
-                except Exception:
-                    pass
+                
+                # Emit running status with current node
+                node_name = self._get_node_name_from_step(step, effective_config)
+                st_js = self._get_state_values(effective_config)
+                self._emit_run_status("running", node_name, st_js)
+
+                # Check for interrupt/input required
                 if step.get("require_user_input") or step.get("await_agent") or step.get("__interrupt__"):
                     self.status.state = TaskState.INPUT_REQUIRED
                     logger.debug(f"input required... {step}")
-                    # yield {"success": False, "step": step}
+                    
                     if step.get("__interrupt__"):
-                        interrupt_obj = step["__interrupt__"][0]
-                        i_tag = interrupt_obj.value["i_tag"]
-
-                        # Get checkpoint from LangGraph state since raw Interrupt object doesn't have it
-                        current_checkpoint = self.skill.runnable.get_state(config=effective_config)
-                        current_checkpoint.values["attributes"]["i_tag"] = i_tag
+                        i_tag, current_checkpoint = self._handle_interrupt(step, effective_config)
                         logger.debug(f"current checkpoint: {current_checkpoint}")
-                        self.add_checkpoint_node({"tag": i_tag, "checkpoint": current_checkpoint})
-                        # Push paused status to GUI at interrupt
-                        try:
-                            from gui.ipc.api import IPCAPI
-                            ipc = IPCAPI.get_instance()
-                            st_js = current_checkpoint.values if hasattr(current_checkpoint, "values") else {}
-                            ipc.update_run_stat(
-                                agent_task_id=self.run_id,
-                                current_node=i_tag or "",
-                                status="paused",
-                                langgraph_state=st_js,
-                                timestamp=int(time.time() * 1000)
-                            )
-                        except Exception:
-                            pass
-
                     break
 
+            # Step 8: Determine success and finalize
             if self.status.state == TaskState.INPUT_REQUIRED:
                 success = False
             else:
@@ -506,230 +622,89 @@ class ManagedTask(Task):
                 self.status.state = TaskState.COMPLETED
                 logger.info("task completed...")
 
-            if not current_checkpoint:
-                # record exit state
-                current_checkpoint = self.skill.runnable.get_state(config=effective_config)
-
-            run_result = {"success": success, "step": step, "cp": current_checkpoint}
+            run_result = self._finalize_run(success, step, current_checkpoint, effective_config)
             logger.debug(f"synced stream_run result: {run_result}")
-            # Push completion status to GUI
-            # Note: Don't send update here if we already sent a paused status at interrupt
-            # The paused node should remain highlighted until user resumes/steps
-            try:
-                from gui.ipc.api import IPCAPI
-                ipc = IPCAPI.get_instance()
-                st_js = current_checkpoint.values if hasattr(current_checkpoint, "values") else {}
-                # Only send completion update if truly completed (not paused at interrupt)
-                if success:
-                    ipc.update_run_stat(
-                        agent_task_id=self.run_id,
-                        current_node="",
-                        status="completed",
-                        langgraph_state=st_js,
-                        timestamp=int(time.time() * 1000)
-                    )
-                # If paused, the interrupt handler already sent the update with the correct node
-            except Exception:
-                pass
             return run_result
 
         except Exception as e:
-            ex_stat = "ErrorAstreamRun:" + traceback.format_exc() + " " + str(e)
+            ex_stat = "ErrorStreamRun:" + traceback.format_exc() + " " + str(e)
             logger.error(f"{ex_stat}")
             return {"success": False, "Error": ex_stat}
 
         finally:
-            # Cleanup code here
-            # self.runner = None
             if self.cancellation_event.is_set():
                 self.status.state = TaskState.CANCELED
-            # agen.aclose()
-
-        # Rest of the function remains the same...
 
 
     async def astream_run(self, in_msg="", *, config=None, **kwargs):
-        """Run the task's skill with streaming support.
+        """Run the task's skill with async streaming support.
 
         Args:
-            in_msg: Input message or state for the skill
+            in_msg: Input message or state for the skill (can be Command for resume)
             config: Configuration dictionary for the runnable
             **kwargs: Additional arguments to pass to the runnable's astream method
         """
-        # Reuse a persistent config (thread_id) across runs; create and cache if missing
-        effective_config = config or self.metadata.get("config")
-        if not effective_config:
-            effective_config = {
-                "configurable": {
-                    "thread_id": str(uuid.uuid4()),
-                }
-            }
-            self.metadata["config"] = effective_config
+        # Step 1: Prepare config
+        effective_config, _ = self._prepare_config(config)
 
-        # Ensure state carries identifiers hooks can read without touching runtime context
-        try:
-            cfg_thread_id = (
-                (effective_config or {}).get("configurable", {}).get("thread_id")
-                if isinstance(effective_config, dict)
-                else None
-            ) or str(uuid.uuid4())
-            # Keep config and state in sync
-            effective_config.setdefault("configurable", {})
-            effective_config["configurable"]["thread_id"] = cfg_thread_id
+        # Step 2: Sync state identifiers
+        self._sync_state_identifiers(effective_config)
 
-            st = self.metadata.get("state") or {}
-            attrs = st.get("attributes") or {}
-            if "thread_id" not in attrs:
-                attrs["thread_id"] = cfg_thread_id
-            if "run_id" not in attrs:
-                attrs["run_id"] = self.run_id
-            st["attributes"] = attrs
-            self.metadata["state"] = st
-        except Exception:
-            pass
+        # Step 3: Normalize form data for resume scenarios
+        self._normalize_form_data()
 
-        # Normalize resume form data into state.metadata for downstream nodes expecting it
-        try:
-            st = self.metadata.get("state") or {}
-            attrs = st.get("attributes") or {}
-            meta = st.get("metadata") or {}
-            has_filled = "filled_parametric_filter" in meta
-            if not has_filled:
-                formData = (
-                    (((attrs.get("params") or {}).get("metadata") or {}).get("params") or {})
-                ).get("formData")
-                if formData:
-                    meta["filled_parametric_filter"] = formData
-                    st["metadata"] = meta
-                    self.metadata["state"] = st
-            # Fallback: some skills stash parametric filters under metadata.components[0].parametric_filters
-            if "filled_parametric_filter" not in (st.get("metadata") or {}):
-                try:
-                    comps = (st.get("metadata") or {}).get("components") or []
-                    if isinstance(comps, list) and comps:
-                        pfs = comps[0].get("parametric_filters")
-                        if pfs:
-                            meta = st.get("metadata") or {}
-                            # Wrap as {"fields": [...]} to satisfy helpers expecting dict["fields"]
-                            meta["filled_parametric_filter"] = {"fields": pfs} if isinstance(pfs, list) else pfs
-                            st["metadata"] = meta
-                            self.metadata["state"] = st
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-        # Support Command inputs (e.g., Command(resume=...)) and normal state runs
+        # Step 4: Create async stream generator
         if isinstance(in_msg, Command):
             agen = self.skill.runnable.astream(in_msg, config=effective_config, **kwargs)
         else:
             in_args = self.metadata.get("state", {})
             logger.debug(f"in_args: {in_args}")
             agen = self.skill.runnable.astream(in_args, config=effective_config, **kwargs)
+
         try:
             logger.debug(f"astream running skill: {self.skill.name}, {in_msg}")
             logger.debug(f"astream_run config: {effective_config}")
 
-
-            # Set up default config if not provided
-
-
-            # Handle Command objects
-            # if isinstance(in_args, Command):
-            #     if in_args == Command.:
-            #         # Handle reset command
-            #         config["configurable"]["thread_id"] = str(uuid.uuid4())
-            #         in_args = {}  # Reset input args
-            # Add other command handling as needed
-
-            # Pass through any additional kwargs to astream
             step = {}
             current_checkpoint = None
-            # Initial emit: show first node as running if available
+            
+            # Step 5: Emit initial running status
+            st0_js = self._get_state_values(effective_config)
+            node0 = ""
             try:
-                from gui.ipc.api import IPCAPI
-                ipc = IPCAPI.get_instance()
                 st0 = self.skill.runnable.get_state(config=effective_config)
-                node0 = ""
-                try:
-                    if hasattr(st0, "next") and st0.next:
-                        node0 = st0.next[0]
-                except Exception:
-                    node0 = ""
-                st0_js = st0.values if hasattr(st0, "values") else {}
-                ipc.update_run_stat(
-                    agent_task_id=self.run_id,
-                    current_node=node0 or "",
-                    status="running",
-                    langgraph_state=st0_js,
-                    timestamp=int(time.time() * 1000)
-                )
+                if hasattr(st0, "next") and st0.next:
+                    node0 = st0.next[0]
             except Exception:
                 pass
+            self._emit_run_status("running", node0, st0_js)
 
+            # Step 6: Process async stream
             async for step in agen:
                 logger.debug(f"async Step output: {step}")
                 await self.pause_event.wait()
+                
+                # Update status message
                 self.status.message = Message(
                     role="agent",
                     parts=[TextPart(type="text", text=str(step))]
                 )
-                # Push running status to GUI
-                try:
-                    from gui.ipc.api import IPCAPI
-                    ipc = IPCAPI.get_instance()
-                    node_name = ""
-                    try:
-                        meta = step.get("__metadata__", {}) if isinstance(step, dict) else {}
-                        node_name = meta.get("langgraph_node") or meta.get("node") or ""
-                    except Exception:
-                        node_name = ""
-                    try:
-                        st = self.skill.runnable.get_state(config=effective_config)
-                        st_js = st.values if hasattr(st, "values") else {}
-                        # fallback: use next node from state if metadata missing
-                        if (not node_name) and hasattr(st, "next") and st.next:
-                            try:
-                                node_name = st.next[0]
-                            except Exception:
-                                pass
-                    except Exception:
-                        st_js = {}
-                    ipc.update_run_stat(
-                        agent_task_id=self.run_id,
-                        current_node=node_name or "",
-                        status="running",
-                        langgraph_state=st_js,
-                        timestamp=int(time.time() * 1000)
-                    )
-                except Exception:
-                    pass
+                
+                # Emit running status with current node
+                node_name = self._get_node_name_from_step(step, effective_config)
+                st_js = self._get_state_values(effective_config)
+                self._emit_run_status("running", node_name, st_js)
+
+                # Check for interrupt/input required
                 if step.get("require_user_input") or step.get("await_agent") or step.get("__interrupt__"):
                     self.status.state = TaskState.INPUT_REQUIRED
                     logger.debug(f"input required... {step}")
-                    # yield {"success": False, "step": step}
+                    
                     if step.get("__interrupt__"):
-                        interrupt_obj = step["__interrupt__"][0]
-                        i_tag = interrupt_obj.value["i_tag"]
-                        # Get checkpoint from LangGraph state since raw Interrupt object doesn't have it
-                        current_checkpoint = self.skill.runnable.get_state(config=effective_config)
-                        self.add_checkpoint_node({"tag": i_tag, "checkpoint": current_checkpoint})
-                        # Push paused status to GUI at interrupt
-                        try:
-                            from gui.ipc.api import IPCAPI
-                            ipc = IPCAPI.get_instance()
-                            st_js = current_checkpoint.values if hasattr(current_checkpoint, "values") else {}
-                            ipc.update_run_stat(
-                                agent_task_id=self.run_id,
-                                current_node=i_tag or "",
-                                status="paused",
-                                langgraph_state=st_js,
-                                timestamp=int(time.time() * 1000)
-                            )
-                        except Exception:
-                            pass
+                        i_tag, current_checkpoint = self._handle_interrupt(step, effective_config)
                     break
 
+            # Step 7: Determine success and finalize
             if self.status.state == TaskState.INPUT_REQUIRED:
                 success = False
             else:
@@ -737,26 +712,8 @@ class ManagedTask(Task):
                 self.status.state = TaskState.COMPLETED
                 logger.info("task completed...")
 
-            if not current_checkpoint:
-                # record exit state
-                current_checkpoint = self.skill.runnable.get_state(config=effective_config)
-
-            run_result = {"success": success, "step": step, "cp": current_checkpoint}
+            run_result = self._finalize_run(success, step, current_checkpoint, effective_config)
             logger.debug(f"astream_run result: {run_result}")
-            # Push completion status to GUI
-            try:
-                from gui.ipc.api import IPCAPI
-                ipc = IPCAPI.get_instance()
-                st_js = current_checkpoint.values if hasattr(current_checkpoint, "values") else {}
-                ipc.update_run_stat(
-                    agent_task_id=self.run_id,
-                    current_node="",
-                    status="completed" if success else "paused",
-                    langgraph_state=st_js,
-                    timestamp=int(time.time() * 1000)
-                )
-            except Exception:
-                pass
             return run_result
 
         except Exception as e:
@@ -765,8 +722,6 @@ class ManagedTask(Task):
             return {"success": False, "Error": ex_stat}
 
         finally:
-            # Cleanup code here
-            # self.runner = None
             if self.cancellation_event.is_set():
                 self.status.state = TaskState.CANCELED
             try:
@@ -1941,9 +1896,32 @@ class TaskRunner(Generic[Context]):
         except Exception:
             return {"human_text": ""}, None
 
-    def sync_task_wait_in_line(self, event_type, request, source: str = ""):
+    def sync_task_wait_in_line(self, event_type, request, source: str = "", async_response: bool = None):
+        """
+        Queue a task/message for processing.
+        
+        Args:
+            event_type: Type of event (a2a, human_chat, dev_human_chat, etc.)
+            request: The request object to queue
+            source: Optional source identifier
+            async_response: If True, skill should send response via A2A (async mode)
+                           If False, response via waiter (sync mode)
+                           If None, use default based on event_type
+        """
         try:
             logger.debug("sync task waiting in line.....", event_type, self.agent.card.name, request)
+            
+            # Attach async_response to request for downstream use
+            # This will be picked up by prep_skills_run and set in state["attributes"]["async_response"]
+            if async_response is not None:
+                try:
+                    if hasattr(request, 'params') and request.params:
+                        if not request.params.metadata:
+                            request.params.metadata = {}
+                        request.params.metadata["async_response"] = async_response
+                except Exception:
+                    pass
+            
             # Prefer mapping-DSL-based event routing to a specific task's queue
             target_task = self._resolve_event_routing(event_type, request, source)
             if target_task:
@@ -1997,6 +1975,10 @@ class TaskRunner(Generic[Context]):
         consecutive_errors = 0
         max_consecutive_errors = 10
         current_task = task2run  # Use local variable instead of modifying parameter
+        
+        # Cache agent type check to avoid repeated string comparison in high-frequency loop
+        _is_twin_agent = "Twin" in self.agent.card.name
+        
         logger.info(f"[WORKER_THREAD] launch_unified_run started: trigger_type={trigger_type}, agent={self.agent.card.name}, task={current_task.name if current_task else 'None'}, task_id={current_task.id if current_task else 'None'}, task_obj_id={id(current_task) if current_task else 'None'}, queue={id(current_task.queue) if current_task and hasattr(current_task, 'queue') else 'None'}")
         
         loop_count = 0
@@ -2011,17 +1993,14 @@ class TaskRunner(Generic[Context]):
             msg = None  # Reset message for each iteration
             message_taken_from_queue = False  # Track if we actually consumed a queue item
             # High-frequency tick for My Twin Agent only to verify loop progress and queue binding
-            try:
-                if "Twin" in self.agent.card.name:
-                    logger.trace(
-                        f"[WORKER_THREAD][Twin] Loop tick: trigger={trigger_type}, loop={loop_count}, "
-                        f"task_id={getattr(current_task, 'id', None)}, task_obj_id={id(current_task)}, qid={id(current_task.queue) if current_task and hasattr(current_task,'queue') else None}"
-                    )
-            except Exception:
-                pass
+            if _is_twin_agent:
+                logger.trace(
+                    f"[WORKER_THREAD][Twin] Loop tick: trigger={trigger_type}, loop={loop_count}, "
+                    f"task_id={getattr(current_task, 'id', None)}, task_obj_id={id(current_task)}, qid={id(current_task.queue) if current_task and hasattr(current_task,'queue') else None}"
+                )
             
             # Log FIRST iteration for My Twin Agent to confirm loop is running
-            if loop_count == 1 and "Twin" in self.agent.card.name:
+            if loop_count == 1 and _is_twin_agent:
                 logger.info(f"[WORKER_THREAD] FIRST ITERATION: trigger_type={trigger_type}, agent={self.agent.card.name}")
             
             # Log every 10 iterations to show thread is alive
@@ -2030,7 +2009,7 @@ class TaskRunner(Generic[Context]):
             # print("in task main loop......1")
             try:
                 # Log entry into try block for My Twin Agent
-                if loop_count == 1 and "Twin" in self.agent.card.name:
+                if loop_count == 1 and _is_twin_agent:
                     logger.info(f"[WORKER_THREAD] Entered try block, trigger_type={trigger_type}")
                 
                 # 1. Get task and message based on trigger type
@@ -2059,14 +2038,11 @@ class TaskRunner(Generic[Context]):
                         logger.trace(f"[WORKER_THREAD] Checking queue for task_id={current_task.id}, queue={id(current_task.queue)}")
 
                     # Twin-specific: log right before blocking queue.get
-                    if "Twin" in self.agent.card.name:
-                        try:
-                            qsz = current_task.queue.qsize()
-                            logger.trace(
-                                f"[WORKER_THREAD][Twin] About to queue.get(timeout=0.5) for task_id={getattr(current_task,'id', None)}, qid={id(current_task.queue)}, qsize_before={qsz}"
-                            )
-                        except Exception:
-                            pass
+                    if _is_twin_agent:
+                        qsz = current_task.queue.qsize()
+                        logger.trace(
+                            f"[WORKER_THREAD][Twin] About to queue.get(timeout=0.5) for task_id={getattr(current_task,'id', None)}, qid={id(current_task.queue)}, qsize_before={qsz}"
+                        )
                     # print("in task main loop......3")
                     # DEV MODE: kick off initial run immediately without waiting for queue
                     dev_initial_kickoff = False
@@ -2125,12 +2101,9 @@ class TaskRunner(Generic[Context]):
 
                     except Empty:
                         # No message this cycle; allow cooperative stop and continue quickly
-                        if "Twin" in self.agent.card.name:
-                            try:
-                                qsz_now = current_task.queue.qsize()
-                                logger.trace(f"[WORKER_THREAD][Twin] queue.get timeout (no message), loop={loop_count}, qid={id(current_task.queue)}, qsize_now={qsz_now}")
-                            except Exception:
-                                pass
+                        if _is_twin_agent:
+                            qsz_now = current_task.queue.qsize()
+                            logger.trace(f"[WORKER_THREAD][Twin] queue.get timeout (no message), loop={loop_count}, qid={id(current_task.queue)}, qsize_now={qsz_now}")
                         # Enforce pending timeout logic
                         try:
                             # print("in task main loop......4")
@@ -2224,6 +2197,9 @@ class TaskRunner(Generic[Context]):
                     self._task_states[current_task.id] = {'justStarted': True}
                 
                 # Capture state for this specific message execution
+                # Use justStarted state to determine initial vs resume run
+                # justStarted is set to False after skill completes with interrupt,
+                # and set to True after skill completes without interrupt
                 is_initial_run = self._task_states[current_task.id]['justStarted']
                 pending_since = self._task_states[current_task.id].get('pending_since')
                 logger.debug(f"[WORKER_THREAD] is_initial_run={is_initial_run}, pending_since={pending_since}, trigger_type={trigger_type}")
@@ -2398,7 +2374,9 @@ class TaskRunner(Generic[Context]):
                                 logger.debug(f"[PERF] _on_skill_complete - TOTAL callback time: {time.time()-t_callback_start:.3f}s")
                                 logger.debug(f"[A2A] Waiter resolved for task_id={waiter_task_id}")
                             else:
-                                logger.warning(f"[A2A] No waiter_task_id found for trigger_type={trigger_type}")
+                                # No waiter is normal for async_response mode (chat messages)
+                                # Response is sent via send_response_back() instead
+                                logger.debug(f"[A2A] No waiter for trigger_type={trigger_type} (async mode, response via A2A)")
                     except Exception as e:
                         logger.error(f"[NON_BLOCKING] Callback error: {e}")
                         logger.error(traceback.format_exc())
@@ -2438,11 +2416,8 @@ class TaskRunner(Generic[Context]):
                     if current_task and current_task.queue:
                         try:
                             current_task.queue.task_done()
-                            if "Twin" in self.agent.card.name:
-                                try:
-                                    logger.debug(f"[WORKER_THREAD][Twin] task_done marked for task_id={getattr(current_task,'id', None)}, qid={id(current_task.queue)}")
-                                except Exception:
-                                    pass
+                            if _is_twin_agent:
+                                logger.debug(f"[WORKER_THREAD][Twin] task_done marked for task_id={getattr(current_task,'id', None)}, qid={id(current_task.queue)}")
                         except:
                             pass
 

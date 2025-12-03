@@ -194,28 +194,65 @@ class AgentTaskManager(InMemoryTaskManager):
             self._task_start_times[task_id] = time.time()
             
             msg_js = request.params.message  # need , encoding='utf-8'?
-            logger.debug(f"[A2A] Message type: {msg_js.metadata.get('mtype', 'unknown')}")
+            mtype = msg_js.metadata.get('mtype', 'unknown')
+            logger.debug(f"[A2A] Message type: {mtype}")
+            
+            # Determine async_response mode:
+            # 1. Check if explicitly set in metadata (highest priority)
+            # 2. Default based on message type:
+            #    - send_chat: async (response via new A2A request)
+            #    - send_task: sync (response via waiter/HTTP response)
+            # 
+            # Node/skill designers can override by setting async_response in metadata
+            async_response = None
+            if request.params.metadata:
+                async_response = request.params.metadata.get("async_response")
+            
+            # If not explicitly set, use default based on message type
+            if async_response is None:
+                if "send_chat" in mtype:
+                    async_response = True  # Chat messages default to async
+                else:
+                    async_response = False  # Other messages default to sync
+            
+            logger.debug(f"[A2A] async_response={async_response} (mtype={mtype})")
             
             t1 = time.time()
-            if msg_js.metadata["mtype"] == "send_task":
+            if mtype == "send_task":
                 logger.info("task wait in line")
-                # agent_wait_response = await self._agent.runner.task_wait_in_line(request)
-                agent_wait_response = self._agent.runner.sync_task_wait_in_line("a2a",request)
-            elif "send_chat" in msg_js.metadata["mtype"]:
+                agent_wait_response = self._agent.runner.sync_task_wait_in_line("a2a", request, async_response=async_response)
+            elif "send_chat" in mtype:
                 logger.info("chat wait in line")
-                # agent_wait_response = await self._agent.runner.chat_wait_in_line(request)
-                if msg_js.metadata["mtype"] == "send_chat":
-                    agent_wait_response = self._agent.runner.sync_task_wait_in_line("human_chat", request)
-                elif msg_js.metadata["mtype"] == "dev_send_chat":
+                if mtype == "send_chat":
+                    agent_wait_response = self._agent.runner.sync_task_wait_in_line("human_chat", request, async_response=async_response)
+                elif mtype == "dev_send_chat":
                     logger.debug("human chat for development task......")
-                    agent_wait_response = self._agent.runner.sync_task_wait_in_line("dev_human_chat", request)
+                    agent_wait_response = self._agent.runner.sync_task_wait_in_line("dev_human_chat", request, async_response=async_response)
                 else:
                     agent_wait_response = {}
             else:
                 agent_wait_response = {}
             logger.debug(f"[PERF] on_send_task - sync_task_wait_in_line: {time.time()-t1:.3f}s")
 
-            logger.debug("[A2A] Waiting for runner response...", agent_wait_response)
+            logger.debug("[A2A] Task queued, response:", agent_wait_response)
+            
+            # For async mode, return immediately
+            # The skill will send response back via a2a_send_chat_message_async
+            if async_response:
+                logger.info(f"[A2A] Async mode: task_id={task_id}, mtype={mtype}, returning immediately")
+                task_stat = TaskStatus(state=TaskState.WORKING)
+                task_result = Task(
+                    id=str(task_id),
+                    sessionId=request.params.sessionId,
+                    status=task_stat,
+                    artifacts=None,
+                    history=None,
+                    metadata=None
+                )
+                # Clean up waiter since we're not waiting
+                self._futures.pop(task_id, None)
+                self._task_start_times.pop(task_id, None)
+                return SendTaskResponse(id=request.params.id, result=task_result)
             
             # If push notification is configured, return immediately and let task complete asynchronously
             if request.params.pushNotification:
