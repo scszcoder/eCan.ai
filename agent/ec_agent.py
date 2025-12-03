@@ -4,6 +4,7 @@ import asyncio
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
 from queue import Queue
+from concurrent.futures import ThreadPoolExecutor
 
 from agent.models import *
 from agent.a2a.common.client import A2AClient
@@ -25,6 +26,8 @@ from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
 from agent.db.services.db_avatar_service import DBAvatarService
 
+# Thread pool for non-blocking A2A message sending
+_a2a_send_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="a2a_send_")
 
 load_dotenv()
 
@@ -396,7 +399,7 @@ class EC_Agent(Agent):
 		else:
 			logger.info("client err:", self.get_card().name.lower())
 
-	def a2a_send_chat_message(self, recipient_agent, message):
+	def a2a_send_chat_message_sync(self, recipient_agent, message):
 		# this is only available if myself is not a helper agent
 		logger.info("[ec_agent] recipient card:", recipient_agent.get_card().name.lower())
 		logger.info("[ec_agent] sending message:", message)
@@ -433,13 +436,18 @@ class EC_Agent(Agent):
 
 			chat_msg = Message(role="user", parts=msg_parts, metadata={"mtype": mtype})
 
-			if "id" in message:
-				sess_id = message["id"]
-			else:
-				sess_id = message['messages'][3]
-
+			# Extract IDs for trace/tracking:
+			# messages = [agent_id, chat_id, msg_id, task_id, msg_txt]
+			#               [0]       [1]     [2]     [3]      [4]
+			# Upstream MUST guarantee these fields are populated
+			if 'messages' not in message:
+				logger.error(f"[a2a_send_chat_message] Missing 'messages' key in message! Keys: {list(message.keys())}")
+				raise KeyError(f"Missing 'messages' key. Message structure: {list(message.keys())}")
+			sess_id = message['messages'][1]      # chat_id for session
+			trace_task_id = message['messages'][3]  # task_id for trace linkage
+				
 			payload = TaskSendParams(
-				id="0001",
+				id=trace_task_id,
 				sessionId=sess_id,
 				message=chat_msg,
 				acceptedOutputModes=["text", "json", "image/png"],
@@ -465,6 +473,36 @@ class EC_Agent(Agent):
 			else:
 				ex_stat = "ErrorA2ASend: traceback information not available:" + str(e)
 			logger.error(ex_stat)
+
+	def a2a_send_chat_message_async(self, recipient_agent, message):
+		"""
+		Async fire-and-forget version of a2a_send_chat_message_sync.
+		
+		Use this when sending a response back to avoid deadlock:
+		- A sends message to B (blocking wait)
+		- B executes skill and wants to send response back to A
+		- If B uses blocking send, it will wait for A, but A is waiting for B = DEADLOCK
+		- Using non-blocking send, B sends and continues, A receives and resolves waiter
+		
+		Args:
+			recipient_agent: The agent to send the message to
+			message: The message dict with 'messages' and 'attributes' keys
+		"""
+		def _send():
+			try:
+				logger.info(f"[a2a_nonblocking] Sending message to {recipient_agent.get_card().name}")
+				result = self.a2a_send_chat_message_sync(recipient_agent, message)
+				logger.info(f"[a2a_nonblocking] Message sent successfully: {type(result)}")
+				return result
+			except Exception as e:
+				logger.error(f"[a2a_nonblocking] Error sending message: {e}")
+				logger.error(traceback.format_exc())
+				return None
+		
+		# Submit to thread pool and return immediately (fire-and-forget)
+		future = _a2a_send_executor.submit(_send)
+		logger.debug(f"[a2a_nonblocking] Message submission queued, returning immediately")
+		return future
 
 
 	def launch_dev_run_task(self, init_state):

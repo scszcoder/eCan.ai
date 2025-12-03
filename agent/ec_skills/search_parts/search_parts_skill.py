@@ -399,7 +399,7 @@ def send_results_node(state: NodeState) -> NodeState:
         state["result"] = SEARCH_PARTS_RESULTS
         logger.debug("about to send this result: ", state["result"])
         # adapt results to GUI notification format.
-        agent.a2a_send_chat_message(twin_agent, {"type": "search results", "content": state["result"]})
+        agent.a2a_send_chat_message_sync(twin_agent, {"type": "search results", "content": state["result"]})
         # send result notification to GUI
 
         return state

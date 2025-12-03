@@ -17,7 +17,7 @@ from agent.mcp.local_client import mcp_call_tool
 from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
 from agent.ec_skills.llm_hooks.llm_hooks import llm_node_with_raw_files
 from agent.mcp.server.scrapers.eval_util import get_default_fom_form
-from agent.ec_skills.llm_utils.llm_utils import try_parse_json
+from agent.ec_skills.llm_utils.llm_utils import try_parse_json, build_a2a_response_message
 from agent.mcp.server.scrapers.eval_util import get_default_fom_form, get_default_rerank_req
 from utils.i18n_helper import detect_language
 from config.constants import EXTENDED_API_TIMEOUT
@@ -220,7 +220,6 @@ def examine_filled_specs_node(state):
     else:
         logger.debug("[search_parts_chatter_skill] parametric filters NOT YET filled")
         state["condition"] = False
-        state["condition"] = True       # just for testing...
 
     return state
 
@@ -250,7 +249,6 @@ def confirm_FOM_node(state):
     else:
         logger.debug("[search_parts_chatter_skill] FOM NOT YET filled")
         state["condition"] = False
-        state["condition"] = True
 
     return state
 
@@ -354,63 +352,35 @@ def all_requirement_filled(state: NodeState) -> str:
 def send_data_back2human(msg_type, dtype, data, state) -> NodeState:
     try:
         agent_id = state["messages"][0]
-        # _ensure_context(runtime.context)
         self_agent = get_agent_by_id(agent_id)
         mainwin = self_agent.mainwin
         twin_agent = next((ag for ag in mainwin.agents if "twin" in ag.card.name.lower()), None)
 
         logger.debug("[search_parts_chatter_skill] standard_post_llm_hook send_response_back:", state)
         chat_id = state["messages"][1]
-        msg_id = str(uuid.uuid4()),
-        # send self a message to trigger the real component search work-flow
-        if dtype == "form":
-            card = {}
-            code = {}
-            form = data
-            notification = {}
-        elif dtype == "notification":
-            card = {}
-            code = {}
-            form = []
-            notification = data
-        else:
-            card = {}
-            code = {}
-            form = []
-            notification = {}
-
+        msg_id = str(uuid.uuid4())
         llm_result = state.get("result", {}).get("llm_result", "")
+        
+        # Determine form/notification data
+        form = data if dtype == "form" else None
+        notification = data if dtype == "notification" else None
 
-        agent_response_message = {
-            "id": str(uuid.uuid4()),
-            "chat": {
-                "input": llm_result,
-                "attachments": [],
-                "messages": [self_agent.card.id, chat_id, msg_id, "", llm_result],
-            },
-            "params": {
-                "content": llm_result,
-                "attachments": state.get("attachments", []),
-                "metadata": {
-                    "mtype": msg_type,  #send_task or send_chat
-                    "dtype": dtype, # "text", "code", "form", "notification", "card
-                    "card": card,
-                    "code": code,
-                    "form": form,
-                    "notification": notification,
-                },
-                "role": "",
-                "senderId": f"{agent_id}",
-                "createAt": int(time.time() * 1000),
-                "senderName": f"{self_agent.card.name}",
-                "status": "success",
-                "ext": "",
-                "human": False
-            }
-        }
+        # Use standardized message builder
+        agent_response_message = build_a2a_response_message(
+            agent_id=self_agent.card.id,
+            chat_id=chat_id,
+            msg_id=msg_id,
+            task_id="",
+            msg_text=llm_result,
+            sender_name=self_agent.card.name,
+            msg_type=dtype,
+            attachments=state.get("attachments", []),
+            form=form,
+            notification=notification,
+        )
         logger.debug("[search_parts_chatter_skill] sending response msg back to twin:", agent_response_message)
-        send_result = self_agent.a2a_send_chat_message(twin_agent, agent_response_message)
-        # state.result = result
+        # Use non-blocking send to avoid deadlock
+        send_result = self_agent.a2a_send_chat_message_async(twin_agent, agent_response_message)
         return send_result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorSendResponseBack")

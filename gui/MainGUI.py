@@ -610,69 +610,29 @@ class MainWindow:
                 logger.debug(f"[MainWindow] 📁 Created target my_skills directory: {target_dir}")
             
             # Copy each skill directory from source to target
+            # NOTE: Always overwrite existing example skills to ensure latest code is used.
             copied_count = 0
             updated_count = 0
             skipped_count = 0
-            
+
             for skill_name in os.listdir(source_dir):
                 source_skill_path = os.path.join(source_dir, skill_name)
                 target_skill_path = os.path.join(target_dir, skill_name)
-                
+
                 # Skip if not a directory
                 if not os.path.isdir(source_skill_path):
                     continue
-                
+
                 try:
                     if os.path.exists(target_skill_path):
-                        # Target exists: check if files need updating
-                        # Only update files if source is newer or different
-                        logger.debug(f"[MainWindow] 🔍 Skill already exists, checking for updates: {skill_name}")
-                        
-                        files_updated = 0
-                        files_skipped = 0
-                        
-                        # Walk through source directory and compare files
-                        for root, dirs, files in os.walk(source_skill_path):
-                            # Calculate relative path from source
-                            rel_path = os.path.relpath(root, source_skill_path)
-                            target_root = os.path.join(target_skill_path, rel_path)
-                            
-                            # Create target directory if it doesn't exist
-                            os.makedirs(target_root, exist_ok=True)
-                            
-                            # Check and copy files only if source is newer or different
-                            for file in files:
-                                source_file = os.path.join(root, file)
-                                target_file = os.path.join(target_root, file)
-                                
-                                try:
-                                    # Check if target file exists
-                                    if os.path.exists(target_file):
-                                        # Compare modification times
-                                        source_mtime = os.path.getmtime(source_file)
-                                        target_mtime = os.path.getmtime(target_file)
-                                        
-                                        # Only update if source is newer
-                                        if source_mtime > target_mtime:
-                                            shutil.copy2(source_file, target_file)
-                                            files_updated += 1
-                                            logger.debug(f"[MainWindow] 📝 Updated file: {os.path.join(rel_path, file)}")
-                                        else:
-                                            files_skipped += 1
-                                    else:
-                                        # Target file doesn't exist, copy it
-                                        shutil.copy2(source_file, target_file)
-                                        files_updated += 1
-                                        logger.debug(f"[MainWindow] 📄 Copied new file: {os.path.join(rel_path, file)}")
-                                except Exception as file_error:
-                                    logger.debug(f"[MainWindow] ⚠️ Failed to process file {file}: {file_error}")
-                        
-                        if files_updated > 0:
-                            updated_count += 1
-                            logger.debug(f"[MainWindow] ✅ Updated {files_updated} file(s) in skill: {skill_name}")
-                        else:
-                            skipped_count += 1
-                            logger.debug(f"[MainWindow] ⏭️ Skill up to date, skipped: {skill_name}")
+                        # Target exists: remove it completely, then copy fresh from source
+                        logger.debug(f"[MainWindow] 🔄 Overwriting existing example skill: {skill_name}")
+                        try:
+                            shutil.rmtree(target_skill_path)
+                        except Exception as rm_err:
+                            logger.debug(f"[MainWindow] ⚠️ Failed to remove old skill dir {skill_name}: {rm_err}")
+                        shutil.copytree(source_skill_path, target_skill_path)
+                        updated_count += 1
                     else:
                         # Target doesn't exist: copy entire directory
                         shutil.copytree(source_skill_path, target_skill_path)

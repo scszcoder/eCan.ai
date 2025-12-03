@@ -140,6 +140,17 @@ def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, 
             
             logger.debug(f"{_tag} Dict msg parsed: chat_id={chat_id or 'N/A'}, msg_id={msg_id or 'N/A'}, method={method or 'N/A'}, human={human}, msg_len={len(msg_txt) if msg_txt else 0}, missing={missing_fields or 'none'}")
 
+        # Extract async_response from request metadata if available
+        # This controls whether send_response_back sends via A2A or skips (sync mode)
+        async_response = None
+        try:
+            if msg and hasattr(msg, 'params') and msg.params and msg.params.metadata:
+                async_response = msg.params.metadata.get("async_response")
+            elif isinstance(msg, dict) and "metadata" in msg:
+                async_response = msg["metadata"].get("async_response")
+        except Exception:
+            pass
+
         base: NodeState = {
             "input": "",
             "attachments": [],
@@ -150,7 +161,16 @@ def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, 
             "messages": [agent.card.id, chat_id, msg_id, task_id, msg_txt],
             "threads": [],
             "this_node": "",
-            "attributes": {"human": human, "method": method, "params": params, "agent_id": agent.card.id, "chat_id": chat_id, "msg_id": msg_id, "task_id": task_id},
+            "attributes": {
+                "human": human, 
+                "method": method, 
+                "params": params, 
+                "agent_id": agent.card.id, 
+                "chat_id": chat_id, 
+                "msg_id": msg_id, 
+                "task_id": task_id,
+                "async_response": async_response,  # Controls response mode in send_response_back
+            },
             "result": {},
             "tool_name": "",
             "tool_input": {},
