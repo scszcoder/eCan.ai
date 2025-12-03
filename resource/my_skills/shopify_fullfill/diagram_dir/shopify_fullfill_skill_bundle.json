@@ -1,0 +1,1594 @@
+{
+  "mainSheetId": "main",
+  "sheets": [
+    {
+      "id": "main",
+      "name": "Main",
+      "document": {
+        "nodes": [
+          {
+            "id": "condition_T5LqK",
+            "type": "condition",
+            "meta": {
+              "position": {
+                "x": 176.96539234831693,
+                "y": -135.87451239109532
+              }
+            },
+            "data": {
+              "title": "Condition",
+              "conditions": [
+                {
+                  "key": "if_-sPiK",
+                  "value": {
+                    "mode": "custom",
+                    "expr": "state['result']['llm_result']['request_to_start_work']"
+                  }
+                },
+                {
+                  "key": "else_KuoJ_",
+                  "value": {}
+                }
+              ],
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "start_R2Ckr",
+            "type": "start",
+            "meta": {
+              "position": {
+                "x": -843.4726515801658,
+                "y": -135.87451239109532
+              }
+            },
+            "data": {
+              "title": "Start",
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "end_-lDZI",
+            "type": "end",
+            "meta": {
+              "position": {
+                "x": 4871.860327291656,
+                "y": -148.92813428290225
+              }
+            },
+            "data": {
+              "title": "End",
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              },
+              "data": {
+                "inputsValues": {}
+              }
+            }
+          },
+          {
+            "id": "chat_e0QsR",
+            "type": "chat_node",
+            "meta": {
+              "position": {
+                "x": 105.31642486886585,
+                "y": 177.39198881406924
+              }
+            },
+            "data": {
+              "title": "Chat_1",
+              "inputsValues": {
+                "party": {
+                  "type": "constant",
+                  "content": "human"
+                },
+                "messageTemplate": {
+                  "type": "template",
+                  "content": ""
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "required": [
+                  "party"
+                ],
+                "properties": {
+                  "party": {
+                    "type": "string"
+                  },
+                  "messageTemplate": {
+                    "type": "string",
+                    "extra": {
+                      "formComponent": "prompt-editor"
+                    }
+                  }
+                }
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              },
+              "hFlip": true
+            }
+          },
+          {
+            "id": "loop_rhORT",
+            "type": "loop",
+            "meta": {
+              "position": {
+                "x": 1130.9311168647273,
+                "y": -307.35391686414806
+              }
+            },
+            "data": {
+              "title": "Loop_1",
+              "loopMode": "loopWhile",
+              "loopCountExpr": "",
+              "loopWhileExpr": "state['result']['llm_result']['messages_read']",
+              "data": {
+                "inputsValues": {}
+              }
+            },
+            "blocks": [
+              {
+                "id": "block_start_GO6C1",
+                "type": "block-start",
+                "meta": {
+                  "position": {
+                    "x": 30.8,
+                    "y": 0
+                  }
+                },
+                "data": {}
+              },
+              {
+                "id": "block_end_E5jUP",
+                "type": "block-end",
+                "meta": {
+                  "position": {
+                    "x": 1322.1491935326574,
+                    "y": 97.39999999999999
+                  }
+                },
+                "data": {}
+              },
+              {
+                "id": "llm_xaL7E",
+                "type": "llm",
+                "meta": {
+                  "position": {
+                    "x": 210.2299512678499,
+                    "y": 61.599999999999966
+                  }
+                },
+                "data": {
+                  "title": "LLM_1",
+                  "inputsValues": {
+                    "modelProvider": {
+                      "type": "constant",
+                      "content": "OpenAI"
+                    },
+                    "modelName": {
+                      "type": "constant",
+                      "content": "gpt-4o-mini"
+                    },
+                    "attachments": {
+                      "type": "constant",
+                      "content": []
+                    },
+                    "apiKey": {
+                      "type": "constant",
+                      "content": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    },
+                    "apiHost": {
+                      "type": "constant",
+                      "content": "https://api.openai.com/v1"
+                    },
+                    "temperature": {
+                      "type": "constant",
+                      "content": 0.5
+                    },
+                    "systemPrompt": {
+                      "type": "template",
+                      "content": "# Role\nYou are an AI assistant.\n"
+                    },
+                    "prompt": {
+                      "type": "template",
+                      "content": ""
+                    },
+                    "promptSelection": {
+                      "type": "constant",
+                      "content": "inline"
+                    }
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "properties": {
+                      "modelProvider": {
+                        "type": "string"
+                      },
+                      "modelName": {
+                        "type": "string"
+                      },
+                      "attachments": {
+                        "type": "object"
+                      },
+                      "apiKey": {
+                        "type": "string"
+                      },
+                      "apiHost": {
+                        "type": "string"
+                      },
+                      "temperature": {
+                        "type": "number"
+                      },
+                      "systemPrompt": {
+                        "type": "string"
+                      },
+                      "prompt": {
+                        "type": "string"
+                      },
+                      "promptSelection": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "llm_Sxe_F",
+                "type": "llm",
+                "meta": {
+                  "position": {
+                    "x": 693.1487686764334,
+                    "y": 61.60000000000002
+                  }
+                },
+                "data": {
+                  "title": "LLM_2",
+                  "inputsValues": {
+                    "modelProvider": {
+                      "type": "constant",
+                      "content": "OpenAI"
+                    },
+                    "modelName": {
+                      "type": "constant",
+                      "content": "gpt-4o-mini"
+                    },
+                    "attachments": {
+                      "type": "constant",
+                      "content": []
+                    },
+                    "apiKey": {
+                      "type": "constant",
+                      "content": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    },
+                    "apiHost": {
+                      "type": "constant",
+                      "content": "https://api.openai.com/v1"
+                    },
+                    "temperature": {
+                      "type": "constant",
+                      "content": 0.5
+                    },
+                    "systemPrompt": {
+                      "type": "template",
+                      "content": "# Role\nYou are an AI assistant.\n"
+                    },
+                    "prompt": {
+                      "type": "template",
+                      "content": ""
+                    },
+                    "promptSelection": {
+                      "type": "constant",
+                      "content": "inline"
+                    }
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "properties": {
+                      "modelProvider": {
+                        "type": "string"
+                      },
+                      "modelName": {
+                        "type": "string"
+                      },
+                      "attachments": {
+                        "type": "object"
+                      },
+                      "apiKey": {
+                        "type": "string"
+                      },
+                      "apiHost": {
+                        "type": "string"
+                      },
+                      "temperature": {
+                        "type": "number"
+                      },
+                      "systemPrompt": {
+                        "type": "string"
+                      },
+                      "prompt": {
+                        "type": "string"
+                      },
+                      "promptSelection": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "mcp_t0Ugk",
+                "type": "mcp",
+                "meta": {
+                  "position": {
+                    "x": 1034.0838221560002,
+                    "y": 61.59999999999999
+                  }
+                },
+                "data": {
+                  "title": "MCP_1",
+                  "callable": {
+                    "id": "llm-auto-select",
+                    "name": "llm auto select",
+                    "desc": "Let the LLM automatically select the appropriate tool based on the context",
+                    "params": {
+                      "type": "object",
+                      "properties": {}
+                    },
+                    "returns": {
+                      "type": "object",
+                      "properties": {}
+                    },
+                    "type": "system",
+                    "source": ""
+                  },
+                  "inputsValues": {},
+                  "inputs": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "327667",
+                "type": "code",
+                "meta": {
+                  "position": {
+                    "x": 451.6893599721418,
+                    "y": 61.599999999999966
+                  }
+                },
+                "data": {
+                  "title": "Code_1",
+                  "inputsValues": {
+                    "input": {
+                      "type": "constant",
+                      "content": ""
+                    }
+                  },
+                  "script": {
+                    "language": "python",
+                    "content": "# Here, you can retrieve input variables from the node using 'state' \nimport time\ndef main(state, *, runtime, store):\n  # Build the output object\n  print(\"in myfunc0.........\",state)\n  time.sleep(5)\n  print(\"myfunc0 woke now, outa here.....\")\n  state[\"result\"] = {\"status\": \"myfunc0 succeeded!!!\"}\n  return state"
+                  },
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "properties": {
+                      "input": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "106342",
+                "type": "comment",
+                "meta": {
+                  "position": {
+                    "x": 451.68935997214186,
+                    "y": 207.88884034723418
+                  }
+                },
+                "data": {
+                  "size": {
+                    "width": 131.7984214725074,
+                    "height": 53.96149400354743
+                  },
+                  "note": "Tool Set Prefilter - token reducer"
+                }
+              },
+              {
+                "id": "170795",
+                "type": "comment",
+                "meta": {
+                  "position": {
+                    "x": 693.1487686764333,
+                    "y": 207.88884034723418
+                  }
+                },
+                "data": {
+                  "size": {
+                    "width": 149.2502889769417,
+                    "height": 40
+                  },
+                  "note": "Prep tool call."
+                }
+              }
+            ],
+            "edges": [
+              {
+                "sourceNodeID": "block_start_GO6C1",
+                "targetNodeID": "llm_xaL7E"
+              },
+              {
+                "sourceNodeID": "mcp_t0Ugk",
+                "targetNodeID": "block_end_E5jUP"
+              },
+              {
+                "sourceNodeID": "llm_xaL7E",
+                "targetNodeID": "327667"
+              },
+              {
+                "sourceNodeID": "327667",
+                "targetNodeID": "llm_Sxe_F"
+              },
+              {
+                "sourceNodeID": "llm_Sxe_F",
+                "targetNodeID": "mcp_t0Ugk"
+              }
+            ]
+          },
+          {
+            "id": "condition_kkKy4",
+            "type": "condition",
+            "meta": {
+              "position": {
+                "x": 2986.495251635812,
+                "y": -165.08418201971995
+              }
+            },
+            "data": {
+              "title": "Condition",
+              "conditions": [
+                {
+                  "key": "if_Fou5C",
+                  "value": {}
+                },
+                {
+                  "key": "else_sqXds",
+                  "value": {}
+                }
+              ],
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "code_8nk5b",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": 2733.083530896625,
+                "y": -165.08418201971995
+              }
+            },
+            "data": {
+              "title": "Code_2",
+              "inputsValues": {
+                "input": {
+                  "type": "constant",
+                  "content": ""
+                }
+              },
+              "script": {
+                "language": "python",
+                "content": "# Here, you can retrieve input variables from the node using 'state' \nimport time\ndef main(state, *, runtime, store):\n  # Build the output object\n  print(\"in myfunc0.........\",state)\n  time.sleep(5)\n  print(\"myfunc0 woke now, outa here.....\")\n  state[\"result\"] = {\"status\": \"myfunc0 succeeded!!!\"}\n  return state"
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "llm_8LPYx",
+            "type": "llm",
+            "meta": {
+              "position": {
+                "x": -141.14516362846226,
+                "y": -135.87451239109532
+              }
+            },
+            "data": {
+              "title": "LLM_1",
+              "inputsValues": {
+                "modelProvider": {
+                  "type": "constant",
+                  "content": "OpenAI"
+                },
+                "modelName": {
+                  "type": "constant",
+                  "content": "gpt-5"
+                },
+                "attachments": {
+                  "type": "constant",
+                  "content": []
+                },
+                "apiKey": {
+                  "type": "constant",
+                  "content": ""
+                },
+                "apiHost": {
+                  "type": "constant",
+                  "content": "https://api.openai.com/v1"
+                },
+                "temperature": {
+                  "type": "constant",
+                  "content": 0.5
+                },
+                "systemPrompt": {
+                  "type": "template",
+                  "content": "# Role\nYou are an AI assistant.\n"
+                },
+                "prompt": {
+                  "type": "template",
+                  "content": ""
+                },
+                "promptSelection": {
+                  "type": "constant",
+                  "content": "pr-350973"
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "modelProvider": {
+                    "type": "string"
+                  },
+                  "modelName": {
+                    "type": "string"
+                  },
+                  "attachments": {
+                    "type": "object"
+                  },
+                  "apiKey": {
+                    "type": "string"
+                  },
+                  "apiHost": {
+                    "type": "string"
+                  },
+                  "temperature": {
+                    "type": "number"
+                  },
+                  "systemPrompt": {
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "type": "string"
+                  },
+                  "promptSelection": {
+                    "type": "string"
+                  }
+                }
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "845126",
+            "type": "loop",
+            "meta": {
+              "position": {
+                "x": 3319.808874369331,
+                "y": -540.5732598473055
+              }
+            },
+            "data": {
+              "title": "Loop_1",
+              "loopMode": "loopWhile",
+              "loopCountExpr": "",
+              "loopWhileExpr": "state['result']['llm_result']['orders_fullfilled']",
+              "data": {
+                "inputsValues": {}
+              }
+            },
+            "blocks": [
+              {
+                "id": "848493",
+                "type": "block-start",
+                "meta": {
+                  "position": {
+                    "x": 34.3,
+                    "y": 0
+                  }
+                },
+                "data": {}
+              },
+              {
+                "id": "112151",
+                "type": "block-end",
+                "meta": {
+                  "position": {
+                    "x": 1253.7662671790583,
+                    "y": 25.469000462001034
+                  }
+                },
+                "data": {}
+              },
+              {
+                "id": "692888",
+                "type": "llm",
+                "meta": {
+                  "position": {
+                    "x": 213.87438896567934,
+                    "y": 75.46900046200103
+                  }
+                },
+                "data": {
+                  "title": "LLM_1",
+                  "inputsValues": {
+                    "modelProvider": {
+                      "type": "constant",
+                      "content": "OpenAI"
+                    },
+                    "modelName": {
+                      "type": "constant",
+                      "content": "gpt-4o-mini"
+                    },
+                    "attachments": {
+                      "type": "constant",
+                      "content": []
+                    },
+                    "apiKey": {
+                      "type": "constant",
+                      "content": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    },
+                    "apiHost": {
+                      "type": "constant",
+                      "content": "https://api.openai.com/v1"
+                    },
+                    "temperature": {
+                      "type": "constant",
+                      "content": 0.5
+                    },
+                    "systemPrompt": {
+                      "type": "template",
+                      "content": "# Role\nYou are an AI assistant.\n"
+                    },
+                    "prompt": {
+                      "type": "template",
+                      "content": ""
+                    },
+                    "promptSelection": {
+                      "type": "constant",
+                      "content": "inline"
+                    }
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "properties": {
+                      "modelProvider": {
+                        "type": "string"
+                      },
+                      "modelName": {
+                        "type": "string"
+                      },
+                      "attachments": {
+                        "type": "object"
+                      },
+                      "apiKey": {
+                        "type": "string"
+                      },
+                      "apiHost": {
+                        "type": "string"
+                      },
+                      "temperature": {
+                        "type": "number"
+                      },
+                      "systemPrompt": {
+                        "type": "string"
+                      },
+                      "prompt": {
+                        "type": "string"
+                      },
+                      "promptSelection": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "564500",
+                "type": "mcp",
+                "meta": {
+                  "position": {
+                    "x": 1015.5200315433347,
+                    "y": 75.46900046200103
+                  }
+                },
+                "data": {
+                  "title": "MCP_1",
+                  "callable": {
+                    "id": "llm-auto-select",
+                    "name": "llm auto select",
+                    "desc": "Let the LLM automatically select the appropriate tool based on the context",
+                    "params": {
+                      "type": "object",
+                      "properties": {}
+                    },
+                    "returns": {
+                      "type": "object",
+                      "properties": {}
+                    },
+                    "type": "system",
+                    "source": ""
+                  },
+                  "inputsValues": {},
+                  "inputs": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "915481",
+                "type": "code",
+                "meta": {
+                  "position": {
+                    "x": 744.4166348851068,
+                    "y": 75.46900046200102
+                  }
+                },
+                "data": {
+                  "title": "Code_1",
+                  "inputsValues": {
+                    "input": {
+                      "type": "constant",
+                      "content": ""
+                    }
+                  },
+                  "script": {
+                    "language": "python",
+                    "content": "# Here, you can retrieve input variables from the node using 'state' \nimport time\ndef main(state, *, runtime, store):\n  # Build the output object\n  print(\"in myfunc0.........\",state)\n  time.sleep(5)\n  print(\"myfunc0 woke now, outa here.....\")\n  state[\"result\"] = {\"status\": \"myfunc0 succeeded!!!\"}\n  return state"
+                  },
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "properties": {
+                      "input": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "id": "browser_automation_Xvc1T",
+                "type": "browser-automation",
+                "meta": {
+                  "position": {
+                    "x": 479.14551192539375,
+                    "y": 75.46900046200103
+                  }
+                },
+                "data": {
+                  "title": "Browser_1",
+                  "inputsValues": {
+                    "tool": {
+                      "type": "constant",
+                      "content": "browser-use"
+                    },
+                    "browser": {
+                      "type": "constant",
+                      "content": "new chromium"
+                    },
+                    "browserDriver": {
+                      "type": "constant",
+                      "content": "native"
+                    },
+                    "cdpPort": {
+                      "type": "constant",
+                      "content": ""
+                    },
+                    "modelProvider": {
+                      "type": "constant",
+                      "content": "OpenAI"
+                    },
+                    "modelName": {
+                      "type": "constant",
+                      "content": "gpt-5"
+                    },
+                    "temperature": {
+                      "type": "constant",
+                      "content": 0.3
+                    },
+                    "systemPrompt": {
+                      "type": "template",
+                      "content": "You are a helpful browser automation agent."
+                    },
+                    "prompt": {
+                      "type": "template",
+                      "content": ""
+                    },
+                    "promptSelection": {
+                      "type": "constant",
+                      "content": "inline"
+                    }
+                  },
+                  "inputs": {
+                    "type": "object",
+                    "required": [
+                      "tool",
+                      "browser",
+                      "browserDriver",
+                      "modelProvider",
+                      "modelName",
+                      "temperature",
+                      "prompt"
+                    ],
+                    "properties": {
+                      "tool": {
+                        "type": "string",
+                        "extra": {
+                          "formComponent": "input"
+                        }
+                      },
+                      "browser": {
+                        "type": "string",
+                        "extra": {
+                          "formComponent": "input"
+                        }
+                      },
+                      "browserDriver": {
+                        "type": "string",
+                        "extra": {
+                          "formComponent": "input"
+                        }
+                      },
+                      "cdpPort": {
+                        "type": "string",
+                        "extra": {
+                          "formComponent": "input"
+                        }
+                      },
+                      "modelProvider": {
+                        "type": "string",
+                        "extra": {
+                          "formComponent": "input"
+                        }
+                      },
+                      "modelName": {
+                        "type": "string",
+                        "extra": {
+                          "formComponent": "input"
+                        }
+                      },
+                      "temperature": {
+                        "type": "number"
+                      },
+                      "systemPrompt": {
+                        "type": "string",
+                        "extra": {
+                          "formComponent": "prompt-editor"
+                        }
+                      },
+                      "prompt": {
+                        "type": "string",
+                        "extra": {
+                          "formComponent": "prompt-editor",
+                          "enablePromptLibrary": true
+                        }
+                      },
+                      "promptSelection": {
+                        "type": "string",
+                        "extra": {
+                          "skipDefault": true
+                        }
+                      }
+                    }
+                  },
+                  "outputs": {
+                    "type": "object",
+                    "properties": {
+                      "result": {
+                        "type": "object",
+                        "description": "Node execution result"
+                      },
+                      "condition": {
+                        "type": "boolean",
+                        "description": "Node execution condition"
+                      },
+                      "resolved": {
+                        "type": "boolean",
+                        "description": "Node execution resolved status"
+                      },
+                      "case": {
+                        "type": "string",
+                        "description": "Node execution case"
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "edges": [
+              {
+                "sourceNodeID": "848493",
+                "targetNodeID": "692888"
+              },
+              {
+                "sourceNodeID": "564500",
+                "targetNodeID": "112151"
+              },
+              {
+                "sourceNodeID": "692888",
+                "targetNodeID": "browser_automation_Xvc1T"
+              },
+              {
+                "sourceNodeID": "915481",
+                "targetNodeID": "564500"
+              },
+              {
+                "sourceNodeID": "browser_automation_Xvc1T",
+                "targetNodeID": "915481"
+              }
+            ]
+          },
+          {
+            "id": "pend_event_rqn66",
+            "type": "pend_event_node",
+            "meta": {
+              "position": {
+                "x": -463.8603629976356,
+                "y": -135.87451239109532
+              }
+            },
+            "data": {
+              "title": "PendEvent_1",
+              "inputsValues": {
+                "eventType": {
+                  "type": "constant",
+                  "content": "human_chat"
+                },
+                "messageType": {
+                  "type": "constant",
+                  "content": ""
+                },
+                "agentIds": {
+                  "type": "constant",
+                  "content": ""
+                },
+                "pendingSources": {
+                  "type": "constant",
+                  "content": []
+                },
+                "timeoutSec": {
+                  "type": "constant",
+                  "content": 0
+                },
+                "resumePolicy": {
+                  "type": "constant",
+                  "content": "first"
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "required": [
+                  "eventType"
+                ],
+                "properties": {
+                  "eventType": {
+                    "type": "string"
+                  },
+                  "messageType": {
+                    "type": "string"
+                  },
+                  "agentIds": {
+                    "type": "string"
+                  },
+                  "pendingSources": {
+                    "type": "array"
+                  },
+                  "timeoutSec": {
+                    "type": "number"
+                  },
+                  "resumePolicy": {
+                    "type": "string"
+                  }
+                }
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "187265",
+            "type": "comment",
+            "meta": {
+              "position": {
+                "x": -490.1238965534026,
+                "y": -197.0579818778579
+              }
+            },
+            "data": {
+              "size": {
+                "width": 227.87836912810755,
+                "height": 44.94586577693212
+              },
+              "note": "either human chat or scheduled timer"
+            }
+          },
+          {
+            "id": "249161",
+            "type": "comment",
+            "meta": {
+              "position": {
+                "x": 499.8373840699341,
+                "y": -63.18629497687809
+              }
+            },
+            "data": {
+              "size": {
+                "width": 227.87836912810755,
+                "height": 44.94586577693212
+              },
+              "note": "request_to_stop?"
+            }
+          },
+          {
+            "id": "225090",
+            "type": "comment",
+            "meta": {
+              "position": {
+                "x": 190.91539234831694,
+                "y": -183.70400730316868
+              }
+            },
+            "data": {
+              "size": {
+                "width": 227.87836912810755,
+                "height": 44.94586577693212
+              },
+              "note": "request to start work?"
+            }
+          },
+          {
+            "id": "206019",
+            "type": "condition",
+            "meta": {
+              "position": {
+                "x": 465.6915753363387,
+                "y": -11.470100344627127
+              }
+            },
+            "data": {
+              "title": "Condition",
+              "conditions": [
+                {
+                  "key": "if_-sPiK",
+                  "value": {
+                    "mode": "custom",
+                    "expr": "state['result']['llm_result']['request_to_stop_work']"
+                  }
+                },
+                {
+                  "key": "else_KuoJ_",
+                  "value": {}
+                }
+              ],
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "code_cmIo7",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": 96.98160557027211,
+                "y": 346.5234466158415
+              }
+            },
+            "data": {
+              "title": "Code_1",
+              "inputsValues": {
+                "input": {
+                  "type": "constant",
+                  "content": ""
+                }
+              },
+              "script": {
+                "language": "python",
+                "content": "# Here, you can retrieve input variables from the node using 'state' \nimport time\ndef main(state, *, runtime, store):\n  # Build the output object\n  print(\"in myfunc0.........\",state)\n  time.sleep(5)\n  print(\"myfunc0 woke now, outa here.....\")\n  state[\"result\"] = {\"status\": \"myfunc0 succeeded!!!\"}\n  return state"
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "string"
+                  }
+                }
+              },
+              "hFlip": true
+            }
+          },
+          {
+            "id": "mcp_md8Sd",
+            "type": "mcp",
+            "meta": {
+              "position": {
+                "x": 772.5407171738127,
+                "y": -11.470100344627127
+              }
+            },
+            "data": {
+              "title": "MCP_1",
+              "callable": {
+                "id": "llm-auto-select",
+                "name": "llm auto select",
+                "desc": "Let the LLM automatically select the appropriate tool based on the context",
+                "params": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "returns": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "type": "system",
+                "source": ""
+              },
+              "inputsValues": {},
+              "inputs": {
+                "type": "object",
+                "properties": {}
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "edges": [
+          {
+            "sourceNodeID": "llm_8LPYx",
+            "targetNodeID": "condition_T5LqK"
+          },
+          {
+            "sourceNodeID": "condition_T5LqK",
+            "targetNodeID": "loop_rhORT",
+            "sourcePortID": "if_out"
+          },
+          {
+            "sourceNodeID": "condition_T5LqK",
+            "targetNodeID": "206019",
+            "sourcePortID": "else_out"
+          },
+          {
+            "sourceNodeID": "start_R2Ckr",
+            "targetNodeID": "pend_event_rqn66"
+          },
+          {
+            "sourceNodeID": "845126",
+            "targetNodeID": "end_-lDZI"
+          },
+          {
+            "sourceNodeID": "condition_kkKy4",
+            "targetNodeID": "end_-lDZI",
+            "sourcePortID": "else_out"
+          },
+          {
+            "sourceNodeID": "206019",
+            "targetNodeID": "chat_e0QsR",
+            "sourcePortID": "else_out"
+          },
+          {
+            "sourceNodeID": "chat_e0QsR",
+            "targetNodeID": "pend_event_rqn66"
+          },
+          {
+            "sourceNodeID": "loop_rhORT",
+            "targetNodeID": "code_8nk5b"
+          },
+          {
+            "sourceNodeID": "code_8nk5b",
+            "targetNodeID": "condition_kkKy4"
+          },
+          {
+            "sourceNodeID": "condition_kkKy4",
+            "targetNodeID": "845126",
+            "sourcePortID": "if_out"
+          },
+          {
+            "sourceNodeID": "pend_event_rqn66",
+            "targetNodeID": "llm_8LPYx"
+          },
+          {
+            "sourceNodeID": "code_cmIo7",
+            "targetNodeID": "pend_event_rqn66"
+          },
+          {
+            "sourceNodeID": "206019",
+            "targetNodeID": "mcp_md8Sd",
+            "sourcePortID": "if_out"
+          },
+          {
+            "sourceNodeID": "mcp_md8Sd",
+            "targetNodeID": "code_cmIo7"
+          }
+        ]
+      },
+      "createdAt": 1764791585088,
+      "lastOpenedAt": 1764791585088
+    }
+  ],
+  "openTabs": [
+    "main"
+  ],
+  "activeSheetId": "main"
+}
