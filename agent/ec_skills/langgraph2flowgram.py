@@ -290,22 +290,18 @@ def langgraph2flowgram(workflow: StateGraph, out_dir: str = "test_skill/diagram_
                 sedges = [(u, v) for (u, v) in getattr(subg, 'edges')]
                 msg = f"[LG2FG] Detected subgraph node '{nid}' with {len(snodes)} nodes and {len(sedges)} edges"
                 logger.info(msg)
-                print(msg)
                 logger.debug(f"[LG2FG] Subgraph '{nid}' nodes: {snodes}")
                 logger.debug(f"[LG2FG] Subgraph '{nid}' edges: {sedges}")
             except Exception:
                 logger.warning(f"[LG2FG] Subgraph '{nid}' detected but failed to introspect topology")
-                print(f"[LG2FG] Subgraph '{nid}' detected but failed to introspect topology")
         else:
             # Not detected as subgraph; log runnable type for visibility
             try:
                 logger.info(f"[LG2FG] Node '{nid}' not a subgraph (runnable type: {rtype})")
-                print(f"[LG2FG] Node '{nid}' not a subgraph (runnable type: {rtype})")
             except Exception:
                 pass
     try:
         logger.info(f"[LG2FG] Subgraph nodes detected: {list(subgraph_nodes.keys())}")
-        print(f"[LG2FG] Subgraph nodes detected: {list(subgraph_nodes.keys())}")
     except Exception:
         pass
 

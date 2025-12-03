@@ -75,7 +75,7 @@ def pre_pend_for_next_human_msg_hook(askid, node_name, agent, state, response):
 
         state["job_related"] = state["result"]["job_related"]
         state["result"]["llm_result"] = response
-        print("standard_post_llm_func Raw llm response content:", state)  # Debug log
+        logger.debug("standard_post_llm_func Raw llm response content:", state)  # Debug log
 
         # Clean up the response
         send_result = send_response_back(state)

@@ -1,7 +1,7 @@
 from agent.ec_skill import NodeState
 
 def prep_search_parts_skill(agent, task_id, msg=None, current_state=None):
-    print("init_search_parts_skill", type(msg), msg)  # msg.params.message[0].text
+    logger.debug("init_search_parts_skill", type(msg), msg)  # msg.params.message[0].text
 
     attachments = []
     msg_txt = ""

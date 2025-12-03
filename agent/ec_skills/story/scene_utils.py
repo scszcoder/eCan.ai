@@ -121,12 +121,12 @@ def quick_celebrate():
                 "captions": ["Local celebrate clip"]
             }
         ]
-        print("update_scene..............")
+        logger.debug("update_scene..............")
         sent = update_scene(agent_id=agent_id, scenes=demo_scenes, play_label="celebrate")
         if sent:
-            print(f"update_scene sent for agent '{agent_id}'.")
+            logger.debug(f"update_scene sent for agent '{agent_id}'.")
         else:
-            print(f"Failed to send update_scene for agent '{agent_id}'. See logs.")
+            logger.debug(f"Failed to send update_scene for agent '{agent_id}'. See logs.")
 
     except Exception as e:
         logger.error(f"ErrorQuickTest: {e}")

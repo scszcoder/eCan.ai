@@ -36,22 +36,22 @@ def chat_or_work(state: NodeState, *, runtime: Runtime) -> str:
 
 def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
     try:
-        print("extern:: in llm_node_with_raw_files....", state)
+        logger.debug("extern:: in llm_node_with_raw_files....", state)
         user_input = state.get("input", "")
         agent_id = state["messages"][0]
         agent = get_agent_by_id(agent_id)
         mainwin = agent.mainwin
-        print("run time:", json.dumps(runtime.context, indent=4))
+        logger.debug("run time:", json.dumps(runtime.context, indent=4))
         current_node_name = runtime.context["this_node"].get("name")
         skill_name = runtime.context["this_node"].get("skill_name")
         owner = runtime.context["this_node"].get("owner")
 
-        # print("current node:", current_node)
+        # logger.debug("current node:", current_node)
         nodes = [{"askid": "skid0", "name": current_node_name}]
         full_node_name = f"{owner}:{skill_name}:{current_node_name}"
         run_pre_llm_hook(full_node_name, agent, state)
 
-        print("networked prompts:", state["prompts"])
+        logger.debug("networked prompts:", state["prompts"])
         node_prompt = state["prompts"]
 
         # mm_content = prep_multi_modal_content(state, runtime)
@@ -74,12 +74,12 @@ def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseSto
             raise ValueError("LLM not available in mainwin")
 
 
-        print("chat node: llm prompt ready:", formatted_prompt)
+        logger.debug("chat node: llm prompt ready:", formatted_prompt)
         response = llm.invoke(formatted_prompt)
-        print("chat node: LLM response:", response)
+        logger.debug("chat node: LLM response:", response)
         # Parse the response
         run_post_llm_hook(full_node_name, agent, state, response)
-        print("llm_node_with_raw_file exiting.....", state)
+        logger.debug("llm_node_with_raw_file exiting.....", state)
         return state
     except Exception as e:
         err_trace = get_traceback(e, "ErrorStardardPreLLMHook")
