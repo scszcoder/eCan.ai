@@ -427,7 +427,7 @@ class EC_Agent(Agent):
 
 			if msg_text.lstrip().lower().startswith("dev>"):
 				mtype = "dev_send_chat"
-				print("sending dev mode chat.......")
+				logger.debug("sending dev mode chat.......")
 			else:
 				mtype = "send_chat"
 

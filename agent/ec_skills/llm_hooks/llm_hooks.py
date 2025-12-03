@@ -318,7 +318,7 @@ def standard_post_llm_hook(askid, node_name, agent, state, response):
 
         if not isinstance(state.get("history"), list):
             state["history"] = []
-        print("ai_message", ai_message)
+        logger.debug("ai_message", ai_message)
         state["history"].append(ai_message)
         state["tool_name"] = tool_name
         state["tool_input"] = tool_input

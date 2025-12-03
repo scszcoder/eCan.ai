@@ -15,7 +15,7 @@ def post_chat_hook(askid, node_name, agent, state, response):
 
         state["attributes"]["work_related"] = llm_output["work_related"]
         state["result"]["llm_result"] = response
-        print("post_chat_hook Raw llm response content:", state)  # Debug log
+        logger.debug("post_chat_hook Raw llm response content:", state)  # Debug log
 
         # Clean up the response
         send_result = send_response_back(state)

@@ -573,7 +573,7 @@ def query_fom_basics_node(state: NodeState, *, runtime: Runtime, store: BaseStor
     loop = None
     try:
         table_headers = list(state["tool_result"][0].keys())
-        print("here are table headers string:", table_headers)
+        logger.debug("here are table headers string:", table_headers)
         # need to set up state["tool_input"] to be components
         params = convert_table_headers_to_params(table_headers)
         i = 0
@@ -613,11 +613,11 @@ def query_fom_basics_node(state: NodeState, *, runtime: Runtime, store: BaseStor
                 components = meta["components"]
                 state["tool_result"] = meta["components"]
             else:
-                print("ERROR: no meta in tool result!!!!!!!!!!!!")
+                logger.error("ERROR: no meta in tool result!!!!!!!!!!!!")
                 components = {}
                 state["tool_result"] = {}
 
-            print("state tool result:", state["tool_result"])
+            logger.debug("state tool result:", state["tool_result"])
             # if parametric_search_filters are returned, pass them to human twin
             if state["tool_result"]:
                 i = 0
@@ -669,7 +669,7 @@ def query_fom_basics_node(state: NodeState, *, runtime: Runtime, store: BaseStor
                         }
                     ]
                 }
-                print("fom form with price and lead time filled::", fom_form)
+                logger.debug("fom form with price and lead time filled::", fom_form)
                 for fom_item in components["fom"]["component_level_metrics"]:
                     item_name = fom_item["metric_name"]
                     fom_form["components"][-1]["raw_value"][item_name] = {
@@ -685,8 +685,7 @@ def query_fom_basics_node(state: NodeState, *, runtime: Runtime, store: BaseStor
                         "score_lut": fom_item["score_lut"],
                         "weight": fom_item["score_weight"],
                     }
-
-                print("fom form to be filled:", fom_form)
+                logger.debug("fom form to be filled:", fom_form)
                 state["result"] = {
                     "llm_result": "Here is a figure of merit (FOM) form to aid searching the parts you're looking for, please try your best to fill it out and send back to me. if you're not sure about certain parameters, just leave them blank. Also feel free to ask any questions about the meaning and implications of any parameters you're not sure about."}
                 # needs to make sure this is the response prompt......state["result"]["llm_result"]
@@ -712,7 +711,7 @@ def local_sort_search_results_node(state: NodeState, *, runtime: Runtime, store:
 
     try:
         table_headers = state["tool_result"]["fom"]["component_level_metrics"]
-        print("here are table headers string:", table_headers)
+        logger.debug("here are table headers string:", table_headers)
         # need to set up state["tool_input"] to be components
         header_text = table_headers[0]["metric_name"]
         ascending = True if table_headers[0]["sort_order"] == "asc" else False
@@ -755,12 +754,12 @@ def local_sort_search_results_node(state: NodeState, *, runtime: Runtime, store:
                 state["tool_result"] = meta["results"]
                 state["attributes"]["sorted_search_results"] = meta["results"]
             else:
-                print("ERROR: no meta in tool result!!!!!!!!!!!!")
+                logger.error("ERROR: no meta in tool result!!!!!!!!!!!!")
                 search_results = []
                 state["tool_result"] = []
                 state["attributes"]["sorted_search_results"] = []
 
-            print("local sort state tool result:", state["tool_result"])
+            logger.debug("local sort state tool result:", state["tool_result"])
 
         elif hasattr(tool_result, 'isError') and tool_result.isError:
             state["error"] = tool_result.content[0].text if tool_result.content else "Unknown error occurred"
@@ -809,7 +808,7 @@ def prep_ranking_request(state: NodeState) -> NodeState:
 
         rerank_req["component_info"] = state["attributes"]["preliminary_info"]
 
-        print("about to request rerank results: ", rerank_req)
+        logger.debug("about to request rerank results: ", rerank_req)
 
         return rerank_req
     except Exception as e:
@@ -964,7 +963,7 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
         rerank_req = {"agent_id": agent_id, "work_type": "rerank_search_results", "setup": setup}
         state["tool_input"] = rerank_req
         agent.runner.update_event_handler("rerank_search_results", this_task.queue)
-        print("updated event handler", agent.runner.event_handler_queues)
+        logger.debug("updated event handler", agent.runner.event_handler_queues)
         
         async def run_tool_call():
             return await mcp_call_tool("api_ecan_ai_rerank_results", {"input": state["tool_input"]})
@@ -975,7 +974,7 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
 
         # Check if the tool call was successful
         if hasattr(tool_result, 'content') and tool_result.content and "completed" in tool_result.content[0].text:
-            print("re_rank_search_results_node: analysing tool result:", tool_result)
+            logger.debug("re_rank_search_results_node: analysing tool result:", tool_result)
             state["result"] = tool_result.content[0].text
             # Prefer 'meta' attribute; fall back to '_meta' (wire format) if needed
             content0 = tool_result.content[0]
@@ -989,7 +988,7 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
                 state["attributes"]["cloud_task_id"] = cloud_task_id
                 logger.debug(f"[search_parts_chatter_skill] Set cloud_task_id in state: {cloud_task_id}")
             else:
-                print("ERROR: no meta in tool result!!!!!!!!!!!!")
+                logger.error("ERROR: no meta in tool result!!!!!!!!!!!!")
                 cloud_task_id = "unknown"
                 state["tool_result"] = {}
         elif hasattr(tool_result, 'isError') and tool_result.isError:
@@ -1001,7 +1000,7 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
 
     # Now handle the interrupt - this happens in both initial and resume cases
     try:
-        print(f"re_rank_search_results_node: interruptting.................{cloud_task_id}")
+        logger.debug(f"re_rank_search_results_node: interruptting.................{cloud_task_id}")
         # interupt to wait for cloud side work results to arrive. and
         interrupted = interrupt(  # (1)!
             {
@@ -1012,8 +1011,8 @@ def re_rank_search_results_node(state: NodeState, *, runtime: Runtime, store: Ba
 
         # now results comes back from cloud side, which trigger a resume action, and
         # now we are back to this node, and start to put final results
-        print("resuming re-rank after getting long waited results....interrupted data:", interrupted)
-        print("current state:", state)
+        logger.debug("resuming re-rank after getting long waited results....interrupted data:", interrupted)
+        logger.debug("current state:", state)
         
         # Extract cloud results from the resume_payload via interrupted variable
         cloud_results_raw = interrupted.get("notification_to_agent", {})
@@ -1251,7 +1250,7 @@ def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStor
     # _ensure_context(runtime.context)
     self_agent = get_agent_by_id(agent_id)
     mainwin = self_agent.mainwin
-    print("finding key route: ", find_key(state, "filled_parametric_filter"))
+    logger.debug("finding key route: ", find_key(state, "filled_parametric_filter"))
     logger.debug(f"[search_parts_chatter_skill] run_local_search_node: {state}")
 
     # site - [[{"name", "url"}, "name", "url", ....]...]
@@ -1306,7 +1305,7 @@ def run_local_search_node(state: NodeState, *, runtime: Runtime, store: BaseStor
     else:
         state["attributes"]["search_results"] = {url_short: tool_result.content[0].meta["results"]}
 
-    print("state tool results:", state["tool_result"])
+    logger.debug("state tool results:", state["tool_result"])
 
     return state
 
