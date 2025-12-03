@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-import React, { useState, useContext, useCallback, useEffect } from 'react';
+import React, { useState, useContext, useCallback, useEffect, useMemo } from 'react';
 
 import { WorkflowPortRender } from '@flowgram.ai/free-layout-editor';
 import { useClientContext, useService, WorkflowDocument, WorkflowLinesManager } from '@flowgram.ai/free-layout-editor';
@@ -19,6 +19,8 @@ import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { useRunningNodeStore } from '../../stores/running-node-store';
 import { useNodeStatusStore } from '../../stores/node-status-store';
 import { useRuntimeStateStore } from '../../stores/runtime-state-store';
+import { useNodeFlipStore } from '../../stores/node-flip-store';
+import { usePortSideService } from '../../services/port-side';
 
 export interface NodeWrapperProps {
   isScrollToView?: boolean;
@@ -75,33 +77,99 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
   //   }
   // }, [isRunning, node.id]);
 
-  // Read hFlip flag from form state first (menu writes here), fallback to node raw
-  const hFlip = (() => {
+  const storeFlip = useNodeFlipStore(
+    useCallback((state) => state.flippedNodes.has(node.id), [node.id])
+  );
+
+  const persistedFlip = (() => {
     try {
       // @ts-ignore
       const fromForm = (form as any)?.state?.values?.data?.hFlip;
       if (typeof fromForm === 'boolean') return fromForm;
     } catch {}
     try {
-      return !!(node as any)?.raw?.data?.hFlip;
-    } catch {
-      return false;
-    }
+      const fromJson = (node as any)?.json?.data?.hFlip;
+      if (typeof fromJson === 'boolean') return fromJson;
+    } catch {}
+    try {
+      const fromRaw = (node as any)?.raw?.data?.hFlip;
+      if (typeof fromRaw === 'boolean') return fromRaw;
+    } catch {}
+    return false;
   })();
+
+  const hFlip = storeFlip || persistedFlip;
+
+  // Ensure store reflects persisted flip state (e.g. when loading from disk)
+  useEffect(() => {
+    if (persistedFlip && !storeFlip) {
+      try {
+        useNodeFlipStore.getState().setFlipped(node.id, true);
+      } catch {}
+    }
+  }, [persistedFlip, storeFlip, node.id]);
 
   // Services for forcing visual refresh after anchor corrections
   const linesMgr = useService(WorkflowLinesManager);
   const documentSvc = useService(WorkflowDocument);
+  const { canFlipAnchors, applyHFlipAnchors } = usePortSideService();
+
+  const flipDebug = useMemo(() => {
+    try {
+      // @ts-ignore
+      return (window as any).__SE_DEBUG_FLIP__ === true;
+    } catch {
+      return false;
+    }
+  }, []);
 
   // Stabilize port anchor sides according to hFlip after renders to prevent library resets
   useEffect(() => {
-    const applyOnce = () => {
+    let cancelled = false;
+    let rafId: number | null = null;
+
+    const resolvePorts = (): any[] => {
+      if (ports?.length) return ports as any[];
       try {
-        (ports || []).forEach((p: any) => {
+        const all = (documentSvc as any)?.getAllPorts?.() || [];
+        return all.filter((p: any) => p?.node?.id === node.id);
+      } catch {
+        return [];
+      }
+    };
+
+    const applyOnce = async () => {
+      const portEntities = resolvePorts();
+      if (!portEntities.length) {
+        // Try again on next frame; ports may not be ready yet
+        if (flipDebug) {
+          try {
+            console.log('[Flip][NodeWrapper] Ports not ready, retrying', { nodeId: node.id, hFlip });
+          } catch {}
+        }
+        rafId = window.requestAnimationFrame(applyOnce);
+        return;
+      }
+
+      try {
+        if (registry?.type !== WorkflowNodeType.Condition && canFlipAnchors()) {
+          if (flipDebug) {
+            try {
+              console.log('[Flip][NodeWrapper] Applying anchor command', { nodeId: node.id, hFlip });
+            } catch {}
+          }
+          await applyHFlipAnchors(node, hFlip);
+          if (cancelled) {
+            return;
+          }
+        }
+      } catch {}
+
+      try {
+        portEntities.forEach((p: any) => {
           const pid: string = p?.id || '';
           const isIn = pid.includes('port_input_');
           const isOut = pid.includes('port_output_');
-          // For Condition outputs, skip stabilization; markers drive their placement
           if (registry?.type === WorkflowNodeType.Condition && isOut) return;
           const targetLoc = hFlip
             ? (isIn ? 'right' : isOut ? 'left' : undefined)
@@ -111,14 +179,34 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
           if (typeof (p as any)?.update === 'function' && curr !== targetLoc) {
             (p as any).update({ location: targetLoc, position: targetLoc, side: targetLoc });
           }
+          try { p.validate?.(); } catch {}
+          try {
+            const lines = (p as any)?.allLines ?? (p as any)?.lines;
+            if (lines && typeof lines.forEach === 'function') {
+              lines.forEach((ln: any) => { try { ln.validate?.(); } catch {} });
+            }
+          } catch {}
+          if (flipDebug) {
+            try {
+              console.log('[Flip][NodeWrapper] Port updated', {
+                nodeId: node.id,
+                portId: pid,
+                isInput: !!isIn,
+                isOutput: !!isOut,
+                targetLoc,
+                prevLoc: curr,
+                nextLoc: (p as any)?.location ?? (p as any)?.position ?? (p as any)?.side,
+              });
+            } catch {}
+          }
         });
-        // For Condition nodes, make sure dynamic outputs are bound to their markers
+
         if (registry?.type === WorkflowNodeType.Condition) {
           const root = document.querySelector(`[data-node-id="${node.id}"]`);
           if (root) {
             const markerIf = root.querySelector('[data-port-id="if_out"]') as HTMLElement | null;
             const markerElse = root.querySelector('[data-port-id="else_out"]') as HTMLElement | null;
-            (ports || []).forEach((p: any) => {
+            portEntities.forEach((p: any) => {
               const portKey = String((p?.portID ?? p?.portId) || '').toLowerCase();
               if (!p?.targetElement) {
                 if (portKey === 'if_out' && markerIf) {
@@ -130,18 +218,62 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
                 }
               }
             });
+            if (flipDebug) {
+              try {
+                console.log('[Flip][NodeWrapper] Condition markers rebound', { nodeId: node.id, hasIf: !!markerIf, hasElse: !!markerElse });
+              } catch {}
+            }
           }
         }
       } catch {}
-      // Condition nodes handle their own port positioning via form-meta markers
+
       try { (linesMgr as any)?.forceUpdate?.(); } catch {}
       try { (documentSvc as any)?.fireContentChange?.(); } catch {}
+      if (flipDebug) {
+        try {
+          console.log('[Flip][NodeWrapper] Stabilization complete', { nodeId: node.id, hFlip });
+        } catch {}
+      }
     };
 
-    // Apply once; avoid repeated re-applies that can cause oscillation with menu rebinds
-    applyOnce();
-    return () => {};
-  }, [hFlip, ports, node?.id]);
+    rafId = window.requestAnimationFrame(applyOnce);
+
+    return () => {
+      cancelled = true;
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId);
+      }
+    };
+  }, [hFlip, ports, node?.id, registry?.type, canFlipAnchors, applyHFlipAnchors, linesMgr, documentSvc]);
+
+  // Ensure DOM port wrappers carry hflip class after anchor updates (handles late rerenders)
+  useEffect(() => {
+    const applyDomFlipClass = () => {
+      try {
+        const nodeEl = document.querySelector(`[data-node-id="${node.id}"]`);
+        if (!nodeEl) return;
+        const wrapperEls = nodeEl.querySelectorAll('.se-port');
+        wrapperEls.forEach((el) => {
+          const role = el.classList.contains('se-port--input') ? 'input' : el.classList.contains('se-port--output') ? 'output' : 'unknown';
+          if (!['input', 'output'].includes(role)) return;
+          if (hFlip) {
+            el.classList.add('se-port--hflip');
+          } else {
+            el.classList.remove('se-port--hflip');
+          }
+        });
+      } catch {}
+    };
+
+    const raf = window.requestAnimationFrame(() => {
+      applyDomFlipClass();
+      window.requestAnimationFrame(applyDomFlipClass);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(raf);
+    };
+  }, [node.id, hFlip, ports]);
 
   const portsRender = ports.map((p) => {
     const pid = (p as any)?.id as string;
@@ -167,8 +299,8 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
     
     // Determine current anchor side from port entity
     const loc = (p as any)?.location ?? (p as any)?.position; // 'left' | 'right' | 'top' | 'bottom'
-    const flipPort = (isInput && loc === 'right') || (isOutput && loc === 'left');
-    const flipClass = flipPort ? 'se-port--hflip' : '';
+    const desiredFlip = hFlip && (isInput || isOutput);
+    const flipClass = desiredFlip ? 'se-port--hflip' : '';
     // For Condition outputs, avoid rendering until bound to a marker; render only the portalized port
     if (registry?.type === WorkflowNodeType.Condition && isOutput) {
       const te = (p as any)?.targetElement;
