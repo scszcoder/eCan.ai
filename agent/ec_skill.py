@@ -319,11 +319,15 @@ class NodeState(TypedDict):
     error: str
     retries: int
     condition: bool
+    private: bool
     condition_vars: dict
     loop_end_vars: dict
     case: str
     goals: List[Goal]
+    next_action: str
     breakpoint: bool
+    task_start_time: str
+    node_start_time: str
     metadata: dict
 
 

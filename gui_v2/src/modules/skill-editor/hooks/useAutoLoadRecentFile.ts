@@ -8,6 +8,7 @@ import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { useSkillInfoStore } from '../stores/skill-info-store';
 import { useRecentFilesStore } from '../stores/recent-files-store';
 import { useSheetsStore } from '../stores/sheets-store';
+import { useNodeFlipStore } from '../stores/node-flip-store';
 import { SkillInfo } from '../typings/skill-info';
 import '../../../services/ipc/file-api'; // Import file API extensions
 
@@ -163,6 +164,32 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
             // Load diagram into the editor
             workflowDocument.clear();
             workflowDocument.fromJSON(diagram);
+            
+            // Restore flip states from saved node data (same as open.tsx)
+            const { setFlipped, clear: clearFlipStore } = useNodeFlipStore.getState();
+            clearFlipStore();
+            
+            setTimeout(() => {
+              diagram.nodes.forEach((node: any) => {
+                if (node?.data?.hFlip === true) {
+                  console.log('[AutoLoad] Restoring hFlip state for node:', node.id);
+                  setFlipped(node.id, true);
+                  
+                  // Also set it directly on the loaded node's raw data
+                  const loadedNode = workflowDocument.getNode(node.id);
+                  if (loadedNode) {
+                    if (!loadedNode.raw) (loadedNode as any).raw = {};
+                    if (!loadedNode.raw.data) (loadedNode.raw as any).data = {};
+                    loadedNode.raw.data.hFlip = true;
+                    
+                    if ((loadedNode as any).json?.data) {
+                      (loadedNode as any).json.data.hFlip = true;
+                    }
+                  }
+                }
+              });
+            }, 100);
+            
             workflowDocument.fitView && workflowDocument.fitView();
 
             // Also update sheets store with loaded document
@@ -176,6 +203,21 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
             // Fallback for older formats
             workflowDocument.clear();
             workflowDocument.fromJSON(data as any);
+            
+            // Restore flip states for older formats
+            const { setFlipped, clear: clearFlipStore } = useNodeFlipStore.getState();
+            clearFlipStore();
+            if ((data as any).nodes) {
+              setTimeout(() => {
+                (data as any).nodes.forEach((node: any) => {
+                  if (node?.data?.hFlip === true) {
+                    console.log('[AutoLoad] Restoring hFlip state for node (fallback):', node.id);
+                    setFlipped(node.id, true);
+                  }
+                });
+              }, 100);
+            }
+            
             workflowDocument.fitView && workflowDocument.fitView();
 
             setSkillInfo(data);
