@@ -29,8 +29,17 @@ def chat_or_work(state: NodeState, *, runtime: Runtime) -> str:
 def is_preliminary_component_info_ready(state: NodeState, *, runtime: Runtime) -> str:
     logger.debug("[search_digikey_chatter_skill] is_preliminary_component_info_ready input:", state)
 
-    # return "query_component_specs" if state.get('condition') else "pend_for_next_human_msg0"
-    return "prep_query_components" if state.get('result').get('llm_result').get('human_confirmed') else "pend_for_next_human_msg0"
+    llm_result = state.get('result', {}).get('llm_result', {})
+    
+    # Only proceed when LLM explicitly confirms (human_confirmed=true)
+    # This ensures the LLM has processed user input and determined it's ready to search
+    if llm_result.get('human_confirmed'):
+        logger.debug("[search_digikey_chatter_skill] human_confirmed=True, proceeding to prep_query_components")
+        return "prep_query_components"
+    
+    # Default: wait for more input from user
+    logger.debug("[search_digikey_chatter_skill] human_confirmed=False, waiting for more input")
+    return "pend_for_next_human_msg0"
 
 
 def are_component_specs_filled(state: NodeState) -> str:
