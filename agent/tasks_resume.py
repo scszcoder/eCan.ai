@@ -139,7 +139,7 @@ def _write(obj: Dict[str, Any], path: str, value: Any, on_conflict: str = "overw
             # Otherwise, fall through to overwrite for unsupported types
     else:
         # Leaf missing or None: honor append by initializing appropriately
-        print("leaf missing or None", parent, leaf)
+        logger.debug("leaf missing or None", parent, leaf)
         if on_conflict == "append":
             if isinstance(value, list):
                 parent[leaf] = list(value)
@@ -620,7 +620,7 @@ def build_resume_from_mapping(event: Json, state: Json, node_output: Optional[Js
     - mapping: mapping rules object ({ mappings:[...], options:{...} })
     """
 
-    print("build_resume_from_mapping mapping===>", mapping)
+    logger.debug("build_resume_from_mapping mapping===>", mapping)
     resume: Json = {}
     state_patch: Json = {}
     opts = mapping.get("options", {}) if isinstance(mapping, dict) else {}
@@ -673,7 +673,7 @@ def build_resume_from_mapping(event: Json, state: Json, node_output: Optional[Js
         "timestamp": event.get("timestamp"),
     })
 
-    print("state after mapping:", state_patch)
+    logger.debug("state after mapping:", state_patch)
     return resume, state_patch
 
 
@@ -718,9 +718,9 @@ def build_node_transfer_patch(node_id: str, state_snapshot: Json, node_transfer_
 
         # Reuse the existing mapping engine. For per-node transfer, we have no external event,
         # and sources are expected to be state.* only now.
-        print("build_node_transfer_patch......node_id", node_id)
-        print("build_node_transfer_patch......state_snapshot", state_snapshot)
-        print("build_node_transfer_patch......mapping", mapping)
+        logger.debug("build_node_transfer_patch......node_id", node_id)
+        logger.debug("build_node_transfer_patch......state_snapshot", state_snapshot)
+        logger.debug("build_node_transfer_patch......mapping", mapping)
 
         resume_patch, state_patch = build_resume_from_mapping(event={}, state=state_snapshot or {}, node_output=None, mapping=mapping)
         # We only need the state patch here; resume_patch can be ignored or used for telemetry.
@@ -748,7 +748,7 @@ def load_mapping_for_task(task: Any) -> Dict[str, Any]:
             this_node = state.get("this_node") or {}
             node_name = this_node.get("name")
             if skill and isinstance(skill, object) and hasattr(skill, "config") and isinstance(skill.config, dict):
-                print("getting node level rules:", skill.config)
+                logger.debug("getting node level rules:", skill.config)
                 node_cfg = (skill.config.get("nodes") or {}).get(node_name) if node_name else None
                 node_rules = node_cfg.get("mapping_rules") if isinstance(node_cfg, dict) else None
                 if isinstance(node_rules, dict):
@@ -759,7 +759,7 @@ def load_mapping_for_task(task: Any) -> Dict[str, Any]:
         # 2) Skill-level mapping for current run_mode
         if skill and hasattr(skill, "mapping_rules") and isinstance(skill.mapping_rules, dict):
             # Check if mapping_rules has run_mode keys (developing/released)
-            print("getting skill level mapping:", skill.id, skill.name, skill.mapping_rules)
+            logger.debug("getting skill level mapping:", skill.id, skill.name, skill.mapping_rules)
             mode_rules = skill.mapping_rules.get(run_mode)
             if isinstance(mode_rules, dict):
                 return mode_rules
@@ -783,7 +783,7 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
     """
     # Be robust to different shapes of msg/metadata. Avoid KeyError on missing i_tag.
     try:
-        print(" build_general_resume_payload msg::", msg)
+        logger.debug(" build_general_resume_payload msg::", msg)
     except Exception:
         pass
 
@@ -809,7 +809,7 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
     # Event type best-effort
     event_type = getattr(msg, "method", None) or _safe_get(msg, "method") or ""
 
-    print("found i_tag from raw msg::", i_tag)
+    logger.debug("found i_tag from raw msg::", i_tag)
     event = normalize_event(event_type, msg, tag=i_tag or "")
     # Unified tag to use for checkpoint lookup
     e_tag = event.get("i_tag") if isinstance(event, dict) and "i_tag" in event else event.get("tag")

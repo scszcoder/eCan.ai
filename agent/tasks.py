@@ -294,8 +294,8 @@ class ManagedTask(Task):
             config: Configuration dictionary for the runnable
             **kwargs: Additional arguments to pass to the runnable's astream method
         """
-        print("in_msg:", in_msg, "config:", config, "kwargs:", kwargs)
-        print("self.metadata:", self.metadata)
+        logger.debug(f"in_msg: {in_msg}, config: {config}, kwargs: {kwargs}")
+        logger.debug(f"self.metadata: {self.metadata}")
 
         # Reuse a persistent config (thread_id) across runs; create and cache if missing
         effective_config = config or self.metadata.get("config")
@@ -363,23 +363,23 @@ class ManagedTask(Task):
             raise AttributeError(f"Skill '{self.skill.name if hasattr(self.skill, 'name') else 'UNKNOWN'}' has no runnable")
         
         logger.debug(f"[SKILL_CHECK] Task {self.id} using skill: {self.skill.name}, runnable type: {type(self.skill.runnable)}")
-        print("current langgraph run time state0:", self.skill.runnable.get_state(config=effective_config))
+        logger.debug(f"current langgraph run time state0: {self.skill.runnable.get_state(config=effective_config)}")
 
         # Support Command inputs (e.g., Command(resume=...)) and normal state runs
         # Pass context as kwarg for runtime.context, and step control via config
         if isinstance(in_msg, Command):
             # in_args = self.metadata.get("state", {})
-            print("effective config before resume:", effective_config)
+            logger.debug(f"effective config before resume: {effective_config}")
             agen = self.skill.runnable.stream(in_msg, config=effective_config, context=context, **kwargs)
         else:
             in_args = self.metadata.get("state", {})
-            print("in_args:", in_args)
+            logger.debug(f"in_args: {in_args}")
             agen = self.skill.runnable.stream(in_args, config=effective_config, context=context, **kwargs)
 
         try:
-            logger.debug("stream running skill:", self.skill.name, in_msg)
-            logger.debug("stream_run config:", effective_config)
-            logger.debug("current langgraph run time state2:", self.skill.runnable.get_state(config=effective_config))
+            logger.debug(f"stream running skill: {self.skill.name}, {in_msg}")
+            logger.debug(f"stream_run config: {effective_config}")
+            logger.debug(f"current langgraph run time state2: {self.skill.runnable.get_state(config=effective_config)}")
             # Set up default config if not provided
 
             # Handle Command objects
@@ -471,7 +471,7 @@ class ManagedTask(Task):
                     pass
                 if step.get("require_user_input") or step.get("await_agent") or step.get("__interrupt__"):
                     self.status.state = TaskState.INPUT_REQUIRED
-                    print("input required...", step)
+                    logger.debug(f"input required... {step}")
                     # yield {"success": False, "step": step}
                     if step.get("__interrupt__"):
                         interrupt_obj = step["__interrupt__"][0]
@@ -480,7 +480,7 @@ class ManagedTask(Task):
                         # Get checkpoint from LangGraph state since raw Interrupt object doesn't have it
                         current_checkpoint = self.skill.runnable.get_state(config=effective_config)
                         current_checkpoint.values["attributes"]["i_tag"] = i_tag
-                        print("current checkpoint:", current_checkpoint)
+                        logger.debug(f"current checkpoint: {current_checkpoint}")
                         self.add_checkpoint_node({"tag": i_tag, "checkpoint": current_checkpoint})
                         # Push paused status to GUI at interrupt
                         try:
@@ -504,14 +504,14 @@ class ManagedTask(Task):
             else:
                 success = True
                 self.status.state = TaskState.COMPLETED
-                print("task completed...")
+                logger.info("task completed...")
 
             if not current_checkpoint:
                 # record exit state
                 current_checkpoint = self.skill.runnable.get_state(config=effective_config)
 
             run_result = {"success": success, "step": step, "cp": current_checkpoint}
-            print("synced stream_run result:", run_result)
+            logger.debug(f"synced stream_run result: {run_result}")
             # Push completion status to GUI
             # Note: Don't send update here if we already sent a paused status at interrupt
             # The paused node should remain highlighted until user resumes/steps
@@ -624,11 +624,11 @@ class ManagedTask(Task):
             agen = self.skill.runnable.astream(in_msg, config=effective_config, **kwargs)
         else:
             in_args = self.metadata.get("state", {})
-            print("in_args:", in_args)
+            logger.debug(f"in_args: {in_args}")
             agen = self.skill.runnable.astream(in_args, config=effective_config, **kwargs)
         try:
-            print("astream running skill:", self.skill.name, in_msg)
-            print("astream_run config:", effective_config)
+            logger.debug(f"astream running skill: {self.skill.name}, {in_msg}")
+            logger.debug(f"astream_run config: {effective_config}")
 
 
             # Set up default config if not provided
@@ -668,7 +668,7 @@ class ManagedTask(Task):
                 pass
 
             async for step in agen:
-                print("async Step output:", step)
+                logger.debug(f"async Step output: {step}")
                 await self.pause_event.wait()
                 self.status.message = Message(
                     role="agent",
@@ -706,7 +706,7 @@ class ManagedTask(Task):
                     pass
                 if step.get("require_user_input") or step.get("await_agent") or step.get("__interrupt__"):
                     self.status.state = TaskState.INPUT_REQUIRED
-                    print("input required...", step)
+                    logger.debug(f"input required... {step}")
                     # yield {"success": False, "step": step}
                     if step.get("__interrupt__"):
                         interrupt_obj = step["__interrupt__"][0]
@@ -735,14 +735,14 @@ class ManagedTask(Task):
             else:
                 success = True
                 self.status.state = TaskState.COMPLETED
-                print("task completed...")
+                logger.info("task completed...")
 
             if not current_checkpoint:
                 # record exit state
                 current_checkpoint = self.skill.runnable.get_state(config=effective_config)
 
             run_result = {"success": success, "step": step, "cp": current_checkpoint}
-            print("astream_run result:", run_result)
+            logger.debug(f"astream_run result: {run_result}")
             # Push completion status to GUI
             try:
                 from gui.ipc.api import IPCAPI
@@ -805,7 +805,7 @@ def add_years(dt: datetime, years: int) -> datetime:
 def get_next_runtime(schedule: TaskSchedule) -> Tuple[datetime, bool]:
     fmt = "%Y-%m-%d %H:%M:%S:%f"
     now = datetime.now()
-    print("checking start time:", schedule.start_date_time)
+    logger.debug(f"checking start time: {schedule.start_date_time}")
     start_time = datetime.strptime(schedule.start_date_time, fmt)
     end_time = datetime.strptime(schedule.end_date_time, fmt)
     repeat_number = int(schedule.repeat_number)
@@ -828,7 +828,7 @@ def get_next_runtime(schedule: TaskSchedule) -> Tuple[datetime, bool]:
         intervals = max(0, int(elapsed // delta.total_seconds()))
         next_runtime = start_time + delta * (intervals + 1)
     elif schedule.repeat_type == Repeat_Types.BY_DAYS:
-        print("Checking dailly schedule", repeat_number)
+        logger.debug(f"Checking daily schedule: {repeat_number}")
         delta = timedelta(days=repeat_number)
         elapsed = (now - start_time).total_seconds()
         intervals = max(0, int(elapsed // delta.total_seconds()))
@@ -1110,30 +1110,30 @@ class TaskRunner(Generic[Context]):
                     continue
                 skill = t.skill
                 rules = getattr(skill, "mapping_rules", None)
-                print("rules:", rules)
+                logger.debug(f"rules: {rules}")
                 if not isinstance(rules, dict):
-                    print("rules not dict?")
+                    logger.debug("rules not dict?")
                     continue
                 # event_routing can be at top-level; also tolerate run_mode nesting
                 event_routing = rules.get("event_routing")
                 if not isinstance(event_routing, dict):
-                    print("event_routing not dict0?", event_routing)
+                    logger.debug(f"event_routing not dict0? {event_routing}")
                     run_mode = getattr(skill, "run_mode", None)
                     if run_mode and isinstance(rules.get(run_mode), dict):
                         event_routing = rules.get(run_mode, {}).get("event_routing")
                 if not isinstance(event_routing, dict):
-                    print("event_routing not dict1?", event_routing)
+                    logger.debug(f"event_routing not dict1? {event_routing}")
                     continue
 
                 rule = event_routing.get(etype)
                 if not isinstance(rule, dict):
-                    print("rule not dict?", rule)
+                    logger.debug(f"rule not dict? {rule}")
                     continue
 
                 selector = rule.get("task_selector") or ""
                 sel_ok = False
                 try:
-                    print("selector:", selector)
+                    logger.debug(f"selector: {selector}")
                     if selector.startswith("id:"):
                         task_id_to_match = selector.split(":", 1)[1].strip()
                         sel_ok = (t.id or "").strip() == task_id_to_match
@@ -1268,10 +1268,10 @@ class TaskRunner(Generic[Context]):
         tbr_task = next((task for task in self.agent.tasks if task and task.id == task_id), None)
         if tbr_task:
             if tbr_task.status.state != TaskState.WORKING and tbr_task.status.state != TaskState.INPUT_REQUIRED :
-                print("start to run task: ", tbr_task.status.state)
+                logger.info(f"start to run task: {tbr_task.status.state}")
                 await tbr_task.astream_run()
             else:
-                print("WARNING: no running tasks....")
+                logger.warning("WARNING: no running tasks....")
 
 
     async def run_all_tasks(self):
@@ -1911,7 +1911,7 @@ class TaskRunner(Generic[Context]):
                 idx = task.checkpoint_nodes.index(found_cp)
                 be_to_resumed = task.checkpoint_nodes.pop(idx)
                 resume_cp = be_to_resumed["checkpoint"]
-                print("resume checkpoint is: ", resume_cp)
+                logger.debug(f"resume checkpoint is: {resume_cp}")
                 # Ensure the node can detect resume by injecting cloud_task_id into checkpoint state
                 try:
                     # StateSnapshot typically has a .values dict-like payload
@@ -2179,7 +2179,7 @@ class TaskRunner(Generic[Context]):
                     if self._stop_event.wait(timeout=1.0):
                         break
                     continue
-                print("in task main loop......7")
+                logger.debug("in task main loop......7")
                 # Validate task exists before proceeding
                 if not current_task:
                     logger.warning(f"No valid task for trigger_type={trigger_type}")

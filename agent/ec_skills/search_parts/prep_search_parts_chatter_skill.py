@@ -6,7 +6,7 @@ import ast
 # whatever attachments should have been saved, read, packaged into the right form by the human twin agent
 # and sent over via A2A, by the time we get them here, they'are already in the msg object
 def prep_search_parts_chatter_skill(agent, task_id, msg, current_state=None):
-    print("prep_search_parts_chatter_skill", type(msg), msg)  # msg.params.message[0].text
+    logger.debug("prep_search_parts_chatter_skill", type(msg), msg)  # msg.params.message[0].text
     # msg_txt = "I have three files here, please describe to me the contents of each of these files in detail."
     if not isinstance(msg, dict):
         msg_parts = msg.params.message.parts
@@ -58,17 +58,17 @@ def prep_search_parts_chatter_skill(agent, task_id, msg, current_state=None):
         goals=[]
     )
     if not current_state:
-        print("prep_search_parts_chatter_skill: set init state")
+        logger.debug("prep_search_parts_chatter_skill: set init state")
         return init_state
     else:
-        print("prep_search_parts_chatter_skill: set to resume")
+        logger.debug("prep_search_parts_chatter_skill: set to resume")
         data = try_parse_json(msg_txt)
         if isinstance(data, dict):
             if data.get("type", "") == "normal":
-                print("saving filled parametric filter form......")
+                logger.debug("saving filled parametric filter form......")
                 current_state["attributes"]["filled_parametric_filter"] = data
             elif data.get("type", "") == "score":
-                print("saving filled fom form......")
+                logger.debug("saving filled fom form......")
                 current_state["attributes"]["filled_fom_form"] = data
         current_state["attachments"] = attachments
         current_state["messages"].append(msg_txt)
@@ -83,7 +83,7 @@ def prep_search_parts_chatter_skill(agent, task_id, msg, current_state=None):
                 current_state["attributes"]["rank_results"] = ranked_results
                 current_state["attributes"]["i_tag"] = msg.get("taskID", "")
             except (ValueError, SyntaxError) as e:
-                print(f"Error parsing results: {e}")
+                logger.error(f"Error parsing results: {e}")
                 current_state["tool_result"] = []
                 current_state["attributes"]["rank_results"] = []
                 current_state["attributes"]["i_tag"] = msg.get("taskID", "")
