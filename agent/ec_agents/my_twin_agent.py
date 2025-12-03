@@ -21,7 +21,12 @@ def set_up_my_twin_agent(mainwin: 'MainWindow'):
         # a2a client+server
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
         chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for my digital twin"), None)
-        logger.info("chatter skill:", chatter_skill)
+        
+        if not chatter_skill:
+            logger.error(f"[MyTwinAgent] Critical Error: Skill 'chatter for my digital twin' not found! Agent setup aborted.")
+            return None
+            
+        logger.info("chatter skill found:", chatter_skill.name)
         
         # 使用固定的 ID 和 name 创建 agent card
         agent_card = AgentCard(
@@ -37,6 +42,10 @@ def set_up_my_twin_agent(mainwin: 'MainWindow'):
         )
         logger.info(f"[MyTwinAgent] Created system agent with fixed ID: {MY_TWIN_AGENT_ID}, name: {MY_TWIN_AGENT_NAME}")
         chat_task = create_my_twin_chat_task(mainwin)
+        
+        if not chat_task:
+            logger.error(f"[MyTwinAgent] Critical Error: Failed to create chat task! Agent setup aborted.")
+            return None
 
         # Use mainwin's unified browser_use_llm instance (shared across all agents)
         browser_use_llm = mainwin.browser_use_llm
