@@ -14,7 +14,7 @@ export const StartNodeRegistry: FlowNodeRegistry = {
   type: WorkflowNodeType.Start,
   meta: {
     isStart: true,
-    deleteDisable: true,
+    deleteDisable: false,
     copyDisable: true,
     nodePanelVisible: true,
     defaultPorts: [{ type: 'output' }],
@@ -35,9 +35,6 @@ export const StartNodeRegistry: FlowNodeRegistry = {
   /**
    * Start Node cannot be added
    */
-  canAdd() {
-    return false;
-  },
   onAdd() {
     return {
       id: `start_${nanoid(5)}`,
