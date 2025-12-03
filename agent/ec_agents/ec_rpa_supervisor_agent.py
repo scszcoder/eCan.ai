@@ -16,7 +16,24 @@ def set_up_ec_rpa_supervisor_agent(mainwin):
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
         schedule_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa supervisor task scheduling"), None)
         serve_request_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa supervisor serve requests"), None)
-        chatter_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa supervisor chatter"),None)
+        # chatter skill name might be different in create_agent_tasks.py? 
+        # In create_agent_tasks: "chatter for ecbot rpa supervisor task scheduling"
+        # Here: "ecbot rpa supervisor chatter"
+        # Let's check the create_task logic.
+        # create_ec_rpa_supervisor_chat_task uses "chatter for ecbot rpa supervisor task scheduling"
+        # So we should probably look for that one too, or update this one.
+        # Assuming create_task has the correct name "chatter for ecbot rpa supervisor task scheduling"
+        chatter_skill = next((sk for sk in agent_skills if sk.name == "chatter for ecbot rpa supervisor task scheduling"), None)
+
+        if not schedule_skill:
+            logger.error("Skill 'ecbot rpa supervisor task scheduling' not found! Aborting setup.")
+            return None
+        if not serve_request_skill:
+            logger.error("Skill 'ecbot rpa supervisor serve requests' not found! Aborting setup.")
+            return None
+        if not chatter_skill:
+            logger.error("Skill 'chatter for ecbot rpa supervisor task scheduling' not found! Aborting setup.")
+            return None
 
         agent_card = AgentCard(
             name="ECBot RPA Supervisor Agent",
@@ -28,11 +45,23 @@ def set_up_ec_rpa_supervisor_agent(mainwin):
             capabilities=capabilities,
             skills=[schedule_skill, serve_request_skill],
         )
-        logger.info("agent card created:", agent_card.name, agent_card.url)
+        logger.info("rpa_supervisor agent card created:", agent_card.name, agent_card.url)
 
         chatter_task = create_ec_rpa_supervisor_chat_task(mainwin)
+        if not chatter_task:
+            logger.error("Failed to create chatter task for rpa_supervisor! Aborting setup.")
+            return None
+            
         daily_task = create_ec_rpa_supervisor_daily_task(mainwin)
+        if not daily_task:
+            logger.error("Failed to create daily task for rpa_supervisor! Aborting setup.")
+            return None
+            
         on_request_task = create_ec_rpa_supervisor_on_request_task(mainwin)
+        if not on_request_task:
+            logger.error("Failed to create on_request task for rpa_supervisor! Aborting setup.")
+            return None
+            
         # Use mainwin's unified browser_use_llm instance (shared across all agents)
         browser_use_llm = mainwin.browser_use_llm
         supervisor = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=[schedule_skill, serve_request_skill, chatter_skill], tasks=[daily_task, on_request_task, chatter_task])

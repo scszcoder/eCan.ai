@@ -16,7 +16,7 @@ from utils.logger_helper import logger_helper as logger
 from agent.agent_service import get_agent_by_id
 if typing.TYPE_CHECKING:
     from gui.MainGUI import MainWindow
-from agent.ec_skills.llm_utils.llm_utils import find_opposite_agent
+from agent.ec_skills.llm_utils.llm_utils import find_opposite_agent, parse_a2a_message_params
 
 # this is simply a parrot agent, no thinking, no intelligent, simply pipe human message to agent
 # and pipe agent response back to human
@@ -135,51 +135,32 @@ def parrot(state: NodeState) -> NodeState:
                 logger.info("[my_twin_chatter_skill] parrot recipient found:", recipient_agent.card.name)
             else:
                 logger.error("[my_twin_chatter_skill] parrot recipient agent not found!")
-            # result = await agent.a2a_send_chat_message(recipient_agent, {"chat": state["messages"][-1]})
-            result = agent.a2a_send_chat_message(recipient_agent, state)
+            # Use non-blocking send: A sends to B and returns immediately
+            # B will send response back to A via a2a_send_chat_message_async
+            # A's parrot skill will receive the response and display to GUI
+            result = agent.a2a_send_chat_message_async(recipient_agent, state)
+            logger.info("[my_twin_chatter_skill] message forwarded to recipient (non-blocking)")
         else:
-            # sendd this message to GUI
+            # Send this message to GUI
             logger.debug("[my_twin_chatter_skill] parrot showing agent msg", state)
             params = state["attributes"]["params"]
-            if isinstance(params, TaskSendParams):
-                payload_params = params.metadata.get("params", {}) if params.metadata else {}
-                content_meta = payload_params.get("content", {}) if isinstance(payload_params, dict) else {}
-
-                logger.debug("content_meta::", type(content_meta), content_meta)
-                if isinstance(content_meta, str):
-                    logger.debug("converft content meta to json")
-                    content_meta = json.loads(content_meta)
-
-                dtype = content_meta.get("dtype", "text")
-                card = content_meta.get("card", "")
-                code = content_meta.get("code", "")
-                form = content_meta.get("form", "")
-                i_tag = content_meta.get("i_tag", "")
-                notification = content_meta.get("notification", "")
-
-                raw_role = payload_params.get("role") if isinstance(payload_params, dict) else None
-                if not raw_role and params.message:
-                    raw_role = params.message.role
-
-                senderId = payload_params.get("senderId") if isinstance(payload_params, dict) else None
-                createAt = payload_params.get("createAt") if isinstance(payload_params, dict) else None
-                senderName = payload_params.get("senderName") if isinstance(payload_params, dict) else None
-                status = payload_params.get("status") if isinstance(payload_params, dict) else None
-                ext = payload_params.get("ext") if isinstance(payload_params, dict) else None
-            else:
-                logger.warning("strange... shold we be here???")
-                dtype = params["metadata"]["dtype"]
-                card = params["metadata"]["card"]
-                code = params["metadata"]["code"]
-                form = params["metadata"]["form"]
-                i_tag = params["metadata"]["i_tag"]
-                notification = params["metadata"]["notification"]
-                raw_role = params.get("role")
-                senderId = params["senderId"]
-                createAt = params["createAt"]
-                senderName = params["senderName"]
-                status = params["status"]
-                ext = params["ext"]
+            
+            # Use unified parser for consistent message format handling
+            parsed = parse_a2a_message_params(params)
+            logger.debug("[my_twin_chatter_skill] parsed params:", parsed)
+            
+            dtype = parsed["dtype"]
+            card = parsed["card"]
+            code = parsed["code"]
+            form = parsed["form"]
+            i_tag = parsed["i_tag"]
+            notification = parsed["notification"]
+            raw_role = parsed["role"]
+            senderId = parsed["senderId"]
+            createAt = parsed["createAt"]
+            senderName = parsed["senderName"]
+            status = parsed["status"]
+            ext = parsed["ext"]
 
             # Determine final role to use in frontend payload
             role = raw_role or "agent"

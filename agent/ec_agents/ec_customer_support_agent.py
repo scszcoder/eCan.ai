@@ -17,6 +17,13 @@ def set_up_ec_customer_support_agent(mainwin):
         worker_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa customer support"), None)
         chatter_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa customer support internal chatter"),None)
 
+        if not worker_skill:
+            logger.error("Skill 'ecbot rpa customer support' not found! Aborting setup.")
+            return None
+        if not chatter_skill:
+            logger.error("Skill 'ecbot rpa customer support internal chatter' not found! Aborting setup.")
+            return None
+
         agent_card = AgentCard(
             name="ECBot Helper Agent",
             description="Helps with ECBot RPA works",
@@ -27,13 +34,21 @@ def set_up_ec_customer_support_agent(mainwin):
             capabilities=capabilities,
             skills=[worker_skill, chatter_skill],
         )
-        logger.info("agent card created:", agent_card.name, agent_card.url)
+        logger.info("ec_customer_support agent card created:", agent_card.name, agent_card.url)
 
         chatter_task = create_ec_customer_support_chat_task(mainwin)
+        if not chatter_task:
+            logger.error("Failed to create chatter task for customer_support! Aborting setup.")
+            return None
+            
         worker_task = create_ec_customer_support_work_task(mainwin)
+        if not worker_task:
+            logger.error("Failed to create worker task for customer_support! Aborting setup.")
+            return None
+            
         # Use mainwin's unified browser_use_llm instance (shared across all agents)
         browser_use_llm = mainwin.browser_use_llm
-        customer_support = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", task="", card=agent_card, skills=[worker_skill, chatter_skill], tasks=[worker_task, chatter_task])
+        customer_support = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=[worker_skill, chatter_skill], tasks=[worker_task, chatter_task])
 
     except Exception as e:
         # Get the traceback information

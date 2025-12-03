@@ -40,6 +40,235 @@ from utils.logger_helper import get_traceback
 from utils.logger_helper import logger_helper as logger
 
 
+def build_a2a_response_message(
+    agent_id: str,
+    chat_id: str,
+    msg_id: str,
+    task_id: str,
+    msg_text: str,
+    sender_name: str,
+    msg_type: str = "text",
+    i_tag: str = "",
+    attachments: list = None,
+    card: dict = None,
+    code: dict = None,
+    form: list = None,
+    notification: dict = None,
+) -> dict:
+    """
+    Build a standardized A2A response message structure.
+    
+    This is the SINGLE SOURCE OF TRUTH for message format used by:
+    - a2a_send_chat_message_sync() in ec_agent.py
+    - All skill response functions (send_response_back, etc.)
+    
+    Message structure:
+    {
+        "id": str,                    # unique message id
+        "messages": [                 # REQUIRED by a2a_send_chat_message
+            agent_id,                 # [0] sender agent id
+            chat_id,                  # [1] chat/session id
+            msg_id,                   # [2] message id
+            task_id,                  # [3] task id for tracing
+            msg_text                  # [4] message text content
+        ],
+        "attributes": {
+            "params": {
+                "content": {...},     # message content details
+                "attachments": [...], # file attachments
+                "chatId": str,        # chat id (redundant but needed by some handlers)
+                "senderId": str,      # sender agent id
+                "senderName": str,    # sender display name
+                ...
+            }
+        }
+    }
+    
+    Args:
+        agent_id: The sending agent's ID
+        chat_id: The chat/session ID
+        msg_id: Unique message ID (will be generated if empty)
+        task_id: Task ID for tracing (can be empty)
+        msg_text: The message text content
+        sender_name: Display name of the sender
+        msg_type: Message type - "text", "form", "notification", "card", "code"
+        i_tag: Interaction tag for UI state management
+        attachments: List of file attachments
+        card: Card data (for card type messages)
+        code: Code data (for code type messages)
+        form: Form data (for form type messages)
+        notification: Notification data (for notification type messages)
+    
+    Returns:
+        dict: Standardized message structure
+    """
+    if not msg_id:
+        msg_id = str(uuid.uuid4())
+    
+    return {
+        "id": str(uuid.uuid4()),
+        # Top-level 'messages' array - REQUIRED by ec_agent.a2a_send_chat_message
+        # Format: [agent_id, chat_id, msg_id, task_id, msg_txt]
+        "messages": [agent_id, chat_id, msg_id, task_id or "", msg_text],
+        "attributes": {
+            "params": {
+                "content": {
+                    "type": msg_type,
+                    "text": msg_text,
+                    "i_tag": i_tag,
+                    "dtype": msg_type,
+                    "card": card or {},
+                    "code": code or {},
+                    "form": form or [],
+                    "notification": notification or {},
+                },
+                "attachments": attachments or [],
+                "chatId": chat_id,
+                "senderId": agent_id,
+                "i_tag": i_tag,
+                "createAt": int(time.time() * 1000),
+                "senderName": sender_name,
+                "status": "success",
+                "role": "",
+                "ext": "",
+                "human": False,
+            }
+        }
+    }
+
+
+def parse_a2a_message_params(params) -> dict:
+    """
+    Parse A2A message params to extract standardized fields.
+    
+    This is the SINGLE SOURCE OF TRUTH for reading message params.
+    Handles both TaskSendParams objects and dict structures.
+    
+    Args:
+        params: Either a TaskSendParams object or a dict from state["attributes"]["params"]
+    
+    Returns:
+        dict with standardized fields:
+        {
+            "dtype": str,           # message type: "text", "form", "notification", etc.
+            "text": str,            # message text content
+            "card": dict,           # card data
+            "code": dict,           # code data  
+            "form": list,           # form data
+            "notification": dict,   # notification data
+            "i_tag": str,           # interaction tag
+            "role": str,            # sender role
+            "senderId": str,        # sender agent id
+            "senderName": str,      # sender display name
+            "createAt": int,        # timestamp
+            "chatId": str,          # chat id
+            "status": str,          # message status
+            "ext": str,             # extension data
+            "attachments": list,    # file attachments
+        }
+    """
+    from agent.a2a.common.types import TaskSendParams
+    
+    result = {
+        "dtype": "text",
+        "text": "",
+        "card": {},
+        "code": {},
+        "form": [],
+        "notification": {},
+        "i_tag": "",
+        "role": "",
+        "senderId": "",
+        "senderName": "",
+        "createAt": None,
+        "chatId": "",
+        "status": "",
+        "ext": "",
+        "attachments": [],
+    }
+    
+    try:
+        if isinstance(params, TaskSendParams):
+            # TaskSendParams object - extract from metadata.params.content
+            payload_params = params.metadata.get("params", {}) if params.metadata else {}
+            content_meta = payload_params.get("content", {}) if isinstance(payload_params, dict) else {}
+            
+            if isinstance(content_meta, str):
+                try:
+                    content_meta = json.loads(content_meta)
+                except:
+                    content_meta = {}
+            
+            if isinstance(content_meta, dict):
+                result["dtype"] = content_meta.get("dtype", "text")
+                result["text"] = content_meta.get("text", "")
+                result["card"] = content_meta.get("card", {})
+                result["code"] = content_meta.get("code", {})
+                result["form"] = content_meta.get("form", [])
+                result["notification"] = content_meta.get("notification", {})
+                result["i_tag"] = content_meta.get("i_tag", "")
+            
+            if isinstance(payload_params, dict):
+                result["role"] = payload_params.get("role", "")
+                result["senderId"] = payload_params.get("senderId", "")
+                result["senderName"] = payload_params.get("senderName", "")
+                result["createAt"] = payload_params.get("createAt")
+                result["chatId"] = payload_params.get("chatId", "")
+                result["status"] = payload_params.get("status", "")
+                result["ext"] = payload_params.get("ext", "")
+                result["attachments"] = payload_params.get("attachments", [])
+                if not result["i_tag"]:
+                    result["i_tag"] = payload_params.get("i_tag", "")
+            
+            # Fallback to message role if not in payload_params
+            if not result["role"] and params.message:
+                result["role"] = params.message.role
+                
+        elif isinstance(params, dict):
+            # Dict structure - could be direct params or nested metadata.params.content
+            # Try nested structure first (from A2A response)
+            metadata = params.get("metadata", {})
+            if isinstance(metadata, dict) and "params" in metadata:
+                # Nested structure: params["metadata"]["params"]["content"]
+                payload_params = metadata.get("params", {})
+                content_meta = payload_params.get("content", {}) if isinstance(payload_params, dict) else {}
+            else:
+                # Direct structure: params["content"] or params itself
+                payload_params = params
+                content_meta = params.get("content", {})
+            
+            if isinstance(content_meta, str):
+                try:
+                    content_meta = json.loads(content_meta)
+                except:
+                    content_meta = {}
+            
+            if isinstance(content_meta, dict):
+                result["dtype"] = content_meta.get("dtype", content_meta.get("type", "text"))
+                result["text"] = content_meta.get("text", "")
+                result["card"] = content_meta.get("card", {})
+                result["code"] = content_meta.get("code", {})
+                result["form"] = content_meta.get("form", [])
+                result["notification"] = content_meta.get("notification", {})
+                result["i_tag"] = content_meta.get("i_tag", "")
+            
+            if isinstance(payload_params, dict):
+                result["role"] = payload_params.get("role", "")
+                result["senderId"] = payload_params.get("senderId", "")
+                result["senderName"] = payload_params.get("senderName", "")
+                result["createAt"] = payload_params.get("createAt")
+                result["chatId"] = payload_params.get("chatId", "")
+                result["status"] = payload_params.get("status", "")
+                result["ext"] = payload_params.get("ext", "")
+                result["attachments"] = payload_params.get("attachments", [])
+                if not result["i_tag"]:
+                    result["i_tag"] = payload_params.get("i_tag", "")
+    except Exception as e:
+        logger.error(f"[parse_a2a_message_params] Error parsing params: {e}")
+    
+    return result
+
+
 def rough_token_count(text: str) -> int:
     # Split on whitespace and common punctuations (roughly approximates token count)
     tokens = re.findall(r"\w+|[^\w\s]", text, re.UNICODE)
@@ -1775,14 +2004,45 @@ def find_opposite_agent(self_agent, chat_id):
         opposite_side = None
     return opposite_side
 
-def send_response_back(state: NodeState) -> NodeState:
+def send_response_back(state: NodeState, force_send: bool = False) -> NodeState:
+    """
+    Send response back to the opposite agent (typically Twin Agent).
+    
+    This function is used for async communication where the response is sent
+    as a new A2A request rather than returned via the original HTTP response.
+    
+    The decision to send or skip is controlled by:
+    1. force_send=True: Always send
+    2. state["attributes"]["async_response"]=True: Send via A2A (async mode)
+    3. state["attributes"]["async_response"]=False: Skip, result via waiter (sync mode)
+    4. Default: Send via A2A (backward compatible)
+    
+    Node designers can set async_response in their node config or state to control this.
+    
+    Args:
+        state: The current node state containing the response
+        force_send: If True, always send regardless of async_response setting
+    
+    Returns:
+        The send result or state
+    """
     try:
         agent_id = state["messages"][0]
-        # _ensure_context(runtime.context)
         self_agent = get_agent_by_id(agent_id)
         mainwin = self_agent.mainwin
-
-        logger.debug(f"standard_post_llm_hook send_response_back: {state}")
+        
+        # Check if async_response is explicitly set in state
+        # This allows node/skill designers to control the response mode
+        async_response = state.get("attributes", {}).get("async_response")
+        
+        # If async_response is explicitly False, skip sending (sync mode - result via waiter)
+        if not force_send and async_response is False:
+            logger.debug("[send_response_back] async_response=False, skipping A2A send (sync mode)")
+            return state
+        
+        # Default behavior: send via A2A (async mode)
+        # This maintains backward compatibility
+        logger.debug(f"[send_response_back] async_response={async_response}, sending via A2A")
         
         # CRITICAL FIX: Use chatId from attributes.params if available, otherwise fallback to messages[1]
         # When a chat is deleted and recreated, attributes.params.chatId has the new chatId,
@@ -1883,35 +2143,25 @@ def send_response_back(state: NodeState) -> NodeState:
             else:
                 next_msg = "sorry, I was lost, could you rephrase your question?"
 
-        agent_response_message = {
-            "id": str(uuid.uuid4()),
-            "attributes": {
-                "params": {
-                    "content": {
-                        "type": msg_type, # "text", "code", "form", "notification", "card
-                        "text": next_msg,
-                        "i_tag": i_tag,
-                        "dtype": msg_type,
-                        "card": {},
-                        "code": {},
-                        "form": qa_form,
-                        "notification": notification,
-                    },
-                    "attachments": state["attachments"],
-                    "role": "",
-                    "chatId": f"{chat_id}",
-                    "senderId": f"{agent_id}",
-                    "i_tag": i_tag,
-                    "createAt": int(time.time() * 1000),
-                    "senderName": f"{self_agent.card.name}",
-                    "status": "success",
-                    "ext": "",
-                    "human": False
-                }
-            }
-        }
+        # Use standardized message builder
+        agent_response_message = build_a2a_response_message(
+            agent_id=agent_id,
+            chat_id=chat_id,
+            msg_id=msg_id,
+            task_id="",
+            msg_text=next_msg,
+            sender_name=self_agent.card.name,
+            msg_type=msg_type,
+            i_tag=i_tag,
+            attachments=state.get("attachments", []),
+            form=qa_form if qa_form else None,
+            notification=notification if notification else None,
+        )
         logger.debug(f"sending response msg back to twin: {agent_response_message}")
-        send_result = self_agent.a2a_send_chat_message(opposite_agent, agent_response_message)
+        # Use non-blocking send to avoid deadlock:
+        # A waits for B's response, B executes skill and sends response back to A
+        # If B uses blocking send, both A and B will wait for each other = DEADLOCK
+        send_result = self_agent.a2a_send_chat_message_async(opposite_agent, agent_response_message)
         # state.result = result
         return send_result
     except Exception as e:
@@ -2152,6 +2402,31 @@ def get_recent_context(history: list, max_tokens: int = CONTEXT_WINDOW_SIZE) -> 
 
     from langchain_core.messages import SystemMessage
 
+    # Filter out unsupported message types (e.g., custom ActionMessage) that
+    # LangChain's OpenAI chat models cannot serialize. We only keep standard
+    # chat message types so that ChatOpenAI/others do not raise
+    # `TypeError: Got unknown type ...` when converting to OpenAI payload.
+    allowed_types = {"system", "human", "ai", "tool", "function"}
+
+    filtered_history: list = []
+    for msg in history:
+        try:
+            msg_type = getattr(msg, "type", None)
+            if msg_type in allowed_types or isinstance(msg, SystemMessage):
+                filtered_history.append(msg)
+            else:
+                # Keep for debugging but do not send to LLM
+                logger.debug(
+                    f"[get_recent_context] Skipping unsupported message in history: "
+                    f"{type(msg)} (type={msg_type})"
+                )
+        except Exception:
+            # Defensive: if anything goes wrong during inspection, skip the msg
+            continue
+
+    if not filtered_history:
+        return []
+
     # Simple token estimation: ~4 chars per token (conservative)
     def estimate_tokens(msg) -> int:
         try:
@@ -2163,9 +2438,9 @@ def get_recent_context(history: list, max_tokens: int = CONTEXT_WINDOW_SIZE) -> 
     # Find the most recent SystemMessage
     system_msg = None
     system_msg_idx = -1
-    for idx in range(len(history) - 1, -1, -1):
-        if isinstance(history[idx], SystemMessage):
-            system_msg = history[idx]
+    for idx in range(len(filtered_history) - 1, -1, -1):
+        if isinstance(filtered_history[idx], SystemMessage):
+            system_msg = filtered_history[idx]
             system_msg_idx = idx
             break
 
@@ -2181,11 +2456,11 @@ def get_recent_context(history: list, max_tokens: int = CONTEXT_WINDOW_SIZE) -> 
 
     # Add messages from the end (most recent) going backwards
     # Skip the system message if we already added it
-    for idx in range(len(history) - 1, -1, -1):
+    for idx in range(len(filtered_history) - 1, -1, -1):
         if idx == system_msg_idx:
             continue  # Already added
 
-        msg = history[idx]
+        msg = filtered_history[idx]
             
         msg_tokens = estimate_tokens(msg)
 

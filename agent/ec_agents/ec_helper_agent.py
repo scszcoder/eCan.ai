@@ -19,21 +19,12 @@ def set_up_ec_helper_agent(mainwin):
         logger.info("worker_skill", getattr(worker_skill, 'name', None))
         logger.info("chatter_skill", getattr(chatter_skill, 'name', None))
         
-        # 确保只有有效的技能被添加到skills列表中
-        valid_skills = []
-        if worker_skill:
-            valid_skills.append(worker_skill)
-        else:
-            logger.error("No worker skill found for ec_helper agent!")
-        if chatter_skill:
-            valid_skills.append(chatter_skill)
-        else:
-            logger.error("No chatter skill found for ec_helper agent!")
-
-        # 如果没有有效技能，记录错误并返回None
+        # 收集有效的技能
+        valid_skills = [sk for sk in [worker_skill, chatter_skill] if sk is not None]
         if not valid_skills:
-            logger.error("No valid skills found for ec_helper agent!")
-        
+            logger.error("No valid skills found for ec_helper agent! Aborting setup.")
+            return None
+
         agent_card = AgentCard(
             name="ECBot Helper Agent",
             description="Helps with ECBot RPA works",
@@ -45,9 +36,16 @@ def set_up_ec_helper_agent(mainwin):
             skills=valid_skills,
         )
 
-        logger.info("agent card created:", agent_card.name, agent_card.url)
+        logger.info("ec_helper agent card created:", agent_card.name, agent_card.url)
         chatter_task = create_ec_helper_chat_task(mainwin)
         worker_task = create_ec_helper_work_task(mainwin)
+        
+        # 收集有效的任务
+        valid_tasks = [t for t in [worker_task, chatter_task] if t is not None]
+        if not valid_tasks:
+            logger.error("No valid tasks created for ec_helper agent! Aborting setup.")
+            return None
+            
         # Use mainwin's unified browser_use_llm instance (shared across all agents)
         browser_use_llm = mainwin.browser_use_llm
 
@@ -55,7 +53,7 @@ def set_up_ec_helper_agent(mainwin):
         try:
             helper = EC_Agent(
                 mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="",
-                card=agent_card, skills=valid_skills, tasks=[worker_task, chatter_task]
+                card=agent_card, skills=valid_skills, tasks=valid_tasks
             )
         except RuntimeError as re:
             logger.error(f"Warning: browser_use resource loading failed in PyInstaller environment: {re}")
