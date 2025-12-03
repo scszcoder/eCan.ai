@@ -262,7 +262,7 @@ def _load_all_prompts() -> List[Dict[str, Any]]:
     mtimes: Dict[str, float] = {}
 
     directories = [
-        (SAMPLE_PROMPTS_DIR, "sample_prompts", True),
+        (SAMPLE_PROMPTS_DIR, "sample_prompts", False),  # Changed to editable
         (MY_PROMPTS_DIR, "my_prompts", False),
     ]
 

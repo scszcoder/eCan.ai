@@ -109,7 +109,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
 
   const promptOptions = useMemo(() => {
     const base = prompts.map((prompt) => {
-      const location = prompt.location === 'sample_prompts' ? 'sample' : 'my';
+      const location = prompt.source === 'sample_prompts' ? 'sample' : 'my';
       const label = `${location}:${prompt.title || prompt.topic || prompt.id}`;
       return {
         label,
