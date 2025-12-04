@@ -4,6 +4,7 @@
  */
 
 import { EditorRenderer, FreeLayoutEditorProvider, useService, WorkflowDocument, WorkflowLinesManager, CommandService, usePlayground } from '@flowgram.ai/free-layout-editor';
+import { DockedPanelLayer } from '@flowgram.ai/panel-manager-plugin';
 import { useEffect, useMemo, useRef } from 'react';
 import React from 'react';
 
@@ -64,7 +65,7 @@ export const Editor = () => {
   // Editor ready state
   const [editorReady, setEditorReady] = React.useState(false);
   const editorReadyRef = useRef(false);
-  
+
   useEffect(() => {
     if (editorReadyRef.current) return;
     editorReadyRef.current = true;
@@ -144,12 +145,25 @@ export const Editor = () => {
   }, [editorReady, preferredDoc, initMain, openSheet]);
 
   // Memoize sheets state to prevent unnecessary re-renders triggering auto-save
+  // Use JSON.stringify to create a stable fingerprint that detects deep changes
+  const sheetsFingerprint = useMemo(() => {
+    return JSON.stringify({
+      sheetIds: Object.keys(sheets),
+      sheetDocs: Object.entries(sheets).map(([id, s]) => ({
+        id,
+        name: s.name,
+        nodeCount: s.document?.nodes?.length ?? 0,
+        edgeCount: s.document?.edges?.length ?? 0,
+      })),
+    });
+  }, [sheets]);
+
   const sheetsState = useMemo(() => ({
     sheets,
     order,
     openTabs,
     activeSheetId,
-  }), [sheets, order, openTabs, activeSheetId]);
+  }), [sheets, order, openTabs, activeSheetId, sheetsFingerprint]);
 
   // Stable empty array reference for selectionIds
   const emptySelectionIds = useMemo(() => [], []);
@@ -183,15 +197,21 @@ export const Editor = () => {
               <NodeInfoDisplay />
               <div className="demo-container">
                 {/* Sheets toolbar: tab bar and sheets menu */}
-                <div style={{ display: 'flex', alignItems: 'center', padding: '4px 8px', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', padding: '4px 8px', gap: 8, flexShrink: 0, minHeight: 48 }}>
                   <SheetsTabBar />
                   <div style={{ marginLeft: 'auto' }}>
                     <SheetsMenu />
                   </div>
                 </div>
-                <EditorRenderer className="demo-editor">
-                  <FilePathDisplay />
-                </EditorRenderer>
+                
+                  {/* DockedPanelLayer for ProblemPanel etc - needs flex:1 to fill remaining space */}
+                <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+                  <DockedPanelLayer>
+                    <EditorRenderer className="demo-editor">
+                    <FilePathDisplay />
+                  </EditorRenderer>
+                  </DockedPanelLayer>
+                </div>
               </div>
               <Tools />
               <SidebarRenderer />
