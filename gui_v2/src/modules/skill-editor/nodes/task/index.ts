@@ -24,7 +24,9 @@ export const TaskNodeRegistry: FlowNodeRegistry = {
       id: `task_${nanoid(5)}`,
       type: 'task',
       data: {
-        title: `Task_${++index}`,
+        name: `Task_${++index}`,
+        title: `Task_${index}`,
+        type: 'task',
         inputsValues: {},
         inputs: {
           type: 'object',

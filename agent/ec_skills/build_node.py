@@ -1,5 +1,6 @@
 import re
 import os
+import json
 import importlib.util
 import httpx
 from urllib.parse import urlparse, parse_qsl, urlunparse
@@ -1857,3 +1858,250 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         return state
 
     return node_builder(_auto, node_name, skill_name, owner, bp_manager)
+
+
+def build_task_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
+    """
+    Builds a task node for organizing workflow steps.
+    Currently a pass-through node that can be extended with task-specific logic.
+    
+    Config keys (best-effort):
+        - description: Optional task description
+        - metadata: Optional task metadata
+    """
+    log_msg = f"building task node : {config_metadata}"
+    logger.debug(log_msg)
+    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+    
+    description = (config_metadata or {}).get('description', '')
+    
+    def _task(state: dict, **kwargs):
+        """Task node implementation - currently a pass-through."""
+        try:
+            # Add task execution marker to metadata
+            metadata = state.setdefault('metadata', {})
+            tasks = metadata.setdefault('executed_tasks', [])
+            tasks.append({
+                'node': node_name,
+                'description': description,
+                'skill': skill_name
+            })
+            
+            log_msg = f"Task node '{node_name}' executed: {description}"
+            logger.debug(log_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("debug", log_msg)
+            
+        except Exception as e:
+            err_msg = get_traceback(e, f"ErrorInTaskNode_{node_name}")
+            logger.error(err_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+        
+        return state
+    
+    return node_builder(_task, node_name, skill_name, owner, bp_manager)
+
+
+def _get_chat_llm(model_name: str, temperature: float = 0.0):
+    """
+    Helper function to create a chat LLM instance for tool picker.
+    Defaults to OpenAI with credentials from secure_store.
+    """
+    try:
+        # Get API key from secure store
+        username = get_current_username()
+        api_key = secure_store.get("OPENAI_API_KEY", username=username) or ""
+        
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY not found in secure store")
+        
+        # Create OpenAI LLM instance
+        llm = ChatOpenAI(
+            model=model_name,
+            api_key=api_key,
+            temperature=temperature
+        )
+        return llm
+    except Exception as e:
+        err_msg = get_traceback(e, "ErrorCreatingLLM")
+        logger.error(f"Failed to create LLM for tool picker: {err_msg}")
+        raise
+
+
+def build_tool_picker_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
+    """
+    Builds a tool picker node that uses LLM to select appropriate tools based on action plans.
+    
+    Workflow:
+    1. Reads next_actions from state['result']['llm_result']['next_actions']
+    2. Filters available tool schemas by category and sub_category
+    3. Uses LLM to map action_name and action_input to specific tool_name and tool_input
+    4. Outputs to state['tool_calls'] for downstream MCP tool node execution
+    
+    Config keys (best-effort):
+        - model: LLM model name (default: gpt-4o-mini)
+        - temperature: LLM temperature (default: 0.0 for deterministic selection)
+    """
+    log_msg = f"building tool-picker node : {config_metadata}"
+    logger.debug(log_msg)
+    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+    
+    # Get LLM config from node metadata or use defaults
+    model_name = (config_metadata or {}).get('model', 'gpt-4o-mini')
+    temperature = (config_metadata or {}).get('temperature', 0.0)
+    
+    def _tool_picker(state: dict, **kwargs):
+        """Tool picker node implementation using LLM to select tools."""
+        try:
+            # Step 1: Extract next_actions from previous LLM result
+            result = state.get('result', {})
+            llm_result = result.get('llm_result', {})
+            next_actions = llm_result.get('next_actions', [])
+            
+            if not next_actions:
+                log_msg = f"[{node_name}] No next_actions found in state['result']['llm_result']"
+                logger.warning(log_msg)
+                web_gui.get_ipc_api().send_skill_editor_log("warning", log_msg)
+                state.setdefault('tool_calls', [])
+                return state
+            
+            log_msg = f"[{node_name}] Processing {len(next_actions)} action(s)"
+            logger.debug(log_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("debug", log_msg)
+            
+            # Step 2: Get all available tool schemas from MCP
+            try:
+                from agent.mcp.server.tool_schemas import tool_schemas
+                all_tools = tool_schemas or []
+            except Exception as e:
+                err_msg = get_traceback(e, f"ErrorLoadingToolSchemas_{node_name}")
+                logger.error(err_msg)
+                web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+                all_tools = []
+            
+            # Step 3: Process each action
+            tool_calls = []
+            for action in next_actions:
+                category = action.get('category', '')
+                sub_category = action.get('sub_category', '')
+                action_name = action.get('action_name', '')
+                action_input = action.get('action_input', {})
+                
+                log_msg = f"[{node_name}] Selecting tool for category={category}, sub_category={sub_category}, action={action_name}"
+                logger.debug(log_msg)
+                web_gui.get_ipc_api().send_skill_editor_log("debug", log_msg)
+                
+                # Step 4: Filter tools by category and sub_category
+                filtered_tools = []
+                for tool in all_tools:
+                    description = tool.get('description', '')
+                    # Parse category and sub_category from description
+                    import re
+                    cat_match = re.search(r'<category>([^<]+)</category>', description)
+                    subcat_match = re.search(r'<sub-category>([^<]+)</sub-category>', description)
+                    
+                    tool_category = cat_match.group(1).strip() if cat_match else ''
+                    tool_subcategory = subcat_match.group(1).strip() if subcat_match else ''
+                    
+                    # Match both category and sub_category
+                    if category.lower() in tool_category.lower() and sub_category.lower() in tool_subcategory.lower():
+                        filtered_tools.append(tool)
+                
+                log_msg = f"[{node_name}] Filtered {len(filtered_tools)} tools from {len(all_tools)} total"
+                logger.debug(log_msg)
+                web_gui.get_ipc_api().send_skill_editor_log("debug", log_msg)
+                
+                if not filtered_tools:
+                    log_msg = f"[{node_name}] No tools found for category={category}, sub_category={sub_category}"
+                    logger.warning(log_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("warning", log_msg)
+                    continue
+                
+                # Step 5: Build prompt for LLM to select exact tool
+                tools_schema_text = json.dumps(filtered_tools, indent=2, ensure_ascii=False)
+                
+                selection_prompt = f"""You are a tool selection expert. Given the available tools and the requested action, select the most appropriate tool and prepare its input parameters.
+Available Tools:
+{tools_schema_text}
+
+Requested Action:
+- Action Name: {action_name}
+- Action Input: {json.dumps(action_input, indent=2, ensure_ascii=False)}
+
+Task: Select the exact tool function name and prepare the complete tool input parameters.
+
+Output Format (JSON):
+{{
+    "tool_name": "<exact_function_name_from_tools>",
+    "tool_input": {{<complete_input_parameters_dict>}}
+}}
+
+Requirements:
+1. tool_name must exactly match one of the function names in available tools
+2. tool_input must conform to the selected tool's input schema
+3. Map action_input fields to the correct tool parameter names
+4. Output ONLY the JSON, no additional text"""
+
+                # Step 6: Call LLM to select tool
+                try:
+                    # Get LLM instance
+                    llm = _get_chat_llm(model_name, temperature)
+                    
+                    # Invoke LLM
+                    llm_response = llm.invoke([{"role": "user", "content": selection_prompt}])
+                    response_text = llm_response.content if hasattr(llm_response, 'content') else str(llm_response)
+                    
+                    # Parse JSON response
+                    # Extract JSON from markdown code blocks if present
+                    json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response_text, re.DOTALL)
+                    if json_match:
+                        response_text = json_match.group(1)
+                    
+                    tool_selection = json.loads(response_text.strip())
+                    tool_name = tool_selection.get('tool_name', '')
+                    tool_input = tool_selection.get('tool_input', {})
+                    
+                    log_msg = f"[{node_name}] LLM selected tool: {tool_name}"
+                    logger.debug(log_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("debug", log_msg)
+                    
+                    # Add to tool_calls list
+                    tool_calls.append({
+                        'tool_name': tool_name,
+                        'tool_input': tool_input,
+                        'source_action': {
+                            'category': category,
+                            'sub_category': sub_category,
+                            'action_name': action_name
+                        }
+                    })
+                    
+                except Exception as e:
+                    err_msg = get_traceback(e, f"ErrorLLMToolSelection_{node_name}")
+                    logger.error(err_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+                    continue
+            
+            # Step 7: Store tool_calls in state
+            state['tool_calls'] = tool_calls
+            
+            log_msg = f"[{node_name}] Generated {len(tool_calls)} tool call(s)"
+            logger.info(log_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("info", log_msg)
+            
+            # Store in metadata for debugging
+            metadata = state.setdefault('metadata', {})
+            metadata['last_tool_picker_output'] = {
+                'node': node_name,
+                'tool_calls': tool_calls,
+                'actions_processed': len(next_actions)
+            }
+            
+        except Exception as e:
+            err_msg = get_traceback(e, f"ErrorInToolPickerNode_{node_name}")
+            logger.error(err_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            state.setdefault('tool_calls', [])
+        
+        return state
+    
+    return node_builder(_tool_picker, node_name, skill_name, owner, bp_manager)
