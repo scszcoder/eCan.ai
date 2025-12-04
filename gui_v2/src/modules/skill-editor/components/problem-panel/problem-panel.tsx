@@ -4,7 +4,7 @@
  */
 
 import { useService, WorkflowSelectService } from '@flowgram.ai/free-layout-editor';
-import { IconButton, Spin, Typography, Avatar } from '@douyinfe/semi-ui';
+import { IconButton, Spin, Typography, Avatar, Tooltip } from '@douyinfe/semi-ui';
 import { IconUploadError, IconClose } from '@douyinfe/semi-icons';
 
 import { useProblemPanel, useNodeFormPanel } from '../../plugins/panel-manager-plugin/hooks';
@@ -88,11 +88,13 @@ export const ProblemPanel = () => {
 export const ProblemButton = () => {
   const { open } = useProblemPanel();
   return (
-    <IconButton
-      type="tertiary"
-      theme="borderless"
-      icon={<IconUploadError />}
-      onClick={() => open()}
-    />
+    <Tooltip content="Problems">
+      <IconButton
+        type="tertiary"
+        theme="borderless"
+        icon={<IconUploadError style={{ color: '#F93920' }} />}
+        onClick={() => open()}
+      />
+    </Tooltip>
   );
 };
