@@ -1953,7 +1953,7 @@ def to_memory_item(
         metadata=meta
     )
 
-def get_standard_prompt(state:NodeState) -> NodeState:
+def get_standard_prompt(state: "NodeState") -> "NodeState":
     logger.debug("get_standard_prompt===>", state)
     boss = "Guest User"
     standard_prompt_template = [
@@ -2004,7 +2004,7 @@ def find_opposite_agent(self_agent, chat_id):
         opposite_side = None
     return opposite_side
 
-def send_response_back(state: NodeState, force_send: bool = False) -> NodeState:
+def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeState":
     """
     Send response back to the opposite agent (typically Twin Agent).
     

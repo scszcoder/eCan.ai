@@ -8,3 +8,4 @@ export * from './line-add-button';
 export * from './node-panel';
 export * from './comment';
 export * from './group';
+export * from './problem-panel';

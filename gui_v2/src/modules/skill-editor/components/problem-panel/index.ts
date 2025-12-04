@@ -3,5 +3,4 @@
  * SPDX-License-Identifier: MIT
  */
 
-export * from './custom-service';
-export * from './validate-service';
+export { ProblemButton } from './problem-panel';

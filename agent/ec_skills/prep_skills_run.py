@@ -1,12 +1,14 @@
 import json
-from typing import Any, Dict, Optional
-from agent.ec_skill import NodeState
+from typing import Any, Dict, Optional, TYPE_CHECKING
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
-from agent.ec_skill import FileAttachment
+
+if TYPE_CHECKING:
+    # Only import for type checking to avoid circular import at runtime
+    from agent.ec_skill import NodeState, FileAttachment
 
 
-from agent.tasks_resume import (
+from agent.ec_tasks.resume import (
     DEFAULT_MAPPINGS,
     build_resume_from_mapping,
     normalize_event,
@@ -24,7 +26,7 @@ def _deep_merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, Any]] = None) -> NodeState:
+def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, Any]] = None) -> "NodeState":
     """Provide a NodeState-shaped baseline for a new run.
     
     Note: msg=None is expected for schedule-triggered tasks (they have no input message).
@@ -101,6 +103,8 @@ def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, 
                     atts = []
                     if msg['params']['attachments']:
                         for att in msg['params']['attachments']:
+                            # Local import to avoid circular dependency at module import time
+                            from agent.ec_skill import FileAttachment  # type: ignore
                             atts.append(FileAttachment(name=att['name'], type=att['type'], url=att['url'], data=""))
 
                     chat_id = msg['params'].get('chatId', '')
@@ -151,7 +155,7 @@ def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, 
         except Exception:
             pass
 
-        base: NodeState = {
+        base: "NodeState" = {
             "input": "",
             "attachments": [],
             "prompts": [],

@@ -25,6 +25,73 @@ def _get_debug_workflow_dir() -> str:
         return os.getcwd()
 
 
+def _v2_remove_dummy_nodes(wf: dict) -> dict:
+    """
+    Remove dummy nodes from the workflow and rewire their connections.
+    For each dummy node:
+    - Find all incoming edges (edges pointing to the dummy node)
+    - Find all outgoing edges (edges from the dummy node)
+    - Connect all incoming sources directly to all outgoing targets
+    - Remove the dummy node and its edges
+    """
+    nodes = wf.get('nodes', []) or []
+    edges = wf.get('edges', []) or []
+    
+    # Find all dummy nodes
+    dummy_node_ids = {n['id'] for n in nodes if n.get('type') == 'dummy'}
+    
+    if not dummy_node_ids:
+        return wf  # No dummy nodes to remove
+    
+    logger.debug(f"[v2] Removing {len(dummy_node_ids)} dummy node(s): {dummy_node_ids}")
+    
+    # For each dummy node, find incoming and outgoing edges
+    new_edges = []
+    for edge in edges:
+        src = edge.get('sourceNodeID')
+        tgt = edge.get('targetNodeID')
+        src_port = edge.get('sourcePortID')
+        tgt_port = edge.get('targetPortID')
+        
+        # Skip edges connected to dummy nodes (will be replaced)
+        if src in dummy_node_ids or tgt in dummy_node_ids:
+            continue
+        
+        new_edges.append(edge)
+    
+    # For each dummy node, create bridging edges
+    for dummy_id in dummy_node_ids:
+        # Find incoming edges (edges pointing TO this dummy node)
+        incoming = [e for e in edges if e.get('targetNodeID') == dummy_id]
+        # Find outgoing edges (edges FROM this dummy node)
+        outgoing = [e for e in edges if e.get('sourceNodeID') == dummy_id]
+        
+        # Bridge: connect each incoming source to each outgoing target
+        for in_edge in incoming:
+            for out_edge in outgoing:
+                new_edge = {
+                    'sourceNodeID': in_edge.get('sourceNodeID'),
+                    'targetNodeID': out_edge.get('targetNodeID'),
+                }
+                # Preserve source port if specified
+                if in_edge.get('sourcePortID'):
+                    new_edge['sourcePortID'] = in_edge['sourcePortID']
+                # Preserve target port if specified
+                if out_edge.get('targetPortID'):
+                    new_edge['targetPortID'] = out_edge['targetPortID']
+                
+                new_edges.append(new_edge)
+                logger.debug(f"[v2] Bridged: {in_edge.get('sourceNodeID')} -> {dummy_id} -> {out_edge.get('targetNodeID')} "
+                           f"became {new_edge['sourceNodeID']} -> {new_edge['targetNodeID']}")
+    
+    # Remove dummy nodes from node list
+    new_nodes = [n for n in nodes if n.get('id') not in dummy_node_ids]
+    
+    logger.debug(f"[v2] Removed {len(nodes) - len(new_nodes)} dummy node(s), {len(edges)} edges -> {len(new_edges)} edges")
+    
+    return {'nodes': new_nodes, 'edges': new_edges}
+
+
 def _v2_debug_workflow(tag: str, wf: dict, base_name: Optional[str] = None):
     try:
         nodes = wf.get('nodes', []) or []
@@ -608,6 +675,11 @@ def flowgram2langgraph_v2(flow: dict, bundle_json: Optional[dict] = None, enable
 
     # 4) Convert conditions (deferred to v1 for now)
     stitched = _v2_convert_conditions_schema_level(stitched)
+
+    # 5) Remove dummy nodes and rewire their connections
+    stitched = _v2_remove_dummy_nodes(stitched)
+    _v2_debug_workflow('after_remove_dummy', stitched, base_name)
+    _v2_save_mermaid('after_remove_dummy', stitched, base_name)
 
     # Delegate to v1 by re-wrapping as a single-sheet flow
     new_flow = {

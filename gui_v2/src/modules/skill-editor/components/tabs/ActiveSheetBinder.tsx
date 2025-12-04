@@ -19,9 +19,9 @@ export const ActiveSheetBinder = () => {
   const saveActiveDocument = useSheetsStore((s) => s.saveActiveDocument);
   const saveDocumentFor = useSheetsStore((s) => s.saveDocumentFor);
   const revision = useSheetsStore((s) => s.revision);
-  const saveActiveViewState = useSheetsStore((s) => s.saveActiveViewState);
-  const getActiveViewState = useSheetsStore((s) => s.getActiveViewState);
-  const saveActiveSelection = useSheetsStore((s) => s.saveActiveSelection);
+  const saveViewStateFor = useSheetsStore((s) => s.saveViewStateFor);
+  const getViewStateFor = useSheetsStore((s) => s.getViewStateFor);
+  const saveSelectionFor = useSheetsStore((s) => s.saveSelectionFor);
   const getActiveSelection = useSheetsStore((s) => s.getActiveSelection);
   const setBreakpoints = useSkillInfoStore((s) => s.setBreakpoints);
 
@@ -58,13 +58,13 @@ export const ActiveSheetBinder = () => {
       } catch (e) {
         /* noop */
       }
-      // Save current zoom as view state
+      // Save current zoom as view state to the PREVIOUS sheet (lastId), not the new active sheet
       try {
         if (typeof tools.zoom === 'number') {
-          saveActiveViewState({ zoom: tools.zoom });
+          saveViewStateFor(lastId, { zoom: tools.zoom });
         }
       } catch {}
-      // Save current selection ids
+      // Save current selection ids to the PREVIOUS sheet
       try {
         const ids: string[] = Array.isArray((selectService as any)?.selection)
           ? (selectService as any).selection.map((n: any) => n?.id).filter(Boolean)
@@ -72,7 +72,7 @@ export const ActiveSheetBinder = () => {
               ? (selectService as any).getSelectedIds()
               : []);
         if (ids?.length >= 0) {
-          saveActiveSelection(ids);
+          saveSelectionFor(lastId, ids);
         }
       } catch {}
     }
@@ -152,7 +152,8 @@ export const ActiveSheetBinder = () => {
         }
         
         // Only restore saved zoom when switching between sheets (not on initial load or refresh)
-        const view = getActiveViewState();
+        // Use getViewStateFor with the NEW activeSheetId to get the correct zoom
+        const view = activeSheetId ? getViewStateFor(activeSheetId) : null;
         if (isSheetSwitch && view?.zoom && currentPlayground?.config?.updateZoom) {
           currentPlayground.config.updateZoom(view.zoom);
           console.log('[ActiveSheetBinder] Restored zoom for sheet switch:', view.zoom);

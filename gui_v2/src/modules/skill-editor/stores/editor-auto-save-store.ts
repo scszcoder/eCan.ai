@@ -45,7 +45,8 @@ export const useAutoSaveStore = create<AutoSaveState>()((set, get) => ({
       return false;
     }
 
-    // Sync sheets.main.document to skillInfo.workFlow before saving
+    // Sync active sheet's document to skillInfo.workFlow before saving
+    // Note: skillInfo.workFlow should always reflect the main sheet's document for backend compatibility
     let saveData = { ...data };
     if (saveData.skillInfo && saveData.sheets?.sheets) {
       const mainSheetId = saveData.sheets.order?.[0] || 'main';
@@ -57,6 +58,19 @@ export const useAutoSaveStore = create<AutoSaveState>()((set, get) => ({
           lastModified: new Date().toISOString(),
         };
       }
+      
+      // Debug log to verify sheets data is being saved
+      console.log('[AutoSave] Saving sheets:', {
+        sheetCount: Object.keys(saveData.sheets.sheets).length,
+        order: saveData.sheets.order,
+        activeSheetId: saveData.sheets.activeSheetId,
+        sheetsWithDocs: Object.entries(saveData.sheets.sheets).map(([id, s]) => ({
+          id,
+          name: (s as any).name,
+          hasDoc: !!(s as any).document,
+          nodeCount: (s as any).document?.nodes?.length ?? 0,
+        })),
+      });
     }
 
     try {
@@ -114,7 +128,7 @@ export const useAutoSave = (
   selectionIdsRef.current = selectionIds;
 
   // Create a fingerprint to detect changes
-  // Use skillInfo.workFlow as primary source since onContentChange updates it directly
+  // Include all sheets data to detect new sheet creation and edits
   const fingerprint = React.useMemo(() => {
     const workFlow = skillInfo?.workFlow;
     const nodes = workFlow?.nodes?.map((n: any) => {
@@ -123,8 +137,22 @@ export const useAutoSave = (
       return `${n.id}:${pos}:${inputs}`;
     }).join(',') ?? '';
     
-    return `${skillInfo?.skillName}|${sheets.activeSheetId}|${breakpoints.length}|${currentFilePath}|${workFlow?.nodes?.length}|${workFlow?.edges?.length}|${nodes}`;
-  }, [skillInfo?.skillName, skillInfo?.workFlow, sheets.activeSheetId, breakpoints, currentFilePath]);
+    // Include sheets metadata AND document content to detect all changes
+    const sheetsHash = Object.keys(sheets.sheets).sort().map(id => {
+      const s = sheets.sheets[id];
+      const doc = s.document;
+      // Include node positions and data to detect content changes
+      const nodesHash = doc?.nodes?.map((n: any) => {
+        const pos = `${n.meta?.position?.x ?? 0}:${n.meta?.position?.y ?? 0}`;
+        const data = n.data ? JSON.stringify(n.data).slice(0, 100) : '';
+        return `${n.id}:${n.type}:${pos}:${data.length}`;
+      }).join(',') ?? '';
+      const edgesHash = doc?.edges?.map((e: any) => `${e.source}>${e.target}`).join(',') ?? '';
+      return `${id}:${s.name}:${nodesHash}:${edgesHash}`;
+    }).join(';');
+    
+    return `${skillInfo?.skillName}|${sheets.activeSheetId}|${sheets.order.join(',')}|${sheets.openTabs.join(',')}|${sheetsHash}|${breakpoints.length}|${currentFilePath}|${workFlow?.nodes?.length}|${workFlow?.edges?.length}|${nodes}`;
+  }, [skillInfo?.skillName, skillInfo?.workFlow, sheets, breakpoints, currentFilePath]);
 
   // Auto-save when content changes
   React.useEffect(() => {
@@ -155,7 +183,7 @@ export const useAutoSave = (
           selectionIds: selectionIdsRef.current,
         });
       }
-    }, 500); // 500ms debounce after state settles
+    }, 1500); // 1500ms debounce - must be > onContentChange debounce (1000ms) to ensure sheets are synced
 
     return () => {
       if (timeoutRef.current) {

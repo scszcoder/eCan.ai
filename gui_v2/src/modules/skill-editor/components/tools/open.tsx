@@ -9,6 +9,7 @@ import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files
 import { useSheetsStore } from '../../stores/sheets-store';
 import { SheetsBundle } from '../../services/sheets-persistence';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
+import { normalizeBundle, looksLikeBundle } from '../../utils/bundle-utils';
 
 interface OpenProps {
   disabled?: boolean;
@@ -146,24 +147,27 @@ export const Open = ({ disabled }: OpenProps) => {
                   console.log('[SKILL_IO][FRONTEND][TRY_BUNDLE_RESULT]', bundlePath, 'success=', bundleResp.success);
                   if (bundleResp.success && bundleResp.data) {
                     const maybeBundle = JSON.parse(bundleResp.data.content);
-                    const isSiblingBundle = maybeBundle && typeof maybeBundle === 'object' && 'mainSheetId' in maybeBundle && Array.isArray(maybeBundle.sheets);
-                    if (isSiblingBundle) {
-                      console.log('[SKILL_IO][FRONTEND][FOUND_BUNDLE_JSON]', bundlePath);
-                      loadBundle(maybeBundle as SheetsBundle);
-                      // 需求2: 使用Backend返回的 skillName
-                      try {
-                        const skillName = skillNameFromBackend || ((String(filePath).split(/[/\\]/).pop() || '').replace(/\.json$/i, '').replace(/_skill$/i, ''));
-                        console.log('[SKILL_IO][FRONTEND][SET_SKILL_NAME]', skillName);
-                        const current = skillInfoFromStore;
-                        if (current?.skillName !== skillName) {
-                          setSkillInfo({ ...(current || { skillId: (current as any)?.skillId || '', skillName: skillName, version: '1.0.0', lastModified: new Date().toISOString(), workFlow: workflowDocument.toJSON() as any }), skillName: skillName });
-                        }
-                      } catch {}
-                      // Keep currentFilePath as the main skill JSON path
-                      setCurrentFilePath(filePath);
-                      setHasUnsavedChanges(false);
-                      addRecentFile(createRecentFile(bundlePath, 'Multi-sheet Bundle'));
-                      return;
+                    // Support both new array format and legacy object format
+                    if (looksLikeBundle(maybeBundle)) {
+                      const normalizedBundle = normalizeBundle(maybeBundle);
+                      if (normalizedBundle) {
+                        console.log('[SKILL_IO][FRONTEND][FOUND_BUNDLE_JSON]', bundlePath, 'sheets:', normalizedBundle.sheets.length);
+                        loadBundle(normalizedBundle);
+                        // 需求2: 使用Backend返回的 skillName
+                        try {
+                          const skillName = skillNameFromBackend || ((String(filePath).split(/[/\\]/).pop() || '').replace(/\.json$/i, '').replace(/_skill$/i, ''));
+                          console.log('[SKILL_IO][FRONTEND][SET_SKILL_NAME]', skillName);
+                          const current = skillInfoFromStore;
+                          if (current?.skillName !== skillName) {
+                            setSkillInfo({ ...(current || { skillId: (current as any)?.skillId || '', skillName: skillName, version: '1.0.0', lastModified: new Date().toISOString(), workFlow: workflowDocument.toJSON() as any }), skillName: skillName });
+                          }
+                        } catch {}
+                        // Keep currentFilePath as the main skill JSON path
+                        setCurrentFilePath(filePath);
+                        setHasUnsavedChanges(false);
+                        addRecentFile(createRecentFile(bundlePath, 'Multi-sheet Bundle'));
+                        return;
+                      }
                     }
                   }
                 } catch (err) {
