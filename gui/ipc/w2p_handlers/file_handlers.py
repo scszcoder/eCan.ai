@@ -124,27 +124,9 @@ def handle_show_open_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
                     'FILE_NOT_FOUND',
                     f'Selected file does not exist: {file_path}'
                 )
-            # Validate that the selected file is under the skills root
-            try:
-                _, _, user_skills_root = _get_extern_skills()
-                root = str(user_skills_root())
-                norm_root = os.path.abspath(root)
-                norm_sel = os.path.abspath(file_path)
-                common = os.path.commonpath([norm_root, norm_sel])
-                if common != norm_root:
-                    logger.warning(f"[SKILL_IO][BACKEND][OPEN_OUT_OF_ROOT] selected={norm_sel} root={norm_root}")
-                    return create_error_response(
-                        request,
-                        'OUTSIDE_SKILL_ROOT',
-                        f'Selected file is outside skill root: {norm_root}'
-                    )
-            except Exception as ve:
-                logger.error(f"[SKILL_IO][BACKEND][OPEN_ROOT_VALIDATE_ERROR] {ve}")
-                return create_error_response(
-                    request,
-                    'OPEN_ROOT_VALIDATE_ERROR',
-                    'Failed to validate selection path'
-                )
+            # Note: We no longer restrict files to skills root directory
+            # Users can open skill files from any directory
+            # The file will be saved back to its original location
             # Distinct marker for selected main json path
             logger.info(f"[SKILL_IO][BACKEND][SELECTED_MAIN_JSON] {file_path}")
             
@@ -401,50 +383,24 @@ def handle_write_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]
         file_path = data['filePath']
         content = data['content']
         
-        # Extract skill name from file path and create proper folder structure
-        # 正确理解：用户输入 test → 创建 my_skills/test/diagram_dir/
-        # 所有相关文件（_skill.json, _data_mapping.json, _skill_bundle.json）都保存到同一个文件夹
+        # Extract skill name from file path
+        # IMPORTANT: Preserve the original file path - do not redirect to my_skills directory
+        # This allows users to open and save skill files from any directory
         file_name = os.path.basename(file_path)
+        parent_dir = os.path.dirname(file_path)
         
-        # Check if this is a skill file (ends with .json)
-        if file_name.endswith('.json'):
-            # Extract base skill name by removing all known suffixes
-            skill_name = file_name[:-5]  # Remove '.json' first
-            
-            # Remove known suffixes to get the base skill name
-            if skill_name.endswith('_data_mapping'):
-                skill_name = skill_name[:-13]  # Remove '_data_mapping'
-            elif skill_name.endswith('_skill_bundle'):
-                skill_name = skill_name[:-13]  # Remove '_skill_bundle'
-            elif skill_name.endswith('_skill'):
-                skill_name = skill_name[:-6]   # Remove '_skill'
-            
-            # Check if the file path already contains the correct folder structure
-            # e.g., my_skills/fff/diagram_dir/fff_skill.json
-            parent_dir = os.path.dirname(file_path)
-            original_name = os.path.basename(file_path)
-            
-            # Check if already in diagram_dir (Save scenario)
-            if os.path.basename(parent_dir) == 'diagram_dir':
-                diagram_dir = parent_dir
-                skill_folder = os.path.dirname(diagram_dir)
-                new_file_name = original_name
-            else:
-                # New scenario: create folder structure
-                skill_folder = os.path.join(parent_dir, skill_name)
-                diagram_dir = os.path.join(skill_folder, "diagram_dir")
-                
-                # Determine file type based on original filename
-                if '_data_mapping' in original_name:
-                    new_file_name = f"{skill_name}_data_mapping.json"
-                elif '_skill_bundle' in original_name:
-                    new_file_name = f"{skill_name}_skill_bundle.json"
-                else:
-                    new_file_name = f"{skill_name}_skill.json"
-                
-                file_path = os.path.join(diagram_dir, new_file_name)
-            
-            logger.info(f"[SKILL_IO][BACKEND] Skill: {skill_name}, Path: {file_path}")
+        # Extract skill name for metadata purposes only (not for path manipulation)
+        skill_name = file_name[:-5] if file_name.endswith('.json') else file_name
+        
+        # Remove known suffixes to get the base skill name
+        if skill_name.endswith('_data_mapping'):
+            skill_name = skill_name[:-13]
+        elif skill_name.endswith('_skill_bundle'):
+            skill_name = skill_name[:-13]
+        elif skill_name.endswith('_skill'):
+            skill_name = skill_name[:-6]
+        
+        logger.info(f"[SKILL_IO][BACKEND] Skill: {skill_name}, Path: {file_path} (preserving original path)")
         
         # Validate JSON content
         try:
