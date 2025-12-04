@@ -2,7 +2,7 @@ import asyncio
 from typing import Generic, TypeVar
 import os
 import traceback
-from agent.tasks import time_to_run
+from agent.ec_tasks import find_tasks_ready_to_run
 from utils.logger_helper import logger_helper as logger
 
 Context = TypeVar('Context')
@@ -53,7 +53,7 @@ class HumanChatter(Generic[Context]):
                 else:
                     # if nothing on queue, do a quick check if any vehicle needs a ping-pong check
                     logger.debug("[human_chatter] Checking schedule.....")
-                    task2run = time_to_run(self.agent)
+                    task2run = find_tasks_ready_to_run(self.agent.tasks)
                     logger.debug(f"[human_chatter] len task2run, {task2run}, {self.agent.card.name}")
                     if task2run:
                         task2run.metadata["state"] = {

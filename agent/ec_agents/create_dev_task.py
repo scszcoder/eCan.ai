@@ -1,8 +1,6 @@
 import uuid
-from agent.tasks import TaskStatus, TaskState
-
-from agent.tasks import ManagedTask, TaskSchedule
-from agent.tasks import Repeat_Types
+from agent.a2a.common.types import TaskStatus, TaskState
+from agent.ec_tasks import ManagedTask, TaskSchedule, RepeatType
 
 def create_skill_dev_task(mainwin):
     agent_skills = mainwin.agent_skills
@@ -13,7 +11,7 @@ def create_skill_dev_task(mainwin):
     print("dev task dev_skill: ", dev_skill)
     if not run_task:
         task_schedule = TaskSchedule(
-            repeat_type=Repeat_Types.BY_DAYS,
+            repeat_type=RepeatType.BY_DAYS,
             repeat_number=1,
             repeat_unit="day",
             start_date_time="2025-03-31 23:59:59:000",
