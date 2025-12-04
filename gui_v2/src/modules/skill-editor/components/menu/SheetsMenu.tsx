@@ -138,6 +138,78 @@ export const SheetsMenu: React.FC = () => {
     }
   };
 
+  const handleSimTimerEvent = async () => {
+    try {
+      console.info('[SIM][FE] sim-timer-event: requesting backend');
+      const ipc = IPCAPI.getInstance();
+      const resp = await ipc.simTimerEvent();
+      if (resp.success) {
+        Toast.success({ content: 'Sim Timer Event triggered' });
+      } else {
+        Toast.error({ content: `Sim Timer Event failed: ${resp.error?.message || 'unknown error'}` });
+      }
+    } catch (e) {
+      console.error('[SheetsMenu] sim-timer-event error', e);
+      Toast.error({ content: 'Sim Timer Event error' });
+    } finally {
+      setVisible(false);
+    }
+  };
+
+  const handleSimWebsocketEvent = async () => {
+    try {
+      console.info('[SIM][FE] sim-websocket-event: requesting backend');
+      const ipc = IPCAPI.getInstance();
+      const resp = await ipc.simWebsocketEvent();
+      if (resp.success) {
+        Toast.success({ content: 'Sim Websocket Event triggered' });
+      } else {
+        Toast.error({ content: `Sim Websocket Event failed: ${resp.error?.message || 'unknown error'}` });
+      }
+    } catch (e) {
+      console.error('[SheetsMenu] sim-websocket-event error', e);
+      Toast.error({ content: 'Sim Websocket Event error' });
+    } finally {
+      setVisible(false);
+    }
+  };
+
+  const handleSimSseEvent = async () => {
+    try {
+      console.info('[SIM][FE] sim-sse-event: requesting backend');
+      const ipc = IPCAPI.getInstance();
+      const resp = await ipc.simSseEvent();
+      if (resp.success) {
+        Toast.success({ content: 'Sim SSE Event triggered' });
+      } else {
+        Toast.error({ content: `Sim SSE Event failed: ${resp.error?.message || 'unknown error'}` });
+      }
+    } catch (e) {
+      console.error('[SheetsMenu] sim-sse-event error', e);
+      Toast.error({ content: 'Sim SSE Event error' });
+    } finally {
+      setVisible(false);
+    }
+  };
+
+  const handleSimWebhookEvent = async () => {
+    try {
+      console.info('[SIM][FE] sim-webhook-event: requesting backend');
+      const ipc = IPCAPI.getInstance();
+      const resp = await ipc.simWebhookEvent();
+      if (resp.success) {
+        Toast.success({ content: 'Sim Webhook Event triggered' });
+      } else {
+        Toast.error({ content: `Sim Webhook Event failed: ${resp.error?.message || 'unknown error'}` });
+      }
+    } catch (e) {
+      console.error('[SheetsMenu] sim-webhook-event error', e);
+      Toast.error({ content: 'Sim Webhook Event error' });
+    } finally {
+      setVisible(false);
+    }
+  };
+
   return (
     <Dropdown
       position="bottomLeft"
@@ -166,6 +238,11 @@ export const SheetsMenu: React.FC = () => {
           <Dropdown.Item icon={<IconEdit />} onClick={handleSetupStepSim}>[DEV] setup-step-sim</Dropdown.Item>
           <Dropdown.Item icon={<IconEdit />} onClick={handleStepSim}>[DEV] step-sim</Dropdown.Item>
           <Dropdown.Item icon={<IconEdit />} onClick={handleTestLanggraph2Flowgram}>[DEV] test langgraph2flowgram</Dropdown.Item>
+          <Dropdown.Divider />
+          <Dropdown.Item icon={<IconEdit />} onClick={handleSimTimerEvent}>[SIM] Timer Event</Dropdown.Item>
+          <Dropdown.Item icon={<IconEdit />} onClick={handleSimWebsocketEvent}>[SIM] Websocket Event</Dropdown.Item>
+          <Dropdown.Item icon={<IconEdit />} onClick={handleSimSseEvent}>[SIM] SSE Event</Dropdown.Item>
+          <Dropdown.Item icon={<IconEdit />} onClick={handleSimWebhookEvent}>[SIM] Webhook Event</Dropdown.Item>
         </Dropdown.Menu>
       }
     >

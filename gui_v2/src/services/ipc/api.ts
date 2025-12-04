@@ -552,6 +552,34 @@ export class IPCAPI {
     }
 
     /**
+     * Sim: trigger backend timer event
+     */
+    public async simTimerEvent<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('sim_timer_event', {});
+    }
+
+    /**
+     * Sim: trigger backend websocket event
+     */
+    public async simWebsocketEvent<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('sim_websocket_event', {});
+    }
+
+    /**
+     * Sim: trigger backend sse event
+     */
+    public async simSseEvent<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('sim_sse_event', {});
+    }
+
+    /**
+     * Sim: trigger backend webhook event
+     */
+    public async simWebhookEvent<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('sim_webhook_event', {});
+    }
+
+    /**
      * Get可调用FunctionList
      * @param filter - Filter条件，OptionalInclude：
      *   - text: 文本Filter条件，会SearchFunction名、Description和Parameter

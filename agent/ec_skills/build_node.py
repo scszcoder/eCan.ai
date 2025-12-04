@@ -241,6 +241,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     inputs = (config_metadata or {}).get("inputsValues", {}) or {}
 
     prompt_selection = ((inputs.get("promptSelection") or {}).get("content") or "inline").strip()
+    logger.debug("[LLMNode]prompt_selection:", prompt_selection)
 
     system_prompt_id = ((inputs.get("systemPromptId") or {}).get("content") or None)
     user_prompt_id = ((inputs.get("promptId") or {}).get("content") or None)
@@ -302,7 +303,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         from agent.agent_service import get_agent_by_id
         from agent.ec_skills.llm_utils.llm_utils import get_recent_context
 
-        log_msg = f"🤖 Executing LLM node: {node_name}"
+        log_msg = f"🤖 Executing node LLM node: {node_name}"
         logger.info(log_msg)
         web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
@@ -346,6 +347,9 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         try:
             final_system_prompt = active_system_prompt.format(**format_context)
             final_user_prompt = active_user_prompt.format(**format_context)
+
+            logger.debug("final_system_prompt:", final_system_prompt)
+            logger.debug("final_user_prompt:", final_user_prompt)
         except KeyError as e:
             err_msg = f"Error formatting prompt: Missing key {e} in state prompt_refs."
             logger.error(err_msg)
@@ -1362,7 +1366,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         return out
 
     def mcp_tool_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
-        log_msg = f"Executing MCP tool node for tool: {tool_name}"
+        log_msg = f"🤖 Executing node MCP tool node for tool: {tool_name}"
         logger.info(log_msg)
         web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
@@ -1473,6 +1477,9 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
 
 
     def _pend(state: dict, *, runtime=None, store=None, **kwargs):
+        log_msg = f"🤖 Executing node pending event node: {node_name}"
+        logger.debug(log_msg)
+        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
         current_node_name = runtime.context["this_node"].get("name")
         log_msg = f"[Pending For Event Node] pend_for_event_node: {current_node_name}, {state}"
@@ -1614,6 +1621,10 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
     def _chat(state: dict, *, runtime=None, store=None, **kwargs):
         from agent.ec_skills.llm_utils.llm_utils import send_response_back
         attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
+        log_msg = f"🤖 Executing node Chat node: {node_name}"
+        logger.debug(log_msg)
+        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
         logger.debug("in chat node....", state)
 
 
@@ -1749,6 +1760,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         try:
             from browser_use import Agent as BUAgent, Controller as BUController
             from browser_use.browser.profile import BrowserProfile as BUBrowserProfile
+            log_msg = f"🤖 Executing node Browser Automation node: {node_name}"
+            logger.debug(log_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
             if not mainwin:
                 raise ValueError("mainwin is required. Must use mainwin configuration for browser_use LLM.")
@@ -1960,6 +1974,10 @@ def build_tool_picker_node(config_metadata: dict, node_name: str, skill_name: st
     def _tool_picker(state: dict, **kwargs):
         """Tool picker node implementation using LLM to select tools."""
         try:
+            log_msg = f"🤖 Executing node LLM assisted tool picker node: {node_name}"
+            logger.debug(log_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
             # Step 1: Extract next_actions from previous LLM result
             logger.debug("[ToolPickerNode] Extracting next_actions from state")
             result = state.get('result', {})
