@@ -10,6 +10,7 @@ import { useRecentFilesStore } from '../stores/recent-files-store';
 import { useSheetsStore } from '../stores/sheets-store';
 import { useNodeFlipStore } from '../stores/node-flip-store';
 import { SkillInfo } from '../typings/skill-info';
+import { tryLoadSiblingBundle } from '../utils/bundle-utils';
 import '../../../services/ipc/file-api'; // Import file API extensions
 
 interface AutoLoadOptions {
@@ -192,10 +193,20 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
             
             workflowDocument.fitView && workflowDocument.fitView();
 
-            // Also update sheets store with loaded document
-            const saveActiveDocument = useSheetsStore.getState().saveActiveDocument;
-            if (saveActiveDocument) {
-              saveActiveDocument(diagram);
+            // Try to load bundle file for multi-sheet support
+            const idx = absoluteFilePath.toLowerCase().lastIndexOf('.json');
+            const base = idx !== -1 ? absoluteFilePath.slice(0, idx) : absoluteFilePath;
+            const bundle = await tryLoadSiblingBundle(base, (path) => ipcApi.readSkillFile(path));
+            
+            if (bundle) {
+              const loadBundle = useSheetsStore.getState().loadBundle;
+              loadBundle(bundle);
+            } else {
+              // Fallback: update sheets store with loaded document if no bundle
+              const saveActiveDocument = useSheetsStore.getState().saveActiveDocument;
+              if (saveActiveDocument) {
+                saveActiveDocument(diagram);
+              }
             }
 
             onAutoLoadSuccess?.(absoluteFilePath, data);

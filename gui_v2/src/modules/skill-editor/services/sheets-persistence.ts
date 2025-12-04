@@ -1,11 +1,9 @@
 import { hasIPCSupport, hasFullFilePaths } from '../../../config/platform';
 import '../../../services/ipc/file-api';
+import type { SheetsBundle } from '../utils/bundle-utils';
 
-export interface SheetsBundle {
-  mainSheetId: string;
-  sheets: Array<{ id: string; name: string; document: any; createdAt?: number; lastOpenedAt?: number }>;
-  openTabs?: string[];
-}
+// Re-export SheetsBundle for backward compatibility
+export type { SheetsBundle };
 
 // Save bundle to a specific file path (IPC) or download with a specific name (web)
 export async function saveSheetsBundleToPath(

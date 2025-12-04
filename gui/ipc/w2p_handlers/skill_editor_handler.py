@@ -887,18 +887,48 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
                 json.dump(skill_info, sf, indent=2, ensure_ascii=False)
             logger.info(f"[AutoSave] Saved to skill file: {skill_file}")
             
-            # Save bundle file if it exists
+            # Save bundle file (always save if we have sheets data)
             bundle_file_saved = False
             bundle_file = skill_file.parent / f"{skill_file.stem}_bundle.json"
-            if bundle_file.exists() and sheets_data:
+            logger.debug(f"[AutoSave] sheets_data keys: {list(sheets_data.keys()) if sheets_data else 'None'}")
+            if sheets_data:
                 try:
+                    # Convert sheets from Record<string, Sheet> to Sheet[] array format
+                    sheets_dict = sheets_data.get('sheets', {})
+                    logger.debug(f"[AutoSave] sheets_dict has {len(sheets_dict)} sheets: {list(sheets_dict.keys())}")
+                    order = sheets_data.get('order', [])
+                    open_tabs = sheets_data.get('openTabs', [])
+                    active_sheet_id = sheets_data.get('activeSheetId')
+                    
+                    # Build sheets array in order
+                    sheets_array = []
+                    for sheet_id in order:
+                        if sheet_id in sheets_dict:
+                            sheet = sheets_dict[sheet_id]
+                            sheets_array.append(sheet)
+                            # Log sheet document summary for debugging
+                            doc = sheet.get('document', {})
+                            node_count = len(doc.get('nodes', []))
+                            edge_count = len(doc.get('edges', []))
+                            logger.debug(f"[AutoSave] Sheet '{sheet_id}' ({sheet.get('name', 'unnamed')}): {node_count} nodes, {edge_count} edges")
+                    
+                    # Add any sheets not in order (shouldn't happen but be safe)
+                    for sheet_id, sheet in sheets_dict.items():
+                        if sheet_id not in order:
+                            sheets_array.append(sheet)
+                    
+                    # Determine main sheet id (first in order or 'main')
+                    main_sheet_id = order[0] if order else 'main'
+                    
                     bundle_data = {
-                        "sheets": sheets_data.get('sheets', {}),
-                        "order": sheets_data.get('order', []),
+                        "mainSheetId": main_sheet_id,
+                        "sheets": sheets_array,
+                        "openTabs": open_tabs,
+                        "activeSheetId": active_sheet_id,
                     }
                     with open(bundle_file, 'w', encoding='utf-8') as bf:
                         json.dump(bundle_data, bf, indent=2, ensure_ascii=False)
-                    logger.info(f"[AutoSave] Saved to bundle file: {bundle_file}")
+                    logger.info(f"[AutoSave] Saved to bundle file: {bundle_file} ({len(sheets_array)} sheets)")
                     bundle_file_saved = True
                 except Exception as bundle_error:
                     logger.warning(f"[AutoSave] Failed to save bundle: {bundle_error}")
