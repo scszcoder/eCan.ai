@@ -63,6 +63,11 @@ export function useEditorProps(
          * 阻止 mac Browser手势翻页
          */
         preventGlobalGesture: true,
+        /**
+         * Enable canvas panning by dragging on empty areas
+         * 启用画布拖拽功能
+         */
+        grabDisable: false,
       },
       /**
        * Whether it is read-only or not, the node cannot be dragged in read-only mode
