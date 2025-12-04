@@ -2,16 +2,16 @@ import { nanoid } from 'nanoid';
 
 import { WorkflowNodeType } from '../constants';
 import { FlowNodeRegistry } from '../../typings';
-import iconMcp from '../../assets/icon-basic.png';
+import iconDummy from '../../assets/icon-basic.png';
 import { formMeta } from './form-meta';
 import { DEFAULT_NODE_OUTPUTS } from '../../typings/node-outputs';
 
 let index = 0;
-export const BasicNodeRegistry: FlowNodeRegistry = {
-  type: WorkflowNodeType.Basic,
+export const DummyNodeRegistry: FlowNodeRegistry = {
+  type: WorkflowNodeType.Dummy,
   info: {
-    icon: iconMcp,
-    description: 'A basic node with no editor fields. Use it as a simple placeholder or pass-through.',
+    icon: iconDummy,
+    description: 'A dummy node for testing and placeholder purposes',
   },
   meta: {
     size: {
@@ -21,10 +21,10 @@ export const BasicNodeRegistry: FlowNodeRegistry = {
   },
   onAdd() {
     return {
-      id: `basic_${nanoid(5)}`,
-      type: 'basic',
+      id: `dummy_${nanoid(5)}`,
+      type: 'dummy',
       data: {
-        title: `Basic_${++index}`,
+        title: `Dummy_${++index}`,
         inputsValues: {},
         inputs: {
           type: 'object',
