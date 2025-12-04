@@ -36,6 +36,7 @@ import {
 } from '../plugins';
 import { defaultFormMeta } from '../nodes/default-form-meta';
 import { WorkflowNodeType } from '../nodes';
+import { useNodeFlipStore } from '../stores/node-flip-store';
 import { SelectorBoxPopover } from '../components/selector-box-popover';
 import { BaseNode, CommentRender, GroupNodeRender, LineAddButton, NodePanel } from '../components';
 import { useSkillInfoStore } from '../stores/skill-info-store';
@@ -62,6 +63,11 @@ export function useEditorProps(
          * 阻止 mac Browser手势翻页
          */
         preventGlobalGesture: true,
+        /**
+         * Enable canvas panning by dragging on empty areas
+         * 启用画布拖拽功能
+         */
+        grabDisable: false,
       },
       /**
        * Whether it is read-only or not, the node cannot be dragged in read-only mode
@@ -252,6 +258,17 @@ export function useEditorProps(
                     if ('state' in nd) {
                       delete nd.state;
                     }
+                    // Ensure hFlip from store is reflected in persisted node data
+                    try {
+                      const flipStore = useNodeFlipStore.getState();
+                      const isFlipped = flipStore.isFlipped(nn.id);
+                      if (isFlipped) {
+                        (nd as any).hFlip = true;
+                      } else {
+                        // Remove hFlip when not flipped to ensure clean state
+                        delete (nd as any).hFlip;
+                      }
+                    } catch {}
                     nn.data = nd;
                   }
                   // handle nested blocks (loop/group/containers)

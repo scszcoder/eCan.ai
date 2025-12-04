@@ -15,9 +15,16 @@ const useNodeReport = () => {
   const node = useCurrentEntity();
   const [report, setReport] = useState<NodeReport>();
 
-  const runtimeService = useService(WorkflowRuntimeService);
+  let runtimeService: WorkflowRuntimeService | null = null;
+  try {
+    runtimeService = useService(WorkflowRuntimeService);
+  } catch {
+    // WorkflowRuntimeService not available
+  }
 
   useEffect(() => {
+    if (!runtimeService) return;
+    
     const reportDisposer = runtimeService.onNodeReportChange((nodeReport) => {
       if (nodeReport.id !== node.id) {
         return;
@@ -31,7 +38,7 @@ const useNodeReport = () => {
       reportDisposer.dispose();
       resetDisposer.dispose();
     };
-  }, []);
+  }, [runtimeService]);
 
   return report;
 };
