@@ -238,16 +238,21 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         temperature = float(((inputs.get("temperature") or {}).get("content") or 0.5))
     except Exception:
         temperature = 0.5
-    # Get prompt IDs for saved prompts (if selected)
+    inputs = (config_metadata or {}).get("inputsValues", {}) or {}
+
     prompt_selection = ((inputs.get("promptSelection") or {}).get("content") or "inline").strip()
 
     system_prompt_id = ((inputs.get("systemPromptId") or {}).get("content") or None)
     user_prompt_id = ((inputs.get("promptId") or {}).get("content") or None)
+    logger.debug("[LLMNode]system_prompt_id:", system_prompt_id)
+    logger.debug("[LLMNode]user_prompt_id:", user_prompt_id)
 
     # Get inline prompt content
     inline_system_prompt = ((inputs.get("systemPrompt") or {}).get("content") or STANDARD_SYS_PROMPT)
     inline_user_prompt = ((inputs.get("prompt") or {}).get("content") or STANDARD_SYS_PROMPT)
 
+    logger.debug("[LLMNode]inline_system_prompt:", inline_system_prompt)
+    logger.debug("[LLMNode]inline_user_prompt:", inline_user_prompt)
     # Load prompts using prompt loader (handles both inline and saved prompts)
     from agent.ec_skills.prompt_loader import get_prompt_content
     system_prompt_template = get_prompt_content(system_prompt_id, inline_system_prompt)
@@ -1714,7 +1719,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     wait_for_done = bool((config_metadata or {}).get("wait_for_done", False))
     task_text = (config_metadata or {}).get("task") or f"{action} {params}".strip()
 
-    # Get prompt IDs for saved prompts (if selected)
+    inputs = (config_metadata or {}).get("inputsValues", {}) or {}
+
     system_prompt_id = ((inputs.get("systemPromptId") or {}).get("content") or None)
     user_prompt_id = ((inputs.get("promptId") or {}).get("content") or None)
 
@@ -1722,6 +1728,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     inline_system_prompt = ((inputs.get("systemPrompt") or {}).get("content") or "")
     inline_user_prompt = ((inputs.get("prompt") or {}).get("content") or "")
 
+    logger.debug("[BrowserAutomation]inline_system_prompt:", inline_system_prompt)
+    logger.debug("[BrowserAutomation]inline_user_prompt:", inline_user_prompt)
     # Load prompts using prompt loader (handles both inline and saved prompts)
     from agent.ec_skills.prompt_loader import get_prompt_content
     system_prompt_content = get_prompt_content(system_prompt_id, inline_system_prompt) if (system_prompt_id or inline_system_prompt) else None
@@ -1953,10 +1961,12 @@ def build_tool_picker_node(config_metadata: dict, node_name: str, skill_name: st
         """Tool picker node implementation using LLM to select tools."""
         try:
             # Step 1: Extract next_actions from previous LLM result
+            logger.debug("[ToolPickerNode] Extracting next_actions from state")
             result = state.get('result', {})
             llm_result = result.get('llm_result', {})
             next_actions = llm_result.get('next_actions', [])
-            
+            logger.debug("[ToolPickerNode] found next_actions:", next_actions)
+
             if not next_actions:
                 log_msg = f"[{node_name}] No next_actions found in state['result']['llm_result']"
                 logger.warning(log_msg)
