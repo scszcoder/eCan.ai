@@ -879,13 +879,20 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
                 base_dir = Path(app_context.get_app_dir())
                 skill_file = base_dir / skill_file
             
-            if not skill_file.exists():
-                return create_error_response(request, 'FILE_NOT_FOUND', f'Skill file not found: {skill_file}')
+            # Allow saving to new files (don't require file to exist)
+            # This enables "Save As" functionality
             
-            # Save main skill file
-            with open(skill_file, 'w', encoding='utf-8') as sf:
-                json.dump(skill_info, sf, indent=2, ensure_ascii=False)
-            logger.info(f"[AutoSave] Saved to skill file: {skill_file}")
+            # AutoSave: Write directly to file WITHOUT syncing to cloud/database
+            # This is just a local cache to prevent data loss
+            # Real sync happens only when user explicitly clicks "Save"
+            try:
+                os.makedirs(skill_file.parent, exist_ok=True)
+                with open(skill_file, 'w', encoding='utf-8') as sf:
+                    json.dump(skill_info, sf, indent=2, ensure_ascii=False)
+                logger.info(f"[AutoSave] Cached to local file: {skill_file} (no cloud sync)")
+            except Exception as write_error:
+                logger.error(f"[AutoSave] Failed to write file: {write_error}")
+                return create_error_response(request, 'WRITE_ERROR', f"Failed to write file: {str(write_error)}")
             
             # Save bundle file (always save if we have sheets data)
             bundle_file_saved = False
@@ -893,42 +900,10 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
             logger.debug(f"[AutoSave] sheets_data keys: {list(sheets_data.keys()) if sheets_data else 'None'}")
             if sheets_data:
                 try:
-                    # Convert sheets from Record<string, Sheet> to Sheet[] array format
-                    sheets_dict = sheets_data.get('sheets', {})
-                    logger.debug(f"[AutoSave] sheets_dict has {len(sheets_dict)} sheets: {list(sheets_dict.keys())}")
-                    order = sheets_data.get('order', [])
-                    open_tabs = sheets_data.get('openTabs', [])
-                    active_sheet_id = sheets_data.get('activeSheetId')
-                    
-                    # Build sheets array in order
-                    sheets_array = []
-                    for sheet_id in order:
-                        if sheet_id in sheets_dict:
-                            sheet = sheets_dict[sheet_id]
-                            sheets_array.append(sheet)
-                            # Log sheet document summary for debugging
-                            doc = sheet.get('document', {})
-                            node_count = len(doc.get('nodes', []))
-                            edge_count = len(doc.get('edges', []))
-                            logger.debug(f"[AutoSave] Sheet '{sheet_id}' ({sheet.get('name', 'unnamed')}): {node_count} nodes, {edge_count} edges")
-                    
-                    # Add any sheets not in order (shouldn't happen but be safe)
-                    for sheet_id, sheet in sheets_dict.items():
-                        if sheet_id not in order:
-                            sheets_array.append(sheet)
-                    
-                    # Determine main sheet id (first in order or 'main')
-                    main_sheet_id = order[0] if order else 'main'
-                    
-                    bundle_data = {
-                        "mainSheetId": main_sheet_id,
-                        "sheets": sheets_array,
-                        "openTabs": open_tabs,
-                        "activeSheetId": active_sheet_id,
-                    }
+                    bundle_data = _build_bundle_data(sheets_data)
                     with open(bundle_file, 'w', encoding='utf-8') as bf:
                         json.dump(bundle_data, bf, indent=2, ensure_ascii=False)
-                    logger.info(f"[AutoSave] Saved to bundle file: {bundle_file} ({len(sheets_array)} sheets)")
+                    logger.info(f"[AutoSave] Saved to bundle file: {bundle_file} ({len(bundle_data.get('sheets', []))} sheets)")
                     bundle_file_saved = True
                 except Exception as bundle_error:
                     logger.warning(f"[AutoSave] Failed to save bundle: {bundle_error}")
@@ -954,6 +929,48 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
     except Exception as e:
         logger.error(f"[AutoSave] Error saving skill: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'SAVE_ERROR', f"Failed to save skill: {str(e)}")
+
+
+def _build_bundle_data(sheets_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Build bundle data from sheets store format.
+    
+    Args:
+        sheets_data: Sheets data from frontend store
+        
+    Returns:
+        Bundle data in the format expected by the skill editor
+    """
+    sheets_dict = sheets_data.get('sheets', {})
+    order = sheets_data.get('order', [])
+    open_tabs = sheets_data.get('openTabs', [])
+    active_sheet_id = sheets_data.get('activeSheetId')
+    
+    # Build sheets array in order
+    sheets_array = []
+    for sheet_id in order:
+        if sheet_id in sheets_dict:
+            sheet = sheets_dict[sheet_id]
+            sheets_array.append(sheet)
+            # Log sheet document summary for debugging
+            doc = sheet.get('document', {})
+            node_count = len(doc.get('nodes', []))
+            edge_count = len(doc.get('edges', []))
+            logger.debug(f"[AutoSave] Sheet '{sheet_id}' ({sheet.get('name', 'unnamed')}): {node_count} nodes, {edge_count} edges")
+    
+    # Add any sheets not in order (shouldn't happen but be safe)
+    for sheet_id, sheet in sheets_dict.items():
+        if sheet_id not in order:
+            sheets_array.append(sheet)
+    
+    # Determine main sheet id (first in order or 'main')
+    main_sheet_id = order[0] if order else 'main'
+    
+    return {
+        "mainSheetId": main_sheet_id,
+        "sheets": sheets_array,
+        "openTabs": open_tabs,
+        "activeSheetId": active_sheet_id,
+    }
 
 
 @IPCHandlerRegistry.handler('load_editor_cache')
