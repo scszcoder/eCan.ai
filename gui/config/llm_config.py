@@ -17,7 +17,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 
-from agent.models import REQUIRED_LLM_API_ENV_VARS
 from utils.logger_helper import logger_helper as logger
 
 
@@ -222,23 +221,6 @@ class LLMConfig:
             if model.name == model_name:
                 return model
         return None
-
-    def get_required_env_vars(self, provider_name: str) -> List[str]:
-        """Get required environment variables for a provider"""
-        provider = self.get_provider(provider_name)
-        return provider.api_key_env_vars if provider else []
-
-    def get_all_required_env_vars(self) -> Dict[str, List[str]]:
-        """Get all required environment variables for all providers"""
-        return REQUIRED_LLM_API_ENV_VARS.copy()
-
-    def get_providers_by_env_var(self, env_var: str) -> List[LLMProviderConfig]:
-        """Get all providers that use a specific environment variable"""
-        providers = []
-        for provider in self._providers.values():
-            if env_var in provider.api_key_env_vars:
-                providers.append(provider)
-        return providers
 
     def is_provider_local(self, provider_name: str) -> bool:
         """Check if a provider is local (doesn't require API keys)"""
