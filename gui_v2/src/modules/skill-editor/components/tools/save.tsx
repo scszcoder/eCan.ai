@@ -12,6 +12,7 @@ import { IPCWCClient } from '@/services/ipc/ipcWCClient';
 import { useSheetsStore } from '../../stores/sheets-store';
 import { saveSheetsBundleToPath, saveSheetsBundle } from '../../services/sheets-persistence';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
+import { sanitizeNodeApiKeys, sanitizeApiKeysDeep } from '../../utils/sanitize-utils';
 // Add File System Access API 的TypeDefinition
 declare global {
   interface Window {
@@ -176,30 +177,17 @@ export const Save = ({ disabled }: SaveProps) => {
       });
 
       // 3. Ensure breakpoints are NOT persisted: strip any break_point flags
-      // 4. SECURITY: Strip API keys from LLM and browser_automation nodes
       diagram.nodes.forEach((node: any) => {
         if (node?.data?.break_point) {
           delete node.data.break_point;
         }
-        
-        // Strip API keys from LLM nodes
-        if (node?.type === 'llm' && node?.data?.inputsValues) {
-          const inputs = node.data.inputsValues;
-          if (inputs.apiKey?.content) {
-            console.log(`[Save] Stripping API key from LLM node: ${node.data.name || node.id}`);
-            inputs.apiKey.content = '';
-          }
-        }
-        
-        // Strip API keys from browser_automation nodes
-        if (node?.type === 'browser-automation' && node?.data?.inputsValues) {
-          const inputs = node.data.inputsValues;
-          if (inputs.apiKey?.content) {
-            console.log(`[Save] Stripping API key from browser_automation node: ${node.data.name || node.id}`);
-            inputs.apiKey.content = '';
-          }
-        }
       });
+
+      // Prepare a sanitized copy for file persistence while preserving in-memory values
+      const sanitizedDiagram = JSON.parse(JSON.stringify(diagram));
+      sanitizeNodeApiKeys(sanitizedDiagram?.nodes);
+
+      // 3. Promote node-level mapping_rules into top-level config.nodes for backend runtime
 
       // 3. Promote node-level mapping_rules into top-level config.nodes for backend runtime
       const configNodes: Record<string, any> = {};
@@ -279,6 +267,13 @@ export const Save = ({ disabled }: SaveProps) => {
         },
       } as any;
 
+      const skillInfoForSave = {
+        ...updatedSkillInfo,
+        workFlow: sanitizedDiagram,
+      } as any;
+
+      sanitizeApiKeysDeep(skillInfoForSave);
+
       // 4. If and only if user changed the base skill name, rename the underlying <name>_skill folder
       let effectivePath = currentFilePath || null;
       try {
@@ -311,7 +306,7 @@ export const Save = ({ disabled }: SaveProps) => {
       }
 
       // 5. Save the file with platform-aware handling
-      const saveResult = await saveFile(updatedSkillInfo, username || undefined, effectivePath);
+      const saveResult = await saveFile(skillInfoForSave, username || undefined, effectivePath);
 
       if (saveResult && !saveResult.cancelled) {
         // Derive skillName from saved path (folder <name>_skill) to avoid backend mismatch
@@ -483,6 +478,12 @@ export const SaveAs = ({ disabled }: SaveProps) => {
           delete node.data.break_point;
         }
       });
+      
+      // SECURITY: prepare sanitized clone so saved JSON uses placeholders
+      const sanitizedDiagram = JSON.parse(JSON.stringify(diagram));
+      sanitizeNodeApiKeys(sanitizedDiagram?.nodes);
+
+      // Build data_mapping.json structure (same as Save)
 
       // Build data_mapping.json structure (same as Save)
       const dataMappingJson: any = {
@@ -523,7 +524,14 @@ export const SaveAs = ({ disabled }: SaveProps) => {
         run_mode: (skillInfo as any)?.run_mode ?? 'developing',  // Include backend runtime mode
       } as SkillInfo;
 
-      const saveResult = await saveFile(updatedSkillInfo, username || undefined, null);
+      const skillInfoForSave: SkillInfo = {
+        ...updatedSkillInfo,
+        workFlow: sanitizedDiagram,
+      };
+
+      sanitizeApiKeysDeep(skillInfoForSave);
+
+      const saveResult = await saveFile(skillInfoForSave, username || undefined, null);
       if (saveResult && !saveResult.cancelled) {
         setSkillInfo(updatedSkillInfo);
         setHasUnsavedChanges(false);

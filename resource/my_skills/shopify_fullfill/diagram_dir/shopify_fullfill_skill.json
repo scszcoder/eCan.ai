@@ -2,7 +2,7 @@
   "skillId": "",
   "skillName": "shopify_fullfill",
   "version": "1.0.0",
-  "lastModified": "2025-12-04T21:45:50.643Z",
+  "lastModified": "2025-12-04T23:57:19.944Z",
   "workFlow": {
     "nodes": [
       {
@@ -1279,8 +1279,8 @@
         "type": "chat_node",
         "meta": {
           "position": {
-            "x": 22.17452318890568,
-            "y": 217.47068668592635
+            "x": -73.82547681109432,
+            "y": 221.47068668592635
           }
         },
         "data": {

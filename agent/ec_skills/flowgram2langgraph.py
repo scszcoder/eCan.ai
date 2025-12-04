@@ -136,6 +136,10 @@ def _safe_eval_expr(expr: str, state: dict) -> bool:
     Exposes 'state' and 'attributes' only. Returns False on error.
     """
     try:
+        log_msg = f"🤖 Executing conditional edge: {expr}"
+        logger.debug(log_msg)
+        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
         safe_globals = {"__builtins__": {}}
         attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
         # Merge attributes as bare names so flags like `data_ready` can be used

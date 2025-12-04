@@ -1,7 +1,7 @@
 import { hasIPCSupport, hasFullFilePaths } from '../../../config/platform';
 import '../../../services/ipc/file-api';
 import type { SheetsBundle } from '../utils/bundle-utils';
-
+import { sanitizeNodeApiKeys } from '../utils/sanitize-utils';
 // Re-export SheetsBundle for backward compatibility
 export type { SheetsBundle };
 
@@ -10,7 +10,16 @@ export async function saveSheetsBundleToPath(
   targetPathOrName: string,
   bundle: SheetsBundle
 ): Promise<{ success: true; filePath?: string; mode: 'ipc' | 'download' }>{
-  const jsonString = JSON.stringify(bundle, null, 2);
+  // Clone and sanitize bundle
+  const sanitizedBundle = JSON.parse(JSON.stringify(bundle));
+  if (sanitizedBundle.sheets) {
+    sanitizedBundle.sheets.forEach((sheet: any) => {
+      if (sheet.document?.nodes) {
+        sanitizeNodeApiKeys(sheet.document.nodes);
+      }
+    });
+  }
+  const jsonString = JSON.stringify(sanitizedBundle, null, 2);
   // Try IPC write first; if anything fails, fall back to download method
   try {
     const { IPCAPI } = await import('../../../services/ipc/api');
@@ -43,7 +52,16 @@ export async function saveSheetsBundleToPath(
 }
 
 export async function saveSheetsBundle(bundle: SheetsBundle, suggestedName?: string) {
-  const jsonString = JSON.stringify(bundle, null, 2);
+  // Clone and sanitize bundle
+  const sanitizedBundle = JSON.parse(JSON.stringify(bundle));
+  if (sanitizedBundle.sheets) {
+    sanitizedBundle.sheets.forEach((sheet: any) => {
+      if (sheet.document?.nodes) {
+        sanitizeNodeApiKeys(sheet.document.nodes);
+      }
+    });
+  }
+  const jsonString = JSON.stringify(sanitizedBundle, null, 2);
   const fileName = (suggestedName || 'skill-multisheet') + '.json';
 
   if (hasIPCSupport() && hasFullFilePaths()) {

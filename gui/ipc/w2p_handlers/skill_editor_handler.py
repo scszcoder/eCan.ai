@@ -766,6 +766,54 @@ def handle_test_langgraph2flowgram(request: IPCRequest, params: Optional[Dict[st
         return create_error_response(request, 'TEST_LG2FG_ERROR', str(e))
 
 
+@IPCHandlerRegistry.handler('sim_timer_event')
+def handle_sim_timer_event(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Simulate a Timer Event trigger."""
+    try:
+        logger.info('[SIM][BE] sim_timer_event received')
+        # TODO: Implement actual logic
+        return create_success_response(request, {'ok': True, 'event': 'timer'})
+    except Exception as e:
+        logger.error(f"Error in sim_timer_event: {e} {traceback.format_exc()}")
+        return create_error_response(request, 'SIM_TIMER_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('sim_websocket_event')
+def handle_sim_websocket_event(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Simulate a Websocket Event trigger."""
+    try:
+        logger.info('[SIM][BE] sim_websocket_event received')
+        # TODO: Implement actual logic
+        return create_success_response(request, {'ok': True, 'event': 'websocket'})
+    except Exception as e:
+        logger.error(f"Error in sim_websocket_event: {e} {traceback.format_exc()}")
+        return create_error_response(request, 'SIM_WEBSOCKET_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('sim_sse_event')
+def handle_sim_sse_event(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Simulate an SSE Event trigger."""
+    try:
+        logger.info('[SIM][BE] sim_sse_event received')
+        # TODO: Implement actual logic
+        return create_success_response(request, {'ok': True, 'event': 'sse'})
+    except Exception as e:
+        logger.error(f"Error in sim_sse_event: {e} {traceback.format_exc()}")
+        return create_error_response(request, 'SIM_SSE_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('sim_webhook_event')
+def handle_sim_webhook_event(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Simulate a Webhook Event trigger."""
+    try:
+        logger.info('[SIM][BE] sim_webhook_event received')
+        # TODO: Implement actual logic
+        return create_success_response(request, {'ok': True, 'event': 'webhook'})
+    except Exception as e:
+        logger.error(f"Error in sim_webhook_event: {e} {traceback.format_exc()}")
+        return create_error_response(request, 'SIM_WEBHOOK_ERROR', str(e))
+
+
 # ----------------------
 # Skill Editor Cache Handlers
 # ----------------------

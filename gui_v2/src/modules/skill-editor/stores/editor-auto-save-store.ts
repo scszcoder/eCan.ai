@@ -9,6 +9,7 @@ import type { Sheet } from './sheets-store';
 import { IPCAPI } from '../../../services/ipc/api';
 import React from 'react';
 import { useNodeFlipStore } from './node-flip-store';
+import { sanitizeNodeApiKeys } from '../utils/sanitize-utils';
 
 // Data structure for saving to backend
 export interface EditorSaveData {
@@ -78,10 +79,27 @@ export const useAutoSaveStore = create<AutoSaveState>()((set, get) => ({
     }
 
     try {
+      // Deep clone for sanitization to avoid mutating store state
+      const sanitizedData = JSON.parse(JSON.stringify(saveData));
+      
+      // Sanitize API keys in main workflow
+      if (sanitizedData.skillInfo?.workFlow?.nodes) {
+        sanitizeNodeApiKeys(sanitizedData.skillInfo.workFlow.nodes);
+      }
+      
+      // Sanitize API keys in all sheets
+      if (sanitizedData.sheets?.sheets) {
+        Object.values(sanitizedData.sheets.sheets).forEach((sheet: any) => {
+          if (sheet.document?.nodes) {
+            sanitizeNodeApiKeys(sheet.document.nodes);
+          }
+        });
+      }
+
       const ipcApi = IPCAPI.getInstance();
       const response = await ipcApi.saveEditorCache({
         version: '1.0.0',
-        ...saveData,
+        ...sanitizedData,
       });
       
       return response.success;

@@ -3,17 +3,85 @@
  * SPDX-License-Identifier: MIT
  */
 
+import { useEffect, useState } from 'react';
 import { Field } from '@flowgram.ai/free-layout-editor';
 import { DynamicValueInput, PromptEditorWithVariables } from '@flowgram.ai/form-materials';
+import { Button, Input } from '@douyinfe/semi-ui';
 
 import { FormItem } from '../form-item';
 import { Feedback } from '../feedback';
 import { JsonSchema } from '../../typings';
 import { useNodeRenderContext } from '../../hooks';
+import { maskApiKeyForDisplay, API_KEY_PLACEHOLDER, API_KEY_REGEX } from '../../utils/sanitize-utils';
 
 interface FormInputsProps {
   extraFilter?: (key: string) => boolean;
 }
+
+interface MaskedApiKeyInputProps {
+  field: any;
+  fieldState: any;
+  readonly: boolean;
+}
+
+const MaskedApiKeyInput = ({ field, fieldState, readonly }: MaskedApiKeyInputProps) => {
+  const extractValue = (): string => {
+    const v = field.value;
+    if (v && typeof v === 'object' && 'content' in v) {
+      return v.content ?? '';
+    }
+    if (typeof v === 'string') {
+      return v;
+    }
+    return '';
+  };
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [localValue, setLocalValue] = useState<string>(extractValue());
+
+  useEffect(() => {
+    if (!isEditing) {
+      setLocalValue(extractValue());
+    }
+  }, [field.value, isEditing]);
+
+  useEffect(() => {
+    if (field.value == null && localValue === '') {
+      field.onChange({ type: 'constant', content: API_KEY_PLACEHOLDER });
+    }
+  }, []);
+
+  const handleChange = (value: string) => {
+    setLocalValue(value);
+    field.onChange({ type: 'constant', content: value });
+  };
+
+  const displayValue = isEditing ? localValue : maskApiKeyForDisplay(localValue || API_KEY_PLACEHOLDER);
+
+  return (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      <div style={{ flex: 1 }}>
+        <Input
+          value={displayValue}
+          type={isEditing ? 'password' : 'text'}
+          readOnly={!isEditing || readonly}
+          onChange={(val) => handleChange(val)}
+          placeholder="Enter API Key"
+          disabled={readonly && !isEditing}
+        />
+      </div>
+      {!readonly && (
+        <Button
+          type={isEditing ? 'primary' : 'tertiary'}
+          onClick={() => setIsEditing((prev) => !prev)}
+        >
+          {isEditing ? 'Done' : 'Edit'}
+        </Button>
+      )}
+      <Feedback errors={fieldState?.errors} warnings={fieldState?.warnings} />
+    </div>
+  );
+};
 
 export function FormInputs({ extraFilter }: FormInputsProps = {}) {
   const { readonly } = useNodeRenderContext();
@@ -95,6 +163,29 @@ export function FormInputs({ extraFilter }: FormInputsProps = {}) {
 
       const vertical = ['prompt-editor'].includes(formComponent || '');
 
+      const renderStringInput = (key: string, property: any, field: any, fieldState: any) => {
+        if (API_KEY_REGEX.test(key)) {
+          return (
+            <MaskedApiKeyInput
+              field={field}
+              fieldState={fieldState}
+              readonly={readonly}
+            />
+          );
+        }
+
+        const plain = sanitizeFlowValue(field.value, property, true) as string;
+        try { console.debug('[MCP][FormInputs] string input field value =', plain); } catch {}
+        return (
+          <input
+            style={{ width: '100%', padding: 6, border: '1px solid var(--semi-color-border)', backgroundColor: '#fff', color: '#111' }}
+            value={plain}
+            onChange={(e) => field.onChange({ type: 'constant', content: e.target.value })}
+            disabled={readonly}
+          />
+        );
+      };
+
       return (
         <Field key={key} name={`inputsValues.${key}`} defaultValue={property.default}>
           {({ field, fieldState }) => (
@@ -115,16 +206,7 @@ export function FormInputs({ extraFilter }: FormInputsProps = {}) {
               {!formComponent && (
                 (() => {
                   if (property?.type === 'string') {
-                    const plain = sanitizeFlowValue(field.value, property, true) as string;
-                    try { console.debug('[MCP][FormInputs] string input field value =', plain); } catch {}
-                    return (
-                      <input
-                        style={{ width: '100%', padding: 6, border: '1px solid var(--semi-color-border)', backgroundColor: '#fff', color: '#111' }}
-                        value={plain}
-                        onChange={(e) => field.onChange({ type: 'constant', content: e.target.value })}
-                        disabled={readonly}
-                      />
-                    );
+                    return renderStringInput(key, property, field, fieldState);
                   }
                   if (property?.type === 'number') {
                     // Extract the actual number value from FlowValue
