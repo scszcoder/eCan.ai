@@ -4,7 +4,7 @@
  */
 
 import { EditorRenderer, FreeLayoutEditorProvider, useService, WorkflowDocument, WorkflowLinesManager, CommandService, usePlayground } from '@flowgram.ai/free-layout-editor';
-import { DockedPanelLayer } from '@flowgram.ai/panel-manager-plugin';
+// import { DockedPanelLayer } from '@flowgram.ai/panel-manager-plugin';
 import { useEffect, useMemo, useRef } from 'react';
 import React from 'react';
 
@@ -212,11 +212,11 @@ export const Editor = () => {
                 
                   {/* DockedPanelLayer for ProblemPanel etc - needs flex:1 to fill remaining space */}
                 <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
-                  <DockedPanelLayer>
+                  {/* <DockedPanelLayer> */}
                     <EditorRenderer className="demo-editor">
                     <FilePathDisplay />
                   </EditorRenderer>
-                  </DockedPanelLayer>
+                  {/* </DockedPanelLayer> */}
                 </div>
               </div>
               <Tools />

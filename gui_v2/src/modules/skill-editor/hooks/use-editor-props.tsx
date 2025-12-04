@@ -146,11 +146,8 @@ export function useEditorProps(
         ) {
           return false;
         }
-        /**
-         * 线条环检测，不允许连接到前面的节点
-         * Line loop detection, which is not allowed to connect to the node in front of it
-         */
-        return !fromPort.node.lines.allInputNodes.includes(toPort.node);
+        // Allow feedback loops - cycle detection removed to enable feedback paths
+        return true;
       },
       /**
        * Check whether the line can be deleted, this triggers on the default shortcut `Bakspace` or `Delete`

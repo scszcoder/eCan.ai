@@ -2,7 +2,7 @@
   "skillId": "",
   "skillName": "shopify_fullfill",
   "version": "1.0.0",
-  "lastModified": "2025-12-03T21:19:09.540Z",
+  "lastModified": "2025-12-04T20:17:22.308Z",
   "workFlow": {
     "nodes": [
       {
@@ -331,110 +331,6 @@
             }
           },
           {
-            "id": "llm_Sxe_F",
-            "type": "llm",
-            "meta": {
-              "position": {
-                "x": 693.1487686764334,
-                "y": 61.60000000000002
-              }
-            },
-            "data": {
-              "title": "LLM_2",
-              "inputsValues": {
-                "modelProvider": {
-                  "type": "constant",
-                  "content": "OpenAI"
-                },
-                "modelName": {
-                  "type": "constant",
-                  "content": "gpt-4o-mini"
-                },
-                "attachments": {
-                  "type": "constant",
-                  "content": []
-                },
-                "apiKey": {
-                  "type": "constant",
-                  "content": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                },
-                "apiHost": {
-                  "type": "constant",
-                  "content": "https://api.openai.com/v1"
-                },
-                "temperature": {
-                  "type": "constant",
-                  "content": 0.5
-                },
-                "systemPrompt": {
-                  "type": "template",
-                  "content": "# Role\nYou are an AI assistant.\n"
-                },
-                "prompt": {
-                  "type": "template",
-                  "content": ""
-                },
-                "promptSelection": {
-                  "type": "constant",
-                  "content": "inline"
-                }
-              },
-              "inputs": {
-                "type": "object",
-                "properties": {
-                  "modelProvider": {
-                    "type": "string"
-                  },
-                  "modelName": {
-                    "type": "string"
-                  },
-                  "attachments": {
-                    "type": "object"
-                  },
-                  "apiKey": {
-                    "type": "string"
-                  },
-                  "apiHost": {
-                    "type": "string"
-                  },
-                  "temperature": {
-                    "type": "number"
-                  },
-                  "systemPrompt": {
-                    "type": "string"
-                  },
-                  "prompt": {
-                    "type": "string"
-                  },
-                  "promptSelection": {
-                    "type": "string"
-                  }
-                }
-              },
-              "outputs": {
-                "type": "object",
-                "properties": {
-                  "result": {
-                    "type": "object",
-                    "description": "Node execution result"
-                  },
-                  "condition": {
-                    "type": "boolean",
-                    "description": "Node execution condition"
-                  },
-                  "resolved": {
-                    "type": "boolean",
-                    "description": "Node execution resolved status"
-                  },
-                  "case": {
-                    "type": "string",
-                    "description": "Node execution case"
-                  }
-                }
-              }
-            }
-          },
-          {
             "id": "mcp_t0Ugk",
             "type": "mcp",
             "meta": {
@@ -573,6 +469,47 @@
               },
               "note": "Prep tool call."
             }
+          },
+          {
+            "id": "tool-picker_PfUWP",
+            "type": "tool-picker",
+            "meta": {
+              "position": {
+                "x": 742.8865910640711,
+                "y": 61.599999999999994
+              }
+            },
+            "data": {
+              "name": "ToolPicker_1",
+              "title": "ToolPicker_1",
+              "type": "tool-picker",
+              "inputsValues": {},
+              "inputs": {
+                "type": "object",
+                "properties": {}
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
           }
         ],
         "edges": [
@@ -589,12 +526,12 @@
             "targetNodeID": "327667"
           },
           {
-            "sourceNodeID": "327667",
-            "targetNodeID": "llm_Sxe_F"
+            "sourceNodeID": "tool-picker_PfUWP",
+            "targetNodeID": "mcp_t0Ugk"
           },
           {
-            "sourceNodeID": "llm_Sxe_F",
-            "targetNodeID": "mcp_t0Ugk"
+            "sourceNodeID": "327667",
+            "targetNodeID": "tool-picker_PfUWP"
           }
         ]
       },
@@ -1406,84 +1343,18 @@
         }
       },
       {
-        "id": "code_cmIo7",
-        "type": "code",
+        "id": "task_b0bXn",
+        "type": "task",
         "meta": {
           "position": {
-            "x": 96.98160557027211,
-            "y": 346.5234466158415
+            "x": 863.9416012219206,
+            "y": 121.72989965537286
           }
         },
         "data": {
-          "title": "Code_1",
-          "inputsValues": {
-            "input": {
-              "type": "constant",
-              "content": ""
-            }
-          },
-          "script": {
-            "language": "python",
-            "content": "# Here, you can retrieve input variables from the node using 'state' \nimport time\ndef main(state, *, runtime, store):\n  # Build the output object\n  print(\"in myfunc0.........\",state)\n  time.sleep(5)\n  print(\"myfunc0 woke now, outa here.....\")\n  state[\"result\"] = {\"status\": \"myfunc0 succeeded!!!\"}\n  return state"
-          },
-          "outputs": {
-            "type": "object",
-            "properties": {
-              "result": {
-                "type": "object",
-                "description": "Node execution result"
-              },
-              "condition": {
-                "type": "boolean",
-                "description": "Node execution condition"
-              },
-              "resolved": {
-                "type": "boolean",
-                "description": "Node execution resolved status"
-              },
-              "case": {
-                "type": "string",
-                "description": "Node execution case"
-              }
-            }
-          },
-          "inputs": {
-            "type": "object",
-            "properties": {
-              "input": {
-                "type": "string"
-              }
-            }
-          },
-          "hFlip": true
-        }
-      },
-      {
-        "id": "mcp_md8Sd",
-        "type": "mcp",
-        "meta": {
-          "position": {
-            "x": 772.5407171738127,
-            "y": -11.470100344627127
-          }
-        },
-        "data": {
-          "title": "MCP_1",
-          "callable": {
-            "id": "llm-auto-select",
-            "name": "llm auto select",
-            "desc": "Let the LLM automatically select the appropriate tool based on the context",
-            "params": {
-              "type": "object",
-              "properties": {}
-            },
-            "returns": {
-              "type": "object",
-              "properties": {}
-            },
-            "type": "system",
-            "source": ""
-          },
+          "name": "Task_1",
+          "title": "Task_1",
+          "type": "task",
           "inputsValues": {},
           "inputs": {
             "type": "object",
@@ -1510,6 +1381,68 @@
               }
             }
           }
+        }
+      },
+      {
+        "id": "chat_t4J93",
+        "type": "chat_node",
+        "meta": {
+          "position": {
+            "x": 136.47637966657294,
+            "y": 469.87933951162495
+          }
+        },
+        "data": {
+          "title": "Chat_1",
+          "inputsValues": {
+            "party": {
+              "type": "constant",
+              "content": "human"
+            },
+            "messageTemplate": {
+              "type": "template",
+              "content": ""
+            }
+          },
+          "inputs": {
+            "type": "object",
+            "required": [
+              "party"
+            ],
+            "properties": {
+              "party": {
+                "type": "string"
+              },
+              "messageTemplate": {
+                "type": "string",
+                "extra": {
+                  "formComponent": "prompt-editor"
+                }
+              }
+            }
+          },
+          "outputs": {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "object",
+                "description": "Node execution result"
+              },
+              "condition": {
+                "type": "boolean",
+                "description": "Node execution condition"
+              },
+              "resolved": {
+                "type": "boolean",
+                "description": "Node execution resolved status"
+              },
+              "case": {
+                "type": "string",
+                "description": "Node execution case"
+              }
+            }
+          },
+          "hFlip": true
         }
       }
     ],
@@ -1568,17 +1501,17 @@
         "targetNodeID": "llm_8LPYx"
       },
       {
-        "sourceNodeID": "code_cmIo7",
+        "sourceNodeID": "chat_t4J93",
         "targetNodeID": "pend_event_rqn66"
       },
       {
         "sourceNodeID": "206019",
-        "targetNodeID": "mcp_md8Sd",
+        "targetNodeID": "task_b0bXn",
         "sourcePortID": "if_out"
       },
       {
-        "sourceNodeID": "mcp_md8Sd",
-        "targetNodeID": "code_cmIo7"
+        "sourceNodeID": "task_b0bXn",
+        "targetNodeID": "chat_t4J93"
       }
     ]
   },

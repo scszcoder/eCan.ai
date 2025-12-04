@@ -289,6 +289,7 @@ def handle_read_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]]
             )
         
         file_path = data['filePath']
+        original_path = file_path  # Save original for logging
         
         # Convert relative path to absolute path
         if not os.path.isabs(file_path):
@@ -298,7 +299,7 @@ def handle_read_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]]
             file_path = os.path.join(base_dir, file_path)
         
         # Distinct marker for any read attempt
-        logger.info(f"[SKILL_IO][BACKEND][READ_ATTEMPT] {file_path}")
+        logger.info(f"[SKILL_IO][BACKEND][READ_ATTEMPT] Original: {original_path} -> Resolved: {file_path}")
         
         # Safety check: ensure file exists
         if not os.path.exists(file_path):
