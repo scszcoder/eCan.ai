@@ -2,7 +2,7 @@
   "skillId": "",
   "skillName": "shopify_fullfill",
   "version": "1.0.0",
-  "lastModified": "2025-12-04T20:32:15.601Z",
+  "lastModified": "2025-12-04T21:45:50.643Z",
   "workFlow": {
     "nodes": [
       {
@@ -124,68 +124,6 @@
         }
       },
       {
-        "id": "chat_e0QsR",
-        "type": "chat_node",
-        "meta": {
-          "position": {
-            "x": 105.31642486886585,
-            "y": 177.39198881406924
-          }
-        },
-        "data": {
-          "title": "Chat_1",
-          "inputsValues": {
-            "party": {
-              "type": "constant",
-              "content": "human"
-            },
-            "messageTemplate": {
-              "type": "template",
-              "content": ""
-            }
-          },
-          "inputs": {
-            "type": "object",
-            "required": [
-              "party"
-            ],
-            "properties": {
-              "party": {
-                "type": "string"
-              },
-              "messageTemplate": {
-                "type": "string",
-                "extra": {
-                  "formComponent": "prompt-editor"
-                }
-              }
-            }
-          },
-          "outputs": {
-            "type": "object",
-            "properties": {
-              "result": {
-                "type": "object",
-                "description": "Node execution result"
-              },
-              "condition": {
-                "type": "boolean",
-                "description": "Node execution condition"
-              },
-              "resolved": {
-                "type": "boolean",
-                "description": "Node execution resolved status"
-              },
-              "case": {
-                "type": "string",
-                "description": "Node execution case"
-              }
-            }
-          },
-          "hFlip": true
-        }
-      },
-      {
         "id": "loop_rhORT",
         "type": "loop",
         "meta": {
@@ -198,7 +136,7 @@
           "title": "Loop_1",
           "loopMode": "loopWhile",
           "loopCountExpr": "",
-          "loopWhileExpr": "state['result']['llm_result']['messages_read']",
+          "loopWhileExpr": "state['result']['llm_result']['all_messages_read']",
           "data": {
             "inputsValues": {}
           }
@@ -244,7 +182,7 @@
                 },
                 "modelName": {
                   "type": "constant",
-                  "content": "gpt-4o-mini"
+                  "content": "gpt-5"
                 },
                 "attachments": {
                   "type": "constant",
@@ -272,111 +210,7 @@
                 },
                 "promptSelection": {
                   "type": "constant",
-                  "content": "inline"
-                }
-              },
-              "inputs": {
-                "type": "object",
-                "properties": {
-                  "modelProvider": {
-                    "type": "string"
-                  },
-                  "modelName": {
-                    "type": "string"
-                  },
-                  "attachments": {
-                    "type": "object"
-                  },
-                  "apiKey": {
-                    "type": "string"
-                  },
-                  "apiHost": {
-                    "type": "string"
-                  },
-                  "temperature": {
-                    "type": "number"
-                  },
-                  "systemPrompt": {
-                    "type": "string"
-                  },
-                  "prompt": {
-                    "type": "string"
-                  },
-                  "promptSelection": {
-                    "type": "string"
-                  }
-                }
-              },
-              "outputs": {
-                "type": "object",
-                "properties": {
-                  "result": {
-                    "type": "object",
-                    "description": "Node execution result"
-                  },
-                  "condition": {
-                    "type": "boolean",
-                    "description": "Node execution condition"
-                  },
-                  "resolved": {
-                    "type": "boolean",
-                    "description": "Node execution resolved status"
-                  },
-                  "case": {
-                    "type": "string",
-                    "description": "Node execution case"
-                  }
-                }
-              }
-            }
-          },
-          {
-            "id": "llm_Sxe_F",
-            "type": "llm",
-            "meta": {
-              "position": {
-                "x": 693.1487686764334,
-                "y": 61.60000000000002
-              }
-            },
-            "data": {
-              "title": "LLM_2",
-              "inputsValues": {
-                "modelProvider": {
-                  "type": "constant",
-                  "content": "OpenAI"
-                },
-                "modelName": {
-                  "type": "constant",
-                  "content": "gpt-4o-mini"
-                },
-                "attachments": {
-                  "type": "constant",
-                  "content": []
-                },
-                "apiKey": {
-                  "type": "constant",
-                  "content": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                },
-                "apiHost": {
-                  "type": "constant",
-                  "content": "https://api.openai.com/v1"
-                },
-                "temperature": {
-                  "type": "constant",
-                  "content": 0.5
-                },
-                "systemPrompt": {
-                  "type": "template",
-                  "content": "# Role\nYou are an AI assistant.\n"
-                },
-                "prompt": {
-                  "type": "template",
-                  "content": ""
-                },
-                "promptSelection": {
-                  "type": "constant",
-                  "content": "inline"
+                  "content": "pr-174477"
                 }
               },
               "inputs": {
@@ -485,6 +319,23 @@
                     "description": "Node execution case"
                   }
                 }
+              },
+              "data": {
+                "callable": {
+                  "id": "llm-auto-select",
+                  "name": "llm auto select",
+                  "desc": "Let the LLM automatically select the appropriate tool based on the context",
+                  "params": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "returns": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "type": "system",
+                  "source": ""
+                }
               }
             }
           },
@@ -573,6 +424,47 @@
               },
               "note": "Prep tool call."
             }
+          },
+          {
+            "id": "tool-picker_XklII",
+            "type": "tool-picker",
+            "meta": {
+              "position": {
+                "x": 736.4661306165858,
+                "y": 58.67076650484495
+              }
+            },
+            "data": {
+              "name": "ToolPicker_1",
+              "title": "ToolPicker_1",
+              "type": "tool-picker",
+              "inputsValues": {},
+              "inputs": {
+                "type": "object",
+                "properties": {}
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
           }
         ],
         "edges": [
@@ -589,12 +481,12 @@
             "targetNodeID": "327667"
           },
           {
-            "sourceNodeID": "327667",
-            "targetNodeID": "llm_Sxe_F"
+            "sourceNodeID": "tool-picker_XklII",
+            "targetNodeID": "mcp_t0Ugk"
           },
           {
-            "sourceNodeID": "llm_Sxe_F",
-            "targetNodeID": "mcp_t0Ugk"
+            "sourceNodeID": "327667",
+            "targetNodeID": "tool-picker_XklII"
           }
         ]
       },
@@ -720,7 +612,7 @@
             },
             "apiKey": {
               "type": "constant",
-              "content": ""
+              "content": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
             },
             "apiHost": {
               "type": "constant",
@@ -811,7 +703,7 @@
           "title": "Loop_1",
           "loopMode": "loopWhile",
           "loopCountExpr": "",
-          "loopWhileExpr": "state['result']['llm_result']['orders_fullfilled']",
+          "loopWhileExpr": "state['result']['llm_result']['all_orders_fullfilled']",
           "data": {
             "inputsValues": {}
           }
@@ -840,116 +732,12 @@
             "data": {}
           },
           {
-            "id": "692888",
-            "type": "llm",
-            "meta": {
-              "position": {
-                "x": 213.87438896567934,
-                "y": 75.46900046200103
-              }
-            },
-            "data": {
-              "title": "LLM_1",
-              "inputsValues": {
-                "modelProvider": {
-                  "type": "constant",
-                  "content": "OpenAI"
-                },
-                "modelName": {
-                  "type": "constant",
-                  "content": "gpt-4o-mini"
-                },
-                "attachments": {
-                  "type": "constant",
-                  "content": []
-                },
-                "apiKey": {
-                  "type": "constant",
-                  "content": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-                },
-                "apiHost": {
-                  "type": "constant",
-                  "content": "https://api.openai.com/v1"
-                },
-                "temperature": {
-                  "type": "constant",
-                  "content": 0.5
-                },
-                "systemPrompt": {
-                  "type": "template",
-                  "content": "# Role\nYou are an AI assistant.\n"
-                },
-                "prompt": {
-                  "type": "template",
-                  "content": ""
-                },
-                "promptSelection": {
-                  "type": "constant",
-                  "content": "inline"
-                }
-              },
-              "inputs": {
-                "type": "object",
-                "properties": {
-                  "modelProvider": {
-                    "type": "string"
-                  },
-                  "modelName": {
-                    "type": "string"
-                  },
-                  "attachments": {
-                    "type": "object"
-                  },
-                  "apiKey": {
-                    "type": "string"
-                  },
-                  "apiHost": {
-                    "type": "string"
-                  },
-                  "temperature": {
-                    "type": "number"
-                  },
-                  "systemPrompt": {
-                    "type": "string"
-                  },
-                  "prompt": {
-                    "type": "string"
-                  },
-                  "promptSelection": {
-                    "type": "string"
-                  }
-                }
-              },
-              "outputs": {
-                "type": "object",
-                "properties": {
-                  "result": {
-                    "type": "object",
-                    "description": "Node execution result"
-                  },
-                  "condition": {
-                    "type": "boolean",
-                    "description": "Node execution condition"
-                  },
-                  "resolved": {
-                    "type": "boolean",
-                    "description": "Node execution resolved status"
-                  },
-                  "case": {
-                    "type": "string",
-                    "description": "Node execution case"
-                  }
-                }
-              }
-            }
-          },
-          {
             "id": "564500",
             "type": "mcp",
             "meta": {
               "position": {
-                "x": 1015.5200315433347,
-                "y": 75.46900046200103
+                "x": 1051.9104902177755,
+                "y": 50.469000462001105
               }
             },
             "data": {
@@ -1002,8 +790,8 @@
             "type": "code",
             "meta": {
               "position": {
-                "x": 744.4166348851068,
-                "y": 75.46900046200102
+                "x": 798.2728845183681,
+                "y": 59.87349969323965
               }
             },
             "data": {
@@ -1054,8 +842,8 @@
             "type": "browser-automation",
             "meta": {
               "position": {
-                "x": 479.14551192539375,
-                "y": 75.46900046200103
+                "x": 512.2187804879796,
+                "y": 59.873499693239665
               }
             },
             "data": {
@@ -1067,7 +855,7 @@
                 },
                 "browser": {
                   "type": "constant",
-                  "content": "new chromium"
+                  "content": "existing chrome"
                 },
                 "browserDriver": {
                   "type": "constant",
@@ -1099,7 +887,7 @@
                 },
                 "promptSelection": {
                   "type": "constant",
-                  "content": "inline"
+                  "content": "pr-111066"
                 }
               },
               "inputs": {
@@ -1196,20 +984,120 @@
                 }
               }
             }
+          },
+          {
+            "id": "llm_la_nh",
+            "type": "llm",
+            "meta": {
+              "position": {
+                "x": 226.1646764575914,
+                "y": 50.46900046200109
+              }
+            },
+            "data": {
+              "title": "LLM_1",
+              "inputsValues": {
+                "modelProvider": {
+                  "type": "constant",
+                  "content": "OpenAI"
+                },
+                "modelName": {
+                  "type": "constant",
+                  "content": "gpt-5"
+                },
+                "attachments": {
+                  "type": "constant",
+                  "content": []
+                },
+                "apiKey": {
+                  "type": "constant",
+                  "content": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                },
+                "apiHost": {
+                  "type": "constant",
+                  "content": "https://api.openai.com/v1"
+                },
+                "temperature": {
+                  "type": "constant",
+                  "content": 0.5
+                },
+                "systemPrompt": {
+                  "type": "template",
+                  "content": "# Role\nYou are an AI assistant.\n"
+                },
+                "prompt": {
+                  "type": "template",
+                  "content": ""
+                },
+                "promptSelection": {
+                  "type": "constant",
+                  "content": "pr-111066"
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "modelProvider": {
+                    "type": "string"
+                  },
+                  "modelName": {
+                    "type": "string"
+                  },
+                  "attachments": {
+                    "type": "object"
+                  },
+                  "apiKey": {
+                    "type": "string"
+                  },
+                  "apiHost": {
+                    "type": "string"
+                  },
+                  "temperature": {
+                    "type": "number"
+                  },
+                  "systemPrompt": {
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "type": "string"
+                  },
+                  "promptSelection": {
+                    "type": "string"
+                  }
+                }
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
           }
         ],
         "edges": [
           {
             "sourceNodeID": "848493",
-            "targetNodeID": "692888"
+            "targetNodeID": "llm_la_nh"
           },
           {
             "sourceNodeID": "564500",
             "targetNodeID": "112151"
-          },
-          {
-            "sourceNodeID": "692888",
-            "targetNodeID": "browser_automation_Xvc1T"
           },
           {
             "sourceNodeID": "915481",
@@ -1218,6 +1106,10 @@
           {
             "sourceNodeID": "browser_automation_Xvc1T",
             "targetNodeID": "915481"
+          },
+          {
+            "sourceNodeID": "llm_la_nh",
+            "targetNodeID": "browser_automation_Xvc1T"
           }
         ]
       },
@@ -1325,23 +1217,6 @@
         }
       },
       {
-        "id": "249161",
-        "type": "comment",
-        "meta": {
-          "position": {
-            "x": 499.8373840699341,
-            "y": -63.18629497687809
-          }
-        },
-        "data": {
-          "size": {
-            "width": 227.87836912810755,
-            "height": 44.94586577693212
-          },
-          "note": "request_to_stop?"
-        }
-      },
-      {
         "id": "225090",
         "type": "comment",
         "meta": {
@@ -1359,131 +1234,18 @@
         }
       },
       {
-        "id": "206019",
-        "type": "condition",
+        "id": "task_a5SoO",
+        "type": "task",
         "meta": {
           "position": {
-            "x": 465.6915753363387,
-            "y": -11.470100344627127
+            "x": 550.7017175103292,
+            "y": -47.22150584530008
           }
         },
         "data": {
-          "title": "Condition",
-          "conditions": [
-            {
-              "key": "if_-sPiK",
-              "value": {
-                "mode": "custom",
-                "expr": "state['result']['llm_result']['request_to_stop_work']"
-              }
-            },
-            {
-              "key": "else_KuoJ_",
-              "value": {}
-            }
-          ],
-          "outputs": {
-            "type": "object",
-            "properties": {
-              "result": {
-                "type": "object",
-                "description": "Node execution result"
-              },
-              "condition": {
-                "type": "boolean",
-                "description": "Node execution condition"
-              },
-              "resolved": {
-                "type": "boolean",
-                "description": "Node execution resolved status"
-              },
-              "case": {
-                "type": "string",
-                "description": "Node execution case"
-              }
-            }
-          }
-        }
-      },
-      {
-        "id": "code_cmIo7",
-        "type": "code",
-        "meta": {
-          "position": {
-            "x": 96.98160557027211,
-            "y": 346.5234466158415
-          }
-        },
-        "data": {
-          "title": "Code_1",
-          "inputsValues": {
-            "input": {
-              "type": "constant",
-              "content": ""
-            }
-          },
-          "script": {
-            "language": "python",
-            "content": "# Here, you can retrieve input variables from the node using 'state' \nimport time\ndef main(state, *, runtime, store):\n  # Build the output object\n  print(\"in myfunc0.........\",state)\n  time.sleep(5)\n  print(\"myfunc0 woke now, outa here.....\")\n  state[\"result\"] = {\"status\": \"myfunc0 succeeded!!!\"}\n  return state"
-          },
-          "outputs": {
-            "type": "object",
-            "properties": {
-              "result": {
-                "type": "object",
-                "description": "Node execution result"
-              },
-              "condition": {
-                "type": "boolean",
-                "description": "Node execution condition"
-              },
-              "resolved": {
-                "type": "boolean",
-                "description": "Node execution resolved status"
-              },
-              "case": {
-                "type": "string",
-                "description": "Node execution case"
-              }
-            }
-          },
-          "inputs": {
-            "type": "object",
-            "properties": {
-              "input": {
-                "type": "string"
-              }
-            }
-          },
-          "hFlip": true
-        }
-      },
-      {
-        "id": "mcp_HPtdy",
-        "type": "mcp",
-        "meta": {
-          "position": {
-            "x": 818.311346100533,
-            "y": -11.470100344627127
-          }
-        },
-        "data": {
-          "title": "MCP_1",
-          "callable": {
-            "id": "llm-auto-select",
-            "name": "llm auto select",
-            "desc": "Let the LLM automatically select the appropriate tool based on the context",
-            "params": {
-              "type": "object",
-              "properties": {}
-            },
-            "returns": {
-              "type": "object",
-              "properties": {}
-            },
-            "type": "system",
-            "source": ""
-          },
+          "name": "Task_1",
+          "title": "Task_1",
+          "type": "task",
           "inputsValues": {},
           "inputs": {
             "type": "object",
@@ -1511,6 +1273,85 @@
             }
           }
         }
+      },
+      {
+        "id": "289663",
+        "type": "chat_node",
+        "meta": {
+          "position": {
+            "x": 22.17452318890568,
+            "y": 217.47068668592635
+          }
+        },
+        "data": {
+          "title": "Chat_1",
+          "inputsValues": {
+            "party": {
+              "type": "constant",
+              "content": "human"
+            },
+            "messageTemplate": {
+              "type": "template",
+              "content": ""
+            }
+          },
+          "inputs": {
+            "type": "object",
+            "required": [
+              "party"
+            ],
+            "properties": {
+              "party": {
+                "type": "string"
+              },
+              "messageTemplate": {
+                "type": "string",
+                "extra": {
+                  "formComponent": "prompt-editor"
+                }
+              }
+            }
+          },
+          "outputs": {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "object",
+                "description": "Node execution result"
+              },
+              "condition": {
+                "type": "boolean",
+                "description": "Node execution condition"
+              },
+              "resolved": {
+                "type": "boolean",
+                "description": "Node execution resolved status"
+              },
+              "case": {
+                "type": "string",
+                "description": "Node execution case"
+              }
+            }
+          },
+          "hFlip": true
+        }
+      },
+      {
+        "id": "106878",
+        "type": "comment",
+        "meta": {
+          "position": {
+            "x": -843.4726515801658,
+            "y": -309.47435204010225
+          }
+        },
+        "data": {
+          "size": {
+            "width": 240,
+            "height": 150
+          },
+          "note": "shopify after sales work flow:\n\n1) use AI assisted RPA on gmail processing - preserve privacy & save tokens\n2) use AI native browser automation for shipping label. "
+        }
       }
     ],
     "edges": [
@@ -1525,7 +1366,7 @@
       },
       {
         "sourceNodeID": "condition_T5LqK",
-        "targetNodeID": "206019",
+        "targetNodeID": "task_a5SoO",
         "sourcePortID": "else_out"
       },
       {
@@ -1540,15 +1381,6 @@
         "sourceNodeID": "condition_kkKy4",
         "targetNodeID": "end_-lDZI",
         "sourcePortID": "else_out"
-      },
-      {
-        "sourceNodeID": "206019",
-        "targetNodeID": "chat_e0QsR",
-        "sourcePortID": "else_out"
-      },
-      {
-        "sourceNodeID": "chat_e0QsR",
-        "targetNodeID": "pend_event_rqn66"
       },
       {
         "sourceNodeID": "loop_rhORT",
@@ -1568,17 +1400,12 @@
         "targetNodeID": "llm_8LPYx"
       },
       {
-        "sourceNodeID": "code_cmIo7",
+        "sourceNodeID": "289663",
         "targetNodeID": "pend_event_rqn66"
       },
       {
-        "sourceNodeID": "206019",
-        "targetNodeID": "mcp_HPtdy",
-        "sourcePortID": "if_out"
-      },
-      {
-        "sourceNodeID": "mcp_HPtdy",
-        "targetNodeID": "code_cmIo7"
+        "sourceNodeID": "task_a5SoO",
+        "targetNodeID": "289663"
       }
     ]
   },

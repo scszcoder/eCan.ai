@@ -82,15 +82,40 @@ const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect
               >
                 <List.Item.Meta
                   title={
-                    <div style={{ color: '#fff', marginBottom: 4 }}>
+                    <div
+                      style={{
+                        color: '#fff',
+                        marginBottom: 4,
+                        display: 'flex',
+                        alignItems: 'baseline',
+                        gap: 6,
+                        width: '100%',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
                       {(() => {
                         const rawTitle = (item.title || '').trim();
-                        if (rawTitle) return rawTitle;
-                        const slug = (item.topic || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
-                        const titleKey = `pages.prompts.examples.${slug}.title`;
-                        const titleText = t(titleKey, { defaultValue: '' });
-                        if (titleText && titleText !== titleKey) return titleText;
-                        return t(`pages.prompts.examples.${slug}`, { defaultValue: item.topic });
+                        const resolvedTitle = (() => {
+                          if (rawTitle) return rawTitle;
+                          const slug = (item.topic || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+                          const titleKey = `pages.prompts.examples.${slug}.title`;
+                          const titleText = t(titleKey, { defaultValue: '' });
+                          if (titleText && titleText !== titleKey) return titleText;
+                          const fallback = t(`pages.prompts.examples.${slug}`, { defaultValue: item.topic });
+                          return fallback || item.id;
+                        })();
+                        const trimmedId = (item.id || '').trim();
+                        const displayId = trimmedId.replace(/^pr-/, '');
+                        return (
+                          <>
+                            <span style={{ fontWeight: 600 }}>{resolvedTitle}</span>
+                            {displayId ? (
+                              <span style={{ fontWeight: 400, color: 'rgba(255,255,255,0.7)' }}>
+                                ({displayId})
+                              </span>
+                            ) : null}
+                          </>
+                        );
                       })()}
                     </div>
                   }
