@@ -396,6 +396,19 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
       setTimeout(() => {
         hFlipInProgress.current = false;
         setBusy(node.id, false);
+        // Trigger content change to enable auto-save after flip
+        // Must pass a valid event object for onContentChange to fire
+        try {
+          const event = {
+            type: 'NODE_DATA_CHANGE',
+            entity: node,
+            toJSON: () => {
+              const formData = node.getData?.(FlowNodeFormData);
+              return formData?.toJSON?.() ?? {};
+            },
+          };
+          (documentSvc as any)?.fireContentChange?.(event);
+        } catch {}
       }, 150);
     }
   }, [node, rerenderMenu, canFlipAnchors, applyHFlipAnchors, selectService, documentSvc, linesMgr, isFlipped, setFlipped]);

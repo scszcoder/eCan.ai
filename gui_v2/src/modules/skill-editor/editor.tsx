@@ -146,6 +146,7 @@ export const Editor = () => {
 
   // Memoize sheets state to prevent unnecessary re-renders triggering auto-save
   // Use JSON.stringify to create a stable fingerprint that detects deep changes
+  // Include node data snippets to detect hFlip and other data changes
   const sheetsFingerprint = useMemo(() => {
     return JSON.stringify({
       sheetIds: Object.keys(sheets),
@@ -154,6 +155,11 @@ export const Editor = () => {
         name: s.name,
         nodeCount: s.document?.nodes?.length ?? 0,
         edgeCount: s.document?.edges?.length ?? 0,
+        // Include data snippets to detect hFlip and other changes
+        nodesData: s.document?.nodes?.map((n: any) => ({
+          id: n.id,
+          dataSnippet: n.data ? JSON.stringify(n.data).slice(0, 100) : '',
+        })),
       })),
     });
   }, [sheets]);
