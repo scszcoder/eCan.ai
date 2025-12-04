@@ -5,6 +5,8 @@ import { create } from 'zustand';
 
 interface NodeFlipState {
   flippedNodes: Set<string>; // node IDs that are H-flipped
+  // Monotonic counter for any flip state change; useful for triggering side effects
+  version: number;
   setFlipped: (nodeId: string, flipped: boolean) => void;
   isFlipped: (nodeId: string) => boolean;
   busyNodes: Set<string>; // nodes currently toggling to guard double triggers
@@ -16,42 +18,38 @@ interface NodeFlipState {
 export const useNodeFlipStore = create<NodeFlipState>((set, get) => ({
   flippedNodes: new Set<string>(),
   busyNodes: new Set<string>(),
+  version: 0,
   
   setFlipped: (nodeId: string, flipped: boolean) => {
-    console.log('[NodeFlipStore] setFlipped called:', { nodeId, flipped });
-    console.trace('[NodeFlipStore] Stack trace:');
     set((state) => {
       const newSet = new Set(state.flippedNodes);
+      const before = newSet.has(nodeId);
       if (flipped) {
         newSet.add(nodeId);
-        console.log('[NodeFlipStore] Added node to flipped set:', nodeId);
       } else {
         newSet.delete(nodeId);
-        console.log('[NodeFlipStore] Removed node from flipped set:', nodeId);
       }
-      return { flippedNodes: newSet };
+      const changed = before !== flipped;
+      return {
+        flippedNodes: newSet,
+        version: changed ? state.version + 1 : state.version,
+      };
     });
   },
   
-  isFlipped: (nodeId: string) => {
-    const result = get().flippedNodes.has(nodeId);
-    return result;
-  },
+  isFlipped: (nodeId: string) => get().flippedNodes.has(nodeId),
   
   setBusy: (nodeId: string, busy: boolean) => {
-    console.log('[NodeFlipStore] setBusy called:', { nodeId, busy });
     set((state) => {
       const newSet = new Set(state.busyNodes);
       if (busy) newSet.add(nodeId); else newSet.delete(nodeId);
-      return { busyNodes: newSet } as any;
+      return { busyNodes: newSet };
     });
   },
-  isBusy: (nodeId: string) => {
-    return get().busyNodes.has(nodeId);
-  },
-  
+
+  isBusy: (nodeId: string) => get().busyNodes.has(nodeId),
+
   clear: () => {
-    console.log('[NodeFlipStore] CLEAR called - all flip states reset');
-    set({ flippedNodes: new Set(), busyNodes: new Set() } as any);
+    set({ flippedNodes: new Set(), busyNodes: new Set(), version: 0 });
   },
 }));

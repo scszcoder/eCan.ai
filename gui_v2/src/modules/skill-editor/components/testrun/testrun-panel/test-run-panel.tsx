@@ -23,7 +23,12 @@ import styles from './index.module.less';
 export interface TestRunSidePanelProps {}
 
 export const TestRunSidePanel: FC<TestRunSidePanelProps> = () => {
-  const runtimeService = useService(WorkflowRuntimeService);
+  let runtimeService: WorkflowRuntimeService | null = null;
+  try {
+    runtimeService = useService(WorkflowRuntimeService);
+  } catch {
+    // WorkflowRuntimeService not available
+  }
   const { close: closePanel } = useTestRunFormPanel();
   const [isRunning, setRunning] = useState(false);
   const [values, setValues] = useState<Record<string, unknown>>({});
@@ -48,6 +53,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = () => {
   };
 
   const onTestRun = async () => {
+    if (!runtimeService) return;
     if (isRunning) {
       await runtimeService.taskCancel();
       return;
@@ -61,7 +67,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = () => {
   };
 
   const onClose = async () => {
-    await runtimeService.taskCancel();
+    await runtimeService?.taskCancel();
     setValues({});
     setRunning(false);
     closePanel();
@@ -114,6 +120,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = () => {
   );
 
   useEffect(() => {
+    if (!runtimeService) return;
     const disposer = runtimeService.onResultChanged(({ result, errors }) => {
       setRunning(false);
       setResult(result);
@@ -128,7 +135,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = () => {
 
   useEffect(
     () => () => {
-      runtimeService.taskCancel();
+      runtimeService?.taskCancel();
     },
     [runtimeService]
   );

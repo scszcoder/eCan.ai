@@ -39,7 +39,7 @@ export const LineAddButton = (props: LineRenderProps) => {
     };
 
     // get container node for the new node - Get新节点的Container节点
-    const containerNode = fromPort.node.parent;
+    const containerNode = fromPort?.node?.parent;
 
     // show node selection panel - Display节点Select面板
     const result = await nodePanelService.singleSelectNodePanel({
@@ -106,12 +106,25 @@ export const LineAddButton = (props: LineRenderProps) => {
     return <></>;
   }
 
+  // Use the line's center (computed by WorkflowLineRenderData) so the button
+  // sits on the actual curve mid-point instead of the bounding box center.
+  // center.labelX / labelY are relative to the line container's top-left.
+  let left: string | number = '50%';
+  let top: string | number = '50%';
+  try {
+    const center = (line as any).center as { labelX?: number; labelY?: number } | undefined;
+    if (center && typeof center.labelX === 'number' && typeof center.labelY === 'number') {
+      left = center.labelX;
+      top = center.labelY;
+    }
+  } catch {}
+
   return (
     <div
       className="line-add-button"
       style={{
-        left: '50%',
-        top: '50%',
+        left,
+        top,
         color,
       }}
       data-testid="sdk.workflow.canvas.line.add"

@@ -183,7 +183,21 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
           try {
             const lines = (p as any)?.allLines ?? (p as any)?.lines;
             if (lines && typeof lines.forEach === 'function') {
-              lines.forEach((ln: any) => { try { ln.validate?.(); } catch {} });
+              lines.forEach((ln: any) => {
+                try { ln.validate?.(); } catch {}
+                // Force update line render data to fix add button position after flip
+                try {
+                  // Try to get renderData from line's data map
+                  const dataMap = (ln as any)?._dataMap ?? (ln as any)?.dataMap;
+                  if (dataMap) {
+                    dataMap.forEach?.((data: any) => {
+                      if (data?.update && typeof data.update === 'function') {
+                        data.update();
+                      }
+                    });
+                  }
+                } catch {}
+              });
             }
           } catch {}
           if (flipDebug) {
