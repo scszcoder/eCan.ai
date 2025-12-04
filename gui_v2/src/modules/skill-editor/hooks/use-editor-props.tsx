@@ -146,7 +146,7 @@ export function useEditorProps(
         ) {
           return false;
         }
-        // Allow feedback loops - cycle detection removed to enable feedback paths
+        // Allow all feedback loops and cyclic connections
         return true;
       },
       /**
