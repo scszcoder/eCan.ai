@@ -30,6 +30,7 @@ import { Info } from './info';
 import { GitMenu } from './git';
 import { HelpPanel } from '../help/help-panel';
 import { NewPage } from './new-page';
+import { ProblemButton } from '../problem-panel';
 import { IPCAPI } from '../../../../services/ipc/api';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { useUserStore } from '../../../../stores/userStore';
@@ -113,6 +114,7 @@ export const Tools = () => {
             onClick={() => history.redo()}
           />
         </Tooltip>
+        <ProblemButton />
         <Divider layout="vertical" style={{ height: '16px' }} margin={3} />
         <AddNode disabled={playground.config.readonly} />
         <Divider layout="vertical" style={{ height: '16px' }} margin={3} />

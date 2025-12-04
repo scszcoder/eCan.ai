@@ -5,7 +5,8 @@ from typing import TYPE_CHECKING, List, Optional, Union
 from langchain_core.messages import HumanMessage, SystemMessage
 
 if TYPE_CHECKING:
-	from agent.models import ActionResult, AgentStepInfo
+	from browser_use.agent.views import ActionResult
+	from browser_use.agent.service import AgentStepInfo
 	from browser.views import BrowserState
 
 

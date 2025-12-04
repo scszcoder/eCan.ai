@@ -30,7 +30,7 @@ from utils.logger_helper import logger_helper as logger, get_traceback
 from langgraph.types import interrupt
 from langgraph.errors import GraphInterrupt
 from utils.logger_helper import logger_helper as logger, get_traceback
-from agent.tasks_resume import build_node_transfer_patch
+from agent.ec_tasks.resume import build_node_transfer_patch
 # ---------------------------------------------------------------------------
 # ── 1.  Typed State for LangGraph ───────────────────────────────────────────
 # ---------------------------------------------------------------------------

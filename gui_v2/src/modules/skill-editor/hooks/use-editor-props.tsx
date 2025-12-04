@@ -18,20 +18,21 @@ import {
   FreeLayoutProps,
   FreeLayoutPluginContext,
   WorkflowDocument,
-  WorkflowNodeLinesData,
+  WorkflowNodeEntity,
 } from '@flowgram.ai/free-layout-editor';
 import { createFreeGroupPlugin } from '@flowgram.ai/free-group-plugin';
 import { createContainerNodePlugin } from '@flowgram.ai/free-container-plugin';
 
-import { onDragLineEnd } from '../utils';
+import { canContainNode, onDragLineEnd } from '../utils';
 import { FlowNodeRegistry, FlowDocumentJSON } from '../typings';
 import { shortcuts } from '../shortcuts';
-import { CustomService } from '../services';
+import { CustomService, ValidateService } from '../services';
 import { WorkflowRuntimeService } from '../plugins/runtime-plugin/runtime-service';
 import {
   createRuntimePlugin,
   createContextMenuPlugin,
   createVariablePanelPlugin,
+  createPanelManagerPlugin,
 } from '../plugins';
 import { defaultFormMeta } from '../nodes/default-form-meta';
 import { WorkflowNodeType } from '../nodes';
@@ -39,7 +40,7 @@ import { SelectorBoxPopover } from '../components/selector-box-popover';
 import { BaseNode, CommentRender, GroupNodeRender, LineAddButton, NodePanel } from '../components';
 import { useSkillInfoStore } from '../stores/skill-info-store';
 import { useSheetsStore } from '../stores/sheets-store';
-import { getWorkflowDocumentRef, setWorkflowDocumentRef } from '../workflow-document-binding';
+import { setWorkflowDocumentRef } from '../workflow-document-binding';
 
 export function useEditorProps(
   initialData: FlowDocumentJSON,
@@ -66,6 +67,11 @@ export function useEditorProps(
        * Whether it is read-only or not, the node cannot be dragged in read-only mode
        */
       readonly: false,
+      /**
+       * Line support both-way connection (default true)
+       * 线条支持双向连接
+       */
+      twoWayConnection: true,
       /**
        * Initial data
        * InitializeData
@@ -135,70 +141,42 @@ export function useEditorProps(
           return false;
         }
         /**
-         * 线条环检测，不AllowConnection到前面的节点
+         * 线条环检测，不允许连接到前面的节点
          * Line loop detection, which is not allowed to connect to the node in front of it
          */
-        return true;
+        return !fromPort.node.lines.allInputNodes.includes(toPort.node);
       },
       /**
        * Check whether the line can be deleted, this triggers on the default shortcut `Bakspace` or `Delete`
        * 判断是否能Delete连线, 这个会在Default快捷键 (Backspace or Delete) Trigger
        */
-      canDeleteLine(ctx, line, newLineInfo, silent) {
+      canDeleteLine(_ctx, _line, _newLineInfo, _silent) {
         return true;
       },
       /**
        * Check whether the node can be deleted, this triggers on the default shortcut `Bakspace` or `Delete`
        * 判断是否能Delete节点, 这个会在Default快捷键 (Backspace or Delete) Trigger
        */
-      canDeleteNode(ctx, node) {
+      canDeleteNode(_ctx, _node) {
         return true;
       },
       /**
-       * 是否Allow拖入子画布 (loop or group)
+       * 是否允许拖入子画布 (loop or group)
        * Whether to allow dragging into the sub-canvas (loop or group)
        */
-      canDropToNode: (ctx, params) => {
-        const { dragNodeType, dropNodeType } = params;
-        /**
-         * 开始/结束节点无法更改Container
-         * The start and end nodes cannot change container
-         */
-        if (
-          [
-            WorkflowNodeType.Start,
-            WorkflowNodeType.End,
-            WorkflowNodeType.BlockStart,
-            WorkflowNodeType.BlockEnd,
-          ].includes(dragNodeType as WorkflowNodeType)
-        ) {
-          return false;
-        }
-        /**
-         * 继续Loop与终止Loop只能在Loop节点中
-         * Continue loop and break loop can only be in loop nodes
-         */
-        if (
-          [WorkflowNodeType.Continue, WorkflowNodeType.Break].includes(
-            dragNodeType as WorkflowNodeType
-          ) &&
-          dropNodeType !== WorkflowNodeType.Loop
-        ) {
-          return false;
-        }
-        /**
-         * Loop节点无法嵌套Loop节点
-         * Loop node cannot nest loop node
-         */
-        if (dragNodeType === WorkflowNodeType.Loop && dropNodeType === WorkflowNodeType.Loop) {
-          return false;
-        }
-        return true;
-      },
+      canDropToNode: (ctx, params) => canContainNode(params.dragNodeType!, params.dropNodeType!),
+      /**
+       * Whether to reset line
+       * 是否允许重连
+       * @param ctx
+       * @param oldLine
+       * @param newLineInfo
+       */
+      canResetLine: (_ctx, _oldLine, _newLineInfo) => true,
       /**
        * Drag the end of the line to create an add panel (feature optional)
-       * Drag线条结束NeedCreate一个Add面板 （功能Optional）
-       * 希望提供控制线条粗细的Configuration项
+       * 拖拽线条结束需要创建一个添加面板 （功能可选）
+       * 希望提供控制线条粗细的配置项
        */
       onDragLineEnd,
       /**
@@ -237,18 +215,28 @@ export function useEditorProps(
         enable: true,
       },
       /**
+       * Redo/Undo enable
+       */
+      history: {
+        enable: true,
+        /**
+         * Listen form data change, default true
+         */
+        enableChangeNode: true,
+      },
+      /**
        * Content change
        */
       onContentChange: (() => {
         // Track last saved content hash to avoid duplicate saves
         let lastContentHash = '';
         let isProcessing = false;
-        
+
         return debounce((ctx, event) => {
           // Prevent re-entry during processing
           if (isProcessing) return;
           if (ctx.document.disposed) return;
-          
+
           isProcessing = true;
           try {
             const raw = ctx.document.toJSON();
@@ -277,19 +265,19 @@ export function useEditorProps(
             };
 
             const cleaned = sanitize(raw);
-            
+
             // Create a hash of the content to detect actual changes
             const contentHash = JSON.stringify({
               nodes: cleaned.nodes?.map((n: any) => ({ id: n.id, type: n.type, meta: n.meta, data: n.data })),
               edges: cleaned.edges,
             });
-            
+
             // Skip if content hasn't actually changed
             if (contentHash === lastContentHash) {
               return;
             }
             lastContentHash = contentHash;
-            
+
             console.log('Auto Save: ', event, cleaned);
 
             // 自动Sync skillInfo 的 workFlow Field (without runtime state)
@@ -331,9 +319,10 @@ export function useEditorProps(
        */
       onBind: ({ bind, isBound, rebind }) => {
         bind(CustomService).toSelf().inSingletonScope();
+        bind(ValidateService).toSelf().inSingletonScope();
         if (!isBound(WorkflowDocument)) {
           bind(WorkflowDocument).toDynamicValue(({ container }) => {
-            const context = container.get(FreeLayoutPluginContext);
+            const context = container.get(FreeLayoutPluginContext) as FreeLayoutPluginContext;
             const document = context.document;
             if (!document) {
               throw new Error('WorkflowDocument requested before initialisation');
@@ -389,10 +378,23 @@ export function useEditorProps(
          */
         createFreeHistoryPlugin({}),
         /**
-         * Stacking context plugin
-         * 层级上下文插件
+         * Custom node sorting, the code below will make the comment nodes always below the normal nodes
+         * 自定义节点排序，下边的代码会让 comment 节点永远在普通节点下边
          */
-        createFreeStackPlugin({}),
+        createFreeStackPlugin({
+          sortNodes: (nodes: WorkflowNodeEntity[]) => {
+            const commentNodes: WorkflowNodeEntity[] = [];
+            const otherNodes: WorkflowNodeEntity[] = [];
+            nodes.forEach((node) => {
+              if (node.flowNodeType === WorkflowNodeType.Comment) {
+                commentNodes.push(node);
+              } else {
+                otherNodes.push(node);
+              }
+            });
+            return [...commentNodes, ...otherNodes];
+          },
+        }),
         /**
          * Minimap plugin
          * 缩略图插件
@@ -470,6 +472,8 @@ export function useEditorProps(
          * 变量面板插件
          */
         createVariablePanelPlugin({}),
+        /** Float layout plugin */
+        createPanelManagerPlugin(),
       ],
     }),
     []

@@ -14,7 +14,7 @@ export const renderForm = (_props: FormRenderProps<FlowNodeJSON>) => {
     <>
       <FormHeader />
       <FormContent>
-        {/** Blank editor: intentionally left empty for Basic node */}
+        {/** Task node editor */}
       </FormContent>
     </>
   );

@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 from queue import Queue
 from concurrent.futures import ThreadPoolExecutor
 
-from agent.models import *
 from agent.a2a.common.client import A2AClient
 from agent.a2a.common.server import A2AServer
 from agent.a2a.common.types import AgentCard
@@ -17,7 +16,7 @@ from agent.a2a.common.types import Message, TextPart, FilePart, FileContent, Tas
 from browser_use.agent.service import Agent
 from agent.ec_skill import EC_Skill
 from agent.run_utils import time_execution_sync
-from agent.tasks import TaskRunner, ManagedTask
+from agent.ec_tasks import TaskRunner, ManagedTask
 from agent.human_chatter import *
 import threading
 import concurrent.futures

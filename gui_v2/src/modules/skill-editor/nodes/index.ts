@@ -18,10 +18,11 @@ import { CodeNodeRegistry } from './code';
 import { BreakNodeRegistry } from './break';
 import { BlockStartNodeRegistry } from './block-start';
 import { BlockEndNodeRegistry } from './block-end';
-import { BasicNodeRegistry } from './basic';
 import { MCPNodeRegistry } from './mcp';
-import { RAGNodeRegistry } from './rag';
 import { ChatNodeRegistry } from './chat';
+import { TaskNodeRegistry } from './task';
+import { ToolPickerNodeRegistry } from './tool-picker';
+import { DummyNodeRegistry } from './dummy';
 import { PendInputNodeRegistry } from './pend-input';
 import { PendEventNodeRegistry } from './pend-event';
 import { EventNodeRegistry } from './event';
@@ -46,10 +47,11 @@ export const nodeRegistries: FlowNodeRegistry[] = [
   BreakNodeRegistry,
   VariableNodeRegistry,
   GroupNodeRegistry,
-  BasicNodeRegistry,
   MCPNodeRegistry,
-  RAGNodeRegistry,
   ChatNodeRegistry,
+  TaskNodeRegistry,
+  ToolPickerNodeRegistry,
+  DummyNodeRegistry,
   // Keep PendInput for backward compatibility; prefer PendEvent
   PendEventNodeRegistry,
   PendInputNodeRegistry,

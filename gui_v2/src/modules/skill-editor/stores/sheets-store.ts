@@ -36,8 +36,11 @@ interface SheetsState {
   getActiveDocument: () => any | null;
   clearActiveSheet: () => void;
   saveActiveViewState: (view: { zoom?: number }) => void;
+  saveViewStateFor: (id: string, view: { zoom?: number }) => void;
   getActiveViewState: () => { zoom?: number } | null;
+  getViewStateFor: (id: string) => { zoom?: number } | null;
   saveActiveSelection: (ids: string[]) => void;
+  saveSelectionFor: (id: string, ids: string[]) => void;
   getActiveSelection: () => string[];
   // reorder tabs
   moveTabLeft: (id: string) => void;
@@ -85,10 +88,21 @@ export const useSheetsStore = create<SheetsState>((set, get) => ({
     if (!sheet) return;
     set({ sheets: { ...st.sheets, [id]: { ...sheet, view: { ...(sheet.view || {}), ...view } } } });
   },
+  // Save view state for a specific sheet (used during sheet switch)
+  saveViewStateFor: (id: string, view: { zoom?: number }) => {
+    const st = get();
+    const sheet = st.sheets[id];
+    if (!sheet) return;
+    set({ sheets: { ...st.sheets, [id]: { ...sheet, view: { ...(sheet.view || {}), ...view } } } });
+  },
   getActiveViewState: () => {
     const st = get();
     const id = st.activeSheetId;
     if (!id) return null;
+    return st.sheets[id]?.view || null;
+  },
+  getViewStateFor: (id: string) => {
+    const st = get();
     return st.sheets[id]?.view || null;
   },
 
@@ -97,6 +111,13 @@ export const useSheetsStore = create<SheetsState>((set, get) => ({
     const st = get();
     const id = st.activeSheetId;
     if (!id) return;
+    const sheet = st.sheets[id];
+    if (!sheet) return;
+    set({ sheets: { ...st.sheets, [id]: { ...sheet, selectionIds: Array.isArray(ids) ? [...ids] : [] } } });
+  },
+  // Save selection for a specific sheet (used during sheet switch)
+  saveSelectionFor: (id: string, ids: string[]) => {
+    const st = get();
     const sheet = st.sheets[id];
     if (!sheet) return;
     set({ sheets: { ...st.sheets, [id]: { ...sheet, selectionIds: Array.isArray(ids) ? [...ids] : [] } } });
