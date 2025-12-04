@@ -982,6 +982,9 @@ jobs:
         needs.validate-tag.outputs.environment == 'test'
       shell: pwsh
       run: |
+        # Install cryptography library for Ed25519 signing
+        python -m pip install cryptography --quiet
+        
         Write-Host "=== Generating Ed25519 Signatures ===" -ForegroundColor Cyan
         $version = "${{ needs.validate-tag.outputs.version }}"
         $arch = "$env:BUILD_ARCH"
@@ -1711,6 +1714,9 @@ jobs:
           needs.validate-tag.outputs.environment == 'test'
         )
       run: |
+        # Install cryptography library for Ed25519 signing
+        python -m pip install cryptography --quiet
+        
         echo "=== Generating Ed25519 Signatures ==="
         VERSION="${{ needs.validate-tag.outputs.version }}"
         ARCH="${{ matrix.arch }}"
