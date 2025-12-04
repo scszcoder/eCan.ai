@@ -80,7 +80,7 @@ def _update_agent_task_in_memory(agent_task_id: str, agent_task_data: Dict[str, 
             logger.warning("[task_handler] mainwin.agent_tasks not available")
             return False
 
-        from agent.tasks import ManagedTask
+        from agent.ec_tasks import ManagedTask
         from agent.a2a.common.types import TaskStatus, TaskState
 
         # Check if agent task already exists in memory

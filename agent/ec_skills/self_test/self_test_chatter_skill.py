@@ -231,7 +231,7 @@ def simulate_event(agent, mainwin, event_name: str, event_params: dict = None) -
             }
         
         # 2) Create a normalized event object
-        from agent.tasks_resume import normalize_event
+        from agent.ec_tasks.resume import normalize_event
         
         # Build the event message data
         event_data = {

@@ -3,10 +3,8 @@ import typing
 import uuid
 import asyncio
 from agent.ec_agents.agent_utils import load_agent_tasks_from_cloud
-from agent.tasks import TaskStatus, TaskState
-
-from agent.tasks import ManagedTask, TaskSchedule
-from agent.tasks import Repeat_Types
+from agent.a2a.common.types import TaskStatus, TaskState
+from agent.ec_tasks import ManagedTask, TaskSchedule, RepeatType
 
 from utils.logger_helper import logger_helper as logger
 from agent.ec_agents.create_dev_task import create_skill_dev_task
@@ -76,7 +74,7 @@ def _get_or_create_task(
         # 3. Create New Task
         # Default schedule if not provided
         default_schedule = {
-            "repeat_type": Repeat_Types.NONE,
+            "repeat_type": RepeatType.NONE,
             "repeat_number": 1,
             "repeat_unit": "day",
             "start_date_time": "2025-03-31 23:59:59:000",
@@ -151,7 +149,7 @@ def create_ec_customer_support_chat_task(mainwin):
         task_name="chat:ECBot RPA Customer Support Internal Chatter Task",
         description="chat with human user about anything related to customer support work.",
         trigger="message",
-        schedule_kwargs={"repeat_type": Repeat_Types.BY_DAYS}
+        schedule_kwargs={"repeat_type": RepeatType.BY_DAYS}
     )
 
 def create_ec_customer_support_work_task(mainwin):
@@ -161,7 +159,7 @@ def create_ec_customer_support_work_task(mainwin):
         task_name="work:eCan.ai After Sales Customer Support Work",
         description="eCan.ai After Sales Support Work like shipping prep, customer Q&A, handle return, refund, resend, etc.",
         trigger="schedule",
-        schedule_kwargs={"repeat_type": Repeat_Types.BY_DAYS}
+        schedule_kwargs={"repeat_type": RepeatType.BY_DAYS}
     )
 
 
@@ -172,7 +170,7 @@ def create_ec_marketing_chat_task(mainwin):
         task_name="chat:eCan.ai Marketing Chatter Task",
         description="chat with human user about anything related to e-commerce marketing work.",
         trigger="message",
-        schedule_kwargs={"repeat_type": Repeat_Types.BY_DAYS}
+        schedule_kwargs={"repeat_type": RepeatType.BY_DAYS}
     )
 
 def create_ec_marketing_work_task(mainwin):
@@ -182,13 +180,13 @@ def create_ec_marketing_work_task(mainwin):
         task_name="work:E-Commerce Marketing Work",
         description="Help fix errors/failures during e-commerce RPA run",
         trigger="schedule",
-        schedule_kwargs={"repeat_type": Repeat_Types.BY_DAYS}
+        schedule_kwargs={"repeat_type": RepeatType.BY_DAYS}
     )
 
 def create_ec_procurement_chat_task(mainwin):
     # Special schedule for procurement
     schedule_kwargs = {
-        "repeat_type": Repeat_Types.BY_DAYS,
+        "repeat_type": RepeatType.BY_DAYS,
         "start_date_time": "2025-03-31 01:00:00:000",
         "end_date_time": "2035-12-31 01:30:00:000",
         "time_out": 1800
@@ -211,7 +209,7 @@ def create_ec_procurement_work_task(mainwin):
         return "search" in sk.name and "digikey" in sk.name
         
     schedule_kwargs = {
-        "repeat_type": Repeat_Types.BY_DAYS,
+        "repeat_type": RepeatType.BY_DAYS,
         "start_date_time": "2025-03-31 01:00:00:000",
         "end_date_time": "2035-12-31 01:30:00:000",
         "time_out": 1800
@@ -260,7 +258,7 @@ def create_ec_rpa_supervisor_chat_task(mainwin):
 def create_ec_rpa_supervisor_daily_task(mainwin):
     # Special schedule for daily supervisor task
     schedule_kwargs = {
-        "repeat_type": Repeat_Types.BY_DAYS,
+        "repeat_type": RepeatType.BY_DAYS,
         "start_date_time": "2025-03-31 03:00:00:000",
         "end_date_time": "2035-12-31 23:59:59:000"
     }
@@ -290,7 +288,7 @@ def create_ec_sales_chat_task(mainwin):
         task_name="chat:eCan.ai Sales Chatter Task",
         description="chat with human user about anything related to e-commerce sales work.",
         trigger="message",
-        schedule_kwargs={"repeat_type": Repeat_Types.BY_DAYS}
+        schedule_kwargs={"repeat_type": RepeatType.BY_DAYS}
     )
 
 def create_ec_sales_work_task(mainwin):
@@ -300,7 +298,7 @@ def create_ec_sales_work_task(mainwin):
         task_name="work:ECBot Sales",
         description="Help fix errors/failures during e-commerce RPA run",
         trigger="schedule",
-        schedule_kwargs={"repeat_type": Repeat_Types.BY_DAYS}
+        schedule_kwargs={"repeat_type": RepeatType.BY_DAYS}
     )
 
 
@@ -311,13 +309,13 @@ def create_ec_self_tester_chat_task(mainwin):
         task_name="chat:eCan.ai Self Test Chatter Task",
         description="chat with human user about anything related to eCan.ai self test work.",
         trigger="message",
-        schedule_kwargs={"repeat_type": Repeat_Types.BY_DAYS}
+        schedule_kwargs={"repeat_type": RepeatType.BY_DAYS}
     )
 
 def create_ec_self_tester_work_task(mainwin):
     # Special schedule for self tester
     schedule_kwargs = {
-        "repeat_type": Repeat_Types.BY_DAYS,
+        "repeat_type": RepeatType.BY_DAYS,
         "start_date_time": "2025-03-31 01:59:59:000",
         "end_date_time": "2035-12-31 01:59:59:000"
     }
@@ -346,7 +344,7 @@ def _convert_db_agent_task_to_object(db_agent_task_dict):
             end_date = schedule_data.get('end_date_time')
             
             schedule = TaskSchedule(
-                repeat_type=getattr(Repeat_Types, schedule_data.get('repeat_type', 'NONE'), Repeat_Types.NONE),
+                repeat_type=getattr(RepeatType, schedule_data.get('repeat_type', 'NONE'), RepeatType.NONE),
                 repeat_number=schedule_data.get('repeat_number', 1),
                 repeat_unit=schedule_data.get('repeat_unit', 'day'),
                 start_date_time=start_date if start_date is not None else '',
