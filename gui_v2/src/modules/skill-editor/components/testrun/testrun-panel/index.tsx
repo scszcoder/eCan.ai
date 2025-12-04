@@ -32,7 +32,12 @@ interface TestRunSidePanelProps {
 }
 
 export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel }) => {
-  const runtimeService = useService(WorkflowRuntimeService);
+  let runtimeService: WorkflowRuntimeService | null = null;
+  try {
+    runtimeService = useService(WorkflowRuntimeService);
+  } catch {
+    // WorkflowRuntimeService not available
+  }
   const { document } = useClientContext();
   const { nodeId: sidebarNodeId, setNodeId } = useContext(SidebarContext);
   const ipcApi = IPCAPI.getInstance();
