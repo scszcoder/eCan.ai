@@ -24,7 +24,9 @@ export const DummyNodeRegistry: FlowNodeRegistry = {
       id: `dummy_${nanoid(5)}`,
       type: 'dummy',
       data: {
-        title: `Dummy_${++index}`,
+        name: `Dummy_${++index}`,
+        title: `Dummy_${index}`,
+        type: 'dummy',
         inputsValues: {},
         inputs: {
           type: 'object',

@@ -310,8 +310,7 @@ class NodeState(TypedDict):
     this_node: str
     attributes: dict
     result: dict
-    tool_name: str
-    tool_input: dict
+    tool_calls: List[dict]
     tool_result: dict
     http_response: dict
     cli_input: dict

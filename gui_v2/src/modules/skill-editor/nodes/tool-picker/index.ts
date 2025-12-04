@@ -24,7 +24,9 @@ export const ToolPickerNodeRegistry: FlowNodeRegistry = {
       id: `tool-picker_${nanoid(5)}`,
       type: 'tool-picker',
       data: {
-        title: `ToolPicker_${++index}`,
+        name: `ToolPicker_${++index}`,
+        title: `ToolPicker_${index}`,
+        type: 'tool-picker',
         inputsValues: {},
         inputs: {
           type: 'object',

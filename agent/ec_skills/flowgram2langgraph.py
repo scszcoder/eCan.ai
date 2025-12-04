@@ -41,6 +41,11 @@ function_registry = {
     # Back-compat alias for old rag type
     "rag": build_rag_node,
     "browser-automation": build_browser_automation_node,
+    # New organizational nodes
+    "task": build_task_node,
+    "tool-picker": build_tool_picker_node,
+    # Dummy node is removed during preprocessing, no runtime builder needed
+    "dummy": lambda data, node_id, skill_name, owner, bp_mgr: (lambda state, **kwargs: state),
     # Local default to avoid import-time NameError and double wrapping issues
     "default": _default_noop_builder,
 }
