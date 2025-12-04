@@ -54,10 +54,28 @@ const DOC_SECTIONS: Record<string, React.ReactNode> = {
   shortcuts: (
     <div>
       <h2>Shortcuts</h2>
+      <h3>Canvas Navigation</h3>
       <ul>
-        <li>Ctrl/Cmd + Z: Undo</li>
-        <li>Ctrl/Cmd + Y: Redo</li>
-        <li>Mouse wheel: Zoom</li>
+        <li><strong>Space + Drag</strong>: Pan canvas (hold Space, then drag with mouse)</li>
+        <li><strong>Mouse wheel</strong>: Zoom in/out</li>
+        <li><strong>Ctrl/Cmd + +</strong>: Zoom in</li>
+        <li><strong>Ctrl/Cmd + -</strong>: Zoom out</li>
+      </ul>
+      <h3>Editing</h3>
+      <ul>
+        <li><strong>Ctrl/Cmd + Z</strong>: Undo</li>
+        <li><strong>Ctrl/Cmd + Y</strong>: Redo</li>
+        <li><strong>Ctrl/Cmd + C</strong>: Copy selected nodes</li>
+        <li><strong>Ctrl/Cmd + V</strong>: Paste nodes</li>
+        <li><strong>Ctrl/Cmd + A</strong>: Select all nodes</li>
+        <li><strong>Delete / Backspace</strong>: Delete selected nodes</li>
+      </ul>
+      <h3>Node Operations</h3>
+      <ul>
+        <li><strong>Click node</strong>: Select node</li>
+        <li><strong>Double-click node</strong>: Open node editor</li>
+        <li><strong>Drag node</strong>: Move node</li>
+        <li><strong>Shift + Click</strong>: Add to selection</li>
       </ul>
     </div>
   ),
