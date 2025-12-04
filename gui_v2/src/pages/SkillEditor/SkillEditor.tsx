@@ -5,7 +5,7 @@ const LazyEditor = lazy(async () => {
   return { default: mod.Editor } as any;
 });
 import styled from '@emotion/styled';
-import { SkillLogPanel } from '../../modules/skill-editor/components/log/SkillLogPanel';
+import { SkillConsolePanel } from '../../modules/skill-editor/components/log/SkillConsolePanel';
 
 const EditorContainer = styled.div`
   height: 100%;
@@ -54,7 +54,7 @@ const SkillEditor: React.FC = () => {
                 <LazyEditor />
             </Suspense>
             </div>
-            <SkillLogPanel />
+            <SkillConsolePanel />
         </EditorContainer>
     );
 };
