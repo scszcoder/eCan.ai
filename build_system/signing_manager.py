@@ -595,7 +595,7 @@ def sign_single_file_ed25519(file_path: str, private_key_path: str, output_sig_p
         from cryptography.hazmat.primitives import serialization
         from cryptography.hazmat.primitives.asymmetric import ed25519
     except ImportError:
-        print("❌ Error: cryptography library not installed")
+        print("[ERROR] cryptography library not installed")
         print("Install with: pip install cryptography")
         return False
     
@@ -606,67 +606,67 @@ def sign_single_file_ed25519(file_path: str, private_key_path: str, output_sig_p
     
     # Validate inputs
     if not file_path.exists():
-        print(f"❌ Error: File not found: {file_path}")
+        print(f"[ERROR] File not found: {file_path}")
         return False
     
     if not private_key_path.exists():
-        print(f"❌ Error: Private key not found: {private_key_path}")
+        print(f"[ERROR] Private key not found: {private_key_path}")
         return False
     
     try:
         # Read private key
-        print(f"📖 Reading private key: {private_key_path}")
+        print(f"[INFO] Reading private key: {private_key_path}")
         with open(private_key_path, 'rb') as f:
             private_key = serialization.load_pem_private_key(f.read(), password=None)
         
         # Verify it's an Ed25519 key
         if not isinstance(private_key, ed25519.Ed25519PrivateKey):
-            print(f"❌ Error: Key is not Ed25519 (got {type(private_key).__name__})")
+            print(f"[ERROR] Key is not Ed25519 (got {type(private_key).__name__})")
             return False
         
-        print(f"✅ Private key loaded successfully")
+        print(f"[OK] Private key loaded successfully")
         
         # Read file to sign
-        print(f"📖 Reading file to sign: {file_path}")
+        print(f"[INFO] Reading file to sign: {file_path}")
         with open(file_path, 'rb') as f:
             file_data = f.read()
         
         file_size_mb = len(file_data) / (1024 * 1024)
-        print(f"✅ File loaded: {file_size_mb:.2f} MB")
+        print(f"[OK] File loaded: {file_size_mb:.2f} MB")
         
         # Generate signature
-        print(f"🔐 Generating Ed25519 signature...")
+        print(f"[INFO] Generating Ed25519 signature...")
         signature = private_key.sign(file_data)
         
         # Verify signature size (Ed25519 signatures are always 64 bytes)
         if len(signature) != 64:
-            print(f"❌ Error: Invalid signature size: {len(signature)} bytes (expected 64)")
+            print(f"[ERROR] Invalid signature size: {len(signature)} bytes (expected 64)")
             return False
         
-        print(f"✅ Signature generated: {len(signature)} bytes")
+        print(f"[OK] Signature generated: {len(signature)} bytes")
         
         # Write signature to file
-        print(f"💾 Writing signature to: {output_sig_path}")
+        print(f"[INFO] Writing signature to: {output_sig_path}")
         with open(output_sig_path, 'wb') as sig_file:
             sig_file.write(signature)
         
-        print(f"✅ Signature file created successfully")
+        print(f"[OK] Signature file created successfully")
         
         # Verify the signature was written correctly
         if output_sig_path.exists():
             sig_size = output_sig_path.stat().st_size
             if sig_size == 64:
-                print(f"✅ Verification: Signature file is 64 bytes")
+                print(f"[OK] Verification: Signature file is 64 bytes")
                 return True
             else:
-                print(f"❌ Error: Signature file size mismatch: {sig_size} bytes")
+                print(f"[ERROR] Signature file size mismatch: {sig_size} bytes")
                 return False
         else:
-            print(f"❌ Error: Signature file was not created")
+            print(f"[ERROR] Signature file was not created")
             return False
             
     except Exception as e:
-        print(f"❌ Error during signing: {e}")
+        print(f"[ERROR] Error during signing: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -694,11 +694,11 @@ if __name__ == '__main__':
         print()
         print("=" * 60)
         if success:
-            print("✅ Signing completed successfully")
+            print("[OK] Signing completed successfully")
             print("=" * 60)
             sys.exit(0)
         else:
-            print("❌ Signing failed")
+            print("[FAILED] Signing failed")
             print("=" * 60)
             sys.exit(1)
     else:
