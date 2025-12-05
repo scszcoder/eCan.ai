@@ -63,12 +63,24 @@ def user_skills_root() -> Path:
         return fallback_path
 
 
-def scaffold_skill(skill_name: str = "abc", description: str = "This skill ....", kind: str = "code") -> Path:
+def scaffold_skill(
+    skill_name: str = "abc",
+    description: str = "This skill ....",
+    kind: str = "code",
+    skill_json: dict = None,
+    bundle_json: dict = None
+) -> Path:
     """Create `<root>/<name>_skill/` with either `code_skill/` or `diagram_dir/`.
 
-    kind:
-      - "code": create code_skill/<name>/abc_skill.py (+requirements.txt)
-      - "diagram": create diagram_dir/<name>_skill.json (+ optional bundle placeholder)
+    Args:
+        skill_name: Base name of the skill (without _skill suffix)
+        description: Skill description
+        kind: "code" or "diagram"
+        skill_json: Optional skill JSON content from frontend (for diagram type)
+        bundle_json: Optional bundle JSON content from frontend (for diagram type)
+    
+    Returns:
+        Path to the skill root directory (e.g., my_skills/xxx_skill/)
     """
     root = user_skills_root()
     root.mkdir(parents=True, exist_ok=True)
@@ -106,14 +118,20 @@ def scaffold_skill(skill_name: str = "abc", description: str = "This skill ...."
     elif kind == "diagram":
         diagram_dir = skill_root / "diagram_dir"
         diagram_dir.mkdir(parents=True, exist_ok=True)
-        core = {
-            "skillName": skill_name,
-            "description": description,
-            "owner": "",
-            "workFlow": {"nodes": [], "edges": []}
-        }
-        (diagram_dir / f"{skill_name}_skill.json").write_text(json.dumps(core, indent=2, ensure_ascii=False), encoding="utf-8")
-        (diagram_dir / f"{skill_name}_skill_bundle.json").write_text(json.dumps({"resources": []}, indent=2, ensure_ascii=False), encoding="utf-8")
+        
+        # Write skill JSON file (content from frontend)
+        if skill_json:
+            (diagram_dir / f"{skill_name}_skill.json").write_text(
+                json.dumps(skill_json, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+        
+        # Write bundle JSON file (content from frontend)
+        if bundle_json:
+            (diagram_dir / f"{skill_name}_skill_bundle.json").write_text(
+                json.dumps(bundle_json, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+        
+        logger.info(f"[scaffold_skill] Created diagram skill: {skill_root}")
     else:
         raise ValueError("kind must be 'code' or 'diagram'")
 

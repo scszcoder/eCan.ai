@@ -102,6 +102,16 @@ export const useAutoSaveStore = create<AutoSaveState>()((set, get) => ({
         ...sanitizedData,
       });
       
+      // If skill was renamed, update currentFilePath in store
+      if (response.success && response.data) {
+        const responseData = response.data as any;
+        if (responseData.renamed && responseData.newFilePath) {
+          console.log('[AutoSave] Skill renamed, updating path:', responseData.newFilePath);
+          const { useSkillInfoStore } = await import('./skill-info-store');
+          useSkillInfoStore.getState().setCurrentFilePath(responseData.newFilePath);
+        }
+      }
+      
       return response.success;
     } catch (e) {
       console.error('[AutoSave] Error:', e);
