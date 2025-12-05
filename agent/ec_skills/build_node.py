@@ -1,6 +1,7 @@
 import re
 import os
 import json
+import string
 import importlib.util
 import httpx
 from urllib.parse import urlparse, parse_qsl, urlunparse
@@ -121,7 +122,7 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
         return inline_system, inline_user
 
     try:
-        prompts = prompt_handler._load_prompts_from_disk()
+        prompts = prompt_handler._load_all_prompts()
     except Exception as exc:  # pragma: no cover - defensive fallback
         logger.warning(f"Failed to load prompts from disk for selection '{selection}': {exc}")
         prompts = []
@@ -131,11 +132,18 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
         logger.warning(f"Prompt selection '{selection}' not found. Falling back to inline prompts.")
         return inline_system, inline_user
 
-    try:
-        normalized = prompt_handler._normalize_prompt(prompt_data)
-    except Exception as exc:  # pragma: no cover - defensive fallback
-        logger.warning(f"Failed to normalize prompt '{selection}': {exc}")
-        return inline_system, inline_user
+    normalized = prompt_data
+    if not isinstance(normalized, dict) or "sections" not in normalized:
+        try:
+            normalized = prompt_handler._normalize_prompt(
+                prompt_data,
+                source=str(prompt_data.get("source") or "inline"),
+                read_only=bool(prompt_data.get("readOnly")),
+                last_modified_ts=None,
+            )
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            logger.warning(f"Failed to normalize prompt '{selection}': {exc}")
+            return inline_system, inline_user
 
     def _join_list(items: list[str]) -> str:
         lines = []
@@ -144,6 +152,14 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
             if text:
                 lines.append(f"{idx}. {text}")
         return "\n".join(lines)
+
+    def _section_label(section: dict) -> str:
+        sec_type = str((section or {}).get("type") or "").strip()
+        if not sec_type:
+            return ""
+        if sec_type == "custom" and section.get("customLabel"):
+            return str(section.get("customLabel")).strip()
+        return sec_type.replace("_", " ").title()
 
     def _add_section(parts: list[str], title: str | None, content: str) -> None:
         clean = content.strip()
@@ -159,31 +175,46 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
     if role_context:
         sys_parts.append(role_context)
 
-    system_sections = normalized.get("systemSections") or []
-    for section in system_sections:
-        if not isinstance(section, dict):
-            continue
-        label = str(section.get("type") or "").strip()
-        items = section.get("items") if isinstance(section.get("items"), list) else []
-        joined = _join_list(items)
-        _add_section(sys_parts, label or None, joined if joined else "")
+    structured_sections = normalized.get("sections") or []
+    if structured_sections:
+        for section in structured_sections:
+            if not isinstance(section, dict):
+                continue
+            items = section.get("items") if isinstance(section.get("items"), list) else []
+            joined = _join_list(items)
+            if not joined:
+                continue
+            label = _section_label(section)
+            _add_section(sys_parts, label or None, joined)
+    else:
+        system_sections = normalized.get("systemSections") or []
+        for section in system_sections:
+            if not isinstance(section, dict):
+                continue
+            label = str(section.get("type") or "").strip()
+            items = section.get("items") if isinstance(section.get("items"), list) else []
+            joined = _join_list(items)
+            _add_section(sys_parts, label or None, joined if joined else "")
 
-    for label, field_name in (
-        ("Goals", "goals"),
-        ("Guidelines", "guidelines"),
-        ("Rules", "rules"),
-    ):
-        values = normalized.get(field_name) or []
-        joined = _join_list(values if isinstance(values, list) else [])
-        if joined:
-            _add_section(sys_parts, label, joined)
+        for label, field_name in (
+            ("Goals", "goals"),
+            ("Guidelines", "guidelines"),
+            ("Rules", "rules"),
+        ):
+            values = normalized.get(field_name) or []
+            joined = _join_list(values if isinstance(values, list) else [])
+            if joined:
+                _add_section(sys_parts, label, joined)
 
     system_text = "\n\n".join(part for part in sys_parts if part) or inline_system
 
     user_parts: list[str] = []
-    for value in (normalized.get("title"), normalized.get("topic")):
-        if isinstance(value, str) and value.strip():
-            user_parts.append(value.strip())
+    title = str(normalized.get("title") or "").strip()
+    topic = str(normalized.get("topic") or "").strip()
+    if title and title != selection:
+        user_parts.append(title)
+    if topic and topic.lower() not in {"", "new prompt"} and topic.lower() != title.lower():
+        user_parts.append(topic)
 
     # normalized is guaranteed to be dict from _normalize_prompt
     instructions = normalized.get("instructions") or []
@@ -195,6 +226,17 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
     human_inputs_joined = _join_list(human_inputs if isinstance(human_inputs, list) else [])
     if human_inputs_joined:
         _add_section(user_parts, "Provide", human_inputs_joined)
+
+    user_sections = normalized.get("userSections") or []
+    for section in user_sections:
+        if not isinstance(section, dict):
+            continue
+        items = section.get("items") if isinstance(section.get("items"), list) else []
+        joined = _join_list(items)
+        if not joined:
+            continue
+        label = _section_label(section)
+        _add_section(user_parts, label or None, joined)
 
     sys_inputs = normalized.get("sysInputs") or []
     sys_inputs_joined = _join_list(sys_inputs if isinstance(sys_inputs, list) else [])
@@ -208,6 +250,47 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
     user_text = "\n\n".join(part for part in user_parts if part) or inline_user
 
     return system_text, user_text
+
+
+def _escape_positional_placeholders(template: str) -> str:
+    """Turn positional format fields like ``{}`` or ``{0}`` into literal braces."""
+    if not template:
+        return template
+
+    formatter = string.Formatter()
+    rebuilt: list[str] = []
+
+    for literal_text, field_name, format_spec, conversion in formatter.parse(template):
+        if literal_text:
+            rebuilt.append(literal_text.replace("{", "{{").replace("}", "}}"))
+
+        if field_name is None:
+            continue
+
+        conv_fragment = f"!{conversion}" if conversion else ""
+        spec_fragment = f":{format_spec}" if format_spec else ""
+
+        is_identifier = bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", field_name or ""))
+        needs_escape = (
+            not field_name
+            or field_name.isdigit()
+            or not is_identifier
+            or format_spec not in (None, "")
+            or conversion not in (None, "")
+        )
+
+        if needs_escape:
+            # Render literally by doubling braces
+            inner = f"{field_name or ''}{conv_fragment}{spec_fragment}"
+            rebuilt.append("{{" + inner + "}}")
+        else:
+            rebuilt.append("{")
+            rebuilt.append(field_name)
+            rebuilt.append(conv_fragment)
+            rebuilt.append(spec_fragment)
+            rebuilt.append("}")
+
+    return "".join(rebuilt)
 def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manager):
     """
     Builds a callable function for a LangGraph node that interacts with an LLM.
@@ -254,10 +337,26 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
     logger.debug("[LLMNode]inline_system_prompt:", inline_system_prompt)
     logger.debug("[LLMNode]inline_user_prompt:", inline_user_prompt)
-    # Load prompts using prompt loader (handles both inline and saved prompts)
+
+    # Resolve prompt templates based on the selected prompt id first for initial config preview
+    resolved_system_prompt, resolved_user_prompt = _resolve_prompt_templates(
+        prompt_selection,
+        inline_system_prompt,
+        inline_user_prompt,
+    )
+
+    # Load prompts using legacy prompt ids if provided for backwards compatibility
     from agent.ec_skills.prompt_loader import get_prompt_content
-    system_prompt_template = get_prompt_content(system_prompt_id, inline_system_prompt)
-    user_prompt_template = get_prompt_content(user_prompt_id, inline_user_prompt)
+
+    if system_prompt_id:
+        system_prompt_template = get_prompt_content(system_prompt_id, resolved_system_prompt)
+    else:
+        system_prompt_template = resolved_system_prompt
+
+    if user_prompt_id:
+        user_prompt_template = get_prompt_content(user_prompt_id, resolved_user_prompt)
+    else:
+        user_prompt_template = resolved_user_prompt
     # Infer provider when not explicitly set
     def _infer_provider(host: str, model: str) -> str:
         try:
@@ -343,10 +442,16 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 logger.warning(f"Warning: Variable '{{{var}}}' not found in state prompt_refs. Using empty string.")
                 format_context[var] = ""
 
-        # Format the final prompts with values from the state
+        class _SafeDict(dict):
+            def __missing__(self, key):
+                return "{" + key + "}"
+
+        safe_context = _SafeDict(format_context)
+
+        # Format the final prompts with values from the state, preserving unknown placeholders
         try:
-            final_system_prompt = active_system_prompt.format(**format_context)
-            final_user_prompt = active_user_prompt.format(**format_context)
+            final_system_prompt = _escape_positional_placeholders(active_system_prompt).format_map(safe_context)
+            final_user_prompt = _escape_positional_placeholders(active_user_prompt).format_map(safe_context)
 
             logger.debug("final_system_prompt:", final_system_prompt)
             logger.debug("final_user_prompt:", final_user_prompt)
@@ -385,10 +490,27 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             # Build LLM from node config (do NOT depend on mainwin.llm)
             llm = None
             try:
-                # Helper: resolve API key (prefer node config; fallback to secure store)
-                def _resolve_api_key(provider: str, provided_key: str) -> str | None:
-                    if isinstance(provided_key, str) and provided_key.strip():
-                        return provided_key.strip()
+                # Helper: resolve API key (prefer node config; fallback to settings/secure store)
+                def _resolve_api_key(provider: str, provided_key: str | None) -> str | None:
+                    def _looks_masked(value: str) -> bool:
+                        trimmed = (value or "").strip()
+                        if not trimmed:
+                            return False
+                        if any(ch in trimmed for ch in ("*", "•", "·")):
+                            return True
+                        sample = "".join(ch for ch in trimmed if ch not in "-_")
+                        if not sample:
+                            return False
+                        mask_chars = {"x", "X"}
+                        masked_count = sum(ch in mask_chars for ch in sample)
+                        if masked_count >= max(4, int(len(sample) * 0.6)):
+                            return True
+                        return trimmed.lower().startswith("sk-xxxxx")
+
+                    trimmed_key = (provided_key or "").strip()
+                    if trimmed_key and not _looks_masked(trimmed_key):
+                        return trimmed_key
+
                     provider_l = (provider or "").lower()
                     logger.debug(f"provider_l: {provider_l}, {provider}, {provided_key}")
                     try:
@@ -397,35 +519,56 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         username = None
 
                     logger.debug(f"username: {username}")
+
+                    # Try provider settings (LLM Manager stores full key)
+                    resolved_key = None
+                    try:
+                        from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
+                        llm_manager = get_llm_manager()
+                        provider_info = llm_manager.get_provider(provider_l)
+                        if provider_info:
+                            env_vars = provider_info.get("api_key_env_vars", [])
+                            for env_var in env_vars:
+                                candidate = llm_manager.retrieve_api_key(env_var)
+                                if candidate and candidate.strip():
+                                    resolved_key = candidate.strip()
+                                    break
+                    except Exception as settings_err:
+                        logger.debug(f"Failed to load API key from provider settings: {settings_err}")
+
+                    if resolved_key:
+                        return resolved_key
+
                     def gs(name: str) -> str | None:
                         try:
                             return secure_store.get(name, username=username)
                         except Exception:
                             return None
                     if provider_l in ("openai",):
-                        return gs("OPENAI_API_KEY")
+                        return gs("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
                     if provider_l in ("anthropic", "claude"):
-                        return gs("ANTHROPIC_API_KEY")
+                        return gs("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
                     if provider_l in ("google", "gemini"):
-                        return gs("GEMINI_API_KEY")
+                        return gs("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
                     if provider_l in ("deepseek",):
-                        return gs("DEEPSEEK_API_KEY")
+                        return gs("DEEPSEEK_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
                     if provider_l in ("dashscope", "qwen", "qwq"):
-                        return gs("DASHSCOPE_API_KEY")
+                        return gs("DASHSCOPE_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
                     if provider_l in ("bytedance", "doubao"):
-                        return gs("ARK_API_KEY")
+                        return gs("ARK_API_KEY") or os.getenv("ARK_API_KEY")
                     if provider_l in ("baidu", "qianfan", "baidu_qianfan"):
-                        return gs("BAIDU_API_KEY")
+                        return gs("BAIDU_API_KEY") or os.getenv("BAIDU_API_KEY")
                     if provider_l in ("azure", "azure_openai"):
                         # Azure uses a different key name
-                        return gs("AZURE_OPENAI_API_KEY")
+                        return gs("AZURE_OPENAI_API_KEY") or os.getenv("AZURE_OPENAI_API_KEY")
                     return None
 
                 key = _resolve_api_key(llm_provider, api_key)
                 host = (api_host or "").strip()
                 prov = llm_provider
 
-                logger.debug(f"real llm settings: api_key={key} host={host} llm_provider={prov}")
+                key_preview = "" if not key else f"{key[:4]}..."
+                logger.debug(f"real llm settings: api_key={key_preview} host={host} llm_provider={prov}")
                 # Provider-specific construction
                 if prov in ("azure", "azure_openai"):
                     azure_endpoint = host or (secure_store.get("AZURE_ENDPOINT", username=get_current_username()) if key else None)

@@ -426,18 +426,44 @@ def main(state, *, runtime, store):
         }
         new_nodes.extend([update_node, check_node])
 
-        # external edges to loop -> update
-        for p in ext_preds:
-            to_remove_edges.append({'sourceNodeID': p, 'targetNodeID': lid})
-            new_edges.append({'sourceNodeID': p, 'targetNodeID': update_id})
+        incoming_edges = [e for e in edges if e.get('targetNodeID') == lid]
+        outgoing_edges = [e for e in edges if e.get('sourceNodeID') == lid]
+
+        # external edges to loop -> update (preserve original ports)
+        for edge in incoming_edges:
+            src = edge.get('sourceNodeID')
+            to_remove_edges.append({
+                'sourceNodeID': src,
+                'targetNodeID': lid,
+                'sourcePortID': edge.get('sourcePortID'),
+                'targetPortID': edge.get('targetPortID'),
+            })
+            new_edge = {
+                'sourceNodeID': src,
+                'targetNodeID': update_id,
+            }
+            if edge.get('sourcePortID') is not None:
+                new_edge['sourcePortID'] = edge.get('sourcePortID')
+            if edge.get('targetPortID') is not None:
+                new_edge['targetPortID'] = edge.get('targetPortID')
+            new_edges.append(new_edge)
         # update -> check
         new_edges.append({'sourceNodeID': update_id, 'targetNodeID': check_id})
         # check if_true -> first inner(s)
         for f in firsts:
             new_edges.append({'sourceNodeID': check_id, 'targetNodeID': f, 'sourcePortID': 'if_out'})
         # check else -> external successor(s) of loop
+        for edge in outgoing_edges:
+            tgt = edge.get('targetNodeID')
+            to_remove_edges.append({
+                'sourceNodeID': lid,
+                'targetNodeID': tgt,
+                'sourcePortID': edge.get('sourcePortID'),
+                'targetPortID': edge.get('targetPortID'),
+            })
+            if tgt not in ext_succs:
+                continue
         for s in ext_succs:
-            to_remove_edges.append({'sourceNodeID': lid, 'targetNodeID': s})
             new_edges.append({'sourceNodeID': check_id, 'targetNodeID': s, 'sourcePortID': 'else_out'})
         # back-edge: last inner(s) -> update
         for la in lasts:

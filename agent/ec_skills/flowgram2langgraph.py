@@ -137,6 +137,7 @@ def _safe_eval_expr(expr: str, state: dict) -> bool:
     """
     try:
         log_msg = f"🤖 Executing conditional edge: {expr}"
+        # print(state['result']['llm_result']['request_to_work'])
         logger.debug(log_msg)
         web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
@@ -171,6 +172,11 @@ def make_condition_selector(node_id: str, node_data: dict, port_map: dict):
     """Build a selector for new condition model: conditions list with keys if_*/elif_*/else_*.
     Returns a function(state) -> selected_port_id.
     """
+    # Defensive copy so later mutations (e.g., graph wiring) don't change our view of available ports.
+    # Keep an immutable snapshot we can recreate on every selector invocation.
+    port_map = dict(port_map or {})
+    frozen_port_items = tuple(port_map.items())
+    logger.debug(f"[selector-debug] {node_id} frozen={frozen_port_items}")
     conditions = node_data.get("conditions", []) or []
 
     # Sort by if -> elif... -> else
@@ -181,27 +187,30 @@ def make_condition_selector(node_id: str, node_data: dict, port_map: dict):
         return 1
 
     ordered = sorted(conditions, key=lambda c: _ctype(c.get("key", "")))
+    logger.debug(f"[selector-debug] {node_id} port_map={port_map}")
+    print(f"[selector-debug] {node_id} port_map={port_map}")
 
-    def _resolve_port_for_key(key: str, port_map: dict) -> str | None:
+    def _resolve_port_for_key(key: str, runtime_map: dict) -> str | None:
         """Resolve the correct port id for a given condition key when names differ.
         Prefer exact match; fallback by semantic prefix (if/elif/else) to common port ids like 'if_out'.
         """
-        if key in port_map:
+        if key in runtime_map:
             return key
         k = str(key)
-        ports = list(port_map.keys())
+        ports = list(runtime_map.keys())
+        logger.debug(f"[selector-debug] resolve key={key} keys={ports}")
         # Prefer explicit *_out forms if present
         if k.startswith("if_"):
-            if "if_out" in port_map: return "if_out"
+            if "if_out" in runtime_map: return "if_out"
             # fallback to any port starting with 'if'
             for p in ports:
                 if str(p).startswith("if"): return p
         if k.startswith("elif_"):
-            if "elif_out" in port_map: return "elif_out"
+            if "elif_out" in runtime_map: return "elif_out"
             for p in ports:
                 if str(p).startswith("elif"): return p
         if k.startswith("else_"):
-            if "else_out" in port_map: return "else_out"
+            if "else_out" in runtime_map: return "else_out"
             for p in ports:
                 if str(p).startswith("else"): return p
         # Last resort: first available
@@ -209,6 +218,8 @@ def make_condition_selector(node_id: str, node_data: dict, port_map: dict):
 
     def selector(state: dict):
         # Evaluate IF/ELIF; default to ELSE if present; otherwise None
+        runtime_map = dict(frozen_port_items)
+        logger.debug(f"[selector-debug] {node_id} runtime keys={list(runtime_map.keys())}")
         for cond in ordered:
             key = cond.get("key", "")
             val = cond.get("value")
@@ -238,19 +249,24 @@ def make_condition_selector(node_id: str, node_data: dict, port_map: dict):
 
             if matched:
                 # Resolve to appropriate port id even when key != sourcePortID
-                return _resolve_port_for_key(key, port_map)
+                chosen = _resolve_port_for_key(key, runtime_map)
+                logger.debug(f"[selector-debug] {node_id} matched key={key}, chosen={chosen}")
+                return chosen
 
         # No IF/ELIF matched: pick ELSE if present
         else_key = next((c.get("key") for c in ordered if str(c.get("key", "")).startswith("else_")), None)
         if else_key:
-            rp = _resolve_port_for_key(else_key, port_map)
+            rp = _resolve_port_for_key(else_key, runtime_map)
             if rp:
+                logger.debug(f"[selector-debug] {node_id} taking else -> {rp}")
                 return rp
         # Fallback: keep previous heuristic
-        keys = list(port_map.keys())
+        keys = list(runtime_map.keys())
         if len(keys) > 1:
             return keys[1]
-        return keys[0] if keys else None
+        fallback = keys[0] if keys else None
+        logger.debug(f"[selector-debug] {node_id} fallback -> {fallback}")
+        return fallback
 
     selector.__name__ = node_id
     return selector
@@ -480,9 +496,10 @@ def flowgram2langgraph(flow: dict, bundle_json: dict | None = None, bp_mgr: Brea
                     port_map[port] = END
                 else:
                     port_map[port] = sid(tgt)
+            logger.debug(f"[selector-debug] build {gid} outgoing={outgoing} port_map={port_map}")
             if port_map:
                 selector = make_condition_selector(gid, cnode.get("data", {}) or {}, port_map)
-                workflow.add_conditional_edges(gid, selector, path_map=port_map)
+                workflow.add_conditional_edges(gid, selector, path_map=dict(port_map))
 
         # 2) Add normal edges (skip those emitted by condition handling)
         for e in edges:

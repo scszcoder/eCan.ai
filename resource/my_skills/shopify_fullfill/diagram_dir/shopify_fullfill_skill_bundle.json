@@ -22,7 +22,7 @@
                   "key": "if_-sPiK",
                   "value": {
                     "mode": "custom",
-                    "expr": "state['result']['llm_result']['request_to_start_work']"
+                    "expr": "state['result']['llm_result']['request_to_work']"
                   }
                 },
                 {
@@ -129,8 +129,8 @@
             "type": "loop",
             "meta": {
               "position": {
-                "x": 2214.692088890097,
-                "y": -429.5169893951881
+                "x": 803.1360974287118,
+                "y": -251.38339451835708
               }
             },
             "data": {
@@ -397,7 +397,7 @@
                 "type": "comment",
                 "meta": {
                   "position": {
-                    "x": 451.68935997214186,
+                    "x": 436.43075873542733,
                     "y": 207.88884034723418
                   }
                 },
@@ -490,102 +490,6 @@
                 "targetNodeID": "tool-picker_XklII"
               }
             ]
-          },
-          {
-            "id": "condition_kkKy4",
-            "type": "condition",
-            "meta": {
-              "position": {
-                "x": 2986.495251635812,
-                "y": -165.08418201971995
-              }
-            },
-            "data": {
-              "title": "Condition",
-              "conditions": [
-                {
-                  "key": "if_Fou5C",
-                  "value": {}
-                },
-                {
-                  "key": "else_sqXds",
-                  "value": {}
-                }
-              ],
-              "outputs": {
-                "type": "object",
-                "properties": {
-                  "result": {
-                    "type": "object",
-                    "description": "Node execution result"
-                  },
-                  "condition": {
-                    "type": "boolean",
-                    "description": "Node execution condition"
-                  },
-                  "resolved": {
-                    "type": "boolean",
-                    "description": "Node execution resolved status"
-                  },
-                  "case": {
-                    "type": "string",
-                    "description": "Node execution case"
-                  }
-                }
-              }
-            }
-          },
-          {
-            "id": "code_8nk5b",
-            "type": "code",
-            "meta": {
-              "position": {
-                "x": 2733.083530896625,
-                "y": -165.08418201971995
-              }
-            },
-            "data": {
-              "title": "Code_2",
-              "inputsValues": {
-                "input": {
-                  "type": "constant",
-                  "content": ""
-                }
-              },
-              "script": {
-                "language": "python",
-                "content": "# Here, you can retrieve input variables from the node using 'state' \nimport time\ndef main(state, *, runtime, store):\n  # Build the output object\n  print(\"in myfunc0.........\",state)\n  time.sleep(5)\n  print(\"myfunc0 woke now, outa here.....\")\n  state[\"result\"] = {\"status\": \"myfunc0 succeeded!!!\"}\n  return state"
-              },
-              "outputs": {
-                "type": "object",
-                "properties": {
-                  "result": {
-                    "type": "object",
-                    "description": "Node execution result"
-                  },
-                  "condition": {
-                    "type": "boolean",
-                    "description": "Node execution condition"
-                  },
-                  "resolved": {
-                    "type": "boolean",
-                    "description": "Node execution resolved status"
-                  },
-                  "case": {
-                    "type": "string",
-                    "description": "Node execution case"
-                  }
-                }
-              },
-              "inputs": {
-                "type": "object",
-                "properties": {
-                  "input": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
           },
           {
             "id": "llm_8LPYx",
@@ -696,8 +600,8 @@
             "type": "loop",
             "meta": {
               "position": {
-                "x": 3319.808874369331,
-                "y": -540.5732598473055
+                "x": 3146.495251635812,
+                "y": -521.9205446848158
               }
             },
             "data": {
@@ -1370,6 +1274,102 @@
               },
               "note": "shopify after sales work flow:\n\n1) use AI assisted RPA on gmail processing - preserve privacy & save tokens\n2) use AI native browser automation for shipping label. "
             }
+          },
+          {
+            "id": "condition_kkKy4",
+            "type": "condition",
+            "meta": {
+              "position": {
+                "x": 2765.7184973659714,
+                "y": -180.13714253811818
+              }
+            },
+            "data": {
+              "title": "Condition",
+              "conditions": [
+                {
+                  "key": "if_Fou5C",
+                  "value": {}
+                },
+                {
+                  "key": "else_sqXds",
+                  "value": {}
+                }
+              ],
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "code_8nk5b",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": 2478.8557532525656,
+                "y": -190.17244955038367
+              }
+            },
+            "data": {
+              "title": "Code_2",
+              "inputsValues": {
+                "input": {
+                  "type": "constant",
+                  "content": ""
+                }
+              },
+              "script": {
+                "language": "python",
+                "content": "# Here, you can retrieve input variables from the node using 'state' \nimport time\ndef main(state, *, runtime, store):\n  # Build the output object\n  print(\"in myfunc0.........\",state)\n  time.sleep(5)\n  print(\"myfunc0 woke now, outa here.....\")\n  state[\"result\"] = {\"status\": \"myfunc0 succeeded!!!\"}\n  return state"
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
           }
         ],
         "edges": [
@@ -1405,17 +1405,13 @@
             "targetNodeID": "code_8nk5b"
           },
           {
-            "sourceNodeID": "code_8nk5b",
-            "targetNodeID": "condition_kkKy4"
+            "sourceNodeID": "pend_event_rqn66",
+            "targetNodeID": "llm_8LPYx"
           },
           {
             "sourceNodeID": "condition_kkKy4",
             "targetNodeID": "845126",
             "sourcePortID": "if_out"
-          },
-          {
-            "sourceNodeID": "pend_event_rqn66",
-            "targetNodeID": "llm_8LPYx"
           },
           {
             "sourceNodeID": "289663",
@@ -1424,11 +1420,15 @@
           {
             "sourceNodeID": "task_a5SoO",
             "targetNodeID": "289663"
+          },
+          {
+            "sourceNodeID": "code_8nk5b",
+            "targetNodeID": "condition_kkKy4"
           }
         ]
       },
       "createdAt": 1764879518895,
-      "lastOpenedAt": 1764894669325
+      "lastOpenedAt": 1764969473094
     }
   ],
   "openTabs": [

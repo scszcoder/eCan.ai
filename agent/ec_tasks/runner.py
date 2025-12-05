@@ -187,33 +187,42 @@ class TaskRunner(Generic[Context]):
         return self.dev_runner.clear_breakpoints(bps)
     
     def launch_dev_run(self, init_state: dict, dev_task: ManagedTask) -> dict:
-        """Launch a dev run.
-
-        For consistency with unified dev runs, prepare the initial state using
-        the same helper that populates baseline NodeState fields (including
-        messages and attributes) via prep_skills_run, then merge any caller-
-        provided overrides from init_state.
-        """
+        """Launch a dev run via the unified execution loop."""
         try:
-            # Ensure we always work with a dict
+            logger.debug(f"[TaskRunner][launch_dev_run] init_state: {init_state}")
             dev_init_state = init_state or {}
-            # If caller passed an explicit empty messages list, drop it so that
-            # _prepare_dev_state's baseline (which sets [agent_id, chat_id, ...])
-            # is not clobbered. Non-empty messages are preserved as overrides.
             try:
                 if isinstance(dev_init_state.get("messages"), list) and not dev_init_state["messages"]:
                     dev_init_state = dict(dev_init_state)
                     dev_init_state.pop("messages", None)
             except Exception:
                 pass
-            # Reuse the existing dev state preparation logic so core fields
-            # like messages and attributes are initialized consistently.
+
             final_state = self._prepare_dev_state(dev_task, msg=None, dev_init_state=dev_init_state)
         except Exception as e:
             logger.error(get_traceback(e, "ErrorPrepareDevStateForDevRun"))
             final_state = init_state or {}
 
-        return self.dev_runner.launch_dev_run(final_state, dev_task)
+        launch_result = self.dev_runner.launch_dev_run(final_state, dev_task)
+        if not launch_result.get("success"):
+            return launch_result
+
+        # Reset per-task state tracking for dev runs before entering loop
+        self._task_states[dev_task.id] = {
+            "justStarted": True,
+            "dev_auto_started": False,
+            "pending_since": None,
+        }
+
+        # Kick off the unified runner in dev mode with prepared state
+        self.launch_unified_run(
+            task2run=dev_task,
+            trigger_type="dev",
+            dev_init_state=final_state,
+            dev_single_run=True,
+        )
+
+        return {"success": True}
     
     def resume_dev_run(self) -> dict:
         """Resume a paused dev run."""
@@ -1042,6 +1051,8 @@ class TaskRunner(Generic[Context]):
             self._on_skill_complete(future, task, waiter_task_id, trigger_type)
         
         # Submit
+        task_state = self._task_states.setdefault(task.id, {})
+        task_state['pending_since'] = None
         future = self._skill_executor.submit(_execute)
         future.add_done_callback(_on_complete)
         
@@ -1087,10 +1098,29 @@ class TaskRunner(Generic[Context]):
             else:
                 # Resume run
                 resume_payload, cp = self._build_resume_payload(task, msg)
+                resume_cmd = Command(resume=resume_payload)
+
+                resume_tag = None
+                if isinstance(resume_payload, dict):
+                    resume_tag = resume_payload.get("_resuming_from")
+                if not resume_tag and cp:
+                    resume_tag = _safe_get(cp, "values.attributes.i_tag") or _safe_get(cp, "values.attributes.tag")
+
+                resume_context = None
+                if resume_tag:
+                    resume_context = {"skip_bp_once": [resume_tag]}
+
                 if cp:
-                    response = executor.stream_run(Command(resume=resume_payload), checkpoint=cp)
+                    response = executor.stream_run(
+                        resume_cmd,
+                        checkpoint=cp,
+                        context=resume_context,
+                    )
                 else:
-                    response = executor.stream_run(Command(resume=resume_payload))
+                    response = executor.stream_run(
+                        resume_cmd,
+                        context=resume_context,
+                    )
                 return response, False
                 
         except Exception as e:
@@ -1145,7 +1175,14 @@ class TaskRunner(Generic[Context]):
                             pass
             
             # Update task state
-            self._task_states[task.id]['justStarted'] = not task_interrupted
+            state = self._task_states.setdefault(task.id, {})
+            state['justStarted'] = not task_interrupted
+            if task_interrupted:
+                state['pending_since'] = time.time()
+            else:
+                state['pending_since'] = None
+                if trigger_type == "dev":
+                    self._dev_exit_requested = True
             
             # Resolve waiter
             if trigger_type == "schedule":
