@@ -10,9 +10,118 @@ import '../../../../services/ipc/file-api'; // Import file API extensions
 import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files-store';
 import { IPCWCClient } from '@/services/ipc/ipcWCClient';
 import { useSheetsStore } from '../../stores/sheets-store';
-import { saveSheetsBundleToPath, saveSheetsBundle } from '../../services/sheets-persistence';
+import { saveSheetsBundleToPath } from '../../services/sheets-persistence';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
 import { sanitizeNodeApiKeys, sanitizeApiKeysDeep } from '../../utils/sanitize-utils';
+import { IPCAPI } from '../../../../services/ipc/api';
+
+// ============================================================================
+// Common utilities for Save and SaveAs
+// ============================================================================
+
+/**
+ * Prepare diagram for saving: handle flip states and remove breakpoints
+ */
+function prepareDiagramForSave(diagram: any, isFlipped: (id: string) => boolean): void {
+  diagram.nodes.forEach((node: any) => {
+    if (!node.data) node.data = {};
+    
+    // Persist flip states
+    const flipState = isFlipped(node.id);
+    if (flipState) {
+      node.data.hFlip = true;
+    } else if (node.data.hFlip) {
+      delete node.data.hFlip;
+    }
+    
+    // Remove breakpoints (not persisted)
+    if (node.data.break_point) {
+      delete node.data.break_point;
+    }
+  });
+}
+
+/**
+ * Extract mapping_rules from nodes into config.nodes for backend runtime
+ */
+function extractConfigNodes(diagram: any): Record<string, any> {
+  const configNodes: Record<string, any> = {};
+  try {
+    for (const n of diagram.nodes || []) {
+      const data = n?.data || {};
+      if (data.mapping_rules) {
+        const key = (data.name || n.id || '').toString();
+        if (key) {
+          configNodes[key] = { ...(configNodes[key] || {}), mapping_rules: data.mapping_rules };
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[Save] mapping_rules extraction skipped', e);
+  }
+  return configNodes;
+}
+
+/**
+ * Derive bundle file path from skill file path
+ */
+function deriveBundlePath(skillFilePath: string | null, skillName?: string): string {
+  if (skillFilePath) {
+    if (/_skill\.json$/i.test(skillFilePath)) {
+      return skillFilePath.replace(/_skill\.json$/i, '_skill_bundle.json');
+    } else if (/\.json$/i.test(skillFilePath)) {
+      return skillFilePath.replace(/\.json$/i, '_skill_bundle.json');
+    } else {
+      return `${skillFilePath}_skill_bundle.json`;
+    }
+  }
+  return skillName ? `${skillName}_skill_bundle.json` : 'skill_bundle.json';
+}
+
+/**
+ * Save bundle alongside skill file
+ */
+async function saveBundleFile(
+  bundlePath: string,
+  diagram: any,
+  saveActiveSheetDoc: (doc: any) => void,
+  getAllSheets: () => any
+): Promise<void> {
+  try {
+    saveActiveSheetDoc(diagram);
+    const bundle = getAllSheets();
+    console.log('[SKILL_IO][BUNDLE_SAVE_ATTEMPT]', { path: bundlePath, sheetsCount: bundle.sheets.length });
+    const bundleRes = await saveSheetsBundleToPath(bundlePath, bundle);
+    console.log('[SKILL_IO][BUNDLE_SAVE_RESULT]', { path: bundlePath, success: true, mode: bundleRes.mode });
+    const msg = bundleRes.mode === 'ipc'
+      ? `Bundle saved: ${bundleRes.filePath || bundlePath}`
+      : 'Bundle downloaded.';
+    try { Toast.success({ content: msg }); } catch {}
+  } catch (e) {
+    console.warn('[SKILL_IO][BUNDLE_SAVE_ERROR]', (e as Error).message);
+    try { Toast.error({ content: 'Bundle save failed.' }); } catch {}
+  }
+}
+
+/**
+ * Derive skill name from file path
+ */
+function deriveSkillNameFromPath(filePath: string, fallback: string): string {
+  try {
+    const norm = String(filePath).replace(/\\/g, '/');
+    const parts = norm.split('/');
+    const idx = parts.lastIndexOf('diagram_dir');
+    if (idx > 0) {
+      const folder = parts[idx - 1];
+      return folder?.replace(/_skill$/i, '') || fallback;
+    } else {
+      const base = (parts.pop() || '').replace(/\.json$/i, '');
+      return base.replace(/_skill$/i, '') || fallback;
+    }
+  } catch {
+    return fallback;
+  }
+}
 // Add File System Access API 的TypeDefinition
 declare global {
   interface Window {
@@ -42,11 +151,11 @@ interface SaveProps {
 // 是否EnabledLocal下载 SkillInfo 文件
 const ENABLE_LOCAL_DOWNLOAD = true;
 
-export async function saveFile(dataToSave: SkillInfo, username?: string, currentFilePath?: string | null) {
+export async function saveFile(dataToSave: SkillInfo, _username?: string, currentFilePath?: string | null) {
   try {
     console.log('--- Debug Save: Data to Save ---', dataToSave);
     const jsonString = JSON.stringify(dataToSave, null, 2);
-    console.log('--- Debug Save: Final JSON String ---', jsonString);
+    // console.log('--- Debug Save: Final JSON String ---', jsonString);
 
     if (ENABLE_LOCAL_DOWNLOAD) {
       // Try IPC first regardless of platform flags
@@ -160,134 +269,40 @@ export const Save = ({ disabled }: SaveProps) => {
     if (!skillInfo) return;
 
     try {
-      // 1. Get the latest diagram state
+      // 1. Get and prepare diagram
       const diagram = document.toJSON();
+      prepareDiagramForSave(diagram, isFlipped);
 
-      // 2. Ensure flip states are persisted: sync from store to node data
-      diagram.nodes.forEach((node: any) => {
-        if (!node.data) node.data = {};
-        const flipState = isFlipped(node.id);
-        if (flipState) {
-          node.data.hFlip = true;
-          console.log(`[Save] Persisting hFlip state for node: ${node.data.name || node.id}`);
-        } else if (node.data.hFlip) {
-          // Remove hFlip if it's no longer flipped
-          delete node.data.hFlip;
-        }
-      });
-
-      // 3. Ensure breakpoints are NOT persisted: strip any break_point flags
-      diagram.nodes.forEach((node: any) => {
-        if (node?.data?.break_point) {
-          delete node.data.break_point;
-        }
-      });
-
-      // Prepare a sanitized copy for file persistence while preserving in-memory values
+      // 2. Prepare sanitized copy for file persistence
       const sanitizedDiagram = JSON.parse(JSON.stringify(diagram));
       sanitizeNodeApiKeys(sanitizedDiagram?.nodes);
 
-      // 3. Promote node-level mapping_rules into top-level config.nodes for backend runtime
-
-      // 3. Promote node-level mapping_rules into top-level config.nodes for backend runtime
-      const configNodes: Record<string, any> = {};
-      try {
-        for (const n of diagram.nodes || []) {
-          const data = (n && n.data) || {};
-          if (data && data.mapping_rules) {
-            const key = (data.name || n.id || '').toString();
-            if (key) {
-              configNodes[key] = { ...(configNodes[key] || {}), mapping_rules: data.mapping_rules };
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('[Save] mapping_rules promotion skipped', e);
-      }
-
-      // 4. Build data_mapping.json structure
-      const dataMappingJson: any = {
-        developing: { mappings: [], options: { strict: false, apply_order: 'top_down' } },
-        released: { mappings: [], options: { strict: true, apply_order: 'top_down' } },
-        node_transfers: {},
-        event_routing: {}
-      };
-
-      try {
-        // Extract skill-level mappings from START node (stored in config.skill_mapping)
-        const skillMapping = (skillInfo as any)?.config?.skill_mapping;
-        if (skillMapping) {
-          if (skillMapping.developing) {
-            dataMappingJson.developing = skillMapping.developing;
-          }
-          if (skillMapping.released) {
-            dataMappingJson.released = skillMapping.released;
-          }
-          if (skillMapping.event_routing) {
-            dataMappingJson.event_routing = skillMapping.event_routing;
-          }
-        }
-        
-        // Extract node-to-node transfer mappings from other nodes (skip START node)
-        for (const n of diagram.nodes || []) {
-          const nodeData = n?.data || {};
-          const nodeName = nodeData.name || n.id;
-          const nodeType = nodeData.type || n.type;
-          const nodeId = n.id;
-          
-          // Skip START node (already handled above)
-          if (nodeType === 'start' || nodeType === 'event' || nodeId === 'start') {
-            continue;
-          }
-          
-          // If this node has mapping rules, add to node_transfers
-          if (nodeData.mapping_rules) {
-            dataMappingJson.node_transfers[nodeName] = nodeData.mapping_rules;
-          }
-        }
-        
-        console.log('[Save] Generated data_mapping.json:', dataMappingJson);
-      } catch (e) {
-        console.warn('[Save] data_mapping.json generation failed', e);
-      }
-
-      // 5. Create the updated skillInfo object, merging config nodes
+      // 3. Extract config nodes and create updated skillInfo
+      const configNodes = extractConfigNodes(diagram);
       const updatedSkillInfo = {
         ...skillInfo,
         workFlow: diagram,
         lastModified: new Date().toISOString(),
         mode: (skillInfo as any)?.mode ?? 'development',
-        run_mode: (skillInfo as any)?.run_mode ?? 'developing',  // Include backend runtime mode
+        run_mode: (skillInfo as any)?.run_mode ?? 'developing',
         config: {
           ...(skillInfo as any)?.config,
-          nodes: {
-            ...((skillInfo as any)?.config?.nodes || {}),
-            ...configNodes,
-          },
+          nodes: { ...((skillInfo as any)?.config?.nodes || {}), ...configNodes },
         },
       } as any;
 
-      const skillInfoForSave = {
-        ...updatedSkillInfo,
-        workFlow: sanitizedDiagram,
-      } as any;
-
+      const skillInfoForSave = { ...updatedSkillInfo, workFlow: sanitizedDiagram } as any;
       sanitizeApiKeysDeep(skillInfoForSave);
 
-      // 4. If and only if user changed the base skill name, rename the underlying <name>_skill folder
+      // 4. Handle skill rename if name changed
       let effectivePath = currentFilePath || null;
       try {
         if (effectivePath) {
-          // Expect path like .../<old>_skill/diagram_dir/<old>_skill.json
           const norm = effectivePath.replace(/\\/g, '/');
           const m = norm.match(/\/([^\/]+)_skill\/diagram_dir\//);
           const oldBase = m?.[1] || '';
-          // Derive proposed new base from updatedSkillInfo, stripping any _skill suffix
-          const proposedBase = String((updatedSkillInfo as any)?.skillName || '')
-            .replace(/_skill$/i, '')
-            .trim();
+          const proposedBase = String((updatedSkillInfo as any)?.skillName || '').replace(/_skill$/i, '').trim();
 
-          // Only attempt rename when we have both names and they differ
           if (oldBase && proposedBase && oldBase !== proposedBase) {
             const resp: any = await IPCWCClient.getInstance().sendRequest('skills.rename', {
               oldName: oldBase,
@@ -295,7 +310,6 @@ export const Save = ({ disabled }: SaveProps) => {
             });
             if (resp?.status === 'success' && resp.result?.skillRoot) {
               const newRoot: string = String(resp.result.skillRoot).replace(/\\/g, '/');
-              // Point to new diagram json under renamed root (backend appends _skill)
               effectivePath = `${newRoot}/diagram_dir/${proposedBase}_skill.json`;
               setCurrentFilePath(effectivePath);
             }
@@ -305,128 +319,36 @@ export const Save = ({ disabled }: SaveProps) => {
         console.warn('[Save] rename flow failed or skipped', e);
       }
 
-      // 5. Save the file with platform-aware handling
+      // 5. Save the file
       const saveResult = await saveFile(skillInfoForSave, username || undefined, effectivePath);
 
       if (saveResult && !saveResult.cancelled) {
-        // Derive skillName from saved path (folder <name>_skill) to avoid backend mismatch
         const finalPath = saveResult.filePath || effectivePath || '';
-        let derivedName = updatedSkillInfo.skillName;
-        try {
-          if (finalPath) {
-            const norm = String(finalPath).replace(/\\/g, '/');
-            const parts = norm.split('/');
-            const idx = parts.lastIndexOf('diagram_dir');
-            if (idx > 0) {
-              const folder = parts[idx - 1];
-              derivedName = (folder?.replace(/_skill$/i, '') || derivedName) as string;
-            } else {
-              const base = (parts.pop() || '').replace(/\.json$/i, '');
-              derivedName = base.replace(/_skill$/i, '') || derivedName;
-            }
-          }
-        } catch {}
-
-        // Update the skill info store with path-derived name
+        const derivedName = deriveSkillNameFromPath(finalPath, updatedSkillInfo.skillName);
         const finalSkillInfo = { ...updatedSkillInfo, skillName: derivedName } as any;
+
         setSkillInfo(finalSkillInfo);
         setHasUnsavedChanges(false);
 
-        // Update file path if we got a new one (from Save As dialog)
         if (saveResult.filePath && saveResult.filePath !== currentFilePath) {
           setCurrentFilePath(saveResult.filePath);
         }
 
-        // Add to recent files when saving (update last opened time)
-        const finalFilePath = saveResult.filePath || effectivePath;
-        if (finalFilePath) {
-          addRecentFile(createRecentFile(finalFilePath, (finalSkillInfo as any).skillName));
+        if (finalPath) {
+          addRecentFile(createRecentFile(finalPath, finalSkillInfo.skillName));
         }
 
-        console.log('[SKILL_IO][FRONTEND][MAIN_SAVE_DONE]');
+        console.log('[SKILL_IO][SAVE_DONE]');
         try { Toast.success({ content: 'Skill saved.' }); } catch {}
 
-        // Save data_mapping.json alongside skill JSON
-        try {
-          const finalFilePath = saveResult.filePath || effectivePath;
-          if (finalFilePath) {
-            // Determine mapping file path: replace _skill.json with _data_mapping.json
-            let mappingPath = finalFilePath;
-            if (/_skill\.json$/i.test(mappingPath)) {
-              mappingPath = mappingPath.replace(/_skill\.json$/i, '_data_mapping.json');
-            } else if (/\.json$/i.test(mappingPath)) {
-              mappingPath = mappingPath.replace(/\.json$/i, '_data_mapping.json');
-            } else {
-              mappingPath = `${mappingPath}_data_mapping.json`;
-            }
-            
-            const mappingJsonString = JSON.stringify(dataMappingJson, null, 2);
-            console.log('[SKILL_IO][MAPPING_SAVE_ATTEMPT]', { path: mappingPath });
-            
-            // Try IPC save first
-            try {
-              const { IPCAPI } = await import('../../../../services/ipc/api');
-              const ipcApi = IPCAPI.getInstance();
-              const writeResponse = await ipcApi.writeSkillFile(mappingPath, mappingJsonString);
-              if (writeResponse.success) {
-                console.log('[SKILL_IO][MAPPING_SAVE_OK]', mappingPath);
-              } else {
-                console.warn('[SKILL_IO][MAPPING_SAVE_ERROR]', writeResponse.error);
-              }
-            } catch (err) {
-              console.warn('[SKILL_IO][MAPPING_IPC_ERROR]', err);
-              // Web fallback: download
-              const blob = new Blob([mappingJsonString], { type: 'application/json' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = mappingPath.split('/').pop()?.split('\\').pop() || 'data_mapping.json';
-              a.click();
-              URL.revokeObjectURL(url);
-              console.log('[SKILL_IO][MAPPING_SAVE_OK_DOWNLOAD]', a.download);
-            }
-          }
-        } catch (e) {
-          console.warn('[Save] data_mapping.json save failed', e);
-        }
-
-        // Also persist the multi-sheet bundle alongside the skill JSON (no extra prompts)
-        try {
-          // Persist current canvas into the active sheet before bundling
-          saveActiveSheetDoc(diagram);
-          const bundle = getAllSheets();
-          // Derive bundle path/name: enforce *_skill_bundle.json next to *_skill.json
-          let bundleTarget = 'skill_bundle.json';
-          if (finalFilePath) {
-            if (/_skill\.json$/i.test(finalFilePath)) {
-              bundleTarget = finalFilePath.replace(/_skill\.json$/i, '_skill_bundle.json');
-            } else if (/\.json$/i.test(finalFilePath)) {
-              bundleTarget = finalFilePath.replace(/\.json$/i, '_skill_bundle.json');
-            } else {
-              bundleTarget = `${finalFilePath}_skill_bundle.json`;
-            }
-          } else if ((finalSkillInfo as any).skillName) {
-            bundleTarget = `${(finalSkillInfo as any).skillName}_skill_bundle.json`;
-          }
-          console.log('[SKILL_IO][FRONTEND][BUNDLE_SAVE_ATTEMPT]', { path: bundleTarget, sheetsCount: bundle.sheets.length });
-          const bundleRes = await saveSheetsBundleToPath(bundleTarget, bundle);
-          console.log('[SKILL_IO][FRONTEND][BUNDLE_SAVE_RESULT]', { path: bundleTarget, success: true, mode: bundleRes.mode });
-          try {
-            const msg = bundleRes.mode === 'ipc'
-              ? `Bundle saved: ${bundleRes.filePath || bundleTarget}`
-              : 'Bundle downloaded.';
-            Toast.success({ content: msg });
-          } catch {}
-        } catch (e) {
-          console.warn('[SKILL_IO][FRONTEND][BUNDLE_SAVE_ERROR]', (e as Error).message);
-          try { Toast.error({ content: 'Bundle save failed.' }); } catch {}
-        }
+        // 6. Save bundle
+        const bundlePath = deriveBundlePath(finalPath, finalSkillInfo.skillName);
+        await saveBundleFile(bundlePath, diagram, saveActiveSheetDoc, getAllSheets);
       }
     } catch (error) {
       console.error('Failed to save skill:', error);
-      // TODO: Show user-friendly error message
     }
-  }, [skillInfo, username, document, currentFilePath, setSkillInfo, setCurrentFilePath, setHasUnsavedChanges]);
+  }, [skillInfo, username, document, currentFilePath, setSkillInfo, setCurrentFilePath, setHasUnsavedChanges, isFlipped, addRecentFile, getAllSheets, saveActiveSheetDoc]);
 
   return (
     <Tooltip content="Save">
@@ -445,176 +367,151 @@ export const SaveAs = ({ disabled }: SaveProps) => {
   const { document } = useClientContext();
   const skillInfo = useSkillInfoStore((state) => state.skillInfo);
   const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
+  const currentFilePath = useSkillInfoStore((state) => state.currentFilePath);
   const setCurrentFilePath = useSkillInfoStore((state) => state.setCurrentFilePath);
   const setHasUnsavedChanges = useSkillInfoStore((state) => state.setHasUnsavedChanges);
   const addRecentFile = useRecentFilesStore((state) => state.addRecentFile);
-  const username = useUserStore((state) => state.username);
   const getAllSheets = useSheetsStore((s) => s.getAllSheets);
   const saveActiveSheetDoc = useSheetsStore((s) => s.saveActiveDocument);
   const { isFlipped } = useNodeFlipStore();
 
   const handleSaveAs = useCallback(async () => {
-    if (!skillInfo) return;
+    if (!skillInfo) {
+      Toast.warning({ content: 'No skill to save.' });
+      return;
+    }
 
     try {
+      // 1. Get and prepare diagram first
       const diagram = document.toJSON();
-      
-      // Ensure flip states are persisted: sync from store to node data
-      diagram.nodes.forEach((node: any) => {
-        if (!node.data) node.data = {};
-        const flipState = isFlipped(node.id);
-        if (flipState) {
-          node.data.hFlip = true;
-          console.log(`[SaveAs] Persisting hFlip state for node: ${node.data.name || node.id}`);
-        } else if (node.data.hFlip) {
-          // Remove hFlip if it's no longer flipped
-          delete node.data.hFlip;
-        }
-      });
-      
-      // Ensure breakpoints are NOT persisted in Save As as well
-      diagram.nodes.forEach((node: any) => {
-        if (node?.data?.break_point) {
-          delete node.data.break_point;
-        }
-      });
-      
-      // SECURITY: prepare sanitized clone so saved JSON uses placeholders
+      prepareDiagramForSave(diagram, isFlipped);
+
+      // 2. Prepare sanitized copy for file persistence
       const sanitizedDiagram = JSON.parse(JSON.stringify(diagram));
       sanitizeNodeApiKeys(sanitizedDiagram?.nodes);
 
-      // Build data_mapping.json structure (same as Save)
+      // 3. Extract config nodes
+      const configNodes = extractConfigNodes(diagram);
 
-      // Build data_mapping.json structure (same as Save)
-      const dataMappingJson: any = {
-        developing: { mappings: [], options: { strict: false, apply_order: 'top_down' } },
-        released: { mappings: [], options: { strict: true, apply_order: 'top_down' } },
-        node_transfers: {},
-        event_routing: {}
-      };
+      // 4. Show system save dialog to let user choose path and filename
+      const ipcApi = IPCAPI.getInstance();
+      let currentName = (skillInfo as any).skillName || 'untitled';
+      // Remove _skill suffix if present (skillName should not have it)
+      if (currentName.endsWith('_skill')) {
+        currentName = currentName.slice(0, -6);
+      }
+      // Default filename uses base name without _skill suffix
+      // User can modify it in the dialog, and we'll extract the name from the final path
+      const defaultFilename = `${currentName}.json`;
+      
+      const dialogResult = await ipcApi.showSaveDialog(defaultFilename, [
+        { name: 'Skill Files', extensions: ['json'] }
+      ]);
 
-      try {
-        const skillMapping = (skillInfo as any)?.config?.skill_mapping;
-        if (skillMapping) {
-          if (skillMapping.developing) dataMappingJson.developing = skillMapping.developing;
-          if (skillMapping.released) dataMappingJson.released = skillMapping.released;
-          if (skillMapping.event_routing) dataMappingJson.event_routing = skillMapping.event_routing;
-        }
-        
-        for (const n of diagram.nodes || []) {
-          const nodeData = n?.data || {};
-          const nodeName = nodeData.name || n.id;
-          const nodeType = nodeData.type || n.type;
-          const nodeId = n.id;
-          
-          if (nodeType === 'start' || nodeType === 'event' || nodeId === 'start') continue;
-          if (nodeData.mapping_rules) {
-            dataMappingJson.node_transfers[nodeName] = nodeData.mapping_rules;
-          }
-        }
-      } catch (e) {
-        console.warn('[SaveAs] data_mapping.json generation failed', e);
+      if (!dialogResult.success || !dialogResult.data?.filePath) {
+        console.log('[SAVEAS] User cancelled save dialog');
+        return;
       }
 
-      const updatedSkillInfo: SkillInfo = {
+      const selectedPath = dialogResult.data.filePath;
+      console.log('[SAVEAS] User selected path:', selectedPath);
+
+      // 5. Extract skill name from the selected file path
+      // User may have changed the filename in the save dialog
+      const fileName = selectedPath.split('/').pop() || '';
+      let newSkillName = fileName
+        .replace(/\.json$/i, '')           // Remove .json extension
+        .replace(/_skill$/i, '');          // Remove _skill suffix
+      
+      // Fallback to original name if extraction failed
+      if (!newSkillName) {
+        newSkillName = (skillInfo as any).skillName || 'untitled';
+      }
+      
+      console.log('[SAVEAS] Extracted skill name from path:', newSkillName);
+
+      // 6. Create updated skillInfo with new name
+      const updatedSkillInfo = {
         ...skillInfo,
-        workFlow: diagram,
+        skillName: newSkillName,
+        workFlow: sanitizedDiagram,
         lastModified: new Date().toISOString(),
         mode: (skillInfo as any)?.mode ?? 'development',
-        run_mode: (skillInfo as any)?.run_mode ?? 'developing',  // Include backend runtime mode
+        run_mode: (skillInfo as any)?.run_mode ?? 'developing',
+        config: {
+          ...(skillInfo as any)?.config,
+          nodes: { ...((skillInfo as any)?.config?.nodes || {}), ...configNodes },
+        },
       } as SkillInfo;
 
-      const skillInfoForSave: SkillInfo = {
-        ...updatedSkillInfo,
-        workFlow: sanitizedDiagram,
-      };
+      sanitizeApiKeysDeep(updatedSkillInfo);
 
-      sanitizeApiKeysDeep(skillInfoForSave);
+      // 7. Prepare bundle data
+      saveActiveSheetDoc(diagram);
+      const bundle = getAllSheets();
 
-      const saveResult = await saveFile(skillInfoForSave, username || undefined, null);
-      if (saveResult && !saveResult.cancelled) {
-        setSkillInfo(updatedSkillInfo);
-        setHasUnsavedChanges(false);
-        if (saveResult.filePath) {
-          setCurrentFilePath(saveResult.filePath);
-          addRecentFile(createRecentFile(saveResult.filePath, updatedSkillInfo.skillName));
+      // 8. Copy skill directory to new location
+      // Backend will check if destination already exists
+      let finalDiagramPath: string;
+      
+      // Extract target directory from selected path
+      const targetDir = selectedPath.replace(/\/[^/]+$/, '');  // Remove filename to get directory
+      
+      if (currentFilePath) {
+        // Use copySkillTo to copy entire skill directory
+        const copyResult = await ipcApi.copySkillTo(
+          currentFilePath,
+          newSkillName,
+          updatedSkillInfo,
+          bundle,
+          targetDir
+        );
+
+        if (copyResult.success && copyResult.data) {
+          finalDiagramPath = (copyResult.data as any).diagramPath;
+        } else {
+          const errorMsg = (copyResult.error as any)?.message || 'Unknown error';
+          console.error('[SAVEAS] Copy failed:', errorMsg);
+          Toast.error({ content: `Save As failed: ${errorMsg}` });
+          return;
         }
-
-        console.log('[SKILL_IO][FRONTEND][MAIN_SAVEAS_DONE]');
-        try { Toast.success({ content: 'Skill saved as new file.' }); } catch {}
-
-        // Save data_mapping.json alongside skill JSON
-        try {
-          const finalFilePath = saveResult.filePath || '';
-          if (finalFilePath) {
-            let mappingPath = finalFilePath;
-            if (/_skill\.json$/i.test(mappingPath)) {
-              mappingPath = mappingPath.replace(/_skill\.json$/i, '_data_mapping.json');
-            } else if (/\.json$/i.test(mappingPath)) {
-              mappingPath = mappingPath.replace(/\.json$/i, '_data_mapping.json');
-            } else {
-              mappingPath = `${mappingPath}_data_mapping.json`;
-            }
-            
-            const mappingJsonString = JSON.stringify(dataMappingJson, null, 2);
-            console.log('[SKILL_IO][MAPPING_SAVEAS_ATTEMPT]', { path: mappingPath });
-            
-            try {
-              const { IPCAPI } = await import('../../../../services/ipc/api');
-              const ipcApi = IPCAPI.getInstance();
-              const writeResponse = await ipcApi.writeSkillFile(mappingPath, mappingJsonString);
-              if (writeResponse.success) {
-                console.log('[SKILL_IO][MAPPING_SAVEAS_OK]', mappingPath);
-              }
-            } catch (err) {
-              console.warn('[SKILL_IO][MAPPING_SAVEAS_IPC_ERROR]', err);
-              const blob = new Blob([mappingJsonString], { type: 'application/json' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = mappingPath.split('/').pop()?.split('\\').pop() || 'data_mapping.json';
-              a.click();
-              URL.revokeObjectURL(url);
-            }
-          }
-        } catch (e) {
-          console.warn('[SaveAs] data_mapping.json save failed', e);
-        }
-
-        try {
-          saveActiveSheetDoc(diagram);
-          const bundle = getAllSheets();
-          const finalFilePath = saveResult.filePath || '';
-          let bundleTarget = 'skill_bundle.json';
-          if (finalFilePath) {
-            if (/_skill\.json$/i.test(finalFilePath)) {
-              bundleTarget = finalFilePath.replace(/_skill\.json$/i, '_skill_bundle.json');
-            } else if (/\.json$/i.test(finalFilePath)) {
-              bundleTarget = finalFilePath.replace(/\.json$/i, '_skill_bundle.json');
-            } else {
-              bundleTarget = `${finalFilePath}_skill_bundle.json`;
-            }
-          } else if (updatedSkillInfo.skillName) {
-            bundleTarget = `${updatedSkillInfo.skillName}_skill_bundle.json`;
-          }
-          console.log('[SKILL_IO][FRONTEND][BUNDLE_SAVE_ATTEMPT]', { path: bundleTarget, sheetsCount: bundle.sheets.length });
-          const bundleRes = await saveSheetsBundleToPath(bundleTarget, bundle);
-          console.log('[SKILL_IO][FRONTEND][BUNDLE_SAVE_RESULT]', { path: bundleTarget, success: true, mode: bundleRes.mode });
-          try {
-            const msg = bundleRes.mode === 'ipc'
-              ? `Bundle saved: ${bundleRes.filePath || bundleTarget}`
-              : 'Bundle downloaded.';
-            Toast.success({ content: msg });
-          } catch {}
-        } catch (e) {
-          console.warn('[SKILL_IO][FRONTEND][BUNDLE_SAVE_ERROR]', (e as Error).message);
-          try { Toast.error({ content: 'Bundle save failed.' }); } catch {}
-        }
+      } else {
+        // No current path - just save to selected location
+        finalDiagramPath = selectedPath;
+        await ipcApi.writeSkillFile(selectedPath, JSON.stringify(updatedSkillInfo, null, 2));
+        
+        // Also save bundle
+        const bundlePath = selectedPath.replace(/_skill\.json$/i, '_skill_bundle.json').replace(/\.json$/i, '_bundle.json');
+        await ipcApi.writeSkillFile(bundlePath, JSON.stringify(bundle, null, 2));
       }
+
+      // 9. Update in-memory state
+      const finalSkillInfo = {
+        ...skillInfo,
+        skillName: newSkillName,
+        workFlow: diagram,  // Keep original diagram in memory
+        lastModified: new Date().toISOString(),
+        mode: (skillInfo as any)?.mode ?? 'development',
+        run_mode: (skillInfo as any)?.run_mode ?? 'developing',
+        config: {
+          ...(skillInfo as any)?.config,
+          nodes: { ...((skillInfo as any)?.config?.nodes || {}), ...configNodes },
+        },
+      } as any;
+
+      setSkillInfo(finalSkillInfo);
+      setCurrentFilePath(finalDiagramPath);
+      setHasUnsavedChanges(false);
+      addRecentFile(createRecentFile(finalDiagramPath, newSkillName));
+
+      console.log('[SKILL_IO][SAVEAS_DONE]', { finalDiagramPath, newSkillName });
+      Toast.success({ content: `Skill saved as "${newSkillName}"` });
+      
     } catch (error) {
       console.error('Failed to save as:', error);
+      Toast.error({ content: `Save As failed: ${error}` });
     }
-  }, [skillInfo, username, document, setSkillInfo, setCurrentFilePath, setHasUnsavedChanges]);
+  }, [skillInfo, currentFilePath, document, setSkillInfo, setCurrentFilePath, setHasUnsavedChanges, isFlipped, addRecentFile, getAllSheets, saveActiveSheetDoc]);
 
   return (
     <Tooltip content="Save As">

@@ -358,55 +358,114 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
         if not skill_service:
             return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
 
-        # Step 1: Delete from database first
+        # Step 0: Get skill path from memory before deletion (for file cleanup)
+        skill_path = None
+        skill_name = None
+        try:
+            main_window = AppContext.get_main_window()
+            if main_window and hasattr(main_window, 'agent_skills'):
+                for skill in (main_window.agent_skills or []):
+                    if hasattr(skill, 'id') and skill.id == skill_id:
+                        skill_path = getattr(skill, 'path', None)
+                        skill_name = getattr(skill, 'name', None)
+                        logger.info(f"[skill_handler] Found skill to delete: name={skill_name}, path={skill_path}")
+                        break
+        except Exception as e:
+            logger.warning(f"[skill_handler] Failed to get skill path: {e}")
+
+        # Step 1: Try to delete from database
         result = skill_service.delete_skill(skill_id)
-
-        if result.get('success'):
+        db_deleted = result.get('success', False)
+        
+        if db_deleted:
             logger.info(f"Skill deleted successfully from database: {skill_id}")
+        else:
+            # Database deletion failed (skill might not exist in DB), but continue to clean memory
+            logger.warning(f"Database deletion returned: {result.get('error')} - will still try to clean memory")
 
-            # Step 2: Remove from memory after database deletion succeeds
-            try:
-                main_window = AppContext.get_main_window()
-                if main_window and hasattr(main_window, 'agent_skills'):
-                    original_count = len(main_window.agent_skills or [])
-                    main_window.agent_skills = [
-                        skill for skill in (main_window.agent_skills or [])
-                        if not (hasattr(skill, 'id') and skill.id == skill_id)
-                    ]
-                    new_count = len(main_window.agent_skills)
+        # Step 2: Remove from memory (always try, even if DB deletion failed)
+        mem_deleted = False
+        try:
+            main_window = AppContext.get_main_window()
+            if main_window and hasattr(main_window, 'agent_skills'):
+                original_count = len(main_window.agent_skills or [])
+                main_window.agent_skills = [
+                    skill for skill in (main_window.agent_skills or [])
+                    if not (hasattr(skill, 'id') and skill.id == skill_id)
+                ]
+                new_count = len(main_window.agent_skills)
+                if new_count < original_count:
+                    mem_deleted = True
                     logger.info(f"[skill_handler] Removed skill from memory: {skill_id} (count: {original_count} → {new_count})")
-            except Exception as e:
-                logger.warning(f"[skill_handler] Failed to remove skill from memory: {e}")
+                else:
+                    logger.info(f"[skill_handler] Skill not found in memory: {skill_id}")
+        except Exception as e:
+            logger.warning(f"[skill_handler] Failed to remove skill from memory: {e}")
 
-            # Step 3: Clean up offline sync queue for this skill
+        # Step 2.5: Delete skill files from disk
+        file_deleted = False
+        if skill_path:
             try:
-                from agent.cloud_api.offline_sync_queue import get_offline_sync_queue
-                sync_queue = get_offline_sync_queue()
-                removed_count = sync_queue.remove_tasks_by_resource('skill', skill_id)
-                if removed_count > 0:
-                    logger.info(f"[skill_handler] Removed {removed_count} pending sync tasks for skill: {skill_id}")
+                from pathlib import Path
+                import shutil
+                
+                skill_file = Path(skill_path)
+                if skill_file.exists():
+                    # Path format: .../xxx_skill/diagram_dir/xxx_skill.json
+                    # We need to delete the xxx_skill directory
+                    diagram_dir = skill_file.parent  # diagram_dir/
+                    skill_root = diagram_dir.parent  # xxx_skill/
+                    
+                    if skill_root.exists() and skill_root.is_dir():
+                        # Safety check: only delete if it looks like a skill directory
+                        if skill_root.name.endswith('_skill') or (diagram_dir.exists() and diagram_dir.name == 'diagram_dir'):
+                            shutil.rmtree(str(skill_root))
+                            file_deleted = True
+                            logger.info(f"[skill_handler] ✅ Deleted skill directory: {skill_root}")
+                        else:
+                            logger.warning(f"[skill_handler] ⚠️ Skipped deletion - not a skill directory: {skill_root}")
+                else:
+                    logger.info(f"[skill_handler] Skill file not found on disk: {skill_path}")
             except Exception as e:
-                logger.warning(f"[skill_handler] Failed to clean offline sync queue: {e}")
+                logger.warning(f"[skill_handler] Failed to delete skill files: {e}")
 
-            # Step 4: Sync deletion to cloud after memory update (async, fire and forget)
-            delete_skill_data = {
-                'id': skill_id,
-                'owner': username,
-                'name': f"Skill_{skill_id}"  # Placeholder name for deletion
-            }
-            _trigger_cloud_sync(delete_skill_data, Operation.DELETE)
+        # Step 3: Clean up offline sync queue for this skill
+        try:
+            from agent.cloud_api.offline_sync_queue import get_offline_sync_queue
+            sync_queue = get_offline_sync_queue()
+            removed_count = sync_queue.remove_tasks_by_resource('skill', skill_id)
+            if removed_count > 0:
+                logger.info(f"[skill_handler] Removed {removed_count} pending sync tasks for skill: {skill_id}")
+        except Exception as e:
+            logger.warning(f"[skill_handler] Failed to clean offline sync queue: {e}")
 
+        # Step 4: Sync deletion to cloud after memory update (async, fire and forget)
+        delete_skill_data = {
+            'id': skill_id,
+            'owner': username,
+            'name': f"Skill_{skill_id}"  # Placeholder name for deletion
+        }
+        _trigger_cloud_sync(delete_skill_data, Operation.DELETE)
+
+        # Return success if any deletion succeeded
+        if db_deleted or mem_deleted or file_deleted:
             return create_success_response(request, {
                 'message': 'Delete agent skill successful',
-                'skill_id': skill_id
+                'skill_id': skill_id,
+                'db_deleted': db_deleted,
+                'mem_deleted': mem_deleted,
+                'file_deleted': file_deleted
             })
         else:
-            logger.error(f"Failed to delete agent skill: {result.get('error')}")
-            return create_error_response(
-                request,
-                'DELETE_SKILL_ERROR',
-                f"Failed to delete agent skill: {result.get('error')}"
-            )
+            # Neither DB nor memory nor file had this skill
+            logger.warning(f"Skill not found in database, memory, or disk: {skill_id}")
+            return create_success_response(request, {
+                'message': 'Skill not found (may have been already deleted)',
+                'skill_id': skill_id,
+                'db_deleted': False,
+                'mem_deleted': False,
+                'file_deleted': False
+            })
 
     except Exception as e:
         logger.error(f"Error in delete skill handler: {e} {traceback.format_exc()}")
@@ -493,6 +552,10 @@ def _update_skill_in_memory(skill_id: str, skill_data: Dict[str, Any]) -> bool:
 
         from agent.ec_skill import EC_Skill
 
+        skill_name = skill_data.get('name', 'Unknown')
+        skill_path = skill_data.get('path', '')
+        logger.info(f"[skill_handler] _update_skill_in_memory called: id={skill_id}, name={skill_name}, path={skill_path}")
+
         # Check if skill already exists in memory
         existing_index = None
         for i, skill in enumerate(main_window.agent_skills or []):
@@ -503,29 +566,32 @@ def _update_skill_in_memory(skill_id: str, skill_data: Dict[str, Any]) -> bool:
         # Create skill object
         skill_obj = EC_Skill()
         skill_obj.id = skill_id
-        skill_obj.name = skill_data['name']
-        skill_obj.owner = skill_data['owner']
-        skill_obj.description = skill_data['description']
-        skill_obj.version = skill_data['version']
-        skill_obj.path = skill_data.get('path', '')
+        skill_obj.name = skill_name
+        skill_obj.owner = skill_data.get('owner', '')
+        skill_obj.description = skill_data.get('description', '')
+        skill_obj.version = skill_data.get('version', '1.0.0')
+        skill_obj.path = skill_path
         skill_obj.config = skill_data.get('config', {})
         skill_obj.level = skill_data.get('level', 'entry')
+        skill_obj.source = 'ui'  # Mark as UI-created skill
 
         if existing_index is not None:
             # Update existing skill
             main_window.agent_skills[existing_index] = skill_obj
-            logger.info(f"[skill_handler] Updated skill in memory: {skill_data['name']}")
+            logger.info(f"[skill_handler] ✅ Updated skill in memory: {skill_name} (index={existing_index})")
         else:
             # Add new skill
             if main_window.agent_skills is None:
                 main_window.agent_skills = []
             main_window.agent_skills.append(skill_obj)
-            logger.info(f"[skill_handler] Added new skill to memory: {skill_data['name']}")
+            logger.info(f"[skill_handler] ✅ Added new skill to memory: {skill_name} (total={len(main_window.agent_skills)})")
 
         return True
 
     except Exception as e:
-        logger.warning(f"[skill_handler] Failed to update mainwin.agent_skills: {e}")
+        logger.warning(f"[skill_handler] ❌ Failed to update mainwin.agent_skills: {e}")
+        import traceback
+        logger.warning(f"[skill_handler] Traceback: {traceback.format_exc()}")
         return False
 
 

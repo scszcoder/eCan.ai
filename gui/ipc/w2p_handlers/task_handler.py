@@ -15,6 +15,34 @@ from utils.logger_helper import logger_helper as logger
 # Helper Functions for Agent Task Management
 # ============================================================================
 
+def _serialize_task_status(status) -> str:
+    """Serialize TaskStatus object to a JSON-serializable string
+    
+    Args:
+        status: TaskStatus object, string, or None
+        
+    Returns:
+        str: Status string (e.g., 'pending', 'working', 'completed')
+    """
+    if status is None:
+        return 'pending'
+    
+    # If it's already a string, return it
+    if isinstance(status, str):
+        return status
+    
+    # If it's a TaskStatus object (Pydantic model), extract the state
+    if hasattr(status, 'state'):
+        state = status.state
+        # TaskState is an enum, get its value
+        if hasattr(state, 'value'):
+            return state.value
+        return str(state)
+    
+    # Fallback: convert to string
+    return str(status)
+
+
 def _get_agent_task_service():
     """Get agent task service from mainwin (uses correct user-specific database path)
 
@@ -201,7 +229,7 @@ def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]
                         'name': getattr(agent_task, 'name', 'Unknown Agent Task'),
                         'description': getattr(agent_task, 'description', ''),
                         'owner': username,
-                        'status': getattr(agent_task, 'status', 'pending'),
+                        'status': _serialize_task_status(getattr(agent_task, 'status', None)),
                         'priority': getattr(agent_task, 'priority', 'medium')
                     }
                     # Ensure necessary fields exist
