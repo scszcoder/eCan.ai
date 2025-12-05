@@ -927,6 +927,150 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
                 base_dir = Path(app_context.get_app_dir())
                 skill_file = base_dir / skill_file
             
+            # Check if skillName changed - need to rename directory and files
+            new_skill_name = skill_info.get('skillName', '')
+            renamed = False
+            new_file_path = None
+            
+            if new_skill_name and skill_file.exists():
+                # Extract current skill name from path
+                # Path format: .../xxx_skill/diagram_dir/xxx_skill.json
+                current_file_stem = skill_file.stem  # e.g., "ff_skill"
+                
+                # Normalize names for comparison (both should end with _skill)
+                expected_new_stem = new_skill_name if new_skill_name.endswith('_skill') else f"{new_skill_name}_skill"
+                
+                if current_file_stem != expected_new_stem:
+                    logger.info(f"[AutoSave] Skill name changed: {current_file_stem} -> {expected_new_stem}")
+                    
+                    # Rename directory and files
+                    try:
+                        diagram_dir = skill_file.parent  # diagram_dir/
+                        old_skill_root = diagram_dir.parent  # xxx_skill/
+                        parent_of_skill_root = old_skill_root.parent  # my_skills/ or custom dir
+                        
+                        # New paths
+                        new_skill_root = parent_of_skill_root / f"{expected_new_stem}"
+                        new_diagram_dir = new_skill_root / "diagram_dir"
+                        new_skill_file = new_diagram_dir / f"{expected_new_stem}.json"
+                        new_bundle_file = new_diagram_dir / f"{expected_new_stem}_bundle.json"
+                        
+                        # Check if target already exists
+                        if new_skill_root.exists() and new_skill_root != old_skill_root:
+                            logger.warning(f"[AutoSave] Cannot rename: target directory already exists: {new_skill_root}")
+                        else:
+                            # Rename the skill root directory
+                            if old_skill_root != new_skill_root:
+                                import shutil
+                                shutil.move(str(old_skill_root), str(new_skill_root))
+                                logger.info(f"[AutoSave] Renamed directory: {old_skill_root} -> {new_skill_root}")
+                            
+                            # Rename files inside diagram_dir
+                            old_json = new_diagram_dir / f"{current_file_stem}.json"
+                            old_bundle = new_diagram_dir / f"{current_file_stem}_bundle.json"
+                            
+                            if old_json.exists() and old_json != new_skill_file:
+                                old_json.rename(new_skill_file)
+                                logger.info(f"[AutoSave] Renamed file: {old_json.name} -> {new_skill_file.name}")
+                            
+                            if old_bundle.exists() and old_bundle != new_bundle_file:
+                                old_bundle.rename(new_bundle_file)
+                                logger.info(f"[AutoSave] Renamed bundle: {old_bundle.name} -> {new_bundle_file.name}")
+                            
+                            # Update skill_file to new path
+                            skill_file = new_skill_file
+                            new_file_path = str(new_skill_file)
+                            renamed = True
+                            
+                            # Update database record and in-memory skill
+                            try:
+                                from app_context import AppContext as AC
+                                main_window = AC.get_main_window()
+                                if main_window:
+                                    old_dir_name = old_skill_root.name  # e.g., "ff2_skill"
+                                    old_base_name = old_dir_name.replace('_skill', '') if old_dir_name.endswith('_skill') else old_dir_name
+                                    new_base_name = expected_new_stem.replace('_skill', '') if expected_new_stem.endswith('_skill') else expected_new_stem
+                                    
+                                    logger.info(f"[AutoSave] Looking for skill: old_dir={old_dir_name}, old_base={old_base_name}")
+                                    
+                                    # Update database
+                                    db_updated = False
+                                    if hasattr(main_window, 'ec_db_mgr') and main_window.ec_db_mgr:
+                                        skill_service = main_window.ec_db_mgr.get_skill_service()
+                                        if skill_service:
+                                            # Find skill by old path using search_skills
+                                            all_skills = skill_service.search_skills()  # Returns list directly
+                                            logger.info(f"[AutoSave] Found {len(all_skills)} skills in database")
+                                            for skill in all_skills:
+                                                skill_path = skill.get('path', '')
+                                                skill_name_db = skill.get('name', '')
+                                                if skill_path and old_dir_name in skill_path:
+                                                    skill_id = skill.get('id')
+                                                    update_result = skill_service.update_skill(skill_id, {
+                                                        'name': expected_new_stem,
+                                                        'path': str(new_skill_file),
+                                                    })
+                                                    if update_result.get('success'):
+                                                        logger.info(f"[AutoSave] ✅ Database updated (ID: {skill_id})")
+                                                        db_updated = True
+                                                    else:
+                                                        logger.warning(f"[AutoSave] ⚠️ Failed to update database: {update_result.get('error')}")
+                                                    break
+                                            if not db_updated:
+                                                logger.info(f"[AutoSave] No matching skill found in database for path containing: {old_dir_name}")
+                                    
+                                    # Update in-memory skill list
+                                    mem_updated = False
+                                    if hasattr(main_window, 'agent_skills'):
+                                        logger.info(f"[AutoSave] Found {len(main_window.agent_skills or [])} skills in memory")
+                                        for mem_skill in (main_window.agent_skills or []):
+                                            if hasattr(mem_skill, 'name'):
+                                                skill_name = mem_skill.name
+                                                skill_path = getattr(mem_skill, 'path', '')
+                                                # Match by name or path
+                                                name_match = skill_name == old_dir_name or skill_name == old_base_name
+                                                path_match = skill_path and old_dir_name in skill_path
+                                                
+                                                if name_match or path_match:
+                                                    old_skill_name = skill_name
+                                                    # Keep the same format (with or without _skill)
+                                                    if skill_name.endswith('_skill'):
+                                                        mem_skill.name = expected_new_stem
+                                                    else:
+                                                        mem_skill.name = new_base_name
+                                                    if hasattr(mem_skill, 'path'):
+                                                        mem_skill.path = str(new_skill_file)
+                                                    logger.info(f"[AutoSave] ✅ In-memory skill updated: {old_skill_name} -> {mem_skill.name}")
+                                                    mem_updated = True
+                                                    break
+                                        
+                                        if not mem_updated:
+                                            # Skill not in memory - load and add it
+                                            skill_names = [getattr(s, 'name', 'N/A') for s in (main_window.agent_skills or [])]
+                                            logger.info(f"[AutoSave] No matching skill in memory. Looking for: {old_dir_name} or {old_base_name}")
+                                            logger.info(f"[AutoSave] Available skills: {skill_names[:10]}...")
+                                            
+                                            # Load the renamed skill into memory
+                                            try:
+                                                from agent.ec_skills.build_agent_skills import load_from_diagram
+                                                new_skill = load_from_diagram(Path(str(new_skill_file)))
+                                                if new_skill:
+                                                    if main_window.agent_skills is None:
+                                                        main_window.agent_skills = []
+                                                    main_window.agent_skills.append(new_skill)
+                                                    logger.info(f"[AutoSave] ✅ New skill added to memory: {new_skill.name}")
+                                                    mem_updated = True
+                                            except Exception as load_err:
+                                                logger.warning(f"[AutoSave] ⚠️ Failed to load skill into memory: {load_err}")
+                                    else:
+                                        logger.warning(f"[AutoSave] No agent_skills in memory")
+                            except Exception as db_err:
+                                logger.warning(f"[AutoSave] ⚠️ Error updating database/memory: {db_err}")
+                            
+                    except Exception as rename_err:
+                        logger.error(f"[AutoSave] Failed to rename skill: {rename_err}")
+                        # Continue with original path
+            
             # Allow saving to new files (don't require file to exist)
             # This enables "Save As" functionality
             
@@ -960,12 +1104,20 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
             skill_name = skill_info.get('skillName', Path(current_file_path).stem)
             _update_recent_files(str(skill_file), skill_name)
             
-            return create_success_response(request, {
+            response_data = {
                 'success': True,
                 'filePath': str(skill_file),
                 'bundleFileSynced': bundle_file_saved,
                 'message': 'Skill saved successfully'
-            })
+            }
+            
+            # If renamed, include new path info for frontend to update
+            if renamed and new_file_path:
+                response_data['renamed'] = True
+                response_data['newFilePath'] = new_file_path
+                response_data['message'] = f'Skill renamed and saved successfully'
+            
+            return create_success_response(request, response_data)
         else:
             # No file path - this is a new unsaved skill, return success but don't save
             logger.debug("[AutoSave] No file path, skipping save (new unsaved skill)")
