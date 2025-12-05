@@ -132,38 +132,22 @@ class DevRunner:
     # ==================== Dev Run Controls ====================
     
     def launch_dev_run(self, init_state: dict, dev_task: "ManagedTask") -> Dict[str, Any]:
-        """
-        Launch a development run for debugging.
-        
-        Args:
-            init_state: Initial state for the run.
-            dev_task: The task to run.
-            
-        Returns:
-            Result dictionary.
-        """
+        """Record initial dev state and delegate execution to TaskRunner."""
         try:
-            log_msg = "launch_dev_run starting..."
+            log_msg = "[DevRunner][launch_dev_run] starting (delegated to TaskRunner)..."
             logger.info(log_msg)
             _send_skill_editor_log("log", log_msg)
-            
+
             self._dev_task = dev_task
-            
-            # Ensure task is runnable
+
+            # Ensure task has required primitives
             self._prepare_dev_task(dev_task)
-            
-            # Execute the dev run
-            from .executor import TaskExecutor
-            executor = TaskExecutor(dev_task)
-            
-            # Set initial state
-            dev_task.metadata["state"] = init_state
-            
-            result = executor.stream_run(init_state)
-            
-            logger.info(f"[DevRunner] Dev run completed: {result}")
-            return {"success": True, "result": result}
-            
+
+            dev_task.metadata.setdefault("state", {})
+            dev_task.metadata["state"].update(init_state or {})
+
+            return {"success": True}
+
         except Exception as e:
             err_msg = get_traceback(e, "ErrorLaunchDevRun")
             logger.error(err_msg)

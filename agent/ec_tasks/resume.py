@@ -331,6 +331,22 @@ def _extract_text_from_message(message: Any) -> str:
 
 # ---------- Checkpoint selection & injection ----------
 
+def peek_checkpoint(task: Any, tag: Optional[str]):
+    """Return the checkpoint object for a given tag without removing it."""
+    if not getattr(task, "checkpoint_nodes", None):
+        return None
+    try:
+        if tag:
+            for cpn in task.checkpoint_nodes:
+                if cpn.get("tag") == tag:
+                    return cpn.get("checkpoint")
+        # fallback: latest checkpoint when tag missing
+        return task.checkpoint_nodes[-1].get("checkpoint") if task.checkpoint_nodes else None
+    except Exception as e:
+        logger.debug(f"peek_checkpoint error: {e}")
+        return None
+
+
 def select_checkpoint(task: Any, tag: Optional[str]):
     """Pop and return the checkpoint object for a given tag, if present.
 
@@ -733,7 +749,7 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
     # Unified tag to use for checkpoint lookup
     e_tag = event.get("i_tag") if isinstance(event, dict) and "i_tag" in event else event.get("tag")
     logger.debug("build resume load, normalized event>>>>", event)
-    cp = select_checkpoint(task, e_tag)
+    cp = peek_checkpoint(task, e_tag)
     if not e_tag and cp:
         try:
             # If tag missing, try to reuse latest checkpoint tag so downstream logic keeps context
