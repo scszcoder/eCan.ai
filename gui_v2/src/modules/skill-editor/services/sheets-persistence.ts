@@ -1,7 +1,7 @@
 import { hasIPCSupport, hasFullFilePaths } from '../../../config/platform';
 import '../../../services/ipc/file-api';
 import type { SheetsBundle } from '../utils/bundle-utils';
-import { sanitizeNodeApiKeys } from '../utils/sanitize-utils';
+import { sanitizeNodeApiKeys, sanitizeApiKeysDeep } from '../utils/sanitize-utils';
 // Re-export SheetsBundle for backward compatibility
 export type { SheetsBundle };
 
@@ -19,6 +19,7 @@ export async function saveSheetsBundleToPath(
       }
     });
   }
+  sanitizeApiKeysDeep(sanitizedBundle);
   const jsonString = JSON.stringify(sanitizedBundle, null, 2);
   // Try IPC write first; if anything fails, fall back to download method
   try {
@@ -61,6 +62,7 @@ export async function saveSheetsBundle(bundle: SheetsBundle, suggestedName?: str
       }
     });
   }
+  sanitizeApiKeysDeep(sanitizedBundle);
   const jsonString = JSON.stringify(sanitizedBundle, null, 2);
   const fileName = (suggestedName || 'skill-multisheet') + '.json';
 
