@@ -129,8 +129,8 @@
             "type": "loop",
             "meta": {
               "position": {
-                "x": 1130.9311168647273,
-                "y": -307.35391686414806
+                "x": 2214.692088890097,
+                "y": -429.5169893951881
               }
             },
             "data": {
@@ -783,6 +783,23 @@
                         "description": "Node execution case"
                       }
                     }
+                  },
+                  "data": {
+                    "callable": {
+                      "id": "llm-auto-select",
+                      "name": "llm auto select",
+                      "desc": "Let the LLM automatically select the appropriate tool based on the context",
+                      "params": {
+                        "type": "object",
+                        "properties": {}
+                      },
+                      "returns": {
+                        "type": "object",
+                        "properties": {}
+                      },
+                      "type": "system",
+                      "source": ""
+                    }
                   }
                 }
               },
@@ -1411,7 +1428,7 @@
         ]
       },
       "createdAt": 1764879518895,
-      "lastOpenedAt": 1764892637078
+      "lastOpenedAt": 1764894669325
     }
   ],
   "openTabs": [
