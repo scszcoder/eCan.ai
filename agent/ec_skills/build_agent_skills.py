@@ -237,45 +237,59 @@ async def build_agent_skills(mainwin, skill_path=""):
 
         logger.info(f"[build_agent_skills] ✅ Converted {len(memory_skills)} DB skills to objects")
 
-        # Step 5: Build local code skills
-        logger.info("[build_agent_skills] Step 5: Building local code skills...")
+        # Step 5: Build local skills (both code-based and file-based)
+        logger.info("[build_agent_skills] Step 5: Building local skills...")
         try:
-            local_code_skills = await _build_local_skills_async(mainwin, skill_path)
-            logger.info(f"[build_agent_skills] ✅ Built {len(local_code_skills or [])} local code skills")
+            # Returns (code_skills, file_skills) tuple
+            code_skills, file_skills = await _build_local_skills_async(mainwin, skill_path)
+            logger.info(f"[build_agent_skills] ✅ Built {len(code_skills or [])} code skills, {len(file_skills or [])} file skills")
         except Exception as e:
             logger.error(f"[build_agent_skills] ❌ Local build failed: {e}")
-            local_code_skills = []
+            code_skills, file_skills = [], []
 
         # Step 6: Merge all skill data with deduplication
         logger.info("[build_agent_skills] Step 6: Merging all skills...")
         
-        # Use a dictionary to track skills by name (code skills override DB skills)
+        # Use a dictionary to track skills by name (local skills override DB skills)
         skills_dict = {}
-        code_skill_names = set()
+        code_skill_names = set()  # Track names of built-in code skills (source="code")
         
         # First add database/cloud skills
         for skill in memory_skills:
             if skill is not None and hasattr(skill, 'name'):
                 skills_dict[skill.name] = skill
         
-        # Then add locally built skills from code (these will override DB skills with same name)
-        if local_code_skills:
-            for skill in local_code_skills:
+        # Then add file-loaded skills (these already have source="ui" set correctly)
+        # File skills override DB skills with same name
+        if file_skills:
+            for skill in file_skills:
+                if skill is not None and hasattr(skill, 'name'):
+                    if skill.name in skills_dict:
+                        logger.info(f"[build_agent_skills] 🔄 File skill '{skill.name}' overrides DB skill")
+                    skills_dict[skill.name] = skill
+        
+        # Finally add built-in code skills (these should have source="code")
+        # Code skills override both DB and file skills with same name
+        if code_skills:
+            for skill in code_skills:
                 if skill is not None and hasattr(skill, 'name'):
                     code_skill_names.add(skill.name)
                     if skill.name in skills_dict:
-                        logger.info(f"[build_agent_skills] 🔄 Code skill '{skill.name}' overrides DB skill")
+                        logger.info(f"[build_agent_skills] 🔄 Code skill '{skill.name}' overrides existing skill")
                         logger.info(f"[build_agent_skills] 💡 Consider deleting '{skill.name}' from database to avoid conflicts")
                     skills_dict[skill.name] = skill
         
-        # Convert back to list and mark source
+        # Convert back to list and set source appropriately
         all_skills = []
         for skill_name, skill in skills_dict.items():
             if skill_name in code_skill_names:
+                # Built-in code skills are read-only
                 skill.source = "code"
-            elif skill.source != "code":
-                skill.source = "ui"  # Assuming skills not from code are from UI
-            # Ensure stable ID for code/example skills
+            # For other skills, respect their existing source value (already set correctly)
+            # - DB skills default to "ui"
+            # - File skills already have source="ui" from load_from_diagram/load_from_code
+            
+            # Ensure stable ID for code skills
             skill.ensure_stable_id()
             all_skills.append(skill)
 
@@ -288,7 +302,8 @@ async def build_agent_skills(mainwin, skill_path=""):
         skill_names = [s.name for s in all_skills] if all_skills else []
         logger.info(f"[build_agent_skills] 🎉 Complete! Total: {len(all_skills)} skills in {total_time:.3f}s")
         logger.info(f"[build_agent_skills] - DB/Cloud skills: {len(memory_skills)}")
-        logger.info(f"[build_agent_skills] - Local code skills: {len(local_code_skills or [])}")
+        logger.info(f"[build_agent_skills] - Code skills: {len(code_skills or [])}")
+        logger.info(f"[build_agent_skills] - File skills: {len(file_skills or [])}")
         logger.info(f"[build_agent_skills] - Skill names: {skill_names}")
 
         return all_skills
@@ -484,23 +499,28 @@ async def _load_skills_from_cloud_async(mainwin):
 
 
 async def _build_local_skills_async(mainwin, skill_path=""):
-    """Asynchronously build local skills"""
+    """Asynchronously build local skills
+    
+    Returns:
+        Tuple[List[EC_Skill], List[EC_Skill]]: (code_skills, file_skills)
+        - code_skills: Built-in code skills from build_agent_skills_parallel (source="code")
+        - file_skills: File-loaded skills from build_agent_skills_from_files (source="ui")
+    """
     try:
         logger.info(f"[build_agent_skills] 🔧 Building local skills. Tool schemas: {len(tool_schemas)}, {skill_path}")
 
-        local_skills = []
-        local_skills = await build_agent_skills_parallel(mainwin)
+        # Built-in code skills (these should have source="code")
+        code_skills = await build_agent_skills_parallel(mainwin)
 
-        # Build skills from files
-        local_extern_skills = await asyncio.get_event_loop().run_in_executor(
+        # File-loaded skills (these already have source="ui" set in load_from_diagram/load_from_code)
+        file_skills = await asyncio.get_event_loop().run_in_executor(
             None, build_agent_skills_from_files, mainwin, skill_path
         )
-        local_skills.extend(local_extern_skills)
 
-        return local_skills
+        return code_skills, file_skills
     except Exception as e:
         logger.error(f"[build_agent_skills] ❌ Local build error: {e}")
-        return []
+        return [], []
 
 
 def build_agent_skills_from_files(mainwin, skill_path: str = ""):
@@ -526,17 +546,47 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
             return max((p.stat().st_mtime for p in path.rglob("*")), default=-1.0)
 
         def load_mapping_rules(sk: EC_Skill, *search_paths: Path) -> None:
-            """Load mapping rules from data_mapping.json, searching in given paths"""
+            """Load mapping rules from data_mapping.json, searching in given paths.
+            
+            Searches for mapping files in this order:
+            1. <path>/<skill_name>_data_mapping.json (frontend saves with skill name prefix)
+            2. <path>/data_mapping.json (legacy format)
+            """
+            # Extract base skill name (remove _skill suffix if present)
+            skill_base_name = sk.name
+            if skill_base_name.endswith('_skill'):
+                skill_base_name = skill_base_name[:-6]
+            
             for path in search_paths:
-                mapping_file = path / "data_mapping.json" if path.is_dir() else path
-                if mapping_file.exists():
-                    try:
-                        with mapping_file.open("r", encoding="utf-8") as mf:
-                            sk.mapping_rules = json.load(mf)
-                            logger.info(f"[build_agent_skills] Loaded mapping rules for {sk.name}")
-                            return
-                    except Exception as e:
-                        logger.warning(f"[build_agent_skills] Failed to load mapping rules: {e}")
+                if not path.is_dir():
+                    # If path is a file, try to load it directly
+                    if path.exists():
+                        try:
+                            with path.open("r", encoding="utf-8") as mf:
+                                sk.mapping_rules = json.load(mf)
+                                logger.info(f"[build_agent_skills] Loaded mapping rules for {sk.name} from {path}")
+                                return
+                        except Exception as e:
+                            logger.warning(f"[build_agent_skills] Failed to load mapping rules from {path}: {e}")
+                    continue
+                
+                # Search for mapping files in directory
+                # Priority 1: <skill_name>_data_mapping.json (frontend format)
+                mapping_candidates = [
+                    path / f"{skill_base_name}_data_mapping.json",
+                    path / f"{sk.name}_data_mapping.json",  # Also try with full name
+                    path / "data_mapping.json",  # Legacy format
+                ]
+                
+                for mapping_file in mapping_candidates:
+                    if mapping_file.exists():
+                        try:
+                            with mapping_file.open("r", encoding="utf-8") as mf:
+                                sk.mapping_rules = json.load(mf)
+                                logger.info(f"[build_agent_skills] Loaded mapping rules for {sk.name} from {mapping_file}")
+                                return
+                        except Exception as e:
+                            logger.warning(f"[build_agent_skills] Failed to load mapping rules from {mapping_file}: {e}")
 
         def finalize_skill(sk: EC_Skill, source: str, path: str, skill_root: Path) -> EC_Skill:
             """Common finalization: set source, path, stable ID, and load mapping rules"""
@@ -687,7 +737,9 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                     return None
 
                 if sk:
-                    return finalize_skill(sk, "code", str(code_dir), skill_root)
+                    # User-created code skills in my_skills/ are editable (source="ui")
+                    # Only built-in code skills (from build_local_code_skills) are read-only (source="code")
+                    return finalize_skill(sk, "ui", str(code_dir), skill_root)
                 return None
 
         def load_from_diagram(diagram_dir: Path) -> Optional[EC_Skill]:
@@ -732,13 +784,10 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                     sk.run_mode = core_dict["run_mode"]
                 sk.set_work_flow(workflow)
                 
-                # Determine source from JSON ('code'/'example' -> 'code', else 'ui')
-                json_source = core_dict.get("source", "ui")
-                source = "code" if json_source in ("code", "example") else "ui"
-                
-                # Finalize: set source, path, stable ID, and load mapping rules
+                # All file-loaded skills are editable (source="ui")
+                # Only code-generated skills (from build_local_code_skills) are read-only (source="code")
                 load_mapping_rules(sk, diagram_dir, skill_root)  # Check both locations
-                sk.source = source
+                sk.source = "ui"
                 sk.path = str(core_path)
                 sk.ensure_stable_id()
                 return sk
@@ -780,16 +829,21 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
             root.mkdir(parents=True, exist_ok=True)
             logger.info(f"[build_agent_skills] Scanning skills under: {root}")
             for entry in sorted(root.iterdir()):
-                # Expect entries named <name>_skill
-                if entry.is_dir() and entry.name.endswith("_skill"):
-                    try:
-                        sk = load_one_skill(entry)
-                        if sk is not None:
-                            skills.append(sk)
-                            logger.info(f"[build_agent_skills] ✅ Loaded skill: {sk.name} (source={sk.source})")
-                    except Exception as e:
-                        logger.error(f"[build_agent_skills] ❌ Failed to load skill from {entry.name}: {e}")
-                        continue
+                # Accept any directory that contains code_skill, code_dir, or diagram_dir
+                # No longer require _skill suffix - more flexible for user-created skills
+                if entry.is_dir() and not entry.name.startswith('.'):
+                    # Check if it looks like a skill directory
+                    has_code = (entry / "code_skill").exists() or (entry / "code_dir").exists()
+                    has_diagram = (entry / "diagram_dir").exists()
+                    if has_code or has_diagram:
+                        try:
+                            sk = load_one_skill(entry)
+                            if sk is not None:
+                                skills.append(sk)
+                                logger.info(f"[build_agent_skills] ✅ Loaded skill: {sk.name} (source={sk.source})")
+                        except Exception as e:
+                            logger.error(f"[build_agent_skills] ❌ Failed to load skill from {entry.name}: {e}")
+                            continue
         else:
             sdir = Path(skill_path)
             # If user points to inside code_skill or diagram_dir, go up to the skill root (<name>_skill)

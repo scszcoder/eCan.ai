@@ -18,29 +18,43 @@ export const RouteFileLoader = () => {
   const setCurrentFilePath = useSkillInfoStore((state) => state.setCurrentFilePath);
   const setHasUnsavedChanges = useSkillInfoStore((state) => state.setHasUnsavedChanges);
   
-  const hasLoaded = useRef(false);
+  const lastLoadedPath = useRef<string | null>(null);
+  const lastLocationKey = useRef<string | null>(null);
 
   useEffect(() => {
-    // Only load once
-    if (hasLoaded.current) {
+    // Check if we have a file path in route state
+    const state = location.state as { filePath?: string; skillId?: string } | null;
+    const locationKey = location.key || 'default';
+    
+    console.log('[RouteFileLoader] Effect triggered:', {
+      hasState: !!state,
+      filePath: state?.filePath,
+      lastLoadedPath: lastLoadedPath.current,
+      locationKey,
+      lastLocationKey: lastLocationKey.current
+    });
+    
+    if (!state?.filePath) {
       return;
     }
 
-    // Check if we have a file path in route state
-    const state = location.state as { filePath?: string; skillId?: string } | null;
-    if (!state?.filePath) {
-      hasLoaded.current = true;
+    // Skip if already loaded this exact path with same location key
+    // (location.key changes on each navigation, even to same path)
+    if (lastLoadedPath.current === state.filePath && lastLocationKey.current === locationKey) {
+      console.log('[RouteFileLoader] Already loaded this path with same key, skipping');
       return;
     }
 
     // Wait for workflowDocument to be available
     if (!workflowDocument) {
+      console.log('[RouteFileLoader] workflowDocument not ready');
       return;
     }
 
     const loadFile = async () => {
       try {
         const filePath = state.filePath!;
+        console.log('[RouteFileLoader] Loading file:', filePath);
 
         // Import IPC API dynamically
         const { IPCAPI } = await import('../../../services/ipc/api');
@@ -97,10 +111,12 @@ export const RouteFileLoader = () => {
             setHasUnsavedChanges(false);
           }
         }
+        // Mark this path and location key as loaded
+        lastLoadedPath.current = filePath;
+        lastLocationKey.current = locationKey;
+        console.log('[RouteFileLoader] File loaded successfully:', filePath);
       } catch (error) {
         console.error('[RouteFileLoader] Error loading file:', error);
-      } finally {
-        hasLoaded.current = true;
       }
     };
 
@@ -110,7 +126,7 @@ export const RouteFileLoader = () => {
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [location.state, workflowDocument, setSkillInfo, setBreakpoints, setCurrentFilePath, setHasUnsavedChanges]);
+  }, [location.state, location.key, workflowDocument, setSkillInfo, setBreakpoints, setCurrentFilePath, setHasUnsavedChanges]);
 
   return null; // This component doesn't render anything
 };
