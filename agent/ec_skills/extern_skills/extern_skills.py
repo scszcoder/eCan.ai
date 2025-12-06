@@ -68,7 +68,8 @@ def scaffold_skill(
     description: str = "This skill ....",
     kind: str = "code",
     skill_json: dict = None,
-    bundle_json: dict = None
+    bundle_json: dict = None,
+    mapping_json: dict = None
 ) -> Path:
     """Create `<root>/<name>_skill/` with either `code_skill/` or `diagram_dir/`.
 
@@ -78,6 +79,7 @@ def scaffold_skill(
         kind: "code" or "diagram"
         skill_json: Optional skill JSON content from frontend (for diagram type)
         bundle_json: Optional bundle JSON content from frontend (for diagram type)
+        mapping_json: Optional mapping JSON content from frontend (for diagram type)
     
     Returns:
         Path to the skill root directory (e.g., my_skills/xxx_skill/)
@@ -129,6 +131,13 @@ def scaffold_skill(
         if bundle_json:
             (diagram_dir / f"{skill_name}_skill_bundle.json").write_text(
                 json.dumps(bundle_json, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+
+        # Write mapping JSON file (content from frontend)
+        # Note: data_mapping.json is placed at skill root level, not in diagram_dir
+        if mapping_json:
+            (skill_root / "data_mapping.json").write_text(
+                json.dumps(mapping_json, indent=2, ensure_ascii=False), encoding="utf-8"
             )
         
         logger.info(f"[scaffold_skill] Created diagram skill: {skill_root}")

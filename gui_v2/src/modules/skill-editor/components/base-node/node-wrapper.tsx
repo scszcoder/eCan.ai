@@ -56,7 +56,7 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
 
   // Determine paused vs running from runtime status
   const isPausedLike = (runtimeStatus === 'paused' || runtimeStatus === 'breakpoint' || runtimeStatus === 'stalled');
-  const isRunLike = (runtimeStatus === 'running' || runtimeStatus === 'resumed');
+  const _isRunLike = (runtimeStatus === 'running' || runtimeStatus === 'resumed'); // Reserved for future use
   // For glow class we keep coupling to runningNodeId to avoid global blinking
   const isBreakpointStalled = isRunning && isPausedLike;
 
@@ -215,30 +215,8 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
           }
         });
 
-        if (registry?.type === WorkflowNodeType.Condition) {
-          const root = document.querySelector(`[data-node-id="${node.id}"]`);
-          if (root) {
-            const markerIf = root.querySelector('[data-port-id="if_out"]') as HTMLElement | null;
-            const markerElse = root.querySelector('[data-port-id="else_out"]') as HTMLElement | null;
-            portEntities.forEach((p: any) => {
-              const portKey = String((p?.portID ?? p?.portId) || '').toLowerCase();
-              if (!p?.targetElement) {
-                if (portKey === 'if_out' && markerIf) {
-                  if (typeof p.setTargetElement === 'function') p.setTargetElement(markerIf);
-                  else if (typeof p.update === 'function') p.update({ targetElement: markerIf });
-                } else if (portKey === 'else_out' && markerElse) {
-                  if (typeof p.setTargetElement === 'function') p.setTargetElement(markerElse);
-                  else if (typeof p.update === 'function') p.update({ targetElement: markerElse });
-                }
-              }
-            });
-            if (flipDebug) {
-              try {
-                console.log('[Flip][NodeWrapper] Condition markers rebound', { nodeId: node.id, hasIf: !!markerIf, hasElse: !!markerElse });
-              } catch {}
-            }
-          }
-        }
+        // Condition Node ports are now dynamically rendered via form-meta.tsx
+        // No legacy port binding needed
       } catch {}
 
       try { (linesMgr as any)?.forceUpdate?.(); } catch {}
@@ -309,10 +287,9 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
       }
     }
     
-    const isCondOut = role === 'output' && portKey && (portKey.startsWith('if_') || portKey.startsWith('else_') || portKey.startsWith('elif_'));
+    // Note: isCondOut was used for legacy condition port handling, now handled via form-meta.tsx
     
-    // Determine current anchor side from port entity
-    const loc = (p as any)?.location ?? (p as any)?.position; // 'left' | 'right' | 'top' | 'bottom'
+    // Determine flip class based on horizontal flip state
     const desiredFlip = hFlip && (isInput || isOutput);
     const flipClass = desiredFlip ? 'se-port--hflip' : '';
     // For Condition outputs, avoid rendering until bound to a marker; render only the portalized port
@@ -322,19 +299,28 @@ export const NodeWrapper: React.FC<NodeWrapperProps> = (props) => {
         return null;
       }
       return (
-        <React.Fragment key={pid}>
+        <div
+          key={pid}
+          className={`se-port se-port--output ${flipClass} se-port--has-icon`}
+          data-se-port-id={pid}
+          data-se-port-key={portKey}
+          data-port-type="output"
+        >
           <WorkflowPortRender
             entity={p}
             onClick={!readonly ? onPortClick : undefined}
           />
-        </React.Fragment>
+        </div>
       );
     }
     // Default: render wrapper + port
+    const showPortIcon = isInput || isOutput;
+    const hasIconClass = showPortIcon ? 'se-port--has-icon' : '';
+
     return (
       <div
         key={pid}
-        className={`se-port se-port--${role} ${flipClass}`}
+        className={`se-port se-port--${role} ${flipClass} ${hasIconClass}`}
         data-se-port-id={pid}
         data-se-port-key={portKey}
         data-port-type={role}

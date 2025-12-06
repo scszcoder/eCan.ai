@@ -313,9 +313,9 @@ When you save a skill, the following files are created:
 
 ```
 my_skill_skill/
+├── data_mapping.json                 # Mapping rules (at skill root level)
 ├── diagram_dir/
 │   ├── my_skill_skill.json          # Main skill JSON with workFlow
-│   ├── my_skill_data_mapping.json   # Mapping rules (NEW)
 │   └── my_skill_skill_bundle.json   # Multi-sheet bundle
 └── code_skill/                       # Optional Python code
     └── ...

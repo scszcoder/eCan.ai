@@ -7,8 +7,8 @@ import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { useSkillInfoStore } from '../stores/skill-info-store';
-import { SkillInfo } from '../typings/skill-info';
-import '../../../services/ipc/file-api';
+import { useSheetsStore } from '../stores/sheets-store';
+import { loadSkillFile } from '../services/skill-loader';
 
 export const RouteFileLoader = () => {
   const location = useLocation();
@@ -17,6 +17,7 @@ export const RouteFileLoader = () => {
   const setBreakpoints = useSkillInfoStore((state) => state.setBreakpoints);
   const setCurrentFilePath = useSkillInfoStore((state) => state.setCurrentFilePath);
   const setHasUnsavedChanges = useSkillInfoStore((state) => state.setHasUnsavedChanges);
+  const loadBundle = useSheetsStore((s) => s.loadBundle);
   
   const lastLoadedPath = useRef<string | null>(null);
   const lastLocationKey = useRef<string | null>(null);
@@ -56,34 +57,19 @@ export const RouteFileLoader = () => {
         const filePath = state.filePath!;
         console.log('[RouteFileLoader] Loading file:', filePath);
 
-        // Import IPC API dynamically
-        const { IPCAPI } = await import('../../../services/ipc/api');
-        const ipcApi = IPCAPI.getInstance();
+        // Use unified skill loader (handles migration automatically)
+        const result = await loadSkillFile(filePath);
+        
+        if (result.success && result.skillInfo) {
+          const data = result.skillInfo;
+          // skillName is already normalized by skill-loader.ts
 
-        // Read the file
-        const fileResponse = await ipcApi.readSkillFile(filePath);
-
-        if (fileResponse.success && fileResponse.data) {
-          const data = JSON.parse(fileResponse.data.content) as SkillInfo;
+          // Load bundle if available, otherwise load single skill
+          if (result.bundle) {
+            loadBundle(result.bundle);
+          }
+          
           const diagram = data.workFlow;
-
-          // Normalize skillName from folder when loading via route
-          // Expect path like: <...>/<name>_skill/diagram_dir/<name>_skill.json
-          try {
-            const norm = String(filePath).replace(/\\/g, '/');
-            const parts = norm.split('/');
-            const idx = parts.lastIndexOf('diagram_dir');
-            if (idx > 0) {
-              const folder = parts[idx - 1];
-              const nameFromFolder = folder?.replace(/_skill$/i, '');
-              if (nameFromFolder && data && typeof data === 'object') {
-                if (!data.skillName || data.skillName !== nameFromFolder) {
-                  (data as any).skillName = nameFromFolder;
-                }
-              }
-            }
-          } catch {}
-
           if (diagram) {
             // Set skill info with file path
             setSkillInfo(data);
@@ -96,9 +82,11 @@ export const RouteFileLoader = () => {
               .map((node: any) => node.id);
             setBreakpoints(breakpointIds);
 
-            // Load diagram into the editor
-            workflowDocument.clear();
-            workflowDocument.fromJSON(diagram);
+            // Load diagram into the editor (only if no bundle, bundle loading handles this)
+            if (!result.bundle) {
+              workflowDocument.clear();
+              workflowDocument.fromJSON(diagram);
+            }
             workflowDocument.fitView && workflowDocument.fitView();
           } else {
             // Fallback for older formats
