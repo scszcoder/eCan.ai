@@ -9,7 +9,8 @@ import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files
 import { useSheetsStore } from '../../stores/sheets-store';
 import { SheetsBundle } from '../../services/sheets-persistence';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
-import { normalizeBundle, looksLikeBundle } from '../../utils/bundle-utils';
+import { loadSkillFile } from '../../services/skill-loader';
+import { migrateBundle } from '../../services/schema-migration';
 
 interface OpenProps {
   disabled?: boolean;
@@ -47,236 +48,82 @@ export const Open = ({ disabled }: OpenProps) => {
           console.log('[SKILL_IO][FRONTEND][SKILL_NAME_FROM_BACKEND]', skillNameFromBackend);
           try { Toast.info({ content: `Opening: ${skillNameFromBackend || String(filePath).split('\\').pop()}` }); } catch {}
 
-          // Read file content through IPC
-          const fileResponse = await ipcApi.readSkillFile(filePath);
-          console.log('[SKILL_IO][FRONTEND][IPC_READ_PRIMARY_RESULT]', { success: fileResponse.success, size: fileResponse?.data?.content?.length ?? 'n/a' });
+          // Use unified skill loader (handles migration and auto-save automatically)
+          const result = await loadSkillFile(filePath);
+          console.log('[SKILL_IO][FRONTEND][LOAD_RESULT]', { success: result.success, migrated: result.migrated });
 
-          if (fileResponse.success && fileResponse.data) {
-            const raw = JSON.parse(fileResponse.data.content);
-            // 需求2: 不再Check文件名和 skillName 是否匹配
-            // 因为我们会用Backend返回的 skillName（从文件夹Name提取）覆盖文件中的 skillName
-            const nameInFile = String((raw && (raw as any).skillName) || '').trim();
-            if (nameInFile && skillNameFromBackend && nameInFile !== skillNameFromBackend) {
-              console.log('[SKILL_IO][FRONTEND][WILL_OVERRIDE_SKILL_NAME]', { 
-                fromFile: nameInFile, 
-                fromFolder: skillNameFromBackend 
-              });
-            }
-            
-            // Case A: primary file itself is a bundle
-            const isBundle = raw && typeof raw === 'object' && 'mainSheetId' in raw && Array.isArray(raw.sheets);
-            if (isBundle) {
-              const bundle = raw as SheetsBundle;
-              console.log('[SKILL_IO][FRONTEND][PRIMARY_IS_BUNDLE] Loading primary bundle file:', filePath);
-              loadBundle(bundle);
-              // 需求2: 使用Backend返回的 skillName（从文件夹Name提取）
-              try {
-                const norm = String(filePath).replace(/\\/g, '/');
-                const parts = norm.split('/');
-                const idx = parts.lastIndexOf('diagram_dir');
-                let skillName = '';
-                if (idx > 0) {
-                  const folder = parts[idx - 1];
-                  skillName = folder?.replace(/_skill$/i, '') || '';
-                }
-                if (!skillName) {
-                  const base = (parts.pop() || '').replace(/\.json$/i, '');
-                  skillName = base.replace(/_skill$/i, '');
-                }
-                console.log('[SKILL_IO][FRONTEND][SET_SKILL_NAME]', skillName);
-                const current = skillInfoFromStore;
-                if (current?.skillName !== skillName) {
-                  setSkillInfo({ ...(current || { skillId: (current as any)?.skillId || '', skillName: skillName, version: '1.0.0', lastModified: new Date().toISOString(), workFlow: workflowDocument.toJSON() as any }), skillName: skillName });
-                }
-              } catch {}
-              setCurrentFilePath(filePath);
-              setHasUnsavedChanges(false);
-              addRecentFile(createRecentFile(filePath, 'Multi-sheet Bundle'));
-              return;
-            }
+          if (result.success && result.skillInfo) {
+            const data = result.skillInfo;
+            // skillName is already normalized by skill-loader.ts
+            console.log('[SKILL_IO][FRONTEND][SKILL_NAME]', data.skillName);
 
-            // Case B: primary file embeds a bundle inside { bundle: { mainSheetId, sheets } }
-            try {
-              const embedded = (raw as any)?.bundle;
-              const looksLikeBundle = embedded && typeof embedded === 'object' && 'mainSheetId' in embedded && Array.isArray(embedded.sheets);
-              if (looksLikeBundle) {
-                console.log('[SKILL_IO][FRONTEND][PRIMARY_HAS_EMBEDDED_BUNDLE] Loading embedded bundle inside primary:', filePath);
-                loadBundle(embedded as SheetsBundle);
-                // 需求2: 使用Backend返回的 skillName
-                try {
-                  const norm = String(filePath).replace(/\\/g, '/');
-                  const parts = norm.split('/');
-                  const idx = parts.lastIndexOf('diagram_dir');
-                  let skillName = '';
-                  if (idx > 0) {
-                    const folder = parts[idx - 1];
-                    skillName = folder?.replace(/_skill$/i, '') || '';
-                  }
-                  if (!skillName) {
-                    const base = (parts.pop() || '').replace(/\.json$/i, '');
-                    skillName = base.replace(/_skill$/i, '');
-                  }
-                  console.log('[SKILL_IO][FRONTEND][SET_SKILL_NAME]', skillName);
-                  const current = skillInfoFromStore;
-                  if (current?.skillName !== skillName) {
-                    setSkillInfo({ ...(current || { skillId: (current as any)?.skillId || '', skillName: skillName, version: '1.0.0', lastModified: new Date().toISOString(), workFlow: workflowDocument.toJSON() as any }), skillName: skillName });
-                  }
-                } catch {}
-                setCurrentFilePath(filePath);
-                setHasUnsavedChanges(false);
-                addRecentFile(createRecentFile(filePath, 'Multi-sheet Bundle (embedded)'));
-                return;
-              }
-            } catch (e) {
-              console.warn('[SKILL_IO][FRONTEND][EMBEDDED_BUNDLE_CHECK_ERROR]', e);
+            // Load bundle if available
+            if (result.bundle) {
+              loadBundle(result.bundle);
+              console.log('[SKILL_IO][FRONTEND][BUNDLE_LOADED]', result.bundlePath);
             }
-
-            // Try sibling bundle
-            try {
-              const idx = filePath.toLowerCase().lastIndexOf('.json');
-              const base = idx !== -1 ? filePath.slice(0, idx) : filePath;
-              const candidates = [
-                `${base}_bundle.json`,
-                `${base}-bundle.json`,
-              ];
-              console.log('[SKILL_IO][FRONTEND][BUNDLE_CANDIDATES]', candidates);
-              for (const bundlePath of candidates) {
-                try {
-                  console.log('[SKILL_IO][FRONTEND][TRY_BUNDLE_PATH]', bundlePath);
-                  const bundleResp = await ipcApi.readSkillFile(bundlePath);
-                  console.log('[SKILL_IO][FRONTEND][TRY_BUNDLE_RESULT]', bundlePath, 'success=', bundleResp.success);
-                  if (bundleResp.success && bundleResp.data) {
-                    const maybeBundle = JSON.parse(bundleResp.data.content);
-                    // Support both new array format and legacy object format
-                    if (looksLikeBundle(maybeBundle)) {
-                      const normalizedBundle = normalizeBundle(maybeBundle);
-                      if (normalizedBundle) {
-                        console.log('[SKILL_IO][FRONTEND][FOUND_BUNDLE_JSON]', bundlePath, 'sheets:', normalizedBundle.sheets.length);
-                        loadBundle(normalizedBundle);
-                        // 需求2: 使用Backend返回的 skillName
-                        try {
-                          const skillName = skillNameFromBackend || ((String(filePath).split(/[/\\]/).pop() || '').replace(/\.json$/i, '').replace(/_skill$/i, ''));
-                          console.log('[SKILL_IO][FRONTEND][SET_SKILL_NAME]', skillName);
-                          const current = skillInfoFromStore;
-                          if (current?.skillName !== skillName) {
-                            setSkillInfo({ ...(current || { skillId: (current as any)?.skillId || '', skillName: skillName, version: '1.0.0', lastModified: new Date().toISOString(), workFlow: workflowDocument.toJSON() as any }), skillName: skillName });
-                          }
-                        } catch {}
-                        // Keep currentFilePath as the main skill JSON path
-                        setCurrentFilePath(filePath);
-                        setHasUnsavedChanges(false);
-                        addRecentFile(createRecentFile(bundlePath, 'Multi-sheet Bundle'));
-                        return;
-                      }
-                    }
-                  }
-                } catch (err) {
-                  console.warn('[SKILL_IO][FRONTEND][TRY_BUNDLE_ERROR]', bundlePath, err);
-                }
-              }
-              console.log('[SKILL_IO][FRONTEND][NO_BUNDLE_JSON] No valid sibling bundle found; proceeding with single-skill load.');
-            } catch (e) {
-              console.warn('[SKILL_IO][FRONTEND][BUNDLE_CHECK_ERROR]', e);
-            }
-
-            const data = raw as SkillInfo;
-            // Derive skillName from path to avoid backend mismatch
-            try {
-              const norm = String(filePath).replace(/\\/g, '/');
-              // Expect <...>/<name>_skill/diagram_dir/<name>_skill.json or fallback to filename
-              const parts = norm.split('/');
-              const idx = parts.lastIndexOf('diagram_dir');
-              let nameFromPath = '';
-              if (idx > 0) {
-                const folder = parts[idx - 1];
-                nameFromPath = folder?.replace(/_skill$/i, '') || '';
-              }
-              if (!nameFromPath) {
-                const base = (parts.pop() || '').replace(/\.json$/i, '');
-                nameFromPath = base.replace(/_skill$/i, '');
-              }
-              if (nameFromPath) {
-                data.skillName = nameFromPath;
-              }
-            } catch {}
 
             const diagram = data.workFlow;
             if (diagram) {
-              console.log('[Open] Loading single-skill diagram. Nodes=', Array.isArray(diagram.nodes) ? diagram.nodes.length : 'n/a');
+              console.log('[Open] Loading skill diagram. Nodes=', Array.isArray(diagram.nodes) ? diagram.nodes.length : 'n/a');
+              
               setSkillInfo(data);
               setCurrentFilePath(filePath);
               setHasUnsavedChanges(false);
+              
               const breakpointIds = diagram.nodes
                 .filter((node: any) => node.data?.break_point)
                 .map((node: any) => node.id);
               setBreakpoints(breakpointIds);
-              workflowDocument.clear();
-              workflowDocument.fromJSON(diagram);
+              
+              // Load diagram into editor (only if no bundle, bundle loading handles this)
+              if (!result.bundle) {
+                workflowDocument.clear();
+                workflowDocument.fromJSON(diagram);
+              }
+              
               // Restore flip states from saved node data
               clearFlipStore();
-              
-              // Use setTimeout to ensure nodes are fully loaded before patching
               setTimeout(() => {
                 diagram.nodes.forEach((node: any) => {
                   if (node?.data?.hFlip === true) {
                     console.log('[Open] Restoring hFlip state for node:', node.id);
                     setFlipped(node.id, true);
-                    
-                    // Also set it directly on the loaded node's raw data
                     const loadedNode = workflowDocument.getNode(node.id);
                     if (loadedNode) {
-                      if (loadedNode.raw?.data) {
-                        loadedNode.raw.data.hFlip = true;
-                      }
-                      if (loadedNode.json?.data) {
-                        loadedNode.json.data.hFlip = true;
-                      }
-                      // Force form to update with the flip state
+                      if (loadedNode.raw?.data) loadedNode.raw.data.hFlip = true;
+                      if (loadedNode.json?.data) loadedNode.json.data.hFlip = true;
                       try {
                         const form = (loadedNode as any).form;
-                        if (form && form.patchValue) {
+                        if (form?.patchValue) {
                           form.patchValue({ data: { ...form.state?.values?.data, hFlip: true } });
-                          console.log('[Open] Patched form with hFlip for node:', node.id);
-                        } else {
-                          console.warn('[Open] Form not ready for node:', node.id);
                         }
-                      } catch (e) {
-                        console.warn('[Open] Could not patch form for node:', node.id, e);
-                      }
-                      
-                      // Force node to re-render by triggering an update
-                      try {
-                        (loadedNode as any).update?.();
                       } catch {}
-                      
-                      console.log('[Open] Set hFlip on loaded node raw data:', node.id);
+                      try { (loadedNode as any).update?.(); } catch {}
                     }
                   }
-                  if (node?.data?.vFlip === true) {
-                    console.log('[Open] Restoring vFlip state for node:', node.id);
-                    // vFlip support can be added here when implemented
-                  }
                 });
-              }, 100); // Small delay to ensure forms are initialized
+              }, 100);
               
               workflowDocument.fitView && workflowDocument.fitView();
+              addRecentFile(createRecentFile(filePath, data.skillName || 'Skill'));
             } else {
+              // Fallback for older formats
               workflowDocument.clear();
               workflowDocument.fromJSON(data as any);
-              // Restore flip states for non-workflow format
               clearFlipStore();
               if ((data as any).nodes) {
                 (data as any).nodes.forEach((node: any) => {
-                  if (node?.data?.hFlip === true) {
-                    console.log('[Open] Restoring hFlip state for node:', node.id);
-                    setFlipped(node.id, true);
-                  }
+                  if (node?.data?.hFlip === true) setFlipped(node.id, true);
                 });
               }
               workflowDocument.fitView && workflowDocument.fitView();
+              setSkillInfo(data);
+              setCurrentFilePath(filePath);
+              setHasUnsavedChanges(false);
             }
           } else {
-            console.error('[Open] Failed to read primary file:', fileResponse.error);
+            console.error('[Open] Failed to load file:', result.error);
           }
         } else {
           // Dialog was cancelled or failed, don't proceed to web fallback
@@ -306,6 +153,8 @@ export const Open = ({ disabled }: OpenProps) => {
             const isBundle = raw && typeof raw === 'object' && 'mainSheetId' in raw && Array.isArray(raw.sheets);
             if (isBundle) {
               const bundle = raw as SheetsBundle;
+              // Apply migration (no auto-save in web mode)
+              migrateBundle(bundle);
               loadBundle(bundle);
               // In web mode we don't have file path; use first sheet name or a generic label
               try {

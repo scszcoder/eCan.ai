@@ -5,3 +5,5 @@
 
 export * from './custom-service';
 export * from './validate-service';
+export * from './schema-migration';
+export * from './skill-loader';
