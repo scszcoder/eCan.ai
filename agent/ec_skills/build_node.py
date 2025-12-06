@@ -1774,10 +1774,15 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
         # Try to deliver to GUI via TaskRunner helpers
         try:
             llm_output = state["result"].get("llm_result", {})
-            response = llm_output.get("next_prompt", "some is not right....")
+            # Extract next_prompt for display but preserve full llm_result for downstream conditions
+            if isinstance(llm_output, dict):
+                response = llm_output.get("next_prompt", "some is not right....")
+            else:
+                response = str(llm_output) if llm_output else "some is not right...."
 
             state["job_related"] = state["result"].get("job_related", False)
-            state["result"]["llm_result"] = response
+            # DO NOT overwrite llm_result - downstream condition nodes need the full dict
+            # state["result"]["llm_result"] = response  # REMOVED: this was destroying condition data
 
             # Clean up the response
             # send_result = send_response_back(state)

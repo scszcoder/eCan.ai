@@ -404,24 +404,40 @@ def _v2_convert_loops(wf: dict) -> dict:
 def main(state, *, runtime, store):
     # initialize or update loop condition variables here
     # TODO: implement per loop type (loopWhile/loopFor)
-    # example:
-    # state['condition'] = bool(state.get('loop', True))
-    return {'result': 'ok'}
+    # Ensure result dictionary exists and seed counter for downstream condition expressions
+    if isinstance(state, dict):
+        result = state.setdefault('result', {})
+        if 'counter' not in result:
+            result['counter'] = 0
+    return state
 """
                 }
             }
         }
         # inject check condition node
+        loop_expr = str((lnode.get('data') or {}).get('loopWhileExpr') or '').strip()
         check_id = f"check_{lid}_condition"
+        conditions_payload = []
+        if loop_expr:
+            conditions_payload.append({'key': 'if_out', 'value': {'mode': 'custom', 'expr': loop_expr}})
+        else:
+            # Fallback to legacy truthy flag if no expression provided
+            conditions_payload.append({
+                'key': 'if_out',
+                'value': {
+                    'left': {'type': 'ref', 'content': ['start_0', 'condition']},
+                    'operator': 'is_true'
+                }
+            })
+        # Else branch acts as default exit path; leave value empty so selector treats it as fallback.
+        conditions_payload.append({'key': 'else_out', 'value': {}})
+
         check_node = {
             'id': check_id,
             'type': 'condition',
             'data': {
                 'title': check_id,
-                'conditions': [
-                    {'key': 'if_out', 'value': {'left': {'type': 'ref','content': ['start_0','condition']}, 'operator': 'is_true'}},
-                    {'key': 'else_out', 'value': {'left': {'type': 'ref','content': ['start_0','condition']}, 'operator': 'is_false'}},
-                ]
+                'conditions': conditions_payload,
             }
         }
         new_nodes.extend([update_node, check_node])
@@ -438,6 +454,9 @@ def main(state, *, runtime, store):
                 'sourcePortID': edge.get('sourcePortID'),
                 'targetPortID': edge.get('targetPortID'),
             })
+            # If source is also a loop, skip - the else_out edge will be created when processing that loop
+            if src in loop_ids:
+                continue
             new_edge = {
                 'sourceNodeID': src,
                 'targetNodeID': update_id,
@@ -464,7 +483,10 @@ def main(state, *, runtime, store):
             if tgt not in ext_succs:
                 continue
         for s in ext_succs:
-            new_edges.append({'sourceNodeID': check_id, 'targetNodeID': s, 'sourcePortID': 'else_out'})
+            # If successor is also a loop, remap to its update node (since loop shell will be removed)
+            target_id = f"update_{s}_condition" if s in loop_ids else s
+            logger.debug(f"[v2][loop] {lid}: creating else_out edge from {check_id} to {target_id} (orig successor: {s}, is_loop: {s in loop_ids})")
+            new_edges.append({'sourceNodeID': check_id, 'targetNodeID': target_id, 'sourcePortID': 'else_out'})
         # back-edge: last inner(s) -> update
         for la in lasts:
             new_edges.append({'sourceNodeID': la, 'targetNodeID': update_id})

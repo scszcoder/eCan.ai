@@ -2,7 +2,7 @@
   "skillId": "",
   "skillName": "shopify_fullfill",
   "version": "1.0.0",
-  "lastModified": "2025-12-05T21:17:55.146Z",
+  "lastModified": "2025-12-06T00:57:55.868Z",
   "workFlow": {
     "nodes": [
       {
@@ -91,8 +91,8 @@
         "type": "end",
         "meta": {
           "position": {
-            "x": 4871.860327291656,
-            "y": -148.92813428290225
+            "x": 6748.379111026868,
+            "y": -279.21987032548253
           }
         },
         "data": {
@@ -128,15 +128,15 @@
         "type": "loop",
         "meta": {
           "position": {
-            "x": 803.1360974287118,
-            "y": -251.38339451835708
+            "x": 2727.1360974287118,
+            "y": -315.51686972400074
           }
         },
         "data": {
           "title": "Loop_1",
           "loopMode": "loopWhile",
           "loopCountExpr": "",
-          "loopWhileExpr": "state['result']['llm_result']['all_messages_read']",
+          "loopWhileExpr": "not state['result']['llm_result']['all_messages_read']",
           "data": {
             "inputsValues": {}
           }
@@ -599,15 +599,15 @@
         "type": "loop",
         "meta": {
           "position": {
-            "x": 3146.495251635812,
-            "y": -521.9205446848158
+            "x": 4910.495251635812,
+            "y": -677.9205446848158
           }
         },
         "data": {
           "title": "Loop_1",
           "loopMode": "loopWhile",
           "loopCountExpr": "",
-          "loopWhileExpr": "state['result']['llm_result']['all_orders_fullfilled']",
+          "loopWhileExpr": "not state['result']['llm_result']['all_orders_fullfilled']",
           "data": {
             "inputsValues": {}
           }
@@ -1279,8 +1279,8 @@
         "type": "condition",
         "meta": {
           "position": {
-            "x": 2765.7184973659714,
-            "y": -180.13714253811818
+            "x": 4669.718497365971,
+            "y": -316.13714253811816
           }
         },
         "data": {
@@ -1323,8 +1323,8 @@
         "type": "code",
         "meta": {
           "position": {
-            "x": 2478.8557532525656,
-            "y": -190.17244955038367
+            "x": 4342.855753252566,
+            "y": -298.1724495503837
           }
         },
         "data": {
@@ -1369,6 +1369,219 @@
             }
           }
         }
+      },
+      {
+        "id": "loop_kKtLj",
+        "type": "loop",
+        "meta": {
+          "position": {
+            "x": 974.1208951903616,
+            "y": -402.5357561927587
+          }
+        },
+        "data": {
+          "title": "Loop_1",
+          "loopMode": "loopWhile",
+          "loopCountExpr": "",
+          "loopWhileExpr": "not (state[\"result\"][\"counter\"] > 5)",
+          "data": {
+            "inputsValues": {}
+          }
+        },
+        "blocks": [
+          {
+            "id": "block_start_IHPpr",
+            "type": "block-start",
+            "meta": {
+              "position": {
+                "x": 30.8,
+                "y": 10.199999999999989
+              }
+            },
+            "data": {}
+          },
+          {
+            "id": "block_end_lx5ZL",
+            "type": "block-end",
+            "meta": {
+              "position": {
+                "x": 854.8,
+                "y": 0
+              }
+            },
+            "data": {}
+          },
+          {
+            "id": "code_xaZD1",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": 297.71223153919334,
+                "y": 71.80000000000004
+              }
+            },
+            "data": {
+              "title": "Code_2",
+              "inputsValues": {
+                "input": {
+                  "type": "constant",
+                  "content": ""
+                }
+              },
+              "script": {
+                "language": "python",
+                "content": "# Here, you can retrieve input variables from the node using 'state' \nimport time\ndef main(state, *, runtime, store):\n  # Build the output object\n  print(\"in minus 2 node.........\",state)\n  state[\"result\"][\"counter\"] = state[\"result\"][\"counter\"] - 2\n  print(\"DONE MINUS 2, outa here.....\", state[\"result\"][\"counter\"])\n \n  return state"
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "code_Ls7L5",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": 581.8355973724362,
+                "y": 61.60000000000004
+              }
+            },
+            "data": {
+              "title": "Code_3",
+              "inputsValues": {
+                "input": {
+                  "type": "constant",
+                  "content": ""
+                }
+              },
+              "script": {
+                "language": "python",
+                "content": "# Here, you can retrieve input variables from the node using 'state' \nimport time\ndef main(state, *, runtime, store):\n  # Build the output object\n  print(\"in plus 3 node.........\",state)\n  state[\"result\"][\"counter\"] = state[\"result\"][\"counter\"] + 3\n  print(\"DONE PLUS 3, outa here.....\", state[\"result\"][\"counter\"])\n  \n  return state"
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "edges": [
+          {
+            "sourceNodeID": "block_start_IHPpr",
+            "targetNodeID": "code_xaZD1"
+          },
+          {
+            "sourceNodeID": "code_Ls7L5",
+            "targetNodeID": "block_end_lx5ZL"
+          },
+          {
+            "sourceNodeID": "code_xaZD1",
+            "targetNodeID": "code_Ls7L5"
+          }
+        ]
+      },
+      {
+        "id": "code_j-8n4",
+        "type": "code",
+        "meta": {
+          "position": {
+            "x": 707.998316321647,
+            "y": -373.30504361040903
+          }
+        },
+        "data": {
+          "title": "Code_4",
+          "inputsValues": {
+            "input": {
+              "type": "constant",
+              "content": ""
+            }
+          },
+          "script": {
+            "language": "python",
+            "content": "# Here, you can retrieve input variables from the node using 'state' \nimport time\ndef main(state, *, runtime, store):\n  # Build the output object\n  print(\"in myfunc0.........\",state)\n  state[\"result\"][\"counter\"] = 0\n  print(\"myfunc0 woke now, outa here.....\")\n  \n  return state"
+          },
+          "outputs": {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "object",
+                "description": "Node execution result"
+              },
+              "condition": {
+                "type": "boolean",
+                "description": "Node execution condition"
+              },
+              "resolved": {
+                "type": "boolean",
+                "description": "Node execution resolved status"
+              },
+              "case": {
+                "type": "string",
+                "description": "Node execution case"
+              }
+            }
+          },
+          "inputs": {
+            "type": "object",
+            "properties": {
+              "input": {
+                "type": "string"
+              }
+            }
+          }
+        }
       }
     ],
     "edges": [
@@ -1378,13 +1591,13 @@
       },
       {
         "sourceNodeID": "condition_T5LqK",
-        "targetNodeID": "loop_rhORT",
-        "sourcePortID": "if_out"
+        "targetNodeID": "task_a5SoO",
+        "sourcePortID": "else_out"
       },
       {
         "sourceNodeID": "condition_T5LqK",
-        "targetNodeID": "task_a5SoO",
-        "sourcePortID": "else_out"
+        "targetNodeID": "code_j-8n4",
+        "sourcePortID": "if_out"
       },
       {
         "sourceNodeID": "start_R2Ckr",
@@ -1398,6 +1611,10 @@
         "sourceNodeID": "condition_kkKy4",
         "targetNodeID": "end_-lDZI",
         "sourcePortID": "else_out"
+      },
+      {
+        "sourceNodeID": "loop_kKtLj",
+        "targetNodeID": "loop_rhORT"
       },
       {
         "sourceNodeID": "loop_rhORT",
@@ -1423,6 +1640,10 @@
       {
         "sourceNodeID": "code_8nk5b",
         "targetNodeID": "condition_kkKy4"
+      },
+      {
+        "sourceNodeID": "code_j-8n4",
+        "targetNodeID": "loop_kKtLj"
       }
     ]
   },
