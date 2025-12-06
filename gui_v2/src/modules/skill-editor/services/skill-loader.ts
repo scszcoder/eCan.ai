@@ -110,7 +110,8 @@ export async function loadSkillFile(filePath: string): Promise<SkillLoadResult> 
       }
     } else if (skillInfo.workFlow) {
       // Migrate single skill document
-      const docMigrationResult = migrateDocument(skillInfo.workFlow);
+      // Pass skillInfo.schemaVersion to help determine if migration is needed
+      const docMigrationResult = migrateDocument(skillInfo.workFlow, (skillInfo as any).schemaVersion);
       migrated = docMigrationResult.migrated;
       
       if (migrated) {

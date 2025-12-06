@@ -168,11 +168,9 @@ function migrateConditionEdges_V1_0_0_to_V1_0_1(doc: any): void {
       const portId = edge.sourcePortID || edge.sourcePortId;
       if (portId === 'if_out' && ifKey) {
         edge.sourcePortID = ifKey;
-        edge.sourcePortId = ifKey;
         migratedCount++;
       } else if (portId === 'else_out' && elseKey) {
         edge.sourcePortID = elseKey;
-        edge.sourcePortId = elseKey;
         migratedCount++;
       }
     });
@@ -243,6 +241,8 @@ export const getDocumentVersion = getSchemaVersion;
 
 /**
  * Set the schema version on a document
+ * Note: schemaVersion should ONLY be set on the workflow document (nodes/edges container),
+ * NOT on the outer skillInfo object. The outer skillInfo.schemaVersion is set by skill-loader.ts.
  */
 export function setSchemaVersion(doc: any, version: string = CURRENT_SCHEMA_VERSION): void {
   if (doc) {
@@ -266,11 +266,14 @@ export function getMigrationsForUpgrade(fromVersion: string, toVersion: string =
 /**
  * Migrate a document to the current schema version
  * This is the main entry point for data migration
+ * @param doc - The workflow document (nodes/edges container)
+ * @param parentSchemaVersion - Optional schema version from parent container (SkillInfo or Bundle)
  */
-export function migrateDocument(doc: any): { migrated: boolean; fromVersion: string; toVersion: string } {
+export function migrateDocument(doc: any, parentSchemaVersion?: string): { migrated: boolean; fromVersion: string; toVersion: string } {
   if (!doc) return { migrated: false, fromVersion: 'unknown', toVersion: CURRENT_SCHEMA_VERSION };
   
-  const fromVersion = getSchemaVersion(doc);
+  // Use parent schema version if provided, otherwise infer from document
+  const fromVersion = parentSchemaVersion || getSchemaVersion(doc);
   
   // Already at current version
   if (compareVersions(fromVersion, CURRENT_SCHEMA_VERSION) >= 0) {
@@ -304,9 +307,6 @@ export function migrateDocument(doc: any): { migrated: boolean; fromVersion: str
       }
     });
   }
-  
-  // Update schema version
-  setSchemaVersion(doc, CURRENT_SCHEMA_VERSION);
   
   return { migrated: true, fromVersion, toVersion: CURRENT_SCHEMA_VERSION };
 }
