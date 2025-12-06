@@ -252,103 +252,195 @@
     box-shadow: 0 0 0 2px rgba(77, 83, 232, 0.1);
   }
 
-  /* === Skill Editor: Triangular Ports (Phase 1) === */
+  /* === Skill Editor: Unified Port Icons === */
   /* Wrapper created in node-wrapper.tsx around WorkflowPortRender */
   /* Let engine control layout/positioning of each port wrapper to avoid overlaps */
-  .se-port { display: revert; }
+  .se-port { 
+    /* Critical: Use display: contents to make the wrapper "disappear" from the layout box tree.
+       This allows the child (WorkflowPortRender) to be absolutely positioned relative to the NodeWrapper,
+       fixing the "floating at bottom" issue. */
+    display: contents;
+  }
 
-  /* Keep library's dot visible for now to avoid disappearance; we'll overlay triangle */
-  /* .se-port > * { opacity: 0; }  // disabled */
+  /* 
+   * Target the actual port element rendered by the library.
+   * We hide its default visual but use it as the anchor for our custom icon.
+   */
+  .se-port.se-port--has-icon > * {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    /* Ensure overflow is visible so our icon (which might be slightly larger) isn't clipped */
+    overflow: visible !important;
+  }
 
-  /* Triangle visual overlay anchored to the actual port element */
-  .se-port > *::after {
+  /* Render Custom Icon via Pseudo-element attached to the LIBRARY's port element */
+  .se-port.se-port--has-icon > *::after {
     content: '';
     position: absolute;
     left: 50%;
     top: 50%;
     transform: translate(-50%, -50%);
-    width: 14px;
-    height: 14px;
-    background: var(--g-workflow-port-color-primary);
-    /* RIGHT-pointing by default */
-    clip-path: polygon(100% 50%, 0 0, 0 100%);
-    transition: transform 0.15s ease, filter 0.15s ease, background-color 0.15s ease;
-    pointer-events: none; /* keep underlying element interactive */
-    z-index: 99;
+    width: 20px;
+    height: 20px;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    pointer-events: none; /* Let clicks hit the parent (the port element) */
+    z-index: 100;
+    transition: transform 0.3s ease, filter 0.2s ease;
+  }
+
+  /* Input Icon: White circle, Blue arrow in */
+  .se-port.se-port--input > *::after {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='white' stroke='%234d53e8' stroke-width='1.5'/%3E%3Cpath d='M6 5L9 8L6 11' stroke='%234d53e8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+
+  /* Output Icon: Blue circle, White arrow out */
+  .se-port.se-port--output > *::after {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%234d53e8'/%3E%3Cpath d='M6 5L9 8L6 11' stroke='white' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+
+  /* Hover Effect */
+  .se-port.se-port--has-icon > *:hover::after {
+    filter: brightness(1.15);
+    transform: translate(-50%, -50%) scale(1.3);
+  }
+
+  /* Flip Support: Rotate 180deg */
+  .se-node--hflip .se-port.se-port--has-icon > *::after,
+  .se-port.se-port--hflip.se-port--has-icon > *::after {
+    transform: translate(-50%, -50%) rotate(180deg);
+  }
+  /* Maintain hover scale when flipped */
+  .se-node--hflip .se-port.se-port--has-icon > *:hover::after,
+  .se-port.se-port--hflip.se-port--has-icon > *:hover::after {
+    transform: translate(-50%, -50%) rotate(180deg) scale(1.3);
+  }
+
+  /* Keyboard focus indication */
+  .se-port.se-port--has-icon > *:focus-visible::after {
+    filter: drop-shadow(0 0 2px rgba(77, 83, 232, 0.8));
+  }
+
+  /* === Condition Node Specifics === */
+  
+  /* 
+   * Previously, we forced condition ports to be circles with opacity: 1.
+   * Now removed to allow them to use the unified Port Icons.
+   */
+  /* 
+  .se-port[data-se-port-id^="port_input_condition_"] > *:first-child,
+  .se-port[data-se-port-id^="port_output_condition_"] > *:first-child {
+    opacity: 1 !important;
+  }
+  */
+
+  /* === Removed old triangular ::after overlays completely === */
+
+  /* === Condition Node Output Styling (Override inline styles) === */
+  /* FORCE OVERFLOW VISIBLE: Crucial for ports injected inside the form to be seen/connected */
+  .se-node--condition * {
+    overflow: visible !important;
+  }
+
+  /* Target the specific port divs created by Condition Node logic */
+  .gedit-flow-activity-node [data-port-id^="if_"],
+  .gedit-flow-activity-node [data-port-id^="else_"],
+  .gedit-flow-activity-node [data-port-id^="elif_"] {
+    /* Override inline styles to hide default blue dot */
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    width: 20px !important;
+    height: 20px !important;
+    
+    /* Adjust position for larger icon (from right: -6px to -10px) */
+    right: -10px !important; 
+    
+    /* Ensure icon is visible */
+    overflow: visible !important;
+  }
+
+  /* Render Unified Output Icon */
+  .gedit-flow-activity-node [data-port-id^="if_"]::after,
+  .gedit-flow-activity-node [data-port-id^="else_"]::after,
+  .gedit-flow-activity-node [data-port-id^="elif_"]::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 20px;
+    height: 20px;
+    
+    /* Output Icon SVG */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%234d53e8'/%3E%3Cpath d='M6 5L9 8L6 11' stroke='white' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    
+    pointer-events: none;
+    z-index: 200;
   }
   
-  /* Disable triangles for ALL condition node ports - keep them as circles */
-  .se-port[data-se-port-id^="port_input_condition_"] > *::after,
-  .se-port[data-se-port-id^="port_output_condition_"] > *::after {
-    content: none !important;
-    display: none !important;
+  /* Hover effect */
+  .gedit-flow-activity-node [data-port-id="if_out"]:hover::after,
+  .gedit-flow-activity-node [data-port-id="else_out"]:hover::after,
+  .gedit-flow-activity-node [data-port-id^="elif_"]:hover::after {
+    filter: brightness(1.15);
+    transform: translate(-50%, -50%) scale(1.3);
   }
 
-  /* Explicit default: all ports point RIGHT (workflow direction) */
-  .se-port.se-port--input > *::after,
-  .se-port.se-port--output > *::after {
-    /* RIGHT-pointing */
-    clip-path: polygon(100% 50%, 0 0, 0 100%);
+  /* Flip support */
+  .se-node--hflip [data-port-id="if_out"]::after,
+  .se-node--hflip [data-port-id="else_out"]::after,
+  .se-node--hflip [data-port-id^="elif_"]::after {
+    transform: translate(-50%, -50%) rotate(180deg);
+  }
+  .se-node--hflip [data-port-id="if_out"]:hover::after,
+  .se-node--hflip [data-port-id="else_out"]:hover::after,
+  .se-node--hflip [data-port-id^="elif_"]:hover::after {
+    transform: translate(-50%, -50%) rotate(180deg) scale(1.3);
   }
 
-  /* Flip orientation to LEFT when node or port has hflip (higher specificity) */
-  .se-node--hflip .se-port.se-port--input > *::after,
-  .se-node--hflip .se-port.se-port--output > *::after,
-  .se-port.se-port--hflip.se-port--input > *::after,
-  .se-port.se-port--hflip.se-port--output > *::after {
-    /* LEFT-pointing */
-    clip-path: polygon(0 50%, 100% 0, 100% 100%);
-  }
-
-  /* === Removed static CSS positioning - handled dynamically in node-wrapper === */
-
-  /* Hover affordance: brighten triangle when hovering the actual port (child) */
-  .se-port > *:hover::after { filter: brightness(1.15); }
-
-  /* Keyboard focus: show clear outline on the triangle when port gains focus */
-  .se-port > *:focus-visible::after,
-  .se-port > *:focus-visible + * {
-    outline: 2px solid rgba(77, 83, 232, 0.6);
-    outline-offset: 2px;
-    z-index: 1;
-  }
-
-  /* === JS overlay triangles for condition outputs === */
+  /* === JS overlay triangles for condition outputs (Legacy/Backup) === */
   /* Positioned by NodeWrapper using port.relativePosition */
   .se-tri {
     position: absolute;
-    width: 14px;
-    height: 14px;
+    width: 20px;
+    height: 20px;
     left: 0;
     top: 0;
     transform: translate(-50%, -50%);
-    background: var(--g-workflow-port-color-primary);
-    clip-path: polygon(100% 50%, 0 0, 0 100%); /* RIGHT by default */
+    background: transparent;
+    /* Use Unified Output Icon */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%234d53e8'/%3E%3Cpath d='M6 5L9 8L6 11' stroke='white' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
     pointer-events: none; /* keep port interactive */
     z-index: 250; /* above default dots */
   }
   .se-tri.se-tri--flip {
-    clip-path: polygon(0 50%, 100% 0, 100% 100%); /* LEFT */
+    transform: translate(-50%, -50%) rotate(180deg);
   }
 
-  /* === Condition node output markers (triangles managed via CSS) === */
+  /* === Condition node output markers (dynamic positioning via inline styles) === */
   .se-cond-port {
-    position: absolute;
-    width: 14px;
-    height: 14px;
-    background: var(--g-workflow-port-color-primary);
-    clip-path: polygon(100% 50%, 0 0, 0 100%); /* RIGHT by default */
-    z-index: 250;
-    pointer-events: auto;
-    transform: translate(0, -50%);
-    right: -6px; /* anchor to right edge by default */
+    /* Position and transform are set via inline styles for dynamic port count */
+    background: transparent;
+    /* Use Unified Output Icon */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%234d53e8'/%3E%3Cpath d='M6 5L9 8L6 11' stroke='white' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
   }
-  /* Vertical positions */
-  .se-cond-port[data-port-id="if_out"] { top: 60px; }
-  .se-cond-port[data-port-id="else_out"] { top: 80px; }
-  /* Flip to left edge + left orientation when node is hflipped */
-  .se-node--hflip .se-cond-port {
-    left: -6px;
-    right: auto;
-    clip-path: polygon(0 50%, 100% 0, 100% 100%);
+  /* Hover effect for condition ports */
+  .se-cond-port:hover {
+    transform: translate(0, -50%) scale(1.3);
+    filter: brightness(1.1);
+  }
+  .se-node--hflip .se-cond-port:hover {
+    transform: translate(0, -50%) rotate(180deg) scale(1.3);
   }

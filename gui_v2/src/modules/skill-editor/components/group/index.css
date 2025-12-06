@@ -10,7 +10,7 @@
 
 .workflow-group-header {
     height: 30px;
-    width: fit-content;
+    width: 100%;
     background-color: #fefce8;
     border: 1px solid #facc15;
     border-radius: 8px;
@@ -79,9 +79,15 @@
     align-items: center;
     gap: 4px;
     height: 100%;
+    width: 100%;
     cursor: move;
     color: oklch(44.6% 0.043 257.281);
     font-size: 14px;
+}
+
+/* Push the last item (NodeMenu) to the far right */
+.workflow-group-tools > :last-child {
+    margin-left: auto;
 }
 .workflow-group-title {
     margin: 0;

@@ -3,17 +3,15 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { useCallback, useLayoutEffect, useMemo } from 'react';
+import { useCallback } from 'react';
 
 import { nanoid } from 'nanoid';
-import { Field, FieldArray } from '@flowgram.ai/free-layout-editor';
-import { ConditionRow, ConditionRowValueType } from '@flowgram.ai/form-materials';
+import { FieldArray } from '@flowgram.ai/free-layout-editor';
+import { ConditionRowValueType } from '@flowgram.ai/form-materials';
 import { Button, Select, Input } from '@douyinfe/semi-ui';
 import { IconPlus, IconCrossCircleStroked } from '@douyinfe/semi-icons';
 
 import { useNodeRenderContext } from '../../../hooks';
-import { FormItem } from '../../../form-components';
-import { Feedback } from '../../../form-components';
 // No port rendering here; ports are handled by engine via node meta defaultPorts
 
 interface ConditionValue {
@@ -74,16 +72,26 @@ export function ConditionInputs() {
         return (
           <>
             {sortedValues.map((value, index) => {
-              const conditionType = getConditionType(value.key);
-              const isElse = conditionType === 'else';
-              const isIf = conditionType === 'if';
+              // Enforce standard syntax: 
+              // 1. First item is IF
+              // 2. Last item is ELSE (if there's more than one item)
+              // 3. Others are ELSIF
+              const isFirst = index === 0;
+              const isLast = index === sortedValues.length - 1;
+              
+              // We treat the last item as ELSE to ensure valid structure, unless it's the only item (IF)
+              const treatAsElse = isLast && sortedValues.length > 1;
+              
+              const displayType = isFirst ? 'if' : (treatAsElse ? 'else' : 'elsif');
+              const isElse = treatAsElse; 
+              const isIf = isFirst;
               
               return (
                 <div key={value.key} style={{ position: 'relative', width: '100%', maxWidth: '100%', overflow: 'visible' }}>
                   {/* Custom label display */}
                   <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
                     <div style={{ width: 80, fontSize: 14, fontWeight: 500, color: 'var(--semi-color-text-0)', paddingTop: 8, flexShrink: 0 }}>
-                      {conditionType === 'if' ? 'if' : conditionType === 'else' ? 'else' : 'elsif'}
+                      {displayType}
                     </div>
                     <div style={{ flex: 1 }}>
                       <div style={{ width: '100%' }}>

@@ -38,6 +38,10 @@ export const GroupNodeRender = () => {
   const [currentWidth, setCurrentWidth] = useState(width || 560);
   const [currentHeight, setCurrentHeight] = useState(height || 400);
 
+  // Use engine-provided size when not manually resizing to support auto-expansion
+  const finalWidth = isResizing ? currentWidth : (width || 560);
+  const finalHeight = isResizing ? currentHeight : (height || 400);
+
   const handleResizeStart = useCallback((direction: string) => (e: React.MouseEvent) => {
     console.log('Resize start:', direction, e.type, e.target); // Debug log
     e.stopPropagation();
@@ -165,8 +169,8 @@ export const GroupNodeRender = () => {
         selectNode(e);
       }}
       style={{
-        width,
-        height,
+        width: finalWidth,
+        height: finalHeight,
       }}
     >
       {/* Top-left drag handle to mimic other nodes' handle */}
@@ -201,7 +205,7 @@ export const GroupNodeRender = () => {
             onDrag={(e) => startDrag(e as MouseEvent)}
             style={{
               top: HEADER_HEIGHT + HEADER_PADDING,
-              height: currentHeight - HEADER_HEIGHT - HEADER_PADDING,
+              height: finalHeight - HEADER_HEIGHT - HEADER_PADDING,
             }}
           />
         </>

@@ -186,43 +186,21 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
               const flip = (isIn && loc === 'right') || (isOut && loc === 'left');
               el.classList.toggle('se-port--hflip', !!flip);
             }
-            // Re-bind condition outputs explicitly to IF/ELSE markers
+            // Condition Node ports are dynamically rendered - just update port sides
             if (registry.type === WorkflowNodeType.Condition) {
-              const root = document.querySelector(`[data-node-id="${node.id}"]`);
-              if (root) {
-                const markerIf = root.querySelector('[data-port-id="if_out"]') as HTMLElement | null;
-                const markerElse = root.querySelector('[data-port-id="else_out"]') as HTMLElement | null;
-                const sideOut = next ? 'left' : 'right';
-                const sideIn = next ? 'right' : 'left';
-                const getKey = (pp: any) => String((pp?.portID ?? pp?.portId ?? '')).toLowerCase();
-                const pidLower = (pp: any) => String(pp?.id || '').toLowerCase();
-                const outPorts = portsOfNode.filter((pp: any) => pidLower(pp).includes('port_output_') || (pp?.inout === 'output')) as any[];
-                let pIf = outPorts.find((pp: any) => getKey(pp).includes('if') || pidLower(pp).includes('if_out') || pidLower(pp).includes('if_') || pidLower(pp).includes('elif_')) as any;
-                let pElse = outPorts.find((pp: any) => getKey(pp).includes('else') || pidLower(pp).includes('else_out') || pidLower(pp).includes('else_')) as any;
-                if (!pIf && outPorts.length) pIf = outPorts[0];
-                if (!pElse && outPorts.length > 1) pElse = outPorts.find((pp: any) => pp !== pIf) || outPorts[1];
-                const pIn = portsOfNode.find((pp: any) => pidLower(pp).includes('port_input_') || (pp?.inout === 'input')) as any;
-                if (pIf) {
-                  if (markerIf) {
-                    if (typeof pIf.setTargetElement === 'function') pIf.setTargetElement(markerIf);
-                    else if (typeof pIf.update === 'function') pIf.update({ targetElement: markerIf });
-                  }
-                  try { pIf.update?.({ location: sideOut, position: sideOut, side: sideOut }); } catch {}
-                  try { pIf.validate?.(); } catch {}
-                }
-                if (pElse) {
-                  if (markerElse) {
-                    if (typeof pElse.setTargetElement === 'function') pElse.setTargetElement(markerElse);
-                    else if (typeof pElse.update === 'function') pElse.update({ targetElement: markerElse });
-                  }
-                  try { pElse.update?.({ location: sideOut, position: sideOut, side: sideOut }); } catch {}
-                  try { pElse.validate?.(); } catch {}
-                }
-                if (pIn) {
-                  try { pIn.update?.({ location: sideIn, position: sideIn, side: sideIn }); } catch {}
-                  try { pIn.validate?.(); } catch {}
-                }
-              }
+              const sideOut = next ? 'left' : 'right';
+              const sideIn = next ? 'right' : 'left';
+              const pidLower = (pp: any) => String(pp?.id || '').toLowerCase();
+              const outPorts = portsOfNode.filter((pp: any) => pidLower(pp).includes('port_output_') || (pp?.inout === 'output'));
+              const inPorts = portsOfNode.filter((pp: any) => pidLower(pp).includes('port_input_') || (pp?.inout === 'input'));
+              outPorts.forEach((p: any) => {
+                try { p.update?.({ location: sideOut, position: sideOut, side: sideOut }); } catch {}
+                try { p.validate?.(); } catch {}
+              });
+              inPorts.forEach((p: any) => {
+                try { p.update?.({ location: sideIn, position: sideIn, side: sideIn }); } catch {}
+                try { p.validate?.(); } catch {}
+              });
             }
             // Validate ports and lines explicitly to sync geometry without needing a canvas click
             try {
@@ -236,57 +214,13 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
             } catch {}
             try { (linesMgr as any)?.forceUpdate?.(); } catch {}
             try { (documentSvc as any)?.fireContentChange?.(); } catch {}
-            // Wait until markers settle on the correct side, then finalize validation to avoid needing a user click
+            // Finalize validation after flip
             try {
-              const root = document.querySelector(`[data-node-id="${node.id}"]`) as HTMLElement | null;
-              const isStable = () => {
-                if (!root) return false;
-                const r = root.getBoundingClientRect();
-                const mi = root.querySelector('[data-port-id="if_out"]') as HTMLElement | null;
-                const me = root.querySelector('[data-port-id="else_out"]') as HTMLElement | null;
-                if (!mi || !me) return false;
-                const ri = mi.getBoundingClientRect();
-                const re = me.getBoundingClientRect();
-                const centerI = ri.left + ri.width / 2;
-                const centerE = re.left + re.width / 2;
-                const expectLeft = next === true;
-                const iLeftSide = centerI < r.left + r.width / 2;
-                const eLeftSide = centerE < r.left + r.width / 2;
-                return expectLeft ? (iLeftSide && eLeftSide) : (!iLeftSide && !eLeftSide);
-              };
               const finalize = () => {
                 try {
                   const allPorts: any[] = (documentSvc as any)?.getAllPorts?.() || [];
                   const portsOfNode = allPorts.filter((p) => p?.node?.id === node.id);
-                  // As a final guard, rebind IF/ELSE to markers and set sides again
-                  try {
-                    const markerIf = root?.querySelector('[data-port-id="if_out"]') as HTMLElement | null;
-                    const markerElse = root?.querySelector('[data-port-id="else_out"]') as HTMLElement | null;
-                    const sideOut = next ? 'left' : 'right';
-                    const sideIn = next ? 'right' : 'left';
-                    const getKey = (pp: any) => String((pp?.portID ?? pp?.portId ?? '')).toLowerCase();
-                    const pidLower = (pp: any) => String(pp?.id || '').toLowerCase();
-                    const outPorts = portsOfNode.filter((pp: any) => pidLower(pp).includes('port_output_') || (pp?.inout === 'output')) as any[];
-                    let pIf = outPorts.find((pp: any) => getKey(pp).includes('if') || pidLower(pp).includes('if_out') || pidLower(pp).includes('if_') || pidLower(pp).includes('elif_')) as any;
-                    let pElse = outPorts.find((pp: any) => getKey(pp).includes('else') || pidLower(pp).includes('else_out') || pidLower(pp).includes('else_')) as any;
-                    if (!pIf && outPorts.length) pIf = outPorts[0];
-                    if (!pElse && outPorts.length > 1) pElse = outPorts.find((pp: any) => pp !== pIf) || outPorts[1];
-                    const pIn = portsOfNode.find((pp: any) => pidLower(pp).includes('port_input_') || (pp?.inout === 'input')) as any;
-                    if (pIf && markerIf) {
-                      if (typeof pIf.setTargetElement === 'function') pIf.setTargetElement(markerIf);
-                      else if (typeof pIf.update === 'function') pIf.update({ targetElement: markerIf });
-                      try { pIf.update?.({ location: sideOut, position: sideOut, side: sideOut }); } catch {}
-                    }
-                    if (pElse && markerElse) {
-                      if (typeof pElse.setTargetElement === 'function') pElse.setTargetElement(markerElse);
-                      else if (typeof pElse.update === 'function') pElse.update({ targetElement: markerElse });
-                      try { pElse.update?.({ location: sideOut, position: sideOut, side: sideOut }); } catch {}
-                    }
-                    if (pIn) {
-                      try { pIn.update?.({ location: sideIn, position: sideIn, side: sideIn }); } catch {}
-                    }
-                  } catch {}
-                  // Now validate ports and all their lines
+                  // Validate ports and all their lines
                   portsOfNode.forEach((pp: any) => {
                     try { pp.validate?.(); } catch {}
                     const lns = (pp as any)?.allLines ?? (pp as any)?.lines ?? [];
@@ -296,44 +230,11 @@ export const NodeMenu: FC<NodeMenuProps> = ({ node, deleteNode, updateTitleEdit 
                   });
                   try { (linesMgr as any)?.forceUpdate?.(); } catch {}
                   try { (documentSvc as any)?.fireContentChange?.(); } catch {}
-                  // Finalize by emulating the user's required click:
-                  // - odd flip (next=true): click on node
-                  // - even flip (next=false): click outside node but inside editor canvas (.demo-editor)
-                  try {
-                    const rootEl = document.querySelector(`[data-node-id="${node.id}"]`) as HTMLElement | null;
-                    const canvasEl = document.querySelector('.demo-editor') as HTMLElement | null;
-                    const clickAt = (el: HTMLElement, x: number, y: number) => {
-                      const opts: MouseEventInit = { bubbles: true, cancelable: true, clientX: Math.floor(x), clientY: Math.floor(y) };
-                      el.dispatchEvent(new MouseEvent('click', opts));
-                    };
-                    requestAnimationFrame(() => {
-                      requestAnimationFrame(() => {
-                        try {
-                          if (next && rootEl) {
-                            const r = rootEl.getBoundingClientRect();
-                            clickAt(rootEl, r.left + r.width / 2, r.top + r.height / 2);
-                          } else if (canvasEl) {
-                            const cr = canvasEl.getBoundingClientRect();
-                            const nr = rootEl?.getBoundingClientRect();
-                            const candidates = [
-                              { x: cr.left + 8, y: cr.top + 8 },
-                              { x: cr.right - 8, y: cr.top + 8 },
-                              { x: cr.left + 8, y: cr.bottom - 8 },
-                              { x: cr.right - 8, y: cr.bottom - 8 },
-                            ];
-                            const outside = (p: any) => !nr || p.x < nr.left || p.x > nr.right || p.y < nr.top || p.y > nr.bottom;
-                            const pt = candidates.find(outside) || { x: cr.left + 8, y: cr.top + 8 };
-                            clickAt(canvasEl, pt.x, pt.y);
-                          }
-                        } catch {}
-                      });
-                    });
-                  } catch {}
                 } catch {}
               };
               const waitStable = (attempt = 0) => {
                 if (attempt > 10) { finalize(); return; }
-                if (isStable()) { finalize(); return; }
+                finalize();
                 requestAnimationFrame(() => waitStable(attempt + 1));
               };
               requestAnimationFrame(() => waitStable(0));

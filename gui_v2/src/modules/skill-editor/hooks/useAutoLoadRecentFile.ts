@@ -10,7 +10,7 @@ import { useRecentFilesStore } from '../stores/recent-files-store';
 import { useSheetsStore } from '../stores/sheets-store';
 import { useNodeFlipStore } from '../stores/node-flip-store';
 import { SkillInfo } from '../typings/skill-info';
-import { tryLoadSiblingBundle } from '../utils/bundle-utils';
+import { loadSkillFile } from '../services/skill-loader';
 import '../../../services/ipc/file-api'; // Import file API extensions
 
 interface AutoLoadOptions {
@@ -124,31 +124,14 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
 
         onAutoLoadStart?.();
 
-        // Read the file
-        const fileResponse = await ipcApi.readSkillFile(fileToLoad.filePath);
+        // Use unified skill loader (handles migration automatically)
+        const result = await loadSkillFile(fileToLoad.filePath);
+        const absoluteFilePath = result.filePath;
 
-        if (fileResponse.success && fileResponse.data) {
-          const data = JSON.parse(fileResponse.data.content) as SkillInfo;
+        if (result.success && result.skillInfo) {
+          const data = result.skillInfo;
           const diagram = data.workFlow;
-          // Use absolute path from backend response
-          const absoluteFilePath = fileResponse.data.filePath || fileToLoad.filePath;
-
-          // Normalize skillName from folder when auto-loading
-          // Expect path like: <...>/<name>_skill/diagram_dir/<name>_skill.json
-          try {
-            const norm = String(absoluteFilePath).replace(/\\/g, '/');
-            const parts = norm.split('/');
-            const idx = parts.lastIndexOf('diagram_dir');
-            if (idx > 0) {
-              const folder = parts[idx - 1];
-              const nameFromFolder = folder?.replace(/_skill$/i, '');
-              if (nameFromFolder && data && typeof data === 'object') {
-                if (!data.skillName || data.skillName !== nameFromFolder) {
-                  (data as any).skillName = nameFromFolder;
-                }
-              }
-            }
-          } catch {}
+          // skillName is already normalized by skill-loader.ts
 
           if (diagram) {
             // Set skill info with file path
@@ -162,11 +145,23 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
               .map((node: any) => node.id);
             setBreakpoints(breakpointIds);
 
-            // Load diagram into the editor
-            workflowDocument.clear();
-            workflowDocument.fromJSON(diagram);
+            // Load bundle if available, otherwise load single skill
+            if (result.bundle) {
+              const loadBundle = useSheetsStore.getState().loadBundle;
+              loadBundle(result.bundle);
+            } else {
+              // Load diagram into the editor
+              workflowDocument.clear();
+              workflowDocument.fromJSON(diagram);
+              
+              // Fallback: update sheets store with loaded document if no bundle
+              const saveActiveDocument = useSheetsStore.getState().saveActiveDocument;
+              if (saveActiveDocument) {
+                saveActiveDocument(diagram);
+              }
+            }
             
-            // Restore flip states from saved node data (same as open.tsx)
+            // Restore flip states from saved node data
             const { setFlipped, clear: clearFlipStore } = useNodeFlipStore.getState();
             clearFlipStore();
             
@@ -175,39 +170,11 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
                 if (node?.data?.hFlip === true) {
                   console.log('[AutoLoad] Restoring hFlip state for node:', node.id);
                   setFlipped(node.id, true);
-                  
-                  // Also set it directly on the loaded node's raw data
-                  const loadedNode = workflowDocument.getNode(node.id);
-                  if (loadedNode) {
-                    if (!loadedNode.raw) (loadedNode as any).raw = {};
-                    if (!loadedNode.raw.data) (loadedNode.raw as any).data = {};
-                    loadedNode.raw.data.hFlip = true;
-                    
-                    if ((loadedNode as any).json?.data) {
-                      (loadedNode as any).json.data.hFlip = true;
-                    }
-                  }
                 }
               });
             }, 100);
             
             workflowDocument.fitView && workflowDocument.fitView();
-
-            // Try to load bundle file for multi-sheet support
-            const idx = absoluteFilePath.toLowerCase().lastIndexOf('.json');
-            const base = idx !== -1 ? absoluteFilePath.slice(0, idx) : absoluteFilePath;
-            const bundle = await tryLoadSiblingBundle(base, (path) => ipcApi.readSkillFile(path));
-            
-            if (bundle) {
-              const loadBundle = useSheetsStore.getState().loadBundle;
-              loadBundle(bundle);
-            } else {
-              // Fallback: update sheets store with loaded document if no bundle
-              const saveActiveDocument = useSheetsStore.getState().saveActiveDocument;
-              if (saveActiveDocument) {
-                saveActiveDocument(diagram);
-              }
-            }
 
             onAutoLoadSuccess?.(absoluteFilePath, data);
           } else {
