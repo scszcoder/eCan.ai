@@ -92,6 +92,15 @@ from agent.mcp.server.scrapers.selenium_search_component import (
     selenium_search_component,
     selenium_sort_search_results,
 )
+from agent.mcp.server.scrapers.gmail.gmail_read import (
+    gmail_delete_email,
+    gmail_move_email,
+    gmail_respond,
+    gmail_write_new,
+    gmail_read_titles,
+    gmail_read_full_email,
+)
+from agent.mcp.server.Privacy.privacy_reserve import privacy_reserve
 from agent.ec_skills.rag.local_rag_mcp import ragify, rag_query
 from agent.mcp.server.utils.print_utils import reformat_and_print_labels
 from agent.ec_skills.browser_use_for_ai.browser_use_tools import *
@@ -1759,7 +1768,13 @@ tool_function_mapping = {
         # "custom_shop_handle_refund": custom_shop_handle_refund,
         # "custom_shop_fullfill_mcn_order": custom_shop_fullfill_mcn_order,
         # "custom_shop_generate_work_summary": custom_shop_generate_work_summary,
-
+        "gmail_delete_email": gmail_delete_email,
+        "gmail_move_email": gmail_move_email,
+        "gmail_respond": gmail_respond,
+        "gmail_write_new": gmail_write_new,
+        "gmail_read_titles": gmail_read_titles,
+        "gmail_read_full_email": gmail_read_full_email,
+        "privacy_reserve": privacy_reserve,
         "pirate_shipping_purchase_labels": pirate_shipping_purchase_labels,
         "reformat_and_print_labels": reformat_and_print_labels,
         "ragify": ragify,
