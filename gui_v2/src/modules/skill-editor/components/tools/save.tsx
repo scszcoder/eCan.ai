@@ -14,9 +14,17 @@ import { saveSheetsBundleToPath } from '../../services/sheets-persistence';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
 import { sanitizeNodeApiKeys, sanitizeApiKeysDeep } from '../../utils/sanitize-utils';
 import { IPCAPI } from '../../../../services/ipc/api';
+import { CURRENT_SCHEMA_VERSION } from '../../services/schema-migration';
 
 // ============================================================================
 // Common utilities for Save and SaveAs
+// ============================================================================
+//
+// NOTE ON SCHEMA VERSION:
+// When saving, we always set `schemaVersion` to CURRENT_SCHEMA_VERSION.
+// This marks the file as using the latest workflow data structure format.
+// See: services/schema-migration.ts for version history and migration logic.
+// See: typings/skill-info.ts for the difference between `version` and `schemaVersion`.
 // ============================================================================
 
 /**
@@ -283,6 +291,7 @@ export const Save = ({ disabled }: SaveProps) => {
         ...skillInfo,
         workFlow: diagram,
         lastModified: new Date().toISOString(),
+        schemaVersion: CURRENT_SCHEMA_VERSION,  // Always save with current workflow schema version
         mode: (skillInfo as any)?.mode ?? 'development',
         run_mode: (skillInfo as any)?.run_mode ?? 'developing',
         config: {
@@ -436,6 +445,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
         skillName: newSkillName,
         workFlow: sanitizedDiagram,
         lastModified: new Date().toISOString(),
+        schemaVersion: CURRENT_SCHEMA_VERSION,  // Always save with current workflow schema version
         mode: (skillInfo as any)?.mode ?? 'development',
         run_mode: (skillInfo as any)?.run_mode ?? 'developing',
         config: {
