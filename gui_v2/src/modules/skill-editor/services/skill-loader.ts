@@ -13,6 +13,7 @@ import '../../../services/ipc/file-api';
 import { SkillInfo } from '../typings/skill-info';
 import { migrateDocument, migrateBundle, CURRENT_SCHEMA_VERSION } from './schema-migration';
 import { normalizeBundle, looksLikeBundle, SheetsBundle } from '../utils/bundle-utils';
+import { sanitizeApiKeysDeep } from '../utils/sanitize-utils';
 
 export interface SkillLoadResult {
   success: boolean;
@@ -130,14 +131,21 @@ export async function loadSkillFile(filePath: string): Promise<SkillLoadResult> 
       skillInfo.lastModified = new Date().toISOString();
       
       try {
+        // Create sanitized copies for saving (remove real API keys)
+        const sanitizedSkillInfo = JSON.parse(JSON.stringify(skillInfo));
+        sanitizeApiKeysDeep(sanitizedSkillInfo);
+        
         // Save main skill file
-        await ipcApi.writeSkillFile(filePath, JSON.stringify(skillInfo, null, 2));
+        await ipcApi.writeSkillFile(filePath, JSON.stringify(sanitizedSkillInfo, null, 2));
         console.log('[SkillLoader] Saved migrated skill file:', filePath);
         
         // Save bundle file if exists
         if (bundle && bundlePath) {
-          (bundle as any).schemaVersion = CURRENT_SCHEMA_VERSION;
-          await ipcApi.writeSkillFile(bundlePath, JSON.stringify(bundle, null, 2));
+          const sanitizedBundle = JSON.parse(JSON.stringify(bundle));
+          sanitizedBundle.schemaVersion = CURRENT_SCHEMA_VERSION;
+          sanitizeApiKeysDeep(sanitizedBundle);
+          
+          await ipcApi.writeSkillFile(bundlePath, JSON.stringify(sanitizedBundle, null, 2));
           console.log('[SkillLoader] Saved migrated bundle file:', bundlePath);
         }
       } catch (saveErr) {
