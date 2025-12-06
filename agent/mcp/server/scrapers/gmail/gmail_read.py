@@ -76,6 +76,7 @@ def scrape_gmail_titles(driver, gmail_url: str, recent_hours: int = 72) -> dict:
         for row in unread_rows:
             try:
                 email_data = _extract_email_data(row, cutoff_time)
+                logger.debug(f"[GMAIL] Extracted email data: {email_data}")
                 if email_data:
                     result["titles"].append(email_data)
             except Exception as e:
@@ -262,7 +263,7 @@ async def gmail_read_titles(mainwin, args):
             if not web_driver:
                 # Use the first site's URL to initialize/connect the driver
                 web_driver = connect_to_adspower(mainwin, gmail_url)
-                logger.debug(f"[MCP][GET EBAY SUMMARY]:WebDriver acquired for ebay work: {type(web_driver)}")
+                logger.debug(f"[MCP][GMAIL READ TITLES]:WebDriver acquired for ebay work: {type(web_driver)}")
                 gmail_titles = scrape_gmail_titles(web_driver, gmail_url, recent)
                 msg = "completed getting ebay shop summary"
             else:
@@ -277,125 +278,180 @@ async def gmail_read_titles(mainwin, args):
         logger.debug("[MCP][GMAIL READ TITLES]:gmail_titles:", gmail_titles)
         return [result]
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorGetEbaySummary")
+        err_trace = get_traceback(e, "ErrorGmailReadTitles")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
+
+async def gmail_read_full_email(mainwin, args):
+    try:
+        ebay_summary = {}
+        if args["input"]:
+            logger.debug(f"[MCP][GMAIL READ FULL EMAIL]: {args['input']}")
+            gmail_url = args["input"].get("gmail_url", "")
+            recent = args["input"].get("recent", 72)          # number of hours.
+            if not gmail_url:
+                gmail_url = "https://mail.google.com/mail/u/0/#inbox"
+            options = args["input"].get("options", {})
+            web_driver = mainwin.getWebDriver()
+            if not web_driver:
+                # Use the first site's URL to initialize/connect the driver
+                web_driver = connect_to_adspower(mainwin, gmail_url)
+                logger.debug(f"[MCP][GMAIL READ FULL EMAIL]:WebDriver acquired for ebay work: {type(web_driver)}")
+                gmail_titles = scrape_gmail_titles(web_driver, gmail_url, recent)
+                msg = "completed getting ebay shop summary"
+            else:
+                logger.error(f"[MCP][GMAIL READ FULL EMAIL]:WebDriver acquired for ebay work: {type(web_driver)}")
+                msg = "Error: web driver not available."
+        else:
+            msg = "ERROR: no input provided."
+            logger.error(f"[MCP][GMAIL READ FULL EMAIL]:{msg}")
+
+        result = TextContent(type="text", text=msg)
+        result.meta = {"gmail_titles": gmail_titles}
+        logger.debug("[MCP][GMAIL READ FULL EMAIL]:gmail_titles:", gmail_titles)
+        return [result]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorGmailReadFullEmail")
         logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
 async def gmail_write_new(mainwin, args):  # type: ignore
     try:
-        logger.debug("fullfill_ebay_orders started....", args["input"])
-        new_orders = []
-        fullfilled_orders = []
-        options = args["input"]["options"]
-        if options.get("use_ads", False):
-            webdriver = connect_to_adspower(mainwin, url)
-            if webdriver:
-                mainwin.setWebDriver(webdriver)
+        ebay_summary = {}
+        if args["input"]:
+            logger.debug(f"[MCP][GMAIL WRITE NEW]: {args['input']}")
+            gmail_url = args["input"].get("gmail_url", "")
+            recent = args["input"].get("recent", 72)  # number of hours.
+            if not gmail_url:
+                gmail_url = "https://mail.google.com/mail/u/0/#inbox"
+            options = args["input"].get("options", {})
+            web_driver = mainwin.getWebDriver()
+            if not web_driver:
+                # Use the first site's URL to initialize/connect the driver
+                web_driver = connect_to_adspower(mainwin, gmail_url)
+                logger.debug(f"[MCP][GMAIL WRITE NEW]:WebDriver acquired for ebay work: {type(web_driver)}")
+                gmail_titles = scrape_gmail_titles(web_driver, gmail_url, recent)
+                msg = "completed getting ebay shop summary"
+            else:
+                logger.error(f"[MCP][GMAIL WRITE NEW]:WebDriver acquired for ebay work: {type(web_driver)}")
+                msg = "Error: web driver not available."
         else:
-            webdriver = mainwin.getWebDriver()
+            msg = "ERROR: no input provided."
+            logger.error(f"[MCP][GMAIL WRITE NEW]:{msg}")
 
-        if webdriver:
-            print("fullfill_ebay_orders:", site)
-            site_results = selenium_search_component(webdriver, pf, sites[site])
-            ebay_new_orders = scrape_ebay_orders(webdriver)
-            logger.debug("ebay_new_orders:", ebay_new_orders)
-
-        msg = f"completed in fullfilling ebay new orders: {len(new_orders)} new orders came in, {len(fullfilled_orders)} orders processed."
-        tool_result = TextContent(type="text", text=msg)
-        tool_result.meta = {"new_orders": new_orders, "fullfilled_orders": fullfilled_orders}
-        return [tool_result]
+        result = TextContent(type="text", text=msg)
+        result.meta = {"gmail_titles": gmail_titles}
+        logger.debug("[MCP][GMAIL WRITE NEW]:gmail_titles:", gmail_titles)
+        return [result]
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorFullfillEbayOrders")
-        logger.debug(err_trace)
+        err_trace = get_traceback(e, "ErrorGmailWriteNew")
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
-async def gmail_delete_mail(mainwin, args):  # type: ignore
+async def gmail_delete_email(mainwin, args):  # type: ignore
     try:
-        logger.debug("fullfill_ebay_orders started....", args["input"])
-        new_orders = []
-        fullfilled_orders = []
-        options = args["input"]["options"]
-        if options.get("use_ads", False):
-            webdriver = connect_to_adspower(mainwin, url)
-            if webdriver:
-                mainwin.setWebDriver(webdriver)
+        ebay_summary = {}
+        if args["input"]:
+            logger.debug(f"[MCP][GMAIL DELETE EMAIL]: {args['input']}")
+            gmail_url = args["input"].get("gmail_url", "")
+            recent = args["input"].get("recent", 72)  # number of hours.
+            if not gmail_url:
+                gmail_url = "https://mail.google.com/mail/u/0/#inbox"
+            options = args["input"].get("options", {})
+            web_driver = mainwin.getWebDriver()
+            if not web_driver:
+                # Use the first site's URL to initialize/connect the driver
+                web_driver = connect_to_adspower(mainwin, gmail_url)
+                logger.debug(f"[MCP][GMAIL DELETE EMAIL]:WebDriver acquired for ebay work: {type(web_driver)}")
+                gmail_titles = scrape_gmail_titles(web_driver, gmail_url, recent)
+                msg = "completed getting ebay shop summary"
+            else:
+                logger.error(f"[MCP][GMAIL DELETE EMAIL]:WebDriver acquired for ebay work: {type(web_driver)}")
+                msg = "Error: web driver not available."
         else:
-            webdriver = mainwin.getWebDriver()
+            msg = "ERROR: no input provided."
+            logger.error(f"[MCP][GMAIL DELETE EMAIL]:{msg}")
 
-        if webdriver:
-            print("fullfill_ebay_orders:", site)
-            site_results = selenium_search_component(webdriver, pf, sites[site])
-            ebay_new_orders = scrape_ebay_orders(webdriver)
-            logger.debug("ebay_new_orders:", ebay_new_orders)
-
-        msg = f"completed in fullfilling ebay new orders: {len(new_orders)} new orders came in, {len(fullfilled_orders)} orders processed."
-        tool_result = TextContent(type="text", text=msg)
-        tool_result.meta = {"new_orders": new_orders, "fullfilled_orders": fullfilled_orders}
-        return [tool_result]
+        result = TextContent(type="text", text=msg)
+        result.meta = {"gmail_titles": gmail_titles}
+        logger.debug("[MCP][GMAIL DELETE EMAIL]:gmail_titles:", gmail_titles)
+        return [result]
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorFullfillEbayOrders")
-        logger.debug(err_trace)
+        err_trace = get_traceback(e, "ErrorGmailDeleteEmail")
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
 
 async def gmail_respond(mainwin, args):  # type: ignore
     try:
-        logger.debug("fullfill_ebay_orders started....", args["input"])
-        new_orders = []
-        fullfilled_orders = []
-        options = args["input"]["options"]
-        if options.get("use_ads", False):
-            webdriver = connect_to_adspower(mainwin, url)
-            if webdriver:
-                mainwin.setWebDriver(webdriver)
+        ebay_summary = {}
+        if args["input"]:
+            logger.debug(f"[MCP][GMAIL RESPOND]: {args['input']}")
+            gmail_url = args["input"].get("gmail_url", "")
+            recent = args["input"].get("recent", 72)  # number of hours.
+            if not gmail_url:
+                gmail_url = "https://mail.google.com/mail/u/0/#inbox"
+            options = args["input"].get("options", {})
+            web_driver = mainwin.getWebDriver()
+            if not web_driver:
+                # Use the first site's URL to initialize/connect the driver
+                web_driver = connect_to_adspower(mainwin, gmail_url)
+                logger.debug(f"[MCP][GMAIL RESPOND]:WebDriver acquired for ebay work: {type(web_driver)}")
+                gmail_titles = scrape_gmail_titles(web_driver, gmail_url, recent)
+                msg = "completed getting ebay shop summary"
+            else:
+                logger.error(f"[MCP][GMAIL RESPOND]:WebDriver acquired for ebay work: {type(web_driver)}")
+                msg = "Error: web driver not available."
         else:
-            webdriver = mainwin.getWebDriver()
+            msg = "ERROR: no input provided."
+            logger.error(f"[MCP][GMAIL RESPOND]:{msg}")
 
-        if webdriver:
-            print("fullfill_ebay_orders:", site)
-            site_results = selenium_search_component(webdriver, pf, sites[site])
-            ebay_new_orders = scrape_ebay_orders(webdriver)
-            logger.debug("ebay_new_orders:", ebay_new_orders)
-
-        msg = f"completed in fullfilling ebay new orders: {len(new_orders)} new orders came in, {len(fullfilled_orders)} orders processed."
-        tool_result = TextContent(type="text", text=msg)
-        tool_result.meta = {"new_orders": new_orders, "fullfilled_orders": fullfilled_orders}
-        return [tool_result]
+        result = TextContent(type="text", text=msg)
+        result.meta = {"gmail_titles": gmail_titles}
+        logger.debug("[MCP][GMAIL RESPOND]:gmail_titles:", gmail_titles)
+        return [result]
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorFullfillEbayOrders")
-        logger.debug(err_trace)
+        err_trace = get_traceback(e, "ErrorGmailRespond")
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
 async def gmail_move_email(mainwin, args):  # type: ignore
     try:
-        logger.debug("fullfill_ebay_orders started....", args["input"])
-        new_orders = []
-        fullfilled_orders = []
-        options = args["input"]["options"]
-        if options.get("use_ads", False):
-            webdriver = connect_to_adspower(mainwin, url)
-            if webdriver:
-                mainwin.setWebDriver(webdriver)
+        ebay_summary = {}
+        if args["input"]:
+            logger.debug(f"[MCP][GMAIL MOVE EMAIL]: {args['input']}")
+            gmail_url = args["input"].get("gmail_url", "")
+            recent = args["input"].get("recent", 72)  # number of hours.
+            if not gmail_url:
+                gmail_url = "https://mail.google.com/mail/u/0/#inbox"
+            options = args["input"].get("options", {})
+            web_driver = mainwin.getWebDriver()
+            if not web_driver:
+                # Use the first site's URL to initialize/connect the driver
+                web_driver = connect_to_adspower(mainwin, gmail_url)
+                logger.debug(f"[MCP][GMAIL MOVE EMAIL]:WebDriver acquired for ebay work: {type(web_driver)}")
+                gmail_titles = scrape_gmail_titles(web_driver, gmail_url, recent)
+                msg = "completed getting ebay shop summary"
+            else:
+                logger.error(f"[MCP][GMAIL MOVE EMAIL]:WebDriver acquired for ebay work: {type(web_driver)}")
+                msg = "Error: web driver not available."
         else:
-            webdriver = mainwin.getWebDriver()
+            msg = "ERROR: no input provided."
+            logger.error(f"[MCP][GMAIL MOVE EMAIL]:{msg}")
 
-        if webdriver:
-            print("fullfill_ebay_orders:", site)
-            site_results = selenium_search_component(webdriver, pf, sites[site])
-            ebay_new_orders = scrape_ebay_orders(webdriver)
-            logger.debug("ebay_new_orders:", ebay_new_orders)
-
-        msg = f"completed in fullfilling ebay new orders: {len(new_orders)} new orders came in, {len(fullfilled_orders)} orders processed."
-        tool_result = TextContent(type="text", text=msg)
-        tool_result.meta = {"new_orders": new_orders, "fullfilled_orders": fullfilled_orders}
-        return [tool_result]
+        result = TextContent(type="text", text=msg)
+        result.meta = {"gmail_titles": gmail_titles}
+        logger.debug("[MCP][GMAIL MOVE EMAIL]:gmail_titles:", gmail_titles)
+        return [result]
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorFullfillEbayOrders")
-        logger.debug(err_trace)
+        err_trace = get_traceback(e, "ErrorGmailMoveEmail")
+        logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
@@ -405,7 +461,7 @@ def add_gmail_delete_email_tool_schema(tool_schemas):
     import mcp.types as types
 
     tool_schema = types.Tool(
-        name="gmail_del_email",
+        name="gmail_delete_email",
         description="gmail delete emails.",
         inputSchema={
             "type": "object",
@@ -428,7 +484,7 @@ def add_gmail_delete_email_tool_schema(tool_schemas):
     tool_schemas.append(tool_schema)
 
 
-def add_get_gmail_write_new_tool_schema(tool_schemas):
+def add_gmail_write_new_tool_schema(tool_schemas):
     import mcp.types as types
 
     tool_schema = types.Tool(
@@ -486,11 +542,11 @@ def add_gmail_respond_tool_schema(tool_schemas):
     tool_schemas.append(tool_schema)
 
 
-def add_gmail_read_schema(tool_schemas):
+def add_gmail_read_full_email_tool_schema(tool_schemas):
     import mcp.types as types
 
     tool_schema = types.Tool(
-        name="gmail_read",
+        name="gmail_read_full_email",
         description="read unread gmails for the past N days.",
         inputSchema={
             "type": "object",
@@ -500,6 +556,41 @@ def add_gmail_read_schema(tool_schemas):
                     "type": "object",
                     "required": ["options"],
                     "properties": {
+                        "options": {
+                            "type": "object",
+                            "description": "some options in json format including printer name, label format, etc. will use default if these info are missing anyways.",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    tool_schemas.append(tool_schema)
+
+
+def add_gmail_read_titles_tool_schema(tool_schemas):
+    import mcp.types as types
+
+    tool_schema = types.Tool(
+        name="gmail_read_titles",
+        description="read titles of unread gmails for the past N hours.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["gmail_url", "recent", "options"],
+                    "properties": {
+                        "gmail_url": {
+                            "type": "string",
+                            "description": "gmail inbox page URL (can be blank if using default).",
+                        },
+                        "recent": {
+                            "type": "integer",
+                            "description": "number of hours to look back and search unread emails in inbox",
+                        },
                         "options": {
                             "type": "object",
                             "description": "some options in json format including printer name, label format, etc. will use default if these info are missing anyways.",

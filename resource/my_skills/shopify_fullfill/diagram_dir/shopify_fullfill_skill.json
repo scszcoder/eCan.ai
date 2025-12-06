@@ -2,7 +2,7 @@
   "skillId": "",
   "skillName": "shopify_fullfill",
   "version": "1.0.0",
-  "lastModified": "2025-12-06T18:50:59.784Z",
+  "lastModified": "2025-12-06T20:05:31.145Z",
   "workFlow": {
     "nodes": [
       {
@@ -21,7 +21,7 @@
               "key": "if_-sPiK",
               "value": {
                 "mode": "custom",
-                "expr": "state['result']['llm_result']['request_to_work']"
+                "expr": "state['result']['llm_result']['request_to_start_work']"
               }
             },
             {
@@ -169,8 +169,8 @@
             "type": "llm",
             "meta": {
               "position": {
-                "x": 210.2299512678499,
-                "y": 61.599999999999966
+                "x": 201.74480965752522,
+                "y": 23.169145387201098
               }
             },
             "data": {
@@ -1227,12 +1227,27 @@
         "targetNodeID": "condition_T5LqK"
       },
       {
+        "sourceNodeID": "condition_T5LqK",
+        "targetNodeID": "mcp_EV3oz",
+        "sourcePortID": "if_-sPiK"
+      },
+      {
+        "sourceNodeID": "condition_T5LqK",
+        "targetNodeID": "task_a5SoO",
+        "sourcePortID": "else_KuoJ_"
+      },
+      {
         "sourceNodeID": "start_R2Ckr",
         "targetNodeID": "pend_event_rqn66"
       },
       {
         "sourceNodeID": "845126",
         "targetNodeID": "end_-lDZI"
+      },
+      {
+        "sourceNodeID": "condition_kkKy4",
+        "targetNodeID": "end_-lDZI",
+        "sourcePortID": "else_sqXds"
       },
       {
         "sourceNodeID": "mcp_EV3oz",
@@ -1245,6 +1260,11 @@
       {
         "sourceNodeID": "pend_event_rqn66",
         "targetNodeID": "llm_8LPYx"
+      },
+      {
+        "sourceNodeID": "condition_kkKy4",
+        "targetNodeID": "845126",
+        "sourcePortID": "if_Fou5C"
       },
       {
         "sourceNodeID": "289663",

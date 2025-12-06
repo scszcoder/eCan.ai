@@ -94,6 +94,15 @@ from agent.mcp.server.scrapers.etsy_seller.etsy_utils import (
     add_etsy_generate_work_summary_tool_schema,
 )
 
+from agent.mcp.server.scrapers.gmail.gmail_read import (
+    add_gmail_read_titles_tool_schema,
+    add_gmail_read_full_email_tool_schema,
+    add_gmail_respond_tool_schema,
+    add_gmail_write_new_tool_schema,
+    add_gmail_move_email_tool_schema,
+    add_gmail_delete_email_tool_schema
+)
+from agent.mcp.server.Privacy.privacy_reserve import add_privacy_reserve_tool_schema
 from agent.mcp.server.scrapers.shopify_seller.shopify_orders_scrape import add_get_shopify_summary_tool_schema, add_shopify_fullfill_next_order_tool_schema
 from agent.mcp.server.scrapers.shopify_seller.shopify_messages_scrape import add_shopify_handle_next_message_tool_schema
 
@@ -1743,6 +1752,15 @@ def build_agent_mcp_tools_schemas():
     add_reformat_and_print_labels_tool_schema(tool_schemas)
 
     add_ecan_ai_api_get_agent_status_tool_schema(tool_schemas)
+
+    add_gmail_read_titles_tool_schema(tool_schemas)
+    add_gmail_read_full_email_tool_schema(tool_schemas)
+    add_gmail_respond_tool_schema(tool_schemas)
+    add_gmail_write_new_tool_schema(tool_schemas)
+    add_gmail_move_email_tool_schema(tool_schemas)
+    add_gmail_delete_email_tool_schema(tool_schemas)
+
+    add_privacy_reserve_tool_schema(tool_schemas)
 
     add_ragify_tool_schema(tool_schemas)
 
