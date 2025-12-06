@@ -174,7 +174,27 @@ export const NewPage = ({ disabled }: NewPageProps) => {
         activeSheetId: 'main'
       };
       
-      const scaffoldResponse = await ipcApi.scaffoldSkill(skillBaseName, '', 'diagram', skillJson, bundleJson);
+      // Create empty mapping JSON with correct structure
+      const mappingJson = {
+        developing: {
+          mappings: [],
+          options: {
+            strict: false,
+            apply_order: "top_down"
+          }
+        },
+        released: {
+          mappings: [],
+          options: {
+            strict: true,
+            apply_order: "top_down"
+          }
+        },
+        node_transfers: {},
+        event_routing: {}
+      };
+      
+      const scaffoldResponse = await ipcApi.scaffoldSkill(skillBaseName, '', 'diagram', skillJson, bundleJson, mappingJson);
       
       if (scaffoldResponse.success && scaffoldResponse.data) {
         skillRoot = (scaffoldResponse.data as any).skillRoot;

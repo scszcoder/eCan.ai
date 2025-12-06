@@ -496,6 +496,7 @@ def handle_skills_scaffold(request: IPCRequest, params: Optional[Dict[str, Any]]
         description = p.get('description') or ''
         skill_json = p.get('skillJson')
         bundle_json = p.get('bundleJson')
+        mapping_json = p.get('mappingJson')
         check_only = p.get('checkOnly', False)
         
         # Get skills root directory
@@ -515,7 +516,7 @@ def handle_skills_scaffold(request: IPCRequest, params: Optional[Dict[str, Any]]
             return create_error_response(request, 'SKILL_EXISTS', f"Skill '{name}' already exists. Please choose a different name.")
         
         scaffold_skill, _, _ = _get_extern_skills()
-        path = scaffold_skill(name, description, kind, skill_json, bundle_json)
+        path = scaffold_skill(name, description, kind, skill_json, bundle_json, mapping_json)
         
         # Return the diagram file path for frontend to use
         diagram_path = str(path / "diagram_dir" / f"{name}_skill.json") if kind == "diagram" else ""
@@ -563,15 +564,39 @@ def handle_skills_rename(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         _, rename_skill, _ = _get_extern_skills()
         new_path = rename_skill(old_name, new_name)
         
+        # Rename files inside diagram_dir to match new name
+        try:
+            diagram_dir = new_path / "diagram_dir"
+            if diagram_dir.exists():
+                # Rename skill JSON
+                old_skill_json = diagram_dir / f"{old_name}_skill.json"
+                new_skill_json = diagram_dir / f"{new_name}_skill.json"
+                if old_skill_json.exists():
+                    old_skill_json.rename(new_skill_json)
+                    logger.info(f"[SKILL_RENAME] Renamed skill file: {old_skill_json.name} -> {new_skill_json.name}")
+                
+                # Rename bundle JSON
+                old_bundle_json = diagram_dir / f"{old_name}_skill_bundle.json"
+                new_bundle_json = diagram_dir / f"{new_name}_skill_bundle.json"
+                if old_bundle_json.exists():
+                    old_bundle_json.rename(new_bundle_json)
+                    logger.info(f"[SKILL_RENAME] Renamed bundle file: {old_bundle_json.name} -> {new_bundle_json.name}")
+                
+        except Exception as file_err:
+            logger.warning(f"[SKILL_RENAME] Failed to rename inner files: {file_err}")
+        
+        # data_mapping.json is at skill root level with fixed name, no rename needed
+
         # Update skill database if old skill exists
         try:
             from gui.ipc.w2p_handlers.skill_handler import sync_skill_from_file
             from gui.context.app_context import AppContext
             
             # Construct old and new skill file paths
-            old_skill_path = str(new_path).replace(f'/{new_name}_skill/', f'/{old_name}_skill/')
-            old_skill_file = f"{old_skill_path}/diagram_dir/{old_name}_skill.json"
-            new_skill_file = f"{new_path}/diagram_dir/{new_name}_skill.json"
+            # new_path is already the renamed directory path
+            # We use new_skill_file because we just renamed it above
+            new_skill_file = str(new_path / "diagram_dir" / f"{new_name}_skill.json")
+            old_skill_file = str(new_path).replace(f'/{new_name}_skill', f'/{old_name}_skill') + f"/diagram_dir/{old_name}_skill.json"
             
             logger.info(f"[SKILL_RENAME] Checking for existing skill at: {old_skill_file}")
             
@@ -692,6 +717,9 @@ def handle_skills_copy_to(request: IPCRequest, params: Optional[Dict[str, Any]])
                 old_bundle_json.rename(new_bundle_json)
                 logger.info(f"[SKILL_COPY] Renamed {old_bundle_json.name} -> {new_bundle_json.name}")
             
+        # data_mapping.json is at skill root level, copied automatically by copytree
+        
+        if new_diagram_dir.exists():
             # Write updated skill JSON if provided
             if skill_json:
                 # Update skillName in the JSON
@@ -709,30 +737,27 @@ def handle_skills_copy_to(request: IPCRequest, params: Optional[Dict[str, Any]])
         
         diagram_path = str(new_diagram_dir / f"{new_name}_skill.json")
         
-        # Update existing skill in database and memory (keep skillId unchanged)
+        # SaveAs: update database and memory to new location, then delete old directory
         skill_id = None
         new_skill_full_name = f"{new_name}_skill"
         try:
             from app_context import AppContext
             main_window = AppContext.get_main_window()
             if main_window:
-                # Update database
+                # Update database: find existing skill and update its path
                 if hasattr(main_window, 'ec_db_mgr'):
                     skill_service = main_window.ec_db_mgr.get_skill_service()
                     if skill_service:
-                        # Find existing skill by old path using search_skills
                         old_skill_name = old_skill_root.name  # e.g., "ff_skill"
-                        all_skills = skill_service.search_skills()  # Returns list directly
+                        all_skills = skill_service.search_skills()
                         for skill in all_skills:
                             skill_path = skill.get('path', '')
                             if skill_path and old_skill_name in skill_path:
                                 skill_id = skill.get('id')
-                                # Update skill with new path and name
                                 update_data = {
                                     'name': new_skill_full_name,
                                     'path': diagram_path,
                                 }
-                                # Also update skill_json content if provided
                                 if skill_json:
                                     update_data['description'] = skill_json.get('description', '')
                                     update_data['config'] = skill_json.get('config', {})
@@ -751,45 +776,29 @@ def handle_skills_copy_to(request: IPCRequest, params: Optional[Dict[str, Any]])
                             if sync_result.get('success'):
                                 skill_id = sync_result.get('skill_id')
                                 logger.info(f"[SKILL_COPY] ✅ New skill created in database (ID: {skill_id})")
-                            else:
-                                logger.warning(f"[SKILL_COPY] ⚠️ Failed to create skill in database: {sync_result.get('error')}")
                 
                 # Update in-memory skill list
                 if hasattr(main_window, 'agent_skills'):
-                    old_dir_name = old_skill_root.name  # e.g., "ff_skill"
-                    # Skill name in memory might be with or without _skill suffix
+                    old_dir_name = old_skill_root.name
                     old_base_name = old_dir_name.replace('_skill', '') if old_dir_name.endswith('_skill') else old_dir_name
-                    new_base_name = new_name  # new_name is already without _skill suffix
                     
-                    mem_updated = False
                     for mem_skill in (main_window.agent_skills or []):
                         if hasattr(mem_skill, 'name'):
                             skill_name = mem_skill.name
-                            # Match both "ff" and "ff_skill"
                             if skill_name == old_dir_name or skill_name == old_base_name:
-                                # Keep the same format (with or without _skill)
                                 if skill_name.endswith('_skill'):
                                     mem_skill.name = new_skill_full_name
                                 else:
-                                    mem_skill.name = new_base_name
+                                    mem_skill.name = new_name
                                 if hasattr(mem_skill, 'path'):
                                     mem_skill.path = diagram_path
                                 logger.info(f"[SKILL_COPY] ✅ In-memory skill updated: {skill_name} -> {mem_skill.name}")
-                                mem_updated = True
                                 break
-                    
-                    # If skill not found in memory, load and add it
-                    if not mem_updated:
-                        try:
-                            from agent.ec_skills.build_agent_skills import load_from_diagram
-                            new_skill = load_from_diagram(Path(diagram_path))
-                            if new_skill:
-                                if main_window.agent_skills is None:
-                                    main_window.agent_skills = []
-                                main_window.agent_skills.append(new_skill)
-                                logger.info(f"[SKILL_COPY] ✅ New skill added to memory: {new_skill.name}")
-                        except Exception as load_err:
-                            logger.warning(f"[SKILL_COPY] ⚠️ Failed to load new skill into memory: {load_err}")
+                
+                # Delete old skill directory
+                if old_skill_root.exists() and old_skill_root != new_skill_root:
+                    shutil.rmtree(str(old_skill_root))
+                    logger.info(f"[SKILL_COPY] ✅ Deleted old skill directory: {old_skill_root}")
         except Exception as sync_err:
             logger.warning(f"[SKILL_COPY] ⚠️ Error updating skill in database/memory: {sync_err}")
         

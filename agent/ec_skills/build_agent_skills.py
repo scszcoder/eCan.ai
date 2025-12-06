@@ -545,48 +545,16 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                 return path.stat().st_mtime
             return max((p.stat().st_mtime for p in path.rglob("*")), default=-1.0)
 
-        def load_mapping_rules(sk: EC_Skill, *search_paths: Path) -> None:
-            """Load mapping rules from data_mapping.json, searching in given paths.
-            
-            Searches for mapping files in this order:
-            1. <path>/<skill_name>_data_mapping.json (frontend saves with skill name prefix)
-            2. <path>/data_mapping.json (legacy format)
-            """
-            # Extract base skill name (remove _skill suffix if present)
-            skill_base_name = sk.name
-            if skill_base_name.endswith('_skill'):
-                skill_base_name = skill_base_name[:-6]
-            
-            for path in search_paths:
-                if not path.is_dir():
-                    # If path is a file, try to load it directly
-                    if path.exists():
-                        try:
-                            with path.open("r", encoding="utf-8") as mf:
-                                sk.mapping_rules = json.load(mf)
-                                logger.info(f"[build_agent_skills] Loaded mapping rules for {sk.name} from {path}")
-                                return
-                        except Exception as e:
-                            logger.warning(f"[build_agent_skills] Failed to load mapping rules from {path}: {e}")
-                    continue
-                
-                # Search for mapping files in directory
-                # Priority 1: <skill_name>_data_mapping.json (frontend format)
-                mapping_candidates = [
-                    path / f"{skill_base_name}_data_mapping.json",
-                    path / f"{sk.name}_data_mapping.json",  # Also try with full name
-                    path / "data_mapping.json",  # Legacy format
-                ]
-                
-                for mapping_file in mapping_candidates:
-                    if mapping_file.exists():
-                        try:
-                            with mapping_file.open("r", encoding="utf-8") as mf:
-                                sk.mapping_rules = json.load(mf)
-                                logger.info(f"[build_agent_skills] Loaded mapping rules for {sk.name} from {mapping_file}")
-                                return
-                        except Exception as e:
-                            logger.warning(f"[build_agent_skills] Failed to load mapping rules from {mapping_file}: {e}")
+        def load_mapping_rules(sk: EC_Skill, skill_root: Path) -> None:
+            """Load mapping rules from data_mapping.json at skill root level."""
+            mapping_file = skill_root / "data_mapping.json"
+            if mapping_file.exists():
+                try:
+                    with mapping_file.open("r", encoding="utf-8") as mf:
+                        sk.mapping_rules = json.load(mf)
+                        logger.info(f"[build_agent_skills] Loaded mapping rules for {sk.name} from {mapping_file}")
+                except Exception as e:
+                    logger.warning(f"[build_agent_skills] Failed to load mapping rules from {mapping_file}: {e}")
 
         def finalize_skill(sk: EC_Skill, source: str, path: str, skill_root: Path) -> EC_Skill:
             """Common finalization: set source, path, stable ID, and load mapping rules"""

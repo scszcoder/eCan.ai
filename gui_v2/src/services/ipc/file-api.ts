@@ -71,19 +71,21 @@ declare module './api' {
     writeSkillFile<T = FileWriteResponse>(filePath: string, content: string): Promise<APIResponse<T>>;
     /**
      * Scaffold a new skill with standard directory structure
-     * Creates: my_skills/<name>_skill/diagram_dir/<name>_skill.json + <name>_skill_bundle.json
+     * Creates: my_skills/<name>_skill/diagram_dir/<name>_skill.json + <name>_skill_bundle.json + <name>_data_mapping.json
      * @param name - Skill base name (without _skill suffix)
      * @param description - Optional skill description
      * @param kind - 'diagram' (default) or 'code'
      * @param skillJson - Optional skill JSON content (for diagram type)
      * @param bundleJson - Optional bundle JSON content (for diagram type)
+     * @param mappingJson - Optional mapping JSON content (for diagram type)
      */
     scaffoldSkill<T = SkillScaffoldResponse>(
       name: string,
       description?: string,
       kind?: 'diagram' | 'code',
       skillJson?: any,
-      bundleJson?: any
+      bundleJson?: any,
+      mappingJson?: any
     ): Promise<APIResponse<T>>;
     /**
      * Copy entire skill directory to a new location with a new name (Save As)
@@ -154,10 +156,11 @@ IPCAPI.prototype.scaffoldSkill = function<T = SkillScaffoldResponse>(
   description?: string,
   kind: 'diagram' | 'code' = 'diagram',
   skillJson?: any,
-  bundleJson?: any
+  bundleJson?: any,
+  mappingJson?: any
 ): Promise<APIResponse<T>> {
   console.log('[FileAPI] scaffoldSkill: creating skill structure', { name, description, kind });
-  return this.executeRequest<T>('skills.scaffold', { name, description, kind, skillJson, bundleJson });
+  return this.executeRequest<T>('skills.scaffold', { name, description, kind, skillJson, bundleJson, mappingJson });
 };
 
 IPCAPI.prototype.copySkillTo = function<T = SkillCopyResponse>(
