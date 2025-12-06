@@ -2,7 +2,7 @@
   "skillId": "",
   "skillName": "shopify_fullfill",
   "version": "1.0.0",
-  "lastModified": "2025-12-06T00:57:55.868Z",
+  "lastModified": "2025-12-06T18:50:59.784Z",
   "workFlow": {
     "nodes": [
       {
@@ -91,8 +91,8 @@
         "type": "end",
         "meta": {
           "position": {
-            "x": 6748.379111026868,
-            "y": -279.21987032548253
+            "x": 4359.358434077124,
+            "y": -365.68708491353885
           }
         },
         "data": {
@@ -128,8 +128,8 @@
         "type": "loop",
         "meta": {
           "position": {
-            "x": 2727.1360974287118,
-            "y": -315.51686972400074
+            "x": 976.8812841791552,
+            "y": -368.53612272222705
           }
         },
         "data": {
@@ -158,8 +158,8 @@
             "type": "block-end",
             "meta": {
               "position": {
-                "x": 1322.1491935326574,
-                "y": 97.39999999999999
+                "x": 989.9766410329739,
+                "y": 74.06586057160702
               }
             },
             "data": {}
@@ -273,8 +273,8 @@
             "type": "mcp",
             "meta": {
               "position": {
-                "x": 1034.0838221560002,
-                "y": 61.59999999999999
+                "x": 730.8315662030047,
+                "y": 61.59999999999997
               }
             },
             "data": {
@@ -340,89 +340,20 @@
             }
           },
           {
-            "id": "327667",
-            "type": "code",
-            "meta": {
-              "position": {
-                "x": 451.6893599721418,
-                "y": 61.599999999999966
-              }
-            },
-            "data": {
-              "title": "Code_1",
-              "inputsValues": {
-                "input": {
-                  "type": "constant",
-                  "content": ""
-                }
-              },
-              "script": {
-                "language": "python",
-                "content": "# Here, you can retrieve input variables from the node using 'state' \nimport time\ndef main(state, *, runtime, store):\n  # Build the output object\n  print(\"in myfunc0.........\",state)\n  time.sleep(5)\n  print(\"myfunc0 woke now, outa here.....\")\n  state[\"result\"] = {\"status\": \"myfunc0 succeeded!!!\"}\n  return state"
-              },
-              "outputs": {
-                "type": "object",
-                "properties": {
-                  "result": {
-                    "type": "object",
-                    "description": "Node execution result"
-                  },
-                  "condition": {
-                    "type": "boolean",
-                    "description": "Node execution condition"
-                  },
-                  "resolved": {
-                    "type": "boolean",
-                    "description": "Node execution resolved status"
-                  },
-                  "case": {
-                    "type": "string",
-                    "description": "Node execution case"
-                  }
-                }
-              },
-              "inputs": {
-                "type": "object",
-                "properties": {
-                  "input": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          },
-          {
             "id": "106342",
             "type": "comment",
             "meta": {
               "position": {
-                "x": 436.43075873542733,
-                "y": 207.88884034723418
+                "x": 470.5307587354272,
+                "y": 212.13141115239648
               }
             },
             "data": {
               "size": {
-                "width": 131.7984214725074,
-                "height": 53.96149400354743
+                "width": 180.5879857318745,
+                "height": 73.05306262677803
               },
-              "note": "Tool Set Prefilter - token reducer"
-            }
-          },
-          {
-            "id": "170795",
-            "type": "comment",
-            "meta": {
-              "position": {
-                "x": 693.1487686764333,
-                "y": 207.88884034723418
-              }
-            },
-            "data": {
-              "size": {
-                "width": 149.2502889769417,
-                "height": 40
-              },
-              "note": "Prep tool call."
+              "note": "Tool Set Prefilter - token reducer, prepare tool call"
             }
           },
           {
@@ -430,8 +361,8 @@
             "type": "tool-picker",
             "meta": {
               "position": {
-                "x": 736.4661306165858,
-                "y": 58.67076650484495
+                "x": 470.53075873542724,
+                "y": 61.599999999999966
               }
             },
             "data": {
@@ -478,15 +409,11 @@
           },
           {
             "sourceNodeID": "llm_xaL7E",
-            "targetNodeID": "327667"
+            "targetNodeID": "tool-picker_XklII"
           },
           {
             "sourceNodeID": "tool-picker_XklII",
             "targetNodeID": "mcp_t0Ugk"
-          },
-          {
-            "sourceNodeID": "327667",
-            "targetNodeID": "tool-picker_XklII"
           }
         ]
       },
@@ -599,8 +526,8 @@
         "type": "loop",
         "meta": {
           "position": {
-            "x": 4910.495251635812,
-            "y": -677.9205446848158
+            "x": 2930.676948167454,
+            "y": -788.291265622425
           }
         },
         "data": {
@@ -629,134 +556,11 @@
             "type": "block-end",
             "meta": {
               "position": {
-                "x": 1253.7662671790583,
-                "y": 25.469000462001034
+                "x": 761.628053780225,
+                "y": 34.873499693239594
               }
             },
             "data": {}
-          },
-          {
-            "id": "564500",
-            "type": "mcp",
-            "meta": {
-              "position": {
-                "x": 1051.9104902177755,
-                "y": 50.469000462001105
-              }
-            },
-            "data": {
-              "title": "MCP_1",
-              "callable": {
-                "id": "llm-auto-select",
-                "name": "llm auto select",
-                "desc": "Let the LLM automatically select the appropriate tool based on the context",
-                "params": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "returns": {
-                  "type": "object",
-                  "properties": {}
-                },
-                "type": "system",
-                "source": ""
-              },
-              "inputsValues": {},
-              "inputs": {
-                "type": "object",
-                "properties": {}
-              },
-              "outputs": {
-                "type": "object",
-                "properties": {
-                  "result": {
-                    "type": "object",
-                    "description": "Node execution result"
-                  },
-                  "condition": {
-                    "type": "boolean",
-                    "description": "Node execution condition"
-                  },
-                  "resolved": {
-                    "type": "boolean",
-                    "description": "Node execution resolved status"
-                  },
-                  "case": {
-                    "type": "string",
-                    "description": "Node execution case"
-                  }
-                }
-              },
-              "data": {
-                "callable": {
-                  "id": "llm-auto-select",
-                  "name": "llm auto select",
-                  "desc": "Let the LLM automatically select the appropriate tool based on the context",
-                  "params": {
-                    "type": "object",
-                    "properties": {}
-                  },
-                  "returns": {
-                    "type": "object",
-                    "properties": {}
-                  },
-                  "type": "system",
-                  "source": ""
-                }
-              }
-            }
-          },
-          {
-            "id": "915481",
-            "type": "code",
-            "meta": {
-              "position": {
-                "x": 798.2728845183681,
-                "y": 59.87349969323965
-              }
-            },
-            "data": {
-              "title": "Code_1",
-              "inputsValues": {
-                "input": {
-                  "type": "constant",
-                  "content": ""
-                }
-              },
-              "script": {
-                "language": "python",
-                "content": "# Here, you can retrieve input variables from the node using 'state' \nimport time\ndef main(state, *, runtime, store):\n  # Build the output object\n  print(\"in myfunc0.........\",state)\n  time.sleep(5)\n  print(\"myfunc0 woke now, outa here.....\")\n  state[\"result\"] = {\"status\": \"myfunc0 succeeded!!!\"}\n  return state"
-              },
-              "outputs": {
-                "type": "object",
-                "properties": {
-                  "result": {
-                    "type": "object",
-                    "description": "Node execution result"
-                  },
-                  "condition": {
-                    "type": "boolean",
-                    "description": "Node execution condition"
-                  },
-                  "resolved": {
-                    "type": "boolean",
-                    "description": "Node execution resolved status"
-                  },
-                  "case": {
-                    "type": "string",
-                    "description": "Node execution case"
-                  }
-                }
-              },
-              "inputs": {
-                "type": "object",
-                "properties": {
-                  "input": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
           },
           {
             "id": "browser_automation_Xvc1T",
@@ -1017,16 +821,8 @@
             "targetNodeID": "llm_la_nh"
           },
           {
-            "sourceNodeID": "564500",
-            "targetNodeID": "112151"
-          },
-          {
-            "sourceNodeID": "915481",
-            "targetNodeID": "564500"
-          },
-          {
             "sourceNodeID": "browser_automation_Xvc1T",
-            "targetNodeID": "915481"
+            "targetNodeID": "112151"
           },
           {
             "sourceNodeID": "llm_la_nh",
@@ -1279,8 +1075,8 @@
         "type": "condition",
         "meta": {
           "position": {
-            "x": 4669.718497365971,
-            "y": -316.13714253811816
+            "x": 2634.8680882817794,
+            "y": -351.1917025486099
           }
         },
         "data": {
@@ -1323,8 +1119,8 @@
         "type": "code",
         "meta": {
           "position": {
-            "x": 4342.855753252566,
-            "y": -298.1724495503837
+            "x": 2324.165091394492,
+            "y": -351.1917025486099
           }
         },
         "data": {
@@ -1371,186 +1167,35 @@
         }
       },
       {
-        "id": "loop_kKtLj",
-        "type": "loop",
+        "id": "mcp_EV3oz",
+        "type": "mcp",
         "meta": {
           "position": {
-            "x": 974.1208951903616,
-            "y": -402.5357561927587
+            "x": 677.7185215082166,
+            "y": -295.48904262121835
           }
         },
         "data": {
-          "title": "Loop_1",
-          "loopMode": "loopWhile",
-          "loopCountExpr": "",
-          "loopWhileExpr": "not (state[\"result\"][\"counter\"] > 5)",
-          "data": {
-            "inputsValues": {}
-          }
-        },
-        "blocks": [
-          {
-            "id": "block_start_IHPpr",
-            "type": "block-start",
-            "meta": {
-              "position": {
-                "x": 30.8,
-                "y": 10.199999999999989
-              }
+          "title": "MCP_1",
+          "callable": {
+            "id": "llm-auto-select",
+            "name": "llm auto select",
+            "desc": "Let the LLM automatically select the appropriate tool based on the context",
+            "params": {
+              "type": "object",
+              "properties": {}
             },
-            "data": {}
-          },
-          {
-            "id": "block_end_lx5ZL",
-            "type": "block-end",
-            "meta": {
-              "position": {
-                "x": 854.8,
-                "y": 0
-              }
+            "returns": {
+              "type": "object",
+              "properties": {}
             },
-            "data": {}
+            "type": "system",
+            "source": ""
           },
-          {
-            "id": "code_xaZD1",
-            "type": "code",
-            "meta": {
-              "position": {
-                "x": 297.71223153919334,
-                "y": 71.80000000000004
-              }
-            },
-            "data": {
-              "title": "Code_2",
-              "inputsValues": {
-                "input": {
-                  "type": "constant",
-                  "content": ""
-                }
-              },
-              "script": {
-                "language": "python",
-                "content": "# Here, you can retrieve input variables from the node using 'state' \nimport time\ndef main(state, *, runtime, store):\n  # Build the output object\n  print(\"in minus 2 node.........\",state)\n  state[\"result\"][\"counter\"] = state[\"result\"][\"counter\"] - 2\n  print(\"DONE MINUS 2, outa here.....\", state[\"result\"][\"counter\"])\n \n  return state"
-              },
-              "outputs": {
-                "type": "object",
-                "properties": {
-                  "result": {
-                    "type": "object",
-                    "description": "Node execution result"
-                  },
-                  "condition": {
-                    "type": "boolean",
-                    "description": "Node execution condition"
-                  },
-                  "resolved": {
-                    "type": "boolean",
-                    "description": "Node execution resolved status"
-                  },
-                  "case": {
-                    "type": "string",
-                    "description": "Node execution case"
-                  }
-                }
-              },
-              "inputs": {
-                "type": "object",
-                "properties": {
-                  "input": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          },
-          {
-            "id": "code_Ls7L5",
-            "type": "code",
-            "meta": {
-              "position": {
-                "x": 581.8355973724362,
-                "y": 61.60000000000004
-              }
-            },
-            "data": {
-              "title": "Code_3",
-              "inputsValues": {
-                "input": {
-                  "type": "constant",
-                  "content": ""
-                }
-              },
-              "script": {
-                "language": "python",
-                "content": "# Here, you can retrieve input variables from the node using 'state' \nimport time\ndef main(state, *, runtime, store):\n  # Build the output object\n  print(\"in plus 3 node.........\",state)\n  state[\"result\"][\"counter\"] = state[\"result\"][\"counter\"] + 3\n  print(\"DONE PLUS 3, outa here.....\", state[\"result\"][\"counter\"])\n  \n  return state"
-              },
-              "outputs": {
-                "type": "object",
-                "properties": {
-                  "result": {
-                    "type": "object",
-                    "description": "Node execution result"
-                  },
-                  "condition": {
-                    "type": "boolean",
-                    "description": "Node execution condition"
-                  },
-                  "resolved": {
-                    "type": "boolean",
-                    "description": "Node execution resolved status"
-                  },
-                  "case": {
-                    "type": "string",
-                    "description": "Node execution case"
-                  }
-                }
-              },
-              "inputs": {
-                "type": "object",
-                "properties": {
-                  "input": {
-                    "type": "string"
-                  }
-                }
-              }
-            }
-          }
-        ],
-        "edges": [
-          {
-            "sourceNodeID": "block_start_IHPpr",
-            "targetNodeID": "code_xaZD1"
-          },
-          {
-            "sourceNodeID": "code_Ls7L5",
-            "targetNodeID": "block_end_lx5ZL"
-          },
-          {
-            "sourceNodeID": "code_xaZD1",
-            "targetNodeID": "code_Ls7L5"
-          }
-        ]
-      },
-      {
-        "id": "code_j-8n4",
-        "type": "code",
-        "meta": {
-          "position": {
-            "x": 707.998316321647,
-            "y": -373.30504361040903
-          }
-        },
-        "data": {
-          "title": "Code_4",
-          "inputsValues": {
-            "input": {
-              "type": "constant",
-              "content": ""
-            }
-          },
-          "script": {
-            "language": "python",
-            "content": "# Here, you can retrieve input variables from the node using 'state' \nimport time\ndef main(state, *, runtime, store):\n  # Build the output object\n  print(\"in myfunc0.........\",state)\n  state[\"result\"][\"counter\"] = 0\n  print(\"myfunc0 woke now, outa here.....\")\n  \n  return state"
+          "inputsValues": {},
+          "inputs": {
+            "type": "object",
+            "properties": {}
           },
           "outputs": {
             "type": "object",
@@ -1572,14 +1217,6 @@
                 "description": "Node execution case"
               }
             }
-          },
-          "inputs": {
-            "type": "object",
-            "properties": {
-              "input": {
-                "type": "string"
-              }
-            }
           }
         }
       }
@@ -1590,16 +1227,6 @@
         "targetNodeID": "condition_T5LqK"
       },
       {
-        "sourceNodeID": "condition_T5LqK",
-        "targetNodeID": "task_a5SoO",
-        "sourcePortID": "else_out"
-      },
-      {
-        "sourceNodeID": "condition_T5LqK",
-        "targetNodeID": "code_j-8n4",
-        "sourcePortID": "if_out"
-      },
-      {
         "sourceNodeID": "start_R2Ckr",
         "targetNodeID": "pend_event_rqn66"
       },
@@ -1608,12 +1235,7 @@
         "targetNodeID": "end_-lDZI"
       },
       {
-        "sourceNodeID": "condition_kkKy4",
-        "targetNodeID": "end_-lDZI",
-        "sourcePortID": "else_out"
-      },
-      {
-        "sourceNodeID": "loop_kKtLj",
+        "sourceNodeID": "mcp_EV3oz",
         "targetNodeID": "loop_rhORT"
       },
       {
@@ -1623,11 +1245,6 @@
       {
         "sourceNodeID": "pend_event_rqn66",
         "targetNodeID": "llm_8LPYx"
-      },
-      {
-        "sourceNodeID": "condition_kkKy4",
-        "targetNodeID": "845126",
-        "sourcePortID": "if_out"
       },
       {
         "sourceNodeID": "289663",
@@ -1640,10 +1257,6 @@
       {
         "sourceNodeID": "code_8nk5b",
         "targetNodeID": "condition_kkKy4"
-      },
-      {
-        "sourceNodeID": "code_j-8n4",
-        "targetNodeID": "loop_kKtLj"
       }
     ]
   },
@@ -1651,5 +1264,6 @@
   "run_mode": "developing",
   "config": {
     "nodes": {}
-  }
+  },
+  "schemaVersion": "1.0.1"
 }
