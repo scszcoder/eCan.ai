@@ -1,8 +1,17 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Select, Input, Switch, Card, theme, Tooltip, Button } from 'antd';
-import { QuestionCircleOutlined, SettingOutlined } from '@ant-design/icons';
+import { QuestionCircleOutlined, SettingOutlined, ReloadOutlined, GlobalOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type { ProviderConfig, ProviderFieldConfig } from './providerConfig';
+import { IPCAPI } from '../../../services/ipc/api';
+
+interface OllamaModel {
+  name: string;
+  size: number;
+  modified_at: string;
+  digest: string;
+  details: Record<string, any>;
+}
 
 interface ProviderSelectorProps {
   bindingKey: string;
@@ -24,6 +33,69 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
   
   const currentProviderId = settings[bindingKey] || providers[0]?.id || '';
   const currentProvider = providers.find(p => p.id === currentProviderId);
+  
+  // Ollama models state
+  const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([]);
+  const [ollamaLoading, setOllamaLoading] = useState(false);
+  const [ollamaError, setOllamaError] = useState<string | null>(null);
+
+  // Get the Ollama host from settings based on binding type
+  const getOllamaHost = useCallback(() => {
+    if (bindingKey === 'LLM_BINDING') {
+      return settings['LLM_BINDING_HOST'] || 'http://127.0.0.1:11434';
+    } else if (bindingKey === 'EMBEDDING_BINDING') {
+      return settings['EMBEDDING_BINDING_HOST'] || 'http://127.0.0.1:11434';
+    } else if (bindingKey === 'RERANK_BINDING') {
+      return settings['RERANK_BINDING_HOST'] || 'http://127.0.0.1:11434';
+    }
+    return 'http://127.0.0.1:11434';
+  }, [bindingKey, settings]);
+
+  // Fetch Ollama models
+  const fetchOllamaModels = useCallback(async () => {
+    if (!currentProvider?.isOllama) return;
+    
+    setOllamaLoading(true);
+    setOllamaError(null);
+    
+    try {
+      const api = IPCAPI.getInstance();
+      const host = getOllamaHost();
+      const response = await api.getOllamaModels<{ models: OllamaModel[]; host: string }>(host);
+      
+      if (response.success && response.data) {
+        setOllamaModels(response.data.models || []);
+        if (response.data.models.length === 0) {
+          setOllamaError(t('pages.knowledge.settings.ollama.noModels', { defaultValue: 'No models found' }));
+        }
+      } else {
+        setOllamaError(response.error?.message || t('pages.knowledge.settings.ollama.fetchError', { defaultValue: 'Failed to fetch models' }));
+        setOllamaModels([]);
+      }
+    } catch (error: any) {
+      setOllamaError(error.message || t('pages.knowledge.settings.ollama.fetchError', { defaultValue: 'Failed to fetch models' }));
+      setOllamaModels([]);
+    } finally {
+      setOllamaLoading(false);
+    }
+  }, [currentProvider?.isOllama, getOllamaHost, t]);
+
+  // Fetch Ollama models when provider changes to Ollama
+  useEffect(() => {
+    if (currentProvider?.isOllama) {
+      fetchOllamaModels();
+    } else {
+      setOllamaModels([]);
+      setOllamaError(null);
+    }
+  }, [currentProvider?.isOllama, fetchOllamaModels]);
+
+  // Open Ollama website (configured host)
+  const handleOpenOllamaWebsite = () => {
+    const host = getOllamaHost();
+    // Open the configured Ollama host in browser
+    window.open(host, '_blank');
+  };
 
   const handleNavigateToSettings = (fieldKey: string) => {
     // Navigate within the app using hash routing (same as onboarding)
@@ -84,15 +156,40 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
 
     const commonStyle = { width: '100%' };
 
+    // Handle Ollama dynamic model field
+    if (field.isDynamicOllamaModel && currentProvider?.isOllama) {
+      const modelOptions = ollamaModels.map(m => ({ value: m.name, label: m.name }));
+      
+      return (
+        <div key={field.key} style={{ marginBottom: 12 }}>
+          {label}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <Select
+              value={value || undefined}
+              placeholder={ollamaLoading ? t('pages.knowledge.settings.ollama.loading', { defaultValue: 'Loading...' }) : (ollamaError || placeholder)}
+              onChange={(val) => onSettingChange(field.key, val)}
+              style={{ flex: 1 }}
+              options={modelOptions}
+              size="small"
+              loading={ollamaLoading}
+              disabled={managed}
+              showSearch
+              allowClear
+              notFoundContent={ollamaError || t('pages.knowledge.settings.ollama.noModels', { defaultValue: 'No models' })}
+            />
+            <Tooltip title={t('pages.knowledge.settings.ollama.refresh', { defaultValue: 'Refresh' })}>
+              <Button icon={<ReloadOutlined spin={ollamaLoading} />} size="small" onClick={fetchOllamaModels} style={{ flexShrink: 0 }} />
+            </Tooltip>
+          </div>
+        </div>
+      );
+    }
+
     // Handle text fields with options as Select (e.g. Model list)
     if (field.type === 'text' && field.options && field.options.length > 0) {
-        // Translate option labels only if they look like i18n keys (start with 'fields.' or 'providers.')
         const translatedModelOptions = field.options.map(opt => {
           const isI18nKey = opt.label.startsWith('fields.') || opt.label.startsWith('providers.');
-          return {
-            value: opt.value,
-            label: isI18nKey ? t(`pages.knowledge.settings.${opt.label}`) : opt.label
-          };
+          return { value: opt.value, label: isI18nKey ? t(`pages.knowledge.settings.${opt.label}`) : opt.label };
         });
         
         return (
@@ -105,7 +202,7 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
               style={commonStyle}
               options={translatedModelOptions}
               size="small"
-              disabled={managed} // Dropdown selection should be disabled if managed (though models usually aren't managed by key source, but keys are)
+              disabled={managed}
             />
           </div>
         );
@@ -277,7 +374,22 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
       {currentProvider && currentProvider.fields.length > 0 && (
         <Card
           size="small"
-          title={`${currentProvider.name.includes('.') ? t(`pages.knowledge.settings.${currentProvider.name}`) : currentProvider.name} ${t('pages.knowledge.settings.provider.configuration')}`}
+          title={
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>{`${currentProvider.name.includes('.') ? t(`pages.knowledge.settings.${currentProvider.name}`) : currentProvider.name} ${t('pages.knowledge.settings.provider.configuration')}`}</span>
+              {currentProvider.isOllama && (
+                <Tooltip title={t('pages.knowledge.settings.ollama.openWebsite', { defaultValue: 'Open Ollama' })}>
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<GlobalOutlined />}
+                    onClick={handleOpenOllamaWebsite}
+                    style={{ padding: '0 4px' }}
+                  />
+                </Tooltip>
+              )}
+            </div>
+          }
           style={{
             marginBottom: 20,
             borderColor: token.colorBorder

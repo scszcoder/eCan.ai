@@ -11,6 +11,7 @@ export interface ProviderFieldConfig {
   required?: boolean;
   isSystemManaged?: boolean;
   disabled?: boolean;
+  isDynamicOllamaModel?: boolean; // If true, model list should be fetched dynamically from Ollama API
 }
 
 export interface ProviderConfig {
@@ -19,6 +20,7 @@ export interface ProviderConfig {
   description?: string;
   fields: ProviderFieldConfig[];
   modelMetadata?: Record<string, { dimensions?: number; max_tokens?: number }>;
+  isOllama?: boolean; // If true, this provider uses Ollama and supports dynamic model fetching
 }
 
 // ==================== Reranking Providers ====================
@@ -83,9 +85,11 @@ export const RERANKING_PROVIDERS: ProviderConfig[] = [
     id: 'ollama',
     name: 'Ollama',
     description: 'Ollama local reranking service',
+    isOllama: true,
     fields: [
-      { key: 'RERANK_MODEL', label: 'Model', type: 'text', defaultValue: 'bge-m3', placeholder: 'bge-m3', required: true },
-      { key: 'RERANK_BINDING_HOST', label: 'API Host', type: 'text', defaultValue: 'http://localhost:11434/api/rerank', placeholder: 'http://localhost:11434/api/rerank' }
+      { key: 'RERANK_MODEL', label: 'fields.model', type: 'text', defaultValue: 'bge-m3', placeholder: 'bge-m3', required: true, isDynamicOllamaModel: true },
+      { key: 'RERANK_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'http://127.0.0.1:11434' },
+      { key: 'RERANK_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', placeholder: 'fields.optional' }
     ]
   },
   {
@@ -128,11 +132,13 @@ export const LLM_PROVIDERS: ProviderConfig[] = [
     id: 'ollama',
     name: 'Ollama',
     description: 'Local Ollama models',
+    isOllama: true,
     fields: [
-      { key: 'LLM_MODEL', label: 'Model', type: 'text', placeholder: 'qwen2.5:32b', required: true },
-      { key: 'LLM_BINDING_HOST', label: 'API Host', type: 'text', defaultValue: 'http://localhost:11434' },
-      { key: 'OLLAMA_LLM_NUM_CTX', label: 'Context Window', type: 'number', defaultValue: '32768', tooltip: 'tooltips.ollamaNumCtx' },
-      { key: 'OLLAMA_LLM_NUM_PREDICT', label: 'Max Predict Tokens', type: 'number', placeholder: '9000' }
+      { key: 'LLM_MODEL', label: 'fields.model', type: 'text', placeholder: 'qwen2.5:32b', required: true, isDynamicOllamaModel: true },
+      { key: 'LLM_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'http://127.0.0.1:11434' },
+      { key: 'LLM_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', placeholder: 'fields.optional' },
+      { key: 'OLLAMA_LLM_NUM_CTX', label: 'fields.contextWindow', type: 'number', defaultValue: '32768', tooltip: 'tooltips.ollamaNumCtx' },
+      { key: 'OLLAMA_LLM_NUM_PREDICT', label: 'fields.maxPredictTokens', type: 'number', placeholder: '9000' }
     ]
   },
   {
@@ -251,10 +257,12 @@ export const EMBEDDING_PROVIDERS: ProviderConfig[] = [
     id: 'ollama',
     name: 'Ollama',
     description: 'Local Ollama embedding models',
+    isOllama: true,
     fields: [
-      { key: 'EMBEDDING_MODEL', label: 'fields.model', type: 'text', placeholder: 'bge-m3:latest', required: true },
+      { key: 'EMBEDDING_MODEL', label: 'fields.model', type: 'text', placeholder: 'bge-m3:latest', required: true, isDynamicOllamaModel: true },
       { key: 'EMBEDDING_DIM', label: 'fields.dimensions', type: 'number', placeholder: '1024', defaultValue: '1024', tooltip: 'tooltips.embeddingDim' },
-      { key: 'EMBEDDING_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'http://localhost:11434' }
+      { key: 'EMBEDDING_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'http://127.0.0.1:11434' },
+      { key: 'EMBEDDING_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', placeholder: 'fields.optional' }
     ]
   },
   {

@@ -15,10 +15,13 @@ import {
   EyeOutlined,
   EyeInvisibleOutlined,
   GlobalOutlined,
+  ReloadOutlined,
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { get_ipc_api } from "../../../services/ipc_api";
 import type { LLMProvider } from "../types";
+import { isOllamaProvider, validateOllamaProvider } from "../utils/ollamaValidation";
+import { saveOllamaConfig } from "../utils/ollamaConfigUtils";
 
 interface EmbeddingManagementProps {
   username: string | null;
@@ -62,6 +65,39 @@ const EmbeddingManagement = React.forwardRef<
   const [editingValue, setEditingValue] = useState<string>("");
   const [editingAzureEndpoint, setEditingAzureEndpoint] = useState<string>("");
   const [editingLoading, setEditingLoading] = useState<boolean>(false);
+
+  // Ollama dynamic model state
+  const [ollamaModels, setOllamaModels] = useState<Array<{ name: string; size: number }>>([]);
+  const [ollamaLoading, setOllamaLoading] = useState(false);
+  const [ollamaHost, setOllamaHost] = useState('http://127.0.0.1:11434');
+  const [editingOllamaHost, setEditingOllamaHost] = useState(false);
+  const [tempOllamaHost, setTempOllamaHost] = useState('');
+  const [ollamaApiKey, setOllamaApiKey] = useState('');
+
+  // Fetch Ollama models and save to backend
+  const fetchOllamaModels = useCallback(async (host?: string) => {
+    const targetHost = host || ollamaHost;
+    setOllamaLoading(true);
+    try {
+      // Pass username so backend can save to user-specific path
+      const response = await get_ipc_api().getOllamaModels<{ models: Array<{ name: string; size: number }>; host: string }>(targetHost, username || undefined);
+      if (response.success && response.data) {
+        setOllamaModels(response.data.models || []);
+        return true;
+      } else {
+        message.error(response.error?.message || t('pages.settings.ollama_fetch_error'));
+        setOllamaModels([]);
+        return false;
+      }
+    } catch (error: any) {
+      message.error(error.message || t('pages.settings.ollama_fetch_error'));
+      setOllamaModels([]);
+      return false;
+    } finally {
+      setOllamaLoading(false);
+    }
+  }, [ollamaHost, username, message, t]);
+
 
   // Load Embedding providers
   const loadProviders = useCallback(async () => {
@@ -246,6 +282,13 @@ const EmbeddingManagement = React.forwardRef<
 
     // Determine which model to use: UI selection > preferred_model > default_model
     const modelToUse = selectedModel || provider.preferred_model || provider.default_model || undefined;
+
+    // Validate Ollama provider configuration
+    const validation = validateOllamaProvider(provider, modelToUse, t);
+    if (!validation.valid) {
+      message.warning(validation.errorMessage);
+      return;
+    }
 
     // Use standard provider identifier for API calls
     const providerIdentifier = provider.provider;
@@ -709,9 +752,81 @@ const EmbeddingManagement = React.forwardRef<
       title: t("pages.settings.api_key"),
       dataIndex: "api_key",
       key: "api_key",
-      width: 280,
+      width: 350,
       render: (_: any, record: LLMProvider) => {
         const isEditing = editingProvider === record.name;
+
+        // Ollama specific rendering with host and optional API key
+        if (isOllamaProvider(record)) {
+          if (editingOllamaHost) {
+            return (
+              <Space direction="vertical" style={{ width: "100%" }}>
+                <Input
+                  value={tempOllamaHost}
+                  onChange={(e) => setTempOllamaHost(e.target.value)}
+                  placeholder={t("pages.settings.ollama_host_placeholder")}
+                  style={{ width: "300px" }}
+                  addonBefore="Host"
+                />
+                <Input
+                  value={ollamaApiKey}
+                  onChange={(e) => setOllamaApiKey(e.target.value)}
+                  placeholder={t("pages.settings.ollama_api_key_placeholder")}
+                  style={{ width: "300px" }}
+                  addonBefore="API Key"
+                />
+                <Space>
+                  <Button
+                    size="small"
+                    type="primary"
+                    onClick={async () => {
+                      if (tempOllamaHost) {
+                        await saveOllamaConfig({
+                          providerType: 'embedding',
+                          host: tempOllamaHost,
+                          apiKey: ollamaApiKey,
+                          onSuccess: async () => {
+                            setOllamaHost(tempOllamaHost);
+                            await fetchOllamaModels(tempOllamaHost);
+                            setEditingOllamaHost(false);
+                            message.success(t("pages.settings.ollama_config_saved"));
+                          },
+                          onError: (error) => message.error(error)
+                        });
+                      }
+                    }}
+                  >
+                    {t("common.save")}
+                  </Button>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      setEditingOllamaHost(false);
+                      setTempOllamaHost(ollamaHost);
+                    }}
+                  >
+                    {t("common.cancel")}
+                  </Button>
+                </Space>
+              </Space>
+            );
+          }
+
+          return (
+            <Space direction="vertical" size={2}>
+              <Space>
+                <span style={{ color: "#999", fontSize: "12px" }}>Host:</span>
+                <span style={{ fontFamily: "monospace", fontSize: "12px" }}>{ollamaHost}</span>
+              </Space>
+              {ollamaApiKey && (
+                <Space>
+                  <span style={{ color: "#999", fontSize: "12px" }}>API Key:</span>
+                  <span style={{ fontFamily: "monospace", fontSize: "12px" }}>••••••••</span>
+                </Space>
+              )}
+            </Space>
+          );
+        }
 
         if (isEditing) {
           return (
@@ -827,8 +942,55 @@ const EmbeddingManagement = React.forwardRef<
     {
       title: t("pages.settings.embedding_model"),
       key: "model",
-      width: 200,
+      width: 250,
       render: (_: any, record: LLMProvider) => {
+        // Check if this is Ollama provider
+        if (isOllamaProvider(record)) {
+          // Use cached options derived from provider.supported_models (which are merged from ollama_tags.json)
+          const ollamaOptions = modelOptionsCache[record.name] || [];
+          const uiSelectedModel = currentModelSelections[record.name];
+          const backendModel = record.preferred_model || record.default_model || undefined;
+          const currentValue = uiSelectedModel || backendModel;
+
+          return (
+            <Space>
+              <Select
+                size="small"
+                style={{ width: 160 }}
+                value={currentValue || undefined}
+                onChange={(value) => handleModelSelection(record.name, value)}
+                loading={ollamaLoading || !!modelLoadingMap[record.name]}
+                placeholder={ollamaLoading ? t("pages.settings.loading") : t("pages.settings.select_model")}
+                optionLabelProp="label"
+                popupMatchSelectWidth={false}
+                showSearch
+                allowClear
+                notFoundContent={ollamaOptions.length === 0 ? t("pages.settings.no_models_available") : null}
+              >
+                {ollamaOptions.map((option) => (
+                  <Select.Option key={option.value} value={option.value} label={option.label}>
+                    {option.label}
+                  </Select.Option>
+                ))}
+              </Select>
+              <Tooltip title={t("pages.settings.refresh_models")}>
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<ReloadOutlined spin={ollamaLoading} />}
+                  onClick={async () => {
+                    const success = await fetchOllamaModels();
+                    if (success) {
+                      // Reload providers to get merged Ollama models from backend
+                      loadProviders();
+                    }
+                  }}
+                />
+              </Tooltip>
+            </Space>
+          );
+        }
+
         const options = modelOptionsCache[record.name] || [];
 
         if (!options.length) {
@@ -910,46 +1072,84 @@ const EmbeddingManagement = React.forwardRef<
       title: t("pages.settings.actions"),
       key: "actions",
       width: "15%",
-      render: (_: any, record: LLMProvider) => (
-        <Space>
-          {!record.is_local && (
-            <>
+      render: (_: any, record: LLMProvider) => {
+        // Ollama specific actions
+        if (isOllamaProvider(record)) {
+          return (
+            <Space>
               <Tooltip title={t("common.edit")}>
                 <Button
                   size="small"
                   type="text"
                   icon={<EditOutlined />}
-                  onClick={() => startEditing(record.name)}
+                  onClick={() => {
+                    setTempOllamaHost(ollamaHost);
+                    setEditingOllamaHost(true);
+                  }}
                 />
               </Tooltip>
-              <Tooltip title={t("pages.settings.open_docs")}>
+              <Tooltip title={t("pages.settings.open_ollama")}>
                 <Button
                   size="small"
                   type="text"
                   icon={<GlobalOutlined />}
-                  onClick={() => openDocumentation(record.documentation_url)}
-                  disabled={!record.documentation_url}
+                  onClick={() => window.open(ollamaHost, '_blank')}
                 />
               </Tooltip>
               <Tooltip title={t("common.delete")}>
                 <Button
                   size="small"
                   type="text"
-                  icon={<DeleteOutlined style={{ color: "#ff4d4f" }} />}
-                  style={{ color: "#ff4d4f" }}
-                  onClick={() => deleteProviderConfig(record.name)}
-                  disabled={!record.api_key_configured}
+                  icon={<DeleteOutlined style={{ color: "#999" }} />}
+                  style={{ color: "#999" }}
+                  disabled={true}
                 />
               </Tooltip>
-            </>
-          )}
-          {record.is_local && (
-            <span style={{ color: "#999", fontSize: "12px" }}>
-              Local Service
-            </span>
-          )}
-        </Space>
-      ),
+            </Space>
+          );
+        }
+
+        return (
+          <Space>
+            {!record.is_local && (
+              <>
+                <Tooltip title={t("common.edit")}>
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={<EditOutlined />}
+                    onClick={() => startEditing(record.name)}
+                  />
+                </Tooltip>
+                <Tooltip title={t("pages.settings.open_docs")}>
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={<GlobalOutlined />}
+                    onClick={() => openDocumentation(record.documentation_url)}
+                    disabled={!record.documentation_url}
+                  />
+                </Tooltip>
+                <Tooltip title={t("common.delete")}>
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={<DeleteOutlined style={{ color: "#ff4d4f" }} />}
+                    style={{ color: "#ff4d4f" }}
+                    onClick={() => deleteProviderConfig(record.name)}
+                    disabled={!record.api_key_configured}
+                  />
+                </Tooltip>
+              </>
+            )}
+            {record.is_local && (
+              <span style={{ color: "#999", fontSize: "12px" }}>
+                Local Service
+              </span>
+            )}
+          </Space>
+        );
+      },
     },
   ];
 

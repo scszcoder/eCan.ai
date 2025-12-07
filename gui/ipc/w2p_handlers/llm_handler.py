@@ -96,10 +96,16 @@ def find_shared_providers(env_vars: list, provider_type: str) -> list:
 
 @IPCHandlerRegistry.handler('get_llm_providers')
 def handle_get_llm_providers(request: IPCRequest, params: Optional[Dict[str, Any]] = None) -> IPCResponse:
-    """Get all LLM providers"""
+    """Get all LLM providers with Ollama models merged"""
     try:
+        from gui.ollama_utils import merge_ollama_models_to_providers
+        
         llm_manager = get_llm_manager()
         providers = llm_manager.get_all_providers()
+        
+        # Merge Ollama models using shared utility
+        providers = merge_ollama_models_to_providers(providers, provider_type='llm')
+        
         logger.info(f"Retrieved {len(providers)} LLM providers")
 
         return create_success_response(request, {
@@ -152,6 +158,7 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
         
         api_key = data.get('api_key')
         azure_endpoint = data.get('azure_endpoint')
+        base_url = data.get('base_url')  # Support updating base_url for local providers like Ollama
 
         # Get provider by standard identifier (case-insensitive)
         provider = llm_manager.get_provider(provider_identifier)
@@ -228,9 +235,21 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
                     return create_error_response(request, 'LLM_ERROR', f"Failed to store API key: {error_msg}")
                 api_key_stored = True
 
+        # Update base_url for local providers (e.g., Ollama)
+        # Note: We don't save here, will save together with other settings below
+        base_url_updated = False
+        if base_url and provider.get('is_local', False):
+            from gui.manager.provider_settings_helper import update_ollama_base_url
+            success, error_msg = update_ollama_base_url(provider_identifier, base_url, 'llm')
+            if success:
+                base_url_updated = True
+            elif error_msg:
+                logger.warning(f"Failed to update base_url: {error_msg}")
+
         # Auto-set as default_llm if this is the only configured provider
+        # Combine all general_settings updates and save once
         auto_set_as_default = False
-        if api_key_stored:
+        if api_key_stored or base_url_updated:
             try:
                 configured_providers = []
                 for p in llm_manager.get_all_providers():
@@ -249,20 +268,27 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
                         if default_model:
                             general_settings.default_llm_model = default_model
                             logger.info(f"Auto-set default model to {default_model}")
-                        general_settings.save()
                         auto_set_as_default = True
                         logger.info(f"Auto-set {provider_identifier} as default_llm (only configured provider)")
-                        
-                        # Hot-update LLM instances to use the new provider
-                        try:
-                            provider_info = f"{provider.get('display_name', provider_identifier)}, Model: {default_model}"
-                            update_success = main_window.update_all_llms(reason=f"Default LLM changed to {provider_info}")
-                            if update_success:
-                                logger.info(f"Successfully hot-updated LLM instances to {provider_identifier}")
-                            else:
-                                logger.warning(f"Failed to hot-update LLM instances after setting default to {provider_identifier}")
-                        except Exception as update_error:
-                            logger.error(f"Error during hot-update of LLM instances: {update_error}")
+                
+                # Save all general_settings changes at once (base_url + auto-set default)
+                from gui.manager.provider_settings_helper import save_general_settings_if_needed
+                if save_general_settings_if_needed(base_url_updated, auto_set_as_default):
+                    # Hot-update LLM instances if default was changed
+                    if auto_set_as_default:
+                        from app_context import AppContext
+                        main_window = AppContext.get_main_window()
+                        if main_window:
+                            try:
+                                default_model = provider.get('default_model')
+                                provider_info = f"{provider.get('display_name', provider_identifier)}, Model: {default_model}"
+                                update_success = main_window.update_all_llms(reason=f"Default LLM changed to {provider_info}")
+                                if update_success:
+                                    logger.info(f"Successfully hot-updated LLM instances to {provider_identifier}")
+                                else:
+                                    logger.warning(f"Failed to hot-update LLM instances after setting default to {provider_identifier}")
+                            except Exception as update_error:
+                                logger.error(f"Error during hot-update of LLM instances: {update_error}")
             except Exception as e:
                 logger.warning(f"Failed to auto-set default_llm: {e}")
 
@@ -737,8 +763,13 @@ def handle_get_llm_providers_with_credentials(request: IPCRequest, params: Optio
         - Status indicating which providers are configured
     """
     try:
+        from gui.ollama_utils import merge_ollama_models_to_providers
+        
         llm_manager = get_llm_manager()
         all_providers = llm_manager.get_all_providers()
+        
+        # Merge Ollama models using shared utility
+        all_providers = merge_ollama_models_to_providers(all_providers, provider_type='llm')
         
         # Enhance providers with API key information
         enhanced_providers = []
