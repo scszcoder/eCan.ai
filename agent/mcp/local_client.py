@@ -85,24 +85,43 @@ class MCPClientManager:
                 Streamable_HTTP_Manager.reset()
             
             # Fallback to a temporary (ephemeral) session
-            async with streamablehttp_client(url, terminate_on_close=False, httpx_client_factory=create_mcp_httpx_client) as streams:
-                async with ClientSession(streams[0], streams[1]) as session:
-                    await asyncio.wait_for(session.initialize(), timeout=timeout)
-                    result = await asyncio.wait_for(
-                        session.call_tool(tool_name, arguments),
-                        timeout=timeout
-                    )
-                    # Allow a brief moment for server-side cleanup before closing
-                    await asyncio.sleep(0.05)
+            try:
+                async with streamablehttp_client(url, terminate_on_close=False, httpx_client_factory=create_mcp_httpx_client) as streams:
+                    async with ClientSession(streams[0], streams[1]) as session:
+                        await asyncio.wait_for(session.initialize(), timeout=timeout)
+                        result = await asyncio.wait_for(
+                            session.call_tool(tool_name, arguments),
+                            timeout=timeout
+                        )
+                        # Allow a brief moment for server-side cleanup before closing
+                        await asyncio.sleep(0.05)
+            except asyncio.TimeoutError:
+                logger.error(f"Ephemeral session timed out for '{tool_name}' after {timeout}s")
+                raise
+            except BaseException as cleanup_err:
+                # If we got a result but cleanup failed, log and return the result
+                if result is not None:
+                    # Check if it's a TaskGroup error during cleanup
+                    if "TaskGroup" in str(cleanup_err) or "cancel scope" in str(cleanup_err):
+                        logger.debug(f"Ephemeral session cleanup error (result obtained, ignoring): {cleanup_err}")
+                    else:
+                        logger.warning(f"Ephemeral session cleanup error (result obtained): {cleanup_err}")
+                    # Return the result anyway since we got it successfully
+                    return result
+                else:
+                    # No result obtained, this is a real error
+                    logger.error(f"Ephemeral session tool call failed for '{tool_name}': {cleanup_err}")
+                    raise
         except asyncio.TimeoutError:
             logger.error(f"Tool call timed out for '{tool_name}' after {timeout}s")
             raise
         except BaseException as e:
-            # If a result was obtained but an error occurred during cleanup, prioritize the result
+            # This should not be reached if the inner try-except handles everything correctly
+            # But keep it as a safety net
             if result is not None:
-                logger.warning(f"Suppressed teardown error after tool result: {e}")
+                logger.warning(f"Suppressed outer teardown error after tool result: {e}")
             else:
-                logger.error(f"Ephemeral session tool call failed for '{tool_name}': {e}")
+                logger.error(f"Outer exception for '{tool_name}': {e}")
                 raise
         return result
     

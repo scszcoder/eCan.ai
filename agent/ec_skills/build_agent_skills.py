@@ -754,7 +754,7 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                 
                 # All file-loaded skills are editable (source="ui")
                 # Only code-generated skills (from build_local_code_skills) are read-only (source="code")
-                load_mapping_rules(sk, diagram_dir, skill_root)  # Check both locations
+                load_mapping_rules(sk, skill_root)
                 sk.source = "ui"
                 sk.path = str(core_path)
                 sk.ensure_stable_id()

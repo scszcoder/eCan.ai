@@ -188,7 +188,6 @@ def make_condition_selector(node_id: str, node_data: dict, port_map: dict):
 
     ordered = sorted(conditions, key=lambda c: _ctype(c.get("key", "")))
     logger.debug(f"[selector-debug] {node_id} port_map={port_map}")
-    print(f"[selector-debug] {node_id} port_map={port_map}")
 
     def _resolve_port_for_key(key: str, runtime_map: dict) -> str | None:
         """Resolve the correct port id for a given condition key when names differ.
