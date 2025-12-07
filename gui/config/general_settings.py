@@ -484,6 +484,15 @@ class GeneralSettings:
     def default_llm_model(self, value: str):
         self._data["default_llm_model"] = value
 
+    @property
+    def ollama_llm_base_url(self) -> str:
+        """Ollama base URL for LLM (overrides provider default)"""
+        return self._data.get("ollama_llm_base_url", "")
+
+    @ollama_llm_base_url.setter
+    def ollama_llm_base_url(self, value: str):
+        self._data["ollama_llm_base_url"] = value
+
     # ==================== Embedding Settings ====================
     
     @property
@@ -504,6 +513,15 @@ class GeneralSettings:
     def default_embedding_model(self, value: str):
         self._data["default_embedding_model"] = value
 
+    @property
+    def ollama_embedding_base_url(self) -> str:
+        """Ollama base URL for Embedding (overrides provider default)"""
+        return self._data.get("ollama_embedding_base_url", "")
+
+    @ollama_embedding_base_url.setter
+    def ollama_embedding_base_url(self, value: str):
+        self._data["ollama_embedding_base_url"] = value
+
     # ==================== Rerank Settings ====================
     
     @property
@@ -523,6 +541,15 @@ class GeneralSettings:
     @default_rerank_model.setter
     def default_rerank_model(self, value: str):
         self._data["default_rerank_model"] = value
+
+    @property
+    def ollama_rerank_base_url(self) -> str:
+        """Ollama base URL for Rerank (overrides provider default)"""
+        return self._data.get("ollama_rerank_base_url", "")
+
+    @ollama_rerank_base_url.setter
+    def ollama_rerank_base_url(self, value: str):
+        self._data["ollama_rerank_base_url"] = value
 
     @property
     def skill_use_git(self) -> bool:

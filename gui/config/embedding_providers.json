@@ -317,39 +317,16 @@
       "name": "Ollama (Local)",
       "display_name": "Ollama (Local)",
       "provider": "ollama",
-      "class_name": "OllamaEmbeddings",
-      "api_key_env_vars": [],
+      "class_name": "OpenAIEmbeddings",
+      "api_key_env_vars": [
+        "OLLAMA_EMBEDDING_API_KEY"
+      ],
       "base_url": "http://localhost:11434",
-      "default_model": "nomic-embed-text",
-      "description": "Local Ollama embeddings",
+      "default_model": "",
+      "description": "Local Ollama embeddings (native API for LightRAG, auto-converts to OpenAI-compatible /v1 for OpenAIEmbeddings)",
       "documentation_url": "https://ollama.com/library",
       "is_local": true,
-      "supported_models": [
-        {
-          "name": "nomic-embed-text",
-          "display_name": "nomic-embed-text",
-          "model_id": "nomic-embed-text",
-          "dimensions": 768,
-          "max_tokens": 8192,
-          "description": "Nomic Embed Text"
-        },
-        {
-          "name": "mxbai-embed-large",
-          "display_name": "mxbai-embed-large",
-          "model_id": "mxbai-embed-large",
-          "dimensions": 1024,
-          "max_tokens": 512,
-          "description": "Mxbai Embed Large"
-        },
-        {
-          "name": "bge-m3",
-          "display_name": "bge-m3",
-          "model_id": "bge-m3",
-          "dimensions": 1024,
-          "max_tokens": 8192,
-          "description": "BGE M3 Multilingual"
-        }
-      ]
+      "supported_models": []
     }
   },
   "metadata": {

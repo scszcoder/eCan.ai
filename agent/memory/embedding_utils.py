@@ -247,6 +247,31 @@ class EmbeddingFactory:
                     logger.warning(f"[EmbeddingFactory] Bytedance ARK_API_KEY not found")
                     return FakeEmbeddings(size=1024)
                 
+            elif provider_enum_value == "ollama":
+                # Ollama embeddings (uses OpenAI-compatible API)
+                try:
+                    # Get base_url and API key using common helper functions
+                    from gui.manager.provider_settings_helper import get_ollama_base_url, get_ollama_api_key
+                    base_url = get_ollama_base_url('embedding', provider_config)
+                    ollama_api_key = get_ollama_api_key('embedding')
+                    
+                    # Convert native Ollama URL to OpenAI-compatible endpoint
+                    # Settings stores native URL (http://localhost:11434) for LightRAG compatibility
+                    # OpenAIEmbeddings needs OpenAI-compatible endpoint (http://localhost:11434/v1)
+                    base_url = base_url.rstrip('/')
+                    if not base_url.endswith('/v1'):
+                        base_url = f"{base_url}/v1"
+                    
+                    logger.debug(f"[EmbeddingFactory] Creating Ollama embeddings with model={model_name}, base_url={base_url}")
+                    return OpenAIEmbeddings(
+                        model=model_name or "nomic-embed-text",
+                        api_key=ollama_api_key,
+                        base_url=base_url
+                    )
+                except Exception as e:
+                    logger.error(f"[EmbeddingFactory] Ollama embeddings failed: {e}")
+                    return FakeEmbeddings(size=768)  # Ollama default dimension
+                
             else:
                 # Default to FakeEmbeddings for unknown providers
                 logger.warning(f"[EmbeddingFactory] Unknown provider {provider_name}, using FakeEmbeddings")

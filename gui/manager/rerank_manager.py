@@ -42,6 +42,29 @@ class RerankManager:
         """
         self.config_manager = config_manager
         self._checking_provider = False  # Flag to prevent recursion
+        
+        # Load and merge Ollama models at initialization
+        # This ensures consistency with LLMManager and prepares for future validation
+        self._load_and_merge_ollama_models()
+    
+    def _load_and_merge_ollama_models(self):
+        """
+        Load ollama_tags.json and merge models into Ollama provider's supported_models.
+        
+        Note: Rerank uses proxy mechanism, but we load models for consistency.
+        """
+        try:
+            from gui.ollama_utils import merge_ollama_models_to_config_providers
+            from gui.config.rerank_config import rerank_config
+            
+            # Get all providers as dict
+            all_providers = rerank_config.get_all_providers()
+            
+            # Use the unified merge function (auto-loads ollama_tags)
+            merge_ollama_models_to_config_providers(all_providers, provider_type='rerank')
+            
+        except Exception as e:
+            logger.warning(f"[RerankManager] Failed to load Ollama models during init: {e}")
     
     # API Key Management Methods - Using Environment Variables
     
@@ -214,6 +237,10 @@ class RerankManager:
     def _check_provider_api_keys_configured(self, provider_config: RerankProviderConfig) -> bool:
         """Check if all required API keys for a provider are configured"""
         if provider_config.is_local:
+            # For local providers, check if base_url is configured and valid
+            base_url = provider_config.base_url
+            if base_url and (base_url.strip().startswith('http://') or base_url.strip().startswith('https://')):
+                return True
             return False
 
         for env_var in provider_config.api_key_env_vars:

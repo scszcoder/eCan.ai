@@ -839,6 +839,16 @@
       "open_docs": "Open official site",
       "documentation_unavailable": "Documentation link not available",
       "no_models_available": "No models available",
+      "refresh_models": "Refresh model list",
+      "ollama_fetch_error": "Failed to fetch Ollama models",
+      "ollama_no_models": "Please refresh Ollama model list first",
+      "ollama_select_model": "Please select an Ollama model first",
+      "ollama_invalid_host": "Ollama host address is invalid, please configure it first",
+      "loading": "Loading...",
+      "ollama_host_placeholder": "Enter Ollama host (e.g. http://127.0.0.1:11434)",
+      "ollama_api_key_placeholder": "Enter API Key (optional)",
+      "ollama_config_saved": "Ollama configuration saved",
+      "open_ollama": "Open Ollama service",
       "lan_api_endpoint": "Lan_api_endpoint",
       "language": "Language",
       "languageChangeError": "Language Change Error",
@@ -1577,7 +1587,10 @@
           "vectorIndexType": "Vector Index Type",
           "sendDimensions": "Send Dimensions",
           "retryMaxBackoff": "Retry Max Backoff (sec)",
-          "verbose": "Verbose Logging"
+          "verbose": "Verbose Logging",
+          "contextWindow": "Context Window",
+          "maxPredictTokens": "Max Predict Tokens",
+          "optional": "Optional"
         },
         "placeholders": {
           "minimal": "Minimal",
@@ -1705,6 +1718,13 @@
         },
         "providers": {
           "noneDisabled": "None (Disabled)"
+        },
+        "ollama": {
+          "loading": "Loading models...",
+          "noModels": "No models found",
+          "fetchError": "Failed to fetch models",
+          "refresh": "Refresh model list",
+          "openWebsite": "Open Ollama"
         }
       },
       "documents": {
