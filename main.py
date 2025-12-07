@@ -8,6 +8,12 @@ import subprocess
 import time
 
 # ============================================================================
+# CRITICAL: Configure browser_use timeouts BEFORE any browser_use imports
+# These environment variables must be set before browser_use.browser.events is imported
+# ============================================================================
+os.environ.setdefault('TIMEOUT_ScreenshotEvent', '30')  # Increase from 8s to 30s
+
+# ============================================================================
 # CRITICAL: Patch platform._syscmd_ver BEFORE any imports that use it
 # This prevents the 'ver' command from being called, which causes window flashes
 # ============================================================================

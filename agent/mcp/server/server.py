@@ -1,10 +1,15 @@
 # Standard library imports
 import asyncio
 import json
+import os
 import shutil
 import subprocess
 import time
 import traceback
+
+# Configure browser_use timeouts BEFORE importing browser_use modules
+# Increase screenshot timeout from default 8s to 30s for complex pages
+os.environ.setdefault('TIMEOUT_ScreenshotEvent', '30')
 
 # Third-party library imports
 import pyautogui
@@ -472,21 +477,47 @@ async def in_browser_close_tab(mainwin, args):
         return [TextContent(type="text", text=err_trace)]
 
 # Content Actions
-async def in_browser_scrape_content(mainwin, args):
+async def in_browser_extract_content(mainwin, args):
     try:
-        crawler = mainwin.getWebCrawler()
-        if not crawler:
-            web_driver = mainwin.getWebDriver()
-            dom_service = mainwin.dom_service
-            dom_service.get_clickable_elements()
-        else:
-            extract_links = True
-            bu_result = await browser_use_extract_structured_data(mainwin, args['input']['query'], extract_links)
-            logger.debug("extracted page result: " + bu_result)
 
-        msg = f"completed loading element by index {args['input']['index']}."
-        result = [TextContent(type="text", text=msg)]
-        return result
+        # web_driver = mainwin.getWebDriver()
+        # dom_tree = web_driver.execute_cdp_cmd(
+        #     "DOM.getDocument",
+        #     {"depth": -1, "pierce": True}
+        # )
+
+        # let's piggy back on browser_use's rich functionalities.
+        browser_session = mainwin.getBrowserSession()
+        if not browser_session:
+            print("creating session....")
+            browser_session = mainwin.createBrowserSession("existing_chrome")
+            # browser_session = mainwin.createBrowserSession("new_chromium")
+            print("starting browser session...")
+            await browser_session.start()
+            print("browser session started!")
+        # Note: include_screenshot=False to avoid CDP timeout issues with existing Chrome instances
+        # that have many tabs. Screenshot capture via CDP can hang on complex browser states.
+        # If you need screenshots, consider using a fresh browser instance or fewer tabs.
+        browser_state_summary = await browser_session.get_browser_state_summary(
+            include_screenshot=False,  # Disabled due to CDP timeout issues with existing Chrome
+            include_recent_events=True
+        )
+
+        msg = f"completed extracting browser content."
+        result = TextContent(type="text", text=msg)
+
+        serializable_state = {
+            "url": browser_state_summary.url,
+            "title": browser_state_summary.title,
+            "tabs": [tab.model_dump() for tab in browser_state_summary.tabs],
+            "screenshot": browser_state_summary.screenshot,  # base64 string or None
+            "dom_text": browser_state_summary.dom_state.llm_representation(),
+            "interactive_elements": list(browser_state_summary.dom_state.selector_map.keys()),
+        }
+        logger.debug("browser_state_summary: ",serializable_state)
+
+        result.meta = {"browser_state": serializable_state}
+        return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserScrapeContents")
         logger.error(err_trace)
@@ -1665,7 +1696,7 @@ tool_function_mapping = {
         "in_browser_switch_tab": in_browser_switch_tab,
         "in_browser_open_tab": in_browser_open_tab,
         "in_browser_close_tab": in_browser_close_tab,
-        "in_browser_extract_content": in_browser_scrape_content,
+        "in_browser_extract_content": in_browser_extract_content,
         "in_browser_save_href_to_file": in_browser_save_href_to_file,
         "in_browser_execute_javascript": in_browser_execute_javascript,
         "in_browser_build_dom_tree": in_browser_build_dom_tree,

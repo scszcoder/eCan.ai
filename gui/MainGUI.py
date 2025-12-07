@@ -1074,6 +1074,7 @@ class MainWindow:
         self.lightrag_server = None
         self.platoonWin = None
         self.unified_browser_manager = None
+        self._browser_session = None
 
         # Bot states and profiles
         self.bot_states = ["active", "disabled", "banned", "deleted"]
@@ -2886,15 +2887,6 @@ class MainWindow:
             logger.error(f"Error accessing browser_session: {e}")
         return None
 
-    @property
-    def browser_use_controller(self):
-        try:
-            manager = getattr(self, 'unified_browser_manager', None)
-            if manager and manager.is_ready():
-                return manager.get_browser_use_controller()
-        except Exception as e:
-            logger.error(f"Error accessing browser_use_controller: {e}")
-        return None
 
     @property
     def browser_use_file_system(self):
@@ -2907,10 +2899,18 @@ class MainWindow:
         return None
 
     def getBrowserSession(self):
-        return self.browser_session
+        return self._browser_session
 
-    def getBrowserUseController(self):
-        return self.browser_use_controller
+    def createBrowserSession(self, bs_type, fpb_profile=""):
+        try:
+            manager = getattr(self, 'unified_browser_manager', None)
+            if manager and manager.is_ready():
+                self._browser_session = manager.create_browser_session(bs_type, fpb_profile)
+                return self._browser_session
+
+        except Exception as e:
+            logger.error(f"Error accessing browser_use_file_system: {e}")
+        return None
 
     def load_build_dom_tree_script(self):
         script = ""
