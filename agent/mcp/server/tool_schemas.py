@@ -883,7 +883,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_extract_content",
-        description="<category>Browser Automation</category><sub-category>Selenium Search Action</sub-category>use browser driver like selenium or playwright to drag and drop an item.",
+        description="<category>Browser Automation</category><sub-category>Selenium Search Action</sub-category>use browser driver to extract dom tree from the web page.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -895,7 +895,7 @@ def build_agent_mcp_tools_schemas():
                         "url": {
                             "type": "string",
                             "format": "uri",  # optional JSON-Schema hint
-                            "description": "URL of the web page to open",
+                            "description": "URL of the web page to open, if this is empty, then whatever currently opened page will be extracted.",
                         }
                     },
                 }

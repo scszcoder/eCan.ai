@@ -3,7 +3,7 @@
 </p>
 
 # eCan.ai (E-Commerce Agent Network)
-eCan.ai is an agent app for e-commerce, aimed at empowering sellers to run their multi-channel e-commerce businesses with minimal human overheads.
+eCan.ai is an AI native, privacy-first, agent app for e-commerce, aimed at empowering sellers to run their multi-channel e-commerce businesses with minimal human overheads.
 This will be achieved by allowing sellers to run every aspects of their e-commerce business with ai agents, from sourcing/procurement to selling, 
 from marketing research to advertising, from legal counsel to customer service. Hopefully your business can run by agents, so that you can be 
 sitting on the beach :)
