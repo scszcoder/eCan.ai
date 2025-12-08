@@ -16,13 +16,125 @@ from utils.logger_helper import get_traceback
 from utils.logger_helper import logger_helper as logger
 from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
 from agent.agent_service import get_agent_by_id
+from dotenv import load_dotenv
+from uuid_extensions import uuid7str
 
 if TYPE_CHECKING:
     from crawl4ai import AsyncWebCrawler
-    from browser_use.browser import BrowserSession
-    from browser_use.controller.service import Controller
+    from browser_use import Agent, BrowserSession
     from browser_use.filesystem.file_system import FileSystem
-    from browser_use.agent.service import Agent
+
+from browser_use import Agent, BrowserSession
+from browser_use.browser.profile import BrowserProfile
+from browser_use.llm.openai.chat import ChatOpenAI
+from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
+try:
+    from ..mcp.server.ads_power.ads_power import startAdspowerProfile
+except ImportError:
+    import sys
+    from pathlib import Path
+
+    project_root = Path(__file__).resolve().parents[3]
+    if str(project_root) not in sys.path:
+        sys.path.append(str(project_root))
+
+    from agent.mcp.server.ads_power.ads_power import startAdspowerProfile
+
+
+class LoggingChatOpenAI(ChatOpenAI):
+    def get_client(self):
+        client = super().get_client()
+        original_create = client.chat.completions.create
+
+        @wraps(original_create)
+        async def create_with_logging(*args, **kwargs):
+            response = await original_create(*args, **kwargs)
+            org = None
+
+            try:
+                org = response.response.headers.get("openai-organization")
+            except AttributeError:
+                pass
+
+            if org:
+                self.logger.info("OpenAI organization: %s", org)
+
+            return response
+
+        client.chat.completions.create = create_with_logging
+        return client
+
+load_dotenv()
+
+
+
+def _build_browser_session(br_type="existing_chrome", adspower_profile="", port="9228", headless=False) -> BrowserSession:
+    """Construct a BrowserSession.
+
+    Priority:
+    1. If ADSPOWER_PROFILE_ID is set, attach to the AdsPower fingerprint browser.
+    2. Otherwise, attach to a generic Chrome instance using BROWSER_USE_CDP_URL
+       (defaults to http://127.0.0.1:9228).
+    """
+    if br_type == "adspower":
+        adspower_profile = adspower_profile
+        if not adspower_profile:
+            adspower_profile = os.getenv("ADSPOWER_PROFILE_ID", "")
+
+        print("ads_profile:", adspower_profile)
+
+        if adspower_profile:
+            return _build_adspower_browser_session(adspower_profile)
+
+    else:
+        cdp_url = os.getenv("BROWSER_USE_CDP_URL", f"http://127.0.0.1:{port}")
+        print("cdp_url:", cdp_url)
+        profile = BrowserProfile(headless=headless, cdp_url=cdp_url)
+        profile.is_local = False
+        return BrowserSession(browser_profile=profile, id="ec"+uuid7str())
+
+
+def _build_adspower_browser_session(profile_id: str) -> BrowserSession:
+    """Attach BrowserUse to an AdsPower-managed Chrome profile."""
+
+    api_key = os.getenv("ADSPOWER_API_KEY")
+    if not api_key:
+        raise RuntimeError("ADSPOWER_API_KEY must be set to use the AdsPower browser variant")
+
+    port_env = os.getenv("ADSPOWER_PORT", "50325")
+    try:
+        port = int(port_env)
+    except ValueError as exc:  # pragma: no cover - defensive parsing
+        raise RuntimeError(f"ADSPOWER_PORT must be an integer, got: {port_env!r}") from exc
+
+    print("ads apikey:", api_key, "ads profile_id:", profile_id, "ads port:", port)
+    response = startAdspowerProfile(api_key, profile_id, port)
+    data = response.get("data", {}) if isinstance(response, dict) else {}
+    ws_info = data.get("ws", {}) if isinstance(data, dict) else {}
+
+    # Prefer full devtools websocket endpoint when available
+    devtools_ws = ws_info.get("devtools") or ws_info.get("chromedevtools")
+    selenium_addr = ws_info.get("selenium") or ws_info.get("webdriver")
+    debug_port = data.get("debug_port")
+
+    cdp_url: str | None = None
+    if isinstance(devtools_ws, str) and devtools_ws:
+        cdp_url = devtools_ws
+    elif isinstance(selenium_addr, str) and selenium_addr:
+        addr = selenium_addr.replace("ws://", "http://", 1)
+        if not (addr.startswith("http://") or addr.startswith("https://")):
+            addr = f"http://{addr}"
+        cdp_url = addr
+    elif debug_port:
+        cdp_url = f"http://127.0.0.1:{debug_port}"
+
+    if not cdp_url:
+        raise RuntimeError("Failed to determine AdsPower CDP endpoint from startAdspowerProfile response")
+
+    profile = BrowserProfile(headless=False, cdp_url=cdp_url)
+    profile.is_local = False
+    return BrowserSession(browser_profile=profile, id="ap"+uuid7str())
+
 
 
 class UnifiedBrowserManager:
@@ -39,8 +151,9 @@ class UnifiedBrowserManager:
         # Component instances
         self._async_crawler = None
         self._browser_session = None
-        self._browser_use_controller = None
         self._browser_use_file_system = None
+
+        self._browser_sessions = []
 
         # Configuration
         self._crawler_config = None
@@ -166,6 +279,42 @@ class UnifiedBrowserManager:
                 return None
 
         return self._browser_session
+
+
+
+    def create_browser_session(self, br_type="chromium", fpb_profile="") -> Optional['BrowserSession']:
+        """Create BrowserSession - fingerprint browser profile"""
+        if not self._initialized:
+            logger.warning("Manager not initialized, cannot get BrowserSession")
+            return None
+
+        if self._browser_session is None:
+            try:
+                from browser_use.browser import BrowserSession as _BrowserSession
+                # Note: BrowserSession needs to be created after AsyncWebCrawler is started
+                # This is just preparation, actual creation should be done when needed
+                if br_type == "adspower":
+                    headless = False
+                    logger.debug("BrowserSession adspower will be created when needed")
+                    self._browser_session = _build_browser_session(br_type, fpb_profile)
+                elif br_type == "existing_chrome":
+                    headless = False
+                    logger.debug("BrowserSession existing chrome will be created when needed")
+
+                    self._browser_session = _build_browser_session(br_type)
+                else:
+                    # this is simply bring up a new chromium browser
+                    logger.debug("BrowserSession new chromium will be created when needed")
+                    self._browser_session = BrowserSession(browser_profile=DEFAULT_BROWSER_PROFILE, id="nc"+uuid7str())
+                    print("BrowserSession new chromium created")
+                return self._browser_session
+
+            except Exception as e:
+                logger.error(f"Failed to prepare BrowserSession: {e}")
+                return None
+
+        return self._browser_session
+
 
     def _create_bu_agent(self, mainwin=None):
         try:
@@ -330,26 +479,6 @@ class UnifiedBrowserManager:
             return None
 
 
-    def get_browser_use_controller(self) -> Optional['Controller']:
-        if not self._initialized:
-            logger.warning("Manager not initialized, cannot get BrowserUseController")
-            return None
-
-        if self._browser_use_controller is None:
-            from browser_use.controller.service import Controller as BrowserUseController
-            try:
-                logger.debug("Creating BrowserUseController instance...")
-                display_files_in_done_text = True
-                self._browser_use_controller = BrowserUseController(
-                    display_files_in_done_text=display_files_in_done_text
-                )
-                logger.debug("✅ BrowserUseController created successfully")
-
-            except Exception as e:
-                logger.error(f"Failed to create BrowserUseController: {e}")
-                return None
-
-        return self._browser_use_controller
     
     def get_browser_use_file_system(self) -> Optional['FileSystem']:
         if not self._initialized:
@@ -408,7 +537,6 @@ class UnifiedBrowserManager:
                 # Clean up component instances
                 self._async_crawler = None
                 self._browser_session = None
-                self._browser_use_controller = None
                 self._browser_use_file_system = None
 
                 self._initialized = False
@@ -429,7 +557,6 @@ class UnifiedBrowserManager:
             'initialization_error': self._initialization_error,
             'async_crawler_ready': self._async_crawler is not None,
             'browser_session_ready': self._browser_session is not None,
-            'browser_use_controller_ready': self._browser_use_controller is not None,
             'browser_use_file_system_ready': self._browser_use_file_system is not None,
             'playwright_manager_status': self._playwright_manager.get_status() if self._playwright_manager else None
         }

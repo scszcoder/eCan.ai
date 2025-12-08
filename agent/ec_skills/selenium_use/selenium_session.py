@@ -84,3 +84,5 @@ class SeleniumBrowserSession(BrowserSession):
             return devtools_addr
 
         return f"http://{devtools_addr}"
+
+

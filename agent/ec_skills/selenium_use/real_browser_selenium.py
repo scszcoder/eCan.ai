@@ -56,16 +56,18 @@ def _build_browser_session() -> BrowserSession:
     2. Otherwise, attach to a generic Chrome instance using BROWSER_USE_CDP_URL
        (defaults to http://127.0.0.1:9228).
     """
+    from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
 
     adspower_profile = os.getenv("ADSPOWER_PROFILE_ID", "")
     print("ads_profile:", adspower_profile)
-    if adspower_profile:
-        return _build_adspower_browser_session(adspower_profile)
+    # if adspower_profile:
+    #     return _build_adspower_browser_session(adspower_profile)
 
     cdp_url = os.getenv("BROWSER_USE_CDP_URL", "http://127.0.0.1:9228")
     print("cdp_url:", cdp_url)
     profile = BrowserProfile(headless=False, cdp_url=cdp_url)
     profile.is_local = False
+    profile = DEFAULT_BROWSER_PROFILE
     return BrowserSession(browser_profile=profile)
 
 
@@ -120,6 +122,7 @@ async def main() -> None:
         browser_session=session,
     )
 
+    # await asyncio.sleep(10)
     await agent.run()
 
 
