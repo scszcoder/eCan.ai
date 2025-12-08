@@ -1830,6 +1830,9 @@ jobs:
         compression-level: 6
         if-no-files-found: error
 
+    # Note: Matrix job outputs removed - using input parameters directly
+    # for architecture detection in downstream jobs
+
   # ============================================================================
   # DISTRIBUTION LAYER: S3 Upload and OTA Feed Generation
   # ============================================================================
@@ -1866,21 +1869,121 @@ jobs:
   # ----------------------------------------------------------------------------
   # Step 2: Generate OTA update feeds (Appcast)
   # ----------------------------------------------------------------------------
-  generate-appcast:
-    name: Generate Appcast
-    needs: [validate-tag, upload-to-s3]
+  # Generate Appcast for Windows (if built)
+  generate-appcast-windows:
+    name: Generate Appcast (Windows)
+    needs: [validate-tag, upload-to-s3, build-windows]
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
-      needs.upload-to-s3.result == 'success'
+      needs.upload-to-s3.result == 'success' &&
+      needs.build-windows.result == 'success'
     uses: ./.github/workflows/shared-appcast-generation.yml
     with:
       environment: ${{ needs.validate-tag.outputs.environment }}
       channel: ${{ needs.validate-tag.outputs.channel }}
       version: ${{ needs.validate-tag.outputs.version }}
-      platform: ${{ github.event.inputs.platform || 'all' }}
-      arch: ${{ github.event.inputs.arch || 'all' }}
+      platform: 'windows'
+      arch: 'amd64'
     secrets: inherit
+
+  # Generate Appcast for macOS amd64 (if built)
+  generate-appcast-macos-amd64:
+    name: Generate Appcast (macOS Intel)
+    needs: [validate-tag, upload-to-s3, build-macos]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.upload-to-s3.result == 'success' &&
+      needs.build-macos.result == 'success' &&
+      (github.event.inputs.arch == 'all' || github.event.inputs.arch == '' || github.event.inputs.arch == 'amd64')
+    uses: ./.github/workflows/shared-appcast-generation.yml
+    with:
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel: ${{ needs.validate-tag.outputs.channel }}
+      version: ${{ needs.validate-tag.outputs.version }}
+      platform: 'macos'
+      arch: 'amd64'
+    secrets: inherit
+
+  # Generate Appcast for macOS aarch64 (if built)
+  generate-appcast-macos-aarch64:
+    name: Generate Appcast (macOS ARM)
+    needs: [validate-tag, upload-to-s3, build-macos]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.upload-to-s3.result == 'success' &&
+      needs.build-macos.result == 'success' &&
+      (github.event.inputs.arch == 'all' || github.event.inputs.arch == '' || github.event.inputs.arch == 'aarch64')
+    uses: ./.github/workflows/shared-appcast-generation.yml
+    with:
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel: ${{ needs.validate-tag.outputs.channel }}
+      version: ${{ needs.validate-tag.outputs.version }}
+      platform: 'macos'
+      arch: 'aarch64'
+    secrets: inherit
+
+  # ----------------------------------------------------------------------------
+  # Step 2.5: Generate latest.json (after all Appcasts)
+  # ----------------------------------------------------------------------------
+  generate-latest-json:
+    name: Generate latest.json
+    needs: [
+      validate-tag,
+      upload-to-s3,
+      generate-appcast-windows,
+      generate-appcast-macos-amd64,
+      generate-appcast-macos-aarch64
+    ]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.upload-to-s3.result == 'success' &&
+      (needs.generate-appcast-windows.result == 'success' ||
+       needs.generate-appcast-macos-amd64.result == 'success' ||
+       needs.generate-appcast-macos-aarch64.result == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install boto3 pyyaml packaging
+
+      - name: Generate latest.json
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+        run: |
+          python3 << 'PYTHON_SCRIPT'
+          import sys
+          sys.path.insert(0, 'build_system/scripts')
+          from generate_appcast import AppcastGenerator
+          
+          generator = AppcastGenerator(
+              environment='${{ needs.validate-tag.outputs.environment }}',
+              channel='${{ needs.validate-tag.outputs.channel }}'
+          )
+          
+          print('[INFO] Generating latest.json only...')
+          success = generator.generate_latest_json()
+          
+          if success:
+              print('[OK] latest.json generated successfully')
+              sys.exit(0)
+          else:
+              print('[ERROR] Failed to generate latest.json')
+              sys.exit(1)
+          PYTHON_SCRIPT
 
   # ----------------------------------------------------------------------------
   # Step 3: Generate download links
@@ -1895,6 +1998,8 @@ jobs:
     uses: ./.github/workflows/shared-download-links.yml
     with:
       version: ${{ needs.validate-tag.outputs.version }}
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel: ${{ needs.validate-tag.outputs.channel }}
       windows-build-result: ${{ needs.build-windows.result }}
       macos-build-result: ${{ needs.build-macos.result }}
       macos-built-amd64: ${{ (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') && (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all') }}
@@ -1906,7 +2011,17 @@ jobs:
   # ----------------------------------------------------------------------------
   final-status:
     name: Final Status Summary
-    needs: [validate-tag, build-windows, build-macos, upload-to-s3, generate-appcast, generate-download-links]
+    needs: [
+      validate-tag, 
+      build-windows, 
+      build-macos, 
+      upload-to-s3, 
+      generate-appcast-windows,
+      generate-appcast-macos-amd64,
+      generate-appcast-macos-aarch64,
+      generate-latest-json,
+      generate-download-links
+    ]
     if: always()
     uses: ./.github/workflows/shared-final-status.yml
     with:
@@ -1914,7 +2029,7 @@ jobs:
       windows-result: ${{ needs.build-windows.result }}
       macos-result: ${{ needs.build-macos.result }}
       upload-result: ${{ needs.upload-to-s3.result }}
-      appcast-result: ${{ needs.generate-appcast.result }}
+      appcast-result: ${{ (needs.generate-appcast-windows.result == 'success' || needs.generate-appcast-macos-amd64.result == 'success' || needs.generate-appcast-macos-aarch64.result == 'success') && 'success' || 'failure' }}
       links-result: ${{ needs.generate-download-links.result }}
       is-simulation: false
     secrets: inherit
