@@ -190,6 +190,8 @@ def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, 
             "case": "",
             "goals": [],
             "breakpoint": False,
+            "max_steps": 300,
+            "n_steps": 0,
             "metadata": {"form": form},
         }
         if isinstance(current_state, dict):
