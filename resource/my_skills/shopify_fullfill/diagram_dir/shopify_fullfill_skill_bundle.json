@@ -58,7 +58,7 @@
             "type": "start",
             "meta": {
               "position": {
-                "x": -843.4726515801658,
+                "x": -1384.7186220487533,
                 "y": -135.87451239109532
               }
             },
@@ -1059,8 +1059,8 @@
             "type": "comment",
             "meta": {
               "position": {
-                "x": -843.4726515801658,
-                "y": -309.47435204010225
+                "x": -1373.5818736852023,
+                "y": -333.7040073031687
               }
             },
             "data": {
@@ -1220,6 +1220,93 @@
                 }
               }
             }
+          },
+          {
+            "id": "mcp_MaW6N",
+            "type": "mcp",
+            "meta": {
+              "position": {
+                "x": -1064.1485698355614,
+                "y": -135.87451239109532
+              }
+            },
+            "data": {
+              "title": "MCP_1",
+              "callable": {
+                "id": "llm-auto-select",
+                "name": "llm auto select",
+                "desc": "Let the LLM automatically select the appropriate tool based on the context",
+                "params": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "returns": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "type": "system",
+                "source": ""
+              },
+              "inputsValues": {},
+              "inputs": {
+                "type": "object",
+                "properties": {}
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              },
+              "data": {
+                "callable": {
+                  "name": "in_browser_extract_content",
+                  "desc": "<category>Browser Automation</category><sub-category>Selenium Search Action</sub-category>use browser driver to extract dom tree from the web page.",
+                  "params": {
+                    "type": "object",
+                    "required": [
+                      "input"
+                    ],
+                    "properties": {
+                      "input": {
+                        "type": "object",
+                        "required": [
+                          "url"
+                        ],
+                        "properties": {
+                          "url": {
+                            "type": "string",
+                            "format": "uri",
+                            "description": "URL of the web page to open, if this is empty, then whatever currently opened page will be extracted."
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "returns": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "type": "system",
+                  "source": ""
+                }
+              }
+            }
           }
         ],
         "edges": [
@@ -1239,7 +1326,7 @@
           },
           {
             "sourceNodeID": "start_R2Ckr",
-            "targetNodeID": "pend_event_rqn66"
+            "targetNodeID": "mcp_MaW6N"
           },
           {
             "sourceNodeID": "845126",
@@ -1272,6 +1359,10 @@
             "targetNodeID": "pend_event_rqn66"
           },
           {
+            "sourceNodeID": "mcp_MaW6N",
+            "targetNodeID": "pend_event_rqn66"
+          },
+          {
             "sourceNodeID": "task_a5SoO",
             "targetNodeID": "289663"
           },
@@ -1282,7 +1373,7 @@
         ]
       },
       "createdAt": 1764879518895,
-      "lastOpenedAt": 1765051500694
+      "lastOpenedAt": 1765091573104
     }
   ],
   "openTabs": [
