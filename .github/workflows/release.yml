@@ -1895,6 +1895,8 @@ jobs:
     uses: ./.github/workflows/shared-download-links.yml
     with:
       version: ${{ needs.validate-tag.outputs.version }}
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel: ${{ needs.validate-tag.outputs.channel }}
       windows-build-result: ${{ needs.build-windows.result }}
       macos-build-result: ${{ needs.build-macos.result }}
       macos-built-amd64: ${{ (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') && (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all') }}
