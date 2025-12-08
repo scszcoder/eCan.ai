@@ -6,6 +6,7 @@
 try:
     from . import user_handler  # noqa: F401 - Login/auth handlers
     from . import settings_handler  # noqa: F401 - Settings handlers
+    from . import lightrag_handler  # noqa: F401 - LightRAG handlers (needed for progress tracking)
 except Exception:
     pass
 
