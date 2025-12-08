@@ -1,9 +1,10 @@
-import { theme, Pagination, Select, Modal, App, Tooltip } from 'antd';
+import { theme, Pagination, Select, Modal, App, Tooltip, Progress, Switch } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
 import { ScanOutlined, UnorderedListOutlined, ClearOutlined, FolderOpenOutlined, UploadOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { useTheme } from '@/contexts/ThemeContext';
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import type { ProcessingProgress } from '@/services/ipc/lightragApi';
 
 interface Document {
   id: string;
@@ -73,6 +74,10 @@ const DocumentsTab: React.FC = () => {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [statusCounts, setStatusCounts] = useState({ all: 0, PROCESSED: 0, PROCESSING: 0, PENDING: 0, FAILED: 0 });
   const [loading, setLoading] = useState(false);
+  const [processingProgress, setProcessingProgress] = useState<ProcessingProgress | null>(null);
+  const [documentProgress, setDocumentProgress] = useState<Map<string, number>>(new Map());
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [autoStopOnFailure, setAutoStopOnFailure] = useState(true); // 默认启用自动停止
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -91,6 +96,115 @@ const DocumentsTab: React.FC = () => {
   React.useEffect(() => {
     loadDocuments();
   }, [currentPage, pageSize, statusFilter]);
+
+  // Start progress polling when there are processing/pending documents
+  useEffect(() => {
+    const hasActiveProcessing = statusCounts.PROCESSING > 0 || statusCounts.PENDING > 0;
+    
+    if (hasActiveProcessing && !progressIntervalRef.current) {
+      // Start polling
+      startProgressPolling();
+    } else if (!hasActiveProcessing && progressIntervalRef.current) {
+      // Stop polling
+      stopProgressPolling();
+    }
+    
+    return () => {
+      stopProgressPolling();
+    };
+  }, [statusCounts.PROCESSING, statusCounts.PENDING]);
+
+  const startProgressPolling = () => {
+    if (progressIntervalRef.current) return;
+    
+    // Poll immediately
+    fetchProgress();
+    
+    // Then poll every 2 seconds
+    progressIntervalRef.current = setInterval(() => {
+      fetchProgress();
+    }, 2000);
+  };
+
+  const stopProgressPolling = () => {
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+      
+      // Refresh document list when polling stops (processing completed)
+      console.log('[DocumentsTab] Processing completed, refreshing document list...');
+      loadDocuments();
+    }
+    setProcessingProgress(null);
+  };
+
+  const fetchProgress = async () => {
+    try {
+      const response = await get_ipc_api().lightragApi.getProcessingProgress();
+      if (response.success && response.data) {
+        console.log('[DocumentsTab] Progress update:', response.data);
+        setProcessingProgress(response.data);
+        
+        const progressData = response.data as any;
+        const failedCount = progressData.failed_count || 0;
+        const processingCount = progressData.processing_count || 0;
+        const pendingCount = progressData.pending_count || 0;
+        
+        // Check if there are failed documents and pending documents
+        // If processing is done (processing_count = 0) and there are failures with pending docs
+        // And auto-stop is enabled
+        if (autoStopOnFailure && failedCount > 0 && processingCount === 0 && pendingCount > 0) {
+          console.log('[DocumentsTab] Detected failed documents with pending ones, cancelling pipeline...');
+          
+          // Cancel pipeline to prevent pending documents from being processed
+          try {
+            await get_ipc_api().lightragApi.abortDocument({ id: 'auto-cancel' });
+            console.log('[DocumentsTab] Pipeline cancelled due to failures');
+            appendLog(`检测到 ${failedCount} 个文档处理失败，已自动停止处理流程`);
+            message.warning(`检测到 ${failedCount} 个文档处理失败，已自动停止处理流程`);
+            
+            // Stop polling
+            stopProgressPolling();
+            
+            // Reload documents after a short delay
+            setTimeout(() => {
+              loadDocuments();
+            }, 1000);
+            
+            return; // Exit early, don't continue processing
+          } catch (e) {
+            console.error('[DocumentsTab] Failed to auto-cancel pipeline:', e);
+          }
+        }
+        
+        // Refresh document list to get latest status
+        // This ensures the UI shows updated document statuses during processing
+        loadDocuments();
+        
+        // Calculate individual document progress
+        // Since we don't have per-document progress from backend,
+        // we estimate based on status and overall progress
+        const newProgress = new Map<string, number>();
+        const overallProgress = progressData.progress_percentage || 0;
+        
+        documents.forEach(doc => {
+          const status = doc.status?.toUpperCase();
+          if (status === 'PROCESSING') {
+            // For processing documents, use a value between 20-80%
+            // based on overall progress
+            newProgress.set(doc.id, Math.max(20, Math.min(80, overallProgress)));
+          } else if (status === 'PENDING') {
+            // Pending documents show 10%
+            newProgress.set(doc.id, 10);
+          }
+        });
+        
+        setDocumentProgress(newProgress);
+      }
+    } catch (e) {
+      console.error('Error fetching progress:', e);
+    }
+  };
 
   const handleSelectFiles = async () => {
     try {
@@ -252,14 +366,14 @@ const DocumentsTab: React.FC = () => {
         sort_direction: 'desc'
       });
 
+      console.log('[DocumentsTab] Raw API response:', response);
+
       if (response.success && response.data) {
           const res = response.data as any;
           // 支持两种数据结构：res.documents 或 res.data.documents
           const docsArray = res?.documents || res?.data?.documents;
           const pagination = res?.pagination || res?.data?.pagination;
           const statusCountsData = res?.status_counts || res?.data?.status_counts;
-          
-          console.log('[DocumentsTab] loadDocuments response:', { res, docsArray, pagination, statusCountsData });
           
           // 更新 status counts（如果返回了）
           if (statusCountsData) {
@@ -288,8 +402,12 @@ const DocumentsTab: React.FC = () => {
             setTotalDocs(pagination?.total_count || docsArray.length);
             if (docsArray.length > 0) {
               appendLog(t('pages.knowledge.documents.loadedDocuments', { count: docsArray.length, page: currentPage }));
+            } else {
+              console.warn('[DocumentsTab] Documents array is empty');
+              appendLog('No documents found');
             }
           } else if (res && res.data && res.data.statuses) {
+            console.log('[DocumentsTab] Using fallback statuses structure');
             // Fallback for older API or if pagination not supported fully
             // Flatten all documents from different statuses
             const allDocs: Document[] = [];
@@ -308,10 +426,16 @@ const DocumentsTab: React.FC = () => {
             setTotalDocs(allDocs.length);
           }
       } else {
-          appendLog('Error loading documents: ' + (response.error?.message || 'Unknown error'));
+          console.error('[DocumentsTab] API call failed:', response);
+          const errorMsg = 'Error loading documents: ' + (response.error?.message || response.error?.code || 'Unknown error');
+          appendLog(errorMsg);
+          message.error(errorMsg);
       }
     } catch (e: any) {
-      appendLog('Error loading documents: ' + (e?.message || String(e)));
+      console.error('[DocumentsTab] Exception in loadDocuments:', e);
+      const errorMsg = 'Error loading documents: ' + (e?.message || String(e));
+      appendLog(errorMsg);
+      message.error(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -563,45 +687,220 @@ const DocumentsTab: React.FC = () => {
     setLog('');
   };
 
+  const handleAbortDocument = (doc: Document) => {
+    modal.confirm({
+      title: t('pages.knowledge.documents.stopProcessing'),
+      content: t('pages.knowledge.documents.stopProcessingConfirm', { filePath: doc.file_path }),
+      okText: t('common.confirm'),
+      cancelText: t('common.cancel'),
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          appendLog(t('pages.knowledge.documents.stoppingDocument'));
+          const response = await get_ipc_api().lightragApi.abortDocument({ id: doc.id });
+          if (response.success) {
+              appendLog(t('pages.knowledge.documents.documentStopped'));
+              message.success(t('pages.knowledge.documents.documentStopped'));
+              
+              // Stop polling immediately
+              console.log('[DocumentsTab] Pipeline cancelled, stopping polling...');
+              stopProgressPolling();
+              
+              // Poll for status updates until all processing documents are stopped
+              // The cancel_pipeline API is async, it sets a flag and the pipeline
+              // will mark documents as FAILED in the background
+              console.log('[DocumentsTab] Polling for document status updates...');
+              
+              let pollCount = 0;
+              const maxPolls = 20; // Maximum 20 polls (20 seconds)
+              const pollInterval = 1000; // Poll every 1 second
+              
+              const pollForUpdates = async () => {
+                pollCount++;
+                console.log(`[DocumentsTab] Poll ${pollCount}/${maxPolls} - checking document statuses...`);
+                
+                // Reload documents
+                await loadDocuments();
+                
+                // Check if there are still processing documents
+                // Note: PENDING documents won't be processed after cancel, but they stay in PENDING state
+                const countsResponse = await get_ipc_api().lightragApi.getStatusCounts();
+                if (countsResponse.success && countsResponse.data) {
+                  const counts = countsResponse.data as any;
+                  const processing = counts.processing || 0;
+                  const pending = counts.pending || 0;
+                  const failed = counts.failed || 0;
+                  
+                  console.log(`[DocumentsTab] Current status - processing: ${processing}, pending: ${pending}, failed: ${failed}`);
+                  
+                  // Only wait for PROCESSING documents to become FAILED
+                  // PENDING documents will stay PENDING after cancel (they won't be processed)
+                  if (processing === 0) {
+                    console.log('[DocumentsTab] All processing documents stopped');
+                    if (pending > 0) {
+                      const msg = t('pages.knowledge.documents.processingStoppedWithPending', { failed, pending });
+                      appendLog(msg);
+                      message.info({
+                        content: msg,
+                        duration: 10,
+                        style: { maxWidth: '600px' }
+                      });
+                    } else {
+                      appendLog('所有文档已停止处理');
+                    }
+                    return; // All done
+                  }
+                }
+                
+                // Continue polling if not done and haven't reached max polls
+                if (pollCount < maxPolls) {
+                  setTimeout(pollForUpdates, pollInterval);
+                } else {
+                  console.log('[DocumentsTab] Max polls reached, stopping');
+                  appendLog('已达到最大轮询次数，请手动刷新查看最新状态');
+                }
+              };
+              
+              // Start polling after a short delay
+              setTimeout(pollForUpdates, 500);
+          } else {
+              const errorMsg = response.error?.message || 'Unknown error';
+              appendLog(t('pages.knowledge.documents.errorStoppingDocument') + errorMsg);
+              message.error({
+                content: t('pages.knowledge.documents.errorStoppingDocument') + errorMsg,
+                duration: 8,
+                style: { maxWidth: '600px' }
+              });
+          }
+        } catch (e: any) {
+          const errorMsg = e?.message || String(e);
+          appendLog(t('pages.knowledge.documents.errorStoppingDocument') + errorMsg);
+          message.error({
+            content: t('pages.knowledge.documents.errorStoppingDocument') + errorMsg,
+            duration: 8,
+            style: { maxWidth: '600px' }
+          });
+        }
+      }
+    });
+  };
+
   const handleDeleteDocument = (doc: Document) => {
-    const titleKey = 'pages.knowledge.documents.deleteDocument';
-    const titleTrans = t(titleKey);
-    // If translation is missing (returns key), fallback to Chinese
-    const title = titleTrans === titleKey ? '删除文档' : titleTrans;
+    const title = t('pages.knowledge.documents.deleteDocument');
+    
+    const status = doc.status?.toUpperCase();
+    const isPending = status === 'PENDING';
+    const isProcessing = status === 'PROCESSING';
+
+    let confirmContent = '';
+    if (isPending) {
+      confirmContent = t('pages.knowledge.documents.deletePendingConfirm', { filePath: doc.file_path });
+    } else if (isProcessing) {
+      confirmContent = t('pages.knowledge.documents.deleteProcessingConfirm', { filePath: doc.file_path });
+    } else {
+      confirmContent = t('pages.knowledge.documents.deleteDocumentConfirm', { filePath: doc.file_path });
+    }
 
     modal.confirm({
       title: title,
-      content: t('pages.knowledge.documents.deleteDocumentConfirm', { filePath: doc.file_path }),
+      content: confirmContent,
       okText: t('common.confirm'),
       cancelText: t('common.cancel'),
+      okButtonProps: (isPending || isProcessing) ? { danger: true } : undefined,
       onOk: async () => {
         try {
+          // If document is PROCESSING, cancel pipeline first
+          if (isProcessing) {
+            appendLog(t('pages.knowledge.documents.stoppingProcessingFirst', { filePath: doc.file_path }));
+            
+            try {
+              await get_ipc_api().lightragApi.abortDocument({ id: doc.id });
+              appendLog(t('pages.knowledge.documents.processingStoppedWaitingUpdate'));
+              
+              // Wait longer for the cancellation to take effect and document to be marked as FAILED
+              await new Promise(resolve => setTimeout(resolve, 3000));
+            } catch (e) {
+              console.error('[DocumentsTab] Failed to cancel before delete:', e);
+              appendLog(t('pages.knowledge.documents.warnStopFailedTryDelete'));
+            }
+          }
+          
+          // For PENDING documents, warn user but still try
+          if (isPending) {
+            appendLog(t('pages.knowledge.documents.warnPendingCannotDelete', { filePath: doc.file_path }));
+          }
+          
           appendLog(t('pages.knowledge.documents.deletingDocument', { filePath: doc.file_path }));
           // Pass 'id' as required by the updated backend handler
           const response = await get_ipc_api().lightragApi.deleteDocument({ id: doc.id });
           if (response.success) {
               appendLog(t('pages.knowledge.documents.documentDeleted'));
-              message.success(t('pages.knowledge.documents.documentDeleted'));
-              // Reload documents
+              
+              // Reload documents to verify deletion
               await loadDocuments();
+              
+              // Wait a bit and check if document still exists
+              await new Promise(resolve => setTimeout(resolve, 500));
+              const verifyResponse = await get_ipc_api().lightragApi.getDocumentsPaginated({
+                page: 1,
+                page_size: 100,
+                status_filter: null,
+                sort_field: 'updated_at',
+                sort_direction: 'desc'
+              });
+              
+              if (verifyResponse.success && verifyResponse.data) {
+                const allDocs = (verifyResponse.data as any).documents || [];
+                const stillExists = allDocs.some((d: any) => d.id === doc.id);
+                
+                if (stillExists) {
+                  // Document still exists, deletion failed silently
+                  const errorMsg = t('pages.knowledge.documents.deletionFailedStillExists', { status: doc.status?.toUpperCase() });
+                  appendLog(errorMsg);
+                  message.error({
+                    content: errorMsg,
+                    duration: 10,
+                    style: { maxWidth: '600px', whiteSpace: 'pre-line' }
+                  });
+                } else {
+                  message.success(t('pages.knowledge.documents.documentDeleted'));
+                }
+              } else {
+                message.success(t('pages.knowledge.documents.documentDeleted'));
+              }
           } else {
               const errorMsg = response.error?.message || 'Unknown error';
-              appendLog(t('pages.knowledge.documents.errorDeletingDocument') + errorMsg);
-              message.error({
-                content: t('pages.knowledge.documents.errorDeletingDocument') + errorMsg,
-                duration: 8,
-                style: { maxWidth: '600px' }
-              });
+              
+              // Special handling for PENDING documents
+              if (isPending && errorMsg.includes('Cannot delete')) {
+                const specialMsg = t('pages.knowledge.documents.cannotDeletePendingSolution');
+                appendLog(specialMsg);
+                message.warning({
+                  content: specialMsg,
+                  duration: 15,
+                  style: { maxWidth: '600px', whiteSpace: 'pre-line' }
+                });
+              } else {
+                appendLog(t('pages.knowledge.documents.errorDeletingDocument') + errorMsg);
+                message.error({
+                  content: t('pages.knowledge.documents.errorDeletingDocument') + errorMsg,
+                  duration: 8,
+                  style: { maxWidth: '600px' }
+                });
+              }
               throw new Error(errorMsg);
           }
         } catch (e: any) {
           const errorMsg = e?.message || String(e);
-          appendLog(t('pages.knowledge.documents.errorDeletingDocument') + errorMsg);
-          message.error({
-            content: t('pages.knowledge.documents.errorDeletingDocument') + errorMsg,
-            duration: 8,
-            style: { maxWidth: '600px' }
-          });
+          // Error already handled above for PENDING documents
+          if (!isPending || !errorMsg.includes('Cannot delete')) {
+            appendLog(t('pages.knowledge.documents.errorDeletingDocument') + errorMsg);
+            message.error({
+              content: t('pages.knowledge.documents.errorDeletingDocument') + errorMsg,
+              duration: 8,
+              style: { maxWidth: '600px' }
+            });
+          }
         }
       }
     });
@@ -681,6 +980,74 @@ const DocumentsTab: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Processing Progress Bar */}
+      {processingProgress && (processingProgress.processing_count > 0 || processingProgress.pending_count > 0) && (
+        <div style={{
+          background: token.colorBgContainer,
+          borderRadius: 12,
+          border: `1px solid ${token.colorBorder}`,
+          padding: '16px',
+          boxShadow: isDark ? '0 2px 8px rgba(0, 0, 0, 0.15)' : '0 2px 8px rgba(0, 0, 0, 0.06)'
+        }}>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'space-between', 
+              alignItems: 'center',
+              marginBottom: 8
+            }}>
+              <span style={{ 
+                fontSize: 14, 
+                fontWeight: 600, 
+                color: token.colorText 
+              }}>
+                {t('pages.knowledge.documents.processingProgress')}
+              </span>
+              <span style={{ 
+                fontSize: 13, 
+                color: token.colorTextSecondary 
+              }}>
+                {processingProgress.processed_count} / {processingProgress.total_count} {t('pages.knowledge.documents.documentsProcessed')}
+              </span>
+            </div>
+            <Progress 
+              percent={processingProgress.progress_percentage} 
+              status="active"
+              strokeColor={{
+                from: token.colorPrimary,
+                to: token.colorPrimaryActive,
+              }}
+            />
+          </div>
+          <div style={{ 
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 16,
+            fontSize: 12,
+            color: token.colorTextSecondary
+          }}>
+            <div style={{ display: 'flex', gap: 16 }}>
+              <span>⏳ {t('pages.knowledge.documents.processing')}: {processingProgress.processing_count}</span>
+              <span>📋 {t('pages.knowledge.documents.pending')}: {processingProgress.pending_count}</span>
+              {processingProgress.failed_count > 0 && (
+                <span style={{ color: token.colorError }}>❌ {t('pages.knowledge.documents.failed')}: {processingProgress.failed_count}</span>
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Switch 
+                size="small"
+                checked={autoStopOnFailure}
+                onChange={setAutoStopOnFailure}
+              />
+              <span style={{ fontSize: 12, color: token.colorTextSecondary }}>
+                失败时自动停止
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Pending files section - only show when files are selected */}
       {selectedFiles.length > 0 && (
@@ -1002,7 +1369,21 @@ const DocumentsTab: React.FC = () => {
                     color: getStatusColor(doc.status),
                     fontWeight: 600
                   }}>
-                    {getStatusText(doc.status)}
+                    {(doc.status?.toUpperCase() === 'PROCESSING' || doc.status?.toUpperCase() === 'PENDING') ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
+                        <span style={{ fontSize: 11 }}>{getStatusText(doc.status)}</span>
+                        <Progress 
+                          percent={documentProgress.get(doc.id) || (doc.status?.toUpperCase() === 'PROCESSING' ? 50 : 10)}
+                          size="small"
+                          status="active"
+                          strokeColor={token.colorWarning}
+                          style={{ width: 80, margin: 0 }}
+                          showInfo={false}
+                        />
+                      </div>
+                    ) : (
+                      getStatusText(doc.status)
+                    )}
                   </div>
                   <div style={{ 
                     textAlign: 'center',
@@ -1047,22 +1428,41 @@ const DocumentsTab: React.FC = () => {
                     }) : '-'}
                   </div>
                   <div style={{ textAlign: 'center' }}>
-                    <button 
-                      className="ec-btn-small"
-                      onClick={() => handleDeleteDocument(doc)}
-                      style={{
-                        padding: '4px 12px',
-                        fontSize: 12,
-                        background: token.colorErrorBg,
-                        color: token.colorError,
-                        border: `1px solid ${token.colorErrorBorder}`,
-                        borderRadius: 6,
-                        cursor: 'pointer',
-                        transition: 'all 0.2s'
-                      }}
-                    >
-                      {t('common.delete')}
-                    </button>
+                    {doc.status?.toUpperCase() === 'PROCESSING' ? (
+                      <button 
+                        className="ec-btn-small"
+                        onClick={() => handleAbortDocument(doc)}
+                        style={{
+                          padding: '4px 12px',
+                          fontSize: 12,
+                          background: token.colorWarningBg,
+                          color: token.colorWarning,
+                          border: `1px solid ${token.colorWarningBorder}`,
+                          borderRadius: 6,
+                          cursor: 'pointer',
+                          transition: 'all 0.2s'
+                        }}
+                      >
+                        {t('pages.knowledge.documents.stop')}
+                      </button>
+                    ) : (
+                      <button 
+                        className="ec-btn-small"
+                        onClick={() => handleDeleteDocument(doc)}
+                        style={{
+                          padding: '4px 12px',
+                          fontSize: 12,
+                          background: token.colorErrorBg,
+                          color: token.colorError,
+                          border: `1px solid ${token.colorErrorBorder}`,
+                          borderRadius: 6,
+                          cursor: 'pointer',
+                          transition: 'all 0.2s'
+                        }}
+                      >
+                        {t('common.delete')}
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
