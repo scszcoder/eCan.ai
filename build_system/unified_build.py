@@ -291,32 +291,8 @@ class UnifiedBuildSystem:
             if code_sign_success:
                 signing_manager.verify_signatures()
             
-            # Perform OTA signing if version is provided
-            if version:
-                ota_signing_manager = create_ota_signing_manager(self.project_root)
-                ota_sign_success = ota_signing_manager.sign_for_ota(version)
-                
-                if ota_sign_success:
-                    print("[SIGN] [OK] OTA signing completed")
-                else:
-                    # OTA signing is REQUIRED for test/staging/production environments
-                    # Only dev/development environment can skip OTA signing
-                    # Read environment from env var (set by GitHub Actions) or default to dev
-                    environment = os.getenv('ECAN_ENVIRONMENT', 'dev').lower()
-                    # Normalize environment names
-                    if environment == 'development':
-                        environment = 'dev'
-                    
-                    if environment in ['test', 'staging', 'production']:
-                        print("[SIGN] [ERROR] ========================================")
-                        print("[SIGN] [ERROR] OTA signing REQUIRED for test/staging/production environments")
-                        print(f"[SIGN] [ERROR] Current environment: {environment}")
-                        print("[SIGN] [ERROR] Please ensure Ed25519 private key exists at:")
-                        print(f"[SIGN] [ERROR]   build_system/certificates/ed25519_private_key.pem")
-                        print("[SIGN] [ERROR] ========================================")
-                        raise Exception("OTA signing failed in non-dev environment")
-                    else:
-                        print(f"[SIGN] [WARNING] OTA signing failed in {environment} environment, continuing build")
+            # Note: OTA signing moved to after installer creation
+            # See: sign_ota_artifacts() method called after build_installer()
             
             print("[SIGN] Signing workflow completed")
             return True
@@ -330,6 +306,49 @@ class UnifiedBuildSystem:
             else:
                 print(f"[SIGN] [WARNING] Error during signing process: {e}")
                 # Other signing failures should not block the overall build
+                return True
+    
+    def sign_ota_artifacts(self, version: str) -> bool:
+        """Sign OTA artifacts (must be called AFTER installer creation)"""
+        if not version:
+            return True
+            
+        print("\n[OTA-SIGN] Starting OTA artifact signing...")
+        
+        try:
+            ota_signing_manager = create_ota_signing_manager(self.project_root)
+            ota_sign_success = ota_signing_manager.sign_for_ota(version)
+            
+            if ota_sign_success:
+                print("[OTA-SIGN] [OK] OTA signing completed")
+                return True
+            else:
+                # OTA signing is REQUIRED for test/staging/production environments
+                # Only dev/development environment can skip OTA signing
+                environment = os.getenv('ECAN_ENVIRONMENT', 'dev').lower()
+                # Normalize environment names
+                if environment == 'development':
+                    environment = 'dev'
+                
+                if environment in ['test', 'staging', 'production']:
+                    print("[OTA-SIGN] [ERROR] ========================================")
+                    print("[OTA-SIGN] [ERROR] OTA signing REQUIRED for test/staging/production environments")
+                    print(f"[OTA-SIGN] [ERROR] Current environment: {environment}")
+                    print("[OTA-SIGN] [ERROR] Please ensure Ed25519 private key exists at:")
+                    print(f"[OTA-SIGN] [ERROR]   build_system/certificates/ed25519_private_key.pem")
+                    print("[OTA-SIGN] [ERROR] ========================================")
+                    raise Exception("OTA signing failed in non-dev environment")
+                else:
+                    print(f"[OTA-SIGN] [WARNING] OTA signing failed in {environment} environment, continuing build")
+                    return True
+                    
+        except Exception as e:
+            error_msg = str(e)
+            if "OTA signing failed in non-dev environment" in error_msg:
+                print(f"[OTA-SIGN] [ERROR] {error_msg}")
+                return False
+            else:
+                print(f"[OTA-SIGN] [WARNING] Error during OTA signing: {e}")
                 return True
     
     def standardize_artifacts(self, version: str) -> None:
@@ -431,6 +450,13 @@ class UnifiedBuildSystem:
             stage_start = time.perf_counter()
             self.build_installer(mode, kwargs.get('skip_installer', False))
             build_times['installer'] = time.perf_counter() - stage_start
+            
+            # OTA signing (MUST be after installer creation)
+            if not kwargs.get('skip_installer', False):
+                stage_start = time.perf_counter()
+                if not self.sign_ota_artifacts(version):
+                    raise BuildError("OTA signing failed in non-dev environment", 1)
+                build_times['ota_signing'] = time.perf_counter() - stage_start
             
             # Test installer if requested
             if kwargs.get('test_installer', False) and not kwargs.get('skip_installer', False):

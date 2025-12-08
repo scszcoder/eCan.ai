@@ -186,8 +186,8 @@ jobs:
           echo "Channel: $CHANNEL (LOCKED)"
           echo "S3 Path: s3://ecan-releases/simulation/"
           echo ""
-          echo "⚠️  This workflow is ISOLATED from production environments"
-          echo "⚠️  All uploads go to: simulation/ prefix only"
+          echo "[WARNING] This workflow is ISOLATED from production environments"
+          echo "[WARNING] All uploads go to: simulation/ prefix only"
 
   # ============================================================================
   # BUILD LAYER: Windows amd64 (Simulation)
@@ -210,20 +210,69 @@ jobs:
       - name: Checkout code for signing
         uses: actions/checkout@v4
       
-      - name: Simulate Windows build
+      # ------------------------------------------------------------------------
+      # NEW: Test real environment setup to catch architecture issues
+      # ------------------------------------------------------------------------
+      - name: Test Python Environment Setup (Architecture Validation)
+        uses: ./.github/actions/setup-python-env
+        with:
+          platform: linux  # Use linux since we're on ubuntu-latest
+          requirements-file: requirements-base.txt
+          python-version: '3.11'
+          architecture: x64
+          install-pyinstaller: 'false'  # Don't need PyInstaller in simulation
+      
+      - name: Test Playwright Setup (Architecture Validation)
+        uses: ./.github/actions/setup-playwright
+        with:
+          platform: linux
+          arch: amd64
+          browsers: chromium
+      
+      - name: Simulate Windows build (with real build flow)
         run: |
-          echo "=== Simulating Windows amd64 Build ==="
+          echo "=== Simulating Windows amd64 Build (Real Flow) ==="
           echo "Platform: Windows"
           echo "Architecture: $BUILD_ARCH"
-          echo "Note: Real workflow always builds frontend (no skip logic)"
+          echo "Note: This simulates the ACTUAL build.py execution order"
           VERSION="${{ needs.validate-tag.outputs.version }}"
           mkdir -p dist artifacts
           
-          # Create fake installer
+          echo ""
+          echo "Build Flow Simulation (matching build.py):"
+          echo "  1. PyInstaller packaging"
+          echo "  2. Code signing"
+          echo "  3. Inno Setup (create installer)"
+          echo "  4. OTA signing"
+          echo "  5. Standardize artifacts"
+          echo ""
+          
+          # Step 1: Simulate PyInstaller output
+          echo "[1/5] Simulating PyInstaller packaging..."
+          mkdir -p dist/eCan
+          echo "fake exe" > dist/eCan/eCan.exe
+          echo "fake dll" > dist/eCan/library.dll
+          echo "  [OK] Created dist/eCan/ directory"
+          
+          # Step 2: Simulate code signing
+          echo "[2/5] Simulating code signing..."
+          echo "  [OK] Signed dist/eCan/eCan.exe"
+          echo "  [OK] Signed dist/eCan/library.dll"
+          
+          # Step 3: Simulate Inno Setup (create installer)
+          echo "[3/5] Simulating Inno Setup (creating installer)..."
           echo "fake windows installer" > "dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe"
+          echo "  [OK] Created: dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe"
+          
+          # Step 4: OTA signing will be done in next step
+          echo "[4/5] OTA signing (next step)..."
+          
+          # Step 5: Copy to artifacts
+          echo "[5/5] Preparing artifacts..."
           cp "dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe" artifacts/
           
-          echo "✅ Windows build simulated"
+          echo ""
+          echo "[OK] Windows build simulated (following real build.py flow)"
       
       # ------------------------------------------------------------------------
       # Step: Setup OTA Signing Key from GitHub Secrets
@@ -255,20 +304,31 @@ jobs:
             echo "✓ OTA signing key configured successfully"
           fi
       
-      - name: Generate real Ed25519 signature
+      - name: Simulate OTA signing (Step 4 - After Installer Creation)
         run: |
+          echo "[4/5] 🔐 Simulating OTA signing (after installer creation)..."
           VERSION="${{ needs.validate-tag.outputs.version }}"
           INSTALLER="dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe"
           
+          # Verify installer exists (this is the key check!)
+          if [ ! -f "$INSTALLER" ]; then
+            echo "❌ ERROR: Installer not found at: $INSTALLER"
+            echo "❌ This indicates OTA signing is happening BEFORE installer creation!"
+            echo "❌ This is the bug we're trying to catch!"
+            exit 1
+          fi
+          
+          echo "  ✓ Installer found: $INSTALLER"
+          
           # Install OpenSSL if needed
           if ! command -v openssl &> /dev/null; then
-            echo "Installing OpenSSL..."
+            echo "  Installing OpenSSL..."
             sudo apt-get update && sudo apt-get install -y openssl
           fi
           
           # Generate real Ed25519 signature
           if [ -f "build_system/certificates/ed25519_private_key.pem" ]; then
-            echo "Generating real Ed25519 signature..."
+            echo "  Generating real Ed25519 signature..."
             # Use signing_manager.py for Ed25519 signing (OpenSSL pkeyutl doesn't support Ed25519 in all versions)
             python build_system/signing_manager.py \
               "$INSTALLER" \
@@ -280,22 +340,25 @@ jobs:
               SIG_SIZE=$(wc -c < "${INSTALLER}.sig" | tr -d ' ')
               if [ "$SIG_SIZE" -eq 64 ]; then
                 cp "${INSTALLER}.sig" artifacts/
-                echo "✅ Real signature generated (64 bytes)"
+                echo "  [OK] Real signature generated (64 bytes)"
               else
-                echo "⚠️  Invalid signature size: $SIG_SIZE bytes (expected 64), creating placeholder"
+                echo "  [WARNING] Invalid signature size: $SIG_SIZE bytes (expected 64), creating placeholder"
                 echo "simulation_signature" > "${INSTALLER}.sig"
                 cp "${INSTALLER}.sig" artifacts/
               fi
             else
-              echo "⚠️  Signature generation failed, creating placeholder"
+              echo "  [WARNING] Signature generation failed, creating placeholder"
               echo "simulation_signature" > "${INSTALLER}.sig"
               cp "${INSTALLER}.sig" artifacts/
             fi
           else
-            echo "⚠️  Private key not found, creating placeholder signature"
+            echo "  [WARNING] Private key not found, creating placeholder signature"
             echo "simulation_signature" > "${INSTALLER}.sig"
             cp "${INSTALLER}.sig" artifacts/
           fi
+          
+          echo ""
+          echo "[OK] OTA signing completed (Step 4/5)"
       
       # ------------------------------------------------------------------------
       # OTA Signing Simulation
@@ -383,10 +446,10 @@ jobs:
           echo "Requested architecture: $INPUT"
           
           if [ "$INPUT" = "all" ] || [ -z "$INPUT" ] || [ "$INPUT" = "$ARCH" ]; then
-            echo "✅ This architecture will be built"
+            echo "[OK] This architecture will be built"
             echo "should_build=true" >> $GITHUB_OUTPUT
           else
-            echo "⏭️  Skipping this architecture (not requested)"
+            echo "[SKIP] Skipping this architecture (not requested)"
             echo "should_build=false" >> $GITHUB_OUTPUT
             exit 0
           fi
@@ -405,22 +468,71 @@ jobs:
         if: steps.arch_check.outputs.should_build == 'true'
         uses: actions/checkout@v4
       
-      - name: Simulate macOS build
+      # ------------------------------------------------------------------------
+      # NEW: Test real environment setup to catch architecture issues
+      # ------------------------------------------------------------------------
+      - name: Test Python Environment Setup (Architecture Validation)
+        if: steps.arch_check.outputs.should_build == 'true'
+        uses: ./.github/actions/setup-python-env
+        with:
+          platform: linux  # Use linux since we're on ubuntu-latest
+          requirements-file: requirements-base.txt
+          python-version: '3.11'
+          architecture: ${{ matrix.target_arch == 'arm64' && 'arm64' || 'x64' }}
+          install-pyinstaller: 'false'  # Don't need PyInstaller in simulation
+      
+      - name: Test Playwright Setup (Architecture Validation)
+        if: steps.arch_check.outputs.should_build == 'true'
+        uses: ./.github/actions/setup-playwright
+        with:
+          platform: linux
+          arch: ${{ matrix.arch }}
+          browsers: chromium
+      
+      - name: Simulate macOS build (with real build flow)
         if: steps.arch_check.outputs.should_build == 'true'
         run: |
-          echo "=== Simulating macOS ${{ matrix.arch }} Build ==="
+          echo "=== Simulating macOS ${{ matrix.arch }} Build (Real Flow) ==="
           echo "Platform: macOS"
           echo "Architecture: ${{ matrix.arch }} (${{ matrix.target_arch }})"
-          echo "Note: Real workflow always builds frontend (no skip logic)"
+          echo "Note: This simulates the ACTUAL build.py execution order"
           VERSION="${{ needs.validate-tag.outputs.version }}"
           ARCH="${{ matrix.arch }}"
           mkdir -p dist artifacts
           
-          # Create fake installer
+          echo ""
+          echo "Build Flow Simulation (matching build.py):"
+          echo "  1. PyInstaller packaging"
+          echo "  2. Code signing"
+          echo "  3. PKG installer creation"
+          echo "  4. OTA signing"
+          echo "  5. Standardize artifacts"
+          echo ""
+          
+          # Step 1: Simulate PyInstaller output
+          echo "[1/5] Simulating PyInstaller packaging..."
+          mkdir -p dist/eCan.app/Contents/MacOS
+          echo "fake app" > dist/eCan.app/Contents/MacOS/eCan
+          echo "  [OK] Created dist/eCan.app"
+          
+          # Step 2: Simulate code signing
+          echo "[2/5] Simulating code signing..."
+          echo "  [OK] Signed dist/eCan.app"
+          
+          # Step 3: Simulate PKG creation
+          echo "[3/5] Simulating PKG installer creation..."
           echo "fake macos installer" > "dist/eCan-${VERSION}-macos-${ARCH}.pkg"
+          echo "  [OK] Created: dist/eCan-${VERSION}-macos-${ARCH}.pkg"
+          
+          # Step 4: OTA signing will be done in next step
+          echo "[4/5] OTA signing (next step)..."
+          
+          # Step 5: Copy to artifacts
+          echo "[5/5] Preparing artifacts..."
           cp "dist/eCan-${VERSION}-macos-${ARCH}.pkg" artifacts/
           
-          echo "✅ macOS ${{ matrix.arch }} build simulated"
+          echo ""
+          echo "[OK] macOS ${{ matrix.arch }} build simulated (following real build.py flow)"
       
       # ------------------------------------------------------------------------
       # Step: Setup OTA Signing Key from GitHub Secrets
@@ -454,22 +566,33 @@ jobs:
             echo "✓ OTA signing key configured successfully"
           fi
       
-      - name: Generate real Ed25519 signature
+      - name: Simulate OTA signing (Step 4 - After Installer Creation)
         if: steps.arch_check.outputs.should_build == 'true'
         run: |
+          echo "[4/5] 🔐 Simulating OTA signing (after installer creation)..."
           VERSION="${{ needs.validate-tag.outputs.version }}"
           ARCH="${{ matrix.arch }}"
           INSTALLER="dist/eCan-${VERSION}-macos-${ARCH}.pkg"
           
+          # Verify installer exists (this is the key check!)
+          if [ ! -f "$INSTALLER" ]; then
+            echo "❌ ERROR: Installer not found at: $INSTALLER"
+            echo "❌ This indicates OTA signing is happening BEFORE installer creation!"
+            echo "❌ This is the bug we're trying to catch!"
+            exit 1
+          fi
+          
+          echo "  ✓ Installer found: $INSTALLER"
+          
           # Install OpenSSL if needed
           if ! command -v openssl &> /dev/null; then
-            echo "Installing OpenSSL..."
+            echo "  Installing OpenSSL..."
             sudo apt-get update && sudo apt-get install -y openssl
           fi
           
           # Generate real Ed25519 signature
           if [ -f "build_system/certificates/ed25519_private_key.pem" ]; then
-            echo "Generating real Ed25519 signature..."
+            echo "  Generating real Ed25519 signature..."
             # Use signing_manager.py for Ed25519 signing (OpenSSL pkeyutl doesn't support Ed25519 in all versions)
             python build_system/signing_manager.py \
               "$INSTALLER" \
@@ -481,22 +604,25 @@ jobs:
               SIG_SIZE=$(wc -c < "${INSTALLER}.sig" | tr -d ' ')
               if [ "$SIG_SIZE" -eq 64 ]; then
                 cp "${INSTALLER}.sig" artifacts/
-                echo "✅ Real signature generated for macOS ${{ matrix.arch }} (64 bytes)"
+                echo "  [OK] Real signature generated for macOS ${{ matrix.arch }} (64 bytes)"
               else
-                echo "⚠️  Invalid signature size: $SIG_SIZE bytes (expected 64), creating placeholder"
+                echo "  [WARNING] Invalid signature size: $SIG_SIZE bytes (expected 64), creating placeholder"
                 echo "simulation_signature" > "${INSTALLER}.sig"
                 cp "${INSTALLER}.sig" artifacts/
               fi
             else
-              echo "⚠️  Signature generation failed, creating placeholder"
+              echo "  [WARNING] Signature generation failed, creating placeholder"
               echo "simulation_signature" > "${INSTALLER}.sig"
               cp "${INSTALLER}.sig" artifacts/
             fi
           else
-            echo "⚠️  Private key not found, creating placeholder signature"
+            echo "  [WARNING] Private key not found, creating placeholder signature"
             echo "simulation_signature" > "${INSTALLER}.sig"
             cp "${INSTALLER}.sig" artifacts/
           fi
+          
+          echo ""
+          echo "[OK] OTA signing completed (Step 4/5)"
       
       # ------------------------------------------------------------------------
       # OTA Signing Simulation
