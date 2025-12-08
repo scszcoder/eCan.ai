@@ -476,8 +476,14 @@ async def in_browser_close_tab(mainwin, args):
         logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
+async def get_page_info(page):
+    return (await page.get_title(), await page.get_url(), await page.get_target_info())
+
 # Content Actions
 async def in_browser_extract_content(mainwin, args):
+    from browser_use.actor import Page, Element, Mouse
+    from browser_use.browser.events import SwitchTabEvent
+
     try:
 
         # web_driver = mainwin.getWebDriver()
@@ -505,6 +511,33 @@ async def in_browser_extract_content(mainwin, args):
 
         msg = f"completed extracting browser content."
         result = TextContent(type="text", text=msg)
+        # SimplifiedNode has __json__() that breaks circular refs
+        # if browser_state_summary.dom_state._root:
+        #     json_tree = browser_state_summary.dom_state._root.__json__()
+        #     print("json_tree:", json_tree)
+
+        pages = await browser_session.get_pages()
+        print("pages:", [await get_page_info(page) for page in pages])
+
+
+
+        current_page = await browser_session.get_current_page()
+        print("current_page:", await get_page_info(current_page))
+
+        # switch to a tab.
+        target_id = "6A806E3DD394DB15724B5B09FB83494C"
+        event = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
+        await event
+        target_page = await browser_session.get_current_page()
+        content, content_stats = await target_page._extract_clean_markdown()
+        print("target_page:", content, content_stats)
+
+        # target_page = Page(browser_session, target_id, session_id)
+        # print("current_page:", current_page)
+        browser_state_summary = await browser_session.get_browser_state_summary(
+            include_screenshot=False,  # Disabled due to CDP timeout issues with existing Chrome
+            include_recent_events=True
+        )
 
         serializable_state = {
             "url": browser_state_summary.url,

@@ -1547,12 +1547,14 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         try:
             # Use the utility to run the async function from a sync context
             tool_result = run_async_in_sync(run_tool_call())
+
             log_msg = f"mcp tool call results: {tool_result}"
             logger.debug(log_msg)
             web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
             # Add the result to the state (result is a dict, not a list)
             state['tool_result'] = tool_result
+            state['n_steps'] += 1
 
             tool_call_summary = ActionMessage(content=f"action: mcp call to {tool_name}; result: {tool_result}")
             add_to_history(state, tool_call_summary)
