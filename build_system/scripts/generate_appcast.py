@@ -594,7 +594,11 @@ class AppcastGenerator:
             return False
     
     def generate_latest_json(self) -> bool:
-        """Generate and upload latest.json with current version info"""
+        """Generate and upload latest.json with current version info
+        
+        This method uses incremental update strategy to avoid overwriting
+        platform-specific information when builds are done separately.
+        """
         print(f"\n[INFO] Generating latest.json...")
         
         versions = self.list_versions()
@@ -604,15 +608,43 @@ class AppcastGenerator:
         
         latest_version = versions[0]
         
-        latest_data = {
-            'version': latest_version,
-            'channel': self.channel,
-            'environment': self.environment,
-            'updated_at': datetime.now().isoformat(),
-            'platforms': {}
-        }
+        # Determine S3 key
+        if self.base_path:
+            s3_key = f"{self.base_path}/{self.prefix}/latest.json"
+        else:
+            s3_key = f"{self.prefix}/latest.json"
         
-        # Add platform-specific info
+        # Try to download existing latest.json for incremental update
+        existing_data = None
+        try:
+            response = self.s3.get_object(Bucket=self.bucket, Key=s3_key)
+            existing_data = json.loads(response['Body'].read().decode('utf-8'))
+            print(f"  [INFO] Found existing latest.json, will merge platform data")
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                print(f"  [INFO] No existing latest.json found, creating new one")
+            else:
+                print(f"  [WARN] Failed to read existing latest.json: {e}")
+        
+        # Initialize or update latest_data
+        if existing_data:
+            latest_data = existing_data
+            # Update metadata
+            latest_data['updated_at'] = datetime.now().isoformat()
+            # Preserve existing platforms
+            if 'platforms' not in latest_data:
+                latest_data['platforms'] = {}
+        else:
+            latest_data = {
+                'version': latest_version,
+                'channel': self.channel,
+                'environment': self.environment,
+                'updated_at': datetime.now().isoformat(),
+                'platforms': {}
+            }
+        
+        # Add or update platform-specific info (incremental)
+        updated_platforms = []
         for platform in ['macos', 'windows']:
             for arch in ['amd64', 'aarch64']:
                 pkg_info = self.get_package_info(latest_version, platform, arch)
@@ -626,13 +658,23 @@ class AppcastGenerator:
                         'sha256': pkg_info['sha256'],
                         'signature': pkg_info['signature']
                     }
+                    updated_platforms.append(platform_key)
+        
+        # Update global version to the latest across all platforms
+        all_platform_versions = [
+            info.get('version', '0.0.0') 
+            for info in latest_data['platforms'].values()
+        ]
+        if all_platform_versions:
+            # Find the highest version among all platforms
+            from packaging import version as pkg_version
+            try:
+                latest_data['version'] = max(all_platform_versions, key=lambda v: pkg_version.parse(v))
+            except Exception:
+                # Fallback to simple string comparison if packaging is not available
+                latest_data['version'] = max(all_platform_versions)
         
         # Upload to S3
-        if self.base_path:
-            s3_key = f"{self.base_path}/{self.prefix}/latest.json"
-        else:
-            s3_key = f"{self.prefix}/latest.json"
-        
         try:
             self.s3.put_object(
                 Bucket=self.bucket,
@@ -644,6 +686,9 @@ class AppcastGenerator:
             
             url = f"https://{self.bucket}.s3.{self.region}.amazonaws.com/{s3_key}"
             print(f"  [OK] Uploaded: {url}")
+            if updated_platforms:
+                print(f"  [INFO] Updated platforms: {', '.join(updated_platforms)}")
+            print(f"  [INFO] Total platforms in latest.json: {len(latest_data['platforms'])}")
             return True
             
         except ClientError as e:

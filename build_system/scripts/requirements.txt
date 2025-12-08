@@ -6,3 +6,6 @@ boto3>=1.34.0
 
 # YAML parser
 pyyaml>=6.0.1
+
+# Version parsing (for semantic version comparison in latest.json generation)
+packaging>=23.0
