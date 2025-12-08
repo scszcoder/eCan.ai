@@ -2,6 +2,7 @@ import traceback
 import json
 from os.path import exists
 from typing import Any, Optional, Dict
+import requests
 from app_context import AppContext
 from config.envi import getECBotDataHome
 from gui.ipc.handlers import validate_params
@@ -284,3 +285,42 @@ def handle_update_user_preferences(request: IPCRequest, params: Optional[Dict[st
             'PREFERENCES_ERROR',
             f"Error updating user preferences: {str(e)}"
         )
+
+
+# Ollama tags management functions moved to gui/ollama_utils.py
+# Import them here for backward compatibility
+from gui.ollama_utils import get_ollama_tags_path, save_ollama_tags, load_ollama_tags, fetch_ollama_models
+
+
+@IPCHandlerRegistry.handler('settings.getOllamaModels')
+def handle_get_ollama_models(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """
+    Fetch available models from Ollama API and save to local file.
+    
+    Expected params:
+    - host: str - Ollama API host (e.g., 'http://127.0.0.1:11434')
+    - username: str - Optional username for saving to user-specific path
+    """
+    host = params.get('host', 'http://127.0.0.1:11434') if params else 'http://127.0.0.1:11434'
+    username = params.get('username') if params else None
+    
+    # Use the common fetch_ollama_models function
+    success, model_list, error_msg = fetch_ollama_models(host, username)
+    
+    if success:
+        return create_success_response(request, {
+            'models': model_list,
+            'host': host
+        })
+    else:
+        # Determine error type based on error message
+        if 'Cannot connect' in error_msg:
+            error_type = 'OLLAMA_CONNECTION_ERROR'
+        elif 'timed out' in error_msg:
+            error_type = 'OLLAMA_TIMEOUT'
+        elif 'status' in error_msg:
+            error_type = 'OLLAMA_API_ERROR'
+        else:
+            error_type = 'OLLAMA_ERROR'
+        
+        return create_error_response(request, error_type, error_msg)

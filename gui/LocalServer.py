@@ -107,6 +107,13 @@ class RequestHandlers:
             return JSONResponse({"error": "Access denied"}, status_code=403)
         
         return FileResponse(file_path)
+    
+    async def ollama_rerank_proxy(self, request):
+        """
+        Ollama Rerank Proxy - Delegates to the ollama_proxy module.
+        """
+        from gui.ollama_proxy import ollama_rerank_proxy
+        return await ollama_rerank_proxy(request)
 
     async def gen_feedbacks(self, request):
         logger.info("serving gen_feedbacks.....")
@@ -348,6 +355,7 @@ class RouteBuilder:
             Route('/api/sync_bots_missions', self.request_handlers.sync_bots_missions, methods=['POST']),
             Route('/api/save_graph', self.request_handlers.save_skill_graph, methods=['POST']),
             Route('/api/avatar', self.request_handlers.serve_avatar, methods=['GET']),
+            Route('/api/rerank', self.request_handlers.ollama_rerank_proxy, methods=['POST'])
         ]
 
     def get_mcp_routes(self):

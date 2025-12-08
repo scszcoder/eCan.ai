@@ -15,18 +15,6 @@
       "is_local": false,
       "supported_models": [
         {
-          "name": "gpt-5",
-          "display_name": "GPT-5",
-          "model_id": "gpt-5",
-          "default_temperature": 0.7,
-          "max_tokens": 131072,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.003,
-          "description": "OpenAI's 2025 flagship multimodal model"
-        },
-        {
           "name": "gpt-5.1",
           "display_name": "GPT-5.1",
           "model_id": "gpt-5.1",
@@ -37,6 +25,18 @@
           "supports_vision": true,
           "cost_per_1k_tokens": 0.005,
           "description": "Advanced GPT-5.1 model with enhanced reasoning"
+        },
+        {
+          "name": "gpt-5",
+          "display_name": "GPT-5",
+          "model_id": "gpt-5",
+          "default_temperature": 0.7,
+          "max_tokens": 131072,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.003,
+          "description": "OpenAI's 2025 flagship multimodal model"
         },
         {
           "name": "o4-mini",
@@ -113,18 +113,6 @@
           "supports_vision": true,
           "cost_per_1k_tokens": 0.003,
           "description": "Balanced intelligence and speed (July 2025)"
-        },
-        {
-          "name": "claude-3-5-sonnet-20241022",
-          "display_name": "Claude 3.5 Sonnet",
-          "model_id": "claude-3-5-sonnet-20241022",
-          "default_temperature": 0.7,
-          "max_tokens": 200000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.003,
-          "description": "Legacy Sonnet model"
         }
       ]
     },
@@ -153,30 +141,6 @@
           "supports_vision": true,
           "cost_per_1k_tokens": 0.0035,
           "description": "Next-gen Gemini 3.0 Pro model"
-        },
-        {
-          "name": "gemini-2.5-pro",
-          "display_name": "Gemini 2.5 Pro",
-          "model_id": "gemini-2.5-pro",
-          "default_temperature": 0.7,
-          "max_tokens": 2000000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.003,
-          "description": "Gemini 2.5 Pro with long context"
-        },
-        {
-          "name": "gemini-2.5-flash",
-          "display_name": "Gemini 2.5 Flash",
-          "model_id": "gemini-2.5-flash",
-          "default_temperature": 0.7,
-          "max_tokens": 2000000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.0001,
-          "description": "High-speed Gemini 2.5 Flash"
         }
       ]
     },
@@ -450,63 +414,16 @@
       "name": "Ollama (Local)",
       "display_name": "Ollama (Local)",
       "provider": "ollama",
-      "class_name": "ChatOllama",
-      "api_key_env_vars": [],
+      "class_name": "ChatOpenAI",
+      "api_key_env_vars": [
+        "OLLAMA_LLM_API_KEY"
+      ],
       "base_url": "http://localhost:11434",
-      "default_model": "llama3.3:70b",
-      "description": "Local Ollama models",
+      "default_model": "",
+      "description": "Local Ollama models (native API for LightRAG, auto-converts to OpenAI-compatible /v1 for ChatOpenAI)",
       "documentation_url": "https://ollama.com/library",
       "is_local": true,
-      "supported_models": [
-        {
-          "name": "llama3.3:70b",
-          "display_name": "Llama 3.3 70B",
-          "model_id": "llama3.3:70b",
-          "default_temperature": 0.7,
-          "max_tokens": 8192,
-          "supports_streaming": true,
-          "supports_function_calling": false,
-          "supports_vision": false,
-          "cost_per_1k_tokens": 0.0,
-          "description": "Llama 3.3 70B"
-        },
-        {
-          "name": "llama3.2:latest",
-          "display_name": "Llama 3.2",
-          "model_id": "llama3.2:latest",
-          "default_temperature": 0.7,
-          "max_tokens": 8192,
-          "supports_streaming": true,
-          "supports_function_calling": false,
-          "supports_vision": false,
-          "cost_per_1k_tokens": 0.0,
-          "description": "Llama 3.2"
-        },
-        {
-          "name": "qwen2.5:latest",
-          "display_name": "Qwen 2.5",
-          "model_id": "qwen2.5:latest",
-          "default_temperature": 0.7,
-          "max_tokens": 8192,
-          "supports_streaming": true,
-          "supports_function_calling": false,
-          "supports_vision": false,
-          "cost_per_1k_tokens": 0.0,
-          "description": "Qwen 2.5"
-        },
-        {
-          "name": "deepseek-r1:latest",
-          "display_name": "DeepSeek R1",
-          "model_id": "deepseek-r1:latest",
-          "default_temperature": 0.6,
-          "max_tokens": 8192,
-          "supports_streaming": true,
-          "supports_function_calling": false,
-          "supports_vision": false,
-          "cost_per_1k_tokens": 0.0,
-          "description": "DeepSeek R1"
-        }
-      ]
+      "supported_models": []
     }
   },
   "metadata": {

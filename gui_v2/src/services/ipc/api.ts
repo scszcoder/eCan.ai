@@ -407,6 +407,10 @@ export class IPCAPI {
         return this.executeRequest<T>('get_default_rerank', {});
     }
 
+    public async getOllamaModels<T>(host: string, username?: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('settings.getOllamaModels', { host, username });
+    }
+
     public async runTest<T>(tests: TestConfig[]): Promise<APIResponse<T>> {
         return this.executeRequest<T>('run_tests', { tests });
     }

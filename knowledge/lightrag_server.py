@@ -122,6 +122,134 @@ class LightragServer:
             if self.is_running(): self.stop()
         except Exception: pass
 
+    def _load_proxy_config(self):
+        """
+        Load proxy configuration from rerank_providers.json.
+        
+        Returns:
+            dict: Proxy configuration with keys: proxy_host, proxy_path, proxy_format, enabled
+        """
+        default_config = {
+            'enabled': True,
+            'proxy_host': 'http://localhost:4668',
+            'proxy_path': '/api/rerank',
+            'proxy_format': 'aliyun'
+        }
+        
+        try:
+            import json
+            config_path = os.path.join(os.path.dirname(__file__), '..', 'gui', 'config', 'rerank_providers.json')
+            
+            if not os.path.exists(config_path):
+                logger.warning(f"[LightragServer] Proxy config file not found: {config_path}")
+                logger.info(f"[LightragServer] Using default proxy config")
+                return default_config
+            
+            with open(config_path, 'r', encoding='utf-8') as f:
+                providers_config = json.load(f)
+                ollama_config = providers_config.get('providers', {}).get('Ollama (Local)', {})
+                proxy_info = ollama_config.get('proxy_info', {})
+                
+                if not proxy_info:
+                    logger.warning(f"[LightragServer] No proxy_info found in config")
+                    logger.info(f"[LightragServer] Using default proxy config")
+                    return default_config
+                
+                # Merge with default config
+                config = default_config.copy()
+                config.update({
+                    'enabled': proxy_info.get('enabled', True),
+                    'proxy_host': proxy_info.get('proxy_host', default_config['proxy_host']),
+                    'proxy_path': proxy_info.get('proxy_path', default_config['proxy_path']),
+                    'proxy_format': proxy_info.get('proxy_format', default_config['proxy_format'])
+                })
+                
+                logger.info(f"[LightragServer] ✅ Loaded proxy config from rerank_providers.json:")
+                logger.info(f"   - Enabled:      {config['enabled']}")
+                logger.info(f"   - Proxy Host:   {config['proxy_host']}")
+                logger.info(f"   - Proxy Path:   {config['proxy_path']}")
+                logger.info(f"   - Proxy Format: {config['proxy_format']}")
+                
+                return config
+                
+        except Exception as e:
+            logger.error(f"[LightragServer] ❌ Failed to load proxy config: {e}")
+            logger.info(f"[LightragServer] Using default proxy config")
+            return default_config
+
+    def _intercept_ollama_rerank(self, env):
+        """
+        Intercept Ollama rerank requests and redirect to eCan proxy.
+        
+        This method:
+        1. Detects if RERANK_BINDING is set to 'ollama'
+        2. Loads proxy configuration from rerank_providers.json
+        3. Saves the original Ollama host to OLLAMA_HOST
+        4. Redirects RERANK_BINDING_HOST to the proxy
+        5. Converts RERANK_BINDING to the configured format (default: aliyun)
+        
+        Args:
+            env (dict): Environment variables dictionary
+            
+        Returns:
+            bool: True if interception was applied, False otherwise
+        """
+        rerank_binding = env.get('RERANK_BINDING', '').lower()
+        
+        # Only intercept if binding is 'ollama'
+        if rerank_binding != 'ollama':
+            return False
+        
+        logger.info("=" * 70)
+        logger.info("[LightragServer] 🔄 Ollama Rerank Interception")
+        logger.info("=" * 70)
+        
+        # Get original Ollama host
+        original_host = env.get('RERANK_BINDING_HOST', 'http://localhost:11434')
+        original_model = env.get('RERANK_MODEL', 'N/A')
+        
+        logger.info(f"📋 Original Configuration:")
+        logger.info(f"   - Binding:      {rerank_binding}")
+        logger.info(f"   - Host:         {original_host}")
+        logger.info(f"   - Model:        {original_model}")
+        
+        # Load proxy configuration
+        proxy_config = self._load_proxy_config()
+        
+        if not proxy_config.get('enabled'):
+            logger.warning(f"⚠️  Proxy is disabled in configuration")
+            logger.warning(f"   Ollama rerank will not work (Ollama doesn't support Rerank API)")
+            return False
+        
+        # Build proxy URL
+        proxy_host = proxy_config['proxy_host']
+        proxy_path = proxy_config['proxy_path']
+        proxy_format = proxy_config['proxy_format']
+        proxy_url = f"{proxy_host}{proxy_path}"
+        
+        logger.info(f"")
+        logger.info(f"🔧 Proxy Configuration:")
+        logger.info(f"   - Proxy URL:    {proxy_url}")
+        logger.info(f"   - API Format:   {proxy_format}")
+        
+        # Apply interception
+        env['OLLAMA_HOST'] = original_host  # Save original host for proxy to use
+        env['RERANK_BINDING_HOST'] = proxy_url  # Redirect to proxy
+        env['RERANK_BINDING'] = proxy_format  # Convert to proxy format
+        
+        logger.info(f"")
+        logger.info(f"✅ Interception Applied:")
+        logger.info(f"   - OLLAMA_HOST:           {original_host}  (saved for proxy)")
+        logger.info(f"   - RERANK_BINDING_HOST:   {proxy_url}  (redirected)")
+        logger.info(f"   - RERANK_BINDING:        {proxy_format}  (converted)")
+        
+        logger.info(f"")
+        logger.info(f"📡 Request Flow:")
+        logger.info(f"   LightRAG → {proxy_url} → eCan Proxy → {original_host} → Ollama")
+        logger.info("=" * 70)
+        
+        return True
+
     def build_env(self):
         """Build environment variables for LightRAG server process."""
         # 1. Start with system environment
@@ -213,14 +341,18 @@ class LightragServer:
             logger.info(f"[LightragServer] Mapped Embedding binding '{embedding_binding}' -> '{mapped}'")
             env['EMBEDDING_BINDING'] = mapped
         
-        # Map Rerank binding (LightRAG natively supports: cohere, jina, voyageai, siliconflow, aliyun, ollama)
-        # Map all other providers to 'aliyun' (Alibaba-compatible API)
+        # Map Rerank binding (LightRAG natively supports: cohere, jina, aliyun ONLY)
+        # Special handling for Ollama: redirect to eCan proxy
         RERANK_NATIVE_SUPPORTED = ['cohere', 'jina', 'aliyun']
         rerank_binding = env.get('RERANK_BINDING')
         if rerank_binding and rerank_binding.lower() not in ['null', 'none', '']:
             rerank_binding_lower = rerank_binding.lower()
-            if rerank_binding_lower not in RERANK_NATIVE_SUPPORTED:
-                # Map unsupported providers to aliyun (Alibaba-compatible)
+            
+            # Special case: Ollama rerank -> use eCan proxy
+            if rerank_binding_lower == 'ollama':
+                self._intercept_ollama_rerank(env)
+            elif rerank_binding_lower not in RERANK_NATIVE_SUPPORTED:
+                # Map other unsupported providers to aliyun
                 logger.info(f"[LightragServer] Mapped Rerank binding '{rerank_binding}' -> 'aliyun' (Alibaba-compatible API)")
                 env['RERANK_BINDING'] = 'aliyun'
         

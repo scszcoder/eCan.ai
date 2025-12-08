@@ -291,6 +291,17 @@ class LightRAGConfigManager:
                             keys['LLM_BINDING_HOST'] = base_url
                             logger.info(f"[LightRAG Config] Using LLM base URL: {base_url}")
                         
+                        # Extract model parameters (max_tokens) from current model
+                        llm_model = current_config.get('LLM_MODEL')
+                        if llm_model and llm_provider.get('supported_models'):
+                            for model in llm_provider.get('supported_models', []):
+                                if model.get('model_id') == llm_model or model.get('name') == llm_model:
+                                    # Extract max_tokens
+                                    if model.get('max_tokens'):
+                                        keys['LLM_MAX_TOKENS'] = str(model.get('max_tokens'))
+                                        logger.info(f"[LightRAG Config] Using LLM model max_tokens: {model.get('max_tokens')}")
+                                    break
+                        
                         api_key_env_vars = llm_provider.get('api_key_env_vars', [])
                         logger.info(f"[LightRAG Config] LLM api_key_env_vars = {api_key_env_vars}")
                         for env_var in api_key_env_vars:
@@ -332,6 +343,21 @@ class LightRAGConfigManager:
                         if base_url:
                             keys['EMBEDDING_BINDING_HOST'] = base_url
                             logger.info(f"[LightRAG Config] Using Embedding base URL: {base_url}")
+                        
+                        # Extract model parameters (dimensions, max_tokens) from current model
+                        embedding_model = current_config.get('EMBEDDING_MODEL')
+                        if embedding_model and embed_provider.get('supported_models'):
+                            for model in embed_provider.get('supported_models', []):
+                                if model.get('model_id') == embedding_model or model.get('name') == embedding_model:
+                                    # Extract dimensions
+                                    if model.get('dimensions'):
+                                        keys['EMBEDDING_DIM'] = str(model.get('dimensions'))
+                                        logger.info(f"[LightRAG Config] Using model dimensions: {model.get('dimensions')}")
+                                    # Extract max_tokens
+                                    if model.get('max_tokens'):
+                                        keys['EMBEDDING_TOKEN_LIMIT'] = str(model.get('max_tokens'))
+                                        logger.info(f"[LightRAG Config] Using model max_tokens: {model.get('max_tokens')}")
+                                    break
                         
                         api_key_env_vars = embed_provider.get('api_key_env_vars', [])
                         logger.info(f"[LightRAG Config] api_key_env_vars = {api_key_env_vars}")

@@ -839,6 +839,16 @@
       "open_docs": "打开官网",
       "documentation_unavailable": "暂无官网链接",
       "no_models_available": "暂无可用模型",
+      "refresh_models": "刷新模型列表",
+      "ollama_fetch_error": "获取Ollama模型列表失败",
+      "ollama_no_models": "请先刷新Ollama模型列表",
+      "ollama_select_model": "请先选择一个Ollama模型",
+      "ollama_invalid_host": "Ollama服务地址无效，请先配置",
+      "loading": "加载中...",
+      "ollama_host_placeholder": "输入Ollama服务地址 (如: http://127.0.0.1:11434)",
+      "ollama_api_key_placeholder": "输入API Key (可选)",
+      "ollama_config_saved": "Ollama配置已保存",
+      "open_ollama": "打开Ollama服务",
       "lan_api_endpoint": "局域网API端点",
       "language": "语言",
       "languageChangeError": "语言切换错误",
@@ -1577,7 +1587,10 @@
           "vectorIndexType": "向量索引类型",
           "sendDimensions": "发送维度参数",
           "retryMaxBackoff": "最大重试退避 (秒)",
-          "verbose": "详细日志"
+          "verbose": "详细日志",
+          "contextWindow": "上下文窗口",
+          "maxPredictTokens": "最大预测Token",
+          "optional": "可选"
         },
         "placeholders": {
           "minimal": "最低",
@@ -1636,6 +1649,13 @@
         },
         "providers": {
           "noneDisabled": "无（禁用）"
+        },
+        "ollama": {
+          "loading": "加载模型中...",
+          "noModels": "未找到模型",
+          "fetchError": "获取模型列表失败",
+          "refresh": "刷新模型列表",
+          "openWebsite": "打开 Ollama"
         },
         "basic": {
           "host": "服务器地址",
