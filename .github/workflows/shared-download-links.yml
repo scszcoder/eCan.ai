@@ -30,6 +30,14 @@ on:
         description: 'Version string for the release'
         required: true
         type: string
+      environment:
+        description: 'Target environment (development/test/staging/production)'
+        required: true
+        type: string
+      channel:
+        description: 'Release channel (dev/beta/stable)'
+        required: true
+        type: string
       windows-build-result:
         description: 'Result of Windows build job (success/skipped/failure)'
         required: true
@@ -59,6 +67,8 @@ jobs:
       S3_BASE_PATH: ${{ secrets.S3_BASE_PATH || 'NOT_SET' }}
       AWS_REGION: ${{ secrets.AWS_REGION || 'NOT_SET' }}
       VERSION: ${{ inputs.version }}
+      ENVIRONMENT: ${{ inputs.environment }}
+      CHANNEL: ${{ inputs.channel }}
 
     steps:
       # ------------------------------------------------------------------------
@@ -112,10 +122,36 @@ jobs:
           echo "=== Generating S3 Download Links ==="
           echo ""
           
+          # Map environment to S3 prefix
+          case "${ENVIRONMENT}" in
+            development)
+              S3_PREFIX="dev"
+              ;;
+            test)
+              S3_PREFIX="test"
+              ;;
+            staging)
+              S3_PREFIX="staging"
+              ;;
+            production)
+              S3_PREFIX="production"
+              ;;
+            *)
+              S3_PREFIX="${ENVIRONMENT}"
+              ;;
+          esac
+          
+          echo "Environment: ${ENVIRONMENT}"
+          echo "Channel: ${CHANNEL}"
+          echo "S3 Prefix: ${S3_PREFIX}"
+          echo ""
+          
           # Display in GitHub Actions Summary
           echo "## 📦 Download Links" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Version: **${VERSION}**" >> $GITHUB_STEP_SUMMARY
+          echo "Environment: **${ENVIRONMENT}**" >> $GITHUB_STEP_SUMMARY
+          echo "Channel: **${CHANNEL}**" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           
           # Windows Installers
@@ -128,11 +164,11 @@ jobs:
                 filename=$(basename "$file")
                 size=$(du -sh "$file" | cut -f1)
                 
-                # Standard S3 URL
-                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/v${VERSION}/windows/${filename}"
+                # Standard S3 URL with environment prefix
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${S3_PREFIX}/releases/v${VERSION}/windows/amd64/${filename}"
                 
                 # S3 Transfer Acceleration URL
-                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/v${VERSION}/windows/${filename}"
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${S3_PREFIX}/releases/v${VERSION}/windows/amd64/${filename}"
                 
                 echo "#### ${filename}" >> $GITHUB_STEP_SUMMARY
                 echo "" >> $GITHUB_STEP_SUMMARY
@@ -166,17 +202,20 @@ jobs:
                 # Determine architecture from filename
                 if [[ "$filename" == *"amd64"* ]] || [[ "$filename" == *"x86_64"* ]]; then
                   arch_label="Intel (x86_64)"
+                  arch_path="amd64"
                 elif [[ "$filename" == *"aarch64"* ]] || [[ "$filename" == *"arm64"* ]]; then
                   arch_label="Apple Silicon (ARM64)"
+                  arch_path="aarch64"
                 else
                   arch_label="Universal"
+                  arch_path="universal"
                 fi
                 
-                # Standard S3 URL
-                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/v${VERSION}/macos/${filename}"
+                # Standard S3 URL with environment prefix
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${S3_PREFIX}/releases/v${VERSION}/macos/${arch_path}/${filename}"
                 
                 # S3 Transfer Acceleration URL
-                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/v${VERSION}/macos/${filename}"
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${S3_PREFIX}/releases/v${VERSION}/macos/${arch_path}/${filename}"
                 
                 echo "#### ${filename}" >> $GITHUB_STEP_SUMMARY
                 echo "" >> $GITHUB_STEP_SUMMARY
@@ -237,10 +276,31 @@ jobs:
         run: |
           set -euo pipefail
           OUTPUT_FILE="download-links-${VERSION}.txt"
+          
+          # Map environment to S3 prefix
+          case "${ENVIRONMENT}" in
+            development)
+              S3_PREFIX="dev"
+              ;;
+            test)
+              S3_PREFIX="test"
+              ;;
+            staging)
+              S3_PREFIX="staging"
+              ;;
+            production)
+              S3_PREFIX="production"
+              ;;
+            *)
+              S3_PREFIX="${ENVIRONMENT}"
+              ;;
+          esac
 
           echo "eCan Download Links" > "$OUTPUT_FILE"
           echo "" >> "$OUTPUT_FILE"
           echo "Version: ${VERSION}" >> "$OUTPUT_FILE"
+          echo "Environment: ${ENVIRONMENT}" >> "$OUTPUT_FILE"
+          echo "Channel: ${CHANNEL}" >> "$OUTPUT_FILE"
           echo "" >> "$OUTPUT_FILE"
 
           # Windows section
@@ -252,8 +312,8 @@ jobs:
               if [ -f "$file" ]; then
                 filename=$(basename "$file")
                 size=$(du -sh "$file" | cut -f1)
-                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/v${VERSION}/windows/${filename}"
-                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/v${VERSION}/windows/${filename}"
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${S3_PREFIX}/releases/v${VERSION}/windows/amd64/${filename}"
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${S3_PREFIX}/releases/v${VERSION}/windows/amd64/${filename}"
 
                 echo "${filename}" >> "$OUTPUT_FILE"
                 echo "  Size:       ${size}" >> "$OUTPUT_FILE"
@@ -280,14 +340,17 @@ jobs:
                 size=$(du -sh "$file" | cut -f1)
                 if [[ "$filename" == *"amd64"* ]] || [[ "$filename" == *"x86_64"* ]]; then
                   arch_label="Intel (x86_64)"
+                  arch_path="amd64"
                 elif [[ "$filename" == *"aarch64"* ]] || [[ "$filename" == *"arm64"* ]]; then
                   arch_label="Apple Silicon (ARM64)"
+                  arch_path="aarch64"
                 else
                   arch_label="Universal"
+                  arch_path="universal"
                 fi
 
-                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${BUCKET_BASE_PATH}/v${VERSION}/macos/${filename}"
-                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${BUCKET_BASE_PATH}/v${VERSION}/macos/${filename}"
+                standard_url="https://${BUCKET_NAME}.s3.${BUCKET_REGION}.amazonaws.com/${S3_PREFIX}/releases/v${VERSION}/macos/${arch_path}/${filename}"
+                accelerate_url="https://${BUCKET_NAME}.s3-accelerate.amazonaws.com/${S3_PREFIX}/releases/v${VERSION}/macos/${arch_path}/${filename}"
 
                 echo "${filename}" >> "$OUTPUT_FILE"
                 echo "  Arch:       ${arch_label}" >> "$OUTPUT_FILE"
