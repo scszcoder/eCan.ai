@@ -23,9 +23,9 @@ runs:
         path: |
           ~\AppData\Local\ms-playwright
           third_party\ms-playwright
-        key: ${{ runner.os }}-playwright-${{ hashFiles('requirements-base.txt') }}
+        key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ hashFiles('requirements-base.txt') }}
         restore-keys: |
-          ${{ runner.os }}-playwright-
+          ${{ runner.os }}-${{ runner.arch }}-playwright-
 
     - name: Cache Playwright browsers (macOS)
       if: ${{ inputs.platform == 'macos' }}
@@ -108,6 +108,8 @@ runs:
       shell: bash
       run: |
         echo "=== Installing Playwright browsers ==="
+        echo "Platform: ${{ inputs.platform }}"
+        echo "Architecture: ${{ inputs.arch }}"
         
         # Resolve Python executable (prefer virtualenv if available)
         PYTHON_EXE="python"
@@ -116,6 +118,35 @@ runs:
           echo "Using venv Python: $PYTHON_EXE"
         else
           echo "VIRTUAL_ENV not set or python not found in venv; falling back to runner python"
+        fi
+        
+        # Verify Python architecture matches expected architecture
+        echo "Verifying Python architecture..."
+        PYTHON_ARCH=$("$PYTHON_EXE" -c "import platform; print(platform.machine())")
+        echo "Python architecture: $PYTHON_ARCH"
+        
+        # Map architecture names
+        EXPECTED_ARCH="${{ inputs.arch }}"
+        if [ "$EXPECTED_ARCH" = "amd64" ]; then
+          EXPECTED_ARCH_ALT="x86_64"
+        elif [ "$EXPECTED_ARCH" = "aarch64" ]; then
+          EXPECTED_ARCH_ALT="arm64"
+        else
+          EXPECTED_ARCH_ALT="$EXPECTED_ARCH"
+        fi
+        
+        if [ "$PYTHON_ARCH" != "$EXPECTED_ARCH" ] && [ "$PYTHON_ARCH" != "$EXPECTED_ARCH_ALT" ]; then
+          echo "[ERROR] Python architecture ($PYTHON_ARCH) does not match expected (${{ inputs.arch }}/$EXPECTED_ARCH_ALT)"
+          echo "[ERROR] This should not happen if setup-python-env is configured correctly"
+          echo "[ERROR] Please check that 'architecture' parameter is passed to setup-python-env"
+          echo ""
+          echo "Expected setup-python-env call:"
+          echo "  with:"
+          echo "    architecture: 'x64' or 'arm64' (explicitly set)"
+          echo ""
+          exit 1
+        else
+          echo "[OK] Python architecture matches expected ($PYTHON_ARCH)"
         fi
         
         # Determine cache location
@@ -164,8 +195,13 @@ runs:
           if [ -n "$browser" ]; then
             echo "Installing $browser browser..."
             "$PYTHON_EXE" -m playwright install "$browser" $INSTALL_ARGS
+            if [ $? -ne 0 ]; then
+              echo "[ERROR] Failed to install $browser browser"
+              echo "This might be due to architecture mismatch"
+              exit 1
+            fi
           fi
         done
         
-        echo "Playwright browsers installed successfully"
+        echo "[OK] Playwright browsers installed successfully"
 

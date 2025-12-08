@@ -427,6 +427,7 @@ jobs:
         platform: windows
         requirements-file: requirements-windows.txt
         extra-packages: pywin32-ctypes
+        architecture: x64
 
     - name: Setup Playwright Browsers
       uses: ./.github/actions/setup-playwright
@@ -1233,6 +1234,7 @@ jobs:
         platform: macos
         requirements-file: requirements-macos.txt
         python-version: '3.11'
+        architecture: ${{ matrix.target_arch == 'arm64' && 'arm64' || 'x64' }}
 
     - name: Setup Playwright Browsers
       if: steps.arch_check.outputs.should_build == 'true'
