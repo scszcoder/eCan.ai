@@ -29,10 +29,16 @@ def get_embedding_manager():
 
 @IPCHandlerRegistry.handler('get_embedding_providers')
 def handle_get_embedding_providers(request: IPCRequest, params: Optional[Dict[str, Any]] = None) -> IPCResponse:
-    """Get all Embedding providers"""
+    """Get all Embedding providers with Ollama models merged"""
     try:
+        from gui.ollama_utils import merge_ollama_models_to_providers
+        
         embedding_manager = get_embedding_manager()
         providers = embedding_manager.get_all_providers()
+        
+        # Merge Ollama models using shared utility
+        providers = merge_ollama_models_to_providers(providers, provider_type='embedding')
+        
         logger.info(f"Retrieved {len(providers)} Embedding providers")
 
         # Include current settings for frontend
@@ -73,6 +79,7 @@ def handle_update_embedding_provider(request: IPCRequest, params: Optional[Dict[
         
         api_key = data.get('api_key')
         azure_endpoint = data.get('azure_endpoint')
+        base_url = data.get('base_url')  # Support updating base_url for local providers like Ollama
 
         # Get provider by standard identifier (case-insensitive)
         provider = embedding_manager.get_provider(provider_identifier)
@@ -120,9 +127,21 @@ def handle_update_embedding_provider(request: IPCRequest, params: Optional[Dict[
                     return create_error_response(request, 'EMBEDDING_ERROR', f"Failed to store API key: {error_msg}")
                 api_key_stored = True
 
+        # Update base_url for local providers (e.g., Ollama)
+        # Note: We don't save here, will save together with other settings below
+        base_url_updated = False
+        if base_url and provider.get('is_local', False):
+            from gui.manager.provider_settings_helper import update_ollama_base_url
+            success, error_msg = update_ollama_base_url(provider_identifier, base_url, 'embedding')
+            if success:
+                base_url_updated = True
+            elif error_msg:
+                logger.warning(f"Failed to update base_url: {error_msg}")
+
         # Auto-set as default_embedding if no default is set or if this is the only configured provider
+        # Combine all general_settings updates and save once
         auto_set_as_default = False
-        if api_key_stored:
+        if api_key_stored or base_url_updated:
             try:
                 main_window = AppContext.get_main_window()
                 if main_window:
@@ -154,9 +173,12 @@ def handle_update_embedding_provider(request: IPCRequest, params: Optional[Dict[
                                 fallback_model = provider_config.get('default_model', 'text-embedding-3-small')
                                 general_settings.default_embedding_model = fallback_model
                                 logger.info(f"Auto-set default embedding model to {fallback_model} (fallback)")
-                        general_settings.save()
                         auto_set_as_default = True
                         logger.info(f"Auto-set {provider_identifier} as default_embedding")
+                    
+                    # Save all general_settings changes at once (base_url + auto-set default)
+                    from gui.manager.provider_settings_helper import save_general_settings_if_needed
+                    save_general_settings_if_needed(base_url_updated, auto_set_as_default)
             except Exception as e:
                 logger.warning(f"Failed to auto-set default_embedding: {e}")
 

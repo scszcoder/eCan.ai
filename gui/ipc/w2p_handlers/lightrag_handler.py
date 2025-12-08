@@ -956,175 +956,143 @@ async def handle_query_graphs(request: IPCRequest, params: Optional[Dict[str, An
         return create_error_response(request, 'QUERY_GRAPH_ERROR', str(e))
 
 
+def _convert_providers_to_lightrag_ui(providers: List[Dict[str, Any]], provider_type: str, manager) -> List[Dict[str, Any]]:
+    """
+    Convert standard provider format to LightRAG UI format.
+    
+    Args:
+        providers: List of provider dicts from manager.get_all_providers()
+        provider_type: 'LLM', 'EMBEDDING', or 'RERANK'
+        manager: Manager instance for retrieving API keys
+    
+    Returns:
+        List of provider dicts in LightRAG UI format
+    """
+    ui_providers = []
+    
+    for p in providers:
+        # Build model field
+        model_key = f'{provider_type}_MODEL'
+        default_model = p.get('default_model', '')
+        model_field = {
+            'key': model_key,
+            'label': 'fields.model',
+            'type': 'text',
+            'required': True,
+            'defaultValue': default_model
+        }
+        
+        # Add model options if available
+        supported_models = p.get('supported_models', [])
+        if supported_models:
+            model_field['type'] = 'select'
+            model_field['options'] = [
+                {'value': m.get('model_id'), 'label': m.get('display_name') or m.get('name')}
+                for m in supported_models
+            ]
+        
+        fields = [model_field]
+        model_metadata = {}
+        
+        # Embedding-specific fields
+        if provider_type == 'EMBEDDING':
+            fields.append({'key': 'EMBEDDING_DIM', 'label': 'fields.dimensions', 'type': 'number', 'placeholder': '1024', 'disabled': True})
+            fields.append({'key': 'EMBEDDING_TOKEN_LIMIT', 'label': 'fields.tokenLimit', 'type': 'number', 'placeholder': '8192', 'disabled': True})
+            # Build model metadata
+            for m in supported_models:
+                model_metadata[m.get('model_id')] = {
+                    'dimensions': m.get('dimensions'),
+                    'max_tokens': m.get('max_tokens')
+                }
+        
+        # Host field for local providers
+        if p.get('base_url') or p.get('is_local'):
+            host_key = f'{provider_type}_BINDING_HOST'
+            fields.append({
+                'key': host_key,
+                'label': 'fields.apiHost',
+                'type': 'text',
+                'defaultValue': p.get('base_url', ''),
+                'disabled': True
+            })
+        
+        # API key field
+        api_key_env_vars = p.get('api_key_env_vars', [])
+        if api_key_env_vars and manager:
+            api_key_key = f'{provider_type}_BINDING_API_KEY'
+            field_def = {
+                'key': api_key_key,
+                'label': 'fields.apiKey',
+                'type': 'password',
+                'required': True
+            }
+            
+            # Try to retrieve API key
+            try:
+                for env_var in api_key_env_vars:
+                    api_key = manager.retrieve_api_key(env_var)
+                    if api_key:
+                        field_def['isSystemManaged'] = True
+                        field_def['defaultValue'] = api_key
+                        break
+            except Exception as e:
+                logger.warning(f"Failed to retrieve API key for {p.get('provider')}: {e}")
+            
+            fields.append(field_def)
+        
+        # Build provider UI object
+        provider_ui = {
+            'id': p.get('provider'),
+            'name': p.get('display_name'),
+            'description': p.get('description'),
+            'fields': fields
+        }
+        
+        # Add model metadata for embedding providers
+        if provider_type == 'EMBEDDING' and model_metadata:
+            provider_ui['modelMetadata'] = model_metadata
+        
+        ui_providers.append(provider_ui)
+    
+    return ui_providers
+
+
 @IPCHandlerRegistry.handler('lightrag.getSystemProviders')
 def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Get system LLM, Embedding and Rerank providers for LightRAG configuration."""
+    """
+    Get system LLM, Embedding and Rerank providers for LightRAG configuration.
+    
+    Reuses existing provider handlers to ensure consistency with Settings page.
+    """
     try:
-        from gui.config.llm_config import llm_config
-        from gui.config.embedding_config import embedding_config
-        from gui.config.rerank_config import RerankConfig
         from app_context import AppContext
+        from gui.ollama_utils import merge_ollama_models_to_providers
         
-        # Get manager instances to retrieve API keys
+        # Get manager instances
         main_window = AppContext.get_main_window()
         llm_manager = main_window.config_manager.llm_manager if main_window else None
         embedding_manager = main_window.config_manager.embedding_manager if main_window else None
         rerank_manager = main_window.config_manager.rerank_manager if main_window else None
         
-        # Create fresh RerankConfig instance to ensure latest JSON is loaded
-        rerank_conf_instance = RerankConfig()
+        # Get providers with Ollama models merged (same as Settings page)
+        llm_providers = merge_ollama_models_to_providers(
+            llm_manager.get_all_providers() if llm_manager else [],
+            provider_type='llm'
+        )
+        embedding_providers = merge_ollama_models_to_providers(
+            embedding_manager.get_all_providers() if embedding_manager else [],
+            provider_type='embedding'
+        )
+        rerank_providers = merge_ollama_models_to_providers(
+            rerank_manager.get_all_providers() if rerank_manager else [],
+            provider_type='rerank'
+        )
         
-        system_llm_providers = llm_config.get_all_providers()
-        system_embed_providers = embedding_config.get_all_providers()
-        system_rerank_providers = rerank_conf_instance.get_all_providers()
+        # Convert to LightRAG UI format
+        llm_providers_ui = _convert_providers_to_lightrag_ui(llm_providers, 'LLM', llm_manager)
+        embedding_providers_ui = _convert_providers_to_lightrag_ui(embedding_providers, 'EMBEDDING', embedding_manager)
+        rerank_providers_ui = _convert_providers_to_lightrag_ui(rerank_providers, 'RERANK', rerank_manager)
         
-        llm_providers_ui = []
-        for key, p in system_llm_providers.items():
-            # Check if provider has models list
-            model_field = {'key': 'LLM_MODEL', 'label': 'fields.model', 'type': 'text', 'required': True, 'defaultValue': p.default_model or ''}
-            if hasattr(p, 'supported_models') and p.supported_models:
-                model_field['type'] = 'select'
-                model_field['options'] = [{'value': m.model_id, 'label': m.display_name or m.name} for m in p.supported_models]
-            
-            fields = [model_field]
-            
-            if p.base_url or p.is_local:
-                fields.append({'key': 'LLM_BINDING_HOST', 'label': 'fields.apiHost', 'type': 'text', 'defaultValue': p.base_url or '', 'disabled': True})
-            
-            # Always check for API keys
-            if p.api_key_env_vars:
-                field_def = {'key': 'LLM_BINDING_API_KEY', 'label': 'fields.apiKey', 'type': 'password', 'required': True}
-                
-                # Try to retrieve API key using manager
-                if llm_manager:
-                    try:
-                        # Check if any of the env vars has a configured key
-                        api_key = None
-                        for env_var in p.api_key_env_vars:
-                            key_val = llm_manager.retrieve_api_key(env_var)
-                            if key_val:
-                                api_key = key_val
-                                break
-                        
-                        if api_key:
-                            field_def['isSystemManaged'] = True
-                            # Return full API key - frontend Input.Password will handle visibility
-                            field_def['defaultValue'] = api_key
-                    except Exception as e:
-                        logger.warning(f"Failed to retrieve API key for {p.provider.value}: {e}")
-                
-                fields.append(field_def)
-            
-            llm_providers_ui.append({
-                'id': p.provider.value,
-                'name': p.display_name,
-                'description': p.description,
-                'fields': fields
-            })
-            
-        embedding_providers_ui = []
-        for key, p in system_embed_providers.items():
-             # Check if provider has models list
-             model_field = {'key': 'EMBEDDING_MODEL', 'label': 'fields.model', 'type': 'text', 'required': True, 'defaultValue': p.default_model or ''}
-             model_metadata = {}
-             
-             if hasattr(p, 'supported_models') and p.supported_models:
-                 model_field['type'] = 'select'
-                 model_field['options'] = [{'value': m.model_id, 'label': m.display_name or m.name} for m in p.supported_models]
-                 # Build metadata map
-                 for m in p.supported_models:
-                     model_metadata[m.model_id] = {
-                         'dimensions': m.dimensions,
-                         'max_tokens': getattr(m, 'max_tokens', None) # max_tokens might not be in EmbeddingModelConfig
-                     }
-
-             fields = [model_field]
-             fields.append({'key': 'EMBEDDING_DIM', 'label': 'fields.dimensions', 'type': 'number', 'placeholder': '1024', 'disabled': True})
-             fields.append({'key': 'EMBEDDING_TOKEN_LIMIT', 'label': 'fields.tokenLimit', 'type': 'number', 'placeholder': '8192', 'disabled': True})
-
-             if p.base_url or p.is_local:
-                fields.append({'key': 'EMBEDDING_BINDING_HOST', 'label': 'fields.apiHost', 'type': 'text', 'defaultValue': p.base_url or '', 'disabled': True})
-            
-             if p.api_key_env_vars:
-                 field_def = {'key': 'EMBEDDING_BINDING_API_KEY', 'label': 'fields.apiKey', 'type': 'password', 'required': True}
-                 
-                 # Try to retrieve API key using manager
-                 if embedding_manager:
-                     try:
-                         # Check if any of the env vars has a configured key
-                         api_key = None
-                         for env_var in p.api_key_env_vars:
-                             key_val = embedding_manager.retrieve_api_key(env_var)
-                             if key_val:
-                                 api_key = key_val
-                                 break
-                         
-                         if api_key:
-                            field_def['isSystemManaged'] = True
-                            # Return full API key - frontend Input.Password will handle visibility
-                            field_def['defaultValue'] = api_key
-                     except Exception as e:
-                         logger.warning(f"Failed to retrieve API key for {p.provider.value}: {e}")
-                 
-                 fields.append(field_def)
-
-             embedding_providers_ui.append({
-                'id': p.provider.value,
-                'name': p.display_name,
-                'description': p.description,
-                'fields': fields,
-                'modelMetadata': model_metadata
-            })
-
-        # Build Rerank providers UI
-        rerank_providers_ui = []
-        if not rerank_manager:
-            logger.warning("[SystemProviders] Rerank manager is not available!")
-
-        for key, p in system_rerank_providers.items():
-            # Check if provider has models list
-            model_field = {'key': 'RERANK_MODEL', 'label': 'fields.model', 'type': 'text', 'required': True, 'defaultValue': p.default_model or ''}
-
-            if hasattr(p, 'supported_models') and p.supported_models:
-                model_field['type'] = 'select'
-                model_field['options'] = [{'value': m.model_id, 'label': m.display_name or m.name} for m in p.supported_models]
-            
-            fields = [model_field]
-            
-            if p.base_url or p.is_local:
-                fields.append({'key': 'RERANK_BINDING_HOST', 'label': 'fields.apiHost', 'type': 'text', 'defaultValue': p.base_url or '', 'disabled': True})
-            
-            # Always check for API keys
-            if p.api_key_env_vars:
-                field_def = {'key': 'RERANK_BINDING_API_KEY', 'label': 'fields.apiKey', 'type': 'password', 'required': True}
-                
-                # Try to retrieve API key using manager
-                if rerank_manager:
-                    try:
-                        # Check if any of the env vars has a configured key
-                        api_key = None
-                        for env_var in p.api_key_env_vars:
-                            key_val = rerank_manager.retrieve_api_key(env_var)
-                            if key_val:
-                                api_key = key_val
-                                break
-                        
-                        if api_key:
-                            field_def['isSystemManaged'] = True
-                            # Return full API key - frontend Input.Password will handle visibility
-                            field_def['defaultValue'] = api_key
-                    except Exception as e:
-                        logger.warning(f"Failed to retrieve API key for {p.provider.value}: {e}")
-                
-                fields.append(field_def)
-
-            rerank_providers_ui.append({
-                'id': p.provider.value,
-                'name': p.display_name,
-                'description': p.description,
-                'fields': fields
-            })
-
         return create_success_response(request, {
             'llm_providers': llm_providers_ui,
             'embedding_providers': embedding_providers_ui,
@@ -1132,7 +1100,7 @@ def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, 
         })
     except Exception as e:
         logger.error(f"Error getting system providers: {e}")
-        return create_error_response(request, 'GET_PROVIDERS_ERROR', str(e))
+        return create_error_response(request, 'SYSTEM_PROVIDERS_ERROR', str(e))
 
 
 @IPCHandlerRegistry.handler('lightrag.getInputHistory')

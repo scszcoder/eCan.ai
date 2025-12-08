@@ -157,34 +157,6 @@
         }
       ]
     },
-    "Ollama": {
-      "name": "Ollama",
-      "display_name": "Ollama (Local)",
-      "provider": "ollama",
-      "class_name": "OllamaRerank",
-      "api_key_env_vars": [],
-      "base_url": "http://localhost:11434/api/rerank",
-      "default_model": "bge-m3",
-      "description": "Local rerank models via Ollama (Requires compatible endpoint)",
-      "documentation_url": "https://ollama.com",
-      "is_local": true,
-      "supported_models": [
-        {
-          "name": "bge-m3",
-          "display_name": "BGE M3",
-          "model_id": "bge-m3",
-          "max_chunks_per_doc": 1000,
-          "description": "BGE M3 model running on Ollama"
-        },
-        {
-          "name": "bge-reranker-v2-m3",
-          "display_name": "BGE Reranker v2 M3",
-          "model_id": "bge-reranker-v2-m3",
-          "max_chunks_per_doc": 1000,
-          "description": "BGE Reranker v2 M3 running on Ollama"
-        }
-      ]
-    },
     "Baidu Qianfan": {
       "name": "Baidu Qianfan",
       "display_name": "Baidu Qianfan",
@@ -207,7 +179,35 @@
           "description": "Baidu BCE reranker model"
         }
       ]
+    },
+    "Ollama (Local)": {
+      "name": "Ollama (Local)",
+      "display_name": "Ollama (Local)",
+      "provider": "ollama",
+      "class_name": "CohereRerank",
+      "api_key_env_vars": [
+        "OLLAMA_RERANK_API_KEY"
+      ],
+      "base_url": "http://localhost:11434",
+      "default_model": "xitao/bge-reranker-v2-m3:latest",
+      "description": "Local Ollama rerank (uses native API, auto-proxied via eCan LocalServer for LightRAG compatibility)",
+      "documentation_url": "https://ollama.com/library",
+      "is_local": true,
+      "supported_models": [],
+      "proxy_info": {
+        "enabled": true,
+        "proxy_type": "ecan_rerank_proxy",
+        "proxy_host": "http://localhost:4668",
+        "proxy_path": "/api/rerank",
+        "proxy_format": "aliyun",
+        "comment": "LightRAG server automatically redirects Ollama rerank to eCan proxy"
+      }
     }
   },
-  "default_provider": "Cohere"
+  "metadata": {
+    "version": "1.1.1",
+    "last_updated": "2025-12-07",
+    "description": "Rerank provider configurations for eCan.ai - Updated for Dec 2025",
+    "schema_version": "1.0"
+  }
 }

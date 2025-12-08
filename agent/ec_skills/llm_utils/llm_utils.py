@@ -1050,6 +1050,7 @@ def _create_llm_instance(provider, config_manager=None, allow_no_api_key=False):
         provider_name_actual = config['provider_name_actual']
         
         logger.info(f"Creating LLM instance - Provider: {provider_display} ({provider_name_actual}), Model: {model_name}")
+        logger.info(f"[DEBUG] provider_name={provider_name}, class_name={class_name}, provider_type={provider_type}, base_url={base_url}")
         
         # Helper to get API key from secure store with user isolation (no env fallback)
         def get_api_key(env_var):
@@ -1218,8 +1219,8 @@ def _create_llm_instance(provider, config_manager=None, allow_no_api_key=False):
                     temperature=0
                 )
         
-        # Check for OpenAI (must be after Azure check)
-        elif 'chatanthropic' != class_name and ('openai' in provider_name.lower() or 'chatopenai' == class_name):
+        # Check for OpenAI (must be after Azure check, and exclude Ollama)
+        elif 'chatanthropic' != class_name and 'ollama' not in provider_name.lower() and ('openai' in provider_name.lower() or 'chatopenai' == class_name):
             model_name = model_name or 'gpt-4o'
             # OpenAI requires OPENAI_API_KEY in secure_store
             openai_api_key = get_api_key('OPENAI_API_KEY')
@@ -1336,16 +1337,44 @@ def _create_llm_instance(provider, config_manager=None, allow_no_api_key=False):
                 logger.error(f"Failed to create Bytedance Doubao ChatOpenAI instance: {e}")
                 return None
         
-        # Check for Ollama
+        # Check for Ollama - use ChatOpenAI with OpenAI-compatible API
         elif 'ollama' in provider_name.lower() or 'chatollama' == class_name:
             model_name = model_name or 'llama3.2'
-            # Ollama local endpoint
-            base_url = base_url or 'http://localhost:11434'
-            return ChatOllama(
+            
+            logger.info(f"[Ollama] Starting Ollama LLM creation - Initial base_url from config: {base_url}")
+            
+            # Get base_url from settings.json (ollama_llm_base_url) or use provider default
+            if not base_url:
+                from gui.manager.provider_settings_helper import get_ollama_base_url
+                base_url = get_ollama_base_url('llm', provider)
+                logger.info(f"[Ollama] base_url was empty, loaded from settings: {base_url}")
+            else:
+                logger.info(f"[Ollama] Using base_url from provider config: {base_url}")
+            
+            # Convert native Ollama URL to OpenAI-compatible endpoint
+            original_base_url = base_url
+            base_url = base_url.rstrip('/') if base_url else ''
+            if base_url and not base_url.endswith('/v1'):
+                base_url = f"{base_url}/v1"
+            
+            logger.info(f"[Ollama] Converted base_url: {original_base_url} -> {base_url}")
+            logger.info(f"[Ollama] Creating ChatOpenAI with model={model_name}, base_url={base_url}")
+            
+            # Get API key from secure store (same as other providers)
+            from gui.manager.provider_settings_helper import get_ollama_api_key
+            ollama_api_key = get_ollama_api_key('llm')
+            
+            llm_instance = ChatOpenAI(
                 model=model_name,
+                api_key=ollama_api_key,
                 base_url=base_url,
                 temperature=0
             )
+            
+            logger.info(f"[Ollama] Successfully created Ollama LLM instance")
+            logger.info(f"[Ollama] Instance details - model: {llm_instance.model_name}, base_url: {llm_instance.openai_api_base if hasattr(llm_instance, 'openai_api_base') else 'N/A'}")
+            
+            return llm_instance
         
         else:
             logger.warning(f"Unknown provider type: {provider_name} (class_name: {class_name}, provider: {provider_type})")
@@ -1532,6 +1561,12 @@ def create_browser_use_llm_by_provider_type(
             'api_key': api_key or default_config['api_key'] or 'dummy-key'
         }
         if base_url:
+            # Special handling for Ollama: convert native URL to OpenAI-compatible endpoint
+            if provider_type == 'ollama':
+                base_url = base_url.rstrip('/')
+                if not base_url.endswith('/v1'):
+                    base_url = f"{base_url}/v1"
+                    logger.debug(f"[create_browser_use_llm_by_provider_type] Converted Ollama URL to OpenAI-compatible: {base_url}")
             bu_config['base_url'] = base_url
         
         logger.info(

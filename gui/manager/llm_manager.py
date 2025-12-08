@@ -42,6 +42,34 @@ class LLMManager:
         """
         self.config_manager = config_manager
         self._onboarding_shown = False  # Track if onboarding has been shown this session
+        
+        # Load and merge Ollama models at initialization
+        # This is CRITICAL for extract_provider_config to validate user-selected models
+        self._load_and_merge_ollama_models()
+    
+    def _load_and_merge_ollama_models(self):
+        """
+        Load ollama_tags.json and merge models into Ollama provider's supported_models.
+        
+        This is essential for:
+        1. extract_provider_config to validate user-selected models
+        2. Preventing model_name from being reset to empty string
+        
+        Note: This is different from handler's merge_ollama_models_to_providers:
+        - Handler merge: For frontend display (dict-based providers)
+        - Manager merge: For LLM instance creation validation (config-based providers)
+        """
+        try:
+            from gui.ollama_utils import merge_ollama_models_to_config_providers
+            
+            # Get all providers as dict
+            all_providers = llm_config.get_all_providers()
+            
+            # Use the unified merge function (auto-loads ollama_tags)
+            merge_ollama_models_to_config_providers(all_providers, provider_type='llm')
+            
+        except Exception as e:
+            logger.warning(f"[LLMManager] Failed to load Ollama models during init: {e}")
     
     # API Key Management Methods - Using Environment Variables
     
@@ -273,16 +301,13 @@ class LLMManager:
     def _check_provider_api_keys_configured(self, provider_config: LLMProviderConfig) -> bool:
         """
         Check if all required API keys for a provider are configured.
-        For local providers like Ollama, do NOT automatically consider them configured
-        just because they have a default base_url in llm_providers.json.
-        Local providers should only be considered configured if explicitly set as default_llm
-        and have a valid base_url.
+        For local providers like Ollama, check if base_url is valid.
         """
         if provider_config.is_local:
-            # For local providers, do not automatically consider them configured
-            # They should only be considered configured when explicitly selected as default_llm
-            # and validated in check_provider_configured()
-            # This prevents auto-selection of unconfigured local providers
+            # For local providers, check if base_url is configured and valid
+            base_url = provider_config.base_url
+            if base_url and (base_url.strip().startswith('http://') or base_url.strip().startswith('https://')):
+                return True
             return False
 
         for env_var in provider_config.api_key_env_vars:

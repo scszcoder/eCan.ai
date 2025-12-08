@@ -29,10 +29,16 @@ def get_rerank_manager():
 
 @IPCHandlerRegistry.handler('get_rerank_providers')
 def handle_get_rerank_providers(request: IPCRequest, params: Optional[Dict[str, Any]] = None) -> IPCResponse:
-    """Get all Rerank providers"""
+    """Get all Rerank providers with Ollama models merged"""
     try:
+        from gui.ollama_utils import merge_ollama_models_to_providers
+        
         rerank_manager = get_rerank_manager()
         providers = rerank_manager.get_all_providers()
+        
+        # Merge Ollama models using shared utility
+        providers = merge_ollama_models_to_providers(providers, provider_type='rerank')
+        
         logger.info(f"Retrieved {len(providers)} Rerank providers")
 
         # Include current settings for frontend
@@ -73,6 +79,7 @@ def handle_update_rerank_provider(request: IPCRequest, params: Optional[Dict[str
         
         api_key = data.get('api_key')
         azure_endpoint = data.get('azure_endpoint')
+        base_url = data.get('base_url')  # Support updating base_url for local providers like Ollama
 
         # Get provider by standard identifier (case-insensitive)
         provider = rerank_manager.get_provider(provider_identifier)
@@ -120,9 +127,21 @@ def handle_update_rerank_provider(request: IPCRequest, params: Optional[Dict[str
                     return create_error_response(request, 'RERANK_ERROR', f"Failed to store API key: {error_msg}")
                 api_key_stored = True
 
+        # Update base_url for local providers (e.g., Ollama)
+        # Note: We don't save here, will save together with other settings below
+        base_url_updated = False
+        if base_url and provider.get('is_local', False):
+            from gui.manager.provider_settings_helper import update_ollama_base_url
+            success, error_msg = update_ollama_base_url(provider_identifier, base_url, 'rerank')
+            if success:
+                base_url_updated = True
+            elif error_msg:
+                logger.warning(f"Failed to update base_url: {error_msg}")
+
         # Auto-set as default_rerank if no default is set or if this is the only configured provider
+        # Combine all general_settings updates and save once
         auto_set_as_default = False
-        if api_key_stored:
+        if api_key_stored or base_url_updated:
             try:
                 main_window = AppContext.get_main_window()
                 if main_window:
@@ -154,9 +173,12 @@ def handle_update_rerank_provider(request: IPCRequest, params: Optional[Dict[str
                                 fallback_model = provider_config.get('default_model', 'text-rerank-3-small')
                                 general_settings.default_rerank_model = fallback_model
                                 logger.info(f"Auto-set default rerank model to {fallback_model} (fallback)")
-                        general_settings.save()
                         auto_set_as_default = True
                         logger.info(f"Auto-set {provider_identifier} as default_rerank")
+                    
+                    # Save all general_settings changes at once (base_url + auto-set default)
+                    from gui.manager.provider_settings_helper import save_general_settings_if_needed
+                    save_general_settings_if_needed(base_url_updated, auto_set_as_default)
             except Exception as e:
                 logger.warning(f"Failed to auto-set default_rerank: {e}")
 
@@ -380,7 +402,7 @@ def handle_delete_rerank_provider_config(request: IPCRequest, params: Optional[D
             if is_default_rerank:
                 logger.info(f"Provider {provider_identifier} was the default rerank, selecting a new default")
             else:
-                logger.info("All API keys deleted, resetting to default OpenAI provider")
+                logger.info("All API keys deleted, clearing default rerank")
             
             if configured_providers:
                 # Select the first available configured provider
@@ -389,14 +411,10 @@ def handle_delete_rerank_provider_config(request: IPCRequest, params: Optional[D
                 new_default_model = new_provider.get('preferred_model') or new_provider.get('default_model') or ''
                 logger.info(f"Selected new default Rerank {new_default_rerank} with model {new_default_model}")
             else:
-                # No providers are configured, default to OpenAI with its default model
-                new_default_rerank = 'openai'
-                try:
-                    openai_provider = rerank_manager.get_provider('openai')
-                    new_default_model = openai_provider.get('default_model', 'text-rerank-3-small') if openai_provider else 'text-rerank-3-small'
-                except:
-                    new_default_model = 'text-rerank-3-small'
-                logger.info(f"No configured providers found; defaulting to {new_default_rerank} with model {new_default_model} (no API key)")
+                # No providers are configured, clear default rerank (rerank is optional)
+                new_default_rerank = ''
+                new_default_model = ''
+                logger.info(f"No configured providers found; clearing default rerank setting")
             
             # Update default_rerank setting
             main_window.config_manager.general_settings.default_rerank = new_default_rerank
