@@ -17,6 +17,13 @@ import pygetwindow as gw
 from pynput.mouse import Controller
 from starlette.types import Receive, Scope, Send
 
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait, Select
+from selenium.webdriver.support import expected_conditions as EC
+
 # MCP library imports
 from mcp.server.fastmcp.prompts import base
 from mcp.server.lowlevel import Server
@@ -26,7 +33,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import CallToolResult, TextContent, Tool
 
 # Local application imports
-from agent.mcp.server.ads_power.ads_power import connect_to_adspower
+from agent.mcp.server.ads_power.ads_power import connect_to_adspower, connect_to_existing_chrome
 from agent.mcp.server.tool_schemas import get_tool_schemas
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import (
     api_ecan_ai_get_nodes_prompts,
@@ -251,6 +258,31 @@ async def os_wait(mainwin, args):
         logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
+def get_selector(element_type):
+    """Convert element type string to Selenium By locator.
+    
+    Args:
+        element_type: String like 'css', 'xpath', 'id', 'name', 'class', 'tag', 'link_text', 'partial_link_text'
+    
+    Returns:
+        Corresponding By.* locator
+    """
+    selectors = {
+        'css': By.CSS_SELECTOR,
+        'css_selector': By.CSS_SELECTOR,
+        'xpath': By.XPATH,
+        'id': By.ID,
+        'name': By.NAME,
+        'class': By.CLASS_NAME,
+        'class_name': By.CLASS_NAME,
+        'tag': By.TAG_NAME,
+        'tag_name': By.TAG_NAME,
+        'link_text': By.LINK_TEXT,
+        'partial_link_text': By.PARTIAL_LINK_TEXT,
+    }
+    return selectors.get(element_type.lower(), By.CSS_SELECTOR)
+
+
 async def in_browser_wait_for_element(mainwin, args):
     """Waits for the element specified by the CSS selector to become visible within the given timeout."""
     try:
@@ -289,6 +321,10 @@ async def in_browser_click_element_by_index(mainwin, args):
         logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
+def webDriverWaitForVisibility(web_driver, by, selector, timeout):
+    wait = WebDriverWait(web_driver, timeout)
+    locator = (by, selector)
+    return wait.until(EC.presence_of_element_located(locator))
 
 async def in_browser_click_element_by_selector(mainwin, args):
     try:
@@ -367,6 +403,23 @@ async def in_browser_click_element_by_text(mainwin, args):
         return [TextContent(type="text", text=err_trace)]
 
 
+def webDriverKeyIn(web_driver, element, text, clear_first=True):
+    """Type text into a web element using Selenium.
+    
+    Args:
+        web_driver: Selenium WebDriver instance
+        element: Target web element to type into
+        text: Text string to type
+        clear_first: If True, clear the element before typing (default: True)
+    """
+    if element is None:
+        raise ValueError("Target element is None")
+    element.click()  # Focus the element
+    if clear_first:
+        element.clear()
+    element.send_keys(text)
+
+
 async def in_browser_input_text(mainwin, args):
     try:
         crawler = mainwin.getWebCrawler()
@@ -402,6 +455,35 @@ async def in_browser_input_text(mainwin, args):
 # Save PDF
 
 # Tab Management Actions
+def webDriverSwitchTab(web_driver, tab_title_txt=None, url=None):
+    """Switch to a browser tab by title text or URL.
+    
+    Args:
+        web_driver: Selenium WebDriver instance
+        tab_title_txt: Partial or full title text to match (optional)
+        url: Partial or full URL to match (optional)
+    
+    Returns:
+        True if tab was found and switched, False otherwise
+    """
+    original_handle = web_driver.current_window_handle
+    
+    for handle in web_driver.window_handles:
+        web_driver.switch_to.window(handle)
+        
+        # Match by title if provided
+        if tab_title_txt and tab_title_txt in web_driver.title:
+            return True
+        
+        # Match by URL if provided
+        if url and url in web_driver.current_url:
+            return True
+    
+    # If no match found, switch back to original
+    web_driver.switch_to.window(original_handle)
+    return False
+
+
 async def in_browser_switch_tab(mainwin, args):
     try:
         crawler = mainwin.getWebCrawler()
@@ -557,6 +639,28 @@ async def in_browser_extract_content(mainwin, args):
         return [TextContent(type="text", text=err_trace)]
 
 
+def execute_js_script(web_driver, script, target=None):
+    """Execute JavaScript in the browser.
+    
+    Args:
+        web_driver: Selenium WebDriver instance
+        script: JavaScript code to execute
+        target: Optional target element (CSS selector string or WebElement)
+    
+    Returns:
+        Result of the JavaScript execution
+    """
+    if target:
+        # If target is a string, find the element first
+        if isinstance(target, str):
+            element = web_driver.find_element(By.CSS_SELECTOR, target)
+        else:
+            element = target
+        return web_driver.execute_script(script, element)
+    else:
+        return web_driver.execute_script(script)
+
+
 async def in_browser_execute_javascript(mainwin, args):
     try:
         crawler = mainwin.getWebCrawler()
@@ -609,6 +713,123 @@ async def in_browser_build_dom_tree(mainwin, args):
         logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
+
+
+def webDriverDownloadFile(web_driver, ele_type, ele_text, dl_dir, dl_file):
+    """Download a file by finding an element with href and saving its content.
+    
+    Args:
+        web_driver: Selenium WebDriver instance
+        ele_type: Element type to search for (e.g., 'a', 'link', 'button')
+        ele_text: Text content to match in the element
+        dl_dir: Directory to save the file
+        dl_file: Filename to save as
+    
+    Returns:
+        Full path of the saved file
+    """
+    import requests
+    import os
+    
+    # Find element by type and text
+    elements = web_driver.find_elements(By.TAG_NAME, ele_type)
+    target_element = None
+    
+    for elem in elements:
+        if ele_text in elem.text or ele_text in elem.get_attribute('innerHTML'):
+            target_element = elem
+            break
+    
+    if not target_element:
+        raise ValueError(f"Element with type '{ele_type}' and text '{ele_text}' not found")
+    
+    # Get the href attribute
+    href = target_element.get_attribute('href')
+    if not href:
+        # Try onclick or data attributes
+        href = target_element.get_attribute('data-href') or target_element.get_attribute('data-url')
+    
+    if not href:
+        raise ValueError(f"No href found on element with text '{ele_text}'")
+    
+    # Ensure download directory exists
+    os.makedirs(dl_dir, exist_ok=True)
+    
+    # Get cookies from webdriver for authenticated downloads
+    cookies = {cookie['name']: cookie['value'] for cookie in web_driver.get_cookies()}
+    
+    # Download the file
+    response = requests.get(href, cookies=cookies, stream=True)
+    response.raise_for_status()
+    
+    # Save to file
+    file_path = os.path.join(dl_dir, dl_file)
+    with open(file_path, 'wb') as f:
+        for chunk in response.iter_content(chunk_size=8192):
+            f.write(chunk)
+    
+    return file_path
+
+
+async def browser_use_download_file(mainwin, ele_type, ele_text, dl_dir, dl_file):
+    """Download a file using browser_use session.
+    
+    Args:
+        mainwin: Main window instance with browser_session
+        ele_type: Element type to search for
+        ele_text: Text content to match in the element
+        dl_dir: Directory to save the file
+        dl_file: Filename to save as
+    
+    Returns:
+        Full path of the saved file
+    """
+    import aiohttp
+    import os
+    
+    browser_session = mainwin.browser_session
+    page = await browser_session.get_current_page()
+    
+    # Find element by text
+    element = await page.query_selector(f'{ele_type}:has-text("{ele_text}")')
+    if not element:
+        # Try broader search
+        elements = await page.query_selector_all(ele_type)
+        for elem in elements:
+            text = await elem.inner_text()
+            if ele_text in text:
+                element = elem
+                break
+    
+    if not element:
+        raise ValueError(f"Element with type '{ele_type}' and text '{ele_text}' not found")
+    
+    # Get href
+    href = await element.get_attribute('href')
+    if not href:
+        href = await element.get_attribute('data-href') or await element.get_attribute('data-url')
+    
+    if not href:
+        raise ValueError(f"No href found on element with text '{ele_text}'")
+    
+    # Ensure download directory exists
+    os.makedirs(dl_dir, exist_ok=True)
+    
+    # Get cookies from browser context
+    context = page.context
+    cookies = await context.cookies()
+    cookie_dict = {cookie['name']: cookie['value'] for cookie in cookies}
+    
+    # Download using aiohttp
+    async with aiohttp.ClientSession(cookies=cookie_dict) as session:
+        async with session.get(href) as response:
+            response.raise_for_status()
+            file_path = os.path.join(dl_dir, dl_file)
+            with open(file_path, 'wb') as f:
+                async for chunk in response.content.iter_chunked(8192):
+                    f.write(chunk)
+    
+    return file_path
 
 
 # HTML Download
@@ -957,6 +1178,7 @@ async def mouse_scroll(mainwin, args):
 
 
 async def mouse_act_on_screen(mainwin, args):
+    from agent.ec_skills.ocr.post_ocr import mousePressAndHoldOnScreenWord
     try:
         screen_data = args["input"]["screen_data"]
         action = args["input"]["action"]
@@ -1064,45 +1286,48 @@ async def os_connect_to_adspower(mainwin, args):
         if webdriver:
             page_scroll(mainwin, webdriver)
 
-            script = mainwin.load_build_dom_tree_script()
-            # logger.debug("dom tree build script to be executed", script)
-            target = None
-            response = execute_js_script(webdriver, script, target)
-            domTree = response.get("result", {})
-            logs = response.get("logs", [])
-            if len(logs) > 128:
-                llen = 128
-            else:
-                llen = len(logs)
+            dom_tree = webdriver.execute_cdp_cmd(
+                "DOM.getDocument",
+                {"depth": -1, "pierce": True}
+            )
 
-            for i in range(llen):
-                logger.debug(logs[i])
+            logger.debug(f"dom tree: {type(dom_tree)}, {dom_tree}")
+            # logs = response.get("logs", [])
+            # if len(logs) > 128:
+            #     llen = 128
+            # else:
+            #     llen = len(logs)
+            #
+            # for i in range(llen):
+            #     logger.debug(logs[i])
 
-            with open("domtree.json", 'w', encoding="utf-8") as dtjf:
-                json.dump(domTree, dtjf, ensure_ascii=False, indent=4)
-                # self.rebuildHTML()
-                dtjf.close()
+            # with open("domtree.json", 'w', encoding="utf-8") as dtjf:
+            #     json.dump(domTree, dtjf, ensure_ascii=False, indent=4)
+            #     # self.rebuildHTML()
+            #     dtjf.close()
 
-            logger.debug(f"dom tree: {type(domTree)}, {domTree.keys()}")
-            top_level_nodes = find_top_level_nodes(domTree)
-            logger.debug(f"top level nodes: {type(top_level_nodes)}, {top_level_nodes}")
-            top_level_texts = get_shallowest_texts(top_level_nodes, domTree)
-            tls = collect_text_nodes_by_level(domTree)
-            logger.debug(f"level texts: {tls}")
-            logger.debug(f"level N texts: {[len(tls[i]) for i in range(len(tls))]}")
-            for l in tls:
-                if l:
-                    logger.debug(f"level texts: {[domTree['map'][nid]['text'] for nid in l]}")
-
-            sects = sectionize_dt_with_subsections(domTree)
-            logger.debug(f"sections: {sects}")
-        mainwin.setWebDriver(webdriver)
-        # set up output.
-        msg = "completed connect to adspower."
+            # logger.debug(f"dom tree: {type(domTree)}, {domTree.keys()}")
+            # top_level_nodes = find_top_level_nodes(domTree)
+            # logger.debug(f"top level nodes: {type(top_level_nodes)}, {top_level_nodes}")
+            # top_level_texts = get_shallowest_texts(top_level_nodes, domTree)
+            # tls = collect_text_nodes_by_level(domTree)
+            # logger.debug(f"level texts: {tls}")
+            # logger.debug(f"level N texts: {[len(tls[i]) for i in range(len(tls))]}")
+            # for l in tls:
+            #     if l:
+            #         logger.debug(f"level texts: {[domTree['map'][nid]['text'] for nid in l]}")
+            #
+            # sects = sectionize_dt_with_subsections(domTree)
+            # logger.debug(f"sections: {sects}")
+            mainwin.setWebDriver(webdriver)
+            # set up output.
+            msg = "completed connect to adspower."
+        else:
+            mainwin.setWebDriver(None)
+            # set up output.
+            msg = "failed connect to adspower."
 
         result = TextContent(type="text", text=f"{msg}")
-        result.meta = {"dome tree": top_level_texts}
-
         return [result]
 
     except Exception as e:
@@ -1117,22 +1342,21 @@ async def os_connect_to_chrome(mainwin, args):
     logger.debug(f"initial state: {args}")
     try:
         url = args["input"]["url"]
+        port = args["input"]["ads_port"]
+        webdriver = connect_to_existing_chrome(args["input"]["driver_path"], url, port)
+        time.sleep(1)
 
-        webdriver = webDriverStartExistingChrome(args["input"]["driver_path"], args["input"]["ads_port"])
-        time.sleep(1)
-        webdriver.execute_script(f"window.open('{url}', '_blank');")
-        time.sleep(1)
         # Switch to the new tab
-        webdriver.switch_to.window(webdriver.window_handles[-1])
-        time.sleep(3)
-        # Navigate to the new URL in the new tab
-        if url:
-            webdriver.get(url)  # Replace with the new URL
-            logger.info("open URL: " + url)
+        if webdriver:
+            webdriver.switch_to.window(webdriver.window_handles[-1])
+            time.sleep(3)
+            # set up output.
+            msg = "completed connect to chrome."
+        else:
+            msg = "failed connect to chrome."
 
         mainwin.setWebDriver(webdriver)
-        # set up output.
-        msg = "completed connect to chrome."
+
         result = [TextContent(type="text", text=msg)]
         return result
 
@@ -1304,6 +1528,7 @@ async def os_screen_analyze(mainwin, args):
 
 
 async def os_screen_capture(mainwin, args):
+    from agent.ec_skills.ocr.image_prep import carveOutImage, maskOutImage, saveImageToFile, takeScreenShot
     try:
         screen_img, window_rect = await takeScreenShot(args["input"]["win_title_kw"])
         img_section = carveOutImage(screen_img, args["input"]["sub_area"], "")
@@ -1553,6 +1778,7 @@ async def api_ecan_ai_rerank_results(mainwin, args):
 
 
 async def api_ecan_ai_show_status(mainwin, args):
+    from agent.mcp.server.api.ecan_ai.ecan_ai_api import ecan_ai_api_get_agent_status
     # call put work received from A2A channel, put into today's work data structure
     # the runbotworks task will then take over.....
     # including put reactive work into it.
@@ -1577,6 +1803,7 @@ async def api_ecan_ai_show_status(mainwin, args):
 
 
 async def ecan_local_search_components(mainwin, args):
+    from agent.mcp.server.scrapers.eval_util import get_default_fom_form
     logger.debug(f"ecan_local_search_components initial state: {args['input']}")
     try:
         vendors = list(args['input']["urls"].keys())
