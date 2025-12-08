@@ -10,6 +10,7 @@ Note: This script is independent of application code and only requires boto3 and
 """
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -554,7 +555,10 @@ class AppcastGenerator:
     
     def upload_appcast(self, platform: str, arch: str, xml_content: str, language: str = 'en-US') -> bool:
         """
-        Upload appcast XML to S3 (with i18n support)
+        Upload appcast XML to S3 with change detection (with i18n support)
+        
+        This method checks if the content has changed before uploading to avoid
+        unnecessary S3 API calls and uploads.
         
         Args:
             platform: Platform (macos/windows)
@@ -576,6 +580,27 @@ class AppcastGenerator:
         else:
             s3_key = f"{self.prefix}/channels/{self.channel}/{filename}"
         
+        # Calculate hash of new content
+        new_hash = hashlib.sha256(xml_content.encode('utf-8')).hexdigest()
+        
+        # Check if existing appcast has the same content
+        try:
+            response = self.s3.get_object(Bucket=self.bucket, Key=s3_key)
+            existing_content = response['Body'].read().decode('utf-8')
+            existing_hash = hashlib.sha256(existing_content.encode('utf-8')).hexdigest()
+            
+            if new_hash == existing_hash:
+                print(f"  [SKIP] {filename} - No changes detected")
+                return True
+            else:
+                print(f"  [INFO] {filename} - Content changed, uploading...")
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'NoSuchKey':
+                print(f"  [INFO] {filename} - New file, uploading...")
+            else:
+                print(f"  [WARN] Failed to check existing appcast: {e}")
+        
+        # Upload to S3
         try:
             self.s3.put_object(
                 Bucket=self.bucket,
@@ -749,8 +774,9 @@ class AppcastGenerator:
                     if self.upload_appcast(platform, arch, xml_content, language=language):
                         success_count += 1
         
-        # Generate latest.json
-        self.generate_latest_json()
+        # Note: latest.json generation moved to separate job
+        # to avoid race conditions when multiple appcast jobs run in parallel
+        # See: generate-latest-json job in release.yml
         
         # Summary
         print("\n" + "=" * 60)
