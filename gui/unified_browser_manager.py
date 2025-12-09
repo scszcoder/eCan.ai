@@ -130,6 +130,8 @@ def _build_adspower_browser_session(profile_id: str) -> BrowserSession:
 
     if not cdp_url:
         raise RuntimeError("Failed to determine AdsPower CDP endpoint from startAdspowerProfile response")
+    else:
+        logger.debug("[BrowserSession] adspower cdp_url:", cdp_url)
 
     profile = BrowserProfile(headless=False, cdp_url=cdp_url)
     profile.is_local = False

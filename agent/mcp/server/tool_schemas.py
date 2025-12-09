@@ -1130,6 +1130,40 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
+
+    tool_schema = types.Tool(
+        name="ecan_ai_new_chromiunm",
+        description="<category>Browser Automation</category><sub-category>Launch New Chromium</sub-category>launch a new instance of chromium and open a new tab in URL.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["driver_path", "url", "profile"],  # url is required *inside* input
+                    "properties": {
+                        "driver_path": {
+                            "type": "string",
+                            "description": "full path to web driver to use",
+                        },
+                        "url": {
+                            "type": "string",
+                            "format": "uri",  # optional JSON-Schema hint
+                            "description": "URL of the web page to open",
+                        },
+                        "profile": {
+                            "type": "string",
+                            "description": "json string of the browser profile to be used. ",
+                        }
+                    },
+                }
+            },
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+
     tool_schema = types.Tool(
         name="os_reconnect_wifi",
         description="<category>System</category><sub-category>Network</sub-category>use shell command to reconnect wifi (assume wifi access point porfiles exist).",

@@ -1226,7 +1226,7 @@
             "type": "mcp",
             "meta": {
               "position": {
-                "x": -1064.1485698355614,
+                "x": -752.4494902726128,
                 "y": -135.87451239109532
               }
             },
@@ -1247,10 +1247,31 @@
                 "type": "system",
                 "source": ""
               },
-              "inputsValues": {},
+              "inputsValues": {
+                "gmail_url": {
+                  "type": "constant",
+                  "content": "https://mail.google.com/mail/u/0/#inbox"
+                },
+                "recent": {
+                  "type": "constant",
+                  "content": "",
+                  "schema": {
+                    "type": "integer",
+                    "description": "number of hours to look back and search unread emails in inbox"
+                  }
+                }
+              },
               "inputs": {
                 "type": "object",
-                "properties": {}
+                "properties": {
+                  "gmail_url": {
+                    "type": "string"
+                  },
+                  "recent": {
+                    "type": "integer",
+                    "description": "number of hours to look back and search unread emails in inbox"
+                  }
+                }
               },
               "outputs": {
                 "type": "object",
@@ -1275,8 +1296,8 @@
               },
               "data": {
                 "callable": {
-                  "name": "in_browser_extract_content",
-                  "desc": "<category>Browser Automation</category><sub-category>Selenium Search Action</sub-category>use browser driver to extract dom tree from the web page.",
+                  "name": "gmail_read_titles",
+                  "desc": "read titles of unread gmails for the past N hours.",
                   "params": {
                     "type": "object",
                     "required": [
@@ -1286,13 +1307,123 @@
                       "input": {
                         "type": "object",
                         "required": [
+                          "gmail_url",
+                          "recent",
+                          "options"
+                        ],
+                        "properties": {
+                          "gmail_url": {
+                            "type": "string",
+                            "description": "gmail inbox page URL (can be blank if using default)."
+                          },
+                          "recent": {
+                            "type": "integer",
+                            "description": "number of hours to look back and search unread emails in inbox"
+                          },
+                          "options": {
+                            "type": "object",
+                            "description": "some options in json format including printer name, label format, etc. will use default if these info are missing anyways."
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "returns": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "type": "system",
+                  "source": ""
+                }
+              }
+            }
+          },
+          {
+            "id": "mcp_B_Xsb",
+            "type": "mcp",
+            "meta": {
+              "position": {
+                "x": -1068.584056160683,
+                "y": -135.87451239109532
+              }
+            },
+            "data": {
+              "title": "MCP_1",
+              "callable": {
+                "id": "llm-auto-select",
+                "name": "llm auto select",
+                "desc": "Let the LLM automatically select the appropriate tool based on the context",
+                "params": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "returns": {
+                  "type": "object",
+                  "properties": {}
+                },
+                "type": "system",
+                "source": ""
+              },
+              "inputsValues": {
+                "url": {
+                  "type": "constant",
+                  "content": "https://mail.google.com/mail/u/0/#inbox"
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "url": {
+                    "type": "string"
+                  }
+                }
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              },
+              "data": {
+                "callable": {
+                  "name": "os_connect_to_chrome",
+                  "desc": "<category>Browser Automation</category><sub-category>Chrome Connection</sub-category>connect to an already opened chrome and open a new tab in URL.",
+                  "params": {
+                    "type": "object",
+                    "required": [
+                      "input"
+                    ],
+                    "properties": {
+                      "input": {
+                        "type": "object",
+                        "required": [
+                          "driver_path",
                           "url"
                         ],
                         "properties": {
+                          "driver_path": {
+                            "type": "string",
+                            "description": "full path to web driver to use"
+                          },
                           "url": {
                             "type": "string",
                             "format": "uri",
-                            "description": "URL of the web page to open, if this is empty, then whatever currently opened page will be extracted."
+                            "description": "URL of the web page to open"
                           }
                         }
                       }
@@ -1326,7 +1457,7 @@
           },
           {
             "sourceNodeID": "start_R2Ckr",
-            "targetNodeID": "mcp_MaW6N"
+            "targetNodeID": "mcp_B_Xsb"
           },
           {
             "sourceNodeID": "845126",
@@ -1369,11 +1500,15 @@
           {
             "sourceNodeID": "code_8nk5b",
             "targetNodeID": "condition_kkKy4"
+          },
+          {
+            "sourceNodeID": "mcp_B_Xsb",
+            "targetNodeID": "mcp_MaW6N"
           }
         ]
       },
       "createdAt": 1764879518895,
-      "lastOpenedAt": 1765171338589
+      "lastOpenedAt": 1765256968455
     }
   ],
   "openTabs": [
