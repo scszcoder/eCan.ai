@@ -110,7 +110,9 @@
       ]
     },
     "pyinstaller": {
-      "collect_all": [],
+      "collect_all": [
+        "lightrag"
+      ],
       "collect_data_only": [
         "PIL",
         "pandas",
@@ -126,7 +128,6 @@
         "langchain_core",
         "mcp",
         "anyio",
-        "lightrag",
         "tiktoken",
         "requests",
         "aiohttp",

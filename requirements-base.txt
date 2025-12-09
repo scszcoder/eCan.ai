@@ -40,6 +40,9 @@ chroma-hnswlib==0.7.6
 # AI & MACHINE LEARNING - LLM PROVIDERS & MODELS
 # ============================================================================
 openai==1.99.9
+ollama>=0.1.0,<1.0.0        # Required by mem0, browser_use, langchain
+anthropic>=0.18.0,<1.0.0    # Anthropic Claude (optional LLM provider)
+voyageai>=0.2.0,<1.0.0      # Voyage AI embeddings (optional)
 tokenizers==0.21.1
 safetensors==0.5.3
 
@@ -199,11 +202,11 @@ PyPDF2==3.0.1
 lzstring==1.0.4
 
 # ============================================================================
-# DOCUMENT PROCESSING (LightRAG dependencies)
+# DOCUMENT PROCESSING
 # ============================================================================
-
-# ============================================================================
-# ============================================================================
+python-docx==1.1.2          # Word (.docx) processing
+python-pptx==1.0.2          # PowerPoint (.pptx) processing
+pycryptodome==3.21.0        # Encrypted document support
 
 # ============================================================================
 # TEXT PROCESSING & NLP
@@ -360,36 +363,38 @@ asteval==1.0.6
 markdown==3.5.1
 
 # ============================================================================
-# LIGHTRAG ECOSYSTEM (Core & Optional Backends)
-# Unified collection of all LightRAG dependencies for easier management
+# LIGHTRAG CORE DEPENDENCIES
 # ============================================================================
-anthropic>=0.18.0,<1.0.0
-ascii_colors==0.11.4        # Terminal color output
-asyncpg>=0.29.0,<1.0.0
-configparser==7.2.0         # Configuration file parsing
-faiss-cpu==1.12.0
-future==1.0.0               # Python 2/3 compatibility
-google-genai>=1.0.0,<2.0.0
-gqlalchemy
-json_repair==0.40.0         # JSON repair utility
 lightrag-hku==1.4.9.8
+ascii_colors==0.11.4        # Terminal color output (LightRAG internal)
+configparser==7.2.0         # Configuration file parsing
+future==1.0.0               # Python 2/3 compatibility
+google-genai>=1.0.0,<2.0.0  # Google Gemini support
+json_repair==0.40.0         # JSON repair utility
 nano-vectordb==0.0.4.3      # Lightweight vector database
-neo4j>=5.0.0,<7.0.0
-ollama>=0.1.0,<1.0.0
-passlib==1.7.4              # Password hashing (with bcrypt)
-pgvector
 pipmaster==1.0.10           # Package management utility
-psycopg2-binary
-pycryptodome==3.21.0        # Encrypted document support
-pymilvus>=2.6.2,<3.0.0
-pymongo>=4.0.0,<5.0.0
 pypinyin==0.55.0            # Chinese pinyin conversion
-python-docx==1.1.2          # Word (.docx) processing
-python-multipart==0.0.20    # Multipart form data parsing
-python-pptx==1.0.2          # PowerPoint (.pptx) processing
-qdrant-client>=1.7.0,<2.0.0
-redis>=5.0.0,<8.0.0
 tiktoken==0.12.0            # Token counting for LLM
-voyageai>=0.2.0,<1.0.0
 xlsxwriter==3.2.9           # Excel file writing
-# zhipuai>=2.0.0,<3.0.0     # REMOVED: Conflicts with mcp (PyJWT version incompatibility)
+python-multipart==0.0.20    # Multipart form data parsing (FastAPI)
+passlib==1.7.4              # Password hashing (WebUI authentication)
+
+# ============================================================================
+# LIGHTRAG OPTIONAL BACKENDS - Vector Storage
+# All backends included in build for runtime flexibility
+# ============================================================================
+faiss-cpu==1.12.0           # FAISS vector storage (default, recommended)
+pymilvus>=2.6.2,<3.0.0      # Milvus vector database
+qdrant-client>=1.7.0,<2.0.0 # Qdrant vector database
+pgvector>=0.3.0,<1.0.0      # PostgreSQL pgvector extension
+asyncpg>=0.29.0,<1.0.0      # PostgreSQL async client (required for pgvector)
+psycopg2-binary             # PostgreSQL sync client (required for pgvector)
+
+# ============================================================================
+# LIGHTRAG OPTIONAL BACKENDS - Graph Storage
+# All backends included in build for runtime flexibility
+# ============================================================================
+neo4j>=5.0.0,<7.0.0         # Neo4j graph database (recommended)
+gqlalchemy>=1.4.0,<2.0.0    # Memgraph graph database
+redis>=5.0.0,<8.0.0         # Redis storage backend
+pymongo>=4.0.0,<5.0.0       # MongoDB storage backend
