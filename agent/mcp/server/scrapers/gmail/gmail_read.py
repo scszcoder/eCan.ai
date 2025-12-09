@@ -103,9 +103,17 @@ def _extract_email_data(row, cutoff_time):
     
     Returns:
         dict with from, datetime, title (for return) plus full_data with all extracted info,
-        or None if email is too old
+        or None if email is too old or already read
     """
     from datetime import datetime as dt
+    
+    # ===== UNREAD CHECK =====
+    # Verify the row still has the unread class (zE)
+    row_classes = row.get_attribute("class") or ""
+    is_unread = "zE" in row_classes
+    if not is_unread:
+        logger.debug(f"[GMAIL] Skipping read email (no zE class): {row_classes}")
+        return None
     
     # ===== DATETIME EXTRACTION =====
     datetime_str = ""
@@ -150,39 +158,60 @@ def _extract_email_data(row, cutoff_time):
     sender = ""
     sender_email = ""
     try:
-        sender_elem = row.find_element(By.CSS_SELECTOR, "span.zF, span.yP")
-        sender = sender_elem.get_attribute("name") or sender_elem.text
+        # Primary: span.zF has both name and email attributes
+        sender_elem = row.find_element(By.CSS_SELECTOR, "span.zF")
+        sender = sender_elem.get_attribute("name") or sender_elem.text or ""
         sender_email = sender_elem.get_attribute("email") or ""
     except Exception:
         try:
-            sender_div = row.find_element(By.CSS_SELECTOR, "div.yW span")
-            sender = sender_div.get_attribute("name") or sender_div.text
-            sender_email = sender_div.get_attribute("email") or ""
+            # Fallback: span.yP
+            sender_elem = row.find_element(By.CSS_SELECTOR, "span.yP")
+            sender = sender_elem.get_attribute("name") or sender_elem.text or ""
+            sender_email = sender_elem.get_attribute("email") or ""
         except Exception:
-            pass
+            try:
+                # Last fallback: div.yW span
+                sender_div = row.find_element(By.CSS_SELECTOR, "div.yW span")
+                sender = sender_div.get_attribute("name") or sender_div.text or ""
+                sender_email = sender_div.get_attribute("email") or ""
+            except Exception:
+                pass
     
     # ===== TITLE/SUBJECT EXTRACTION + CLICKABLE ELEMENT =====
     title = ""
     title_clickable_elem = None
     try:
-        # The clickable title is usually the row itself or a specific span
-        title_elem = row.find_element(By.CSS_SELECTOR, "span.bqe, span.bog span")
-        title = title_elem.text
+        # Primary: span.bqe contains the subject text (inside div.y6 > span.bog > span.bqe)
+        title_elem = row.find_element(By.CSS_SELECTOR, "div.y6 span.bqe")
+        title = title_elem.text or ""
         title_clickable_elem = title_elem
     except Exception:
         try:
-            title_div = row.find_element(By.CSS_SELECTOR, "div.y6 span")
-            title = title_div.text
-            title_clickable_elem = title_div
+            # Fallback: just span.bqe anywhere in the row
+            title_elem = row.find_element(By.CSS_SELECTOR, "span.bqe")
+            title = title_elem.text or ""
+            title_clickable_elem = title_elem
         except Exception:
-            pass
+            try:
+                # Last fallback: span.bog span
+                title_elem = row.find_element(By.CSS_SELECTOR, "span.bog span")
+                title = title_elem.text or ""
+                title_clickable_elem = title_elem
+            except Exception:
+                try:
+                    # Final fallback: div.y6 first span
+                    title_elem = row.find_element(By.CSS_SELECTOR, "div.y6 span")
+                    title = title_elem.text or ""
+                    title_clickable_elem = title_elem
+                except Exception:
+                    pass
     
     # If no specific title element, the row itself is clickable
     if title_clickable_elem is None:
         title_clickable_elem = row
     
     title = title.strip()
-    
+    logger.debug(f"[GMAIL] Extracted title: '{title}', sender: '{sender}', email: '{sender_email}'")
     # ===== EMAIL SNIPPET/PREVIEW =====
     snippet = ""
     try:
@@ -193,7 +222,7 @@ def _extract_email_data(row, cutoff_time):
         snippet = snippet.lstrip(" -–—").strip()
     except Exception:
         pass
-    
+
     # ===== ATTACHMENT INDICATOR =====
     has_attachment = False
     attachment_elem = None
@@ -243,6 +272,7 @@ def _extract_email_data(row, cutoff_time):
     # Full data is available via "_full_data" key for internal use
     return {
         "from": sender,
+        "from_email": sender_email,
         "datetime": datetime_str,
         "title": title,
         "_full_data": full_data  # Contains all extracted info including WebElements
