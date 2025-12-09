@@ -12,6 +12,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional, Tuple, List
 from utils.logger_helper import logger_helper as logger
+from utils.subprocess_helper import run_no_window
 
 
 class VenvHelper:
@@ -318,13 +319,23 @@ class VenvHelper:
     ) -> Tuple[bool, Optional[str]]:
         """Create a venv using subprocess and ``python -m venv``."""
         try:
-            cmd = [sys.executable, "-m", "venv", str(venv_path)]
+            # Use pythonw.exe on Windows development environment to avoid console window
+            # In PyInstaller frozen environment, sys.executable is the .exe file, not python.exe
+            python_exe = sys.executable
+            if (sys.platform == 'win32' and 
+                not getattr(sys, 'frozen', False) and 
+                python_exe.endswith('python.exe')):
+                pythonw_exe = python_exe.replace('python.exe', 'pythonw.exe')
+                if os.path.exists(pythonw_exe):
+                    python_exe = pythonw_exe
+            
+            cmd = [python_exe, "-m", "venv", str(venv_path)]
             if system_site_packages:
                 cmd.append("--system-site-packages")
             if not with_pip:
                 cmd.append("--without-pip")
             
-            result = subprocess.run(
+            result = run_no_window(
                 cmd,
                 capture_output=True,
                 text=True,
@@ -422,7 +433,7 @@ class VenvHelper:
             if upgrade:
                 cmd.append("--upgrade")
             
-            result = subprocess.run(
+            result = run_no_window(
                 cmd,
                 capture_output=True,
                 text=True,
