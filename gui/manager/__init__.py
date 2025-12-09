@@ -27,6 +27,7 @@ Usage Example:
 
 # Import main classes
 from .config_manager import ConfigManager
+from .browser_manager import BrowserManager, AutoBrowser, BrowserType, BrowserStatus
 from gui.config.general_settings import GeneralSettings
 from gui.config.ads_settings import AdsSettings
 from gui.config.search_settings import SearchSettings
@@ -35,6 +36,10 @@ from gui.utils.hardware_detector import HardwareDetector, get_hardware_detector
 # Exported public interface
 __all__ = [
     'ConfigManager',
+    'BrowserManager',
+    'AutoBrowser',
+    'BrowserType',
+    'BrowserStatus',
     'GeneralSettings',
     'AdsSettings',
     'SearchSettings',
