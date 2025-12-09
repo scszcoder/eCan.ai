@@ -89,6 +89,13 @@ We have a rich set of ready to use MCP tools to work with LLM, refer to more det
 We have RAG (Retrieve Augmented Generation) functionality built in to our app, so you can easily put your product related files, policy related files, 
 or any business related files into vector DB and retrieve them to generate response for your customers.
 
+### Privacy-First
+Being AI native means majority of the workflow related data will be feed into LLM, but exposing business data might make one feel uneasy, 
+so we have built in mechanism to protect your privacy:
+1) on prem LLM deployment using Ollama and Open Source Models like Qwen3
+2) provide RPA tools to allow you to scrape and interact with web (you can save tokens too!)
+3) provide extensible filter tools to allow you to filter out sensitive data before it is feed into LLM (can be used in conjunction with option 1.)
+
 
 ### Interfacing with Agents over the internet
 You will need to subscribe to ["Pro" plan](). With "Pro" plan, you can chat with any agent remotely even when you're on the road.
@@ -161,7 +168,7 @@ You can acccess more comprehensive documentations [here](http://www.ecan.ai/docs
 ## API Ref
 Coming soon...
 
-## Cli Ref
+## CLI Ref
 Coming soon...
 
 ## Development
