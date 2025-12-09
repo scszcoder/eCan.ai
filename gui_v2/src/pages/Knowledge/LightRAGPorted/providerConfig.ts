@@ -499,12 +499,17 @@ export const STORAGE_GRAPH_PROVIDERS: ProviderConfig[] = [
     { key: 'NEO4J_MAX_CONNECTION_POOL_SIZE', label: 'Max Pool Size', type: 'number', placeholder: '100' },
     { key: 'NEO4J_KEEP_ALIVE', label: 'Keep Alive', type: 'boolean', placeholder: 'true' }
   ]},
-  { id: 'MemgraphStorage', name: 'Memgraph', description: 'Memgraph graph database', fields: [
-    { key: 'MEMGRAPH_URI', label: 'fields.uri', type: 'text', placeholder: 'bolt://localhost:7687' },
-    { key: 'MEMGRAPH_USERNAME', label: 'fields.username', type: 'text' },
-    { key: 'MEMGRAPH_PASSWORD', label: 'fields.password', type: 'password' },
-    { key: 'MEMGRAPH_DATABASE', label: 'fields.database', type: 'text', placeholder: 'memgraph' }
-  ]},
+  // {
+  //   id: 'MemgraphStorage',
+  //   name: 'Memgraph (Not supported)',
+  //   description: 'Memgraph graph database (temporarily disabled in this build)',
+  //   fields: [
+  //     { key: 'MEMGRAPH_URI', label: 'fields.uri', type: 'text', placeholder: 'bolt://localhost:7687', disabled: true },
+  //     { key: 'MEMGRAPH_USERNAME', label: 'fields.username', type: 'text', disabled: true },
+  //     { key: 'MEMGRAPH_PASSWORD', label: 'fields.password', type: 'password', disabled: true },
+  //     { key: 'MEMGRAPH_DATABASE', label: 'fields.database', type: 'text', placeholder: 'memgraph', disabled: true }
+  //   ]
+  // },
   { id: 'PGGraphStorage', name: 'PostgreSQL (Apache AGE)', description: 'PostgreSQL with Apache AGE', fields: [] // Common fields moved to STORAGE_COMMON_POSTGRES
   },
   { 

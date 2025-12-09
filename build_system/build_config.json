@@ -113,7 +113,6 @@
       "collect_all": [
         "lightrag",
         "neo4j",
-        "gqlalchemy",
         "pgvector",
         "pymilvus",
         "qdrant_client",
