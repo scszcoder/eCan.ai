@@ -7,18 +7,39 @@ import { DEFAULT_EDITOR_HEIGHT, DEFAULT_EDITOR_OPTIONS, getPreviewModeOptions } 
 import ReactDOM from 'react-dom';
 
 // Configure Monaco to use local files
-/*
+// Note: This is a backup configuration. The main configuration is in monaco-config.ts
+// which is imported in main.tsx to ensure it runs before any Monaco component mounts.
+const getMonacoBasePath = () => {
+  if (typeof window === 'undefined') return './monaco-editor/vs';
+  
+  const isFileProtocol = window.location.protocol === 'file:';
+  const isProduction = import.meta.env.PROD;
+  
+  if (isFileProtocol || isProduction) {
+    return './monaco-editor/vs';
+  } else {
+    return '/monaco-editor/vs';
+  }
+};
+
 loader.config({
   paths: {
-    vs: '/monaco-editor/vs'
+    vs: getMonacoBasePath()
   }
 });
-*/
+
 // Configure Monaco worker
 if (typeof window !== 'undefined') {
   (window as any).MonacoEnvironment = {
     getWorkerUrl: function (_moduleId: string, _label: string) {
-      return '/monaco-editor/vs/base/worker/workerMain.js';
+      const isFileProtocol = window.location.protocol === 'file:';
+      const isProduction = import.meta.env.PROD;
+      
+      if (isFileProtocol || isProduction) {
+        return './monaco-editor/vs/base/worker/workerMain.js';
+      } else {
+        return '/monaco-editor/vs/base/worker/workerMain.js';
+      }
     }
   };
 }

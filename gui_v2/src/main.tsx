@@ -1,6 +1,8 @@
 import './i18n';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+// Configure Monaco Editor to use local files (must be imported before any Monaco usage)
+import './modules/skill-editor/components/code-editor/monaco-config';
 
 // Suppress React deprecation warnings from third-party libraries
 // These warnings come from bundled code (rc-util/antd/@flowgram.ai) and cannot be fixed externally
