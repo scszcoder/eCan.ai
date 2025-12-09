@@ -395,6 +395,6 @@ psycopg2-binary             # PostgreSQL sync client (required for pgvector)
 # All backends included in build for runtime flexibility
 # ============================================================================
 neo4j>=5.0.0,<7.0.0         # Neo4j graph database (recommended)
-gqlalchemy>=1.4.0,<2.0.0    # Memgraph graph database
+# gqlalchemy>=1.4.0,<2.0.0    # Memgraph graph database
 redis>=5.0.0,<8.0.0         # Redis storage backend
 pymongo>=4.0.0,<5.0.0       # MongoDB storage backend
