@@ -9,8 +9,10 @@ environments.
 import os
 import sys
 import subprocess
+import asyncio
 from pathlib import Path
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Callable, Dict
+from enum import Enum
 from utils.logger_helper import logger_helper as logger
 from utils.subprocess_helper import run_no_window
 
@@ -469,3 +471,435 @@ def find_python(project_root: Optional[Path] = None, prefer_pythonw: bool = Fals
 def create_venv(venv_path: Path, system_site_packages: bool = False) -> Tuple[bool, Optional[str]]:
     """创建虚拟环境"""
     return VenvHelper.create_venv(venv_path, system_site_packages)
+
+
+# ============================================================================
+# VenvStatus Enum
+# ============================================================================
+
+class VenvStatus(Enum):
+    """Virtual environment creation status."""
+    NOT_STARTED = "not_started"
+    CREATING = "creating"
+    INSTALLING = "installing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+# ============================================================================
+# AsyncVenvHelper - Non-blocking venv creation and dependency installation
+# ============================================================================
+
+class AsyncVenvHelper:
+    """Asynchronous virtual environment helper.
+    
+    Provides non-blocking operations for creating virtual environments and
+    installing dependencies in the background without blocking application startup.
+    
+    Key Features:
+    - Async venv creation using asyncio.create_subprocess_exec
+    - Progress callbacks for status reporting
+    - Background task creation for non-blocking execution
+    - Status tracking for multiple venvs
+    - Automatic PyInstaller environment detection
+    
+    Example:
+        # Background task (non-blocking)
+        task = AsyncVenvHelper.create_background_task(
+            venv_path=Path("my_skill/.venv"),
+            requirements_file=Path("my_skill/requirements.txt"),
+            completion_callback=lambda success, error: print(f"Done: {success}")
+        )
+        
+        # Or await directly
+        success, error = await AsyncVenvHelper.ensure_venv_async(
+            venv_path=Path("my_skill/.venv"),
+            requirements_file=Path("my_skill/requirements.txt")
+        )
+    """
+    
+    # Track venv creation status
+    _venv_status: Dict[str, VenvStatus] = {}
+    _venv_tasks: Dict[str, asyncio.Task] = {}
+    
+    @staticmethod
+    async def create_venv_async(
+        venv_path: Path,
+        system_site_packages: bool = False,
+        with_pip: bool = True,
+        progress_callback: Optional[Callable[[str, float], None]] = None
+    ) -> Tuple[bool, Optional[str]]:
+        """Create a virtual environment asynchronously.
+        
+        Args:
+            venv_path: Path where the virtual environment should be created.
+            system_site_packages: Whether to include system site-packages.
+            with_pip: Whether to install pip into the environment.
+            progress_callback: Optional callback(message, progress_percent).
+        
+        Returns:
+            Tuple[bool, Optional[str]]: (success flag, error message if any).
+        """
+        venv_path = Path(venv_path)
+        venv_key = str(venv_path)
+        
+        # Should not create virtual environments from inside a packaged build
+        if VenvHelper.is_packaged_environment():
+            error_msg = "Cannot create venv in packaged environment"
+            logger.info(f"[AsyncVenvHelper] {error_msg} - skipping")
+            return True, None  # Return success in packaged environment
+        
+        # Update status
+        AsyncVenvHelper._venv_status[venv_key] = VenvStatus.CREATING
+        
+        if progress_callback:
+            progress_callback("Starting venv creation...", 0)
+        
+        # Try subprocess method
+        success, error = await AsyncVenvHelper._create_venv_subprocess_async(
+            venv_path, system_site_packages, with_pip, progress_callback
+        )
+        
+        if success:
+            AsyncVenvHelper._venv_status[venv_key] = VenvStatus.COMPLETED
+            if progress_callback:
+                progress_callback("Venv created successfully", 100)
+            return True, None
+        
+        logger.error(f"[AsyncVenvHelper] Venv creation failed: {error}")
+        AsyncVenvHelper._venv_status[venv_key] = VenvStatus.FAILED
+        if progress_callback:
+            progress_callback("Venv creation failed", 0)
+        return False, error
+    
+    @staticmethod
+    async def _create_venv_subprocess_async(
+        venv_path: Path,
+        system_site_packages: bool,
+        with_pip: bool,
+        progress_callback: Optional[Callable[[str, float], None]] = None
+    ) -> Tuple[bool, Optional[str]]:
+        """Create a venv using subprocess asynchronously."""
+        try:
+            # Use pythonw.exe on Windows development environment to avoid console window
+            python_exe = sys.executable
+            if (sys.platform == 'win32' and 
+                not getattr(sys, 'frozen', False) and 
+                python_exe.endswith('python.exe')):
+                pythonw_exe = python_exe.replace('python.exe', 'pythonw.exe')
+                if os.path.exists(pythonw_exe):
+                    python_exe = pythonw_exe
+            
+            cmd = [python_exe, "-m", "venv", str(venv_path)]
+            if system_site_packages:
+                cmd.append("--system-site-packages")
+            if not with_pip:
+                cmd.append("--without-pip")
+            
+            if progress_callback:
+                progress_callback(f"Running: {' '.join(cmd)}", 10)
+            
+            logger.info(f"[AsyncVenvHelper] Creating venv: {' '.join(cmd)}")
+            
+            # Create subprocess asynchronously
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            # Wait for completion with timeout
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=120
+                )
+            except asyncio.TimeoutError:
+                process.kill()
+                return False, "Venv creation timed out after 120 seconds"
+            
+            if process.returncode == 0:
+                logger.info(f"[AsyncVenvHelper] ✅ Created venv: {venv_path}")
+                if progress_callback:
+                    progress_callback("Venv created", 80)
+                return True, None
+            else:
+                error_msg = stderr.decode('utf-8', errors='replace') if stderr else "Unknown error"
+                logger.error(f"[AsyncVenvHelper] ❌ Venv creation failed: {error_msg}")
+                return False, error_msg
+        
+        except Exception as e:
+            logger.error(f"[AsyncVenvHelper] ❌ Exception during venv creation: {e}")
+            return False, str(e)
+    
+    @staticmethod
+    async def install_requirements_async(
+        venv_path: Path,
+        requirements_file: Path,
+        upgrade: bool = False,
+        progress_callback: Optional[Callable[[str, float], None]] = None
+    ) -> Tuple[bool, Optional[str]]:
+        """Install dependencies asynchronously.
+        
+        Args:
+            venv_path: Path to the virtual environment.
+            requirements_file: Path to the requirements.txt file.
+            upgrade: Whether to upgrade already-installed packages.
+            progress_callback: Optional callback(message, progress_percent).
+        
+        Returns:
+            Tuple[bool, Optional[str]]: (success flag, error message if any).
+        """
+        venv_key = str(venv_path)
+        AsyncVenvHelper._venv_status[venv_key] = VenvStatus.INSTALLING
+        
+        # In packaged environment, skip installation
+        if VenvHelper.is_packaged_environment():
+            logger.info(f"[AsyncVenvHelper] Packaged environment - skipping pip install")
+            AsyncVenvHelper._venv_status[venv_key] = VenvStatus.COMPLETED
+            return True, None
+        
+        python_exe = VenvHelper.get_venv_python(venv_path)
+        if not python_exe:
+            error_msg = f"Python executable not found in venv: {venv_path}"
+            AsyncVenvHelper._venv_status[venv_key] = VenvStatus.FAILED
+            return False, error_msg
+        
+        if not requirements_file.exists():
+            error_msg = f"Requirements file not found: {requirements_file}"
+            AsyncVenvHelper._venv_status[venv_key] = VenvStatus.FAILED
+            return False, error_msg
+        
+        try:
+            cmd = [str(python_exe), "-m", "pip", "install", "-r", str(requirements_file)]
+            if upgrade:
+                cmd.append("--upgrade")
+            
+            if progress_callback:
+                progress_callback(f"Installing dependencies...", 0)
+            
+            logger.info(f"[AsyncVenvHelper] Installing requirements: {requirements_file}")
+            
+            # Create subprocess asynchronously
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            # Stream output and update progress
+            stdout_lines = []
+            stderr_lines = []
+            
+            async def read_stream(stream, lines_list, is_stderr=False):
+                while True:
+                    line = await stream.readline()
+                    if not line:
+                        break
+                    decoded = line.decode('utf-8', errors='replace').strip()
+                    if decoded:  # Only log non-empty lines
+                        lines_list.append(decoded)
+                        
+                        # Update progress based on output
+                        if progress_callback and not is_stderr:
+                            if "Collecting" in decoded:
+                                progress_callback(f"Collecting packages...", 20)
+                            elif "Downloading" in decoded:
+                                progress_callback(f"Downloading...", 40)
+                            elif "Installing" in decoded:
+                                progress_callback(f"Installing...", 60)
+                            elif "Successfully installed" in decoded:
+                                progress_callback(f"Installation complete", 90)
+            
+            # Read both streams concurrently
+            await asyncio.gather(
+                read_stream(process.stdout, stdout_lines, False),
+                read_stream(process.stderr, stderr_lines, True)
+            )
+            
+            # Wait for process to complete
+            await process.wait()
+            
+            if process.returncode == 0:
+                logger.info(f"[AsyncVenvHelper] ✅ Installed requirements successfully")
+                AsyncVenvHelper._venv_status[venv_key] = VenvStatus.COMPLETED
+                if progress_callback:
+                    progress_callback("Dependencies installed successfully", 100)
+                return True, None
+            else:
+                error_msg = '\n'.join(stderr_lines) if stderr_lines else "Unknown error"
+                logger.error(f"[AsyncVenvHelper] ❌ pip install failed: {error_msg}")
+                AsyncVenvHelper._venv_status[venv_key] = VenvStatus.FAILED
+                if progress_callback:
+                    progress_callback("Installation failed", 0)
+                return False, error_msg
+        
+        except Exception as e:
+            logger.error(f"[AsyncVenvHelper] ❌ Exception during installation: {e}")
+            AsyncVenvHelper._venv_status[venv_key] = VenvStatus.FAILED
+            if progress_callback:
+                progress_callback(f"Error: {str(e)}", 0)
+            return False, str(e)
+    
+    @staticmethod
+    def get_venv_status(venv_path: Path) -> VenvStatus:
+        """Get the current status of a venv creation/installation."""
+        venv_key = str(venv_path)
+        return AsyncVenvHelper._venv_status.get(venv_key, VenvStatus.NOT_STARTED)
+    
+    @staticmethod
+    async def ensure_venv_async(
+        venv_path: Path,
+        requirements_file: Optional[Path] = None,
+        system_site_packages: bool = False,
+        progress_callback: Optional[Callable[[str, float], None]] = None
+    ) -> Tuple[bool, Optional[str]]:
+        """Ensure venv exists and dependencies are installed (async).
+        
+        This is a high-level convenience method that:
+        1. Creates venv if it doesn't exist
+        2. Installs requirements if provided
+        
+        Args:
+            venv_path: Path to the virtual environment.
+            requirements_file: Optional path to requirements.txt.
+            system_site_packages: Whether to include system site-packages.
+            progress_callback: Optional callback(message, progress_percent).
+        
+        Returns:
+            Tuple[bool, Optional[str]]: (success flag, error message if any).
+        """
+        venv_path = Path(venv_path)
+        
+        # In packaged environment, skip venv creation
+        if VenvHelper.is_packaged_environment():
+            logger.info(f"[AsyncVenvHelper] Packaged environment - skipping venv setup")
+            if progress_callback:
+                progress_callback("Packaged environment (no venv needed)", 100)
+            return True, None
+        
+        # Check if venv already exists
+        if not venv_path.exists():
+            if progress_callback:
+                progress_callback("Creating virtual environment...", 0)
+            
+            success, error = await AsyncVenvHelper.create_venv_async(
+                venv_path,
+                system_site_packages=system_site_packages,
+                progress_callback=progress_callback
+            )
+            
+            if not success:
+                return False, error
+        else:
+            logger.info(f"[AsyncVenvHelper] Venv already exists: {venv_path}")
+            if progress_callback:
+                progress_callback("Virtual environment exists", 50)
+        
+        # Install requirements if provided
+        if requirements_file and requirements_file.exists():
+            if progress_callback:
+                progress_callback("Installing dependencies...", 50)
+            
+            success, error = await AsyncVenvHelper.install_requirements_async(
+                venv_path,
+                requirements_file,
+                progress_callback=progress_callback
+            )
+            
+            if not success:
+                return False, error
+        
+        if progress_callback:
+            progress_callback("Setup complete", 100)
+        
+        return True, None
+    
+    @staticmethod
+    def create_background_task(
+        venv_path: Path,
+        requirements_file: Optional[Path] = None,
+        system_site_packages: bool = False,
+        progress_callback: Optional[Callable[[str, float], None]] = None,
+        completion_callback: Optional[Callable[[bool, Optional[str]], None]] = None
+    ) -> asyncio.Task:
+        """Create a background task for venv setup.
+        
+        This method creates an asyncio task that runs in the background.
+        The application can continue running while the venv is being created.
+        
+        Args:
+            venv_path: Path to the virtual environment.
+            requirements_file: Optional path to requirements.txt.
+            system_site_packages: Whether to include system site-packages.
+            progress_callback: Optional callback(message, progress_percent).
+            completion_callback: Optional callback(success, error_message).
+        
+        Returns:
+            asyncio.Task: The background task.
+        
+        Example:
+            task = AsyncVenvHelper.create_background_task(
+                venv_path=Path("my_skill/.venv"),
+                requirements_file=Path("my_skill/requirements.txt"),
+                completion_callback=lambda success, error: 
+                    print(f"Venv ready: {success}")
+            )
+            # Application continues without waiting
+            # Task runs in background
+        """
+        venv_key = str(venv_path)
+        
+        async def task_wrapper():
+            try:
+                success, error = await AsyncVenvHelper.ensure_venv_async(
+                    venv_path,
+                    requirements_file,
+                    system_site_packages,
+                    progress_callback
+                )
+                
+                if completion_callback:
+                    completion_callback(success, error)
+                
+                return success, error
+            except Exception as e:
+                logger.error(f"[AsyncVenvHelper] ❌ Background task failed: {e}")
+                if completion_callback:
+                    completion_callback(False, str(e))
+                return False, str(e)
+        
+        # Create and store the task
+        task = asyncio.create_task(task_wrapper())
+        AsyncVenvHelper._venv_tasks[venv_key] = task
+        
+        return task
+
+
+# Convenience async functions
+async def create_venv_async(
+    venv_path: Path,
+    system_site_packages: bool = False,
+    progress_callback: Optional[Callable[[str, float], None]] = None
+) -> Tuple[bool, Optional[str]]:
+    """Create virtual environment asynchronously"""
+    return await AsyncVenvHelper.create_venv_async(
+        venv_path,
+        system_site_packages=system_site_packages,
+        progress_callback=progress_callback
+    )
+
+
+async def install_requirements_async(
+    venv_path: Path,
+    requirements_file: Path,
+    upgrade: bool = False,
+    progress_callback: Optional[Callable[[str, float], None]] = None
+) -> Tuple[bool, Optional[str]]:
+    """Install requirements asynchronously"""
+    return await AsyncVenvHelper.install_requirements_async(
+        venv_path,
+        requirements_file,
+        upgrade=upgrade,
+        progress_callback=progress_callback
+    )
