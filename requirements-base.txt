@@ -34,9 +34,7 @@ dashscope==1.25.0
 # ============================================================================
 mem0ai==0.1.117
 langmem==0.0.29
-faiss-cpu==1.12.0
 chroma-hnswlib==0.7.6
-lightrag-hku==1.4.9.8
 
 # ============================================================================
 # AI & MACHINE LEARNING - LLM PROVIDERS & MODELS
@@ -203,24 +201,9 @@ lzstring==1.0.4
 # ============================================================================
 # DOCUMENT PROCESSING (LightRAG dependencies)
 # ============================================================================
-python-pptx==1.0.2          # PowerPoint (.pptx) processing
-python-docx==1.1.2          # Word (.docx) processing
-pycryptodome==3.21.0        # Encrypted document support
 
 # ============================================================================
-# LIGHTRAG CORE DEPENDENCIES
 # ============================================================================
-tiktoken==0.12.0            # Token counting for LLM
-json_repair==0.40.0         # JSON repair utility
-nano-vectordb==0.0.4.3      # Lightweight vector database
-pypinyin==0.55.0            # Chinese pinyin conversion
-pipmaster==1.0.10           # Package management utility
-ascii_colors==0.11.4        # Terminal color output
-python-multipart==0.0.20    # Multipart form data parsing
-passlib==1.7.4              # Password hashing (with bcrypt)
-xlsxwriter==3.2.9           # Excel file writing
-future==1.0.0               # Python 2/3 compatibility
-configparser==7.2.0         # Configuration file parsing
 
 # ============================================================================
 # TEXT PROCESSING & NLP
@@ -375,3 +358,38 @@ TwoCaptcha==0.0.1
 mcp==1.20.0
 asteval==1.0.6
 markdown==3.5.1
+
+# ============================================================================
+# LIGHTRAG ECOSYSTEM (Core & Optional Backends)
+# Unified collection of all LightRAG dependencies for easier management
+# ============================================================================
+anthropic>=0.18.0,<1.0.0
+ascii_colors==0.11.4        # Terminal color output
+asyncpg>=0.29.0,<1.0.0
+configparser==7.2.0         # Configuration file parsing
+faiss-cpu==1.12.0
+future==1.0.0               # Python 2/3 compatibility
+google-genai>=1.0.0,<2.0.0
+gqlalchemy
+json_repair==0.40.0         # JSON repair utility
+lightrag-hku==1.4.9.8
+nano-vectordb==0.0.4.3      # Lightweight vector database
+neo4j>=5.0.0,<7.0.0
+ollama>=0.1.0,<1.0.0
+passlib==1.7.4              # Password hashing (with bcrypt)
+pgvector
+pipmaster==1.0.10           # Package management utility
+psycopg2-binary
+pycryptodome==3.21.0        # Encrypted document support
+pymilvus>=2.6.2,<3.0.0
+pymongo>=4.0.0,<5.0.0
+pypinyin==0.55.0            # Chinese pinyin conversion
+python-docx==1.1.2          # Word (.docx) processing
+python-multipart==0.0.20    # Multipart form data parsing
+python-pptx==1.0.2          # PowerPoint (.pptx) processing
+qdrant-client>=1.7.0,<2.0.0
+redis>=5.0.0,<8.0.0
+tiktoken==0.12.0            # Token counting for LLM
+voyageai>=0.2.0,<1.0.0
+xlsxwriter==3.2.9           # Excel file writing
+# zhipuai>=2.0.0,<3.0.0     # REMOVED: Conflicts with mcp (PyJWT version incompatibility)
