@@ -326,6 +326,8 @@ class NodeState(TypedDict):
     next_action: str
     breakpoint: bool
     task_start_time: str
+    max_steps: int
+    n_steps: int
     node_start_time: str
     metadata: dict
 

@@ -354,7 +354,7 @@ def startADSWebDriver(local_api_key, port_string, profile_id, in_driver_path, op
 
 
 # might need host name info... as group id?
-def genInitialADSProfiles(dataJsons, api_Key, port):
+def genInitialADSProfiles(dataJsons, api_key, port):
     for dj in dataJsons:
         domain = "www.gmail.com"
         group = ""
@@ -446,3 +446,94 @@ def connect_to_adspower(mainwin, url):
     if webdriver:
         mainwin.setWebDriver(webdriver)
     return webdriver
+
+
+def connect_to_existing_chrome(webdriver_path, url=None, debug_port=9222):
+    """
+    Connect to an existing Chrome browser instance via remote debugging.
+    
+    Chrome must be started with: --remote-debugging-port=9222
+    Example: chrome.exe --remote-debugging-port=9222
+    
+    Args:
+        mainwin: Main window instance with config_manager and setWebDriver method
+        url: Optional URL to navigate to after connecting
+        debug_port: Chrome remote debugging port (default: 9222)
+    
+    Returns:
+        WebDriver instance or None if connection failed
+    """
+    driver = None
+    try:
+        # Get webdriver path from settings
+        # webdriver_path = mainwin.getWebDriverPath()
+        logger.info(f"[CONN To Chrome] Connecting to existing Chrome on port {debug_port}")
+        logger.debug(f"[CONN To Chrome] WebDriver path: {webdriver_path}")
+
+        # Configure Chrome options to connect to existing browser
+        chrome_options = Options()
+        chrome_options.add_experimental_option("debuggerAddress", f"127.0.0.1:{debug_port}")
+        
+        # Anti-detection tweaks
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+
+        # Create service with the chromedriver path
+        service = Service(executable_path=webdriver_path, log_output=subprocess.DEVNULL)
+        if sys.platform == "win32":
+            try:
+                service.creationflags = get_windows_creation_flags()
+            except Exception:
+                pass
+
+        # Connect to existing Chrome
+        logger.debug(f"[CONN To Chrome] Attempting connection to 127.0.0.1:{debug_port}")
+        try:
+            driver = webdriver.Chrome(service=service, options=chrome_options)
+        except InvalidArgumentException as e:
+            logger.warning(f"[CONN To Chrome] Chromedriver rejected options, retrying minimal: {e}")
+            chrome_options_fallback = Options()
+            chrome_options_fallback.add_experimental_option("debuggerAddress", f"127.0.0.1:{debug_port}")
+            driver = webdriver.Chrome(service=service, options=chrome_options_fallback)
+
+        logger.info(f"[CONN To Chrome] Connected successfully! Current URL: {driver.current_url}")
+        logger.debug(f"[CONN To Chrome] Window handles: {len(driver.window_handles)}")
+
+        # Inject stealth script
+        try:
+            driver.execute_cdp_cmd(
+                "Page.addScriptToEvaluateOnNewDocument",
+                {"source": "Object.defineProperty(navigator, 'webdriver', {get: () => false})"}
+            )
+        except WebDriverException:
+            pass
+
+        # Navigate to URL if provided
+        if url:
+            # Switch to first tab
+            driver.switch_to.window(driver.window_handles[0])
+            time.sleep(1)
+            
+            if not url.startswith("file:///"):
+                logger.debug(f"[CONN To Chrome] Opening new tab with URL: {url}")
+                driver.execute_script(f"window.open('{url}', '_blank');")
+                time.sleep(1)
+                # Switch to the new tab
+                driver.switch_to.window(driver.window_handles[-1])
+                time.sleep(2)
+                logger.debug(f"[CONN To Chrome] Navigating to: {url}")
+                driver.get(url)
+                logger.info(f"[CONN To Chrome] Opened URL: {url}")
+            else:
+                logger.debug(f"[CONN To Chrome] Local file URL detected, skipping navigation")
+
+    except WebDriverException as e:
+        err_trace = get_traceback(e, "ErrorConnectToExistingChrome")
+        logger.error(f"[CONN To Chrome] WebDriver error - is Chrome running with --remote-debugging-port={debug_port}?")
+        logger.error(err_trace)
+        driver = None
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorConnectToExistingChrome")
+        logger.error(err_trace)
+        driver = None
+        
+    return driver
