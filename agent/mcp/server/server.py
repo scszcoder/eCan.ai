@@ -31,7 +31,8 @@ from mcp.server.sse import SseServerTransport
 from mcp.server.streamable_http import StreamableHTTPServerTransport
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import CallToolResult, TextContent, Tool
-
+from browser_use.actor import Page, Element, Mouse
+from browser_use.browser.events import SwitchTabEvent
 # Local application imports
 from agent.mcp.server.ads_power.ads_power import connect_to_adspower, connect_to_existing_chrome
 from agent.mcp.server.tool_schemas import get_tool_schemas
@@ -180,14 +181,40 @@ async def list_tools() -> list[Tool]:
 
 @meca_mcp_server.call_tool()
 async def unified_tool_handler(tool_name, args):
+    logger.debug(f"[unified_tool_handler] Received call for tool: {tool_name}")
     login = AppContext.login
+    
+    # Debug: Check if login and main_win are available
+    if login is None:
+        logger.error(f"[unified_tool_handler] AppContext.login is None!")
+        return CallToolResult(
+            content=[TextContent(type="text", text="Error: AppContext.login is None - MCP server not properly initialized")],
+            isError=True
+        )
+    
+    if not hasattr(login, 'main_win') or login.main_win is None:
+        logger.error(f"[unified_tool_handler] login.main_win is None!")
+        return CallToolResult(
+            content=[TextContent(type="text", text="Error: login.main_win is None - MainGUI not connected to MCP server")],
+            isError=True
+        )
+    
     try:
+        if tool_name not in tool_function_mapping:
+            logger.error(f"[unified_tool_handler] Tool '{tool_name}' not found in tool_function_mapping!")
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"Error: Tool '{tool_name}' not registered in tool_function_mapping")],
+                isError=True
+            )
+        
         tool_func = tool_function_mapping[tool_name]
+        logger.debug(f"[unified_tool_handler] Calling {tool_name} with args: {args}")
         # very key make sure each tool_func returns: [ContentBlock]
         # ContentBlock = TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource
         # [TextContent(type="text", text=f"all completed fine")]
 
         toolResult = await tool_func(login.main_win, args)
+        logger.debug(f"[unified_tool_handler] {tool_name} completed successfully")
 
         return toolResult
     except Exception as e:
@@ -563,9 +590,6 @@ async def get_page_info(page):
 
 # Content Actions
 async def in_browser_extract_content(mainwin, args):
-    from browser_use.actor import Page, Element, Mouse
-    from browser_use.browser.events import SwitchTabEvent
-
     try:
 
         # web_driver = mainwin.getWebDriver()
@@ -1280,54 +1304,58 @@ def page_scroll(web_driver, mainwin):
 
 
 async def os_connect_to_adspower(mainwin, args):
-    logger.debug(f"initial state: {args}")
+    """
+    Connect to AdsPower browser via BrowserManager.
+    Creates both WebDriver and BrowserSession connections.
+    """
+    from gui.manager.browser_manager import BrowserManager, BrowserType, BrowserStatus
+    
+    logger.debug(f"[os_connect_to_adspower] args: {args}")
     try:
-        webdriver = connect_to_adspower(mainwin, args['input']["url"])
-        if webdriver:
-            page_scroll(mainwin, webdriver)
-
-            dom_tree = webdriver.execute_cdp_cmd(
-                "DOM.getDocument",
-                {"depth": -1, "pierce": True}
-            )
-
-            logger.debug(f"dom tree: {type(dom_tree)}, {dom_tree}")
-            # logs = response.get("logs", [])
-            # if len(logs) > 128:
-            #     llen = 128
-            # else:
-            #     llen = len(logs)
-            #
-            # for i in range(llen):
-            #     logger.debug(logs[i])
-
-            # with open("domtree.json", 'w', encoding="utf-8") as dtjf:
-            #     json.dump(domTree, dtjf, ensure_ascii=False, indent=4)
-            #     # self.rebuildHTML()
-            #     dtjf.close()
-
-            # logger.debug(f"dom tree: {type(domTree)}, {domTree.keys()}")
-            # top_level_nodes = find_top_level_nodes(domTree)
-            # logger.debug(f"top level nodes: {type(top_level_nodes)}, {top_level_nodes}")
-            # top_level_texts = get_shallowest_texts(top_level_nodes, domTree)
-            # tls = collect_text_nodes_by_level(domTree)
-            # logger.debug(f"level texts: {tls}")
-            # logger.debug(f"level N texts: {[len(tls[i]) for i in range(len(tls))]}")
-            # for l in tls:
-            #     if l:
-            #         logger.debug(f"level texts: {[domTree['map'][nid]['text'] for nid in l]}")
-            #
-            # sects = sectionize_dt_with_subsections(domTree)
-            # logger.debug(f"sections: {sects}")
-            mainwin.setWebDriver(webdriver)
-            # set up output.
-            msg = "completed connect to adspower."
+        url = args['input'].get("url")
+        browser_id = ""
+        
+        # Get or create BrowserManager
+        if not hasattr(mainwin, 'browser_manager') or mainwin.browser_manager is None:
+            mainwin.browser_manager = BrowserManager(default_webdriver_path=mainwin.getWebDriverPath())
+        
+        browser_manager: BrowserManager = mainwin.browser_manager
+        
+        # Try to find existing AdsPower browser or create new one
+        auto_browser = browser_manager.acquire_browser(
+            agent_id=getattr(mainwin, 'current_agent_id', 'default_agent'),
+            task=f"connect_to_adspower: {url}",
+            browser_type=BrowserType.ADSPOWER,
+            webdriver_path=mainwin.getWebDriverPath(),
+        )
+        
+        if auto_browser and auto_browser.status != BrowserStatus.ERROR:
+            browser_id = auto_browser.id
+            
+            # Set webdriver on mainwin for backward compatibility
+            if auto_browser.webdriver:
+                mainwin.setWebDriver(auto_browser.webdriver)
+                page_scroll(mainwin, auto_browser.webdriver)
+            
+            # Start browser session if not already started
+            if auto_browser.browser_session:
+                logger.info(f"[os_connect_to_adspower] Starting browser session: {auto_browser.browser_session.id}")
+                await auto_browser.browser_session.start()
+                logger.info(f"[os_connect_to_adspower] Browser session started!")
+            
+            # Navigate to URL if provided
+            if url and auto_browser.webdriver:
+                auto_browser.webdriver.get(url)
+                time.sleep(1)
+            
+            msg = f"completed connect to adspower. browser_id={browser_id}"
         else:
             mainwin.setWebDriver(None)
-            # set up output.
-            msg = "failed connect to adspower."
+            error_msg = auto_browser.last_error if auto_browser else "Unknown error"
+            msg = f"failed connect to adspower: {error_msg}"
 
-        result = TextContent(type="text", text=f"{msg}")
+        result = TextContent(type="text", text=msg)
+        result.meta = {"browser_id": browser_id}
         return [result]
 
     except Exception as e:
@@ -1337,31 +1365,142 @@ async def os_connect_to_adspower(mainwin, args):
 
 
 async def os_connect_to_chrome(mainwin, args):
-    webdriver_path = mainwin.default_webdriver_path
-
-    logger.debug(f"initial state: {args}")
+    """
+    Connect to existing Chrome browser via BrowserManager.
+    Creates both WebDriver and BrowserSession connections.
+    """
+    from gui.manager.browser_manager import BrowserManager, BrowserType, BrowserStatus
+    
+    logger.debug(f"[os_connect_to_chrome] args: {args}")
     try:
-        url = args["input"]["url"]
-        port = args["input"]["ads_port"]
-        webdriver = connect_to_existing_chrome(args["input"]["driver_path"], url, port)
-        time.sleep(1)
-
-        # Switch to the new tab
-        if webdriver:
-            webdriver.switch_to.window(webdriver.window_handles[-1])
-            time.sleep(3)
-            # set up output.
-            msg = "completed connect to chrome."
+        url = args["input"].get("url")
+        driver_path = args["input"].get("driver_path", mainwin.getWebDriverPath())
+        cdp_port = args["input"].get("ads_port", 9228)
+        browser_id = ""
+        
+        # Get or create BrowserManager
+        if not hasattr(mainwin, 'browser_manager') or mainwin.browser_manager is None:
+            mainwin.browser_manager = BrowserManager(default_webdriver_path=mainwin.getWebDriverPath())
+        
+        browser_manager: BrowserManager = mainwin.browser_manager
+        
+        # Try to find existing Chrome browser on same port or create new one
+        auto_browser = browser_manager.acquire_browser(
+            agent_id=getattr(mainwin, 'current_agent_id', 'default_agent'),
+            task=f"connect_to_chrome: {url}",
+            browser_type=BrowserType.CHROME,
+            cdp_port=cdp_port,
+            webdriver_path=driver_path,
+        )
+        
+        if auto_browser and auto_browser.status != BrowserStatus.ERROR:
+            browser_id = auto_browser.id
+            
+            # Set webdriver on mainwin for backward compatibility
+            if auto_browser.webdriver:
+                mainwin.setWebDriver(auto_browser.webdriver)
+                # Switch to the last tab
+                auto_browser.webdriver.switch_to.window(auto_browser.webdriver.window_handles[-1])
+                time.sleep(1)
+            
+            # Start browser session if not already started
+            if auto_browser.browser_session:
+                logger.info(f"[os_connect_to_chrome] Starting browser session: {auto_browser.browser_session.id}")
+                await auto_browser.browser_session.start()
+                logger.info(f"[os_connect_to_chrome] Browser session started!")
+            
+            # Navigate to URL if provided
+            if url and auto_browser.webdriver:
+                auto_browser.webdriver.get(url)
+                time.sleep(1)
+            
+            msg = f"completed connect to chrome. browser_id={browser_id}"
         else:
-            msg = "failed connect to chrome."
+            mainwin.setWebDriver(None)
+            error_msg = auto_browser.last_error if auto_browser else "Unknown error"
+            msg = f"failed connect to chrome: {error_msg}"
 
-        mainwin.setWebDriver(webdriver)
-
-        result = [TextContent(type="text", text=msg)]
-        return result
+        result = TextContent(type="text", text=msg)
+        result.meta = {"browser_id": browser_id}
+        return [result]
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorOSConnectToChrome")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
+
+async def ecan_ai_new_chromiunm(mainwin, args):
+    """
+    Launch/connect to a new Chromium browser instance via BrowserManager.
+    Creates both WebDriver and BrowserSession connections.
+    """
+    from gui.manager.browser_manager import BrowserManager, BrowserType, BrowserStatus
+    
+    logger.debug(f"[ecan_ai_new_chromiunm] args: {args}")
+    try:
+        driver_path = args["input"].get("driver_path", mainwin.getWebDriverPath())
+        url = args["input"].get("url")
+        cdp_port = args["input"].get("port", 9228)
+        profile = args["input"].get("profile")
+        browser_id = ""
+        
+        # Get or create BrowserManager
+        if not hasattr(mainwin, 'browser_manager') or mainwin.browser_manager is None:
+            mainwin.browser_manager = BrowserManager(default_webdriver_path=mainwin.getWebDriverPath())
+        
+        browser_manager: BrowserManager = mainwin.browser_manager
+        
+        # Create new Chromium browser (always create new, don't reuse)
+        auto_browser = browser_manager.create_browser(
+            browser_type=BrowserType.CHROMIUM,
+            cdp_port=cdp_port,
+            webdriver_path=driver_path,
+            profile=profile,
+            connect_webdriver=True,
+            connect_browser_session=True,
+        )
+        
+        if auto_browser and auto_browser.status != BrowserStatus.ERROR:
+            browser_id = auto_browser.id
+            
+            # Mark as in use
+            auto_browser.mark_in_use(
+                agent_id=getattr(mainwin, 'current_agent_id', 'default_agent'),
+                task=f"new_chromium: {url}"
+            )
+            
+            # Set webdriver on mainwin for backward compatibility
+            if auto_browser.webdriver:
+                mainwin.setWebDriver(auto_browser.webdriver)
+                # Switch to the last tab
+                auto_browser.webdriver.switch_to.window(auto_browser.webdriver.window_handles[-1])
+                time.sleep(1)
+            
+            # Start browser session if available
+            if auto_browser.browser_session:
+                logger.info(f"[ecan_ai_new_chromiunm] Starting browser session: {auto_browser.browser_session.id}")
+                await auto_browser.browser_session.start()
+                logger.info(f"[ecan_ai_new_chromiunm] Browser session started!")
+            
+            # Navigate to URL if provided
+            if url and auto_browser.webdriver:
+                auto_browser.webdriver.get(url)
+                time.sleep(1)
+            
+            msg = f"completed launch chromium. browser_id={browser_id}"
+        else:
+            mainwin.setWebDriver(None)
+            error_msg = auto_browser.last_error if auto_browser else "Unknown error"
+            msg = f"failed launch chromium: {error_msg}"
+
+        result = TextContent(type="text", text=msg)
+        result.meta = {"browser_id": browser_id}
+        return [result]
+
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorEcanAiNewChromium")
         logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
@@ -1995,6 +2134,7 @@ tool_function_mapping = {
         "rpa_operator_report_work_results": rpa_operator_report_work_results,
         "os_connect_to_adspower": os_connect_to_adspower,
         "os_connect_to_chrome": os_connect_to_chrome,
+        "ecan_ai_new_chromiunm": ecan_ai_new_chromiunm,
         "os_reconnect_wifi": os_reconnect_wifi,
         "api_ecan_ai_query_components": api_ecan_ai_query_components,
         "api_ecan_ai_query_fom": api_ecan_ai_query_fom,

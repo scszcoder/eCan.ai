@@ -1405,6 +1405,90 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         except Exception:
             return ''
 
+    # Tool-specific default values for required fields
+    TOOL_FIELD_DEFAULTS = {
+        'gmail_read_titles': {'recent': 72},
+        'gmail_read_full_email': {'recent': 72},
+    }
+
+    def _coerce_value_to_type(val, expected_type: str, tool_name: str = None, field_name: str = None):
+        """
+        Coerce a value to match the expected schema type.
+        Falls back to tool-specific defaults or type-based defaults.
+        """
+        try:
+            if expected_type is None:
+                return val
+            
+            expected_type = str(expected_type).lower()
+            
+            # Check for tool-specific defaults first
+            if tool_name and field_name:
+                tool_defaults = TOOL_FIELD_DEFAULTS.get(tool_name, {})
+                default_val = tool_defaults.get(field_name)
+            else:
+                default_val = None
+            
+            # Handle integer type
+            if expected_type == 'integer':
+                if val is None or val == '':
+                    return default_val if default_val is not None else 0
+                try:
+                    return int(val)
+                except (ValueError, TypeError):
+                    return default_val if default_val is not None else 0
+            
+            # Handle number type (float)
+            if expected_type in ('number', 'float'):
+                if val is None or val == '':
+                    return default_val if default_val is not None else 0.0
+                try:
+                    return float(val)
+                except (ValueError, TypeError):
+                    return default_val if default_val is not None else 0.0
+            
+            # Handle boolean type
+            if expected_type == 'boolean':
+                if val is None or val == '':
+                    return default_val if default_val is not None else False
+                if isinstance(val, bool):
+                    return val
+                if isinstance(val, str):
+                    return val.lower() in ('true', '1', 'yes')
+                return bool(val)
+            
+            # Handle string type
+            if expected_type == 'string':
+                if val is None:
+                    return default_val if default_val is not None else ''
+                return str(val)
+            
+            # Handle object type
+            if expected_type in ('object', 'dict'):
+                if val is None or val == '':
+                    return default_val if default_val is not None else {}
+                if isinstance(val, dict):
+                    return val
+                if isinstance(val, str):
+                    try:
+                        import json
+                        return json.loads(val)
+                    except:
+                        return {}
+                return {}
+            
+            # Handle array type
+            if expected_type in ('array',) or expected_type.startswith('['):
+                if val is None or val == '':
+                    return default_val if default_val is not None else []
+                if isinstance(val, list):
+                    return val
+                return []
+            
+            return val
+        except Exception:
+            return val
+
     def _gather_config_value(cfg: dict, key: str):
         # Read from config_metadata across several shapes:
         if not isinstance(cfg, dict):
@@ -1459,6 +1543,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
 
     def _build_input_from_config(config_metadata: dict, root: dict) -> dict:
         # Build a correct-shaped input dict; fill missing with type-based empty defaults
+        # Also coerce values to match expected schema types
         result = {}
         try:
             if not isinstance(root, dict):
@@ -1475,9 +1560,9 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     input_props = input_spec.get('properties') or {}
                     for rk in input_required:
                         val = _gather_config_value(config_metadata, rk)
-                        if val is None:
-                            t = (input_props.get(rk) or {}).get('type') if isinstance(input_props, dict) else None
-                            val = _empty_for_type(t)
+                        t = (input_props.get(rk) or {}).get('type') if isinstance(input_props, dict) else None
+                        # Always coerce value to expected type (handles empty strings, None, wrong types)
+                        val = _coerce_value_to_type(val, t, tool_name, rk)
                         input_obj[rk] = val
                 result['input'] = input_obj
 
@@ -1487,9 +1572,9 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     continue
                 if rk not in result:
                     val = _gather_config_value(config_metadata, rk)
-                    if val is None:
-                        t = ((props.get(rk) or {}).get('type') if isinstance(props, dict) else None)
-                        val = _empty_for_type(t)
+                    t = ((props.get(rk) or {}).get('type') if isinstance(props, dict) else None)
+                    # Always coerce value to expected type
+                    val = _coerce_value_to_type(val, t, tool_name, rk)
                     result[rk] = val
         except Exception:
             pass
@@ -1508,6 +1593,34 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     out[k] = v
         return out
 
+    def _coerce_all_inputs(inp: dict, root: dict) -> dict:
+        """
+        Coerce all values in the input dict to match schema types.
+        This is a final pass to ensure type correctness after merging.
+        """
+        try:
+            if not isinstance(inp, dict) or not isinstance(root, dict):
+                return inp
+            
+            props = root.get('properties') or {}
+            
+            # Handle nested 'input' object
+            if 'input' in inp and isinstance(inp['input'], dict):
+                input_spec = props.get('input') if isinstance(props, dict) else None
+                if isinstance(input_spec, dict):
+                    input_props = input_spec.get('properties') or {}
+                    for field_name, field_val in inp['input'].items():
+                        field_spec = input_props.get(field_name) or {}
+                        expected_type = field_spec.get('type')
+                        if expected_type:
+                            inp['input'][field_name] = _coerce_value_to_type(
+                                field_val, expected_type, tool_name, field_name
+                            )
+            
+            return inp
+        except Exception:
+            return inp
+
     def mcp_tool_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
         log_msg = f"🤖 Executing node MCP tool node for tool: {tool_name}"
         logger.info(log_msg)
@@ -1523,11 +1636,16 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             if _root and not _validate_tool_input_against_schema(tool_input, _root):
                 compiled_input = _build_input_from_config(config_metadata, _root)
                 tool_input = _merge_inputs(tool_input if isinstance(tool_input, dict) else {}, compiled_input)
-                state['tool_input'] = tool_input
+            
+            # Always coerce all inputs to match schema types (handles empty strings, wrong types)
+            if _root:
+                tool_input = _coerce_all_inputs(tool_input, _root)
+            
+            state['tool_input'] = tool_input
 
-                log_msg = f"tool_input backfilled for {tool_name}: {state['tool_input']}"
-                logger.debug(log_msg)
-                web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+            log_msg = f"tool_input backfilled for {tool_name}: {state['tool_input']}"
+            logger.debug(log_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
         except Exception as e:
             err_msg = get_traceback(e, "ErrorMCPToolCallable")
