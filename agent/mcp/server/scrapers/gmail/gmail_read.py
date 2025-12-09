@@ -251,7 +251,7 @@ def _extract_email_data(row, cutoff_time):
 
 async def gmail_read_titles(mainwin, args):
     try:
-        ebay_summary = {}
+        gmail_titles = []
         if args["input"]:
             logger.debug(f"[MCP][GMAIL READ TITLES]: {args['input']}")
             gmail_url = args["input"].get("gmail_url", "")
@@ -263,11 +263,18 @@ async def gmail_read_titles(mainwin, args):
             if not web_driver:
                 # Use the first site's URL to initialize/connect the driver
                 web_driver = connect_to_adspower(mainwin, gmail_url)
-                logger.debug(f"[MCP][GMAIL READ TITLES]:WebDriver acquired for ebay work: {type(web_driver)}")
+                logger.debug(f"[MCP][GMAIL READ TITLES]:WebDriver acquired via adspower: {type(web_driver)}")
+            
+            if web_driver:
                 gmail_titles = scrape_gmail_titles(web_driver, gmail_url, recent)
-                msg = "completed getting ebay shop summary"
+                # Strip non-serializable WebElement objects from response
+                if isinstance(gmail_titles, dict) and "titles" in gmail_titles:
+                    for title_item in gmail_titles.get("titles", []):
+                        if "_full_data" in title_item:
+                            del title_item["_full_data"]
+                msg = "completed getting gmail titles"
             else:
-                logger.error(f"[MCP][GMAIL READ TITLES]:WebDriver acquired for ebay work: {type(web_driver)}")
+                logger.error("[MCP][GMAIL READ TITLES]:WebDriver not available")
                 msg = "Error: web driver not available."
         else:
             msg = "ERROR: no input provided."
@@ -275,7 +282,7 @@ async def gmail_read_titles(mainwin, args):
 
         result = TextContent(type="text", text=msg)
         result.meta = {"gmail_titles": gmail_titles}
-        logger.debug("[MCP][GMAIL READ TITLES]:gmail_titles:", gmail_titles)
+        logger.debug(f"[MCP][GMAIL READ TITLES]:gmail_titles: {gmail_titles}")
         return [result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorGmailReadTitles")
