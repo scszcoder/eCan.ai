@@ -493,6 +493,227 @@ async def gmail_move_email(mainwin, args):  # type: ignore
 
 
 
+def _find_email_row(driver, target_title: str, target_from: str, target_datetime: str):
+    """
+    Find an email row matching the given criteria.
+    
+    Args:
+        driver: Selenium WebDriver instance
+        target_title: Email subject/title to match
+        target_from: Sender name to match
+        target_datetime: Datetime string to match (e.g., "Mon, Dec 8, 2025, 8:15 PM")
+    
+    Returns:
+        WebElement of the matching row, or None if not found
+    """
+    import time
+    
+    try:
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "tr.zA"))
+        )
+        time.sleep(1)
+        
+        all_rows = driver.find_elements(By.CSS_SELECTOR, "tr.zA")
+        logger.debug(f"[GMAIL] Searching {len(all_rows)} rows for: title='{target_title}', from='{target_from}'")
+        
+        for row in all_rows:
+            try:
+                row_title = ""
+                row_from = ""
+                row_datetime = ""
+                
+                try:
+                    title_elem = row.find_element(By.CSS_SELECTOR, "div.y6 span.bqe")
+                    row_title = title_elem.text or ""
+                except Exception:
+                    try:
+                        title_elem = row.find_element(By.CSS_SELECTOR, "span.bqe")
+                        row_title = title_elem.text or ""
+                    except Exception:
+                        pass
+                
+                try:
+                    sender_elem = row.find_element(By.CSS_SELECTOR, "span.zF")
+                    row_from = sender_elem.get_attribute("name") or sender_elem.text or ""
+                except Exception:
+                    pass
+                
+                try:
+                    time_span = row.find_element(By.CSS_SELECTOR, "td.xW span[title]")
+                    row_datetime = time_span.get_attribute("title") or ""
+                except Exception:
+                    pass
+                
+                title_match = target_title.strip().lower() in row_title.strip().lower() or row_title.strip().lower() in target_title.strip().lower()
+                from_match = target_from.strip().lower() in row_from.strip().lower() or row_from.strip().lower() in target_from.strip().lower()
+                datetime_match = target_datetime.strip() in row_datetime.strip() if target_datetime else True
+                
+                logger.debug(f"[GMAIL] Row check: title='{row_title[:30]}...', from='{row_from}', matches: title={title_match}, from={from_match}, datetime={datetime_match}")
+                
+                if title_match and from_match:
+                    logger.debug(f"[GMAIL] Found matching email row")
+                    return row
+                    
+            except Exception as e:
+                logger.debug(f"[GMAIL] Error checking row: {e}")
+                continue
+        
+        logger.debug(f"[GMAIL] No matching email found")
+        return None
+        
+    except Exception as e:
+        logger.error(f"[GMAIL] Error finding email row: {get_traceback(e, 'ErrorFindEmailRow')}")
+        return None
+
+
+def _mark_email_status(driver, row, status: str) -> bool:
+    """
+    Mark an email as read or unread using right-click context menu.
+    
+    Args:
+        driver: Selenium WebDriver instance
+        row: WebElement of the email row
+        status: "read" or "unread"
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    import time
+    
+    try:
+        row_classes = row.get_attribute("class") or ""
+        is_currently_unread = "zE" in row_classes
+        
+        if status.lower() == "read" and not is_currently_unread:
+            logger.debug("[GMAIL] Email is already marked as read")
+            return True
+        if status.lower() == "unread" and is_currently_unread:
+            logger.debug("[GMAIL] Email is already marked as unread")
+            return True
+        
+        actions = ActionChains(driver)
+        actions.context_click(row).perform()
+        time.sleep(0.5)
+        
+        if status.lower() == "read":
+            menu_text = "Mark as read"
+        else:
+            menu_text = "Mark as unread"
+        
+        try:
+            menu_item = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable((By.XPATH, f"//div[@role='menuitem']//span[contains(text(), '{menu_text}')]"))
+            )
+            menu_item.click()
+            logger.debug(f"[GMAIL] Clicked '{menu_text}' menu item")
+            time.sleep(0.5)
+            return True
+        except TimeoutException:
+            try:
+                menu_item = driver.find_element(By.XPATH, f"//div[contains(@class, 'J-N') and contains(., '{menu_text}')]")
+                menu_item.click()
+                logger.debug(f"[GMAIL] Clicked '{menu_text}' via fallback selector")
+                time.sleep(0.5)
+                return True
+            except Exception:
+                actions.send_keys(Keys.ESCAPE).perform()
+                logger.debug("[GMAIL] Context menu item not found, trying keyboard shortcut")
+                
+                row.click()
+                time.sleep(0.3)
+                
+                if status.lower() == "read":
+                    actions = ActionChains(driver)
+                    actions.key_down(Keys.SHIFT).send_keys('i').key_up(Keys.SHIFT).perform()
+                else:
+                    actions = ActionChains(driver)
+                    actions.key_down(Keys.SHIFT).send_keys('u').key_up(Keys.SHIFT).perform()
+                
+                logger.debug(f"[GMAIL] Used keyboard shortcut for '{status}'")
+                time.sleep(0.5)
+                return True
+                
+    except Exception as e:
+        logger.error(f"[GMAIL] Error marking email status: {get_traceback(e, 'ErrorMarkEmailStatus')}")
+        return False
+
+
+async def gmail_mark_status(mainwin, args):  # type: ignore
+    """
+    Mark an email as read or unread.
+    
+    Args:
+        mainwin: Main window object with getWebDriver()
+        args: Dict with input containing: title, from, datetime, status (read/unread)
+    """
+    try:
+        if not args.get("input"):
+            msg = "ERROR: no input provided."
+            logger.error(f"[MCP][GMAIL MARK STATUS]: {msg}")
+            result = TextContent(type="text", text=msg)
+            result.meta = {"success": False}
+            return [result]
+        
+        logger.debug(f"[MCP][GMAIL MARK STATUS]: {args['input']}")
+        
+        target_title = args["input"].get("title", "")
+        target_from = args["input"].get("from", "")
+        target_datetime = args["input"].get("datetime", "")
+        target_status = args["input"].get("status", "read")
+        gmail_url = args["input"].get("gmail_url", "https://mail.google.com/mail/u/0/#inbox")
+        
+        if not target_title:
+            msg = "ERROR: email title is required."
+            logger.error(f"[MCP][GMAIL MARK STATUS]: {msg}")
+            result = TextContent(type="text", text=msg)
+            result.meta = {"success": False}
+            return [result]
+        
+        web_driver = mainwin.getWebDriver()
+        if not web_driver:
+            web_driver = connect_to_adspower(mainwin, gmail_url)
+            logger.debug(f"[MCP][GMAIL MARK STATUS]: WebDriver acquired via adspower: {type(web_driver)}")
+        
+        if not web_driver:
+            msg = "ERROR: WebDriver not available."
+            logger.error(f"[MCP][GMAIL MARK STATUS]: {msg}")
+            result = TextContent(type="text", text=msg)
+            result.meta = {"success": False}
+            return [result]
+        
+        current_url = web_driver.current_url
+        if "mail.google.com" not in current_url:
+            web_driver.get(gmail_url)
+            import time
+            time.sleep(2)
+        
+        email_row = _find_email_row(web_driver, target_title, target_from, target_datetime)
+        
+        if not email_row:
+            msg = f"ERROR: Could not find email with title '{target_title}' from '{target_from}'"
+            logger.error(f"[MCP][GMAIL MARK STATUS]: {msg}")
+            result = TextContent(type="text", text=msg)
+            result.meta = {"success": False, "title": target_title, "from": target_from}
+            return [result]
+        
+        success = _mark_email_status(web_driver, email_row, target_status)
+        
+        if success:
+            msg = f"Successfully marked email '{target_title}' as {target_status}"
+            logger.debug(f"[MCP][GMAIL MARK STATUS]: {msg}")
+        else:
+            msg = f"Failed to mark email '{target_title}' as {target_status}"
+            logger.error(f"[MCP][GMAIL MARK STATUS]: {msg}")
+        
+        result = TextContent(type="text", text=msg)
+        result.meta = {"success": success, "title": target_title, "from": target_from, "status": target_status}
+        return [result]
+        
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorGmailMarkStatus")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
 def add_gmail_delete_email_tool_schema(tool_schemas):
     import mcp.types as types
@@ -591,11 +812,23 @@ def add_gmail_read_full_email_tool_schema(tool_schemas):
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["options"],
+                    "required": ["from", "from_email", "title", "datetime"],
                     "properties": {
-                        "options": {
-                            "type": "object",
-                            "description": "some options in json format including printer name, label format, etc. will use default if these info are missing anyways.",
+                        "from": {
+                            "type": "string",
+                            "description": "from whom (nick name) this email is sent.",
+                        },
+                        "from_email": {
+                            "type": "string",
+                            "description": "the email of the sender.",
+                        },
+                        "title": {
+                            "type": "string",
+                            "description": "the title of the email.",
+                        },
+                        "datetime": {
+                            "type": "string",
+                            "description": "example: Mon, Dec 8, 2025, 8:15\u202fPM",
                         }
                     },
                 }
@@ -658,6 +891,45 @@ def add_gmail_move_email_tool_schema(tool_schemas):
                         "options": {
                             "type": "object",
                             "description": "some options in json format",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    tool_schemas.append(tool_schema)
+
+
+def add_gmail_mark_status_tool_schema(tool_schemas):
+    import mcp.types as types
+
+    tool_schema = types.Tool(
+        name="gmail_mark_status",
+        description="gmail mark en email as read/unread.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],  # the root requires *input*
+            "properties": {
+                "input": {  # nested object
+                    "type": "object",
+                    "required": ["title", "from", "datetime", "status"],
+                    "properties": {
+                        "title": {
+                            "type": "string",
+                            "description": "the title of the email.",
+                        },
+                        "from": {
+                            "type": "string",
+                            "description": "from whom (nick name) this email is sent.",
+                        },
+                        "datetime": {
+                            "type": "string",
+                            "description": "example: Mon, Dec 8, 2025, 8:15\u202fPM",
+                        },
+                        "status": {
+                            "type": "string",
+                            "description": "read/unread",
                         }
                     },
                 }
