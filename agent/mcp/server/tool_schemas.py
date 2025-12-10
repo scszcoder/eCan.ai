@@ -100,6 +100,7 @@ from agent.mcp.server.scrapers.gmail.gmail_read import (
     add_gmail_respond_tool_schema,
     add_gmail_write_new_tool_schema,
     add_gmail_move_email_tool_schema,
+    add_gmail_mark_status_tool_schema,
     add_gmail_delete_email_tool_schema
 )
 from agent.mcp.server.Privacy.privacy_reserve import add_privacy_reserve_tool_schema
@@ -1792,6 +1793,7 @@ def build_agent_mcp_tools_schemas():
     add_gmail_respond_tool_schema(tool_schemas)
     add_gmail_write_new_tool_schema(tool_schemas)
     add_gmail_move_email_tool_schema(tool_schemas)
+    add_gmail_mark_status_tool_schema(tool_schemas)
     add_gmail_delete_email_tool_schema(tool_schemas)
 
     add_privacy_reserve_tool_schema(tool_schemas)

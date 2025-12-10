@@ -111,6 +111,7 @@ from agent.mcp.server.scrapers.gmail.gmail_read import (
     gmail_respond,
     gmail_write_new,
     gmail_read_titles,
+    gmail_mark_status,
     gmail_read_full_email,
 )
 from agent.mcp.server.Privacy.privacy_reserve import privacy_reserve
@@ -2204,6 +2205,7 @@ tool_function_mapping = {
         "gmail_respond": gmail_respond,
         "gmail_write_new": gmail_write_new,
         "gmail_read_titles": gmail_read_titles,
+        "gmail_mark_status": gmail_mark_status,
         "gmail_read_full_email": gmail_read_full_email,
         "privacy_reserve": privacy_reserve,
         "pirate_shipping_purchase_labels": pirate_shipping_purchase_labels,
