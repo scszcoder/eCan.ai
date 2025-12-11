@@ -2000,6 +2000,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
     inputs = (config_metadata or {}).get("inputsValues", {}) or {}
 
+    prompt_selection = ((inputs.get("promptSelection") or {}).get("content") or "inline").strip()
+    logger.debug("[LLMNode]prompt_selection:", prompt_selection)
+
     system_prompt_id = ((inputs.get("systemPromptId") or {}).get("content") or None)
     user_prompt_id = ((inputs.get("promptId") or {}).get("content") or None)
 
@@ -2010,6 +2013,13 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     logger.debug("[BrowserAutomation]inline_system_prompt:", inline_system_prompt)
     logger.debug("[BrowserAutomation]inline_user_prompt:", inline_user_prompt)
     # Load prompts using prompt loader (handles both inline and saved prompts)
+    # Resolve prompt templates based on the selected prompt id first for initial config preview
+    resolved_system_prompt, resolved_user_prompt = _resolve_prompt_templates(
+        prompt_selection,
+        inline_system_prompt,
+        inline_user_prompt,
+    )
+
     from agent.ec_skills.prompt_loader import get_prompt_content
     system_prompt_content = get_prompt_content(system_prompt_id, inline_system_prompt) if (system_prompt_id or inline_system_prompt) else None
     user_prompt_content = get_prompt_content(user_prompt_id, inline_user_prompt) if (user_prompt_id or inline_user_prompt) else None
@@ -2043,12 +2053,13 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
             controller = BUController()
             profile = BUBrowserProfile()
-            
+            print("[BROWSER USE]Agent task:", task)
             # Auto-detect model vision support and set use_vision accordingly to avoid warnings
             from agent.ec_skills.llm_utils.llm_utils import get_use_vision_from_llm
             agent_kwargs = {'use_vision': get_use_vision_from_llm(llm, context="build_browser_automation_node")}
             agent = BUAgent(task=task, llm=llm, controller=controller, browser_profile=profile, **agent_kwargs)
             history = await agent.run()
+            print("[BROWSER USE]Agent Run Results:", history)
             final = history.final_result() if hasattr(history, 'final_result') else None
             return {"final": final, "history": str(history)}
         except Exception as e:
