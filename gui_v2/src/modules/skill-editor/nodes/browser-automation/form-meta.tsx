@@ -7,7 +7,7 @@ import { Divider, Select } from '@douyinfe/semi-ui';
 import { defaultFormMeta } from '../default-form-meta';
 import { FormContent, FormHeader, FormItem, FormInputs } from '../../form-components';
 import { PromptInputWithSelector } from '../../form-components/PromptInputWithSelector';
-import { DisplayOutputs } from '@flowgram.ai/form-materials';
+import { DisplayOutputs, createInferInputsPlugin } from '@flowgram.ai/form-materials';
 import { get_ipc_api } from '../../../../services/ipc_api';
 import { usePromptStore } from '../../../../stores/promptStore';
 import { useUserStore } from '../../../../stores/userStore';
@@ -275,4 +275,5 @@ export const formMeta: FormMeta = {
   render: (props) => <FormRender {...props} />,
   effect: defaultFormMeta.effect,
   validate: defaultFormMeta.validate,
+  plugins: [createInferInputsPlugin({ sourceKey: 'inputsValues', targetKey: 'inputs' })],
 };
