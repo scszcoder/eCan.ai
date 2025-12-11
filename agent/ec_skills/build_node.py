@@ -427,8 +427,8 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             user_prompt_template,
         )
 
-        # Find all variable placeholders (e.g., {var_name}) in the prompts
-        variables = re.findall(r'\{(\w+)\}', active_system_prompt + active_user_prompt)
+        # Find all variable placeholders (e.g., {{var_name}}) in the prompts
+        variables = re.findall(r'\{\{(\w+)\}\}', active_system_prompt + active_user_prompt)
 
         # Get attributes from state, default to an empty dict if not present
         prompt_refs = state.get("prompt_refs", {})
@@ -439,24 +439,21 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             if var in prompt_refs:
                 format_context[var] = prompt_refs[var]
             else:
-                logger.warning(f"Warning: Variable '{{{var}}}' not found in state prompt_refs. Using empty string.")
+                logger.warning(f"Warning: Variable '{{{{{{var}}}}}}' not found in state prompt_refs. Using empty string.")
                 format_context[var] = ""
 
-        class _SafeDict(dict):
-            def __missing__(self, key):
-                return "{" + key + "}"
-
-        safe_context = _SafeDict(format_context)
-
-        # Format the final prompts with values from the state, preserving unknown placeholders
+        # Substitute {{var_name}} with values from format_context
         try:
-            final_system_prompt = _escape_positional_placeholders(active_system_prompt).format_map(safe_context)
-            final_user_prompt = _escape_positional_placeholders(active_user_prompt).format_map(safe_context)
+            final_system_prompt = active_system_prompt
+            final_user_prompt = active_user_prompt
+            for var, val in format_context.items():
+                final_system_prompt = final_system_prompt.replace(f'{{{{{var}}}}}', str(val))
+                final_user_prompt = final_user_prompt.replace(f'{{{{{var}}}}}', str(val))
 
             logger.debug("final_system_prompt:", final_system_prompt)
             logger.debug("final_user_prompt:", final_user_prompt)
-        except KeyError as e:
-            err_msg = f"Error formatting prompt: Missing key {e} in state prompt_refs."
+        except Exception as e:
+            err_msg = f"Error formatting prompt: {e}"
             logger.error(err_msg)
             web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
             state['error'] = err_msg
@@ -2000,8 +1997,15 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
     inputs = (config_metadata or {}).get("inputsValues", {}) or {}
 
+    # Extract browser settings from node editor
+    browser_type_setting = ((inputs.get("browser") or {}).get("content") or "new chromium").lower().strip()
+    browser_driver_setting = ((inputs.get("browserDriver") or {}).get("content") or "native").lower().strip()
+    cdp_port_setting = ((inputs.get("cdpPort") or {}).get("content") or "").strip()
+    
+    logger.debug(f"[BrowserAutomation] browser={browser_type_setting}, driver={browser_driver_setting}, cdp_port={cdp_port_setting}")
+
     prompt_selection = ((inputs.get("promptSelection") or {}).get("content") or "inline").strip()
-    logger.debug("[LLMNode]prompt_selection:", prompt_selection)
+    logger.debug("[BrowserAutomation]prompt_selection:", prompt_selection)
 
     system_prompt_id = ((inputs.get("systemPromptId") or {}).get("content") or None)
     user_prompt_id = ((inputs.get("promptId") or {}).get("content") or None)
@@ -2034,10 +2038,63 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         if prompt_parts:
             task_text = "\n\n".join(prompt_parts)
 
+    async def _get_or_create_browser_session(mainwin):
+        """Get or create browser session based on node editor settings."""
+        from gui.manager.browser_manager import BrowserManager, BrowserType, BrowserStatus
+        
+        logger.debug(f"[BrowserAutomation] Getting browser session: browser={browser_type_setting}, driver={browser_driver_setting}, cdp_port={cdp_port_setting}")
+        
+        # Get or create BrowserManager
+        if not hasattr(mainwin, 'browser_manager') or mainwin.browser_manager is None:
+            mainwin.browser_manager = BrowserManager(default_webdriver_path=mainwin.getWebDriverPath())
+        
+        browser_manager: BrowserManager = mainwin.browser_manager
+        
+        # Map browser setting to BrowserType
+        browser_type_map = {
+            'new chromium': BrowserType.CHROME,
+            'existing chrome': BrowserType.CHROME,
+            'ads power': BrowserType.ADSPOWER,
+            'adspower': BrowserType.ADSPOWER,
+            'ziniao': BrowserType.CHROME,  # Treat as Chrome for now
+            'multi-login': BrowserType.CHROME,  # Treat as Chrome for now
+        }
+        browser_type = browser_type_map.get(browser_type_setting, BrowserType.CHROME)
+        
+        # Determine CDP port
+        cdp_port = int(cdp_port_setting) if cdp_port_setting and cdp_port_setting.isdigit() else 9228
+        
+        # Acquire browser based on settings
+        auto_browser = browser_manager.acquire_browser(
+            agent_id=getattr(mainwin, 'current_agent_id', 'default_agent'),
+            task=f"browser_automation_{node_name}",
+            browser_type=browser_type,
+            cdp_port=cdp_port,
+            webdriver_path=mainwin.getWebDriverPath(),
+        )
+        
+        if auto_browser and auto_browser.status != BrowserStatus.ERROR:
+            # Set webdriver on mainwin for backward compatibility
+            if auto_browser.webdriver:
+                mainwin.setWebDriver(auto_browser.webdriver)
+            
+            # Start browser session if not already started (for CDP/native mode)
+            if browser_driver_setting == 'native' and auto_browser.browser_session:
+                logger.info(f"[BrowserAutomation] Starting browser session: {auto_browser.browser_session.id}")
+                await auto_browser.browser_session.start()
+                logger.info(f"[BrowserAutomation] Browser session started!")
+                return auto_browser.browser_session
+            
+            return auto_browser
+        else:
+            error_msg = auto_browser.last_error if auto_browser else "Unknown error"
+            logger.error(f"[BrowserAutomation] Failed to acquire browser: {error_msg}")
+            return None
+
     async def _run_browser_use(task: str, mainwin) -> dict:
         try:
-            from browser_use import Agent as BUAgent, Controller as BUController
-            from browser_use.browser.profile import BrowserProfile as BUBrowserProfile
+            from browser_use import Agent as BUAgent, Controller as BUController, Browser as BUBrowser
+            # from browser_use.browser.context import BrowserContext as BUBrowserContext
             log_msg = f"🤖 Executing node Browser Automation node: {node_name}"
             logger.debug(log_msg)
             web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
@@ -2052,12 +2109,36 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 raise ValueError("Failed to create browser_use LLM from mainwin. Please configure LLM provider API key in Settings.")
 
             controller = BUController()
-            profile = BUBrowserProfile()
             print("[BROWSER USE]Agent task:", task)
+            
             # Auto-detect model vision support and set use_vision accordingly to avoid warnings
             from agent.ec_skills.llm_utils.llm_utils import get_use_vision_from_llm
             agent_kwargs = {'use_vision': get_use_vision_from_llm(llm, context="build_browser_automation_node")}
-            agent = BUAgent(task=task, llm=llm, controller=controller, browser_profile=profile, **agent_kwargs)
+            
+            # Get or create browser session based on node editor settings
+            browser_session = await _get_or_create_browser_session(mainwin)
+            
+            if browser_type_setting == 'new chromium':
+                # For new chromium, let browser_use create its own browser
+                logger.info("[BrowserAutomation] Using new chromium - browser_use will create browser")
+                agent = BUAgent(task=task, llm=llm, controller=controller, **agent_kwargs)
+            elif browser_driver_setting == 'native' and browser_session:
+                # For native (CDP) mode with existing browser session
+                logger.info(f"[BrowserAutomation] Using existing browser session via CDP: {browser_type_setting}")
+                # Create browser_use Browser with CDP connection
+                cdp_port = int(cdp_port_setting) if cdp_port_setting and cdp_port_setting.isdigit() else 9228
+                cdp_url = f"http://127.0.0.1:{cdp_port}"
+                
+                # browser_use expects a Browser instance for existing browsers
+                # browser = BUBrowser(config={"cdp_url": cdp_url})
+                await browser_session.start()
+                # browser_context = BUBrowserContext(browser=browser)
+                agent = BUAgent(task=task, llm=llm, controller=controller, browser_session=browser_session, **agent_kwargs)
+            else:
+                # Fallback: let browser_use create its own browser
+                logger.info(f"[BrowserAutomation] Fallback - browser_use will create browser (driver={browser_driver_setting})")
+                agent = BUAgent(task=task, llm=llm, controller=controller, **agent_kwargs)
+            
             history = await agent.run()
             print("[BROWSER USE]Agent Run Results:", history)
             final = history.final_result() if hasattr(history, 'final_result') else None
@@ -2075,21 +2156,26 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             inline_user_prompt,
         )
 
-        variables = re.findall(r'\{(\w+)\}', active_system_prompt + active_user_prompt)
+        # Find all variable placeholders (e.g., {{var_name}}) in the prompts
+        variables = re.findall(r'\{\{(\w+)\}\}', active_system_prompt + active_user_prompt)
         prompt_refs = state.get("prompt_refs", {}) if isinstance(state, dict) else {}
         format_context = {}
         for var in variables:
             if var in prompt_refs:
                 format_context[var] = prompt_refs[var]
             else:
-                logger.warning(f"[build_browser_automation_node] Variable '{{{var}}}' missing in prompt_refs; using empty string.")
+                logger.warning(f"[build_browser_automation_node] Variable '{{{{{{var}}}}}}' missing in prompt_refs; using empty string.")
                 format_context[var] = ""
 
+        # Substitute {{var_name}} with values from format_context
         try:
-            final_system_prompt = active_system_prompt.format(**format_context)
-            final_user_prompt = active_user_prompt.format(**format_context)
-        except KeyError as exc:
-            err_msg = f"Error formatting browser automation prompt, missing key {exc}"
+            final_system_prompt = active_system_prompt
+            final_user_prompt = active_user_prompt
+            for var, val in format_context.items():
+                final_system_prompt = final_system_prompt.replace(f'{{{{{var}}}}}', str(val))
+                final_user_prompt = final_user_prompt.replace(f'{{{{{var}}}}}', str(val))
+        except Exception as exc:
+            err_msg = f"Error formatting browser automation prompt: {exc}"
             logger.error(err_msg)
             web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
             state['error'] = err_msg
@@ -2103,6 +2189,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         else:
             combined_task = task_instructions
 
+        print("final_system_prompt:", final_system_prompt)
+        print("final_user_prompt:", final_user_prompt)
+        print("combined_task:", combined_task)
         if provider == 'browser-use':
             # Get mainwin from agent via state
             mainwin = None
