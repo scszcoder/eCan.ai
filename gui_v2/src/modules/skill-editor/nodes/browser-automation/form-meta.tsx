@@ -33,6 +33,17 @@ const BROWSER_DRIVER_OPTIONS = [
   { label: 'Puppeteer', value: 'puppeteer' },
 ];
 
+const SHOP_OPTIONS = [
+  { label: 'Amazon', value: 'amazon' },
+  { label: 'eBay', value: 'ebay' },
+  { label: 'Etsy', value: 'etsy' },
+  { label: 'Walmart', value: 'walmart' },
+  { label: 'TikTok', value: 'tiktok' },
+  { label: 'Shopify', value: 'shopify' },
+  { label: 'WooCommerce', value: 'woocommerce' },
+  { label: 'Custom', value: 'custom' },
+];
+
 // Cache for LLM providers from backend
 let cachedProviders: Map<string, any> = new Map();
 let cacheTime: number = 0;
@@ -175,6 +186,41 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                 placeholder="CDP Port (e.g., 9222)"
                 style={{ width: '100%', padding: '6px 12px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '3px' }}
               />
+            )}
+          </Field>
+        </FormItem>
+
+        {/* Shop selector */}
+        <FormItem name="shopName" type="string" vertical>
+          <Field<string> name="inputsValues.shopName.content">
+            {({ field: shopField }) => (
+              <Field<string> name="inputsValues.customShopName.content">
+                {({ field: customShopField }) => {
+                  const shopValue = (shopField.value as string) || SHOP_OPTIONS[0].value;
+                  const isCustom = shopValue === 'custom';
+                  return (
+                    <>
+                      <Select
+                        value={shopValue}
+                        onChange={(val) => shopField.onChange(val as string)}
+                        optionList={SHOP_OPTIONS}
+                        style={{ width: '100%' }}
+                        dropdownMatchSelectWidth
+                        size="small"
+                      />
+                      {isCustom && (
+                        <input
+                          type="text"
+                          value={(customShopField.value as string) || ''}
+                          onChange={(e) => customShopField.onChange(e.target.value)}
+                          placeholder="Enter custom shop name"
+                          style={{ width: '100%', padding: '6px 12px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '3px', marginTop: '8px' }}
+                        />
+                      )}
+                    </>
+                  );
+                }}
+              </Field>
             )}
           </Field>
         </FormItem>

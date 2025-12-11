@@ -1436,24 +1436,84 @@ def get_browser_use_supported_providers() -> list:
     ]
 
 
+def _get_logging_browser_use_class():
+    """
+    Get a LoggingBrowserUseChatOpenAI class that wraps BrowserUseChatOpenAI with custom logging.
+    
+    This class intercepts all LLM chat completion responses and logs them using logger_helper.
+    
+    Returns:
+        LoggingBrowserUseChatOpenAI class or None if browser_use is not available
+    """
+    try:
+        from functools import wraps
+        from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
+        
+        class LoggingBrowserUseChatOpenAI(BrowserUseChatOpenAI):
+            """BrowserUseChatOpenAI with custom logging for all LLM responses."""
+            
+            def get_client(self):
+                client = super().get_client()
+                original_create = client.chat.completions.create
+                
+                @wraps(original_create)
+                async def create_with_logging(*args, **kwargs):
+                    response = await original_create(*args, **kwargs)
+                    
+                    # Log organization header
+                    try:
+                        org = response.response.headers.get("openai-organization")
+                        if org:
+                            logger.info(f"[BrowserUse] OpenAI organization: {org}")
+                    except AttributeError:
+                        pass
+                    
+                    # Log actual LLM response content
+                    try:
+                        if hasattr(response, 'choices') and response.choices:
+                            content = response.choices[0].message.content
+                            logger.debug(f"[BrowserUse] LLM Response: {content}")
+                    except Exception:
+                        pass
+                    
+                    return response
+                
+                client.chat.completions.create = create_with_logging
+                return client
+        
+        return LoggingBrowserUseChatOpenAI
+    except ImportError:
+        logger.error("[_get_logging_browser_use_class] Failed to import browser_use.llm.ChatOpenAI")
+        return None
+
+
 def _create_and_validate_browser_use_llm(bu_config: dict):
     """
-    Create and validate a BrowserUseChatOpenAI instance.
+    Create and validate a BrowserUseChatOpenAI instance with custom logging.
     
     This helper function ensures that only BrowserUseChatOpenAI instances are returned,
     preventing incompatible LLM types from being passed to browser_use.
+    The returned instance includes custom logging for all LLM responses.
     
     Args:
         bu_config: Configuration dict for BrowserUseChatOpenAI (model, api_key, base_url, etc.)
         
     Returns:
-        BrowserUseChatOpenAI instance or None if creation/validation fails
+        LoggingBrowserUseChatOpenAI instance or None if creation/validation fails
     """
     try:
         from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
         
-        # Create the instance
-        llm_instance = BrowserUseChatOpenAI(**bu_config)
+        # Get the logging wrapper class
+        LoggingBrowserUseChatOpenAI = _get_logging_browser_use_class()
+        
+        if LoggingBrowserUseChatOpenAI is None:
+            logger.warning("[_create_and_validate_browser_use_llm] Logging wrapper not available, using base class")
+            llm_instance = BrowserUseChatOpenAI(**bu_config)
+        else:
+            # Create the logging-enabled instance
+            llm_instance = LoggingBrowserUseChatOpenAI(**bu_config)
+            logger.debug("[_create_and_validate_browser_use_llm] Created LLM with custom logging enabled")
         
         # Validate it's actually BrowserUseChatOpenAI (should always be true if creation succeeded)
         if isinstance(llm_instance, BrowserUseChatOpenAI):

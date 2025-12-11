@@ -66,7 +66,7 @@ class AutoBrowser(BaseModel):
     webdriver: Optional[Any] = Field(default=None, description="Selenium WebDriver instance")
     
     # Browser profile information (JSON string or dict)
-    profile: Optional[str] = Field(default=None, description="Browser profile configuration")
+    profile: Optional[Any] = Field(default=None, description="Browser profile configuration")
     
     # CDP (Chrome DevTools Protocol) port
     cdp_port: int = Field(default=9228, description="Chrome DevTools Protocol port")
@@ -195,13 +195,14 @@ def _create_webdriver_for_cdp(webdriver_path: str, cdp_address: str) -> Any:
     return driver
 
 
-def _create_browser_session_for_cdp(cdp_url: str, session_id_prefix: str = "br") -> Any:
+def _create_browser_session_for_cdp(cdp_url: str, session_id_prefix: str = "br", downloads_path: Optional[str] = None) -> Any:
     """
     Create a browser_use BrowserSession connected to existing Chrome via CDP.
     
     Args:
         cdp_url: Full CDP URL (e.g., "http://127.0.0.1:9228")
         session_id_prefix: Prefix for session ID
+        downloads_path: Path for browser downloads (optional)
     
     Returns:
         BrowserSession instance
@@ -211,6 +212,8 @@ def _create_browser_session_for_cdp(cdp_url: str, session_id_prefix: str = "br")
     
     profile = BrowserProfile(headless=False, cdp_url=cdp_url)
     profile.is_local = False
+    if downloads_path:
+        profile.downloads_path = downloads_path
     return BrowserSession(browser_profile=profile, id=f"{session_id_prefix}_{uuid7str()}")
 
 
@@ -379,6 +382,7 @@ class BrowserManager:
         adspower_api_port: int = 50325,
         connect_webdriver: bool = True,
         connect_browser_session: bool = True,
+        downloads_path: Optional[str] = None,
     ) -> AutoBrowser:
         """
         Create and register a new AutoBrowser instance with both WebDriver and BrowserSession.
@@ -397,6 +401,7 @@ class BrowserManager:
             adspower_api_port: AdsPower API port (defaults to env or 50325)
             connect_webdriver: Whether to create WebDriver connection
             connect_browser_session: Whether to create BrowserSession connection
+            downloads_path: Path for browser downloads (optional)
             
         Returns:
             Created AutoBrowser instance with both drivers hooked up
@@ -483,7 +488,7 @@ class BrowserManager:
             if connect_browser_session and final_cdp_url:
                 session_prefix = "ap" if browser_type == BrowserType.ADSPOWER else "ec"
                 logger.debug(f"[BrowserManager] Creating BrowserSession for {final_cdp_url}")
-                session = _create_browser_session_for_cdp(final_cdp_url, session_prefix)
+                session = _create_browser_session_for_cdp(final_cdp_url, session_prefix, downloads_path=downloads_path)
                 logger.info(f"[BrowserManager] BrowserSession created: {session.id}")
             
             # =================================================================
@@ -535,6 +540,7 @@ class BrowserManager:
         adspower_api_key: Optional[str] = None,
         webdriver_path: Optional[str] = None,
         create_if_not_found: bool = True,
+        downloads_path: Optional[str] = None,
     ) -> Optional[AutoBrowser]:
         """
         Acquire a browser for an agent's use.
@@ -551,6 +557,7 @@ class BrowserManager:
             adspower_api_key: AdsPower API key (for creating new AdsPower browsers)
             webdriver_path: Path to chromedriver (for creating new browsers)
             create_if_not_found: Whether to create a new browser if none available
+            downloads_path: Path for browser downloads (optional, updates existing browser profile if found)
             
         Returns:
             Acquired AutoBrowser instance or None
@@ -563,6 +570,14 @@ class BrowserManager:
         )
         
         if browser:
+            # Update downloads_path on existing browser's profile if provided
+            if downloads_path and browser.browser_session:
+                try:
+                    if hasattr(browser.browser_session, 'browser_profile') and browser.browser_session.browser_profile:
+                        browser.browser_session.browser_profile.downloads_path = downloads_path
+                        logger.debug(f"[BrowserManager] Updated downloads_path on existing browser {browser.id}")
+                except Exception as e:
+                    logger.warning(f"[BrowserManager] Failed to update downloads_path on browser {browser.id}: {e}")
             browser.mark_in_use(agent_id, task)
             logger.info(f"[BrowserManager] Agent {agent_id} acquired existing browser {browser.id}")
             return browser
@@ -575,6 +590,7 @@ class BrowserManager:
                 adspower_profile_id=adspower_profile_id,
                 adspower_api_key=adspower_api_key,
                 webdriver_path=webdriver_path,
+                downloads_path=downloads_path,
             )
             
             # Only mark in use if browser was created successfully

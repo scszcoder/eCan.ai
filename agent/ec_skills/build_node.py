@@ -2002,7 +2002,22 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     browser_driver_setting = ((inputs.get("browserDriver") or {}).get("content") or "native").lower().strip()
     cdp_port_setting = ((inputs.get("cdpPort") or {}).get("content") or "").strip()
     
+    # Extract shop_name and build downloads_path
+    from pathlib import Path
+    from datetime import datetime
+    from config.app_info import app_info
+    
+    shop_name_selection = ((inputs.get("shopName") or {}).get("content") or "").strip()
+    custom_shop_name = ((inputs.get("customShopName") or {}).get("content") or "").strip()
+    # Use custom shop name if 'custom' is selected, otherwise use the selected shop
+    shop_name = custom_shop_name if shop_name_selection == "custom" else shop_name_selection
+    
+    appdata_path = Path(app_info.appdata_path)
+    date_str = datetime.now().strftime("%Y%m%d")
+    downloads_path = str(appdata_path / "daily_work" / f"D{date_str}" / shop_name) if shop_name else None
+    
     logger.debug(f"[BrowserAutomation] browser={browser_type_setting}, driver={browser_driver_setting}, cdp_port={cdp_port_setting}")
+    logger.debug(f"[BrowserAutomation] shop_name={shop_name}, downloads_path={downloads_path}")
 
     prompt_selection = ((inputs.get("promptSelection") or {}).get("content") or "inline").strip()
     logger.debug("[BrowserAutomation]prompt_selection:", prompt_selection)
@@ -2071,6 +2086,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             browser_type=browser_type,
             cdp_port=cdp_port,
             webdriver_path=mainwin.getWebDriverPath(),
+            downloads_path=downloads_path,
         )
         
         if auto_browser and auto_browser.status != BrowserStatus.ERROR:
@@ -2093,7 +2109,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
     async def _run_browser_use(task: str, mainwin) -> dict:
         try:
-            from browser_use import Agent as BUAgent, Controller as BUController, Browser as BUBrowser
+            from browser_use import Agent as BUAgent, Browser as BUBrowser
+            from agent.ec_skills.browser_use_for_ai.browser_use_tools import custom_controller
             # from browser_use.browser.context import BrowserContext as BUBrowserContext
             log_msg = f"🤖 Executing node Browser Automation node: {node_name}"
             logger.debug(log_msg)
@@ -2108,7 +2125,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             if not llm:
                 raise ValueError("Failed to create browser_use LLM from mainwin. Please configure LLM provider API key in Settings.")
 
-            controller = BUController()
+            controller = custom_controller
             print("[BROWSER USE]Agent task:", task)
             
             # Auto-detect model vision support and set use_vision accordingly to avoid warnings
