@@ -25,6 +25,20 @@ from agent.ec_skills.extern_skills.inproc_loader import temp_sys_path, _site_pac
 from agent.ec_skill import EC_Skill
 from agent.ec_skills.flowgram2langgraph import flowgram2langgraph
 from app_context import AppContext
+from config.app_info import app_info
+from agent.ec_skills.dev_defs import BreakpointManager
+from agent.ec_skills.flowgram2langgraph_v2 import flowgram2langgraph_v2
+from agent.db.models.skill_model import DBAgentSkill
+
+
+
+def _get_resource_skills_root() -> Path:
+    """Get the root path for resource/my_skills directory.
+    
+    Centralized path management for example skills.
+    """
+    return Path(app_info.app_resources_path).joinpath("my_skills")
+
 
 async def build_agent_skills_parallel(mainwin):
     """Optimized batch parallel skill creation"""
@@ -45,8 +59,13 @@ async def build_agent_skills_parallel(mainwin):
         ("rpa_helper_chatter", create_rpa_helper_chatter_skill),
     ]
 
-    # Batch 3: Advanced RPA and search skills (more complex)
+    # Batch 3: Advanced skills (example skills from resource/my_skills + complex skills)
     advanced_skills = [
+        # Example skills from resource/my_skills (loaded from JSON)
+        ("web_rag_assistant", create_web_rag_assistant_skill),
+        ("demo0", create_demo0_skill),
+        ("ebay_fullfill_messages", create_ebay_fullfill_messages_skill),
+        ("search_digikey_chatter", create_search_digikey_chatter_skill),
         # ("rpa_supervisor_scheduling", create_rpa_supervisor_scheduling_skill),
         # ("rpa_supervisor_scheduling_chatter", create_rpa_supervisor_scheduling_chatter_skill),
         # ("rpa_supervisor", create_rpa_supervisor_skill),
@@ -92,6 +111,193 @@ async def build_agent_skills_parallel(mainwin):
     logger.info(f"[build_agent_skills] Successfully created {len(all_skills)}/{total_skills} skills")
 
     return all_skills
+
+
+def _create_skill_from_workflow(
+    *,
+    core_dict: dict,
+    workflow,
+    skill_name: str,
+    json_path: Path,
+    source: str,
+) -> Optional[EC_Skill]:
+    """Create EC_Skill and populate fields from diagram dict + an already built workflow.
+
+    Notes:
+    - This helper intentionally does NOT call flowgram2langgraph() to avoid changing
+      breakpoint manager / breakpoint list behaviors in different call sites.
+    - For `source="ui"`, we keep the historical behavior and DO NOT overwrite `id`.
+    - For `source="code"`, we ensure deterministic stable id generation.
+    """
+    try:
+        if not workflow:
+            logger.error(f"[_create_skill_from_workflow] Empty workflow for {skill_name}")
+            return None
+
+        sk = EC_Skill()
+        sk.name = core_dict.get("skillName") or core_dict.get("name") or skill_name
+        sk.version = str(core_dict.get("version", "1.0.0"))
+        sk.description = core_dict.get("description", "")
+        sk.diagram = core_dict
+
+        if isinstance(core_dict.get("config"), dict):
+            sk.config = core_dict["config"]
+
+        run_mode = core_dict.get("run_mode")
+        if run_mode in ("developing", "released"):
+            sk.run_mode = run_mode
+
+        sk.set_work_flow(workflow)
+        sk.source = source
+        sk.path = str(json_path)
+
+        # Ensure stable ID behavior.
+        if source == "code":
+            from agent.ec_skill import _generate_stable_id
+            sk.id = _generate_stable_id(sk.name, sk.source)
+
+        return sk
+    except Exception as e:
+        logger.error(f"[_create_skill_from_workflow] Failed to create skill {skill_name}: {e}")
+        logger.debug(f"[_create_skill_from_workflow] Traceback: {traceback.format_exc()}")
+        return None
+
+
+def create_skill_from_resource(
+    skill_name: str,
+    json_filename: Optional[str] = None,
+    bundle_filename: Optional[str] = None
+) -> Optional[EC_Skill]:
+    """
+    Create a skill from resource/my_skills directory.
+    
+    Automatically constructs paths and loads skill configuration from JSON files.
+    Used by create_xxx_skill functions for resource/my_skills examples.
+    
+    Args:
+        skill_name: Name of the skill (e.g., "web_rag_assistant", "demo0")
+        json_filename: Optional custom JSON filename. If None, uses "{skill_name}_skill.json"
+        bundle_filename: Optional custom bundle filename. If None, uses "{skill_name}_skill_bundle.json"
+    
+    Returns:
+        EC_Skill object or None if creation fails
+    
+    Example:
+        create_skill_from_resource("web_rag_assistant")  # Auto: web_rag_assistant_skill.json
+        create_skill_from_resource("demo0", "custom.json")  # Custom filename
+    """
+    try:
+        # Get root directory
+        skills_root = _get_resource_skills_root()
+        
+        # Construct skill folder path: <skill_name>_skill/
+        skill_folder = skills_root / f"{skill_name}_skill"
+        if not skill_folder.exists():
+            logger.error(f"[create_skill_from_resource] Skill folder not found: {skill_folder}")
+            return None
+        
+        # Construct diagram directory path
+        diagram_dir = skill_folder / "diagram_dir"
+        if not diagram_dir.exists():
+            logger.error(f"[create_skill_from_resource] diagram_dir not found: {diagram_dir}")
+            return None
+        
+        # Construct JSON file path with default naming convention
+        if json_filename is None:
+            json_filename = f"{skill_name}_skill.json"
+        json_path = diagram_dir / json_filename
+        
+        if not json_path.exists():
+            logger.error(f"[create_skill_from_resource] JSON file not found: {json_path}")
+            return None
+        
+        # Load main JSON file
+        with open(json_path, 'r', encoding='utf-8') as f:
+            core_dict = json.load(f)
+        
+        # Try to load bundle file if exists (with default naming convention)
+        if bundle_filename is None:
+            bundle_filename = f"{skill_name}_skill_bundle.json"
+        bundle_path = diagram_dir / bundle_filename
+        
+        bundle_dict = None
+        if bundle_path.exists():
+            try:
+                with open(bundle_path, 'r', encoding='utf-8') as f:
+                    bundle_dict = json.load(f)
+            except Exception as e:
+                logger.warning(f"[create_skill_from_resource] Failed to load bundle: {e}")
+
+        # Keep consistent breakpoint manager behavior with file-loaded skills
+        bp_mgr = BreakpointManager()
+        workflow, _breakpoints = flowgram2langgraph(core_dict, bundle_dict, bp_mgr)
+        try:
+            if isinstance(_breakpoints, (list, tuple)):
+                bp_mgr.set_breakpoints(list(_breakpoints))
+        except Exception:
+            pass
+
+        if not workflow:
+            logger.error(f"[create_skill_from_resource] Failed to convert workflow for {skill_name}")
+            return None
+
+        # Create skill object using common helper (field population only)
+        sk = _create_skill_from_workflow(
+            core_dict=core_dict,
+            workflow=workflow,
+            skill_name=skill_name,
+            json_path=json_path,
+            source="code",
+        )
+        
+        if sk:
+            logger.info(f"[create_skill_from_resource] ✅ Created skill '{sk.name}' from {skill_folder.name}")
+        return sk
+        
+    except Exception as e:
+        logger.error(f"[create_skill_from_resource] Failed to create {skill_name}: {e}")
+        logger.debug(f"[create_skill_from_resource] Traceback: {traceback.format_exc()}")
+        return None
+
+
+async def create_web_rag_assistant_skill(mainwin) -> Optional[EC_Skill]:
+    """Create web_rag_assistant skill from resource/my_skills example"""
+    return create_skill_from_resource("web_rag_assistant")
+
+
+async def create_demo0_skill(mainwin) -> Optional[EC_Skill]:
+    """Create demo0 skill from resource/my_skills example"""
+    return create_skill_from_resource("demo0")
+
+
+async def create_ebay_fullfill_messages_skill(mainwin) -> Optional[EC_Skill]:
+    """Create ebay_fullfill_messages skill from resource/my_skills example"""
+    return create_skill_from_resource("ebay_fullfill_messages")
+
+
+async def create_search_digikey_chatter_skill(mainwin) -> Optional[EC_Skill]:
+    """Create search_digikey_chatter skill from resource/my_skills example (code_dir only)."""
+    try:
+        skills_root = _get_resource_skills_root()
+        skill_folder = skills_root.joinpath("search_digikey_chatter_skill")
+
+        sk = load_skill_from_folder(skill_folder, mainwin)
+        if not sk:
+            return None
+
+        # Treat resource examples as code-based skills (read-only + deterministic id)
+        sk.source = "code"
+        try:
+            from agent.ec_skill import _generate_stable_id
+            sk.id = _generate_stable_id(sk.name, sk.source)
+        except Exception:
+            pass
+
+        return sk
+    except Exception as e:
+        logger.error(f"[create_search_digikey_chatter_skill] Failed: {e}")
+        logger.debug(f"[create_search_digikey_chatter_skill] Traceback: {traceback.format_exc()}")
+        return None
 
 
 async def _create_skills_batch(mainwin, skill_creators, max_concurrent=4):
@@ -213,72 +419,42 @@ async def build_agent_skills(mainwin, skill_path=""):
 
         logger.info(f"[build_agent_skills] ✅ Converted {len(memory_skills)} DB skills to objects")
 
-        # Step 5: Build local skills (both code-based and file-based)
-        logger.info("[build_agent_skills] Step 5: Building local skills...")
+        # Step 5: Build local code-based skills (built-in + resource/my_skills examples)
+        logger.info("[build_agent_skills] Step 5: Building local code skills...")
         try:
-            # Returns (code_skills, file_skills) tuple
-            code_skills, file_skills = await _build_local_skills_async(mainwin, skill_path)
-            logger.info(f"[build_agent_skills] ✅ Built {len(code_skills or [])} code skills, {len(file_skills or [])} file skills")
+            code_skills = await _build_local_skills_async(mainwin, skill_path)
+            logger.info(f"[build_agent_skills] ✅ Built {len(code_skills or [])} code skills")
         except Exception as e:
             logger.error(f"[build_agent_skills] ❌ Local build failed: {e}")
-            code_skills, file_skills = [], []
+            code_skills = []
 
-        # Step 6: Merge all skill data with deduplication
+        # Step 6: Merge all skill data (simplified)
         logger.info("[build_agent_skills] Step 6: Merging all skills...")
         
         # Design: Only 2 types of skills
-        # 1. Database skills (UI-created): saved in DB, files in my_skills/, use DB ID
-        # 2. Code-generated skills: NOT in DB, either built-in or files in my_skills/, use stable ID
+        # 1. Database skills (UI-created): saved in DB, use DB ID
+        # 2. Code skills: Built-in + resource/my_skills examples, use stable ID, source="code"
         
         skills_dict = {}
-        code_skill_names = set()  # Track names of built-in code skills (source="code")
         
-        # First add database/cloud skills (Type 1: UI-created)
+        # First add database/cloud skills (UI-created)
         for skill in memory_skills:
             if skill is not None and hasattr(skill, 'name'):
                 skills_dict[skill.name] = skill
         
-        # Then add file-loaded skills from my_skills/
-        # These can be either:
-        # - Type 1: UI-created skills (in DB) - files are just saved copies
-        # - Type 2: Code-generated skills (NOT in DB) - for development/testing
-        if file_skills:
-            for skill in file_skills:
-                if skill is not None and hasattr(skill, 'name'):
-                    if skill.name in skills_dict:
-                        # Type 1: UI-created skill (exists in DB)
-                        # The file in my_skills/ is just a saved copy
-                        # Keep the database skill, just log that file exists
-                        logger.info(f"[build_agent_skills] 🔄 Skill '{skill.name}' is UI-created (using DB version)")
-                    else:
-                        # Type 2: Code-generated skill (NOT in DB)
-                        # Set source="code" and regenerate stable ID
-                        skill.source = "code"
-                        try:
-                            validated = skill.__class__.model_validate(skill.model_dump())
-                            skill.id = validated.id
-                        except Exception as e:
-                            logger.warning(f"[build_agent_skills] Failed to regenerate stable ID for {skill.name}: {e}")
-                        logger.info(f"[build_agent_skills] ✅ File skill '{skill.name}' is code-generated (stable ID: {skill.id})")
-                        skills_dict[skill.name] = skill
-        
-        # Finally add built-in code skills (these should have source="code")
-        # Code skills override both DB and file skills with same name
+        # Then add code skills (built-in + examples)
+        # Code skills override DB skills with same name
         if code_skills:
             for skill in code_skills:
                 if skill is not None and hasattr(skill, 'name'):
-                    code_skill_names.add(skill.name)
                     if skill.name in skills_dict:
-                        logger.info(f"[build_agent_skills] 🔄 Code skill '{skill.name}' overrides existing skill")
+                        logger.info(f"[build_agent_skills] 🔄 Code skill '{skill.name}' overrides DB version")
                         logger.info(f"[build_agent_skills] 💡 Consider deleting '{skill.name}' from database to avoid conflicts")
+                    skill.source = "code"  # Ensure source is set
                     skills_dict[skill.name] = skill
         
         # Convert back to list
-        all_skills = []
-        for skill_name, skill in skills_dict.items():
-            if skill_name in code_skill_names:
-                skill.source = "code"
-            all_skills.append(skill)
+        all_skills = list(skills_dict.values())
 
         # Step 7: Update mainwindow.agent_skills memory
         logger.info("[build_agent_skills] Step 7: Updating mainwindow.agent_skills...")
@@ -290,7 +466,6 @@ async def build_agent_skills(mainwin, skill_path=""):
         logger.info(f"[build_agent_skills] 🎉 Complete! Total: {len(all_skills)} skills in {total_time:.3f}s")
         logger.info(f"[build_agent_skills] - DB/Cloud skills: {len(memory_skills)}")
         logger.info(f"[build_agent_skills] - Code skills: {len(code_skills or [])}")
-        logger.info(f"[build_agent_skills] - File skills: {len(file_skills or [])}")
         logger.info(f"[build_agent_skills] - Skill names: {skill_names}")
 
         return all_skills
@@ -344,30 +519,36 @@ async def _load_skills_from_database_async(mainwin):
         logger.error(f"[build_agent_skills] Error loading from database: {e}")
         return []
 
+
 def _convert_db_skill_to_object(db_skill):
     """Convert database skill data to skill object with compiled workflow"""
     try:
-        # Create EC_Skill object
         skill_obj = EC_Skill()
+        v = DBAgentSkill.view(db_skill)
 
-        # Set basic attributes
-        skill_obj.id = db_skill.get('id', str(uuid.uuid4()))
-        skill_obj.name = db_skill.get('name', 'Unknown Skill')
-        skill_obj.description = db_skill.get('description', '')
-        skill_obj.version = db_skill.get('version', '1.0.0')
-        skill_obj.owner = db_skill.get('owner', '')
-        skill_obj.config = db_skill.get('config', {})
-        skill_obj.level = db_skill.get('level', 'entry')
+        skill_obj.id = v.str('id', str(uuid.uuid4()))
+        skill_obj.askid = v.int('askid', 0)
+        skill_obj.name = v.str('name', 'Unknown Skill')
+        skill_obj.description = v.str('description', '')
+        skill_obj.version = v.str('version', '1.0.0')
+        skill_obj.owner = v.str('owner', '')
+        skill_obj.config = v.dict('config', {})
+        skill_obj.level = v.str('level', 'entry')
+        skill_obj.path = v.str('path', '')
 
-        # Set other optional attributes
-        if 'tags' in db_skill:
-            skill_obj.tags = db_skill.get('tags', [])
-        if 'ui_info' in db_skill:
-            skill_obj.ui_info = db_skill.get('ui_info', {})
-        if 'objectives' in db_skill:
-            skill_obj.objectives = db_skill.get('objectives', [])
-        if 'need_inputs' in db_skill:
-            skill_obj.need_inputs = db_skill.get('need_inputs', [])
+        skill_obj.tags = v.list('tags', skill_obj.tags or [])
+        skill_obj.examples = v.list('examples', skill_obj.examples or [])
+        skill_obj.inputModes = v.list('inputModes', skill_obj.inputModes or [])
+        skill_obj.outputModes = v.list('outputModes', skill_obj.outputModes or [])
+        skill_obj.apps = v.json('apps', getattr(skill_obj, 'apps', None))
+        skill_obj.limitations = v.json('limitations', getattr(skill_obj, 'limitations', None))
+        skill_obj.price = v.int('price', getattr(skill_obj, 'price', 0) or 0)
+        skill_obj.price_model = v.str('price_model', getattr(skill_obj, 'price_model', '') or '')
+        skill_obj.public = v.bool('public', getattr(skill_obj, 'public', False) or False)
+        skill_obj.rentable = v.bool('rentable', getattr(skill_obj, 'rentable', False) or False)
+        skill_obj.ui_info = v.dict('ui_info', getattr(skill_obj, 'ui_info', {}) or {})
+        skill_obj.objectives = v.list('objectives', getattr(skill_obj, 'objectives', []) or [])
+        skill_obj.need_inputs = v.list('need_inputs', getattr(skill_obj, 'need_inputs', []) or [])
 
         diagram = db_skill.get('diagram')
         if diagram and isinstance(diagram, dict):
@@ -378,8 +559,6 @@ def _convert_db_skill_to_object(db_skill):
                 logger.debug(f"[build_agent_skills] Rebuilding workflow diagram: {diagram}")
 
                 # Convert flowgram diagram to LangGraph workflow with breakpoint support (v2 preprocessing)
-                from agent.ec_skills.dev_defs import BreakpointManager
-                from agent.ec_skills.flowgram2langgraph_v2 import flowgram2langgraph_v2
                 bp_mgr = BreakpointManager()
                 workflow, bp_list = flowgram2langgraph_v2(diagram, bundle_json=None, enable_subgraph=False, bp_mgr=bp_mgr)
                 try:
@@ -481,49 +660,63 @@ async def _load_skills_from_cloud_async(mainwin):
         return cloud_skills or []
 
     except Exception as e:
-        logger.warning(f"[build_agent_skills] ⚠️ Cloud loading failed: {e}")
+        logger.error(f"[_load_skills_from_cloud_async] Error: {e}")
         return []
 
 
 async def _build_local_skills_async(mainwin, skill_path=""):
-    """Asynchronously build local skills
+    """Build local skills asynchronously
     
     Returns:
-        Tuple[List[EC_Skill], List[EC_Skill]]: (code_skills, file_skills)
-        - code_skills: Built-in code skills from build_agent_skills_parallel (source="code")
-        - file_skills: File-loaded skills from build_agent_skills_from_files (source="ui")
+        List[EC_Skill]: Code-based skills (built-in + resource/my_skills examples)
     """
     try:
-        logger.info(f"[build_agent_skills] 🔧 Building local skills. Tool schemas: {len(tool_schemas)}, {skill_path}")
-
-        # Built-in code skills (these should have source="code")
+        logger.info("[_build_local_skills_async] Building local skills...")
+        
+        # Build all code-based skills (built-in + resource/my_skills examples)
         code_skills = await build_agent_skills_parallel(mainwin)
-
-        # File-loaded skills (these already have source="ui" set in load_from_diagram/load_from_code)
-        file_skills = await asyncio.get_event_loop().run_in_executor(
-            None, build_agent_skills_from_files, mainwin, skill_path
-        )
-
-        return code_skills, file_skills
+        logger.info(f"[_build_local_skills_async] Built {len(code_skills)} code skills")
+        
+        return code_skills
+        
     except Exception as e:
-        logger.error(f"[build_agent_skills] ❌ Local build error: {e}")
-        return [], []
+        logger.error(f"[_build_local_skills_async] Error: {e}")
+        logger.error(f"[_build_local_skills_async] Traceback: {traceback.format_exc()}")
+        return []
 
 
-def build_agent_skills_from_files(mainwin, skill_path: str = ""):
-    """Build skills from files, directory structure:
-
-    <skills_root>/<name>_skill/
-      ├─ code_skill/ | code_dir/   # pure Python realization (package dir contains <module>_skill.py with build_skill())
-      └─ diagram_dir/              # Flowgram exported jsons: <name>_skill.json <name>_skill_bundle.json
-
-    pick strategy:
-    - if only 1 exists, just load from there
-    - if both exist, pick the one with most recent modification date
+def load_skill_from_folder(skill_folder_path: Path, mainwin=None) -> Optional[EC_Skill]:
+    """Load a single skill from a skill folder.
+    
+    Simplified utility function to load one skill from a folder path.
+    Replaces the old build_agent_skills_from_files scanning logic.
+    
+    Args:
+        skill_folder_path: Path to <name>_skill folder
+        mainwin: Optional main window reference
+    
+    Returns:
+        EC_Skill object or None if loading fails
+    
+    Directory structure:
+        <name>_skill/
+        ├─ code_skill/ | code_dir/   # Python implementation
+        └─ diagram_dir/              # JSON diagram files
+    
+    Pick strategy:
+    - If only one exists, load from there
+    - If both exist, pick the one with most recent modification time
     """
     try:
-        skills: List[object] = []
-        logger.debug("build_agent_skills_from_files", mainwin, skill_path)
+        if isinstance(skill_folder_path, str):
+            skill_folder_path = Path(skill_folder_path)
+        
+        if not skill_folder_path.exists() or not skill_folder_path.is_dir():
+            logger.error(f"[load_skill_from_folder] Invalid path: {skill_folder_path}")
+            return None
+        
+        skill_root = skill_folder_path
+        logger.debug(f"[load_skill_from_folder] Loading from {skill_root}")
         def latest_mtime(path: Path) -> float:
             """Get latest modification time of a path (file or directory recursively)"""
             if not path.exists():
@@ -722,7 +915,7 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                     with bundle_path.open("r", encoding="utf-8") as bf:
                         bundle_dict = json.load(bf)
 
-                from agent.ec_skills.dev_defs import BreakpointManager
+                # Keep original breakpoint behavior for file-loaded skills
                 bp_mgr = BreakpointManager()
                 workflow, _breakpoints = flowgram2langgraph(core_dict, bundle_dict, bp_mgr)
                 try:
@@ -734,21 +927,20 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                     logger.error(f"[build_agent_skills] flowgram2langgraph returned empty workflow for {core_path}")
                     return None
 
-                sk = EC_Skill()
-                sk.name = name
-                sk.description = core_dict.get("description", "") or ""
-                if isinstance(core_dict.get("config"), dict):
-                    sk.config = core_dict["config"]
-                if core_dict.get("run_mode") in ("developing", "released"):
-                    sk.run_mode = core_dict["run_mode"]
-                sk.set_work_flow(workflow)
+                # Create skill object using common helper (field population only)
+                sk = _create_skill_from_workflow(
+                    core_dict=core_dict,
+                    workflow=workflow,
+                    skill_name=name,
+                    json_path=core_path,
+                    source="ui",
+                )
                 
-                # All file-loaded skills are editable (source="ui")
-                # Only code-generated skills (from build_local_code_skills) are read-only (source="code")
+                if not sk:
+                    return None
+                
+                # Load mapping rules for file-loaded skills
                 load_mapping_rules(sk, skill_root)
-                sk.source = "ui"
-                sk.path = str(core_path)
-                # UI skills use random UUID, no need to regenerate
                 return sk
             except Exception as e:
                 # Extract skill name for better error reporting
@@ -788,42 +980,27 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
             kind, path, _ = max(candidates, key=lambda x: x[2])
             return load_from_code(skill_root, path) if kind == "code" else load_from_diagram(path)
 
-        # Scan and load
-        if not skill_path:
-            root = user_skills_root()
-            root.mkdir(parents=True, exist_ok=True)
-            logger.info(f"[build_agent_skills] Scanning skills under: {root}")
-            for entry in sorted(root.iterdir()):
-                # Accept any directory that contains code_skill, code_dir, or diagram_dir
-                # No longer require _skill suffix - more flexible for user-created skills
-                if entry.is_dir() and not entry.name.startswith('.'):
-                    # Check if it looks like a skill directory
-                    has_code = (entry / "code_skill").exists() or (entry / "code_dir").exists()
-                    has_diagram = (entry / "diagram_dir").exists()
-                    if has_code or has_diagram:
-                        try:
-                            sk = load_one_skill(entry)
-                            if sk is not None:
-                                skills.append(sk)
-                                logger.info(f"[build_agent_skills] ✅ Loaded skill: {sk.name} (source={sk.source})")
-                        except Exception as e:
-                            logger.error(f"[build_agent_skills] ❌ Failed to load skill from {entry.name}: {e}")
-                            continue
+        # Load the single skill using load_one_skill helper
+        sk = load_one_skill(skill_root)
+        if sk is not None:
+            logger.info(f"[load_skill_from_folder] ✅ Loaded skill: {sk.name} (source={sk.source})")
+            return sk
         else:
-            sdir = Path(skill_path)
-            # If user points to inside code_skill or diagram_dir, go up to the skill root (<name>_skill)
-            if sdir.name in ("code_skill", "diagram_dir"):
-                skill_root = sdir.parent
-            else:
-                skill_root = sdir
-            sk = load_one_skill(skill_root)
-            if sk is not None:
-                skills.append(sk)
-
-        logger.info(f"[build_agent_skills] Loaded {len(skills)} skill(s) from files")
-        return skills
+            logger.warning(f"[load_skill_from_folder] Failed to load skill from {skill_root}")
+            return None
 
     except Exception as e:
-        logger.error(f"[build_agent_skills] Error loading skills from files: {e}")
+        logger.error(f"[load_skill_from_folder] Error loading skill: {e}")
         logger.error(traceback.format_exc())
-        return []
+        return None
+
+
+def build_agent_skills_from_files(mainwin, skill_path: str = ""):
+    """Legacy function - kept for backward compatibility.
+    
+    Use load_skill_from_folder() for new code.
+    """
+    if skill_path:
+        skill = load_skill_from_folder(Path(skill_path), mainwin)
+        return [skill] if skill else []
+    return []

@@ -10,6 +10,71 @@ from sqlalchemy import Column, String, Integer, Boolean, Text, JSON, BigInteger
 from .base_model import BaseModel, TimestampMixin, ExtensibleMixin
 
 
+class DBAgentSkillView:
+    """Typed accessor wrapper for DBAgentSkill dict payloads.
+
+    This is primarily useful for code paths that operate on dict records
+    returned by services (e.g., get_skills_by_owner) rather than ORM instances.
+    """
+
+    def __init__(self, data: dict | None):
+        self._d = data if isinstance(data, dict) else {}
+
+    def str(self, key: str, default: str = "") -> str:
+        try:
+            v = self._d.get(key, None)
+            if v is None:
+                return default
+            return str(v)
+        except Exception:
+            return default
+
+    def int(self, key: str, default: int = 0) -> int:
+        v = self._d.get(key, None)
+        if v is None:
+            return default
+        try:
+            return int(v)
+        except Exception:
+            return default
+
+    def bool(self, key: str, default: bool = False) -> bool:
+        v = self._d.get(key, None)
+        if v is None:
+            return default
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, (int, float)):
+            return bool(v)
+        return default
+
+    def list(self, key: str, default: list | None = None) -> list:
+        v = self._d.get(key, None)
+        if isinstance(v, list):
+            return v
+        if isinstance(v, tuple):
+            return list(v)
+        if v is None:
+            return default if default is not None else []
+        return default if default is not None else []
+
+    def dict(self, key: str, default: dict | None = None) -> dict:
+        v = self._d.get(key, None)
+        if isinstance(v, dict):
+            return v
+        if v is None:
+            return default if default is not None else {}
+        return default if default is not None else {}
+
+    def json(self, key: str, default: object | None = None) -> object:
+        v = self._d.get(key, None)
+        if isinstance(v, (dict, list)):
+            return v
+        if v is None:
+            return default
+        return default
+
+
 class DBAgentSkill(BaseModel, TimestampMixin, ExtensibleMixin):
     """Database model for agent skills"""
     __tablename__ = 'agent_skills'
@@ -39,6 +104,13 @@ class DBAgentSkill(BaseModel, TimestampMixin, ExtensibleMixin):
     rentable = Column(Boolean, default=False)
     # Note: members relationship commented out due to missing foreign key
     # members = relationship('Member', back_populates='agent_skills', cascade='all, delete-orphan')
+
+    @staticmethod
+    def view(data: dict | None) -> DBAgentSkillView:
+        return DBAgentSkillView(data)
+
+    def to_view(self) -> DBAgentSkillView:
+        return DBAgentSkillView(self.to_dict(deep=False))
 
     def to_dict(self, deep=False):
         """Convert model instance to dictionary"""

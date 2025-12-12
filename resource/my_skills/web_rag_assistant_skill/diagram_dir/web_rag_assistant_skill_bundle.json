@@ -1,0 +1,1299 @@
+{
+  "mainSheetId": "main",
+  "sheets": [
+    {
+      "id": "main",
+      "name": "Main",
+      "document": {
+        "nodes": [
+          {
+            "id": "start_0",
+            "type": "start",
+            "meta": {
+              "position": {
+                "x": -1852,
+                "y": 677.4954089876845
+              }
+            },
+            "data": {
+              "title": "开始",
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "user_message": {
+                    "type": "string",
+                    "default": ""
+                  }
+                }
+              },
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "llm_intent",
+            "type": "llm",
+            "meta": {
+              "position": {
+                "x": -1585.1121495327104,
+                "y": 514
+              }
+            },
+            "data": {
+              "title": "理解用户意图",
+              "inputsValues": {
+                "modelProvider": {
+                  "type": "constant",
+                  "content": "Ollama (Local)"
+                },
+                "modelName": {
+                  "type": "constant",
+                  "content": "qwen3:8b"
+                },
+                "temperature": {
+                  "type": "constant",
+                  "content": 0.3
+                },
+                "systemPrompt": {
+                  "type": "template",
+                  "content": "你是智能意图识别助手。分析用户请求，判断用户想要：\n\n1. **INDEX** - 索引新网页（用户提供了 URL 或要求抓取/分析网页）\n2. **QUERY** - 查询已索引的内容（用户询问关于之前网页的问题）\n\n输出 JSON 格式：\n{\n  \"intent\": \"INDEX\" 或 \"QUERY\",\n  \"url\": \"如果是 INDEX，提取 URL（必须是完整的 http/https URL）\",\n  \"query\": \"如果是 QUERY，提取查询问题\",\n  \"extract_target\": \"如果是 INDEX，用户想要抓取的具体内容（如：产品信息、文章内容、价格数据等）\"\n}"
+                },
+                "prompt": {
+                  "type": "template",
+                  "content": "用户消息: {user_message}\n\n请分析用户意图并输出 JSON。"
+                },
+                "apiKey": {
+                  "content": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                },
+                "apiHost": {
+                  "content": "http://localhost:11434"
+                }
+              },
+              "breakpoint": false,
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "modelProvider": {
+                    "type": "string"
+                  },
+                  "modelName": {
+                    "type": "string"
+                  },
+                  "temperature": {
+                    "type": "number"
+                  },
+                  "systemPrompt": {
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "type": "string"
+                  },
+                  "apiKey": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "apiHost": {
+                    "type": "object",
+                    "properties": {}
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "code_parse_intent",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": -1309.247663551402,
+                "y": 514
+              }
+            },
+            "data": {
+              "title": "解析意图",
+              "code": "import json\nimport re\n\n# 解析 LLM 输出\nllm_result = state.get('result', {}).get('llm_result', '')\n\n# 初始化 attributes\nif 'attributes' not in state:\n    state['attributes'] = {}\n\ntry:\n    # 尝试从 JSON 中提取\n    intent_data = json.loads(llm_result)\n    intent = intent_data.get('intent', 'QUERY').upper()\n    \n    if intent == 'INDEX':\n        url = intent_data.get('url', '')\n        # 如果 JSON 中没有 URL，尝试从原始消息中提取\n        if not url:\n            user_msg = state.get('attributes', {}).get('user_message', '')\n            url_match = re.search(r'https?://[^\\s]+', user_msg)\n            url = url_match.group(0) if url_match else ''\n        \n        # 验证 URL 格式\n        if url and (url.startswith('http://') or url.startswith('https://')):\n            state['attributes']['url'] = url\n            state['attributes']['extract_target'] = intent_data.get('extract_target', '页面主要内容')\n            state['attributes']['is_index'] = True\n            state['attributes']['intent'] = 'INDEX'\n        else:\n            # URL 无效，降级为查询\n            state['attributes']['query'] = state.get('attributes', {}).get('user_message', '')\n            state['attributes']['is_index'] = False\n            state['attributes']['intent'] = 'QUERY'\n            state['attributes']['error_msg'] = '未找到有效的 URL，将作为查询处理'\n    else:\n        query = intent_data.get('query', state.get('attributes', {}).get('user_message', ''))\n        state['attributes']['query'] = query\n        state['attributes']['is_index'] = False\n        state['attributes']['intent'] = 'QUERY'\n        \nexcept Exception as e:\n    # 降级：尝试从原始消息中检测 URL\n    user_msg = state.get('attributes', {}).get('user_message', '')\n    url_match = re.search(r'https?://[^\\s]+', user_msg)\n    \n    if url_match:\n        # 有 URL，判断为索引\n        state['attributes']['url'] = url_match.group(0)\n        state['attributes']['extract_target'] = '页面主要内容'\n        state['attributes']['is_index'] = True\n        state['attributes']['intent'] = 'INDEX'\n    else:\n        # 无 URL，判断为查询\n        state['attributes']['query'] = user_msg\n        state['attributes']['is_index'] = False\n        state['attributes']['intent'] = 'QUERY'\n\nreturn state",
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "condition_intent",
+            "type": "condition",
+            "meta": {
+              "position": {
+                "x": -1024.2429906542056,
+                "y": 514
+              }
+            },
+            "data": {
+              "title": "路由分发",
+              "conditions": [
+                {
+                  "key": "if_index",
+                  "value": {
+                    "mode": "custom",
+                    "expr": "state.get('attributes', {}).get('is_index', False)"
+                  }
+                },
+                {
+                  "key": "else_query",
+                  "value": {}
+                }
+              ],
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "browser_scrape",
+            "type": "browser-automation",
+            "meta": {
+              "position": {
+                "x": -709,
+                "y": 380
+              }
+            },
+            "data": {
+              "title": "Browser-Use 抓取网页",
+              "inputsValues": {
+                "tool": {
+                  "type": "constant",
+                  "content": "browser-use"
+                },
+                "browser": {
+                  "type": "constant",
+                  "content": "new chromium"
+                },
+                "browserDriver": {
+                  "type": "constant",
+                  "content": "native"
+                },
+                "modelProvider": {
+                  "type": "constant",
+                  "content": "OpenAI"
+                },
+                "modelName": {
+                  "type": "constant",
+                  "content": "gpt-4o"
+                },
+                "temperature": {
+                  "type": "constant",
+                  "content": 0.3
+                },
+                "systemPrompt": {
+                  "type": "template",
+                  "content": "你是专业的网页内容提取助手。你的任务是：\n1. 访问指定的网页\n2. 提取用户需要的内容\n3. 忽略广告、导航栏、页脚等无关内容\n4. 保持内容的结构和格式\n5. 以清晰的 Markdown 格式输出"
+                },
+                "prompt": {
+                  "type": "template",
+                  "content": "请访问以下网页并提取内容：\n\n**URL**: {url}\n\n**提取目标**: {extract_target}\n\n请提取以下信息：\n1. 页面标题\n2. {extract_target}\n3. 相关的关键数据和信息\n4. 如果有表格或列表，保持其结构\n\n以清晰的 Markdown 格式输出，确保内容完整且易于阅读。"
+                }
+              },
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "code_format_content",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": -425.6635514018693,
+                "y": 380
+              }
+            },
+            "data": {
+              "title": "格式化抓取内容",
+              "code": "from datetime import datetime\nimport re\n\n# 从 browser-use 结果中提取内容\nbrowser_result = state.get('tool_result', {}).get('browser_scrape', {})\nweb_content = browser_result.get('final', '')\n\n# 获取原始 URL 和提取目标\nurl = state.get('attributes', {}).get('url', 'unknown')\nextract_target = state.get('attributes', {}).get('extract_target', '页面内容')\n\nif web_content:\n    # 清理内容：移除过多的空行\n    web_content = re.sub(r'\\n{3,}', '\\n\\n', web_content)\n    \n    # 创建文档元数据\n    doc_metadata = {\n        'source': url,\n        'type': 'web_page',\n        'extract_target': extract_target,\n        'extracted_at': str(datetime.now()),\n        'user': state.get('attributes', {}).get('user', 'unknown'),\n        'char_count': len(web_content),\n        'word_count': len(web_content.split())\n    }\n    \n    # 准备 RAG 输入\n    state['attributes']['rag_document'] = {\n        'content': web_content,\n        'metadata': doc_metadata,\n        'title': f'Web Content: {extract_target} from {url}'\n    }\n    \n    state['attributes']['content_ready'] = True\n    state['attributes']['content_preview'] = web_content[:500] + '...' if len(web_content) > 500 else web_content\nelse:\n    state['attributes']['content_ready'] = False\n    state['attributes']['error'] = 'Failed to extract web content'\n\nreturn state",
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "mcp_insert",
+            "type": "mcp",
+            "meta": {
+              "position": {
+                "x": -112,
+                "y": 380
+              }
+            },
+            "data": {
+              "title": "MCP RAG 索引",
+              "callable": {
+                "id": "ragify",
+                "name": "ragify",
+                "desc": "Insert document into LightRAG",
+                "params": {
+                  "type": "object",
+                  "properties": {
+                    "input": {
+                      "type": "object",
+                      "properties": {
+                        "text": {
+                          "type": "string"
+                        },
+                        "file_source": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                "type": "mcp",
+                "source": "local"
+              },
+              "inputsValues": {
+                "input": {
+                  "type": "code",
+                  "content": "{\n  'text': state.get('attributes', {}).get('rag_document', {}).get('content', ''),\n  'file_source': state.get('attributes', {}).get('url', 'unknown')\n}"
+                }
+              },
+              "breakpoint": false,
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "object",
+                    "properties": {}
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "code_index_result",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": 200,
+                "y": 380
+              }
+            },
+            "data": {
+              "title": "格式化索引结果",
+              "code": "url = state.get('attributes', {}).get('url', '')\nextract_target = state.get('attributes', {}).get('extract_target', '内容')\nmcp_result = state.get('tool_result', {}).get('mcp_insert', {})\ncontent_preview = state.get('attributes', {}).get('content_preview', '')\n\nif mcp_result.get('success'):\n    track_id = mcp_result.get('data', {}).get('track_id', 'N/A')\n    state['attributes']['response'] = f\"\"\"✅ 网页内容已成功索引到 RAG 知识库！\n\n**来源**: {url}\n**提取内容**: {extract_target}\n**Track ID**: {track_id}\n\n**内容预览**:\n{content_preview}\n\n---\n💡 现在你可以询问关于这个网页的任何问题了！\"\"\"\nelse:\n    error = mcp_result.get('error', 'Unknown error')\n    state['attributes']['response'] = f\"❌ 索引失败: {error}\\n\\n请检查网络连接和 RAG 服务状态。\"\n\nreturn state",
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "mcp_query",
+            "type": "mcp",
+            "meta": {
+              "position": {
+                "x": -709,
+                "y": 648
+              }
+            },
+            "data": {
+              "title": "MCP RAG 查询",
+              "callable": {
+                "id": "rag_query",
+                "name": "rag_query",
+                "desc": "Query LightRAG knowledge base",
+                "params": {
+                  "type": "object",
+                  "properties": {
+                    "input": {
+                      "type": "object",
+                      "properties": {
+                        "query": {
+                          "type": "string"
+                        },
+                        "mode": {
+                          "type": "string"
+                        },
+                        "top_k": {
+                          "type": "integer"
+                        },
+                        "enable_rerank": {
+                          "type": "boolean"
+                        },
+                        "include_references": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                },
+                "type": "mcp",
+                "source": "local"
+              },
+              "inputsValues": {
+                "input": {
+                  "type": "code",
+                  "content": "{\n  'query': state.get('attributes', {}).get('query', ''),\n  'mode': 'hybrid',\n  'top_k': 5,\n  'enable_rerank': True,\n  'include_references': True\n}"
+                }
+              },
+              "breakpoint": false,
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "object",
+                    "properties": {}
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "code_process_query",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": -425.6635514018694,
+                "y": 648
+              }
+            },
+            "data": {
+              "title": "处理查询结果",
+              "code": "# 获取 RAG 查询结果\nrag_result = state.get('tool_result', {}).get('mcp_query', {})\n\nif rag_result.get('success'):\n    data = rag_result.get('data', {})\n    \n    # LightRAG 返回 {\"response\": \"...\", \"references\": [...]}\n    if isinstance(data, dict):\n        answer = data.get('response', '')\n        references = data.get('references', [])\n        \n        # 格式化引用\n        formatted_refs = []\n        for i, ref in enumerate(references[:5], 1):\n            source = ref.get('source', 'Unknown')\n            content = ref.get('content', '')[:200]\n            formatted_refs.append(f\"📄 [{i}] {source}\\n   {content}...\")\n        \n        state['attributes']['rag_answer'] = answer\n        state['attributes']['formatted_references'] = '\\n\\n'.join(formatted_refs) if formatted_refs else '无引用'\n        state['attributes']['has_results'] = True\n    else:\n        state['attributes']['rag_answer'] = str(data)\n        state['attributes']['formatted_references'] = ''\n        state['attributes']['has_results'] = True\nelse:\n    state['attributes']['has_results'] = False\n    state['attributes']['rag_answer'] = ''\n    state['attributes']['formatted_references'] = ''\n    state['attributes']['error_msg'] = rag_result.get('message', '查询失败')\n\nreturn state",
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "llm_enhance_answer",
+            "type": "llm",
+            "meta": {
+              "position": {
+                "x": -112,
+                "y": 648
+              }
+            },
+            "data": {
+              "title": "增强回答",
+              "inputsValues": {
+                "modelProvider": {
+                  "type": "constant",
+                  "content": "OpenAI"
+                },
+                "modelName": {
+                  "type": "constant",
+                  "content": "gpt-4o-mini"
+                },
+                "temperature": {
+                  "type": "constant",
+                  "content": 0.7
+                },
+                "systemPrompt": {
+                  "type": "template",
+                  "content": "你是专业的知识助手。基于 RAG 检索的内容回答用户问题。\n\n**要求**：\n1. 准确引用检索到的内容\n2. 如果内容中没有相关信息，明确说明\n3. 提供清晰、结构化的回答\n4. 标注信息来源\n5. 使用 Markdown 格式，让回答易于阅读"
+                },
+                "prompt": {
+                  "type": "template",
+                  "content": "用户问题: {query}\n\n**RAG 检索结果**:\n{rag_answer}\n\n**引用来源**:\n{formatted_references}\n\n请基于以上检索结果，为用户提供专业、准确的回答。"
+                }
+              },
+              "breakpoint": false,
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "modelProvider": {
+                    "type": "string"
+                  },
+                  "modelName": {
+                    "type": "string"
+                  },
+                  "temperature": {
+                    "type": "number"
+                  },
+                  "systemPrompt": {
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "code_final_response",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": 200,
+                "y": 648
+              }
+            },
+            "data": {
+              "title": "格式化最终回答",
+              "code": "has_results = state.get('attributes', {}).get('has_results', False)\n\nif has_results:\n    llm_result = state.get('result', {}).get('llm_result', '')\n    formatted_refs = state.get('attributes', {}).get('formatted_references', '')\n    \n    final_response = f\"\"\"{llm_result}\n\n---\n**📚 引用来源**:\n{formatted_refs}\"\"\"\n    \n    state['attributes']['response'] = final_response\nelse:\n    error_msg = state.get('attributes', {}).get('error_msg', '未知错误')\n    state['attributes']['response'] = f\"\"\"❌ 查询失败: {error_msg}\n\n💡 **建议**:\n1. 确保已经索引了相关网页内容\n2. 尝试重新表述你的问题\n3. 检查 RAG 服务是否正常运行\"\"\"\n\nreturn state",
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "chat_response",
+            "type": "chat",
+            "meta": {
+              "position": {
+                "x": 496.6551227181413,
+                "y": 543.4954089876845
+              }
+            },
+            "data": {
+              "title": "发送回复",
+              "role": "assistant",
+              "inputsValues": {
+                "message": {
+                  "type": "ref",
+                  "content": [
+                    "attributes",
+                    "response"
+                  ]
+                }
+              },
+              "breakpoint": false,
+              "data": {
+                "inputsValues": {}
+              }
+            }
+          },
+          {
+            "id": "end_0",
+            "type": "end",
+            "meta": {
+              "position": {
+                "x": 772.5810114420474,
+                "y": 677.4954089876845
+              }
+            },
+            "data": {
+              "title": "结束",
+              "inputsValues": {
+                "success": {
+                  "type": "constant",
+                  "content": true
+                }
+              },
+              "breakpoint": false,
+              "data": {
+                "inputsValues": {}
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "success": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "comment_workflow",
+            "type": "comment",
+            "meta": {
+              "position": {
+                "x": -1852,
+                "y": 850
+              }
+            },
+            "data": {
+              "size": {
+                "width": 280,
+                "height": 180
+              },
+              "note": "📋 **Web RAG Assistant Workflow**\n\n这个 skill 实现了智能网页分析助手：\n\n1. 自动识别用户意图（索引/查询）\n2. Browser-Use 智能抓取网页\n3. LightRAG 知识库索引\n4. 自然语言查询和回答\n\n- eCan.ai Team",
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "comment_intent",
+            "type": "comment",
+            "meta": {
+              "position": {
+                "x": -1595.2496998064557,
+                "y": 312.4177673763288
+              }
+            },
+            "data": {
+              "size": {
+                "width": 239.50060038708844,
+                "height": 177.58223262367116
+              },
+              "note": "🤖 **意图识别模块**\n\n使用 GPT-4o-mini 分析用户消息：\n- INDEX: 用户提供 URL，需要抓取\n- QUERY: 用户提问，需要检索\n\n输出 JSON 格式的意图数据",
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "comment_index_branch",
+            "type": "comment",
+            "meta": {
+              "position": {
+                "x": -709,
+                "y": 200
+              }
+            },
+            "data": {
+              "size": {
+                "width": 280,
+                "height": 160
+              },
+              "note": "🌐 **INDEX 分支 - 网页索引**\n\n1. Browser-Use (GPT-4o) 访问网页\n2. 提取指定内容（Markdown 格式）\n3. 格式化并添加元数据\n4. 调用 MCP ragify 存入知识库\n5. 返回索引成功消息",
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "comment_query_branch",
+            "type": "comment",
+            "meta": {
+              "position": {
+                "x": -709,
+                "y": 900
+              }
+            },
+            "data": {
+              "size": {
+                "width": 280,
+                "height": 160
+              },
+              "note": "🔍 **QUERY 分支 - 知识检索**\n\n1. 调用 MCP rag_query 查询知识库\n2. 使用 hybrid 模式 + rerank\n3. 提取 top 5 相关结果\n4. GPT-4o-mini 生成自然语言回答\n5. 附带引用来源",
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "comment_mcp",
+            "type": "comment",
+            "meta": {
+              "position": {
+                "x": -112,
+                "y": 200
+              }
+            },
+            "data": {
+              "size": {
+                "width": 240,
+                "height": 140
+              },
+              "note": "🔌 **MCP RAG 工具**\n\n- ragify: 文档索引\n- rag_query: 知识检索\n\n使用 LightRAG 本地服务\n支持多种检索模式",
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "comment_final",
+            "type": "comment",
+            "meta": {
+              "position": {
+                "x": 507.10384145699373,
+                "y": 302.1680675698731
+              }
+            },
+            "data": {
+              "size": {
+                "width": 262.2076829139875,
+                "height": 167.83193243012695
+              },
+              "note": "💬 **最终输出**\n\n两条路径汇聚到 Chat 节点：\n- INDEX: 索引成功提示\n- QUERY: 增强后的回答\n\n统一发送给用户",
+              "breakpoint": false
+            }
+          }
+        ],
+        "edges": [
+          {
+            "sourceNodeID": "start_0",
+            "targetNodeID": "llm_intent"
+          },
+          {
+            "sourceNodeID": "llm_intent",
+            "targetNodeID": "code_parse_intent"
+          },
+          {
+            "sourceNodeID": "code_parse_intent",
+            "targetNodeID": "condition_intent"
+          },
+          {
+            "sourceNodeID": "condition_intent",
+            "targetNodeID": "browser_scrape",
+            "sourcePortID": "if_index"
+          },
+          {
+            "sourceNodeID": "condition_intent",
+            "targetNodeID": "mcp_query",
+            "sourcePortID": "else_query"
+          },
+          {
+            "sourceNodeID": "browser_scrape",
+            "targetNodeID": "code_format_content"
+          },
+          {
+            "sourceNodeID": "code_format_content",
+            "targetNodeID": "mcp_insert"
+          },
+          {
+            "sourceNodeID": "mcp_insert",
+            "targetNodeID": "code_index_result"
+          },
+          {
+            "sourceNodeID": "code_index_result",
+            "targetNodeID": "chat_response"
+          },
+          {
+            "sourceNodeID": "mcp_query",
+            "targetNodeID": "code_process_query"
+          },
+          {
+            "sourceNodeID": "code_process_query",
+            "targetNodeID": "llm_enhance_answer"
+          },
+          {
+            "sourceNodeID": "llm_enhance_answer",
+            "targetNodeID": "code_final_response"
+          },
+          {
+            "sourceNodeID": "code_final_response",
+            "targetNodeID": "chat_response"
+          },
+          {
+            "sourceNodeID": "chat_response",
+            "targetNodeID": "end_0"
+          }
+        ]
+      },
+      "createdAt": 1765274263030,
+      "lastOpenedAt": 1765305925020,
+      "workFlow": {
+        "nodes": [
+          {
+            "id": "start_0",
+            "type": "start",
+            "meta": {
+              "position": {
+                "x": -1852,
+                "y": 677.4954089876845
+              }
+            },
+            "data": {
+              "title": "开始",
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "user_message": {
+                    "type": "string",
+                    "default": ""
+                  }
+                }
+              },
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "llm_intent",
+            "type": "llm",
+            "meta": {
+              "position": {
+                "x": -1585.1121495327104,
+                "y": 514
+              }
+            },
+            "data": {
+              "title": "理解用户意图",
+              "inputsValues": {
+                "modelProvider": {
+                  "type": "constant",
+                  "content": "Ollama (Local)"
+                },
+                "modelName": {
+                  "type": "constant",
+                  "content": "qwen3:8b"
+                },
+                "temperature": {
+                  "type": "constant",
+                  "content": 0.3
+                },
+                "systemPrompt": {
+                  "type": "template",
+                  "content": "你是智能意图识别助手。分析用户请求，判断用户想要：\n\n1. **INDEX** - 索引新网页（用户提供了 URL 或要求抓取/分析网页）\n2. **QUERY** - 查询已索引的内容（用户询问关于之前网页的问题）\n\n输出 JSON 格式：\n{\n  \"intent\": \"INDEX\" 或 \"QUERY\",\n  \"url\": \"如果是 INDEX，提取 URL（必须是完整的 http/https URL）\",\n  \"query\": \"如果是 QUERY，提取查询问题\",\n  \"extract_target\": \"如果是 INDEX，用户想要抓取的具体内容（如：产品信息、文章内容、价格数据等）\"\n}"
+                },
+                "prompt": {
+                  "type": "template",
+                  "content": "用户消息: {user_message}\n\n请分析用户意图并输出 JSON。"
+                },
+                "apiKey": {
+                  "content": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                },
+                "apiHost": {
+                  "content": "http://localhost:11434"
+                }
+              },
+              "breakpoint": false,
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "modelProvider": {
+                    "type": "string"
+                  },
+                  "modelName": {
+                    "type": "string"
+                  },
+                  "temperature": {
+                    "type": "number"
+                  },
+                  "systemPrompt": {
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "type": "string"
+                  },
+                  "apiKey": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "apiHost": {
+                    "type": "object",
+                    "properties": {}
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "code_parse_intent",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": -1309.247663551402,
+                "y": 514
+              }
+            },
+            "data": {
+              "title": "解析意图",
+              "code": "import json\nimport re\n\n# 获取 LLM 输出 - 正确的路径\nllm_output = state.get('tool_result', {}).get('llm_intent', {})\nllm_text = llm_output.get('response', '') if isinstance(llm_output, dict) else str(llm_output)\n\n# 获取用户原始消息\nuser_message = state.get('user_message', '')\n\n# 初始化 attributes\nif 'attributes' not in state:\n    state['attributes'] = {}\n\n# 保存用户消息到 attributes\nstate['attributes']['user_message'] = user_message\n\ntry:\n    # 尝试提取 JSON（LLM 可能返回带代码块的格式）\n    json_match = re.search(r'\\{[^}]+\\}', llm_text, re.DOTALL)\n    if json_match:\n        intent_data = json.loads(json_match.group(0))\n    else:\n        intent_data = json.loads(llm_text)\n    \n    intent = intent_data.get('intent', 'QUERY').upper()\n    \n    if intent == 'INDEX':\n        url = intent_data.get('url', '')\n        # 如果 JSON 中没有 URL，尝试从原始消息中提取\n        if not url:\n            url_match = re.search(r'https?://[^\\s]+', user_message)\n            url = url_match.group(0) if url_match else ''\n        \n        # 验证 URL 格式\n        if url and (url.startswith('http://') or url.startswith('https://')):\n            state['attributes']['url'] = url\n            state['attributes']['extract_target'] = intent_data.get('extract_target', '页面主要内容')\n            state['attributes']['is_index'] = True\n            state['attributes']['intent'] = 'INDEX'\n        else:\n            # URL 无效，降级为查询\n            state['attributes']['query'] = user_message\n            state['attributes']['is_index'] = False\n            state['attributes']['intent'] = 'QUERY'\n            state['attributes']['error_msg'] = '未找到有效的 URL，将作为查询处理'\n    else:\n        query = intent_data.get('query', user_message)\n        state['attributes']['query'] = query\n        state['attributes']['is_index'] = False\n        state['attributes']['intent'] = 'QUERY'\n        \nexcept Exception as e:\n    # 降级：尝试从原始消息中检测 URL\n    url_match = re.search(r'https?://[^\\s]+', user_message)\n    \n    if url_match:\n        # 有 URL，判断为索引\n        state['attributes']['url'] = url_match.group(0)\n        state['attributes']['extract_target'] = '页面主要内容'\n        state['attributes']['is_index'] = True\n        state['attributes']['intent'] = 'INDEX'\n    else:\n        # 没有 URL，判断为查询\n        state['attributes']['query'] = user_message\n        state['attributes']['is_index'] = False\n        state['attributes']['intent'] = 'QUERY'\n    \n    state['attributes']['parse_error'] = str(e)\n\nreturn state",
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "condition_intent",
+            "type": "condition",
+            "meta": {
+              "position": {
+                "x": -1024.2429906542056,
+                "y": 514
+              }
+            },
+            "data": {
+              "title": "路由分发",
+              "conditions": [
+                {
+                  "key": "if_index",
+                  "value": {
+                    "mode": "custom",
+                    "expr": "state.get('attributes', {}).get('is_index', False)"
+                  }
+                },
+                {
+                  "key": "else_query",
+                  "value": {}
+                }
+              ],
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "browser_scrape",
+            "type": "browser-automation",
+            "meta": {
+              "position": {
+                "x": -709,
+                "y": 380
+              }
+            },
+            "data": {
+              "title": "Browser-Use 抓取网页",
+              "inputsValues": {
+                "tool": {
+                  "type": "constant",
+                  "content": "browser-use"
+                },
+                "browser": {
+                  "type": "constant",
+                  "content": "new chromium"
+                },
+                "browserDriver": {
+                  "type": "constant",
+                  "content": "native"
+                },
+                "modelProvider": {
+                  "type": "constant",
+                  "content": "OpenAI"
+                },
+                "modelName": {
+                  "type": "constant",
+                  "content": "gpt-4o"
+                },
+                "temperature": {
+                  "type": "constant",
+                  "content": 0.3
+                },
+                "systemPrompt": {
+                  "type": "template",
+                  "content": "你是专业的网页内容提取助手。你的任务是：\n1. 访问指定的网页\n2. 提取用户需要的内容\n3. 忽略广告、导航栏、页脚等无关内容\n4. 保持内容的结构和格式\n5. 以清晰的 Markdown 格式输出"
+                },
+                "prompt": {
+                  "type": "template",
+                  "content": "请访问以下网页并提取内容：\n\n**URL**: {url}\n\n**提取目标**: {extract_target}\n\n请提取以下信息：\n1. 页面标题\n2. {extract_target}\n3. 相关的关键数据和信息\n4. 如果有表格或列表，保持其结构\n\n以清晰的 Markdown 格式输出，确保内容完整且易于阅读。"
+                }
+              },
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "code_format_content",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": -425.6635514018693,
+                "y": 380
+              }
+            },
+            "data": {
+              "title": "格式化抓取内容",
+              "code": "from datetime import datetime\nimport re\n\n# 从 browser-use 结果中提取内容\nbrowser_result = state.get('tool_result', {}).get('browser_scrape', {})\nweb_content = browser_result.get('final', '')\n\n# 获取原始 URL 和提取目标\nurl = state.get('attributes', {}).get('url', 'unknown')\nextract_target = state.get('attributes', {}).get('extract_target', '页面内容')\n\nif web_content:\n    # 清理内容：移除过多的空行\n    web_content = re.sub(r'\\n{3,}', '\\n\\n', web_content)\n    \n    # 创建文档元数据\n    doc_metadata = {\n        'source': url,\n        'type': 'web_page',\n        'extract_target': extract_target,\n        'extracted_at': str(datetime.now()),\n        'user': state.get('attributes', {}).get('user', 'unknown'),\n        'char_count': len(web_content),\n        'word_count': len(web_content.split())\n    }\n    \n    # 准备 RAG 输入\n    state['attributes']['rag_document'] = {\n        'content': web_content,\n        'metadata': doc_metadata,\n        'title': f'Web Content: {extract_target} from {url}'\n    }\n    \n    state['attributes']['content_ready'] = True\n    state['attributes']['content_preview'] = web_content[:500] + '...' if len(web_content) > 500 else web_content\nelse:\n    state['attributes']['content_ready'] = False\n    state['attributes']['error'] = 'Failed to extract web content'\n\nreturn state",
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "mcp_insert",
+            "type": "mcp",
+            "meta": {
+              "position": {
+                "x": -112,
+                "y": 380
+              }
+            },
+            "data": {
+              "title": "MCP RAG 索引",
+              "callable": {
+                "id": "ragify",
+                "name": "ragify",
+                "desc": "Insert document into LightRAG",
+                "params": {
+                  "type": "object",
+                  "properties": {
+                    "input": {
+                      "type": "object",
+                      "properties": {
+                        "text": {
+                          "type": "string"
+                        },
+                        "file_source": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                },
+                "type": "mcp",
+                "source": "local"
+              },
+              "inputsValues": {
+                "input": {
+                  "type": "code",
+                  "content": "{\n  'text': state.get('attributes', {}).get('rag_document', {}).get('content', ''),\n  'file_source': state.get('attributes', {}).get('url', 'unknown')\n}"
+                }
+              },
+              "breakpoint": false,
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "object",
+                    "properties": {}
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "code_index_result",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": 200,
+                "y": 380
+              }
+            },
+            "data": {
+              "title": "格式化索引结果",
+              "code": "url = state.get('attributes', {}).get('url', '')\nextract_target = state.get('attributes', {}).get('extract_target', '内容')\nmcp_result = state.get('tool_result', {}).get('mcp_insert', {})\ncontent_preview = state.get('attributes', {}).get('content_preview', '')\n\nif mcp_result.get('success'):\n    track_id = mcp_result.get('data', {}).get('track_id', 'N/A')\n    state['attributes']['response'] = f\"\"\"✅ 网页内容已成功索引到 RAG 知识库！\n\n**来源**: {url}\n**提取内容**: {extract_target}\n**Track ID**: {track_id}\n\n**内容预览**:\n{content_preview}\n\n---\n💡 现在你可以询问关于这个网页的任何问题了！\"\"\"\nelse:\n    error = mcp_result.get('error', 'Unknown error')\n    state['attributes']['response'] = f\"❌ 索引失败: {error}\\n\\n请检查网络连接和 RAG 服务状态。\"\n\nreturn state",
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "mcp_query",
+            "type": "mcp",
+            "meta": {
+              "position": {
+                "x": -709,
+                "y": 648
+              }
+            },
+            "data": {
+              "title": "MCP RAG 查询",
+              "callable": {
+                "id": "rag_query",
+                "name": "rag_query",
+                "desc": "Query LightRAG knowledge base",
+                "params": {
+                  "type": "object",
+                  "properties": {
+                    "input": {
+                      "type": "object",
+                      "properties": {
+                        "query": {
+                          "type": "string"
+                        },
+                        "mode": {
+                          "type": "string"
+                        },
+                        "top_k": {
+                          "type": "integer"
+                        },
+                        "enable_rerank": {
+                          "type": "boolean"
+                        },
+                        "include_references": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                },
+                "type": "mcp",
+                "source": "local"
+              },
+              "inputsValues": {
+                "input": {
+                  "type": "code",
+                  "content": "{\n  'query': state.get('attributes', {}).get('query', ''),\n  'mode': 'hybrid',\n  'top_k': 5,\n  'enable_rerank': True,\n  'include_references': True\n}"
+                }
+              },
+              "breakpoint": false,
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "object",
+                    "properties": {}
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "code_process_query",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": -425.6635514018694,
+                "y": 648
+              }
+            },
+            "data": {
+              "title": "处理查询结果",
+              "code": "# 获取 RAG 查询结果\nrag_result = state.get('tool_result', {}).get('mcp_query', {})\n\nif rag_result.get('success'):\n    data = rag_result.get('data', {})\n    \n    # LightRAG 返回 {\"response\": \"...\", \"references\": [...]}\n    if isinstance(data, dict):\n        answer = data.get('response', '')\n        references = data.get('references', [])\n        \n        # 格式化引用\n        formatted_refs = []\n        for i, ref in enumerate(references[:5], 1):\n            source = ref.get('source', 'Unknown')\n            content = ref.get('content', '')[:200]\n            formatted_refs.append(f\"📄 [{i}] {source}\\n   {content}...\")\n        \n        state['attributes']['rag_answer'] = answer\n        state['attributes']['formatted_references'] = '\\n\\n'.join(formatted_refs) if formatted_refs else '无引用'\n        state['attributes']['has_results'] = True\n    else:\n        state['attributes']['rag_answer'] = str(data)\n        state['attributes']['formatted_references'] = ''\n        state['attributes']['has_results'] = True\nelse:\n    state['attributes']['has_results'] = False\n    state['attributes']['rag_answer'] = ''\n    state['attributes']['formatted_references'] = ''\n    state['attributes']['error_msg'] = rag_result.get('message', '查询失败')\n\nreturn state",
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "llm_enhance_answer",
+            "type": "llm",
+            "meta": {
+              "position": {
+                "x": -112,
+                "y": 648
+              }
+            },
+            "data": {
+              "title": "增强回答",
+              "inputsValues": {
+                "modelProvider": {
+                  "type": "constant",
+                  "content": "OpenAI"
+                },
+                "modelName": {
+                  "type": "constant",
+                  "content": "gpt-4o-mini"
+                },
+                "temperature": {
+                  "type": "constant",
+                  "content": 0.7
+                },
+                "systemPrompt": {
+                  "type": "template",
+                  "content": "你是专业的知识助手。基于 RAG 检索的内容回答用户问题。\n\n**要求**：\n1. 准确引用检索到的内容\n2. 如果内容中没有相关信息，明确说明\n3. 提供清晰、结构化的回答\n4. 标注信息来源\n5. 使用 Markdown 格式，让回答易于阅读"
+                },
+                "prompt": {
+                  "type": "template",
+                  "content": "用户问题: {query}\n\n**RAG 检索结果**:\n{rag_answer}\n\n**引用来源**:\n{formatted_references}\n\n请基于以上检索结果，为用户提供专业、准确的回答。"
+                }
+              },
+              "breakpoint": false,
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "modelProvider": {
+                    "type": "string"
+                  },
+                  "modelName": {
+                    "type": "string"
+                  },
+                  "temperature": {
+                    "type": "number"
+                  },
+                  "systemPrompt": {
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "code_final_response",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": 200,
+                "y": 648
+              }
+            },
+            "data": {
+              "title": "格式化最终回答",
+              "code": "has_results = state.get('attributes', {}).get('has_results', False)\n\nif has_results:\n    llm_result = state.get('result', {}).get('llm_result', '')\n    formatted_refs = state.get('attributes', {}).get('formatted_references', '')\n    \n    final_response = f\"\"\"{llm_result}\n\n---\n**📚 引用来源**:\n{formatted_refs}\"\"\"\n    \n    state['attributes']['response'] = final_response\nelse:\n    error_msg = state.get('attributes', {}).get('error_msg', '未知错误')\n    state['attributes']['response'] = f\"\"\"❌ 查询失败: {error_msg}\n\n💡 **建议**:\n1. 确保已经索引了相关网页内容\n2. 尝试重新表述你的问题\n3. 检查 RAG 服务是否正常运行\"\"\"\n\nreturn state",
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "chat_response",
+            "type": "chat",
+            "meta": {
+              "position": {
+                "x": 496.6551227181413,
+                "y": 543.4954089876845
+              }
+            },
+            "data": {
+              "title": "发送回复",
+              "role": "assistant",
+              "inputsValues": {
+                "message": {
+                  "type": "ref",
+                  "content": [
+                    "attributes",
+                    "response"
+                  ]
+                }
+              },
+              "breakpoint": false,
+              "data": {
+                "inputsValues": {}
+              }
+            }
+          },
+          {
+            "id": "end_0",
+            "type": "end",
+            "meta": {
+              "position": {
+                "x": 772.5810114420474,
+                "y": 677.4954089876845
+              }
+            },
+            "data": {
+              "title": "结束",
+              "inputsValues": {
+                "success": {
+                  "type": "constant",
+                  "content": true
+                }
+              },
+              "breakpoint": false,
+              "data": {
+                "inputsValues": {}
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "success": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "comment_workflow",
+            "type": "comment",
+            "meta": {
+              "position": {
+                "x": -1852,
+                "y": 850
+              }
+            },
+            "data": {
+              "size": {
+                "width": 280,
+                "height": 180
+              },
+              "note": "📋 **Web RAG Assistant Workflow**\n\n这个 skill 实现了智能网页分析助手：\n\n1. 自动识别用户意图（索引/查询）\n2. Browser-Use 智能抓取网页\n3. LightRAG 知识库索引\n4. 自然语言查询和回答\n\n- eCan.ai Team",
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "comment_intent",
+            "type": "comment",
+            "meta": {
+              "position": {
+                "x": -1595.2496998064557,
+                "y": 312.4177673763288
+              }
+            },
+            "data": {
+              "size": {
+                "width": 239.50060038708844,
+                "height": 177.58223262367116
+              },
+              "note": "🤖 **意图识别模块**\n\n使用 GPT-4o-mini 分析用户消息：\n- INDEX: 用户提供 URL，需要抓取\n- QUERY: 用户提问，需要检索\n\n输出 JSON 格式的意图数据",
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "comment_index_branch",
+            "type": "comment",
+            "meta": {
+              "position": {
+                "x": -709,
+                "y": 200
+              }
+            },
+            "data": {
+              "size": {
+                "width": 280,
+                "height": 160
+              },
+              "note": "🌐 **INDEX 分支 - 网页索引**\n\n1. Browser-Use (GPT-4o) 访问网页\n2. 提取指定内容（Markdown 格式）\n3. 格式化并添加元数据\n4. 调用 MCP ragify 存入知识库\n5. 返回索引成功消息",
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "comment_query_branch",
+            "type": "comment",
+            "meta": {
+              "position": {
+                "x": -709,
+                "y": 900
+              }
+            },
+            "data": {
+              "size": {
+                "width": 280,
+                "height": 160
+              },
+              "note": "🔍 **QUERY 分支 - 知识检索**\n\n1. 调用 MCP rag_query 查询知识库\n2. 使用 hybrid 模式 + rerank\n3. 提取 top 5 相关结果\n4. GPT-4o-mini 生成自然语言回答\n5. 附带引用来源",
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "comment_mcp",
+            "type": "comment",
+            "meta": {
+              "position": {
+                "x": -112,
+                "y": 200
+              }
+            },
+            "data": {
+              "size": {
+                "width": 240,
+                "height": 140
+              },
+              "note": "🔌 **MCP RAG 工具**\n\n- ragify: 文档索引\n- rag_query: 知识检索\n\n使用 LightRAG 本地服务\n支持多种检索模式",
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "comment_final",
+            "type": "comment",
+            "meta": {
+              "position": {
+                "x": 507.10384145699373,
+                "y": 302.1680675698731
+              }
+            },
+            "data": {
+              "size": {
+                "width": 262.2076829139875,
+                "height": 167.83193243012695
+              },
+              "note": "💬 **最终输出**\n\n两条路径汇聚到 Chat 节点：\n- INDEX: 索引成功提示\n- QUERY: 增强后的回答\n\n统一发送给用户",
+              "breakpoint": false
+            }
+          }
+        ],
+        "edges": [
+          {
+            "sourceNodeID": "start_0",
+            "targetNodeID": "llm_intent"
+          },
+          {
+            "sourceNodeID": "llm_intent",
+            "targetNodeID": "code_parse_intent"
+          },
+          {
+            "sourceNodeID": "code_parse_intent",
+            "targetNodeID": "condition_intent"
+          },
+          {
+            "sourceNodeID": "condition_intent",
+            "targetNodeID": "browser_scrape",
+            "sourcePortID": "if_index"
+          },
+          {
+            "sourceNodeID": "condition_intent",
+            "targetNodeID": "mcp_query",
+            "sourcePortID": "else_query"
+          },
+          {
+            "sourceNodeID": "browser_scrape",
+            "targetNodeID": "code_format_content"
+          },
+          {
+            "sourceNodeID": "code_format_content",
+            "targetNodeID": "mcp_insert"
+          },
+          {
+            "sourceNodeID": "mcp_insert",
+            "targetNodeID": "code_index_result"
+          },
+          {
+            "sourceNodeID": "code_index_result",
+            "targetNodeID": "chat_response"
+          },
+          {
+            "sourceNodeID": "mcp_query",
+            "targetNodeID": "code_process_query"
+          },
+          {
+            "sourceNodeID": "code_process_query",
+            "targetNodeID": "llm_enhance_answer"
+          },
+          {
+            "sourceNodeID": "llm_enhance_answer",
+            "targetNodeID": "code_final_response"
+          },
+          {
+            "sourceNodeID": "code_final_response",
+            "targetNodeID": "chat_response"
+          },
+          {
+            "sourceNodeID": "chat_response",
+            "targetNodeID": "end_0"
+          }
+        ]
+      }
+    }
+  ],
+  "openTabs": [
+    "main"
+  ],
+  "activeSheetId": "main"
+}

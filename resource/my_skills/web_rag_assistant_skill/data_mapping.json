@@ -1,0 +1,23 @@
+{
+  "developing": {
+    "mappings": [],
+    "options": {
+      "strict": false,
+      "apply_order": "top_down"
+    }
+  },
+  "released": {
+    "mappings": [],
+    "options": {
+      "strict": true,
+      "apply_order": "top_down"
+    }
+  },
+  "node_transfers": {},
+  "event_routing": {
+    "human_chat": {
+      "task_selector": "name:web_rag_assistant",
+      "queue": "chat_queue"
+    }
+  }
+}
