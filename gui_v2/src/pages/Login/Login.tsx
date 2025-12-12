@@ -559,7 +559,7 @@ const Login: React.FC = () => {
 							>
 								<Input
 									prefix={<UserOutlined />}
-									placeholder={t('common.username')}
+									placeholder={t('common.email')}
 									size="large"
 									className="form-input"
 								/>

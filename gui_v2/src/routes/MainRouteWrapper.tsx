@@ -19,6 +19,13 @@ const MainRouteWrapper: React.FC = () => {
         if (pathname === '/chat') {
             return '/chat';
         }
+        // Skills/Tasks should keep UI state even when query params change (e.g. taskId deep links)
+        if (pathname === '/skills') {
+            return '/skills';
+        }
+        if (pathname === '/tasks') {
+            return '/tasks';
+        }
         // 所有 /agents/* 路径使用同一个 cache key
         // AgentsRouteWrapper 会进一步管理子路由的缓存
         if (pathname === '/agents' || pathname.startsWith('/agents/')) {
