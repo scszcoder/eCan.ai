@@ -12,6 +12,19 @@ if typing.TYPE_CHECKING:
     from gui.MainGUI import MainWindow
 
 
+def _generate_stable_task_id(name: str, source: str) -> str:
+    """Generate a stable ID for code tasks based on name, or random UUID for ui tasks.
+    
+    Code-generated tasks use 'code-task-' prefix for easy identification.
+    """
+    if source == "code":
+        # Use uuid5 with a namespace to generate deterministic ID from name
+        namespace = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")  # UUID namespace for names
+        uuid_part = str(uuid.uuid5(namespace, f"code-task:{name}"))
+        return f"code-task-{uuid_part}"  # Add prefix to identify code-generated tasks
+    return str(uuid.uuid4())
+
+
 def _get_or_create_task(
     mainwin: 'MainWindow',
     skill_matcher: typing.Union[str, typing.Callable],
@@ -90,10 +103,14 @@ def _get_or_create_task(
         task_state = state or {"top": "ready"}
         status = TaskStatus(state=TaskState.SUBMITTED)
         
+        # Generate stable ID for code-generated task
+        task_id_final = task_id if task_id else _generate_stable_task_id(task_name, "code")
+        
         new_task = ManagedTask(
-            id=task_id or str(uuid.uuid4()),
+            id=task_id_final,
             name=task_name,
             description=description,
+            source="code",  # Mark as code-generated task
             status=status,
             sessionId="",
             skill=skill,
@@ -366,6 +383,7 @@ def _convert_db_agent_task_to_object(db_agent_task_dict):
             id=db_agent_task_dict.get('id', f"agent_task_{uuid.uuid4().hex[:16]}"),
             name=db_agent_task_dict.get('name', 'Unnamed Agent Task'),
             description=db_agent_task_dict.get('description', ''),
+            source=db_agent_task_dict.get('source', 'ui'),  # Preserve source from database
             owner=db_agent_task_dict.get('owner', ''),
             status=status,
             sessionId='',
@@ -565,27 +583,35 @@ async def build_agent_tasks(main_win):
 
         # Step 4: Build local code agent tasks
         local_agent_tasks = []
-        # logger.info("[build_agent_tasks] Step 4: Building local code agent tasks...")
-        # try:
-        #     local_agent_tasks = await _build_local_agent_tasks_async(main_win)
-        #     logger.info(f"[build_agent_tasks] ✅ Built {len(local_agent_tasks or [])} local code agent tasks")
-        # except Exception as e:
-        #     logger.error(f"[build_agent_tasks] ❌ Local build failed: {e}")
-        #     local_agent_tasks = []
+        logger.info("[build_agent_tasks] Step 4: Building local code agent tasks...")
+        try:
+            local_agent_tasks = await _build_local_agent_tasks_async(main_win)
+            logger.info(f"[build_agent_tasks] Built {len(local_agent_tasks or [])} local code agent tasks")
+        except Exception as e:
+            logger.error(f"[build_agent_tasks] Local build failed: {e}")
+            local_agent_tasks = []
 
-        # Step 5: Merge all agent task data
+        # Step 5: Merge all agent tasks (code-generated tasks override DB tasks)
         logger.info("[build_agent_tasks] Step 5: Merging all agent tasks...")
-        all_agent_tasks = []
-
-        # First add database/cloud agent tasks
-        all_agent_tasks.extend(final_db_agent_tasks)
-
-        # Then add locally built agent tasks from code
+        
+        # Create a dict to store tasks by name for deduplication
+        task_dict = {}
+        
+        # First add DB tasks
+        for task in final_db_agent_tasks:
+            if task is not None:
+                task_dict[task.name] = task
+        
+        # Then add code-generated tasks (will override DB tasks with same name)
         if local_agent_tasks:
-            all_agent_tasks.extend(local_agent_tasks)
-
-        # Filter out None objects
-        all_agent_tasks = [agent_task for agent_task in all_agent_tasks if agent_task is not None]
+            for task in local_agent_tasks:
+                if task is not None:
+                    if task.name in task_dict:
+                        logger.info(f"[build_agent_tasks] Code-generated task '{task.name}' overrides DB task")
+                    task_dict[task.name] = task
+        
+        # Convert back to list
+        all_agent_tasks = list(task_dict.values())
 
         # Step 6: Update mainwindow.agent_tasks memory
         logger.info("[build_agent_tasks] Step 6: Updating mainwindow.agent_tasks...")

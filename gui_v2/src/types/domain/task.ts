@@ -34,6 +34,7 @@ export interface Task {
   description?: string;
   status?: TaskStatus | string;
   priority?: TaskPriority | string;
+  source?: 'code' | 'ui'; // Task source: code-generated or UI-created
   
   // Agent and Skill associations
   agentId?: string;

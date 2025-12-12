@@ -160,8 +160,11 @@ async def create_self_test_skill(mainwin):
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        self_test_skill = EC_Skill(name="eCan.ai self test", description="run eCan.ai self test.")
-
+        self_test_skill = EC_Skill(
+            name="eCan.ai self test",
+            description="run eCan.ai self test.",
+            source="code"  # Mark as code-generated skill
+        )        
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
 

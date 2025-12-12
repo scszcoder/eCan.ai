@@ -14,9 +14,11 @@ async def create_rpa_helper_chatter_skill(mainwin):
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        helper_skill = EC_Skill(name="chatter for ecbot rpa helper",
-                             description="human and agent chat for helping fix failures during ecbot RPA runs.")
-
+        helper_skill = EC_Skill(
+            name="chatter for ecbot rpa helper",
+            description="human and agent chat for helping fix failures during ecbot RPA runs.",
+            source="code"  # Mark as code-generated skill
+        )        
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
 
@@ -168,9 +170,11 @@ async def create_rpa_operator_chatter_skill(mainwin):
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        operator_skill = EC_Skill(name="chatter for ecbot rpa operator run RPA",
-                                description="human and agent chat for RPA operator agent who drive a bunch of RPA bots to run their ecbot RPA works.")
-
+        operator_skill = EC_Skill(
+            name="chatter for ecbot rpa operator run RPA",
+            description="human and agent chat for RPA operator agent who drive a bunch of RPA bots to run their ecbot RPA works.",
+            source="code"  # Mark as code-generated skill
+        )        
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
 
@@ -265,9 +269,11 @@ async def create_rpa_supervisor_scheduling_chatter_skill(mainwin):
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        supervisor_skill = EC_Skill(name="chatter for ecbot rpa supervisor task scheduling",
-                                description="human and agent chat for supervising ecbot RPA runs by the RPA operator agents.")
-
+        supervisor_skill = EC_Skill(
+            name="chatter for ecbot rpa supervisor task scheduling",
+            description="human and agent chat for RPA supervisor agent who schedule tasks for RPA operator agents.",
+            source="code"  # Mark as code-generated skill
+        )        
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
 

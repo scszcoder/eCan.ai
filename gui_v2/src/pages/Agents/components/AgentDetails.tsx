@@ -61,16 +61,21 @@ const knownTitles = [
 ];
 
 // Tasks and skills will be sourced from global store to link with Tasks/Skills pages
-// We keep fallback arrays in case store is empty to avoid empty UI when no data loaded yet
-const knownTasks = ['task_001', 'task_002', 'task_003'];
-const knownSkills = ['skill_001', 'skill_002', 'skill_003'];
+
+// 判断是否是代码生成的 skill/task（通过 source 字段判断）
+const isCodeGenerated = (item: any): boolean => {
+  if (!item || typeof item !== 'object') return false;
+  
+  // 使用 source 字段判断（后端已确保该字段存在）
+  return item.source === 'code';
+};
 
 // 多选TagEdit器 - 使用 Select mode="tags" Implementation友好交互
 // Support预Definition选项（国际化）和UserCustomInput
 const TagsEditor: React.FC<{
   value?: string[];
   onChange?: (value: string[]) => void;
-  options: string[];
+  options: Array<string | { label: string; value: string; hasId?: boolean }>;
   disabled?: boolean;
   placeholder?: string;
   'aria-label'?: string;
@@ -108,12 +113,23 @@ const TagsEditor: React.FC<{
   // 使用 useMemo Cache选项，避免重复计算
   const selectOptions = useMemo(() => {
     return options.map((opt, index) => {
+      // 支持对象格式（包含 hasId 标记）和字符串格式
+      if (typeof opt === 'object') {
+        return {
+          label: getDisplayText(opt.label),
+          value: opt.value,
+          hasId: opt.hasId,
+          key: `option-${index}-${opt.value}`,
+          title: ''
+        };
+      }
       const displayText = getDisplayText(opt);
       return {
-        label: displayText,  // 下拉List中Display的文本（翻译后）
-        value: opt,          // 实际Storage的Value（国际化 key）
-        key: `option-${index}-${opt}`,  // 使用索引+Value确保唯一性（索引在前更Reliable）
-        title: ''            // 清空title，避免原生tooltip
+        label: displayText,
+        value: opt,
+        hasId: true, // 字符串格式默认为有效
+        key: `option-${index}-${opt}`,
+        title: ''
       };
     });
   }, [options, getDisplayText]);
@@ -137,10 +153,24 @@ const TagsEditor: React.FC<{
 
       // 否则是UserCustomInput，直接返回
       return val;
+    }).filter(val => {
+      // ⚠️ 过滤掉没有 id 的项（代码生成的临时数据）
+      const option = selectOptions.find(opt => opt.value === val || opt.label === val);
+      if (option && option.hasId === false) {
+        console.warn(`[TagsEditor] 阻止选择无效的 ${dataType}: ${val}`);
+        return false;
+      }
+      return true;
     });
 
     onChange(processedValues);
-  }, [onChange, selectOptions]);
+  }, [onChange, selectOptions, dataType]);
+
+  // 确保 value 数组中的每个元素都是字符串，避免 key 警告
+  const normalizedValue = useMemo(() => {
+    if (!Array.isArray(value)) return [];
+    return value.filter(v => v != null).map(v => String(v));
+  }, [value]);
 
   return (
     <>
@@ -149,10 +179,10 @@ const TagsEditor: React.FC<{
       mode="tags"
       style={{ width: '100%' }}
       placeholder={placeholder}
-      value={Array.isArray(value) ? value : []}
+      value={normalizedValue}
       onChange={handleChange}
       disabled={disabled}
-      maxTagCount="responsive"
+      maxTagCount={10}  // 设置足够大的数字，确保所有 tag 都能显示
       showSearch
       allowClear
       tokenSeparators={[',']}
@@ -178,22 +208,32 @@ const TagsEditor: React.FC<{
         const description = itemData?.description || '';
 
         const tagContent = (
-          <Tag
-            key={`tag-${tagValue}`}  // ✅ Add key
-            color={isCustom ? 'green' : 'blue'}
-            closable={closable && !disabled}
-            onClose={onClose}
-            style={{ marginRight: 3, cursor: itemData ? 'pointer' : 'default' }}
-            onClick={(e) => {
-              if (itemData) {
-                e.stopPropagation();
-                setSelectedDetailItem(itemData);
-                setDetailModalVisible(true);
-              }
+          <div
+            onMouseDown={(e) => {
+              // 在 mouseDown 阶段阻止事件，防止触发 Select 的下拉展开
+              e.stopPropagation();
             }}
           >
-            {displayText}
-          </Tag>
+            <Tag
+              key={`tag-${tagValue}`}  // ✅ Add key
+              color={isCustom ? 'green' : 'blue'}
+              closable={closable && !disabled}
+              onClose={(e) => {
+                e.stopPropagation(); // 阻止事件冒泡
+                onClose(e);
+              }}
+              style={{ marginRight: 3, cursor: itemData ? 'pointer' : 'default' }}
+              onClick={(e) => {
+                if (itemData) {
+                  e.stopPropagation(); // 阻止事件冒泡
+                  setSelectedDetailItem(itemData);
+                  setDetailModalVisible(true);
+                }
+              }}
+            >
+              {displayText}
+            </Tag>
+          </div>
         );
 
         // If有DescriptionInformation，Addtooltip
@@ -206,7 +246,8 @@ const TagsEditor: React.FC<{
                   <InfoCircleOutlined 
                     style={{ fontSize: 14, cursor: 'pointer', color: '#40a9ff' }}
                     onClick={(e) => {
-                      e.stopPropagation();
+                      e.preventDefault(); // 阻止默认行为
+                      e.stopPropagation(); // 阻止事件冒泡
                       setSelectedDetailItem(itemData);
                       setDetailModalVisible(true);
                     }}
@@ -224,36 +265,57 @@ const TagsEditor: React.FC<{
       }}
       // 下拉选项Configuration - 使用Cache的选项
       options={selectOptions}
-      // Custom下拉选项Render - AddtooltipDisplayDescription
+      // Custom下拉选项Render - Addtooltip显示描述
       optionRender={(option) => {
         const itemData = dataMap?.get(option.value as string);
         const description = itemData?.description || '';
-        
+        const optionData = option.data as any;
+        const hasId = optionData?.hasId !== false; // 
+        // 没有 id 的项样式 - 仅设置鼠标样式和透明度，文字颜色由内部span控制
+        const invalidStyle = !hasId ? {
+          cursor: 'not-allowed',
+          opacity: 0.8 // 稍微降低透明度，表明不可选
+        } : {};
+        // 
+        const content = (
+          <div style={{ padding: '4px 0', width: '100%', display: 'flex', alignItems: 'center', gap: '8px', ...invalidStyle }}>
+            {!hasId && <span style={{ color: '#ff4d4f', fontSize: '14px' }}>❌</span>}
+            <span style={{ color: !hasId ? 'rgba(255, 255, 255, 0.85)' : 'inherit' }}>{option.label}</span>
+          </div>
+        );
+        // 
         if (description && dataMap) {
           return (
             <Tooltip
               title={
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ flex: 1 }}>{description}</div>
-                  <InfoCircleOutlined 
-                    style={{ fontSize: 14, cursor: 'pointer', color: '#40a9ff' }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedDetailItem(itemData);
-                      setDetailModalVisible(true);
-                    }}
-                  />
-                </div>
+                !hasId ? t('pages.agents.system_example_cannot_select') || 'System example cannot be selected' : (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ flex: 1 }}>{description}</div>
+                    <InfoCircleOutlined 
+                      style={{ fontSize: 14, cursor: 'pointer', color: '#40a9ff' }}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setSelectedDetailItem(itemData);
+                        setDetailModalVisible(true);
+                      }}
+                    />
+                  </div>
+                )
               }
               placement="right"
               mouseEnterDelay={0.3}
             >
-              <div style={{ padding: '4px 0', width: '100%' }}>{option.label}</div>
+              {content}
             </Tooltip>
           );
         }
-        
-        return <div style={{ padding: '4px 0' }}>{option.label}</div>;
+        // 
+        return !hasId ? (
+          <Tooltip title={t('pages.agents.system_example_cannot_select') || 'System example cannot be selected'}>
+            {content}
+          </Tooltip>
+        ) : content;
       }}
       // DisabledSelect自带的titleProperty，避免tooltip冲突
       optionFilterProp="label"
@@ -424,45 +486,99 @@ const AgentDetails: React.FC = () => {
   
   // Get组织Data
   const { treeOrgs, setAllOrgAgents, shouldFetchData, setLoading: setOrgLoading, setError: setOrgError } = useOrgStore();
-  
-  // Get agentStore Used for读取最新的 agent Data
-  const getAgentById = useAgentStore((state) => state.getAgentById);
 
   // Build options for selects with full object data for tooltips
   // Save完整的task和skill对象Map，Used forDisplayDetailedInformation
   const taskMap = useMemo(() => {
     const map = new Map();
+    // ⚠️ 保护机制：只包含有 id 的 tasks
     (storeTasks || []).forEach((t: any) => {
       const key = t.name || t.skill;
-      if (key) map.set(key, t);
+      if (key && t.id) map.set(key, t);
     });
     return map;
   }, [storeTasks]);
 
   const skillMap = useMemo(() => {
     const map = new Map();
+    // ⚠️ 保护机制：只包含有 id 的 skills
     (storeSkills || []).forEach((s: any) => {
-      if (s.name) map.set(s.name, s);
+      if (s.name && s.id) map.set(s.name, s);
     });
     return map;
   }, [storeSkills]);
 
   // For tasks, use task name or skill; for skills, use skill.name.
   const taskOptions = useMemo(() => {
-    const taskNames = (storeTasks || [])
-      .map((t: any) => t.name || t.skill)
-      .filter(Boolean);
-    const unique = Array.from(new Set(taskNames));
-    return unique.length > 0 ? unique : knownTasks;
+    // ⚠️ 保护机制：标记代码生成的 tasks（通过 source 字段判断）
+    // 去重：按 name 分组，收集所有同名项，然后选择优先级最高的（UI > Code）
+    const taskGroups = new Map<string, any[]>();
+    (storeTasks || []).forEach((t: any) => {
+      const name = t.name || t.skill;
+      if (!name) return;
+      
+      if (!taskGroups.has(name)) {
+        taskGroups.set(name, []);
+      }
+      taskGroups.get(name)!.push(t);
+    });
+    
+    // 对每组同名 tasks，选择优先级最高的：UI 创建 > 代码生成
+    const uniqueTasks = Array.from(taskGroups.values()).map(group => {
+      // 优先选择 UI 创建的（source !== 'code'）
+      const uiTask = group.find(t => !isCodeGenerated(t));
+      const selected = uiTask || group[0]; // 如果都是 code，选第一个
+      
+      return {
+        id: selected.id,
+        name: selected.name || selected.skill,
+        isCodeGen: isCodeGenerated(selected),
+      };
+    });
+    
+    return uniqueTasks.map((t: any) => ({
+      key: t.id || `task-${t.name}`,
+      label: t.name,
+      value: t.name, // ✅ 使用 name 作为 value（与 Agent 保存格式一致）
+      disabled: t.isCodeGen,
+      hasId: !t.isCodeGen, // hasId: false 表示代码生成的项，显示红色 ❌
+    }));
   }, [storeTasks]);
 
   const skillOptions = useMemo(() => {
-    const names = (storeSkills || [])
-      .map((s: any) => s.name)
-      .filter(Boolean);
-    // 使用 Set 去重，确保没有重复的Name
-    const unique = Array.from(new Set(names));
-    return unique.length > 0 ? unique : knownSkills;
+    // ⚠️ 保护机制：标记代码生成的 skills（通过 source 字段判断）
+    // 去重：按 name 分组，收集所有同名项，然后选择优先级最高的（UI > Code）
+    const skillGroups = new Map<string, any[]>();
+    (storeSkills || []).forEach((s: any) => {
+      const name = s.name;
+      if (!name) return;
+      
+      if (!skillGroups.has(name)) {
+        skillGroups.set(name, []);
+      }
+      skillGroups.get(name)!.push(s);
+    });
+    
+    // 对每组同名 skills，选择优先级最高的：UI 创建 > 代码生成
+    const uniqueSkills = Array.from(skillGroups.values()).map(group => {
+      // 优先选择 UI 创建的（source !== 'code'）
+      const uiSkill = group.find(s => !isCodeGenerated(s));
+      const selected = uiSkill || group[0]; // 如果都是 code，选第一个
+      
+      return {
+        id: selected.id,
+        name: selected.name,
+        isCodeGen: isCodeGenerated(selected),
+      };
+    });
+    
+    return uniqueSkills.map((s: any) => ({
+      key: s.id || `skill-${s.name}`,
+      label: s.name,
+      value: s.name, // ✅ 使用 name 作为 value（与 Agent 保存格式一致）
+      disabled: s.isCodeGen,
+      hasId: !s.isCodeGen, // hasId: false 表示代码生成的项，显示红色 ❌
+    }));
   }, [storeSkills]);
 
   // 构建组织树形Data供TreeSelect使用（避免LoopReference）
@@ -475,7 +591,7 @@ const AgentDetails: React.FC = () => {
       
       // 只提取必要的Field，避免LoopReference
       const treeNode: any = {
-        title: node.name || node.id, // 确保有 title
+        title: currentPath, // 显示完整路径，更清晰
         value: node.id,
         key: node.id,
         fullPath: currentPath, // Storage完整Path，Used for选中后Display
@@ -528,9 +644,9 @@ const AgentDetails: React.FC = () => {
 
   // Proactively fetch tasks/skills if empty so dropdowns populate without visiting their pages first
   useEffect(() => {
-    const api = get_ipc_api();
     const fetchIfNeeded = async () => {
       try {
+        const api = get_ipc_api();
         let uname = username;
         if (!uname) {
           const loginInfo = await api.getLastLoginInfo<{ last_login: { username: string } }>();
@@ -539,17 +655,44 @@ const AgentDetails: React.FC = () => {
           }
         }
         if (uname) {
+          // 并行加载 tasks 和 skills，提高加载速度
+          const promises = [];
+          
           if (!storeTasks || storeTasks.length === 0) {
-            const res = await api.getAgentTasks<{ tasks: any[] }>(uname, []);
-            if (res?.success && res.data?.tasks) setTasks(res.data.tasks as any);
+            promises.push(
+              api.getAgentTasks<{ tasks: any[] }>(uname, [])
+                .then((res: any) => {
+                  if (res?.success && res.data?.tasks) {
+                    setTasks(res.data.tasks as any);
+                  }
+                })
+                .catch((e: any) => {
+                  console.warn('[AgentDetails] Failed to load tasks:', e);
+                })
+            );
           }
+          
           if (!storeSkills || storeSkills.length === 0) {
-            const res2 = await api.getAgentSkills<{ skills: any[] }>(uname, []);
-            if (res2?.success && res2.data?.skills) setSkills(res2.data.skills as any);
+            promises.push(
+              api.getAgentSkills<{ skills: any[] }>(uname, [])
+                .then((res2: any) => {
+                  if (res2?.success && res2.data?.skills) {
+                    setSkills(res2.data.skills as any);
+                  }
+                })
+                .catch((e: any) => {
+                  console.warn('[AgentDetails] Failed to load skills:', e);
+                })
+            );
+          }
+          
+          // 等待所有加载完成
+          if (promises.length > 0) {
+            await Promise.all(promises);
           }
         }
       } catch (e) {
-        // silent fail; UI will use fallbacks
+        console.error('[AgentDetails] Error in fetchIfNeeded:', e);
       }
     };
     fetchIfNeeded();
@@ -650,17 +793,21 @@ const AgentDetails: React.FC = () => {
           
           // Convert skills and tasks from objects to names (for Select component)
           // Skills/tasks from backend are objects with {id, name, ...}
-          const skillNames = (agent.skills || []).map((s: any) => {
-            if (typeof s === 'string') return s;
-            // Try multiple fields: name, skill_name, id
-            return s.name || s.skill_name || s.id || String(s);
-          }).filter(Boolean);  // Remove empty values
+          const skillNames = Array.from(new Set(
+            (agent.skills || []).map((s: any) => {
+              if (typeof s === 'string') return s;
+              // Try multiple fields: name, skill_name, id
+              return s.name || s.skill_name || s.id || String(s);
+            }).filter(Boolean)  // Remove empty values
+          )) as string[];
           
-          const taskNames = (agent.tasks || []).map((t: any) => {
-            if (typeof t === 'string') return t;
-            // Try multiple fields: name, task_name, id
-            return t.name || t.task_name || t.id || String(t);
-          }).filter(Boolean);  // Remove empty values
+          const taskNames = Array.from(new Set(
+            (agent.tasks || []).map((t: any) => {
+              if (typeof t === 'string') return t;
+              // Try multiple fields: name, task_name, id
+              return t.name || t.task_name || t.skill || t.id || String(t);
+            }).filter(Boolean)  // Remove empty values
+          )) as string[];
           
           // Extract extra_data: if it's an object, get notes; if string, use as is
           let extraDataText = '';
@@ -681,7 +828,7 @@ const AgentDetails: React.FC = () => {
           form.setFieldsValue({
             id: agent.card?.id || agent.id,
             name: agent.card?.name || agent.name,
-            gender: agent.gender || 'gender_options.male',
+            gender: agent.gender && agent.gender.trim() !== '' ? agent.gender : 'gender_options.male', // 默认为男性
             birthday: agent.birthday ? dayjs(agent.birthday) : null,
             owner: agent.owner || username,
             personalities: personalitiesArray,  // Use personalities (unified naming)
@@ -707,6 +854,19 @@ const AgentDetails: React.FC = () => {
             });
           }
           
+          // 更新 agentStore，确保面包屑能获取到 agent 名称
+          const currentAgents = useAgentStore.getState().agents;
+          const agentIndex = currentAgents.findIndex((a: any) => a.id === agent.id || a.card?.id === agent.id);
+          if (agentIndex === -1) {
+            // Agent 不在 store 中，添加它
+            useAgentStore.getState().setAgents([...currentAgents, agent]);
+          } else {
+            // Agent 已在 store 中，更新它
+            const newAgents = [...currentAgents];
+            newAgents[agentIndex] = agent;
+            useAgentStore.getState().setAgents(newAgents);
+          }
+          
           // 从 AgentCard Edit进入时，自动进入Edit模式
           setEditMode(true);
           initializedRef.current = true;
@@ -722,12 +882,15 @@ const AgentDetails: React.FC = () => {
         messageRef.current.error(translationRef.current('pages.agents.fetch_failed') || 'Failed to fetch agent data');
         initializedRef.current = true;
         forceUpdate({});
+      } finally {
+        setLoading(false);
       }
     };
 
     fetchAgentData();
     // 使用 ref 避免 message 和 t 作为依赖触发重复执行
-  }, [id, isNew, username, form, defaultOrgId, localVehicleId]);
+    // 注意：不要添加 localVehicleId 等会变化的值到依赖，否则会覆盖用户输入
+  }, [id, isNew, username]);
 
   // 不再使用 initialValues，改为在 useEffect 中逐个SettingsField，避免LoopReferenceWarning
 
@@ -745,7 +908,7 @@ const AgentDetails: React.FC = () => {
       const initialValues: Partial<AgentDetailsForm> = {
         id: '',
         name: '',
-        gender: 'gender_options.male' as Gender,
+        gender: 'gender_options.male', // 默认为男性
         birthday: dayjs(),
         owner: username || 'owner',
         personalities: [],
@@ -813,25 +976,32 @@ const AgentDetails: React.FC = () => {
         };
         
         // 构建上级Select的树形Data（按组织分组）
-        const buildAgentTree = (orgId: string, orgName: string): any => {
+        const buildAgentTree = (orgId: string, orgFullPath: string): any => {
           // 从原始树中Get组织节点
           const orgNode = getOrgNodeById(treeOrgs[0], orgId);
           const agents = orgNode?.agents || [];
 
           if (agents.length === 0) return null;
 
-          // 只提取必要的Field，避免LoopReference，Filter掉无效节点
+          // 获取当前 agent 的 ID（用于过滤，不能选择自己作为上级）
+          const currentAgentId = form.getFieldValue('id') || id;
+
+          // 只提取必要的Field，避免LoopReference，Filter掉无效节点和当前 agent
           const agentNodes = agents
-            .filter((agent: any) => agent && agent.id) // Filter掉无效的 agent
+            .filter((agent: any) => agent && agent.id && agent.id !== currentAgentId) // Filter掉无效的 agent 和自己
             .map((agent: any) => ({
-              title: agent.name || agent.id,
+              // 显示格式：Agent名称 (组织完整路径)
+              title: `${agent.name || agent.id} (${orgFullPath})`,
               value: agent.id,
               key: agent.id,
               isLeaf: true,
             }));
 
+          // 如果过滤后没有可选的 agent，返回 null
+          if (agentNodes.length === 0) return null;
+
           return {
-            title: orgName,
+            title: orgFullPath, // 显示完整路径，更清晰
             value: `org-${orgId}`,
             key: `org-${orgId}`,
             selectable: false,
@@ -848,11 +1018,14 @@ const AgentDetails: React.FC = () => {
 
           if (orgPath) {
             // 为Path上的每个组织构建agent树（从根到When前节点）
-            for (const simplifiedOrg of orgPath) {
+            for (let i = 0; i < orgPath.length; i++) {
+              const simplifiedOrg = orgPath[i];
               // 避免重复Add
               if (!processedOrgIds.has(simplifiedOrg.id)) {
                 processedOrgIds.add(simplifiedOrg.id);
-                const tree = buildAgentTree(simplifiedOrg.id, simplifiedOrg.name);
+                // 构建完整路径：从根节点到当前节点
+                const fullPath = orgPath.slice(0, i + 1).map(org => org.name).join(' / ');
+                const tree = buildAgentTree(simplifiedOrg.id, fullPath);
                 if (tree) {
                   treeData.push(tree);
                 }
@@ -930,16 +1103,28 @@ const AgentDetails: React.FC = () => {
     try {
       const values = await form.validateFields();
       
-      // Convert skills and tasks from names to IDs only
+      // 检查 skills 和 tasks 数据是否已加载（如果表单中有这些字段）
+      const hasSkills = values.skills && values.skills.length > 0;
+      const hasTasks = values.tasks && values.tasks.length > 0;
+      
+      // 如果表单中有 skills/tasks，但 store 中的数据还未加载，给出提示
+      if (hasSkills && (!storeSkills || storeSkills.length === 0)) {
+        console.warn('[AgentDetails] Skills data not loaded yet, will preserve original values');
+      }
+      if (hasTasks && (!storeTasks || storeTasks.length === 0)) {
+        console.warn('[AgentDetails] Tasks data not loaded yet, will preserve original values');
+      }
+      
+      // Convert skills and tasks from names to IDs
       const skillIds = (values.skills || []).map((skillName: string) => {
         const skill = skillMap.get(skillName);
-        return skill ? skill.id : null;
-      }).filter(id => id !== null);
+        return skill?.id || skillName;
+      }).filter(Boolean);
       
       const taskIds = (values.tasks || []).map((taskName: string) => {
         const task = taskMap.get(taskName);
-        return task ? task.id : null;
-      }).filter(id => id !== null);
+        return task?.id || taskName;
+      }).filter(Boolean);
       
       // Serialize dayjs and metadata
       const payload = {
@@ -956,7 +1141,7 @@ const AgentDetails: React.FC = () => {
       const res = isNew
         ? await api.newAgent(username, [payload])
         : await api.saveAgent(username, [payload]);
-      setLoading(false);
+      
       if (res.success) {
         message.success(t('common.saved_successfully') || 'Saved');
         
@@ -991,8 +1176,14 @@ const AgentDetails: React.FC = () => {
           const refreshResponse = await api.getAllOrgAgents(username);
           
           if (refreshResponse?.success && refreshResponse.data) {
-            // 这会Update orgStore 和 agentStore，确保AllData一致
+            // 这会Update orgStore
             useOrgStore.getState().setAllOrgAgents(refreshResponse.data as any);
+            
+            // 同时更新 agentStore（从 orgStore 提取 agents）
+            const orgStoreAgents = useOrgStore.getState().agents;
+            if (orgStoreAgents && orgStoreAgents.length > 0) {
+              useAgentStore.getState().setAgents(orgStoreAgents as any);
+            }
           } else {
             console.error('[AgentDetails] Failed to refresh org data:', refreshResponse);
           }
@@ -1006,11 +1197,14 @@ const AgentDetails: React.FC = () => {
           await new Promise(resolve => setTimeout(resolve, 100));
           
           const orgId = form.getFieldValue('org_id');
-          if (orgId) {
-            // 跳转到该组织的Page，使用 replace 强制Refresh
+          // 获取根组织 ID
+          const rootOrgId = useOrgStore.getState().treeOrgs[0]?.id;
+          
+          if (orgId && orgId !== rootOrgId) {
+            // 跳转到子组织的Page，使用 replace 强制Refresh
             navigate(`/agents/organization/${orgId}`, { replace: true });
           } else {
-            // 跳转到 agents 根Page
+            // 跳转到 agents 根Page（包括根组织和未分配）
             navigate('/agents', { replace: true });
           }
           return;
@@ -1018,31 +1212,38 @@ const AgentDetails: React.FC = () => {
         
         // If是Edit模式，使用Save返回的DataUpdateForm（保留在EditPage）
         if (!isNew && id) {
-          // 优先使用 savedAgentData（来自 save_agent Response），避免从 store Get可能的旧Data
+          // 直接调用 getAgents API 获取包含完整 tasks/skills 的数据
+          // 不从 agentStore 获取，因为 getAllOrgAgents 返回的数据不包含详细的 tasks
           try {
-            let updatedAgent = savedAgentData;
+            const api = get_ipc_api();
+            const refreshResponse = await api.getAgents(username, [id]) as any;
             
-            // If没有 savedAgentData（不Should发生），fallback 到 store
-            if (!updatedAgent) {
-              console.warn('[AgentDetails] No savedAgentData, trying to get from agentStore...');
-              updatedAgent = getAgentById(id) as any;
+            let updatedAgent = null;
+            if (refreshResponse?.success && refreshResponse.data?.agents && refreshResponse.data.agents.length > 0) {
+              updatedAgent = refreshResponse.data.agents[0];
             }
             
             if (updatedAgent) {
-              
-              // Convert skills and tasks from objects to names (for Select component)
-              // Skills/tasks from backend are objects with {id, name, ...}
+              // Convert skills and tasks from objects to names for display in Select component
               const skillNames = (updatedAgent.skills || []).map((s: any) => {
-                if (typeof s === 'string') return s;
-                // Try multiple fields: name, skill_name, id
-                return s.name || s.skill_name || s.id || String(s);
-              }).filter(Boolean);  // Remove empty values
+                if (typeof s === 'object' && s !== null) {
+                  return s.name || s.skill_name || s.id;
+                } else if (typeof s === 'string') {
+                  const skillFromMap = Array.from(skillMap.values()).find(skill => skill.id === s);
+                  return skillFromMap ? skillFromMap.name : s;
+                }
+                return null;
+              }).filter(Boolean);
               
               const taskNames = (updatedAgent.tasks || []).map((t: any) => {
-                if (typeof t === 'string') return t;
-                // Try multiple fields: name, task_name, id
-                return t.name || t.task_name || t.id || String(t);
-              }).filter(Boolean);  // Remove empty values
+                if (typeof t === 'object' && t !== null) {
+                  return t.name || t.task_name || t.id;
+                } else if (typeof t === 'string') {
+                  const taskFromMap = Array.from(taskMap.values()).find(task => task.id === t);
+                  return taskFromMap ? taskFromMap.name : t;
+                }
+                return null;
+              }).filter(Boolean);
               
               // Extract extra_data: if it's an object, get notes; if string, use as is
               let extraDataText = '';
@@ -1096,15 +1297,25 @@ const AgentDetails: React.FC = () => {
               if (refreshResponse?.success && refreshResponse.data?.agents && refreshResponse.data.agents.length > 0) {
                 const apiAgent = refreshResponse.data.agents[0];
                 
-                // Convert并UpdateForm（使用相同的逻辑）
+                // Convert并UpdateForm（使用相同的逻辑 - 与上面保持一致）
                 const skillNames = (apiAgent.skills || []).map((s: any) => {
-                  if (typeof s === 'string') return s;
-                  return s.name || s.skill_name || s.id || String(s);
+                  if (typeof s === 'object' && s !== null) {
+                    return s.name || s.skill_name || s.id;
+                  } else if (typeof s === 'string') {
+                    const skillFromMap = Array.from(skillMap.values()).find(skill => skill.id === s);
+                    return skillFromMap ? skillFromMap.name : s;
+                  }
+                  return null;
                 }).filter(Boolean);
                 
                 const taskNames = (apiAgent.tasks || []).map((t: any) => {
-                  if (typeof t === 'string') return t;
-                  return t.name || t.task_name || t.id || String(t);
+                  if (typeof t === 'object' && t !== null) {
+                    return t.name || t.task_name || t.id;
+                  } else if (typeof t === 'string') {
+                    const taskFromMap = Array.from(taskMap.values()).find(task => task.id === t);
+                    return taskFromMap ? taskFromMap.name : t;
+                  }
+                  return null;
                 }).filter(Boolean);
                 
                 let extraDataText = '';
@@ -1159,16 +1370,42 @@ const AgentDetails: React.FC = () => {
         if (isNew) {
           // After creation, navigate back to the OrgNavigator page with refresh flag
           const orgId = values.org_id;
-          if (orgId && orgId !== 'root') {
-            // 跳转到对应组织的navigatorPage，AddTime戳强制Refresh
+          // 获取根组织 ID
+          const rootOrgId = useOrgStore.getState().treeOrgs[0]?.id;
+          
+          if (orgId && orgId !== 'root' && orgId !== rootOrgId) {
+            // 跳转到子组织的navigatorPage，AddTime戳强制Refresh
             navigate(`/agents/organization/${orgId}?refresh=${Date.now()}`);
           } else {
-            // 跳转到根navigatorPage，AddTime戳强制Refresh
+            // 跳转到根navigatorPage，AddTime戳强制Refresh（包括根组织和未分配）
             navigate(`/agents?refresh=${Date.now()}`);
           }
         }
       } else {
-        message.error(res.error?.message || t('common.save_failed') || 'Save failed');
+        // Check if this is a validation error for skills/tasks
+        const errorData = res.error as any;
+        if (errorData?.invalid_skills || errorData?.invalid_tasks) {
+          // Build detailed error message
+          let errorMsg = t('pages.agents.validation_error', 'Validation Error') + ':\n';
+          
+          if (errorData.invalid_skills && errorData.invalid_skills.length > 0) {
+            errorMsg += `\n${t('pages.agents.invalid_skills', 'Invalid Skills')}: ${errorData.invalid_skills.join(', ')}`;
+          }
+          
+          if (errorData.invalid_tasks && errorData.invalid_tasks.length > 0) {
+            errorMsg += `\n${t('pages.agents.invalid_tasks', 'Invalid Tasks')}: ${errorData.invalid_tasks.join(', ')}`;
+          }
+          
+          errorMsg += `\n\n${t('pages.agents.validation_hint', 'These items do not exist in the database. Please remove them and try again.')}`;
+          
+          Modal.error({
+            title: t('pages.agents.save_failed', 'Save Failed'),
+            content: errorMsg,
+            width: 500,
+          });
+        } else {
+          message.error(res.error?.message || t('common.save_failed') || 'Save failed');
+        }
       }
     } catch (e: any) {
       message.error(e?.message || t('common.validation_failed') || 'Validation failed');
@@ -1243,6 +1480,7 @@ const AgentDetails: React.FC = () => {
             role="form"
             aria-label={t('pages.agents.form_label') || 'Agent Details Form'}
             initialValues={{
+              gender: 'gender_options.male', // 默认为男性
               skills: [],
               tasks: [],
               personalities: [],
@@ -1443,11 +1681,8 @@ const AgentDetails: React.FC = () => {
                   name="skills"
                   label={t('pages.agents.skills') || 'Skills'}
                   htmlFor="agent-skills"
+                  required
                   rules={[
-                    {
-                      required: true,
-                      message: t('pages.agents.skills_required') || 'Please select at least one skill',
-                    },
                     {
                       validator: (_, value) => {
                         if (!value || value.length === 0) {
@@ -1474,11 +1709,8 @@ const AgentDetails: React.FC = () => {
                   name="tasks"
                   label={t('pages.agents.tasks') || 'Tasks'}
                   htmlFor="agent-tasks"
+                  required
                   rules={[
-                    {
-                      required: true,
-                      message: t('pages.agents.tasks_required') || 'Please select at least one task',
-                    },
                     {
                       validator: (_, value) => {
                         if (!value || value.length === 0) {

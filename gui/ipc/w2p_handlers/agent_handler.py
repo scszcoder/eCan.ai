@@ -248,22 +248,30 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         # Get all agents from memory (MainWindow.agents contains the most up-to-date data)
         # This includes both database agents and special agents like MyTwinAgent
         memory_agents = getattr(main_window, 'agents', []) or []
-        all_agents = [agent.to_dict(owner=username) for agent in memory_agents]
         
-        logger.info(f"[agent_handler] Retrieved {len(all_agents)} agents from memory")
-        
-        # If specific agent IDs are requested, filter by them
+        # If specific agent IDs are requested, query from database with relations to get tasks/skills
         if agent_ids and len(agent_ids) > 0:
-            logger.debug(f"[agent_handler] Filtering by agent_ids: {agent_ids}")
+            logger.info(f"[agent_handler] Querying agents from database with relations for IDs: {agent_ids}")
+            agent_service = main_window.ec_db_mgr.agent_service
             
-            # Debug: print all agent card IDs
-            all_card_ids = [agent.get('card', {}).get('id') for agent in all_agents]
-            logger.debug(f"[agent_handler] Available agent card IDs: {all_card_ids}")
+            agents_data = []
+            for agent_id in agent_ids:
+                # Query from database with full relations
+                db_result = agent_service.query_agents_with_relations(id=agent_id, include_skills=True, include_tasks=True)
+                
+                if db_result.get('success') and db_result.get('data'):
+                    agents_data.extend(db_result['data'])
+                    # Log tasks count for debugging
+                    for agent in db_result['data']:
+                        logger.info(f"[agent_handler] Agent {agent.get('id')} has {len(agent.get('tasks', []))} tasks, {len(agent.get('skills', []))} skills")
+                else:
+                    logger.warning(f"[agent_handler] Failed to query agent {agent_id}: {db_result.get('error', 'Unknown error')}")
             
-            agents_data = [agent for agent in all_agents if agent.get('card', {}).get('id') in agent_ids]
-            logger.info(f"[agent_handler] Filtered {len(agents_data)} agents from {len(all_agents)} total agents")
+            logger.info(f"[agent_handler] Retrieved {len(agents_data)} agents from database with relations")
         else:
-            agents_data = all_agents
+            # For listing all agents, use memory (faster, but without detailed relations)
+            agents_data = [agent.to_dict(owner=username) for agent in memory_agents]
+            logger.info(f"[agent_handler] Retrieved {len(agents_data)} agents from memory")
         
         resultJS = {
             'agents': agents_data,
@@ -366,7 +374,6 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
                             logger.info(f"[agent_handler] ✅ Query successful, agent has {len(db_agent_data.get('skills', []))} skills, {len(db_agent_data.get('tasks', []))} tasks")
                             
                             # Convert database agent to EC_Agent instance
-                            from agent.agent_converter import convert_agent_dict_to_ec_agent
                             updated_ec_agent = convert_agent_dict_to_ec_agent(db_agent_data, main_window)
                             
                             if updated_ec_agent:
@@ -651,7 +658,6 @@ def handle_new_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
                 db_agent_data = db_agent_result['data'][0]
                 
                 # Convert database agent to EC_Agent instance
-                from agent.agent_converter import convert_agent_dict_to_ec_agent
                 ec_agent = convert_agent_dict_to_ec_agent(db_agent_data, main_window)
                 
                 if ec_agent:

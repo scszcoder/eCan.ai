@@ -133,13 +133,6 @@ const buildDoorsForNode = (
   return doors;
 };
 
-// Search匹配Function：Check文本是否IncludeSearch关键字
-const matchesSearchQuery = (text: string | undefined | null, query: string): boolean => {
-  if (!text || !query) return true;
-  const lowerQuery = query.toLowerCase();
-  return text.toLowerCase().includes(lowerQuery);
-};
-
 // IterateSearch组织树（替代Recursive，减少内存占用）
 const searchInOrgTree = (
   rootNode: TreeOrgNode,
@@ -263,8 +256,13 @@ const OrgNavigator: React.FC = () => {
   
   // 使用 useMemo 确保 isRootView 和 actualOrgId SyncUpdate
   const isRootView = useMemo(() => {
-    return !actualOrgId || actualOrgId === 'root';
-  }, [actualOrgId]); // ⚠️ 只Dependency actualOrgId，不Dependency pathname（避免重复Trigger）
+    // 根视图的判断条件：
+    // 1. 没有 orgId（URL 是 /agents）
+    // 2. orgId 是 'root'
+    // 3. orgId 等于根组织的 ID（避免根组织被当作子组织处理）
+    const rootOrgId = rootNode?.id;
+    return !actualOrgId || actualOrgId === 'root' || (rootOrgId && actualOrgId === rootOrgId);
+  }, [actualOrgId, rootNode]); // 添加 rootNode 依赖以获取根组织 ID
   
   const isUnassignedView = false;
 
@@ -446,12 +444,18 @@ const OrgNavigator: React.FC = () => {
         // 构建完整Path
         if (rootNode) {
           const buildOrgPath = (targetId: string, node: TreeOrgNode, path: string[] = []): string[] | null => {
+            // 先将当前节点加入路径
+            const currentPath = [...path, node.id];
+            
+            // 如果当前节点就是目标，返回路径（包含目标节点）
             if (node.id === targetId) {
-              return [...path, node.id];
+              return currentPath;
             }
+            
+            // 否则在子节点中继续查找
             if (node.children) {
               for (const child of node.children) {
-                const result = buildOrgPath(targetId, child, [...path, node.id]);
+                const result = buildOrgPath(targetId, child, currentPath);
                 if (result) return result;
               }
             }
@@ -463,6 +467,7 @@ const OrgNavigator: React.FC = () => {
           if (orgPath && orgPath.length > 0) {
             // 构建完整Path：/agents/organization/id1/organization/id2/...
             let fullPath = '/agents';
+            // 跳过根节点（第一个元素），添加路径上的所有组织（包括目标组织）
             orgPath.slice(1).forEach(id => {
               fullPath += `/organization/${id}`;
             });

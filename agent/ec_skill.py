@@ -2,10 +2,11 @@ from typing import Any, Dict, List
 import copy
 import json
 from typing import  Annotated
-from pydantic import ConfigDict, Field
-import uuid
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 from langgraph.graph import StateGraph
-from langchain_core.prompts import ChatPromptTemplate
+from langgraph.graph.state import CompiledStateGraph
+from typing import List, Any, Annotated, Literal
+import uuid
 from langmem.short_term import RunningSummary
 
 
@@ -162,11 +163,15 @@ DEFAULT_MAPPING_RULE = {
 
 
 def _generate_stable_id(name: str, source: str) -> str:
-    """Generate a stable ID for code skills based on name, or random UUID for ui skills."""
+    """Generate a stable ID for code skills based on name, or random UUID for ui skills.
+    
+    Code-generated skills use 'code-skill-' prefix for easy identification.
+    """
     if source == "code":
         # Use uuid5 with a namespace to generate deterministic ID from name
         namespace = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")  # UUID namespace for names
-        return str(uuid.uuid5(namespace, f"code:{name}"))
+        uuid_part = str(uuid.uuid5(namespace, f"code:{name}"))
+        return f"code-skill-{uuid_part}"  # Add prefix to identify code-generated skills
     return str(uuid.uuid4())
 
 
@@ -201,10 +206,26 @@ class EC_Skill(AgentSkill):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    def ensure_stable_id(self):
-        """Ensure stable ID for code skills. Call this after setting name and source."""
+    @model_validator(mode='after')
+    def _ensure_stable_id(self):
+        """Automatically generate/regenerate stable ID based on name and source.
+        
+        This is the ONLY place where ID generation happens:
+        - code skills: deterministic ID from name (code-skill-{uuid5})
+        - ui skills: random UUID (only if not already set)
+        
+        This validator runs:
+        1. After initial object creation
+        2. After any field update via model_validate()
+        """
+        # Always regenerate ID for code skills to ensure consistency
         if self.source == "code":
             self.id = _generate_stable_id(self.name, self.source)
+        # For ui skills, only generate if ID is not set or is default
+        elif not self.id or self.id == str(uuid.uuid4()):
+            # Keep existing ID for ui skills unless it's a default UUID
+            pass
+        return self
     
     def get_config(self):
         return self.config
@@ -687,62 +708,6 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
         return state
     # The node_builder itself returns the wrapper function
     return wrapper
-
-
-# ============ scratch here ==============================
-prompt0 = ChatPromptTemplate.from_messages([
-            ("system", """
-                You're a electronics component procurement expert helping sourcing components for this provided BOM in JSON format. Analyze the screenshot image provided.
-                - If an ad popup blocks the screen, identify the exact (x,y) coordinates to click.
-                - If Wi-Fi is disconnected, instruct to reconnect Wi-Fi.
-                Indicate clearly if the issue has been resolved.
-            """),
-            ("human", [
-                {"type": "text", "text": "{input}"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,{image_b64}"}},
-            ]),
-            ("placeholder", "{messages}"),
-        ])
-
-prompt1 = ChatPromptTemplate.from_messages([
-            ("system", """
-                You're an electronics component procurement expert helping sourcing this component {part} with the user provided parameters in JSON format.
-                - given the parameters, please check against our knowledge base to check whether additional parameters or selection criteria needed from the user, if so, prompt user with questions to get the info about the additional parameters or criteria.
-                - If all required parameters are collected, please generate a long tail search term for components search site: {site_url}
-                Indicate clearly if the issue has been resolved.
-            """),
-            ("human", [
-                {"type": "text", "text": "{input}"},
-                {"type": "image", "source_type": "base64", "data":"{image_b64}", "mime_type": "image/jpeg"}
-            ]),
-            ("placeholder", "{messages}"),
-        ])
-
-# openai file id can be obtained after uploading files to the /v1/files
-# post https://api.openai.com/v1/batches
-# post https://api.openai.com/v1/files
-# get https://api.openai.com/v1/files/{file_id}
-# get https://api.openai.com/v1/files   ---  Returns a list of files.
-
-
-prompt2 = ChatPromptTemplate.from_messages([
-            ("system", """
-                You're an electronics component procurement expert helping sourcing this component {part} with the user provided parameters in JSON format.
-                - given all required parameters, as well as the collected DOM tree of the current web page, please help collect as much required parameter info as possible
-                - If all required parameters are collected, please generate a long tail search term for components search site: {site_url}
-                Indicate clearly if the issue has been resolved.
-            """),
-            ("human", [
-                {"type": "text", "text": "{input}"},
-                {"type": "image_url", "source_type": "url", "image_url": {"url": "data:image/png;base64,{image_b64}"}},
-                {"type": "audio", "source_type": "base64", "data": "audio_data", "mime_type": "audio/wav", "cache_control": {"type": "ephemeral"}},
-                {"type": "file", "file": { "filename": "draconomicon.pdf", "file_data": "...base64 encoded bytes here..." }},
-                {"type": "file", "file": { "file_id": "file-6F2ksmvXxt4VdoqmHRw6kL" }},
-                { "type": "input_audio", "input_audio": { "data": "encoded_string", "format": "wav" }}
-            ]),
-            ("placeholder", "{messages}"),
-        ])
-
 
 def is_json_parsable(s):
     try:
