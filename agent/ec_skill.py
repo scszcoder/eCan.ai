@@ -204,6 +204,13 @@ class EC_Skill(AgentSkill):
     inputModes: List[str] | None = None
     outputModes: List[str] | None = None
 
+    apps: Any = None
+    limitations: Any = None
+    price: int = 0
+    price_model: str = ""
+    public: bool = False
+    rentable: bool = False
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @model_validator(mode='after')
@@ -272,6 +279,16 @@ class EC_Skill(AgentSkill):
             "level": self.level,
             "path": self.path,
             "source": self.source,  # 'code' or 'ui'
+            "tags": self.tags,
+            "examples": self.examples,
+            "inputModes": self.inputModes,
+            "outputModes": self.outputModes,
+            "apps": self.apps,
+            "limitations": self.limitations,
+            "price": self.price,
+            "price_model": self.price_model,
+            "public": self.public,
+            "rentable": self.rentable,
         }
 
 

@@ -585,74 +585,74 @@ class MainWindow:
         except Exception as e:
             logger.error(f"[MainWindow] Error in vehicle saving process: {e}")
 
-    def _copy_example_my_skills(self):
-        """
-        Copy example skills from resource/my_skills to appdata/my_skills directory
-        This method is synchronous and designed to be run in an executor
-        """
-        try:
-            from config.app_info import app_info
+    # def _copy_example_my_skills(self):
+    #     """
+    #     Copy example skills from resource/my_skills to appdata/my_skills directory
+    #     This method is synchronous and designed to be run in an executor
+    #     """
+    #     try:
+    #         from config.app_info import app_info
             
-            # Source directory: resource/my_skills
-            source_dir = os.path.join(app_info.app_resources_path, "my_skills")
+    #         # Source directory: resource/my_skills
+    #         source_dir = os.path.join(app_info.app_resources_path, "my_skills")
             
-            # Target directory: appdata/my_skills  
-            target_dir = os.path.join(app_info.appdata_path, "my_skills")
+    #         # Target directory: appdata/my_skills  
+    #         target_dir = os.path.join(app_info.appdata_path, "my_skills")
             
-            # Check if source directory exists
-            if not os.path.exists(source_dir):
-                logger.debug(f"[MainWindow] 📂 Source my_skills directory not found: {source_dir}")
-                return
+    #         # Check if source directory exists
+    #         if not os.path.exists(source_dir):
+    #             logger.debug(f"[MainWindow] 📂 Source my_skills directory not found: {source_dir}")
+    #             return
             
-            # Create target directory if it doesn't exist
-            if not os.path.exists(target_dir):
-                os.makedirs(target_dir, exist_ok=True)
-                logger.debug(f"[MainWindow] 📁 Created target my_skills directory: {target_dir}")
+    #         # Create target directory if it doesn't exist
+    #         if not os.path.exists(target_dir):
+    #             os.makedirs(target_dir, exist_ok=True)
+    #             logger.debug(f"[MainWindow] 📁 Created target my_skills directory: {target_dir}")
             
-            # Copy each skill directory from source to target
-            # NOTE: Always overwrite existing example skills to ensure latest code is used.
-            copied_count = 0
-            updated_count = 0
-            skipped_count = 0
+    #         # Copy each skill directory from source to target
+    #         # NOTE: Always overwrite existing example skills to ensure latest code is used.
+    #         copied_count = 0
+    #         updated_count = 0
+    #         skipped_count = 0
 
-            for skill_name in os.listdir(source_dir):
-                source_skill_path = os.path.join(source_dir, skill_name)
-                target_skill_path = os.path.join(target_dir, skill_name)
+    #         for skill_name in os.listdir(source_dir):
+    #             source_skill_path = os.path.join(source_dir, skill_name)
+    #             target_skill_path = os.path.join(target_dir, skill_name)
 
-                # Skip if not a directory
-                if not os.path.isdir(source_skill_path):
-                    continue
+    #             # Skip if not a directory
+    #             if not os.path.isdir(source_skill_path):
+    #                 continue
 
-                try:
-                    if os.path.exists(target_skill_path):
-                        # Target exists: remove it completely, then copy fresh from source
-                        logger.debug(f"[MainWindow] 🔄 Overwriting existing example skill: {skill_name}")
-                        try:
-                            shutil.rmtree(target_skill_path)
-                        except Exception as rm_err:
-                            logger.debug(f"[MainWindow] ⚠️ Failed to remove old skill dir {skill_name}: {rm_err}")
-                        shutil.copytree(source_skill_path, target_skill_path)
-                        updated_count += 1
-                    else:
-                        # Target doesn't exist: copy entire directory
-                        shutil.copytree(source_skill_path, target_skill_path)
-                        logger.debug(f"[MainWindow] ✅ Copied example skill: {skill_name}")
-                        copied_count += 1
-                except Exception as copy_error:
-                    logger.debug(f"[MainWindow] ❌ Failed to copy/update skill {skill_name}: {copy_error}")
+    #             try:
+    #                 if os.path.exists(target_skill_path):
+    #                     # Target exists: remove it completely, then copy fresh from source
+    #                     logger.debug(f"[MainWindow] 🔄 Overwriting existing example skill: {skill_name}")
+    #                     try:
+    #                         shutil.rmtree(target_skill_path)
+    #                     except Exception as rm_err:
+    #                         logger.debug(f"[MainWindow] ⚠️ Failed to remove old skill dir {skill_name}: {rm_err}")
+    #                     shutil.copytree(source_skill_path, target_skill_path)
+    #                     updated_count += 1
+    #                 else:
+    #                     # Target doesn't exist: copy entire directory
+    #                     shutil.copytree(source_skill_path, target_skill_path)
+    #                     logger.debug(f"[MainWindow] ✅ Copied example skill: {skill_name}")
+    #                     copied_count += 1
+    #             except Exception as copy_error:
+    #                 logger.debug(f"[MainWindow] ❌ Failed to copy/update skill {skill_name}: {copy_error}")
             
-            if copied_count > 0:
-                logger.info(f"[MainWindow] 🎉 Successfully copied {copied_count} example skill(s) to my_skills directory")
-            if updated_count > 0:
-                logger.info(f"[MainWindow] 🔄 Successfully updated {updated_count} example skill(s) in my_skills directory")
-            if skipped_count > 0:
-                logger.debug(f"[MainWindow] 📊 Skipped {skipped_count} existing skill(s)")
-            if copied_count == 0 and updated_count == 0 and skipped_count == 0:
-                logger.debug(f"[MainWindow] 📂 No skills found to copy from {source_dir}")
+    #         if copied_count > 0:
+    #             logger.info(f"[MainWindow] 🎉 Successfully copied {copied_count} example skill(s) to my_skills directory")
+    #         if updated_count > 0:
+    #             logger.info(f"[MainWindow] 🔄 Successfully updated {updated_count} example skill(s) in my_skills directory")
+    #         if skipped_count > 0:
+    #             logger.debug(f"[MainWindow] 📊 Skipped {skipped_count} existing skill(s)")
+    #         if copied_count == 0 and updated_count == 0 and skipped_count == 0:
+    #             logger.debug(f"[MainWindow] 📂 No skills found to copy from {source_dir}")
                 
-        except Exception as e:
-            logger.debug(f"[MainWindow] ❌ Error copying example my_skills: {e}")
-            # Silently continue - this is a nice-to-have feature
+    #     except Exception as e:
+    #         logger.debug(f"[MainWindow] ❌ Error copying example my_skills: {e}")
+    #         # Silently continue - this is a nice-to-have feature
 
     def is_ui_ready(self) -> bool:
         """Check if UI is ready for display (minimal initialization complete)"""
@@ -1764,15 +1764,9 @@ class MainWindow:
             else:
                 logger.info(f"[MainWindow] ✅ All components ready - LLM: {type(self.llm)}, MCP Client: {self.mcp_client is not None}")
 
-                # CRITICAL: Copy example skills BEFORE building agent skills
-                # This ensures skills like search_digikey_chatter are available when agents are initialized
-                logger.info("[MainWindow] 📚 Pre-copying example skills before agent initialization...")
-                try:
-                    await asyncio.get_event_loop().run_in_executor(None, self._copy_example_my_skills)
-                    logger.info("[MainWindow] ✅ Example skills pre-copied successfully")
-                except Exception as e:
-                    logger.warning(f"[MainWindow] ⚠️ Pre-copy of example skills failed: {e}")
-                    # Continue anyway - skills might already exist
+                # Skills are now loaded directly from resource/my_skills via code-based loading
+                # No need to copy example skills anymore
+                logger.info("[MainWindow] 📚 Skills will be loaded directly from resource/my_skills")
 
                 # Start skill building task (asynchronous)
                 agent_skills_task = asyncio.create_task(self._build_agent_skills_async())
