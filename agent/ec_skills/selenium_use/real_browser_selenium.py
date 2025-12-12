@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from browser_use import Agent, BrowserSession
 from browser_use.browser.profile import BrowserProfile
 from browser_use.llm.openai.chat import ChatOpenAI
+from utils.logger_helper import logger_helper as logger
 
 try:
     from ..mcp.server.ads_power.ads_power import startAdspowerProfile
@@ -30,15 +31,22 @@ class LoggingChatOpenAI(ChatOpenAI):
         @wraps(original_create)
         async def create_with_logging(*args, **kwargs):
             response = await original_create(*args, **kwargs)
-            org = None
 
+            # Log organization header
             try:
                 org = response.response.headers.get("openai-organization")
+                if org:
+                    logger.info(f"[BrowserUse] OpenAI organization: {org}")
             except AttributeError:
                 pass
 
-            if org:
-                self.logger.info("OpenAI organization: %s", org)
+            # Log actual LLM response content
+            try:
+                if hasattr(response, 'choices') and response.choices:
+                    content = response.choices[0].message.content
+                    logger.debug(f"[BrowserUse] LLM Response: {content}")
+            except Exception:
+                pass
 
             return response
 

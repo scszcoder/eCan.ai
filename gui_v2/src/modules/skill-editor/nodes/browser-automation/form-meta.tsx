@@ -7,7 +7,7 @@ import { Divider, Select } from '@douyinfe/semi-ui';
 import { defaultFormMeta } from '../default-form-meta';
 import { FormContent, FormHeader, FormItem, FormInputs } from '../../form-components';
 import { PromptInputWithSelector } from '../../form-components/PromptInputWithSelector';
-import { DisplayOutputs } from '@flowgram.ai/form-materials';
+import { DisplayOutputs, createInferInputsPlugin } from '@flowgram.ai/form-materials';
 import { get_ipc_api } from '../../../../services/ipc_api';
 import { usePromptStore } from '../../../../stores/promptStore';
 import { useUserStore } from '../../../../stores/userStore';
@@ -31,6 +31,17 @@ const BROWSER_DRIVER_OPTIONS = [
   { label: 'Selenium', value: 'selenium' },
   { label: 'Playwright', value: 'playwright' },
   { label: 'Puppeteer', value: 'puppeteer' },
+];
+
+const SHOP_OPTIONS = [
+  { label: 'Amazon', value: 'amazon' },
+  { label: 'eBay', value: 'ebay' },
+  { label: 'Etsy', value: 'etsy' },
+  { label: 'Walmart', value: 'walmart' },
+  { label: 'TikTok', value: 'tiktok' },
+  { label: 'Shopify', value: 'shopify' },
+  { label: 'WooCommerce', value: 'woocommerce' },
+  { label: 'Custom', value: 'custom' },
 ];
 
 // Cache for LLM providers from backend
@@ -179,6 +190,41 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           </Field>
         </FormItem>
 
+        {/* Shop selector */}
+        <FormItem name="shopName" type="string" vertical>
+          <Field<string> name="inputsValues.shopName.content">
+            {({ field: shopField }) => (
+              <Field<string> name="inputsValues.customShopName.content">
+                {({ field: customShopField }) => {
+                  const shopValue = (shopField.value as string) || SHOP_OPTIONS[0].value;
+                  const isCustom = shopValue === 'custom';
+                  return (
+                    <>
+                      <Select
+                        value={shopValue}
+                        onChange={(val) => shopField.onChange(val as string)}
+                        optionList={SHOP_OPTIONS}
+                        style={{ width: '100%' }}
+                        dropdownMatchSelectWidth
+                        size="small"
+                      />
+                      {isCustom && (
+                        <input
+                          type="text"
+                          value={(customShopField.value as string) || ''}
+                          onChange={(e) => customShopField.onChange(e.target.value)}
+                          placeholder="Enter custom shop name"
+                          style={{ width: '100%', padding: '6px 12px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '3px', marginTop: '8px' }}
+                        />
+                      )}
+                    </>
+                  );
+                }}
+              </Field>
+            )}
+          </Field>
+        </FormItem>
+
         {/* Model Provider selector */}
         <FormItem name="modelProvider" type="string" vertical>
           <Field<string> name="inputsValues.modelProvider.content">
@@ -275,4 +321,5 @@ export const formMeta: FormMeta = {
   render: (props) => <FormRender {...props} />,
   effect: defaultFormMeta.effect,
   validate: defaultFormMeta.validate,
+  plugins: [createInferInputsPlugin({ sourceKey: 'inputsValues', targetKey: 'inputs' })],
 };

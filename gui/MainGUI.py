@@ -1096,6 +1096,10 @@ class MainWindow:
         self.sellerInventoryJsonData = None
         self.fetch_schedule_counter = 1
 
+        # Email management - stores latest emails from various mailboxes
+        # Schema: {"gmail": {"mailbox": "gmail", "mails": [dict]}, "yahoo": {...}, ...}
+        self.latest_emails = {}
+
         logger.info("[MainWindow] ✅ Business objects initialized")
 
     def _init_network_communication(self):
@@ -2814,6 +2818,57 @@ class MainWindow:
 
     def setWebDriver(self, driver):
         self.default_webdriver = driver
+
+    def setLatestEmails(self, mbox_type: str, emails: list):
+        """Store latest emails for a mailbox type.
+        
+        Args:
+            mbox_type: Mailbox type (e.g., 'gmail', 'yahoo', 'hotmail')
+            emails: List of email dictionaries
+        """
+        self.latest_emails[mbox_type] = {
+            "mailbox": mbox_type,
+            "mails": emails
+        }
+
+    def getLatestEmails(self, mbox_type: str) -> dict:
+        """Get latest emails for a mailbox type.
+        
+        Args:
+            mbox_type: Mailbox type (e.g., 'gmail', 'yahoo', 'hotmail')
+            
+        Returns:
+            Dict with mailbox and mails, or empty dict if not found
+        """
+        return self.latest_emails.get(mbox_type, {"mailbox": mbox_type, "mails": []})
+
+    def findLatestEmail(self, title: str = None, sender: str = None, 
+                        from_email: str = None, datetime_str: str = None) -> dict:
+        """Find a specific email across all mailboxes by matching criteria.
+        
+        Args:
+            title: Email subject/title to match (partial match)
+            sender: Sender name to match (partial match)
+            from_email: Sender email address to match (partial match)
+            datetime_str: Datetime string to match (partial match)
+            
+        Returns:
+            Matching email dict or None if not found
+        """
+        for mbox_type, mbox_data in self.latest_emails.items():
+            for mail in mbox_data.get("mails", []):
+                # Check each criterion if provided
+                if title and title.lower() not in mail.get("title", "").lower():
+                    continue
+                if sender and sender.lower() not in mail.get("from", "").lower():
+                    continue
+                if from_email and from_email.lower() not in mail.get("from_email", "").lower():
+                    continue
+                if datetime_str and datetime_str not in mail.get("datetime", ""):
+                    continue
+                # All provided criteria matched
+                return mail
+        return None
 
     def getWebCrawler(self):
         return self.async_crawler

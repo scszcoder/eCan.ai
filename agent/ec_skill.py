@@ -346,6 +346,9 @@ class NodeState(TypedDict):
     goals: List[Goal]
     next_action: str
     breakpoint: bool
+    py_script: str
+    ts_script: str
+    shell_script: str
     task_start_time: str
     max_steps: int
     n_steps: int
