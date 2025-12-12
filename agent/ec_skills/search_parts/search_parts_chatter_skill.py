@@ -1325,9 +1325,11 @@ async def create_search_parts_chatter_skill(mainwin):
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        searcher_chatter_skill = EC_Skill(name="chatter for ecan.ai search parts and components web site",
-                             description="chat with human or other agents to help search a part/component or a product on 1688 website.")
-
+        searcher_chatter_skill = EC_Skill(
+            name="chatter for ecan.ai search parts and components web site",
+            description="chat with human or other agents to help search a part/component or a product on 1688 website.",
+            source="code"  # Mark as code-generated skill
+        )       
         # Use mainwin's llm object instead of hardcoded ChatOpenAI
         logger.debug("[search_parts_chatter_skill] llm loaded:", llm)
 

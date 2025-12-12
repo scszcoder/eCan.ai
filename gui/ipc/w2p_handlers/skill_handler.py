@@ -23,10 +23,10 @@ IPCHandlerRegistry.add_to_whitelist('test_langgraph2flowgram')
 
 @IPCHandlerRegistry.handler('get_agent_skills')
 def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Get agent skills list, supports dual data sources: local database + cloud data
+    """Get agent skills list from database
 
-    On startup, prioritizes reading from local database, builds test skills in memory,
-    then requests cloud data. If cloud data exists, it overwrites local data and updates database.
+    Reads agent skills from database to ensure all fields (including 'source') are available.
+    Falls back to memory if database is not available.
 
     Args:
         request: IPC request object
@@ -50,21 +50,23 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
         username = data['username']
         logger.info(f"Getting agent skills for user: {username}")
 
-        # Read skill data directly from memory (build_agent_skills has completed all data integration)
+        # Get skills from memory (mainwin.agent_skills is the single source of truth)
+        # Skills are loaded from database during startup by build_agent_skills()
         try:
             main_window = AppContext.get_main_window()
             memory_skills = main_window.agent_skills or []
             logger.info(f"Found {len(memory_skills)} skills in memory (mainwin.agent_skills)")
 
-            # Convert memory skills to dictionary format
+            # Convert skills to dictionary format
             skills_dicts = []
             for i, sk in enumerate(memory_skills):
                 try:
                     sk_dict = sk.to_dict()
-                    # Ensure necessary fields exist
+                    # Ensure owner field is set
                     sk_dict['owner'] = username
                     if 'id' not in sk_dict:
                         sk_dict['id'] = f"skill_{i}"
+                    
                     skills_dicts.append(sk_dict)
                     logger.debug(f"Converted skill: {sk_dict.get('name', 'NO NAME')} (id: {sk_dict.get('id', 'NO ID')})")
                 except Exception as e:
@@ -75,7 +77,6 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
             resultJS = {
                 'skills': skills_dicts,
                 'message': 'Get skills successful',
-                'source': 'memory'
             }
             return create_success_response(request, resultJS)
 
@@ -85,7 +86,6 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
             return create_success_response(request, {
                 'skills': [],
                 'message': 'No agent skills available',
-                'source': 'empty'
             })
 
     except Exception as e:

@@ -72,6 +72,7 @@ def _prepare_agent_task_data(agent_task_info: Dict[str, Any], username: str, age
         'name': agent_task_info.get('name', 'Unnamed Agent Task'),
         'owner': username,
         'description': agent_task_info.get('description', ''),
+        'source': agent_task_info.get('source', 'ui'),  # Preserve source field
         'priority': agent_task_info.get('priority', 'medium'),
         'status': agent_task_info.get('status', 'pending'),
         'task_type': agent_task_info.get('task_type', ''),
@@ -186,10 +187,10 @@ def _create_clean_agent_task_response(agent_task_id: str, agent_task_data: Dict[
 
 @IPCHandlerRegistry.handler('get_agent_tasks')
 def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Get agent tasks list from memory
+    """Get agent tasks list from database
 
-    Reads agent tasks from mainwin.agent_tasks which contains all agent tasks
-    (database agent tasks + cloud agent tasks + local code agent tasks).
+    Reads agent tasks from database to ensure all fields (including 'source') are available.
+    Falls back to memory if database is not available.
 
     Args:
         request: IPC request object
@@ -214,39 +215,58 @@ def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]
         username = data['username']
         logger.info(f"Getting agent tasks for user: {username}")
 
-        # Read agent task data directly from memory
+        # Get tasks from memory (mainwin.agent_tasks is the single source of truth)
+        # Tasks are loaded from database during startup
         try:
             main_window = AppContext.get_main_window()
             memory_agent_tasks = main_window.agent_tasks or []
             logger.info(f"Found {len(memory_agent_tasks)} agent tasks in memory (mainwin.agent_tasks)")
 
-            # Convert memory agent tasks to dictionary format
+            # Convert tasks to dictionary format
             agent_tasks_dicts = []
             for i, agent_task in enumerate(memory_agent_tasks):
                 try:
-                    agent_task_dict = agent_task.to_dict() if hasattr(agent_task, 'to_dict') else {
-                        'id': getattr(agent_task, 'id', f'agent_task_{i}'),
-                        'name': getattr(agent_task, 'name', 'Unknown Agent Task'),
-                        'description': getattr(agent_task, 'description', ''),
-                        'owner': username,
-                        'status': _serialize_task_status(getattr(agent_task, 'status', None)),
-                        'priority': getattr(agent_task, 'priority', 'medium')
-                    }
-                    # Ensure necessary fields exist
+                    # Use Pydantic's model_dump() for proper serialization
+                    if hasattr(agent_task, 'model_dump'):
+                        # Pydantic v2: model_dump() with exclude for non-serializable fields
+                        agent_task_dict = agent_task.model_dump(
+                            exclude={'skill', 'task', 'pause_event', 'cancellation_event', 'queue'},
+                            mode='json'
+                        )
+                    elif hasattr(agent_task, 'dict'):
+                        # Pydantic v1: dict() method
+                        agent_task_dict = agent_task.dict(
+                            exclude={'skill', 'task', 'pause_event', 'cancellation_event', 'queue'}
+                        )
+                    else:
+                        # ❌ Error: agent_task should be a Pydantic model
+                        logger.error(f"Agent task {i} is not a Pydantic model! Type: {type(agent_task)}, Name: {getattr(agent_task, 'name', 'UNKNOWN')}")
+                        logger.error(f"This indicates a serious data structure issue. Skipping this task.")
+                        continue
+                    
+                    # Ensure owner field is set
                     agent_task_dict['owner'] = username
                     if 'id' not in agent_task_dict:
                         agent_task_dict['id'] = f"agent_task_{i}"
+                    
+                    # Serialize status properly
+                    if 'status' in agent_task_dict:
+                        agent_task_dict['status'] = _serialize_task_status(agent_task_dict['status'])
+                    
                     agent_tasks_dicts.append(agent_task_dict)
-                    logger.debug(f"Converted agent task: {agent_task_dict.get('name', 'NO NAME')}")
+                    logger.debug(f"Converted agent task: {agent_task_dict.get('name', 'NO NAME')}, source: {agent_task_dict.get('source', 'N/A')}")
                 except Exception as e:
                     logger.error(f"Failed to convert agent task {i}: {e}")
+                    import traceback
+                    logger.error(f"Traceback: {traceback.format_exc()}")
+                    # Skip this task instead of crashing the entire request
+                    continue
 
             logger.info(f"Returning {len(agent_tasks_dicts)} agent tasks to frontend")
 
             resultJS = {
                 'tasks': agent_tasks_dicts,
                 'message': 'Get agent tasks successful',
-                'source': 'memory'
             }
             return create_success_response(request, resultJS)
 
@@ -256,7 +276,6 @@ def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]
             return create_success_response(request, {
                 'tasks': [],
                 'message': 'No agent tasks available',
-                'source': 'empty'
             })
 
     except Exception as e:
@@ -293,6 +312,16 @@ def handle_save_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]]
 
         if not agent_task_id:
             return create_error_response(request, 'INVALID_PARAMS', 'Agent task ID is required for save operation')
+
+        # ⚠️ Prevent saving code-generated tasks to database
+        task_source = agent_task_info.get('source', 'ui')
+        if task_source == 'code':
+            logger.warning(f"Blocked attempt to save code-generated task '{agent_task_info.get('name')}' to database")
+            return create_error_response(
+                request, 
+                'INVALID_OPERATION', 
+                'Cannot save code-generated tasks to database. Code-generated tasks are read-only.'
+            )
 
         logger.info(f"Saving agent task for user: {username}, agent_task_id: {agent_task_id}")
 
@@ -484,6 +513,19 @@ def handle_delete_agent_task(request: IPCRequest, params: Optional[Dict[str, Any
 
         username = data['username']
         agent_task_id = data['task_id']
+
+        # ⚠️ Prevent deleting code-generated tasks from database
+        # First check if this is a code-generated task by checking memory
+        main_window = AppContext.get_main_window()
+        if main_window and hasattr(main_window, 'agent_tasks'):
+            existing_task = next((t for t in main_window.agent_tasks if getattr(t, 'id', None) == agent_task_id), None)
+            if existing_task and getattr(existing_task, 'source', 'ui') == 'code':
+                logger.warning(f"Blocked attempt to delete code-generated task '{getattr(existing_task, 'name', 'Unknown')}' from database")
+                return create_error_response(
+                    request,
+                    'INVALID_OPERATION',
+                    'Cannot delete code-generated tasks. Code-generated tasks are read-only.'
+                )
 
         logger.info(f"Deleting agent task for user: {username}, agent_task_id: {agent_task_id}")
 

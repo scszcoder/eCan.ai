@@ -11,7 +11,7 @@ from langgraph.errors import GraphInterrupt
 from langgraph.types import interrupt
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
-from agent.ec_skill import NodeState, WorkFlowContext, prompt0
+from agent.ec_skill import NodeState, WorkFlowContext
 from agent.agent_service import get_agent_by_id
 from agent.mcp.local_client import mcp_call_tool
 from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync, try_parse_json, get_standard_prompt, build_a2a_response_message

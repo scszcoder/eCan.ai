@@ -13,9 +13,65 @@ from enum import Enum
 from queue import Queue
 from typing import Any, ClassVar, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from agent.a2a.common.types import Task, TaskState, Message, TextPart
+
+
+# ==================== Utility Functions ====================
+
+def create_enum_validator(enum_class, invalid_values=None, allow_none=True):
+    """
+    Create a generic validator for enum fields.
+    
+    Args:
+        enum_class: The Enum class to validate against
+        invalid_values: Set of values to treat as invalid (e.g., {'none', ''})
+        allow_none: Whether to allow None values (default: True)
+    
+    Returns:
+        A validator function that can be used with @field_validator
+    
+    Example:
+        @field_validator('priority', mode='before')
+        @classmethod
+        def validate_priority(cls, v):
+            return create_enum_validator(PriorityType, {'none', ''})(v)
+    """
+    if invalid_values is None:
+        invalid_values = {'none', ''}
+    
+    def validator(v):
+        # Handle None and empty values
+        if v is None or v == '':
+            return None if allow_none else v
+        
+        # Check if value is in invalid set (case-insensitive)
+        if isinstance(v, str) and v.lower() in invalid_values:
+            return None if allow_none else v
+        
+        # If already correct enum type, return as is
+        if isinstance(v, enum_class):
+            return v
+        
+        # Try to convert string to enum
+        if isinstance(v, str):
+            try:
+                # Try exact match first
+                return enum_class(v)
+            except ValueError:
+                # Try case-insensitive match
+                v_lower = v.lower()
+                for enum_item in enum_class:
+                    if enum_item.value.lower() == v_lower:
+                        return enum_item
+                # Invalid value
+                return None if allow_none else v
+        
+        # Unknown type
+        return None if allow_none else v
+    
+    return validator
 
 
 # ==================== Enums ====================
@@ -90,10 +146,11 @@ class ManagedTask(Task):
     Execution logic is delegated to TaskExecutor.
     """
     # Core identifiers
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))  # Will be overridden in __init__
     run_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
     description: str = ""
+    source: str = "ui"  # "code" for code-based, "ui" for UI-created
     
     # Skill reference (Any to avoid strict validation)
     skill: Any = None
@@ -123,6 +180,12 @@ class ManagedTask(Task):
     queue: Optional[Queue] = Field(default_factory=Queue)
     
     model_config = ConfigDict(arbitrary_types_allowed=True)
+    
+    @field_validator('priority', mode='before')
+    @classmethod
+    def validate_priority(cls, v):
+        """Validate and normalize priority field using generic enum validator."""
+        return create_enum_validator(PriorityType, invalid_values={'none', ''})(v)
     
     def __init__(self, **data):
         super().__init__(**data)
