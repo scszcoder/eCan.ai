@@ -347,6 +347,7 @@
       }
     },
     "agents": {
+      "system_example_cannot_select": "System example cannot be selected",
       "add": "Add",
       "add_agent": "Add Agent",
       "agent_details": "Agent Details",
@@ -391,7 +392,13 @@
       "avatar": "Avatar",
       "search_placeholder": "Enter name or other keywords",
       "no_search_results": "No results found",
-      "try_different_search": "Try a different search term or clear the search"
+      "try_different_search": "Try a different search term or clear the search",
+      "code_generated_item": "Code-generated item (not in database)",
+      "validation_error": "Validation Error",
+      "invalid_skills": "Invalid Skills",
+      "invalid_tasks": "Invalid Tasks",
+      "validation_hint": "These items do not exist in the database. Please remove them and try again.",
+      "save_failed": "Save Failed"
     },
     "analytics": {
       "activeAgents": "Active Agents",
@@ -1060,6 +1067,7 @@
       "uses": "uses"
     },
     "tasks": {
+      "readOnlyCodeGenerated": "Read-only",
       "title": "Task Management",
       "add": "Add",
       "details": "Details",
@@ -1749,6 +1757,15 @@
         "summary": "Summary",
         "length": "Length",
         "chunks": "Chunks",
+        "processingProgress": "Processing Progress",
+        "documentsProcessed": "Documents Processed",
+        "cannotDeleteProcessing": "Cannot delete documents that are being processed or pending. Please wait until processing is complete.",
+        "stop": "Stop",
+        "stopProcessing": "Stop Processing",
+        "stopProcessingConfirm": "Are you sure you want to stop processing document {{filePath}}?\n\n⚠️ Note: This will cancel the entire processing pipeline. All documents being processed will be marked as failed.",
+        "stoppingDocument": "Stopping processing pipeline...",
+        "documentStopped": "Processing pipeline stopped, all processing documents marked as failed",
+        "errorStoppingDocument": "Failed to stop processing: ",
         "createdAt": "Created At",
         "actions": "Actions",
         "noDocuments": "No Documents",
@@ -1779,6 +1796,7 @@
         "loadedDocuments": "Loaded {{count}} documents (Page {{page}})",
         "ingestError": "Ingest Error",
         "clearCacheConfirm": "Clear all cache? This will remove processed data from the knowledge base.",
+        "deleteDocument": "Delete Document",
         "deleteDocumentConfirm": "Delete document: {{filePath}}?",
         "selectDirectoryFirst": "Please select a directory first",
         "startingScan": "Starting scan for new documents...",
@@ -1792,7 +1810,16 @@
         "errorSelectingDirectory": "Error selecting directory: ",
         "errorScanning": "Error scanning: ",
         "errorClearingCache": "Error clearing cache: ",
-        "errorDeletingDocument": "Error deleting document: "
+        "errorDeletingDocument": "Error deleting document: ",
+        "processingStoppedWithPending": "Processing stopped. {{failed}} documents marked as failed, {{pending}} pending documents remain in pending state (not started).\\n\\nTo delete pending documents, click the delete button on each document.",
+        "warnPendingCannotDelete": "Warning: Document {{filePath}} is in pending state and may not be deletable",
+        "deletionFailedStillExists": "Deletion failed: Document still exists.\\n\\nThis is usually because LightRAG does not allow deleting documents in {{status}} status.",
+        "cannotDeletePendingSolution": "Cannot delete pending document.\\n\\nSolution:\\n1. Wait for document to start processing (becomes PROCESSING status)\\n2. Then click the \\\"Stop\\\" button\\n3. Document will become FAILED status\\n4. Finally delete it\\n\\nOr:\\nUse LightRAG management tools to clean the database directly",
+        "deletePendingConfirm": "Document {{filePath}} is in pending queue.\\n\\n⚠️ Due to LightRAG limitations, pending documents cannot be deleted directly.\\n\\nSuggested actions:\\n1. Wait for document to start processing before deleting\\n2. Or stop the entire processing pipeline, documents will remain pending and can be cleaned up later\\n\\nStill want to try deleting?",
+        "deleteProcessingConfirm": "Document {{filePath}} is being processed.\\n\\nDeletion will first stop the processing pipeline, then delete the document.\\n\\nAre you sure you want to continue?",
+        "stoppingProcessingFirst": "Document {{filePath}} is being processed, stopping processing pipeline first...",
+        "processingStoppedWaitingUpdate": "Processing pipeline stopped, waiting for document status update...",
+        "warnStopFailedTryDelete": "Warning: Failed to stop processing, trying direct deletion..."
       },
       "retrieval": {
         "querySettings": "Query Settings",

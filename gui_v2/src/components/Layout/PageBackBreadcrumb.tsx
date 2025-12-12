@@ -5,6 +5,7 @@ import { ArrowLeftOutlined, HomeOutlined, ReloadOutlined, SearchOutlined } from 
 import { useTranslation } from 'react-i18next';
 import styled from '@emotion/styled';
 import { useOrgStore } from '../../stores/orgStore';
+import { useAgentStore } from '../../stores/agentStore';
 import { useTaskStore } from '../../stores/domain/taskStore';
 import { useSkillStore } from '../../stores/domain/skillStore';
 import { useUserStore } from '../../stores/userStore';
@@ -256,24 +257,44 @@ const agentsPathHandler: PathHandler = {
         // Parse organization Path
         const orgMatches = path.match(/organization\/([^/]+)/g);
         if (orgMatches && rootNode) {
-            let currentPath = '/agents';
-            orgMatches.forEach((match, index) => {
-                const orgId = match.replace('organization/', '');
-                const node = findTreeNodeById(rootNode, orgId);
+            // 获取最后一个组织 ID（当前组织）
+            const lastMatch = orgMatches[orgMatches.length - 1];
+            const currentOrgId = lastMatch.replace('organization/', '');
+            const currentNode = findTreeNodeById(rootNode, currentOrgId);
+            
+            if (currentNode) {
+                // 构建从根节点到当前节点的完整路径
+                const buildOrgPath = (targetNode: any, currentNode: any, pathSoFar: any[] = []): any[] | null => {
+                    if (currentNode.id === targetNode.id) {
+                        return [...pathSoFar, currentNode];
+                    }
+                    if (currentNode.children) {
+                        for (const child of currentNode.children) {
+                            const result = buildOrgPath(targetNode, child, [...pathSoFar, currentNode]);
+                            if (result) return result;
+                        }
+                    }
+                    return null;
+                };
                 
-                if (node) {
-                    currentPath += `/organization/${orgId}`;
-                    const isLast = index === orgMatches.length - 1 && !path.includes('/details/');
-                    
-                    items.push({
-                        key: currentPath,
-                        title: isLast 
-                            ? createCurrentNode(node.name)
-                            : createClickableLink(node.name, currentPath, navigate),
-                        path: isLast ? undefined : currentPath
+                const orgPath = buildOrgPath(currentNode, rootNode);
+                if (orgPath) {
+                    // 跳过根节点（已经添加为 eCan.ai），添加所有中间节点和当前节点
+                    let currentPath = '/agents';
+                    orgPath.slice(1).forEach((node, index) => {
+                        currentPath += `/organization/${node.id}`;
+                        const isLast = index === orgPath.length - 2 && !path.includes('/details/');
+                        
+                        items.push({
+                            key: currentPath,
+                            title: isLast 
+                                ? createCurrentNode(node.name)
+                                : createClickableLink(node.name, currentPath, navigate),
+                            path: isLast ? undefined : currentPath
+                        });
                     });
                 }
-            });
+            }
         }
         
         // If是 details Page或 add Page，尝试从URLParameterGetorgId
@@ -319,13 +340,42 @@ const agentsPathHandler: PathHandler = {
             }
 
             // AddDetails/新增Page标题
+            let pageTitle = '';
+            if (path.includes('/add')) {
+                // 新建 agent
+                pageTitle = t('pages.agents.create_agent', 'Create Agent');
+            } else {
+                // 编辑 agent - 尝试获取 agent 名称
+                const agentIdMatch = path.match(/\/details\/([^/?]+)/);
+                if (agentIdMatch) {
+                    const agentId = agentIdMatch[1];
+                    // 从 agentStore 获取 agent 数据
+                    const agents = context?.agents || [];
+                    
+                    // 尝试多种方式查找 agent
+                    let agent = agents.find((a: any) => a.id === agentId);
+                    
+                    if (!agent) {
+                        // 尝试从 card.id 查找
+                        agent = agents.find((a: any) => a.card?.id === agentId);
+                    }
+                    
+                    // 优先使用 agent.name，其次 card.name，最后降级
+                    if (agent?.name) {
+                        pageTitle = agent.name;
+                    } else if (agent?.card?.name) {
+                        pageTitle = agent.card.name;
+                    } else {
+                        pageTitle = t('pages.agents.agent_details', 'Agent Details');
+                    }
+                } else {
+                    pageTitle = t('pages.agents.agent_details', 'Agent Details');
+                }
+            }
+            
             items.push({
                 key: path,
-                title: createCurrentNode(
-                    path.includes('/add')
-                        ? t('pages.agents.create_agent', 'Create Agent')
-                        : t('pages.agents.agent_details', 'Agent Details')
-                )
+                title: createCurrentNode(pageTitle)
             });
         }
         
@@ -442,6 +492,9 @@ const PageBackBreadcrumb: React.FC<PageBackBreadcrumbProps> = ({ searchQuery = '
     // 从 location.search GetQueryParameter
     const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
     
+    // 订阅 agentStore 的变化
+    const agents = useAgentStore((state) => state.agents);
+    
     // 构建面包屑项 - 使用Process器模式
     const items = useMemo(() => {
         // 找到第一个匹配的Process器
@@ -450,12 +503,13 @@ const PageBackBreadcrumb: React.FC<PageBackBreadcrumbProps> = ({ searchQuery = '
         // 准备上下文Data
         const context = {
             treeOrgs,
-            searchParams
+            searchParams,
+            agents
         };
 
         // 使用Process器生成面包屑项
         return handler ? handler.generate(segments, path, t, navigate, context) : [];
-    }, [path, segments, t, navigate, treeOrgs, searchParams]);
+    }, [path, segments, t, navigate, treeOrgs, searchParams, agents]);
     
     // 计算返回Path
     const parentPath = useMemo(() => {

@@ -3,6 +3,7 @@ import {
   SaveOutlined,
   CloseOutlined,
   DeleteOutlined,
+  LockOutlined,
 } from '@ant-design/icons';
 import { Button, Space, Form, Input, Row, Col, Select, DatePicker, App } from 'antd';
 import { useTranslation } from 'react-i18next';
@@ -205,7 +206,22 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
     }
   };
 
+  // Check if task is code-generated (read-only)
+  const isCodeGenerated = React.useMemo(() => {
+    if (!task) return false;
+    const t = task as any;
+    // Check source field first
+    if (t.source === 'code') return true;
+    // Check ID prefix as fallback
+    if (t.id && typeof t.id === 'string' && t.id.startsWith('code-task-')) return true;
+    return false;
+  }, [task]);
+
   const handleEdit = () => {
+    if (isCodeGenerated) {
+        message.warning(t('pages.tasks.readOnlyCodeGenerated') || 'This task is code-generated and read-only');
+        return;
+    }
     console.log('[TaskDetail] Edit button clicked, setting editMode to true');
     setEditMode(true);
   };
@@ -661,24 +677,43 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
           {/* 查看模式：DisplayEdit和DeleteButton */}
           {!editMode && !isNew && task && (
             <>
-              <Button
-                type="primary"
-                onClick={handleEdit}
-                icon={<EditOutlined />}
-                size="large"
-                style={primaryButtonStyle}
-              >
-                {t('common.edit')}
-              </Button>
-              <Button
-                danger
-                onClick={handleDelete}
-                icon={<DeleteOutlined />}
-                size="large"
-                style={buttonStyle}
-              >
-                {t('common.delete', 'Delete')}
-              </Button>
+              {isCodeGenerated ? (
+                 <Button
+                   icon={<LockOutlined />}
+                   disabled
+                   size="large"
+                   style={{ 
+                     ...buttonStyle, 
+                     color: 'rgba(255, 255, 255, 0.6)', 
+                     borderColor: 'rgba(255, 255, 255, 0.2)',
+                     background: 'rgba(255, 255, 255, 0.05)',
+                     cursor: 'not-allowed'
+                   }}
+                 >
+                   {t('pages.tasks.readOnlyCodeGenerated') || 'Read-only: Code Generated'}
+                 </Button>
+              ) : (
+                <>
+                  <Button
+                    type="primary"
+                    onClick={handleEdit}
+                    icon={<EditOutlined />}
+                    size="large"
+                    style={primaryButtonStyle}
+                  >
+                    {t('common.edit')}
+                  </Button>
+                  <Button
+                    danger
+                    onClick={handleDelete}
+                    icon={<DeleteOutlined />}
+                    size="large"
+                    style={buttonStyle}
+                  >
+                    {t('common.delete', 'Delete')}
+                  </Button>
+                </>
+              )}
             </>
           )}
         </div>

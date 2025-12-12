@@ -22,6 +22,7 @@ class LightragServer:
         self._stderr_log_handle = None
         self._pid_file_path = None
         self._atexit_registered = False
+        self._last_log_paths = (None, None)
         self._register_atexit_handler()
 
         # Detect if running in PyInstaller packaged environment

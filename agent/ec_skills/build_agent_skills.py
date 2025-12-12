@@ -186,24 +186,8 @@ async def build_agent_skills(mainwin, skill_path=""):
             final_db_skills = db_skills
 
         # Step 4: Convert database skills to skill objects
-        # Skip DB skills that exist as files (file version takes precedence)
         logger.info("[build_agent_skills] Step 4: Converting DB skills to objects...")
         logger.info(f"[build_agent_skills] DB skills to convert: {len(final_db_skills)}")
-        
-        # Get list of file-based skill names to skip from DB
-        file_skill_names = set()
-        try:
-            skills_root = user_skills_root()
-            for entry in skills_root.iterdir():
-                if entry.is_dir() and entry.name.endswith("_skill"):
-                    # Check if it has code_dir or diagram_dir (actual skill, not just empty folder)
-                    if (entry / "code_dir").exists() or (entry / "code_skill").exists() or (entry / "diagram_dir").exists():
-                        # Extract skill name (remove _skill suffix for matching)
-                        skill_name = entry.name[:-6] if entry.name.endswith("_skill") else entry.name
-                        file_skill_names.add(skill_name)
-                        file_skill_names.add(entry.name)  # Also add full name with _skill suffix
-        except Exception as e:
-            logger.warning(f"[build_agent_skills] Failed to scan file skills: {e}")
         
         memory_skills = []
         for i, db_skill in enumerate(final_db_skills):
@@ -211,17 +195,9 @@ async def build_agent_skills(mainwin, skill_path=""):
                 db_skill_name = db_skill.get('name', 'unknown')
                 db_skill_source = db_skill.get('source', 'ui')
                 
-                # ERROR CHECK: 'code' skills should NOT be in database
-                # Database should only contain dynamically created ('ui') skills
+                # Validate: code skills should not be in database
                 if db_skill_source == 'code':
-                    logger.error(f"[build_agent_skills] ❌ INVALID: Found 'code' skill in database: '{db_skill_name}'. "
-                                f"Code skills should NOT be stored in database! "
-                                f"Please remove this entry from the database manually.")
-                    continue
-                
-                # Skip if this skill exists as a file (file version will be loaded in Step 5)
-                if db_skill_name in file_skill_names or f"{db_skill_name}_skill" in file_skill_names:
-                    logger.info(f"[build_agent_skills] ⏭️ Skipping DB skill '{db_skill_name}' (file version exists)")
+                    logger.error(f"[build_agent_skills] ❌ Invalid: code skill '{db_skill_name}' found in database")
                     continue
                 
                 logger.debug(f"[build_agent_skills] Converting DB skill {i+1}/{len(final_db_skills)}: {db_skill_name}")
@@ -250,23 +226,41 @@ async def build_agent_skills(mainwin, skill_path=""):
         # Step 6: Merge all skill data with deduplication
         logger.info("[build_agent_skills] Step 6: Merging all skills...")
         
-        # Use a dictionary to track skills by name (local skills override DB skills)
+        # Design: Only 2 types of skills
+        # 1. Database skills (UI-created): saved in DB, files in my_skills/, use DB ID
+        # 2. Code-generated skills: NOT in DB, either built-in or files in my_skills/, use stable ID
+        
         skills_dict = {}
         code_skill_names = set()  # Track names of built-in code skills (source="code")
         
-        # First add database/cloud skills
+        # First add database/cloud skills (Type 1: UI-created)
         for skill in memory_skills:
             if skill is not None and hasattr(skill, 'name'):
                 skills_dict[skill.name] = skill
         
-        # Then add file-loaded skills (these already have source="ui" set correctly)
-        # File skills override DB skills with same name
+        # Then add file-loaded skills from my_skills/
+        # These can be either:
+        # - Type 1: UI-created skills (in DB) - files are just saved copies
+        # - Type 2: Code-generated skills (NOT in DB) - for development/testing
         if file_skills:
             for skill in file_skills:
                 if skill is not None and hasattr(skill, 'name'):
                     if skill.name in skills_dict:
-                        logger.info(f"[build_agent_skills] 🔄 File skill '{skill.name}' overrides DB skill")
-                    skills_dict[skill.name] = skill
+                        # Type 1: UI-created skill (exists in DB)
+                        # The file in my_skills/ is just a saved copy
+                        # Keep the database skill, just log that file exists
+                        logger.info(f"[build_agent_skills] 🔄 Skill '{skill.name}' is UI-created (using DB version)")
+                    else:
+                        # Type 2: Code-generated skill (NOT in DB)
+                        # Set source="code" and regenerate stable ID
+                        skill.source = "code"
+                        try:
+                            validated = skill.__class__.model_validate(skill.model_dump())
+                            skill.id = validated.id
+                        except Exception as e:
+                            logger.warning(f"[build_agent_skills] Failed to regenerate stable ID for {skill.name}: {e}")
+                        logger.info(f"[build_agent_skills] ✅ File skill '{skill.name}' is code-generated (stable ID: {skill.id})")
+                        skills_dict[skill.name] = skill
         
         # Finally add built-in code skills (these should have source="code")
         # Code skills override both DB and file skills with same name
@@ -279,18 +273,11 @@ async def build_agent_skills(mainwin, skill_path=""):
                         logger.info(f"[build_agent_skills] 💡 Consider deleting '{skill.name}' from database to avoid conflicts")
                     skills_dict[skill.name] = skill
         
-        # Convert back to list and set source appropriately
+        # Convert back to list
         all_skills = []
         for skill_name, skill in skills_dict.items():
             if skill_name in code_skill_names:
-                # Built-in code skills are read-only
                 skill.source = "code"
-            # For other skills, respect their existing source value (already set correctly)
-            # - DB skills default to "ui"
-            # - File skills already have source="ui" from load_from_diagram/load_from_code
-            
-            # Ensure stable ID for code skills
-            skill.ensure_stable_id()
             all_skills.append(skill)
 
         # Step 7: Update mainwindow.agent_skills memory
@@ -557,10 +544,14 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                     logger.warning(f"[build_agent_skills] Failed to load mapping rules from {mapping_file}: {e}")
 
         def finalize_skill(sk: EC_Skill, source: str, path: str, skill_root: Path) -> EC_Skill:
-            """Common finalization: set source, path, stable ID, and load mapping rules"""
+            """Common finalization: set source, path, and load mapping rules
+            
+            Note: ID is automatically generated by EC_Skill.__init__ and model_post_init.
+            No need to manually regenerate it here.
+            """
             sk.source = source
             sk.path = path
-            sk.ensure_stable_id()
+            # ID will be automatically regenerated by model_post_init when source changes
             load_mapping_rules(sk, skill_root)
             logger.debug(f"[build_agent_skills] Finalized skill: {sk.name} (source={source})")
             return sk
@@ -757,10 +748,16 @@ def build_agent_skills_from_files(mainwin, skill_path: str = ""):
                 load_mapping_rules(sk, skill_root)
                 sk.source = "ui"
                 sk.path = str(core_path)
-                sk.ensure_stable_id()
+                # UI skills use random UUID, no need to regenerate
                 return sk
             except Exception as e:
-                logger.error(f"[build_agent_skills] Diagram load failed at {diagram_dir}: {e}")
+                # Extract skill name for better error reporting
+                skill_root = diagram_dir.parent
+                base = skill_root.name
+                skill_name = base[:-6] if base.endswith("_skill") else base
+                logger.error(f"[build_agent_skills] Diagram load failed for skill '{skill_name}' at {diagram_dir}: {e}")
+                import traceback
+                logger.debug(f"[build_agent_skills] Full traceback for '{skill_name}':\n{traceback.format_exc()}")
                 return None
 
         def pick_newer(paths: List[Path]) -> Optional[Path]:

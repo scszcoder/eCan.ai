@@ -3,6 +3,7 @@ from agent.mcp.server.api.ecan_ai.ecan_ai_api import api_ecan_ai_get_nodes_promp
 from utils.logger_helper import get_traceback
 from agent.agent_service import get_agent_by_id
 from agent.ec_skills.llm_utils.llm_utils import *
+from langchain_core.prompts import ChatPromptTemplate
 
 # try to set up prompts right, with the right parameters
 def pre_more_analysis_app_hook(askid, full_node_name, agent, state, prompt_src="cloud", prompt_data=None):
