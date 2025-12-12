@@ -1,20 +1,20 @@
-# This is a sample Python script.
-import json
+"""
+Label printing and reformatting utilities.
+Cross-platform support for Windows, macOS, and Linux.
+"""
 import os
+import platform
+import shutil
 import subprocess
+from dataclasses import dataclass
 from datetime import datetime
 import asyncio
-# import win32print
-# import win32api
-import traceback
+from enum import Enum
+from typing import Optional
 import time
 
 from utils.lazy_import import lazy
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
-
 from PIL import Image, ImageFont, ImageDraw
-from pdf2image import convert_from_path
 from concurrent.futures import ThreadPoolExecutor
 
 from utils.logger_helper import logger_helper as logger
@@ -22,425 +22,1266 @@ from utils.logger_helper import get_traceback
 import fitz
 
 
-async def reformat_and_print_labels(mainwin, args):  # type: ignore
+# ============================================================================
+# Cross-platform print_labels function
+# ============================================================================
+
+class PrintStatus(Enum):
+    SUCCESS = "success"
+    PARTIAL = "partial"
+    FAILED = "failed"
+
+
+@dataclass
+class PrintResult:
+    status: PrintStatus
+    printed_files: list[str]
+    failed_files: list[tuple[str, str]]  # (file_path, error_message)
+    printer_used: str
+    message: str
+
+
+def get_system_platform() -> str:
+    """Returns 'windows', 'darwin' (macOS), or 'linux'."""
+    return platform.system().lower()
+
+
+def get_available_printers() -> list[str]:
+    """
+    Get list of available printers on the system.
+    Cross-platform: Windows, macOS, Linux.
+    """
+    system = get_system_platform()
+    printers = []
+    
     try:
-        logger.debug("fullfill_ebay_orders started....", args["input"])
-        new_orders = []
-        fullfilled_orders = []
-        format = args["input"]["format"]
-        printer_name = args["input"]["printer_name"]
-        label_dir = args["input"]["label_dir"]
-        orders = args["input"]["orders"]
-        product_book = args["input"]["product_book"]
-        font_dir = args["input"]["font_dir"]
-        font_size = args["input"]["font_size"]
-
-        if options.get("use_ads", False):
-            webdriver = connect_to_adspower(mainwin, url)
-            if webdriver:
-                mainwin.setWebDriver(webdriver)
-        else:
-            webdriver = mainwin.getWebDriver()
-
-        if webdriver:
-            print("fullfill_ebay_orders:", site)
-            site_results = selenium_search_component(webdriver, pf, sites[site])
-            ebay_new_orders = scrape_ebay_orders(webdriver)
-            logger.debug("ebay_new_orders:", ebay_new_orders)
-
-        print_status = await win_print_labels1(label_dir, printer, ecsite, order_data, product_book, txt_font_path, txt_font_size)
-
-
-        msg = f"completed in fullfilling ebay new orders: {len(new_orders)} new orders came in, {len(fullfilled_orders)} orders processed."
-        tool_result = TextContent(type="text", text=msg)
-        tool_result.meta = {"new_orders": new_orders, "fullfilled_orders": fullfilled_orders}
-        return [tool_result]
+        if system == "windows":
+            import win32print
+            printers = [p[2] for p in win32print.EnumPrinters(
+                win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
+            )]
+        elif system in ("darwin", "linux"):
+            # Use lpstat to list printers (CUPS)
+            result = subprocess.run(
+                ["lpstat", "-p"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                for line in result.stdout.strip().split("\n"):
+                    if line.startswith("printer "):
+                        # Format: "printer PrinterName is idle..."
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            printers.append(parts[1])
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorFullfillEbayOrders")
-        logger.debug(err_trace)
-        return [TextContent(type="text", text=err_trace)]
+        logger.warning(f"[get_available_printers] Failed to enumerate printers: {e}")
+    
+    return printers
 
 
+def get_default_printer() -> Optional[str]:
+    """
+    Get the system default printer.
+    Cross-platform: Windows, macOS, Linux.
+    """
+    system = get_system_platform()
+    
+    try:
+        if system == "windows":
+            import win32print
+            return win32print.GetDefaultPrinter()
+        elif system in ("darwin", "linux"):
+            # Use lpstat to get default printer (CUPS)
+            result = subprocess.run(
+                ["lpstat", "-d"],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0 and ":" in result.stdout:
+                # Format: "system default destination: PrinterName"
+                return result.stdout.strip().split(":")[-1].strip()
+    except Exception as e:
+        logger.warning(f"[get_default_printer] Failed to get default printer: {e}")
+    
+    return None
 
 
-# add padding/margin to an image.
-# color is in tuple format (R, G, B)
-def add_padding(pil_img, top, right, bottom, left, color):
-    width, height = pil_img.size
-    new_width = width + right + left
-    new_height = height + top + bottom
-    padded_image = Image.new(pil_img.mode, (new_width, new_height), color)
-    result = pil_img.copy()
-    result.paste(padded_image, (left, top))
-    return padded_image
+def is_printer_available(printer_name: str) -> bool:
+    """
+    Check if a specific printer is available.
+    Cross-platform: Windows, macOS, Linux.
+    """
+    if not printer_name:
+        return False
+    return printer_name in get_available_printers()
 
 
-# this function stack 2 image on top of itself with 40 pixel of padding in between.
-# ------------------------------------------------------
-# |                                        ^           |
-# |<-----> h_pad (horizontal margin)       | v_pad     |
-# |                                        v  Vertical |
-# |       ------------------------------------  margin |
-# |       |                                  |         |
-# |       |          image 1                 |         |
-# |       |                                  |         |
-# |       ------------------------------------         |
-# |                        ^                           |
-# |                        | Padding                   |
-# |                        v                           |
-# |       ------------------------------------         |
-# |       |                                  |         |
-# |       |          image 2                 |         |
-# |       |                                  |         |
-# |       ------------------------------------         |
-# |                                                    |
-# |                                                    |
-# ------------------------------------------------------
-def gen_img(img1, img2, top_left_margin=(150, 90), padding = 40):
-    images = []
-    max_width = 0  # find the max width of all the images
-    all_height = 0  # the total height of the images (vertical stacking)
+def _print_file_windows(file_path: str, printer_name: str, n_copies: int = 1) -> tuple[bool, str]:
+    """
+    Print a file on Windows.
+    Supports PDF, images, and other printable formats.
+    Uses win32api for shell printing or Ghostscript for silent PDF printing.
+    """
+    try:
+        import win32print
+        import win32api
+        
+        # Normalize path
+        file_path = os.path.abspath(file_path)
+        
+        if not os.path.exists(file_path):
+            return False, f"File not found: {file_path}"
+        
+        # Set printer if specified
+        if printer_name:
+            try:
+                win32print.SetDefaultPrinter(printer_name)
+            except Exception as e:
+                return False, f"Failed to set printer '{printer_name}': {e}"
+        
+        file_ext = os.path.splitext(file_path)[1].lower()
+        
+        # For PDFs, try Ghostscript first for silent printing, then fallback to shell
+        if file_ext == ".pdf":
+            gs_success, gs_msg = _print_pdf_ghostscript_windows(file_path, printer_name, n_copies)
+            if gs_success:
+                return True, gs_msg
+            # Fallback to shell printing
+            logger.debug(f"[_print_file_windows] Ghostscript failed, using shell print: {gs_msg}")
+        
+        # Shell print (opens default app and prints)
+        for _ in range(n_copies):
+            win32api.ShellExecute(0, "print", file_path, None, ".", 0)
+        
+        # Brief wait for print job to be queued
+        time.sleep(2)
+        return True, f"Print job sent for {file_path}"
+        
+    except ImportError:
+        return False, "win32api/win32print not available. Install pywin32."
+    except Exception as e:
+        return False, f"Windows print error: {e}"
 
-    images.append(img1)
-    images.append(img2)
 
-    for img in images:
-        # open all images and find their sizes
-        img_width = img.shape[1]
-        img_height = img.shape[0]
-        if img_width > max_width:
-            max_width = img_width
-        #add all the images heights
-        all_height += img_height
-    # create a new array (blank image) with a size large enough to contain all the images
-    # also add padding size for all the images except the last one
-    v_pad = top_left_margin[1]
-    h_pad = top_left_margin[0]
-    final_image = lazy.np.zeros((all_height+(len(images)-1)*padding + 2*v_pad, max_width + 2*h_pad, 3), dtype=lazy.np.uint8)
-    final_image.fill(255)
-    current_y = v_pad   # keep track of where your current image was last placed in the y coordinate
-    current_x = h_pad
-
-    for image in images:
-        # add an image to the final array and increment the y coordinate
-        h = image.shape[0]
-        w = image.shape[1]
-        final_image[current_y:h+current_y, current_x:w+current_x, :] = image
-        # add the padding between the images
-        current_y += h + padding
-    return final_image
-
-# var is a json dictionary of var_name, var_value pairs
-def geVariationText(vars, found_product, site):
-    v_text = "v"
-    for var_name in vars:
-        v_text = v_text + found_product["listings"][site]["variations"][var_name]["note_text"]
-        if isinstance(vars[var_name], str):
-            v_text = v_text + found_product["listings"][site]["variations"]["vals"][vars[var_name]]["note_text"]
+def _print_pdf_ghostscript_windows(file_path: str, printer_name: str, n_copies: int = 1) -> tuple[bool, str]:
+    """
+    Silent PDF printing using Ghostscript on Windows.
+    """
+    # Common Ghostscript paths
+    gs_paths = [
+        r"C:\Program Files\gs\gs10.06.0\bin\gswin64.exe",
+        r"C:\Program Files\gs\gs10.06.0\bin\gswin64c.exe"
+    ]
+    
+    gs_exe = None
+    for path in gs_paths:
+        if os.path.exists(path):
+            gs_exe = path
+            break
+    
+    # Also check if gswin64c is in PATH
+    if not gs_exe:
+        gs_exe = shutil.which("gswin64c") or shutil.which("gswin32c")
+    
+    if not gs_exe:
+        return False, "Ghostscript not found"
+    
+    try:
+        cmd = [
+            gs_exe,
+            "-dPrinted",
+            "-dNoCancel",
+            "-dBATCH",
+            "-dNOPAUSE",
+            "-dNOSAFER",
+            "-q",
+            "-dFitPage",
+            f"-dNumCopies={n_copies}",
+            "-sDEVICE=mswinpr2",
+            f'-sOutputFile="%printer%{printer_name}"' if printer_name else "",
+            file_path
+        ]
+        # Filter out empty strings
+        cmd = [c for c in cmd if c]
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0
+        )
+        
+        if result.returncode == 0:
+            return True, f"Printed via Ghostscript: {file_path}"
         else:
-            #this is a numerical value.
-            v_text = v_text + str(vars[var_name])
-    return v_text
+            return False, f"Ghostscript error: {result.stderr}"
+            
+    except subprocess.TimeoutExpired:
+        return False, "Ghostscript print timeout"
+    except Exception as e:
+        return False, f"Ghostscript error: {e}"
 
 
-def geVariationFName(vars, found_product, site):
-    v_text = "v"
-    for var_name in vars:
-        v_text = v_text + var_name[0].upper() + var_name[1:]
-        if isinstance(vars[var_name], str):
-            v_text = v_text + vars[var_name][0].upper()+vars[var_name][1:]
+def _print_file_unix(file_path: str, printer_name: str, n_copies: int = 1) -> tuple[bool, str]:
+    """
+    Print a file on macOS or Linux using CUPS (lpr command).
+    Works with most printers: laser, inkjet, thermal, USB, network, Bluetooth.
+    """
+    try:
+        file_path = os.path.abspath(file_path)
+        
+        if not os.path.exists(file_path):
+            return False, f"File not found: {file_path}"
+        
+        # Check if lpr is available
+        if not shutil.which("lpr"):
+            return False, "lpr command not found. Ensure CUPS is installed."
+        
+        # Build lpr command
+        cmd = ["lpr"]
+        
+        if printer_name:
+            cmd.extend(["-P", printer_name])
+        
+        if n_copies > 1:
+            cmd.extend(["-#", str(n_copies)])
+        
+        # Add options for better compatibility with label printers
+        # -o fit-to-page: scale to fit page
+        # -o media=Custom: for custom label sizes (optional)
+        cmd.extend(["-o", "fit-to-page"])
+        
+        cmd.append(file_path)
+        
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode == 0:
+            return True, f"Print job sent: {file_path}"
         else:
-            #this is a numerical value.
-            v_text = v_text + str(vars[var_name])
-    return v_text
+            return False, f"lpr error: {result.stderr}"
+            
+    except subprocess.TimeoutExpired:
+        return False, "Print command timeout"
+    except Exception as e:
+        return False, f"Unix print error: {e}"
 
 
+def print_file(file_path: str, printer_name: Optional[str] = None, n_copies: int = 1) -> tuple[bool, str]:
+    """
+    Print a single file to the specified printer.
+    Cross-platform: Windows, macOS, Linux.
+    
+    Args:
+        file_path: Path to the file to print (PDF, image, etc.)
+        printer_name: Target printer name. If None, uses system default.
+        n_copies: Number of copies to print.
+    
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    system = get_system_platform()
+    
+    # Use default printer if not specified
+    if not printer_name:
+        printer_name = get_default_printer()
+        if not printer_name:
+            return False, "No printer specified and no default printer found"
+        else:
+            logger.info(f"[print_file] Using default printer: {printer_name}")
+    
+    # Verify printer exists
+    if not is_printer_available(printer_name):
+        available = get_available_printers()
+        return False, f"Printer '{printer_name}' not found. Available: {available}"
+    
+    logger.info(f"[print_file] Printing '{file_path}' to '{printer_name}' (copies: {n_copies})")
+    
+    if system == "windows":
+        return _print_file_windows(file_path, printer_name, n_copies)
+    elif system in ("darwin", "linux"):
+        return _print_file_unix(file_path, printer_name, n_copies)
+    else:
+        return False, f"Unsupported platform: {system}"
 
-# add padding/margin to an image.
-# text loc is in tuple format (x, y), relative to the top left corner
-def genNoteText(site, order_data, product_book):
-    note_text = ""
-    for j, ord_prod in enumerate(order_data.getProducts()):
-        found_product = next((prod for i, prod in enumerate(product_book) if prod["listings"][site]["asin"] == ord_prod.getPid()), None)
-        note_text = note_text + found_product["note text"]
-        note_text = note_text + "_"
-        note_text = note_text + geVariationText(ord_prod.getVariations(), found_product, site)
-        note_text = note_text + "_"
-        note_text = note_text + str(ord_prod.getQuantity())
-        if j != len(order_data) - 1:
-            note_text = note_text + "_"
 
-    return note_text
+def print_labels_util(
+    files: list[str],
+    printer_name: Optional[str] = None,
+    n_copies: int = 1,
+    stop_on_error: bool = False
+) -> PrintResult:
+    """
+    Print multiple label files to the specified printer.
+    Cross-platform: Windows, macOS, Linux.
+    Compatible with laser, inkjet, and thermal printers via USB, LAN, or Bluetooth.
+    
+    Args:
+        files: List of file paths to print (PDF, PNG, JPG, etc.)
+        printer_name: Target printer name. If None, uses system default.
+        n_copies: Number of copies for each file.
+        stop_on_error: If True, stop printing on first error.
+    
+    Returns:
+        PrintResult with status, printed files, failed files, and message.
+    
+    Example:
+        result = print_labels_util(
+            files=["/path/to/label1.pdf", "/path/to/label2.pdf"],
+            printer_name="DYMO_LabelWriter_450",
+            n_copies=1
+        )
+        if result.status == PrintStatus.SUCCESS:
+            print(f"All {len(result.printed_files)} labels printed!")
+    """
+    if not files:
+        return PrintResult(
+            status=PrintStatus.FAILED,
+            printed_files=[],
+            failed_files=[],
+            printer_used=printer_name or "",
+            message="No files provided"
+        )
+    
+    # Resolve printer
+    actual_printer = printer_name or get_default_printer()
+    if not actual_printer:
+        return PrintResult(
+            status=PrintStatus.FAILED,
+            printed_files=[],
+            failed_files=[(f, "No printer available") for f in files],
+            printer_used="",
+            message="No printer specified and no default printer found"
+        )
+    
+    # Verify printer
+    if not is_printer_available(actual_printer):
+        available = get_available_printers()
+        return PrintResult(
+            status=PrintStatus.FAILED,
+            printed_files=[],
+            failed_files=[(f, f"Printer not found") for f in files],
+            printer_used=actual_printer,
+            message=f"Printer '{actual_printer}' not found. Available: {available}"
+        )
+    
+    printed_files: list[str] = []
+    failed_files: list[tuple[str, str]] = []
+    
+    logger.info(f"[print_labels] Starting print job: {len(files)} files to '{actual_printer}'")
+    
+    for file_path in files:
+        success, msg = print_file(file_path, actual_printer, n_copies)
+        
+        if success:
+            printed_files.append(file_path)
+            logger.debug(f"[print_labels] Printed: {file_path}")
+        else:
+            failed_files.append((file_path, msg))
+            logger.warning(f"[print_labels] Failed: {file_path} - {msg}")
+            
+            if stop_on_error:
+                break
+    
+    # Determine overall status
+    if len(printed_files) == len(files):
+        status = PrintStatus.SUCCESS
+        message = f"Successfully printed all {len(printed_files)} files"
+    elif len(printed_files) > 0:
+        status = PrintStatus.PARTIAL
+        message = f"Printed {len(printed_files)}/{len(files)} files. {len(failed_files)} failed."
+    else:
+        status = PrintStatus.FAILED
+        message = f"Failed to print any files. {len(failed_files)} errors."
+    
+    logger.info(f"[print_labels] {message}")
+    
+    return PrintResult(
+        status=status,
+        printed_files=printed_files,
+        failed_files=failed_files,
+        printer_used=actual_printer,
+        message=message
+    )
 
-def genPVQSText(site, order_data, product_book):
-    name_text = ""
-    for j, ord_prod in enumerate(order_data.getProducts()):
-        found_product = next((prod for i, prod in enumerate(product_book) if prod["listings"][site]["asin"] == ord_prod.getPid()), None)
-        name_text = name_text + found_product["short_name"]
-        name_text = name_text + "_"
-        name_text = name_text + geVariationFName(ord_prod.getVariations(), found_product, site)
-        name_text = name_text + "_"
-        name_text = name_text + str(ord_prod.getQuantity())
-        if j != len(order_data) - 1:
-            name_text = name_text + "_"
 
-    return name_text
-def reformat_label_pdf(working_dir, pdffile, site, order_data, product_book, font_full_path, font_size):
+async def print_labels_async(
+    files: list[str],
+    printer_name: Optional[str] = None,
+    n_copies: int = 1,
+    stop_on_error: bool = False
+) -> PrintResult:
+    """
+    Async version of print_labels_util.
+    Runs the synchronous print operation in a thread pool.
+    """
+    loop = asyncio.get_event_loop()
+    with ThreadPoolExecutor() as pool:
+        result = await loop.run_in_executor(
+            pool,
+            lambda: print_labels_util(files, printer_name, n_copies, stop_on_error)
+        )
+    return result
+
+
+# ============================================================================
+# Label Reformatting Functions
+# ============================================================================
+
+# Standard DPI for PDF rendering
+DEFAULT_DPI = 150
+DEFAULT_MARGIN_INCHES = 0.25  # 1/4 inch default margin
+
+
+@dataclass
+class LabelSheetConfig:
+    """Configuration for label sheet layout."""
+    sheet_width_inches: float
+    sheet_height_inches: float
+    label_width_inches: float
+    label_height_inches: float
+    rows_per_sheet: int
+    cols_per_sheet: int
+    row_pitch_inches: float  # center-to-center distance between rows
+    col_pitch_inches: float  # center-to-center distance between columns
+    top_margin_inches: float
+    left_margin_inches: float
+    orientation: str  # 'landscape' or 'portrait'
+    dpi: int = DEFAULT_DPI
+    
+    @property
+    def sheet_width_px(self) -> int:
+        return int(self.sheet_width_inches * self.dpi)
+    
+    @property
+    def sheet_height_px(self) -> int:
+        return int(self.sheet_height_inches * self.dpi)
+    
+    @property
+    def label_width_px(self) -> int:
+        return int(self.label_width_inches * self.dpi)
+    
+    @property
+    def label_height_px(self) -> int:
+        return int(self.label_height_inches * self.dpi)
+    
+    @property
+    def top_margin_px(self) -> int:
+        return int(self.top_margin_inches * self.dpi)
+    
+    @property
+    def left_margin_px(self) -> int:
+        return int(self.left_margin_inches * self.dpi)
+    
+    @property
+    def row_pitch_px(self) -> int:
+        return int(self.row_pitch_inches * self.dpi)
+    
+    @property
+    def col_pitch_px(self) -> int:
+        return int(self.col_pitch_inches * self.dpi)
+    
+    @property
+    def labels_per_sheet(self) -> int:
+        return self.rows_per_sheet * self.cols_per_sheet
+
+
+def parse_dimension_string(dim_str: str) -> tuple[float, float]:
+    """
+    Parse dimension string like 'D8.5X5.5' or '8.5x5.5' to (width, height).
+    Returns (width_inches, height_inches).
+    """
+    # Remove leading 'D' if present
+    dim_str = dim_str.upper().lstrip('D')
+    
+    # Split by 'X'
+    parts = dim_str.split('X')
+    if len(parts) != 2:
+        raise ValueError(f"Invalid dimension format: {dim_str}. Expected format: 'D8.5X5.5' or '8.5x5.5'")
+    
+    try:
+        width = float(parts[0])
+        height = float(parts[1])
+        return width, height
+    except ValueError:
+        raise ValueError(f"Invalid dimension values in: {dim_str}")
+
+
+def extract_label_from_pdf_page(
+    page,
+    target_width_px: int,
+    target_height_px: int,
+    orientation: str = "landscape",
+    dpi: int = DEFAULT_DPI
+) -> Optional[Image.Image]:
+    """
+    Extract the label content from a PDF page, crop to content, and resize.
+    
+    Args:
+        page: fitz page object
+        target_width_px: Target width in pixels
+        target_height_px: Target height in pixels
+        orientation: 'landscape' or 'portrait'
+        dpi: Rendering DPI
+    
+    Returns:
+        PIL Image of the extracted and resized label, or None on error.
+    """
     import cv2
-    print("pdf to img start....", working_dir + pdffile)
-    # images = convert_from_path(working_dir + pdffile)
-    document = fitz.open(working_dir + pdffile)
-    pdf_names = []
-    wpdf_names = []
-
-    all_orders = []
-    for page in order_data:
-        all_orders = all_orders + page["ol"]
-
-
-    for i in range(document.page_count):
-        page = document.load_page(i)  # Assuming adding text to the first page
-        pix = page.get_pixmap()
-
-        # Convert to image using OpenCV
-        image = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        pil_image = lazy.np.array(image)
-
-        print("pdf to img done....", working_dir + pdffile)
-
-        # sub = pdffile.split('_')
-        name_parts = all_orders[i].getRecipientName().split()
-        fn = name_parts[0]
-        ln = name_parts[len(name_parts)-1]
-        r_name = fn+"_"+ln+"_"
-
-        pvqs_name = genPVQSText(site, all_orders[i], product_book)
-
-        prefix = "ebay_"+r_name+pvqs_name
-        # logger.debug(json.dumps(sub))
-
-
-        # img = cv2.imread(working_dir + 'page0.jpg')
-        result = pil_image.copy()
-        # gray = cv2.cvtColor(pil_image, cv2.COLOR_BGR2GRAY)
-        # gray = cv2.bilateralFilter(gray, 11, 17, 17)
-        gray = cv2.cvtColor(pil_image, cv2.COLOR_BGR2GRAY)
+    
+    try:
+        # Render page to pixmap
+        mat = fitz.Matrix(dpi / 72, dpi / 72)  # Scale from 72 DPI to target DPI
+        pix = page.get_pixmap(matrix=mat)
+        
+        # Convert to PIL Image
+        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        img_array = lazy.np.array(img)
+        
+        # Convert to grayscale for contour detection
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
         gray = cv2.bilateralFilter(gray, 11, 17, 17)
-
+        
+        # Morphological operations to clean up
         kernel = lazy.np.ones((5, 5), lazy.np.uint8)
         erosion = cv2.erode(gray, kernel, iterations=2)
         kernel = lazy.np.ones((4, 4), lazy.np.uint8)
         dilation = cv2.dilate(erosion, kernel, iterations=2)
-
+        
+        # Edge detection
         edged = cv2.Canny(dilation, 30, 200)
-
-        contours = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        contours = contours[0] if len(contours) == 2 else contours[1]
-        # print(str(len(contours)) + ' rects are found....')
-
-        for cntr in contours:
-            x, y, w, h = cv2.boundingRect(cntr)
-            cv2.rectangle(result, (x, y), (x + w, y + h), (0, 0, 255), 2)
-            logger.debug("[reformat_label_pdf] x,y,w,h:" + str(x) + " " + str(y) + " " + str(w) + " " + str(h))
-
-        # save resulting image
-        # cv2.imwrite(working_dir+'rect.jpg', result)
-
-        # show thresh and result
-        # cv2.imshow("bounding_box", result)
-
-        # crop out the ROI which is bounded by the rectangle.
-        cropped_image = pil_image[y:y + h, x:x + w]
-
-        if (h > w):
-            cropped = cv2.rotate(cropped_image, cv2.ROTATE_90_CLOCKWISE).copy()
-            cropped_image = cropped.copy()
+        
+        # Find contours
+        contours, _ = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        if not contours:
+            # No contours found, use the whole image
+            logger.warning("[extract_label_from_pdf_page] No contours found, using full page")
+            cropped = img_array
         else:
-            cropped = cropped_image.copy()
+            # Find the largest contour (main label area)
+            largest_contour = max(contours, key=cv2.contourArea)
+            x, y, w, h = cv2.boundingRect(largest_contour)
+            
+            # Add small padding around the detected area
+            padding = 5
+            x = max(0, x - padding)
+            y = max(0, y - padding)
+            w = min(img_array.shape[1] - x, w + 2 * padding)
+            h = min(img_array.shape[0] - y, h + 2 * padding)
+            
+            cropped = img_array[y:y+h, x:x+w]
+        
+        # Determine if rotation is needed based on orientation
+        crop_h, crop_w = cropped.shape[:2]
+        is_landscape = crop_w > crop_h
+        want_landscape = orientation.lower() == "landscape"
+        
+        if is_landscape != want_landscape:
+            # Rotate 90 degrees
+            cropped = cv2.rotate(cropped, cv2.ROTATE_90_CLOCKWISE)
+        
+        # Resize to target dimensions
+        resized = cv2.resize(cropped, (target_width_px, target_height_px), interpolation=cv2.INTER_AREA)
+        
+        return Image.fromarray(resized)
+        
+    except Exception as e:
+        logger.error(f"[extract_label_from_pdf_page] Error: {e}")
+        return None
 
-        # cv2.imshow("crop", cropped_image)
-        # cv2.imwrite(working_dir+'contour1.png', cropped_image)
 
-        # now need to scale to image to a standard 1100x550 (WxH)
-        target_width = 1100
-        target_height = 750
-        target_dim = (target_width, target_height)
-
-        # resize image
-        resized_cropped = cv2.resize(cropped, target_dim, interpolation=cv2.INTER_AREA)
-        resized_cropped_image = resized_cropped.copy()
-
-        # add some text note to the image,
-        text = genNoteText(site, all_orders[i], product_book)
-
-        text_rel_loc = (400, 700)
-        # font_full_path = "C:/Users/songc/PycharmProjects/ecbot/resource/fonts/Noto_Serif_SC/static/NotoSerifSC-Medium.ttf"
-        default_font_name = "arial.ttf"
-        text_image = add_text_to_img(resized_cropped_image, text, text_rel_loc, font_full_path, default_font_name, font_size)
-        # cv2.imwrite(working_dir+'texted.png', text_image)
-
-        # put 2 image into a new image
-        # 1st image located at (150, 90)
-        o_image = gen_img(resized_cropped, text_image)
-        # cv2.imwrite(working_dir+'final.png', o_image)
-
-        # save the result into a pdf file using PIL.
-        p_image = Image.fromarray(o_image)
-        pdff_name = prefix + '_r2p.pdf'
-        pdf_name = working_dir + pdff_name
-        p_image.save(pdf_name, save_all=True)
-        wpdf_name = pdf_name.replace('/', r'\\\\')
-        pdf_names.append(pdf_name)
-        wpdf_names.append(wpdf_name)
-
-    return pdf_names, wpdf_names
-# Press the green button in the gutter to run the script.
-def win_print_labels0(label_dir, printer, site, order_data, product_book, txt_font_path, txt_font_size):
-
-    working_dir = label_dir
-    logger.debug("[win_print_labels0] working_dir: ", working_dir)
-    for file in os.listdir(working_dir):
-        if file.startswith(site) and file.endswith(".pdf"):
-            logger.debug("[win_print_labels0] file: ", file)
-
-            pdf_name, wpdf_name = reformat_label_pdf(working_dir, file, site, order_data, product_book, txt_font_path, txt_font_size)
-
-            # print out the files.
-            # YOU CAN PUT HERE THE NAME OF YOUR SPECIFIC PRINTER INSTEAD OF DEFAULT
-            if printer == "":
-                currentprinter = win32print.GetDefaultPrinter()
+def create_label_sheet(
+    labels: list[Image.Image],
+    config: LabelSheetConfig,
+    background_color: tuple[int, int, int] = (255, 255, 255)
+) -> Image.Image:
+    """
+    Arrange multiple labels on a single sheet.
+    
+    Args:
+        labels: List of PIL Images (labels to place on sheet)
+        config: LabelSheetConfig with layout parameters
+        background_color: RGB tuple for sheet background
+    
+    Returns:
+        PIL Image of the composed sheet.
+    """
+    # Create blank sheet
+    sheet = Image.new("RGB", (config.sheet_width_px, config.sheet_height_px), background_color)
+    
+    label_idx = 0
+    for row in range(config.rows_per_sheet):
+        for col in range(config.cols_per_sheet):
+            if label_idx >= len(labels):
+                break
+            
+            label = labels[label_idx]
+            
+            # Calculate position for this label
+            # Using pitch for center-to-center, so we offset by half label size
+            if config.rows_per_sheet == 1 and config.cols_per_sheet == 1:
+                # Single label per sheet - center it
+                x = (config.sheet_width_px - config.label_width_px) // 2
+                y = (config.sheet_height_px - config.label_height_px) // 2
             else:
-                currentprinter = printer
+                # Multi-label sheet - use margins and pitch
+                x = config.left_margin_px + col * config.col_pitch_px
+                y = config.top_margin_px + row * config.row_pitch_px
+            
+            # Resize label if needed
+            if label.size != (config.label_width_px, config.label_height_px):
+                label = label.resize((config.label_width_px, config.label_height_px), Image.Resampling.LANCZOS)
+            
+            # Paste label onto sheet
+            sheet.paste(label, (x, y))
+            label_idx += 1
+    
+    return sheet
 
-            logger.debug("[win_print_labels0] current printer: ", currentprinter)
 
-            # the following command print silently.
-            # C:\"Program Files"\gs\gs9.54.0\bin\gswin64c.exe  -dPrinted -dNoCancel -dBATCH -dNOPAUSE -dNOSAFER -q -dNumCopies=1 -dQueryUser=3 -sDEVICE=mswinpr2  testImage.pdf
-            args = '"C:\\\\Program Files\\\\gs\\\\gs9.54.0\\\\bin\\\\gswin64c" ' \
-                   '-dPrinted ' \
-                   '-dNoCancel ' \
-                   '-dBATCH ' \
-                   '-dNOPAUSE ' \
-                   '-dNOSAFER ' \
-                   '-q ' \
-                   '-dFitPage ' \
-                   '-dNumCopies=1 ' \
-                   '-dQueryUser=3 ' \
-                   '-sDEVICE='
-            args = args + currentprinter + ' '
-            ghostscript = args + wpdf_name
-            from utils.subprocess_helper import run_no_window
-            run_no_window(ghostscript, shell=True)
+def add_note_to_label(
+    label_img: Image.Image,
+    note_text: str,
+    font_size: int = 24,
+    font_path: Optional[str] = None,
+    position: str = "bottom"  # 'bottom', 'top', 'center'
+) -> Image.Image:
+    """
+    Add note text to a label image.
+    
+    Args:
+        label_img: PIL Image of the label
+        note_text: Text to add
+        font_size: Font size in points
+        font_path: Path to TTF font file (optional)
+        position: Where to place the text
+    
+    Returns:
+        PIL Image with text added.
+    """
+    if not note_text:
+        return label_img
+    
+    img = label_img.copy()
+    draw = ImageDraw.Draw(img)
+    
+    # Load font
+    try:
+        if font_path and os.path.exists(font_path):
+            font = ImageFont.truetype(font_path, font_size)
         else:
-            logger.debug('[win_print_labels0] file name format error:' + file)
+            font = ImageFont.truetype("arial.ttf", font_size)
+    except Exception:
+        font = ImageFont.load_default()
+    
+    # Get text bounding box
+    bbox = draw.textbbox((0, 0), note_text, font=font)
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+    
+    # Calculate position
+    img_width, img_height = img.size
+    x = (img_width - text_width) // 2  # Center horizontally
+    
+    if position == "bottom":
+        y = img_height - text_height - 10
+    elif position == "top":
+        y = 10
+    else:  # center
+        y = (img_height - text_height) // 2
+    
+    # Draw text with slight shadow for visibility
+    draw.text((x + 1, y + 1), note_text, font=font, fill=(128, 128, 128))
+    draw.text((x, y), note_text, font=font, fill=(0, 0, 0))
+    
+    return img
 
 
-def get_printers():
-    return [printer[2] for printer in win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)]
+@dataclass
+class ReformatResult:
+    """Result of label reformatting operation."""
+    success: bool
+    output_files: list[str]
+    backup_files: list[str]
+    input_count: int
+    output_count: int
+    message: str
 
-def print_pdf_sync(file_path, printer_name):
-    logger.debug(f"[print_pdf_sync] Printing {file_path} to {printer_name}")
-    if printer_name:
-        # Set the specified printer as the default printer
-        win32print.SetDefaultPrinter(printer_name)
 
-    # Use the default PDF viewer to print the file
-    win32api.ShellExecute(0, "print", file_path, None, ".", 0)
+def reformat_labels_util(
+    in_file_names: list[str],
+    out_dir: Optional[str] = None,
+    sheet_size: str = "D8.5X11",
+    label_format: str = "D8.5X5.5",
+    label_orientation: str = "landscape",
+    label_rows_per_sheet: int = 2,
+    label_cols_per_sheet: int = 1,
+    label_rows_pitch: Optional[float] = None,
+    label_cols_pitch: Optional[float] = None,
+    top_side_margin: Optional[float] = None,
+    left_side_margin: Optional[float] = None,
+    add_backup: bool = True,
+    added_note_text: str = "",
+    added_note_font_size: int = 24,
+    font_path: Optional[str] = None,
+    dpi: int = DEFAULT_DPI
+) -> ReformatResult:
+    """
+    Reformat label PDFs to fit on multi-label sheets.
+    
+    This function takes individual label PDFs and arranges them onto sheets
+    that may contain multiple labels (e.g., 4 labels per sheet).
+    
+    Args:
+        in_file_names: List of input PDF file paths
+        out_dir: Output directory (defaults to same as first input file)
+        sheet_size: Sheet dimensions (e.g., 'D8.5X11' for letter size)
+        label_format: Individual label dimensions (e.g., 'D4X2.5')
+        label_orientation: 'landscape' or 'portrait'
+        label_rows_per_sheet: Number of label rows per sheet
+        label_cols_per_sheet: Number of label columns per sheet
+        label_rows_pitch: Vertical distance between label centers (inches). Default: auto-calculated
+        label_cols_pitch: Horizontal distance between label centers (inches). Default: auto-calculated
+        top_side_margin: Top margin in inches. Default: 0.25"
+        left_side_margin: Left margin in inches. Default: 0.25"
+        add_backup: If True, create backup copies with note text
+        added_note_text: Text to add to backup copies
+        added_note_font_size: Font size for note text
+        font_path: Path to TTF font file for notes
+        dpi: Output DPI
+    
+    Returns:
+        ReformatResult with output file paths and status.
+    
+    Example:
+        # 4 labels per sheet (2x2 layout)
+        result = reformat_labels(
+            in_file_names=["label1.pdf", "label2.pdf", "label3.pdf", "label4.pdf"],
+            sheet_size="D8.5X11",
+            label_format="D4X2.5",
+            label_rows_per_sheet=2,
+            label_cols_per_sheet=2
+        )
+        # Result: 1 output file with all 4 labels arranged on one sheet
+    """
+    if not in_file_names:
+        return ReformatResult(
+            success=False,
+            output_files=[],
+            backup_files=[],
+            input_count=0,
+            output_count=0,
+            message="No input files provided"
+        )
+    
+    # Parse dimensions
+    try:
+        sheet_w, sheet_h = parse_dimension_string(sheet_size)
+        label_w, label_h = parse_dimension_string(label_format)
+    except ValueError as e:
+        return ReformatResult(
+            success=False,
+            output_files=[],
+            backup_files=[],
+            input_count=len(in_file_names),
+            output_count=0,
+            message=str(e)
+        )
+    
+    # Apply defaults for margins (1/4 inch)
+    if top_side_margin is None or top_side_margin <= 0:
+        top_side_margin = DEFAULT_MARGIN_INCHES
+    if left_side_margin is None or left_side_margin <= 0:
+        left_side_margin = DEFAULT_MARGIN_INCHES
+    
+    # Auto-calculate pitch if not provided
+    labels_per_sheet = label_rows_per_sheet * label_cols_per_sheet
+    
+    if label_rows_pitch is None or label_rows_pitch <= 0:
+        if label_rows_per_sheet > 1:
+            # Calculate pitch to evenly distribute labels
+            available_height = sheet_h - 2 * top_side_margin
+            label_rows_pitch = available_height / label_rows_per_sheet
+        else:
+            label_rows_pitch = label_h
+    
+    if label_cols_pitch is None or label_cols_pitch <= 0:
+        if label_cols_per_sheet > 1:
+            available_width = sheet_w - 2 * left_side_margin
+            label_cols_pitch = available_width / label_cols_per_sheet
+        else:
+            label_cols_pitch = label_w
+    
+    # Create config
+    config = LabelSheetConfig(
+        sheet_width_inches=sheet_w,
+        sheet_height_inches=sheet_h,
+        label_width_inches=label_w,
+        label_height_inches=label_h,
+        rows_per_sheet=label_rows_per_sheet,
+        cols_per_sheet=label_cols_per_sheet,
+        row_pitch_inches=label_rows_pitch,
+        col_pitch_inches=label_cols_pitch,
+        top_margin_inches=top_side_margin,
+        left_margin_inches=left_side_margin,
+        orientation=label_orientation,
+        dpi=dpi
+    )
+    
+    logger.info(f"[reformat_labels] Config: {labels_per_sheet} labels/sheet, "
+                f"sheet={sheet_w}x{sheet_h}\", label={label_w}x{label_h}\"")
+    
+    # Determine output directory
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+    else:
+        out_dir = os.path.dirname(in_file_names[0]) or "."
+    
+    # Extract all labels from input PDFs
+    all_labels: list[Image.Image] = []
+    all_backup_labels: list[Image.Image] = []
+    
+    for pdf_path in in_file_names:
+        if not os.path.exists(pdf_path):
+            logger.warning(f"[reformat_labels] File not found: {pdf_path}")
+            continue
+        
+        try:
+            doc = fitz.open(pdf_path)
+            for page_num in range(doc.page_count):
+                page = doc.load_page(page_num)
+                label_img = extract_label_from_pdf_page(
+                    page,
+                    config.label_width_px,
+                    config.label_height_px,
+                    config.orientation,
+                    config.dpi
+                )
+                if label_img:
+                    all_labels.append(label_img)
+                    
+                    # Create backup with note if requested
+                    if add_backup:
+                        backup_label = add_note_to_label(
+                            label_img,
+                            added_note_text,
+                            added_note_font_size,
+                            font_path
+                        )
+                        all_backup_labels.append(backup_label)
+            doc.close()
+        except Exception as e:
+            logger.error(f"[reformat_labels] Error processing {pdf_path}: {e}")
+    
+    if not all_labels:
+        return ReformatResult(
+            success=False,
+            output_files=[],
+            backup_files=[],
+            input_count=len(in_file_names),
+            output_count=0,
+            message="No labels could be extracted from input files"
+        )
+    
+    # Arrange labels onto sheets
+    output_files: list[str] = []
+    backup_files: list[str] = []
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Process main labels
+    for sheet_idx in range(0, len(all_labels), labels_per_sheet):
+        sheet_labels = all_labels[sheet_idx:sheet_idx + labels_per_sheet]
+        sheet_img = create_label_sheet(sheet_labels, config)
+        
+        # Save as PDF
+        out_filename = f"labels_sheet_{sheet_idx // labels_per_sheet + 1}_{timestamp}.pdf"
+        out_path = os.path.join(out_dir, out_filename)
+        sheet_img.save(out_path, "PDF", resolution=dpi)
+        output_files.append(out_path)
+        logger.debug(f"[reformat_labels] Created: {out_path}")
+    
+    # Process backup labels if requested
+    if add_backup and all_backup_labels:
+        for sheet_idx in range(0, len(all_backup_labels), labels_per_sheet):
+            sheet_labels = all_backup_labels[sheet_idx:sheet_idx + labels_per_sheet]
+            sheet_img = create_label_sheet(sheet_labels, config)
+            
+            # Save as PDF
+            out_filename = f"labels_backup_{sheet_idx // labels_per_sheet + 1}_{timestamp}.pdf"
+            out_path = os.path.join(out_dir, out_filename)
+            sheet_img.save(out_path, "PDF", resolution=dpi)
+            backup_files.append(out_path)
+            logger.debug(f"[reformat_labels] Created backup: {out_path}")
+    
+    message = (f"Reformatted {len(all_labels)} labels from {len(in_file_names)} files "
+               f"into {len(output_files)} sheets ({labels_per_sheet} labels/sheet)")
+    if backup_files:
+        message += f", plus {len(backup_files)} backup sheets"
+    
+    logger.info(f"[reformat_labels] {message}")
+    
+    return ReformatResult(
+        success=True,
+        output_files=output_files,
+        backup_files=backup_files,
+        input_count=len(in_file_names),
+        output_count=len(output_files),
+        message=message
+    )
 
-    # Wait for the print job to be sent
-    time.sleep(5)
 
-def check_printer_status(printer_name):
-    return printer_name in get_printers()
-
-async def print_pdf(file_path, printer_name):
+async def reformat_labels_async(
+    in_file_names: list[str],
+    out_dir: Optional[str] = None,
+    sheet_size: str = "D8.5X11",
+    label_format: str = "D8.5X5.5",
+    label_orientation: str = "landscape",
+    label_rows_per_sheet: int = 2,
+    label_cols_per_sheet: int = 1,
+    label_rows_pitch: Optional[float] = None,
+    label_cols_pitch: Optional[float] = None,
+    top_side_margin: Optional[float] = None,
+    left_side_margin: Optional[float] = None,
+    add_backup: bool = True,
+    added_note_text: str = "",
+    added_note_font_size: int = 24,
+    font_path: Optional[str] = None,
+    dpi: int = DEFAULT_DPI
+) -> ReformatResult:
+    """Async version of reformat_labels_util."""
     loop = asyncio.get_event_loop()
     with ThreadPoolExecutor() as pool:
-        await loop.run_in_executor(pool, print_pdf_sync, file_path, printer_name)
+        result = await loop.run_in_executor(
+            pool,
+            lambda: reformat_labels_util(
+                in_file_names=in_file_names,
+                out_dir=out_dir,
+                sheet_size=sheet_size,
+                label_format=label_format,
+                label_orientation=label_orientation,
+                label_rows_per_sheet=label_rows_per_sheet,
+                label_cols_per_sheet=label_cols_per_sheet,
+                label_rows_pitch=label_rows_pitch,
+                label_cols_pitch=label_cols_pitch,
+                top_side_margin=top_side_margin,
+                left_side_margin=left_side_margin,
+                add_backup=add_backup,
+                added_note_text=added_note_text,
+                added_note_font_size=added_note_font_size,
+                font_path=font_path,
+                dpi=dpi
+            )
+        )
+    return result
 
-def add_text_to_img(in_img, text, text_loc, font_full_path="", default_font_name="arial.ttf", font_size=28):
-    logger.debug("[add_text_to_img] Adding Text to image:", text)
-    pil_image = Image.fromarray(in_img)
-    draw = ImageDraw.Draw(pil_image)
-    if font_full_path:
-        font = ImageFont.truetype(font_full_path, font_size)
-    else:
-        # font = ImageFont.load_default()
-        font = ImageFont.truetype(default_font_name, font_size)
 
-    draw.text(text_loc, text, font=font, fill="Blue")  # Adjust position and text color
-
-    # Convert back to OpenCV format
-    image_with_text = lazy.np.array(pil_image)
-
-    # Convert back to PDF
-    return image_with_text
+# ============================================================================
+# MCP Tool Wrappers
+# ============================================================================
 
 
-async def win_print_labels1(label_dir, printers, ecsite, order_data, product_book, txt_font_path, txt_font_size):
-    ex_stat = DEFAULT_RUN_STATUS
+async def reformat_labels(mainwin, args):  # type: ignore
+    """
+    MCP tool wrapper for reformat_labels_util.
+    Reformats label PDFs to fit on multi-label sheets.
+    
+    Input args (from LabelsReformatAction):
+        - in_file_names: list of input PDF file paths (or comma-separated string)
+        - out_file_names: output directory (optional)
+        - sheet_size: e.g., 'D8.5X11'
+        - label_format: e.g., 'D4X2.5'
+        - label_orientation: 'landscape' or 'portrait'
+        - label_rows_per_sheet: number of rows
+        - label_cols_per_sheet: number of columns
+        - label_rows_pitch: row pitch in inches (optional, auto-calculated if <= 0)
+        - label_cols_pitch: column pitch in inches (optional, auto-calculated if <= 0)
+        - top_side_margin: top margin in inches (optional, default 0.25)
+        - left_side_margin: left margin in inches (optional, default 0.25)
+        - add_backup: create backup copies with notes
+        - added_note_text: text for backup labels
+        - added_note_font_size: font size for notes
+    """
+    from mcp.types import TextContent
+    
     try:
-        tasks = []
-        working_dir = label_dir
-        logger.debug("[win_print_labels1] label dir:"+working_dir)
-        for pdf_file in os.listdir(working_dir):
-            if pdf_file.startswith(ecsite) and pdf_file.endswith(".pdf"):
-                logger.debug("[win_print_labels1]working on label:"+pdf_file)
-                modified_pdfs, wpdf_names = reformat_label_pdf(working_dir, pdf_file, ecsite, order_data, product_book, txt_font_path, txt_font_size)
-                for modified_pdf in modified_pdfs:
-                    if check_printer_status(printers[0]):
-                        tasks.append(print_pdf(modified_pdf, printers[0]))
-                    elif len(printers) > 1 and check_printer_status(printers[1]):
-                        tasks.append(print_pdf(modified_pdf, printers[1]))
-                    elif len(printers) > 2 and check_printer_status(printers[2]):
-                        tasks.append(print_pdf(modified_pdf, printers[2]))
-                    else:
-                        print(f"[win_print_labels1] No available printers for {pdf_file}")
-
-        if tasks:
-            await asyncio.gather(*tasks)
-    except Exception as e:
-        # Get the traceback information
-        ex_stat = get_traceback(e, "ErrorWinPrintLabels1")
-        logger.error(f"{ex_stat}")
-
-    return ex_stat
-
-def sync_win_print_labels1(label_dir, printer, ecsite, order_data, product_book, txt_font_path, txt_font_size):
-    ex_stat = DEFAULT_RUN_STATUS
-    try:
-        files_tbp = []
-
-        if printer=="":
-            printers = get_printers()
+        input_data = args.get("input", args)
+        logger.debug(f"[reformat_labels] Starting with input: {input_data}")
+        
+        # Extract parameters from input
+        in_file_names = input_data.get("in_file_names", [])
+        if isinstance(in_file_names, str):
+            # Handle comma-separated string or single file
+            in_file_names = [f.strip() for f in in_file_names.split(",") if f.strip()]
+        
+        out_dir = input_data.get("out_file_names", None)
+        if out_dir and os.path.isfile(out_dir):
+            out_dir = os.path.dirname(out_dir)
+        
+        sheet_size = input_data.get("sheet_size", "D8.5X11")
+        label_format = input_data.get("label_format", "D8.5X5.5")
+        label_orientation = input_data.get("label_orientation", "landscape")
+        label_rows_per_sheet = int(input_data.get("label_rows_per_sheet", 2))
+        label_cols_per_sheet = int(input_data.get("label_cols_per_sheet", 1))
+        
+        # Optional pitch values (None means auto-calculate)
+        label_rows_pitch = input_data.get("label_rows_pitch")
+        if label_rows_pitch is not None and label_rows_pitch > 0:
+            label_rows_pitch = float(label_rows_pitch)
         else:
-            printers = [printer]
-
-        logger.debug("[sync_win_print_labels1] printers are:", printers)
-
-        working_dir = label_dir
-        logger.debug("[sync_win_print_labels1] label dir:"+working_dir)
-        for pdf_file in os.listdir(working_dir):
-            if pdf_file.startswith(ecsite) and pdf_file.endswith(".pdf"):
-                logger.debug("[sync_win_print_labels1] working on label:"+pdf_file)
-                modified_pdfs, wpdf_names = reformat_label_pdf(working_dir, pdf_file, ecsite, order_data, product_book, txt_font_path, txt_font_size)
-                files_tbp = files_tbp + modified_pdfs
-
-        if files_tbp:
-            for file_path in files_tbp:
-                if check_printer_status(printers[0]):
-                    logger.debug("[sync_win_print_labels1] printing:"+file_path+" on printer: "+printers[0])
-                    # print_pdf_sync(file_path, printers[0])
-                elif len(printers) > 1 and check_printer_status(printers[1]):
-                    logger.debug("[sync_win_print_labels1] printing:" + file_path + " on printer: " + printers[1])
-                    print_pdf_sync(file_path, printers[1])
-                elif len(printers) > 2 and check_printer_status(printers[2]):
-                    logger.debug("[sync_win_print_labels1] printing:" + file_path + " on printer: " + printers[2])
-                    print_pdf_sync(file_path, printers[2])
-
+            label_rows_pitch = None
+            
+        label_cols_pitch = input_data.get("label_cols_pitch")
+        if label_cols_pitch is not None and label_cols_pitch > 0:
+            label_cols_pitch = float(label_cols_pitch)
+        else:
+            label_cols_pitch = None
+        
+        # Optional margin values (None means use default 0.25")
+        top_side_margin = input_data.get("top_side_margin")
+        if top_side_margin is not None and top_side_margin > 0:
+            top_side_margin = float(top_side_margin)
+        else:
+            top_side_margin = None
+            
+        left_side_margin = input_data.get("left_side_margin")
+        if left_side_margin is not None and left_side_margin > 0:
+            left_side_margin = float(left_side_margin)
+        else:
+            left_side_margin = None
+        
+        add_backup = input_data.get("add_backup", True)
+        added_note_text = input_data.get("added_note_text", "")
+        added_note_font_size = input_data.get("added_note_font_size", 24)
+        if isinstance(added_note_font_size, str):
+            try:
+                added_note_font_size = int(added_note_font_size)
+            except ValueError:
+                added_note_font_size = 24
+        
+        # Call the utility function
+        result = reformat_labels_util(
+            in_file_names=in_file_names,
+            out_dir=out_dir,
+            sheet_size=sheet_size,
+            label_format=label_format,
+            label_orientation=label_orientation,
+            label_rows_per_sheet=label_rows_per_sheet,
+            label_cols_per_sheet=label_cols_per_sheet,
+            label_rows_pitch=label_rows_pitch,
+            label_cols_pitch=label_cols_pitch,
+            top_side_margin=top_side_margin,
+            left_side_margin=left_side_margin,
+            add_backup=add_backup,
+            added_note_text=added_note_text,
+            added_note_font_size=added_note_font_size
+        )
+        
+        msg = result.message
+        tool_result = TextContent(type="text", text=msg)
+        tool_result.meta = {
+            "success": result.success,
+            "output_files": result.output_files,
+            "backup_files": result.backup_files,
+            "input_count": result.input_count,
+            "output_count": result.output_count
+        }
+        logger.info(f"[reformat_labels] {msg}")
+        return [tool_result]
+        
     except Exception as e:
-        # Get the traceback information
-        ex_stat = get_traceback(e, "ErrorSyncWinPrintLabels1")
-        logger.error(f"{ex_stat}")
+        err_trace = get_traceback(e, "ErrorReformatLabels")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
 
-    return ex_stat
+
+async def print_labels(mainwin, args):  # type: ignore
+    """
+    MCP tool wrapper for print_labels_util.
+    Prints label files to a specified printer.
+    
+    Input args (from FilesPrintAction):
+        - file_names: list of file paths to print (or comma-separated string)
+        - printer: printer name (optional, uses default if not specified)
+        - n_copies: number of copies (default 1)
+    """
+    from mcp.types import TextContent
+    
+    try:
+        input_data = args.get("input", args)
+        logger.debug(f"[print_labels] Starting with input: {input_data}")
+        
+        # Extract parameters from input
+        file_names = input_data.get("file_names", [])
+        if isinstance(file_names, str):
+            # Handle comma-separated string or single file
+            file_names = [f.strip() for f in file_names.split(",") if f.strip()]
+        
+        printer_name = input_data.get("printer", None)
+        if printer_name == "":
+            printer_name = None
+            
+        n_copies = int(input_data.get("n_copies", 1))
+        
+        # Call the utility function
+        result = print_labels_util(
+            files=file_names,
+            printer_name=printer_name,
+            n_copies=n_copies,
+            stop_on_error=False
+        )
+        
+        msg = result.message
+        tool_result = TextContent(type="text", text=msg)
+        tool_result.meta = {
+            "status": result.status.value,
+            "printed_files": result.printed_files,
+            "failed_files": result.failed_files,
+            "printer_used": result.printer_used
+        }
+        logger.info(f"[print_labels] {msg}")
+        return [tool_result]
+        
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorPrintLabels")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
+# ============================================================================
+# MCP Tool Schema Functions
+# ============================================================================
+
+def add_print_labels_tool_schema(tool_schemas):
+    """Add print_labels tool schema to the MCP tool schemas list."""
+    import mcp.types as types
+
+    tool_schema = types.Tool(
+        name="print_labels",
+        description="<category>Label</category><sub-category>Print</sub-category>Print label files to a specified printer. Supports PDF, PNG, JPG files. Cross-platform: Windows, macOS, Linux. Compatible with laser, inkjet, and thermal printers via USB, LAN, or Bluetooth.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {
+                "input": {
+                    "type": "object",
+                    "required": ["file_names"],
+                    "properties": {
+                        "file_names": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "List of file paths to print (PDF, PNG, JPG, etc.)"
+                        },
+                        "printer": {
+                            "type": "string",
+                            "description": "Target printer name. If empty or not specified, uses system default printer."
+                        },
+                        "n_copies": {
+                            "type": "integer",
+                            "description": "Number of copies for each file. Default is 1.",
+                            "default": 1
+                        }
+                    }
+                }
+            }
+        },
+    )
+
+    tool_schemas.append(tool_schema)
+
+
+def add_reformat_labels_tool_schema(tool_schemas):
+    """Add reformat_labels tool schema to the MCP tool schemas list."""
+    import mcp.types as types
+
+    tool_schema = types.Tool(
+        name="reformat_labels",
+        description="<category>Label</category><sub-category>Reformat</sub-category>Reformat label PDFs to fit on multi-label sheets. Supports configurable sheet sizes, label layouts (rows/columns), margins, and optional backup copies with note text.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {
+                "input": {
+                    "type": "object",
+                    "required": ["in_file_names"],
+                    "properties": {
+                        "in_file_names": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "List of input PDF file paths to reformat"
+                        },
+                        "out_file_names": {
+                            "type": "string",
+                            "description": "Output directory path. If not specified, uses same directory as first input file."
+                        },
+                        "sheet_size": {
+                            "type": "string",
+                            "description": "Sheet size in format 'DWIDTHxHEIGHT' (e.g., 'D8.5X11' for letter size). Default: D8.5X11",
+                            "default": "D8.5X11"
+                        },
+                        "label_format": {
+                            "type": "string",
+                            "description": "Label size in format 'DWIDTHxHEIGHT' (e.g., 'D4X2.5'). Default: D8.5X5.5",
+                            "default": "D8.5X5.5"
+                        },
+                        "label_orientation": {
+                            "type": "string",
+                            "enum": ["landscape", "portrait"],
+                            "description": "Label orientation. Default: landscape",
+                            "default": "landscape"
+                        },
+                        "label_rows_per_sheet": {
+                            "type": "integer",
+                            "description": "Number of label rows per sheet. Default: 2",
+                            "default": 2
+                        },
+                        "label_cols_per_sheet": {
+                            "type": "integer",
+                            "description": "Number of label columns per sheet. Default: 1",
+                            "default": 1
+                        },
+                        "label_rows_pitch": {
+                            "type": "number",
+                            "description": "Row pitch in inches. If 0 or not specified, auto-calculated for even distribution."
+                        },
+                        "label_cols_pitch": {
+                            "type": "number",
+                            "description": "Column pitch in inches. If 0 or not specified, auto-calculated for even distribution."
+                        },
+                        "top_side_margin": {
+                            "type": "number",
+                            "description": "Top margin in inches. Default: 0.25 inches"
+                        },
+                        "left_side_margin": {
+                            "type": "number",
+                            "description": "Left margin in inches. Default: 0.25 inches"
+                        },
+                        "add_backup": {
+                            "type": "boolean",
+                            "description": "Create backup copies with note text for packaging proof. Default: true",
+                            "default": True
+                        },
+                        "added_note_text": {
+                            "type": "string",
+                            "description": "Note text to add to backup labels (e.g., order number, product info)"
+                        },
+                        "added_note_font_size": {
+                            "type": "integer",
+                            "description": "Font size for note text. Default: 24",
+                            "default": 24
+                        }
+                    }
+                }
+            }
+        },
+    )
+
+    tool_schemas.append(tool_schema)

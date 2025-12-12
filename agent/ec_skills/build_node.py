@@ -2110,7 +2110,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     async def _run_browser_use(task: str, mainwin) -> dict:
         try:
             from browser_use import Agent as BUAgent, Browser as BUBrowser
-            from agent.ec_skills.browser_use_for_ai.browser_use_tools import custom_controller
+            from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller
             # from browser_use.browser.context import BrowserContext as BUBrowserContext
             log_msg = f"🤖 Executing node Browser Automation node: {node_name}"
             logger.debug(log_msg)
