@@ -52,6 +52,8 @@ class DBAgentTask(BaseModel, TimestampMixin, ExtensibleMixin):
     def to_dict(self, deep=False):
         """Convert model instance to dictionary"""
         d = super().to_dict()
+        # Database records are always UI-created (code-based tasks are not stored in DB)
+        d['source'] = 'ui'
         if deep:
             # Include organization details
             if self.organization:

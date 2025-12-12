@@ -17,6 +17,7 @@ from langchain_core.messages.utils import (
 )
 from langgraph.prebuilt import create_react_agent
 from langmem.short_term import SummarizationNode
+from langchain_core.prompts import ChatPromptTemplate
 
 from prompt_toolkit import prompt
 from scipy.stats import chatterjeexi
@@ -204,9 +205,11 @@ async def create_ec_customer_support_chat_skill(mainwin):
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        searcher_chatter_skill = EC_Skill(name="chatter for meca search 1688 web site",
-                             description="chat with human or other agents to help search a part/component or a product on 1688 website.")
-
+        searcher_chatter_skill = EC_Skill(
+            name="chatter for meca search 1688 web site",
+            description="chat with human or other agents to help search a part/component or a product on 1688 website.",
+            source="code"  # Mark as code-generated skill
+        )        
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
 

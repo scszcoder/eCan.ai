@@ -347,6 +347,7 @@
       }
     },
     "agents": {
+      "system_example_cannot_select": "System example cannot be selected",
       "add": "Add",
       "add_agent": "Add Agent",
       "agent_details": "Agent Details",
@@ -391,7 +392,13 @@
       "avatar": "Avatar",
       "search_placeholder": "Enter name or other keywords",
       "no_search_results": "No results found",
-      "try_different_search": "Try a different search term or clear the search"
+      "try_different_search": "Try a different search term or clear the search",
+      "code_generated_item": "Code-generated item (not in database)",
+      "validation_error": "Validation Error",
+      "invalid_skills": "Invalid Skills",
+      "invalid_tasks": "Invalid Tasks",
+      "validation_hint": "These items do not exist in the database. Please remove them and try again.",
+      "save_failed": "Save Failed"
     },
     "analytics": {
       "activeAgents": "Active Agents",
@@ -1060,6 +1067,7 @@
       "uses": "uses"
     },
     "tasks": {
+      "readOnlyCodeGenerated": "Read-only",
       "title": "Task Management",
       "add": "Add",
       "details": "Details",

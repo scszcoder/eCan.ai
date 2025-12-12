@@ -45,6 +45,88 @@ from utils.logger_helper import logger_helper as logger
 class DBAgentService(BaseService):
     """Agent database service class providing all agent-related operations"""
     
+    @staticmethod
+    def _serialize_pydantic_model(obj, exclude_fields=None):
+        """
+        Serialize a Pydantic model to dict (Pydantic v2)
+        
+        Args:
+            obj: Pydantic model instance
+            exclude_fields: Set of field names to exclude
+            
+        Returns:
+            dict: Serialized model
+            
+        Raises:
+            TypeError: If object is not a Pydantic v2 model
+        """
+        if exclude_fields is None:
+            # Default: exclude non-serializable fields
+            # - EC_Skill: work_flow, runnable, diagram, mcp_client, mapping_rules
+            # - ManagedTask: skill, task, pause_event, cancellation_event, queue
+            exclude_fields = {
+                'skill', 'task', 'pause_event', 'cancellation_event', 'queue',
+                'work_flow', 'runnable', 'diagram', 'mcp_client', 'mapping_rules'
+            }
+        
+        # Pydantic v2 (project uses pydantic==2.12.3)
+        if hasattr(obj, 'model_dump'):
+            return obj.model_dump(exclude=exclude_fields, mode='json')
+        else:
+            # Not a Pydantic v2 model
+            logger.error(f"[DBAgentService] Object is not a Pydantic v2 model! Type: {type(obj)}, ID: {getattr(obj, 'id', 'UNKNOWN')}")
+            raise TypeError(f"Expected Pydantic v2 model, got {type(obj)}")
+    
+    @staticmethod
+    def _validate_items_exist(session, item_ids, db_model, memory_attr, item_type):
+        """
+        Validate that items exist in database or memory (for code-generated items).
+        
+        Args:
+            session: SQLAlchemy session
+            item_ids: List of item IDs to validate
+            db_model: Database model class (DBAgentSkill or DBAgentTask)
+            memory_attr: Attribute name in mainwin ('agent_skills' or 'agent_tasks')
+            item_type: Item type name for logging ('skill' or 'task')
+            
+        Returns:
+            tuple: (valid_ids, invalid_ids)
+        """
+        valid_ids = []
+        invalid_ids = []
+        
+        for item_id in item_ids:
+            if not item_id:
+                continue
+                
+            # Check if item exists in database
+            exists_in_db = session.query(db_model).filter(db_model.id == item_id).first()
+            
+            # Check if item exists in memory (code-generated items)
+            exists_in_memory = False
+            try:
+                from app_context import AppContext
+                mainwin = AppContext.get_main_window()
+                if mainwin and hasattr(mainwin, memory_attr):
+                    memory_items = getattr(mainwin, memory_attr)
+                    exists_in_memory = any(
+                        getattr(item, 'id', None) == item_id 
+                        for item in memory_items
+                    )
+            except Exception as e:
+                logger.debug(f"[DBAgentService] Could not check memory {item_type}s: {e}")
+            
+            # Validate
+            if exists_in_db or exists_in_memory:
+                valid_ids.append(item_id)
+                if exists_in_memory and not exists_in_db:
+                    logger.debug(f"[DBAgentService] {item_type.capitalize()} {item_id} is code-generated (not in DB, but valid)")
+            else:
+                invalid_ids.append(item_id)
+                logger.warning(f"[DBAgentService] {item_type.capitalize()} not found (neither in DB nor in memory): {item_id}")
+        
+        return valid_ids, invalid_ids
+    
     def __init__(self, engine=None, session=None):
         """
         Initialize agent service.
@@ -449,28 +531,28 @@ class DBAgentService(BaseService):
                     DBAgentSkillRel.agent_id.in_(agent_ids)
                 ).all()
                 
-                # Build skill map: agent_id -> [skill_names]
+                # Build skill map: agent_id -> [skill_objects]
                 skill_map = {}
                 for rel in skill_rels:
                     if rel.agent_id not in skill_map:
                         skill_map[rel.agent_id] = []
-                    # Get skill name from skill object
+                    # Get full skill object (not just name)
                     if rel.skill:
-                        skill_map[rel.agent_id].append(rel.skill.name)
+                        skill_map[rel.agent_id].append(rel.skill.to_dict())
                 
                 # Query all agent-task relationships
                 task_rels = session.query(DBAgentTaskRel).filter(
                     DBAgentTaskRel.agent_id.in_(agent_ids)
                 ).all()
                 
-                # Build task map: agent_id -> [task_names]
+                # Build task map: agent_id -> [task_objects]
                 task_map = {}
                 for rel in task_rels:
                     if rel.agent_id not in task_map:
                         task_map[rel.agent_id] = []
-                    # Get task name from task object
+                    # Get full task object (not just name)
                     if rel.task:
-                        task_map[rel.agent_id].append(rel.task.name)
+                        task_map[rel.agent_id].append(rel.task.to_dict())
                 
                 # Convert to dict list and add relationships
                 agents_data = []
@@ -578,9 +660,13 @@ class DBAgentService(BaseService):
                 if include_org:
                     query = query.options(joinedload(DBAgent.org_rels))
                 if include_skills:
-                    query = query.options(joinedload(DBAgent.skill_rels))
+                    # Use nested joinedload to load skill_rels AND the actual skill objects
+                    from ..models.association_models import DBAgentSkillRel
+                    query = query.options(joinedload(DBAgent.skill_rels).joinedload(DBAgentSkillRel.skill))
                 if include_tasks:
-                    query = query.options(joinedload(DBAgent.task_rels))
+                    # Use nested joinedload to load task_rels AND the actual task objects
+                    from ..models.association_models import DBAgentTaskRel
+                    query = query.options(joinedload(DBAgent.task_rels).joinedload(DBAgentTaskRel.task))
                 # Always eager load avatar_resource to avoid N+1 queries
                 query = query.options(joinedload(DBAgent.avatar_resource))
 
@@ -599,6 +685,59 @@ class DBAgentService(BaseService):
                 result_data = []
                 for agent in agents:
                     agent_dict = agent.to_dict(deep=True)
+
+                    # Add code-generated skills/tasks from memory (not in database)
+                    if include_skills and hasattr(agent, 'skill_rels') and agent.skill_rels:
+                        try:
+                            from app_context import AppContext
+                            mainwin = AppContext.get_main_window()
+                            if mainwin and hasattr(mainwin, 'agent_skills'):
+                                # Get skill IDs from relationships
+                                skill_ids = [rel.skill_id for rel in agent.skill_rels]
+                                # Find skills in memory (including code-generated ones)
+                                memory_skills = []
+                                for skill_id in skill_ids:
+                                    # First check if already in agent_dict['skills'] (from DB)
+                                    if 'skills' in agent_dict and any(s.get('id') == skill_id for s in agent_dict['skills']):
+                                        continue
+                                    # Check memory for code-generated skills
+                                    memory_skill = next((s for s in mainwin.agent_skills if getattr(s, 'id', None) == skill_id), None)
+                                    if memory_skill:
+                                        # Serialize the skill using helper function
+                                        skill_dict = self._serialize_pydantic_model(memory_skill)
+                                        memory_skills.append(skill_dict)
+                                # Add memory skills to agent_dict
+                                if memory_skills:
+                                    agent_dict.setdefault('skills', []).extend(memory_skills)
+                                    logger.debug(f"[DBAgentService] Added {len(memory_skills)} code-generated skills for agent {agent.id}")
+                        except Exception as e:
+                            logger.debug(f"[DBAgentService] Could not add memory skills: {e}")
+                    
+                    if include_tasks and hasattr(agent, 'task_rels') and agent.task_rels:
+                        try:
+                            from app_context import AppContext
+                            mainwin = AppContext.get_main_window()
+                            if mainwin and hasattr(mainwin, 'agent_tasks'):
+                                # Get task IDs from relationships
+                                task_ids = [rel.task_id for rel in agent.task_rels]
+                                # Find tasks in memory (including code-generated ones)
+                                memory_tasks = []
+                                for task_id in task_ids:
+                                    # First check if already in agent_dict['tasks'] (from DB)
+                                    if 'tasks' in agent_dict and any(t.get('id') == task_id for t in agent_dict['tasks']):
+                                        continue
+                                    # Check memory for code-generated tasks
+                                    memory_task = next((t for t in mainwin.agent_tasks if getattr(t, 'id', None) == task_id), None)
+                                    if memory_task:
+                                        # Serialize the task using helper function
+                                        task_dict = self._serialize_pydantic_model(memory_task)
+                                        memory_tasks.append(task_dict)
+                                # Add memory tasks to agent_dict
+                                if memory_tasks:
+                                    agent_dict.setdefault('tasks', []).extend(memory_tasks)
+                                    logger.debug(f"[DBAgentService] Added {len(memory_tasks)} code-generated tasks for agent {agent.id}")
+                        except Exception as e:
+                            logger.debug(f"[DBAgentService] Could not add memory tasks: {e}")
 
                     # Add additional computed fields for frontend (using correct backref names)
                     agent_dict['skills_count'] = len(agent.skill_rels) if hasattr(agent, 'skill_rels') and agent.skill_rels else 0
@@ -1292,16 +1431,29 @@ class DBAgentService(BaseService):
                     
                     logger.debug(f"[DBAgentService] Updating agent-skill relationships: {skills_list}")
                     
+                    # Validate all skills exist (in database OR in memory as code-generated skills)
+                    valid_skills, invalid_skills = self._validate_items_exist(
+                        session, skills_list, DBAgentSkill, 'agent_skills', 'skill'
+                    )
+                    
+                    # Reject update if any invalid skills found
+                    if invalid_skills:
+                        session.rollback()
+                        return {
+                            "success": False,
+                            "data": None,
+                            "error": f"Invalid skills: {', '.join(invalid_skills)}. These skills do not exist in the database.",
+                            "invalid_skills": invalid_skills
+                        }
+                    
                     # Delete existing agent-skill relationships
                     session.query(DBAgentSkillRel).filter(DBAgentSkillRel.agent_id == agent_id).delete()
                     
-                    # Add new relationships
-                    # Frontend sends: ['skill_id1', 'skill_id2', ...]
-                    for skill_id in skills_list:
-                        if skill_id:
-                            rel = DBAgentSkillRel(agent_id=agent_id, skill_id=skill_id)
-                            session.add(rel)
-                            logger.debug(f"[DBAgentService] Added agent-skill relationship: {agent_id} -> {skill_id}")
+                    # Add new relationships (only valid skills)
+                    for skill_id in valid_skills:
+                        rel = DBAgentSkillRel(agent_id=agent_id, skill_id=skill_id)
+                        session.add(rel)
+                        logger.debug(f"[DBAgentService] Added agent-skill relationship: {agent_id} -> {skill_id}")
                 
                 # Update agent-task relationships if tasks provided
                 if tasks_data is not None:
@@ -1316,23 +1468,36 @@ class DBAgentService(BaseService):
                     
                     logger.debug(f"[DBAgentService] Updating agent-task relationships: {tasks_list}")
                     
+                    # Validate all tasks exist (in database OR in memory as code-generated tasks)
+                    valid_tasks, invalid_tasks = self._validate_items_exist(
+                        session, tasks_list, DBAgentTask, 'agent_tasks', 'task'
+                    )
+                    
+                    # Reject update if any invalid tasks found
+                    if invalid_tasks:
+                        session.rollback()
+                        return {
+                            "success": False,
+                            "data": None,
+                            "error": f"Invalid tasks: {', '.join(invalid_tasks)}. These tasks do not exist in the database.",
+                            "invalid_tasks": invalid_tasks
+                        }
+                    
                     # Delete existing agent-task relationships
                     session.query(DBAgentTaskRel).filter(DBAgentTaskRel.agent_id == agent_id).delete()
                     
                     # Get agent's vehicle_id (optional, can be None)
                     agent_vehicle_id = vehicle_id
                     
-                    # Add new relationships
-                    # Frontend sends: ['task_id1', 'task_id2', ...]
-                    for task_id in tasks_list:
-                        if task_id:
-                            rel = DBAgentTaskRel(
-                                agent_id=agent_id, 
-                                task_id=task_id,
-                                vehicle_id=agent_vehicle_id
-                            )
-                            session.add(rel)
-                            logger.debug(f"[DBAgentService] Added agent-task relationship: {agent_id} -> {task_id} (vehicle: {agent_vehicle_id or 'unassigned'})")
+                    # Add new relationships (only valid tasks)
+                    for task_id in valid_tasks:
+                        rel = DBAgentTaskRel(
+                            agent_id=agent_id, 
+                            task_id=task_id,
+                            vehicle_id=agent_vehicle_id
+                        )
+                        session.add(rel)
+                        logger.debug(f"[DBAgentService] Added agent-task relationship: {agent_id} -> {task_id} (vehicle: {agent_vehicle_id or 'unassigned'})")
                 
                 # Update agent-org relationship if org_id provided
                 if org_id is not None:

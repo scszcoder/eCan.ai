@@ -1,5 +1,6 @@
 from langgraph.constants import START, END
 from prompt_toolkit import prompt
+from langchain_core.prompts import ChatPromptTemplate
 from agent.ec_skill import *
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
@@ -614,9 +615,11 @@ async def create_search_digi_key_skill(mainwin):
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        searcher_skill = EC_Skill(name="meca search digi-key web site",
-                             description="help search a part/component or a product on digi-key website.")
-
+        searcher_skill = EC_Skill(
+            name="meca search digi-key web site",
+            description="help search a part/component or a product on digi-key website.",
+            source="code"  # Mark as code-generated skill
+        )        
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
 

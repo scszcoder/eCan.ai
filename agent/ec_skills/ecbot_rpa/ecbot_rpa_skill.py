@@ -23,8 +23,11 @@ async def create_rpa_helper_skill(mainwin):
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        helper_skill = EC_Skill(name="ecbot rpa helper",
-                             description="help fix failures during ecbot RPA runs.")
+        helper_skill = EC_Skill(
+            name="ecbot rpa helper",
+            description="help fix failures during ecbot RPA runs.",
+            source="code"  # Mark as code-generated skill
+        )
 
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
@@ -176,8 +179,11 @@ async def create_rpa_operator_skill(mainwin):
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        operator_skill = EC_Skill(name="ecbot rpa operator run RPA",
-                                description="drive a bunch of bots to run their ecbot RPA works.")
+        operator_skill = EC_Skill(
+            name="ecbot rpa operator run RPA",
+            description="drive a bunch of bots to run their ecbot RPA works.",
+            source="code"  # Mark as code-generated skill
+        )
 
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
@@ -273,8 +279,11 @@ async def create_rpa_supervisor_scheduling_skill(mainwin):
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        supervisor_skill = EC_Skill(name="ecbot rpa supervisor task scheduling",
-                                description="help fix failures during ecbot RPA runs.")
+        supervisor_skill = EC_Skill(
+            name="ecbot rpa supervisor task scheduling",
+            description="help fix failures during ecbot RPA runs.",
+            source="code"  # Mark as code-generated skill
+        )
 
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
@@ -423,8 +432,11 @@ async def create_rpa_supervisor_skill(mainwin):
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        supervisor_skill = EC_Skill(name="ecbot rpa supervisor serve requests",
-                                description="help fix failures during ecbot RPA runs.")
+        supervisor_skill = EC_Skill(
+            name="ecbot rpa supervisor serve requests",
+            description="help fix failures during ecbot RPA runs.",
+            source="code"  # Mark as code-generated skill
+        )
 
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")

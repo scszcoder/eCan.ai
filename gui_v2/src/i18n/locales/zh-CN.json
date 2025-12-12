@@ -347,6 +347,7 @@
       }
     },
     "agents": {
+      "system_example_cannot_select": "系统示例不可选择",
       "add": "添加",
       "add_agent": "添加代理",
       "agent_details": "代理详情",
@@ -391,7 +392,13 @@
       "avatar": "头像",
       "search_placeholder": "请输入名称或其他关键字",
       "no_search_results": "未找到搜索结果",
-      "try_different_search": "请尝试其他关键字或清除搜索"
+      "try_different_search": "请尝试其他关键字或清除搜索",
+      "code_generated_item": "代码生成的项（不在数据库中）",
+      "validation_error": "验证错误",
+      "invalid_skills": "无效的技能",
+      "invalid_tasks": "无效的任务",
+      "validation_hint": "这些项在数据库中不存在，请移除它们后重试。",
+      "save_failed": "保存失败"
     },
     "analytics": {
       "activeAgents": "活跃代理",
@@ -1060,6 +1067,7 @@
       "uses": "次"
     },
     "tasks": {
+      "readOnlyCodeGenerated": "只读",
       "title": "任务管理",
       "add": "添加",
       "details": "详情",

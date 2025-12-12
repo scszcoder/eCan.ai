@@ -54,7 +54,7 @@ export interface KnowledgeStoreState extends BaseStoreState<Knowledge> {
 export const useKnowledgeStore = createExtendedResourceStore<Knowledge, KnowledgeStoreState>(
   {
     name: 'knowledge',
-    persist: true,
+    persist: false,  // 关闭持久化，避免数据不一致
     cacheDuration: CACHE_DURATION.MEDIUM,
   },
   new KnowledgeAPI(),

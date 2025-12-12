@@ -14,6 +14,7 @@ import requests
 from langchain_community.chat_models import ChatAnthropic
 from langchain_community.chat_models import ChatOllama
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_deepseek import ChatDeepSeek
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
 from langchain_qwq import ChatQwQ

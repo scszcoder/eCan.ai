@@ -271,8 +271,11 @@ async def create_my_twin_chatter_skill(mainwin: 'MainWindow'):
     try:
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        chatter_skill = EC_Skill(name="chatter for my digital twin",
-                             description="chat on behalf of human.")
+        chatter_skill = EC_Skill(
+            name="chatter for my digital twin",
+            description="chat on behalf of human.",
+            source="code"  # Mark as code-generated skill
+        )
         chatter_skill.mapping_rules["developing"]["mappings"] = TWIN_CHATTER_MAPPING_RULES
         chatter_skill.mapping_rules["released"]["mappings"] = TWIN_CHATTER_MAPPING_RULES
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")

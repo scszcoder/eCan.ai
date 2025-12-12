@@ -43,6 +43,8 @@ class DBAgentSkill(BaseModel, TimestampMixin, ExtensibleMixin):
     def to_dict(self, deep=False):
         """Convert model instance to dictionary"""
         d = super().to_dict()
+        # Database records are always UI-created (code-based skills are not stored in DB)
+        d['source'] = 'ui'
         if deep:
             # Include association details through backref relationships
             if hasattr(self, 'agent_skills_rel') and self.agent_skills_rel:
