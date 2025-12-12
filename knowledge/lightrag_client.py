@@ -317,6 +317,31 @@ class LightragClient:
 
             r.raise_for_status()
             result = r.json()
+            
+            # Calculate confidence score for the response
+            try:
+                from knowledge.lightrag_confidence_scorer import score_lightrag_response
+                confidence = score_lightrag_response(
+                    query=text,
+                    response_data=result,
+                    query_options=options
+                )
+                result['confidence'] = confidence
+                logger.info(f"Query confidence: {confidence.get('overall_score', 0):.2f} ({confidence.get('confidence_level', 'unknown')})")
+
+                decision = (confidence or {}).get('decision') or {}
+                if decision.get('should_answer') is False:
+                    no_answer_message = (
+                        "未找到足够相关的资料来可靠回答该问题。建议换个问法或上传/导入更多文档后再试。\n"
+                        "I couldn't find enough relevant context to answer reliably. Try rephrasing your question or ingest more documents."
+                    )
+                    result['raw_response'] = result.get('response', '')
+                    result['response'] = no_answer_message
+                    result['no_answer_message'] = no_answer_message
+            except Exception as conf_err:
+                logger.warning(f"Failed to calculate confidence score: {conf_err}")
+                # Don't fail the request if confidence calculation fails
+            
             return {"status": "success", "data": result}
         except Exception as e:
             err = get_traceback(e, "LightragClient.query")
@@ -575,7 +600,7 @@ class LightragClient:
             options: Query options (mode, top_k, etc.)
             
         Yields:
-            Streaming response chunks
+            Streaming response chunks (including final confidence chunk)
         """
         payload = {"query": text}
         if options:
@@ -605,6 +630,9 @@ class LightragClient:
             'Accept': 'application/x-ndjson',
         }
         
+        # Accumulate response for confidence calculation
+        accumulated_response = {'response': '', 'references': []}
+        
         try:
             with self.session.post(
                 f"{self.base_url}/query/stream",
@@ -625,6 +653,42 @@ class LightragClient:
                         line_str = line.decode('utf-8')
                         # /query/stream returns pure NDJSON lines, no 'data: ' prefix
                         yield line_str
+                        
+                        # Accumulate response for confidence calculation
+                        try:
+                            import json
+                            chunk_data = json.loads(line_str)
+                            if 'response' in chunk_data:
+                                accumulated_response['response'] += chunk_data.get('response', '')
+                            if 'references' in chunk_data:
+                                accumulated_response['references'] = chunk_data.get('references', [])
+                        except json.JSONDecodeError:
+                            accumulated_response['response'] += line_str
+                
+                # Calculate and yield confidence as final chunk
+                try:
+                    from knowledge.lightrag_confidence_scorer import score_lightrag_response
+                    confidence = score_lightrag_response(
+                        query=text,
+                        response_data=accumulated_response,
+                        query_options=options
+                    )
+                    logger.info(f"Stream query confidence: {confidence.get('overall_score', 0):.2f} ({confidence.get('confidence_level', 'unknown')})")
+                    decision = (confidence or {}).get('decision') or {}
+                    if decision.get('should_answer') is False:
+                        no_answer_message = (
+                            "未找到足够相关的资料来可靠回答该问题。建议换个问法或上传/导入更多文档后再试。\n"
+                            "I couldn't find enough relevant context to answer reliably. Try rephrasing your question or ingest more documents."
+                        )
+                        import json
+                        yield json.dumps({'confidence': confidence, 'no_answer_message': no_answer_message})
+                    else:
+                        # Yield confidence as final JSON chunk
+                        import json
+                        yield json.dumps({'confidence': confidence})
+                except Exception as conf_err:
+                    logger.warning(f"Failed to calculate confidence score for stream: {conf_err}")
+                    
         except requests.exceptions.RequestException as e:
             logger.error(f"Error in stream query: {e}")
             raise
