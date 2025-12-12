@@ -116,8 +116,8 @@ from agent.mcp.server.scrapers.gmail.gmail_read import (
 )
 from agent.mcp.server.Privacy.privacy_reserve import privacy_reserve
 from agent.ec_skills.rag.local_rag_mcp import ragify, rag_query
-from agent.mcp.server.utils.print_utils import reformat_and_print_labels
-from agent.ec_skills.browser_use_for_ai.browser_use_tools import *
+from agent.ec_skills.label_utils.print_label import reformat_labels, print_labels
+from agent.ec_skills.browser_use_extension.extension_tools_service import *
 from app_context import AppContext
 from agent.ec_skills.ocr.image_prep import readRandomWindow8
 from utils.logger_helper import get_traceback
@@ -2710,7 +2710,8 @@ tool_function_mapping = {
         "gmail_read_full_email": gmail_read_full_email,
         "privacy_reserve": privacy_reserve,
         "pirate_shipping_purchase_labels": pirate_shipping_purchase_labels,
-        "reformat_and_print_labels": reformat_and_print_labels,
+        "reformat_labels": reformat_labels,
+        "print_labels": print_labels,
         "ragify": ragify,
         "rag_query": rag_query
     }

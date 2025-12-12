@@ -109,6 +109,10 @@ from agent.mcp.server.scrapers.shopify_seller.shopify_messages_scrape import add
 
 from agent.mcp.server.scrapers.pirate_shipping.purchase_label import add_pirate_shipping_purchase_labels_tool_schema
 from agent.mcp.server.utils.print_utils import add_reformat_and_print_labels_tool_schema
+from agent.ec_skills.label_utils.print_label import (
+    add_print_labels_tool_schema,
+    add_reformat_labels_tool_schema,
+)
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import add_ecan_ai_api_get_agent_status_tool_schema
 from agent.ec_skills.rag.local_rag_mcp import add_ragify_tool_schema, add_rag_query_tool_schema
 from agent.mcp.server.extern_tools_schemas import add_extern_tools_schemas
@@ -2035,7 +2039,8 @@ def build_agent_mcp_tools_schemas():
     # add_ebay_buy_shipping_tool_schema(tool_schemas)
     # add_pirate_shipping_buy_tool_schema(tool_schemas)
 
-    add_reformat_and_print_labels_tool_schema(tool_schemas)
+    add_print_labels_tool_schema(tool_schemas)
+    add_reformat_labels_tool_schema(tool_schemas)
 
     add_ecan_ai_api_get_agent_status_tool_schema(tool_schemas)
 
