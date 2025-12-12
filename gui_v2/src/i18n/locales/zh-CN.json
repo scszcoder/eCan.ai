@@ -1851,6 +1851,10 @@
         "searching": "检索中...",
         "thinking": "思考中...",
         "emptyResponse": "无响应内容",
+        "confidenceLabel": "置信度",
+        "refsShort": "{{count}} 个引用",
+        "noAnswerHint": "未找到可靠答案（{{reason}}）。top1={{top1}}，支持引用={{supporting_refs}}。",
+        "rawAnswer": "原始回答",
         "modes": {
           "naive": "简单",
           "local": "本地",
