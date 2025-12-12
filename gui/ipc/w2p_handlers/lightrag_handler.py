@@ -307,6 +307,54 @@ def handle_delete_document(request: IPCRequest, params: Optional[Dict[str, Any]]
         return create_error_response(request, 'DELETE_ERROR', str(e))
 
 
+@IPCHandlerRegistry.handler('lightrag.abortDocument')
+def handle_abort_document(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """
+    Handle document abort request (stop processing).
+    
+    This stops a document that is currently being processed by deleting it.
+    LightRAG will stop processing and clean up any partial work.
+    
+    Expected params:
+    - id: str - ID of the document to abort
+    
+    Returns:
+    - Success response with deletion result
+    - Error response if abort fails
+    """
+    try:
+        is_valid, data, error = validate_params(params, ['id'])
+        if not is_valid:
+            return create_error_response(request, 'INVALID_PARAMS', error)
+        
+        doc_id = data['id']
+        
+        if not isinstance(doc_id, str) or not doc_id.strip():
+            return create_error_response(request, 'INVALID_PARAMS', 'id must be a non-empty string')
+        
+        logger.info(f"[lightrag_handler] Aborting document: {doc_id}")
+        
+        # Get LightRAG client
+        client = get_client()
+        
+        # Call abort_document method (which internally calls delete_document)
+        # This will stop processing and remove the document
+        result = client.abort_document(doc_id)
+        
+        if result.get('status') == 'error':
+            error_msg = result.get('message', 'Failed to abort document')
+            logger.error(f"[lightrag_handler] Abort document failed for {doc_id}: {error_msg}")
+            return create_error_response(request, 'ABORT_ERROR', error_msg)
+        
+        logger.info(f"[lightrag_handler] Successfully aborted document: {doc_id}")
+        data = result.get('data', result)
+        return create_success_response(request, data)
+        
+    except Exception as e:
+        logger.error(f"[lightrag_handler] Error in abort_document handler: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'ABORT_ERROR', str(e))
+
+
 @IPCHandlerRegistry.handler('lightrag.insertText')
 def handle_insert_text(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """
@@ -798,20 +846,173 @@ async def handle_get_documents_paginated(request: IPCRequest, params: Optional[D
         }
         request_params = {**defaults, **(params or {})}
         
+        logger.info(f"[lightrag_handler] get_documents_paginated called with params: {request_params}")
+        
         import asyncio
         client = get_client()
         result = await asyncio.get_event_loop().run_in_executor(
             None, lambda: client.get_documents_paginated(request_params)
         )
         
+        logger.info(f"[lightrag_handler] Client returned: status={result.get('status')}, data keys={list(result.get('data', {}).keys()) if isinstance(result.get('data'), dict) else 'not a dict'}")
+        
         if result.get('status') == 'error':
+            logger.error(f"[lightrag_handler] Error from client: {result.get('message')}")
             return create_error_response(request, 'GET_DOCUMENTS_ERROR', result.get('message', 'Failed to get documents'))
             
         response_data = result.get('data', result)
+        
+        # Log document count
+        if isinstance(response_data, dict):
+            docs = response_data.get('documents', [])
+            logger.info(f"[lightrag_handler] Returning {len(docs)} documents")
+        
         return create_success_response(request, response_data)
     except Exception as e:
-        logger.error(f"Error in get_documents_paginated handler: {e}\n{traceback.format_exc()}")
+        logger.error(f"[lightrag_handler] Error in get_documents_paginated handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'GET_DOCUMENTS_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('lightrag.getProcessingProgress')
+def handle_get_processing_progress(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Get document processing progress using LightRAG track_status API.
+    
+    Expected params:
+    - track_id: Optional track ID to monitor specific batch
+    
+    Returns progress information including:
+    - processing_count: Number of documents being processed
+    - pending_count: Number of documents pending
+    - processed_count: Number of documents completed
+    - failed_count: Number of documents failed
+    - total_count: Total number of documents
+    - progress_percentage: Progress as percentage (0-100)
+    - status: Processing status (idle, processing, completed)
+    - documents: List of documents with their status (if track_id provided)
+    """
+    try:
+        track_id = params.get('track_id') if params else None
+        
+        # Get LightRAG client
+        client = get_client()
+        
+        if track_id:
+            # Get detailed progress for specific track_id
+            result = client.track_status(track_id)
+            
+            if result.get('status') == 'error':
+                error_msg = result.get('message', 'Failed to get track status')
+                logger.error(f"Track status failed: {error_msg}")
+                return create_error_response(request, 'TRACK_STATUS_ERROR', error_msg)
+            
+            data = result.get('data', {})
+            documents = data.get('documents', [])
+            status_summary = data.get('status_summary', {})
+            
+            # Calculate progress from status summary
+            processing = status_summary.get('PROCESSING', 0) + status_summary.get('PREPROCESSED', 0)
+            pending = status_summary.get('PENDING', 0)
+            processed = status_summary.get('PROCESSED', 0)
+            failed = status_summary.get('FAILED', 0)
+            total = processing + pending + processed + failed
+            
+            if total > 0:
+                progress_percentage = int((processed / total) * 100)
+                if processing > 0 or pending > 0:
+                    status = 'processing'
+                else:
+                    status = 'completed'
+            else:
+                progress_percentage = 0
+                status = 'idle'
+            
+            return create_success_response(request, {
+                'status': status,
+                'processing_count': processing,
+                'pending_count': pending,
+                'processed_count': processed,
+                'failed_count': failed,
+                'total_count': total,
+                'progress_percentage': progress_percentage,
+                'track_id': track_id,
+                'documents': documents
+            })
+        else:
+            # Get overall status from status counts
+            result = client.get_status_counts()
+            
+            if result.get('status') == 'error':
+                error_msg = result.get('message', 'Failed to get status counts')
+                logger.error(f"Get status counts failed: {error_msg}")
+                return create_error_response(request, 'STATUS_COUNTS_ERROR', error_msg)
+            
+            data = result.get('data', {})
+            status_counts = data.get('status_counts', {}) if 'status_counts' in data else data
+            
+            # Calculate progress from status counts
+            processing = status_counts.get('PROCESSING', 0) + status_counts.get('PREPROCESSED', 0)
+            pending = status_counts.get('PENDING', 0)
+            processed = status_counts.get('PROCESSED', 0)
+            failed = status_counts.get('FAILED', 0)
+            total = processing + pending + processed + failed
+            
+            # Try to get more detailed progress from pipeline status
+            pipeline_result = client.get_pipeline_status()
+            pipeline_data = pipeline_result.get('data', {}) if pipeline_result.get('status') == 'success' else {}
+            
+            if total > 0:
+                # Base progress on completed documents
+                base_progress = (processed + failed) / total
+                
+                # If pipeline is busy and provides batch info, add fine-grained progress
+                if pipeline_data.get('busy') and processing > 0:
+                    total_batches = pipeline_data.get('batchs', 0)
+                    current_batch = pipeline_data.get('cur_batch', 0)
+                    
+                    if total_batches > 0 and current_batch > 0:
+                        # Add progress within the current processing document
+                        # Each document contributes 1/total to overall progress
+                        # Within that document, batch progress contributes proportionally
+                        batch_progress = current_batch / total_batches
+                        document_contribution = 1 / total
+                        
+                        # Add partial progress for the document being processed
+                        base_progress += (batch_progress * document_contribution)
+                
+                progress_percentage = int(min(100, base_progress * 100))
+                
+                if processing > 0 or pending > 0:
+                    status = 'processing'
+                else:
+                    status = 'completed'
+            else:
+                progress_percentage = 0
+                status = 'idle'
+            
+            response_data = {
+                'status': status,
+                'processing_count': processing,
+                'pending_count': pending,
+                'processed_count': processed,
+                'failed_count': failed,
+                'total_count': total,
+                'progress_percentage': progress_percentage
+            }
+            
+            # Include pipeline details if available
+            if pipeline_data.get('busy'):
+                response_data['pipeline'] = {
+                    'job_name': pipeline_data.get('job_name'),
+                    'current_batch': pipeline_data.get('cur_batch', 0),
+                    'total_batches': pipeline_data.get('batchs', 0),
+                    'latest_message': pipeline_data.get('latest_message')
+                }
+            
+            return create_success_response(request, response_data)
+        
+    except Exception as e:
+        logger.error(f"Error in get_processing_progress handler: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'GET_PROGRESS_ERROR', str(e))
 
 
 # Settings persistence using config manager

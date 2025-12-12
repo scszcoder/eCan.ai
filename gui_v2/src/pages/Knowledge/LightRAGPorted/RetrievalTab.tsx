@@ -13,6 +13,8 @@ type MessageState = {
   content: string;
   isThinking?: boolean;
   thinkingTime?: number | null;
+  confidence?: any; // Confidence score data from backend
+  rawContent?: string;
 };
 
 const RetrievalTab: React.FC = () => {
@@ -183,43 +185,58 @@ const RetrievalTab: React.FC = () => {
       const messageId = streamMapRef.current.get(streamId);
       if (!messageId) return;
 
-      const textChunk = typeof chunk === 'string' ? chunk : (chunk.response || '');
-      if (!textChunk) return;
-
-      // Track thinking state logic
-      if (textChunk.includes('<think>') && thinkingStartTimeRef.current === null) {
-          thinkingStartTimeRef.current = Date.now();
-      }
-      
-      let thinkingTime: number | null = null;
-      let isThinking = false;
-      
-      if (thinkingStartTimeRef.current) {
-          if (textChunk.includes('</think>')) {
-              // Finished thinking
-              thinkingTime = parseFloat(((Date.now() - thinkingStartTimeRef.current) / 1000).toFixed(2));
-              thinkingStartTimeRef.current = null;
-              isThinking = false;
-          } else {
-              isThinking = true;
+      // Handle confidence data (sent as final chunk)
+      if (chunk?.confidence) {
+        const shouldAnswer = chunk?.confidence?.decision?.should_answer;
+        setMessages(prev => prev.map(m => {
+          if (m.id !== messageId) return m;
+          const next: any = { ...m, confidence: chunk.confidence };
+          if (shouldAnswer === false) {
+            next.rawContent = m.content;
+            next.content = chunk.no_answer_message || m.content;
           }
+          return next;
+        }));
+        return;
       }
+
+      const textChunk = chunk?.response || '';
 
       setMessages(prev => prev.map(m => {
-        if (m.id === messageId) {
-            // Keep previous thinking time if already set
-            const newTime = thinkingTime !== null ? thinkingTime : m.thinkingTime;
-            // Check if we are currently inside thinking block (simple heuristic)
-            const currentIsThinking = isThinking || (m.isThinking && !textChunk.includes('</think>'));
-            
-            return { 
-                ...m, 
-                content: m.content + textChunk, 
-                isThinking: currentIsThinking,
-                thinkingTime: newTime
-            };
+        if (m.id !== messageId) return m;
+
+        // Merge strategy:
+        // - If backend streams cumulative content, replace.
+        // - If backend streams incremental deltas, append.
+        const prevContent = m.content || '';
+        let mergedContent = '';
+        if (!prevContent) {
+          mergedContent = textChunk;
+        } else if (textChunk.startsWith(prevContent)) {
+          mergedContent = textChunk;
+        } else if (prevContent.startsWith(textChunk)) {
+          mergedContent = prevContent;
+        } else {
+          mergedContent = prevContent + textChunk;
         }
-        return m;
+
+        // Thinking timing based on merged content (robust for cumulative streams)
+        let thinkingTime: number | null = m.thinkingTime ?? null;
+        if (thinkingStartTimeRef.current === null && mergedContent.includes('<think>')) {
+          thinkingStartTimeRef.current = Date.now();
+        }
+        if (thinkingStartTimeRef.current !== null && mergedContent.includes('</think>')) {
+          thinkingTime = parseFloat(((Date.now() - thinkingStartTimeRef.current) / 1000).toFixed(2));
+          thinkingStartTimeRef.current = null;
+        }
+        const currentIsThinking = thinkingStartTimeRef.current !== null;
+
+        return {
+          ...m,
+          content: mergedContent,
+          isThinking: currentIsThinking,
+          thinkingTime,
+        };
       }));
       scrollToEnd();
     };
@@ -363,7 +380,14 @@ const RetrievalTab: React.FC = () => {
               const refs = (resultData as any).references;
               const hasRefs = Array.isArray(refs) && refs.length > 0;
 
-              if (hasRefs) {
+              const confidence = (resultData as any)?.confidence;
+              const shouldAnswer = confidence?.decision?.should_answer;
+
+              const hasReferencesSection = /(^|\n)\s*(references|reference|参考文档|参考资料)\s*[:：]?/i.test(base);
+
+              if (shouldAnswer === false) {
+                content = base;
+              } else if (hasRefs && !hasReferencesSection) {
                 // Build a simple human-readable reference list
                 const refLines = refs.map((r: any, idx: number) => {
                   if (!r || typeof r !== 'object') {
@@ -385,9 +409,11 @@ const RetrievalTab: React.FC = () => {
                 });
 
                 content = `${base}\n\n参考文档：\n${refLines.join('\n')}`;
-              } else {
+              } else if (!hasReferencesSection) {
                 // When there is no reference, append a friendly hint line
                 content = base + '\n\n(没有检索到相关文档引用)';
+              } else {
+                content = base;
               }
             } else if (typeof resultData === 'string') {
               content = resultData;
@@ -395,8 +421,13 @@ const RetrievalTab: React.FC = () => {
               content = JSON.stringify(resultData);
             }
 
+            // Extract confidence if present
+            const confidence = resultData?.confidence;
+
+            const shouldAnswer = confidence?.decision?.should_answer;
+            const rawResponse = resultData?.raw_response;
             setMessages(prev => prev.map(m => 
-              m.id === assistantId ? { ...m, content } : m
+              m.id === assistantId ? { ...m, content, confidence, rawContent: shouldAnswer === false ? rawResponse : undefined } : m
             ));
             setLoading(false); // Stop loading for normal request
         } else {
@@ -458,6 +489,8 @@ const RetrievalTab: React.FC = () => {
                     isThinking={m.isThinking}
                     thinkingTime={m.thinkingTime}
                     loading={loading && idx === messages.length - 1 && m.role === 'assistant'}
+                    confidence={m.confidence}
+                    rawContent={m.rawContent}
                 />
               ))}
               <div ref={endRef} />

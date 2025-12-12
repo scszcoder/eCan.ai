@@ -42,7 +42,7 @@ def set_up_ec_procurement_agent(mainwin):
         # 如果没有有效技能，记录错误并返回None
         if not valid_skills:
             logger.error("No valid skills found for ec_procurement agent!")
-            logger.error(f"Available skills: {[sk.name for sk in agent_skills] if agent_skills else 'None'}")
+            logger.debug(f"Available skills: {[sk.name for sk in agent_skills] if agent_skills else 'None'}")
             return None
 
         agent_card = AgentCard(

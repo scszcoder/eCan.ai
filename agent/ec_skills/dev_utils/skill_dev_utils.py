@@ -6,7 +6,11 @@ from agent.ec_agents.create_dev_task import create_skill_dev_task
 
 async def create_test_dev_skill(mainwin):
     try:
-        test_dev_skill = EC_Skill(name="test skill under development", description="test run on a skill under development.")
+        test_dev_skill = EC_Skill(
+            name="test skill under development",
+            description="test run on a skill under development.",
+            source="code"  # Mark as code-generated skill
+        )        
         # Attach optional mapping_rules for testing the DSL. These are additive and won't break defaults.
         test_dev_skill.mapping_rules = {
             "mappings": [

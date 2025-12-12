@@ -289,7 +289,11 @@ async def create_self_test_chatter_skill(mainwin=None, run_context: dict | None 
     try:
         # Inject dependencies on first call
         print("building self_test_chatter_skill..................")
-        self_test_chatter_skill = EC_Skill(name=THIS_SKILL_NAME, description=DESCRIPTION)
+        self_test_chatter_skill = EC_Skill(
+            name=THIS_SKILL_NAME,
+            description=DESCRIPTION,
+            source="code"  # Mark as code-generated skill
+        )
         self_test_chatter_skill.mapping_rules["developing"]["mappings"] = DEFAULT_CHATTER_MAPPING_RULES
         self_test_chatter_skill.mapping_rules["released"]["mappings"] = DEFAULT_CHATTER_MAPPING_RULES
         mcp_client = mainwin.mcp_client

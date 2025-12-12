@@ -56,6 +56,18 @@ export type DocumentsPaginatedPayload = {
   sort_direction?: 'asc' | 'desc';
 };
 
+export type ProcessingProgress = {
+  status: 'idle' | 'processing' | 'completed';
+  processing_count: number;
+  pending_count: number;
+  processed_count: number;
+  failed_count: number;
+  total_count: number;
+  progress_percentage: number;
+  track_id?: string;
+  documents?: any[];
+};
+
 // 传入 apiInstance，返回 LightRAG 相关Method的对象
 export function createLightRAGApi(apiInstance: IPCAPI) {
   return {
@@ -95,8 +107,16 @@ export function createLightRAGApi(apiInstance: IPCAPI) {
       return apiInstance.executeRequest<T>('lightrag.getDocumentsPaginated', payload);
     },
 
+    async getProcessingProgress(track_id?: string): Promise<APIResponse<ProcessingProgress>> {
+      return apiInstance.executeRequest<ProcessingProgress>('lightrag.getProcessingProgress', track_id ? { track_id } : {});
+    },
+
     async deleteDocument<T>(payload: DeleteDocumentPayload): Promise<APIResponse<T>> {
       return apiInstance.executeRequest<T>('lightrag.deleteDocument', payload);
+    },
+
+    async abortDocument<T>(payload: { id: string }): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.abortDocument', payload);
     },
 
     async insertText<T>(payload: InsertTextPayload): Promise<APIResponse<T>> {

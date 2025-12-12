@@ -17,8 +17,17 @@ export const StyledFormItem = styled(Form.Item)`
       color: rgba(255, 255, 255, 0.95);
       letter-spacing: 0.3px;
       
+      /* 移除冒号 */
       &::after {
         content: '' !important;
+        margin: 0 !important;
+      }
+      
+      /* 保留必填星号（Ant Design 使用 .ant-form-item-required 类） */
+      &.ant-form-item-required::before {
+        color: #ff4d4f !important;
+        font-size: 14px !important;
+        margin-right: 4px !important;
       }
     }
   }

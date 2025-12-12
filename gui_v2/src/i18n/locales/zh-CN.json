@@ -347,6 +347,7 @@
       }
     },
     "agents": {
+      "system_example_cannot_select": "系统示例不可选择",
       "add": "添加",
       "add_agent": "添加代理",
       "agent_details": "代理详情",
@@ -391,7 +392,13 @@
       "avatar": "头像",
       "search_placeholder": "请输入名称或其他关键字",
       "no_search_results": "未找到搜索结果",
-      "try_different_search": "请尝试其他关键字或清除搜索"
+      "try_different_search": "请尝试其他关键字或清除搜索",
+      "code_generated_item": "代码生成的项（不在数据库中）",
+      "validation_error": "验证错误",
+      "invalid_skills": "无效的技能",
+      "invalid_tasks": "无效的任务",
+      "validation_hint": "这些项在数据库中不存在，请移除它们后重试。",
+      "save_failed": "保存失败"
     },
     "analytics": {
       "activeAgents": "活跃代理",
@@ -1060,6 +1067,7 @@
       "uses": "次"
     },
     "tasks": {
+      "readOnlyCodeGenerated": "只读",
       "title": "任务管理",
       "add": "添加",
       "details": "详情",
@@ -1749,6 +1757,15 @@
         "summary": "摘要",
         "length": "长度",
         "chunks": "分块",
+        "processingProgress": "处理进度",
+        "documentsProcessed": "文档已处理",
+        "cannotDeleteProcessing": "无法删除正在处理或待处理的文档，请等待处理完成后再删除",
+        "stop": "停止",
+        "stopProcessing": "停止处理",
+        "stopProcessingConfirm": "确定要停止处理文档 {{filePath}} 吗？\n\n⚠️ 注意：这将取消整个处理流程，所有正在处理的文档都会被标记为失败状态。",
+        "stoppingDocument": "正在停止处理流程...",
+        "documentStopped": "处理流程已停止，所有处理中的文档已标记为失败",
+        "errorStoppingDocument": "停止处理失败: ",
         "createdAt": "创建时间",
         "actions": "操作",
         "noDocuments": "暂无文档",
@@ -1779,6 +1796,7 @@
         "loadedDocuments": "已加载 {{count}} 个文档 (第 {{page}} 页)",
         "ingestError": "导入错误",
         "clearCacheConfirm": "清除所有缓存？这将从知识库中删除已处理的数据。",
+        "deleteDocument": "删除文档",
         "deleteDocumentConfirm": "删除文档：{{filePath}}？",
         "selectDirectoryFirst": "请先选择目录",
         "startingScan": "正在开始扫描新文档...",
@@ -1792,7 +1810,16 @@
         "errorSelectingDirectory": "选择目录出错: ",
         "errorScanning": "扫描出错: ",
         "errorClearingCache": "清除缓存出错: ",
-        "errorDeletingDocument": "删除文档出错: "
+        "errorDeletingDocument": "删除文档出错: ",
+        "processingStoppedWithPending": "处理已停止。{{failed}} 个文档标记为失败，{{pending}} 个待处理文档保持待处理状态（未开始处理）。\\n\\n如需删除待处理文档，请点击文档的删除按钮。",
+        "warnPendingCannotDelete": "警告：文档 {{filePath}} 处于待处理状态，可能无法删除",
+        "deletionFailedStillExists": "删除失败：文档仍然存在。\\n\\n这通常是因为 LightRAG 不允许删除 {{status}} 状态的文档。",
+        "cannotDeletePendingSolution": "无法删除待处理文档。\\n\\n解决方案：\\n1. 等待文档开始处理（变为 PROCESSING 状态）\\n2. 然后点击\\\"停止\\\"按钮\\n3. 文档会变为 FAILED 状态\\n4. 最后再删除\\n\\n或者：\\n使用 LightRAG 的管理工具直接清理数据库",
+        "deletePendingConfirm": "文档 {{filePath}} 正在待处理队列中。\\n\\n⚠️ 由于 LightRAG 限制，待处理文档无法直接删除。\\n\\n建议操作：\\n1. 等待文档开始处理后再删除\\n2. 或者停止整个处理流程后，文档会保持待处理状态，可以稍后清理\\n\\n是否仍要尝试删除？",
+        "deleteProcessingConfirm": "文档 {{filePath}} 正在处理中。\\n\\n删除将先停止处理流程，然后删除该文档。\\n\\n确定要继续吗？",
+        "stoppingProcessingFirst": "文档 {{filePath}} 正在处理中，先停止处理流程...",
+        "processingStoppedWaitingUpdate": "处理流程已停止，等待文档状态更新...",
+        "warnStopFailedTryDelete": "警告：停止处理失败，尝试直接删除..."
       },
       "retrieval": {
         "querySettings": "查询设置",
@@ -1824,6 +1851,10 @@
         "searching": "检索中...",
         "thinking": "思考中...",
         "emptyResponse": "无响应内容",
+        "confidenceLabel": "置信度",
+        "refsShort": "{{count}} 个引用",
+        "noAnswerHint": "未找到可靠答案（{{reason}}）。top1={{top1}}，支持引用={{supporting_refs}}。",
+        "rawAnswer": "原始回答",
         "modes": {
           "naive": "简单",
           "local": "本地",
