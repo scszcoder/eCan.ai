@@ -62,7 +62,6 @@ async def build_agent_skills_parallel(mainwin):
     # Batch 3: Advanced skills (example skills from resource/my_skills + complex skills)
     advanced_skills = [
         # Example skills from resource/my_skills (loaded from JSON)
-        # ("web_rag_assistant", create_web_rag_assistant_skill),
         ("demo0", create_demo0_skill),
         ("ebay_fullfill_messages", create_ebay_fullfill_messages_skill),
         ("search_digikey_chatter", create_search_digikey_chatter_skill),
@@ -262,11 +261,6 @@ def create_skill_from_resource(
         logger.error(f"[create_skill_from_resource] Failed to create {skill_name}: {e}")
         logger.debug(f"[create_skill_from_resource] Traceback: {traceback.format_exc()}")
         return None
-
-
-async def create_web_rag_assistant_skill(mainwin) -> Optional[EC_Skill]:
-    """Create web_rag_assistant skill from resource/my_skills example"""
-    return create_skill_from_resource("web_rag_assistant")
 
 
 async def create_demo0_skill(mainwin) -> Optional[EC_Skill]:

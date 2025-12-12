@@ -135,6 +135,21 @@ class LightRAGConfidenceScorer:
             response_text = response_data.get("response", "")
             references = response_data.get("references", [])
 
+            # IMPORTANT: Filter out invalid/empty references
+            # Only count references that have actual content (file_path or reference_id)
+            valid_references = []
+            for ref in references:
+                if isinstance(ref, dict):
+                    # Check if reference has meaningful data
+                    has_file_path = ref.get('file_path') and ref.get('file_path') != 'unknown_source'
+                    has_ref_id = ref.get('reference_id')
+                    if has_file_path or has_ref_id:
+                        valid_references.append(ref)
+            
+            # Use valid_references instead of all references
+            references = valid_references
+            logger.debug(f"Filtered references: {len(valid_references)} valid out of {len(response_data.get('references', []))} total")
+
             # Extract retrieval scores (if provided by backend)
             scores: List[float] = []
             for ref in references:
