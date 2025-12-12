@@ -16,7 +16,7 @@
   "node_transfers": {},
   "event_routing": {
     "human_chat": {
-      "task_selector": "name:web_rag_assistant",
+      "task_selector": "name_contains:web_rag_assistant",
       "queue": "chat_queue"
     }
   }
