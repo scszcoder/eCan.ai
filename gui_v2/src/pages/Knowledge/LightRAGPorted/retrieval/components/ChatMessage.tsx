@@ -13,6 +13,8 @@ interface ChatMessageProps {
   isThinking?: boolean;
   thinkingTime?: number | null;
   loading?: boolean;
+  confidence?: any; // Confidence score data
+  rawContent?: string;
 }
 
 // Helper to parse COT content
@@ -48,15 +50,20 @@ const parseCOTContent = (content: string) => {
   };
 };
 
-const ChatMessage: React.FC<ChatMessageProps> = ({ role, content, isThinking: isThinkingProp, thinkingTime, loading }) => {
+const ChatMessage: React.FC<ChatMessageProps> = ({ role, content, isThinking: isThinkingProp, thinkingTime, loading, confidence, rawContent }) => {
   const { t } = useTranslation();
   const { token } = theme.useToken();
   const { theme: currentTheme } = useTheme();
   const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
   
   const [isThinkingExpanded, setIsThinkingExpanded] = useState(false);
+  const [isRawExpanded, setIsRawExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+
+  const noAnswerReason = confidence?.decision?.no_answer_reason;
+  const shouldAnswer = confidence?.decision?.should_answer;
+  const retrieval = confidence?.signals?.retrieval;
 
   const { thinkingContent, displayContent, isThinkingProcess } = useMemo(() => {
     if (role === 'user') return { thinkingContent: '', displayContent: content, isThinkingProcess: false };
@@ -233,6 +240,110 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ role, content, isThinking: is
           )}
         </div>
       </div>
+      
+      {/* Confidence Score Display (Assistant only) */}
+      {role === 'assistant' && confidence && !isThinking && (
+        <div style={{
+          fontSize: 11,
+          color: token.colorTextTertiary,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          marginTop: 4,
+          paddingLeft: 4
+        }}>
+          <span style={{ fontWeight: 500 }}>{t('pages.knowledge.retrieval.confidenceLabel')}:</span>
+          <span style={{
+            padding: '2px 8px',
+            borderRadius: 4,
+            backgroundColor: 
+              confidence.confidence_level === 'very_high' ? 'rgba(82, 196, 26, 0.15)' :
+              confidence.confidence_level === 'high' ? 'rgba(82, 196, 26, 0.1)' :
+              confidence.confidence_level === 'medium' ? 'rgba(250, 173, 20, 0.15)' :
+              confidence.confidence_level === 'low' ? 'rgba(250, 140, 22, 0.15)' :
+              'rgba(255, 77, 79, 0.15)',
+            color:
+              confidence.confidence_level === 'very_high' ? '#52c41a' :
+              confidence.confidence_level === 'high' ? '#52c41a' :
+              confidence.confidence_level === 'medium' ? '#faad14' :
+              confidence.confidence_level === 'low' ? '#fa8c16' :
+              '#ff4d4f',
+            fontWeight: 600
+          }}>
+            {(confidence.overall_score * 100).toFixed(0)}%
+          </span>
+          <span style={{ opacity: 0.7 }}>
+            {confidence.confidence_level === 'very_high' ? '⭐⭐⭐⭐⭐' :
+             confidence.confidence_level === 'high' ? '⭐⭐⭐⭐' :
+             confidence.confidence_level === 'medium' ? '⭐⭐⭐' :
+             confidence.confidence_level === 'low' ? '⭐⭐' : '⭐'}
+          </span>
+          {confidence.metrics?.reference_count > 0 && (
+            <span style={{ opacity: 0.6 }}>
+              📚 {t('pages.knowledge.retrieval.refsShort', { count: confidence.metrics.reference_count })}
+            </span>
+          )}
+        </div>
+      )}
+
+      {role === 'assistant' && shouldAnswer === false && !isThinking && (
+        <div
+          style={{
+            fontSize: 12,
+            color: token.colorWarning,
+            paddingLeft: 4,
+            marginTop: 4,
+            lineHeight: 1.4,
+          }}
+        >
+          {t('pages.knowledge.retrieval.noAnswerHint', {
+            reason: String(noAnswerReason || 'unknown'),
+            top1: retrieval?.top1 ?? 'N/A',
+            supporting_refs: retrieval?.supporting_refs ?? 0,
+          })}
+        </div>
+      )}
+
+      {role === 'assistant' && rawContent && shouldAnswer === false && !isThinking && (
+        <div style={{ paddingLeft: 4, marginTop: 6 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: 12,
+              color: token.colorTextSecondary,
+              cursor: 'pointer',
+              userSelect: 'none',
+            }}
+            onClick={() => setIsRawExpanded(!isRawExpanded)}
+          >
+            <span style={{ fontWeight: 500 }}>{t('pages.knowledge.retrieval.rawAnswer')}</span>
+            <ChevronDown
+              size={12}
+              style={{
+                transform: isRawExpanded ? 'rotate(180deg)' : 'none',
+                transition: 'transform 0.2s',
+              }}
+            />
+          </div>
+          {isRawExpanded && (
+            <div
+              style={{
+                marginTop: 8,
+                fontSize: 12,
+                color: token.colorTextSecondary,
+                whiteSpace: 'pre-wrap',
+                backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                padding: 8,
+                borderRadius: 6,
+              }}
+            >
+              {rawContent}
+            </div>
+          )}
+        </div>
+      )}
       {/* Add global styles for markdown if needed, though we try to keep it inline/component based */}
       <style>{`
         .markdown-body p { margin-bottom: 8px; }

@@ -1851,6 +1851,10 @@
         "searching": "Searching...",
         "thinking": "Thinking...",
         "emptyResponse": "Empty response",
+        "confidenceLabel": "Confidence",
+        "refsShort": "{{count}} refs",
+        "noAnswerHint": "No reliable answer found ({{reason}}). top1={{top1}}, supporting_refs={{supporting_refs}}.",
+        "rawAnswer": "Raw answer",
         "modes": {
           "naive": "Naive",
           "local": "Local",
