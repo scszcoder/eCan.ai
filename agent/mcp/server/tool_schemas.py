@@ -100,6 +100,7 @@ from agent.mcp.server.scrapers.gmail.gmail_read import (
     add_gmail_respond_tool_schema,
     add_gmail_write_new_tool_schema,
     add_gmail_move_email_tool_schema,
+    add_gmail_mark_status_tool_schema,
     add_gmail_delete_email_tool_schema
 )
 from agent.mcp.server.Privacy.privacy_reserve import add_privacy_reserve_tool_schema
@@ -408,7 +409,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="keyboard_text_input",
-        description="<category>PyAutoGUI</category><sub-category>Keyboard Action</sub-category>keyboard type in text string.",
+        description="<category>PyAutoGUI</category><sub-category>Keyboard Action</sub-category>direct drive keyboard type in text string.",
         inputSchema={
             "type": "object",
             "required": ["input"],
@@ -439,7 +440,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="keyboard_keys_input",
-        description="<category>PyAutoGUI</category><sub-category>Keyboard Action</sub-category>keyboard type combo hot keys.",
+        description="<category>PyAutoGUI</category><sub-category>Keyboard Action</sub-category>direct drive keyboard type combo hot keys.",
         inputSchema={
             "type": "object",
             "required": ["input"],
@@ -530,15 +531,27 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_wait_for_element",
-        description="<category>Browser Automation</category><sub-category>Selenium Search Action</sub-category>use python web tool to wait for web elements.",
+        description="<category>Browser Automation</category><sub-category>In Browser Search Action</sub-category>use webdriver or cdp to wait for web elements.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["element_type", "element_name", "timeout"],  # url is required *inside* input
+                    "required": ["driver_type", "browser_type", "element_type", "element_name", "timeout"],  # url is required *inside* input
                     "properties": {
+                        "driver_type": {
+                            "type": "string",
+                            "enum": ["webdriver", "cdp"],
+                            "default": "webdriver",
+                            "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession",
+                        },
+                        "browser_type": {
+                            "type": "string",
+                            "enum": ["adspower", "existing chrome", "chromium"],
+                            "default": "existing chrome",
+                            "description": "Browser type to use (only applicable when driver_type is 'cdp')",
+                        },
                         "element_type": {
                             "type": "string",
                             "description": "web element type: ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, or XPath",
@@ -561,22 +574,30 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_click_element_by_index",
-        description="<category>Browser Automation</category><sub-category>Selenium Mouse Action</sub-category>use selenium to click on a web element based on index in the selector map.",
+        description="<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to click on a web element based on index in the selector map.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["element_type", "element_name", "timeout"],  # url is required *inside* input
+                    "required": ["driver_type", "browser_type", "dom_index", "timeout"],  # url is required *inside* input
                     "properties": {
-                        "element_type": {
+                        "driver_type": {
                             "type": "string",
-                            "description": "web element type: ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, or XPath",
+                            "enum": ["webdriver", "cdp"],
+                            "default": "webdriver",
+                            "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession",
                         },
-                        "element_name": {
+                        "browser_type": {
                             "type": "string",
-                            "description": "name of the element",
+                            "enum": ["adspower", "existing chrome", "chromium"],
+                            "default": "existing chrome",
+                            "description": "Browser type to use (only applicable when driver_type is 'cdp')",
+                        },
+                        "dom_index": {
+                            "type": "integer",
+                            "description": "dom index of the element in the dom tree",
                         },
                         "timeout": {
                             "type": "integer",
@@ -593,15 +614,27 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_click_element_by_selector",
-        description="<category>Browser Automation</category><sub-category>Selenium Mouse Action</sub-category>use selenium to click on an web element based on selector.",
+        description="<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to click on an web element based on css selector.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["element_type", "element_name", "timeout"],  # url is required *inside* input
+                    "required": ["driver_type", "browser_type", "element_type", "element_name", "timeout"],  # url is required *inside* input
                     "properties": {
+                        "driver_type": {
+                            "type": "string",
+                            "enum": ["webdriver", "cdp"],
+                            "default": "webdriver",
+                            "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession",
+                        },
+                        "browser_type": {
+                            "type": "string",
+                            "enum": ["adspower", "existing chrome", "chromium"],
+                            "default": "existing chrome",
+                            "description": "Browser type to use (only applicable when driver_type is 'cdp')",
+                        },
                         "element_type": {
                             "type": "string",
                             "description": "web element type: ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, or XPath",
@@ -625,15 +658,27 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_click_element_by_xpath",
-        description="<category>Browser Automation</category><sub-category>Selenium Mouse Action</sub-category>use selenium to click on an web element based on xpath.",
+        description="<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to click on an web element based on xpath.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["element_type", "element_name", "timeout"],  # url is required *inside* input
+                    "required": ["driver_type", "browser_type", "element_type", "element_name", "timeout"],  # url is required *inside* input
                     "properties": {
+                        "driver_type": {
+                            "type": "string",
+                            "enum": ["webdriver", "cdp"],
+                            "default": "webdriver",
+                            "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession",
+                        },
+                        "browser_type": {
+                            "type": "string",
+                            "enum": ["adspower", "existing chrome", "chromium"],
+                            "default": "existing chrome",
+                            "description": "Browser type to use (only applicable when driver_type is 'cdp')",
+                        },
                         "element_type": {
                             "type": "string",
                             "description": "web element type: ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, or XPath",
@@ -657,15 +702,27 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_click_element_by_text",
-        description="<category>Browser Automation</category><sub-category>Selenium Mouse Action</sub-category>use selenium to click on an web element based on text",
+        description="<category>Browser Automation</category><sub-category>Selenium Mouse Action</sub-category>use webdriver or cdp to click on an web element based on text",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["element_type", "element_name", "timeout"],  # url is required *inside* input
+                    "required": ["driver_type", "browser_type", "element_type", "element_name", "timeout"],  # url is required *inside* input
                     "properties": {
+                        "driver_type": {
+                            "type": "string",
+                            "enum": ["webdriver", "cdp"],
+                            "default": "webdriver",
+                            "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession",
+                        },
+                        "browser_type": {
+                            "type": "string",
+                            "enum": ["adspower", "existing chrome", "chromium"],
+                            "default": "existing chrome",
+                            "description": "Browser type to use (only applicable when driver_type is 'cdp')",
+                        },
                         "element_type": {
                             "type": "string",
                             "description": "web element type: ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, or XPath",
@@ -689,15 +746,27 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_input_text",
-        description="<category>Browser Automation</category><sub-category>Selenium Keyboard Action</sub-category>key in text on a web page's input field.",
+        description="<category>Browser Automation</category><sub-category>In Browser Keyboard Action</sub-category>use webdriver or cdp to key in text on a web page's input field.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["element_type", "element_name", "element_text", "nth", "timeout"],  # url is required *inside* input
+                    "required": ["driver_type", "browser_type", "element_type", "element_name", "element_text", "nth", "timeout"],  # url is required *inside* input
                     "properties": {
+                        "driver_type": {
+                            "type": "string",
+                            "enum": ["webdriver", "cdp"],
+                            "default": "webdriver",
+                            "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession",
+                        },
+                        "browser_type": {
+                            "type": "string",
+                            "enum": ["adspower", "existing chrome", "chromium"],
+                            "default": "existing chrome",
+                            "description": "Browser type to use (only applicable when driver_type is 'cdp')",
+                        },
                         "element_type": {
                             "type": "string",
                             "description": "web element type: ID, Name, ClassName, LinkText, PartialLinkText, TagName, CSS Selector, or XPath",
@@ -729,15 +798,27 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_scroll",
-        description="<category>Browser Automation</category><sub-category>Selenium Mouse Action</sub-category>use browser driver like selenium or playwright to scroll within the browser.",
+        description="<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to scroll within the browser.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["direction", "amount", "post_wait"],  # url is required *inside* input
+                    "required": ["driver_type", "browser_type", "direction", "amount", "post_wait"],  # url is required *inside* input
                     "properties": {
+                        "driver_type": {
+                            "type": "string",
+                            "enum": ["webdriver", "cdp"],
+                            "default": "webdriver",
+                            "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession",
+                        },
+                        "browser_type": {
+                            "type": "string",
+                            "enum": ["adspower", "existing chrome", "chromium"],
+                            "default": "existing chrome",
+                            "description": "Browser type to use (only applicable when driver_type is 'cdp')",
+                        },
                         "direction": {
                             "type": "string",
                             "description": "scroll direction of either up or down",
@@ -761,19 +842,33 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_send_keys",
-        description="<category>Browser Automation</category><sub-category>Selenium Keyboard Action</sub-category>use browser driver like selenium or playwright to send hot keys to the web page.",
+        description="<category>Browser Automation</category><sub-category>In Browser Keyboard Action</sub-category>use webdriver or cdp to send hot keys to the web page.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["url"],  # url is required *inside* input
+                    "required": ["driver_type", "browser_type", "keys"],  # url is required *inside* input
                     "properties": {
-                        "url": {
+                        "driver_type": {
                             "type": "string",
-                            "format": "uri",  # optional JSON-Schema hint
-                            "description": "URL of the web page to open",
+                            "enum": ["webdriver", "cdp"],
+                            "default": "webdriver",
+                            "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession",
+                        },
+                        "browser_type": {
+                            "type": "string",
+                            "enum": ["adspower", "existing chrome", "chromium"],
+                            "default": "existing chrome",
+                            "description": "Browser type to use (only applicable when driver_type is 'cdp')",
+                        },
+                        "keys": {
+                            "type": "array",
+                            "description": "list of combo keys to send. the special keyboard keys are: <ctrl> <alt> <shift> <meta> <enter> <esc> <backspace> <tab> <space> <up> <down> <left> <right> <home> <end> <pageup> <pagedown> <insert> <delete> <f1> <f2> <f3> <f4> <f5> <f6> <f7> <f8> <f9> <f10> <f11> <f12>",
+                            "items": {
+                                "type": "string"
+                            }
                         }
                     },
                 }
@@ -786,15 +881,27 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_scroll_to_text",
-        description="<category>Browser Automation</category><sub-category>Selenium Mouse Action</sub-category>use browser driver like selenium or playwright to scroll to the specified text location.",
+        description="<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to scroll to the specified text location.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["text"],  # url is required *inside* input
+                    "required": ["driver_type", "browser_type", "text"],  # url is required *inside* input
                     "properties": {
+                        "driver_type": {
+                            "type": "string",
+                            "enum": ["webdriver", "cdp"],
+                            "default": "webdriver",
+                            "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession",
+                        },
+                        "browser_type": {
+                            "type": "string",
+                            "enum": ["adspower", "existing chrome", "chromium"],
+                            "default": "existing chrome",
+                            "description": "Browser type to use (only applicable when driver_type is 'cdp')",
+                        },
                         "text": {
                             "type": "string",
                             "description": "URL of the web page to open",
@@ -809,19 +916,30 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_get_dropdown_options",
-        description="<category>Browser Automation</category><sub-category>Selenium Mouse Action</sub-category>use browser driver like selenium to obtains the list of selection options on the drop down list.",
+        description="<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to obtains the list of selection options on the drop down list.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["url"],  # url is required *inside* input
+                    "required": ["driver_type", "browser_type", "pulldown_menu_name"],  # url is required *inside* input
                     "properties": {
-                        "url": {
+                        "driver_type": {
                             "type": "string",
-                            "format": "uri",  # optional JSON-Schema hint
-                            "description": "URL of the web page to open",
+                            "enum": ["webdriver", "cdp"],
+                            "default": "webdriver",
+                            "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession",
+                        },
+                        "browser_type": {
+                            "type": "string",
+                            "enum": ["adspower", "existing chrome", "chromium"],
+                            "default": "existing chrome",
+                            "description": "Browser type to use (only applicable when driver_type is 'cdp')",
+                        },
+                        "pulldown_menu_name": {
+                            "type": "string",
+                            "description": "pull down menu name",
                         }
                     },
                 }
@@ -833,19 +951,30 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_select_dropdown_option",
-        description="<category>Browser Automation</category><sub-category>Selenium Mouse Action</sub-category>use browser driver like selenium to select an item on the drop down selection list.",
+        description="<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to select an item on the drop down selection list.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["url"],  # url is required *inside* input
+                    "required": ["driver_type", "browser_type", "pulldown_item"],  # url is required *inside* input
                     "properties": {
-                        "url": {
+                        "driver_type": {
                             "type": "string",
-                            "format": "uri",  # optional JSON-Schema hint
-                            "description": "URL of the web page to open",
+                            "enum": ["webdriver", "cdp"],
+                            "default": "webdriver",
+                            "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession",
+                        },
+                        "browser_type": {
+                            "type": "string",
+                            "enum": ["adspower", "existing chrome", "chromium"],
+                            "default": "existing chrome",
+                            "description": "Browser type to use (only applicable when driver_type is 'cdp')",
+                        },
+                        "pulldown_item": {
+                            "type": "string",
+                            "description": "to be selected item text on the drop down list",
                         }
                     },
                 }
@@ -857,19 +986,50 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_drag_drop",
-        description="<category>Browser Automation</category><sub-category>Selenium Mouse Action</sub-category>use browser driver like selenium or playwright to drag and drop an item.",
+        description="<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to drag and drop an item. Supports both element-based (CSS selectors) and coordinate-based drag and drop.",
         inputSchema={
             "type": "object",
-            "required": ["input"],  # the root requires *input*
+            "required": ["input"],
             "properties": {
-                "input": {  # nested object
+                "input": {
                     "type": "object",
-                    "required": ["url"],  # url is required *inside* input
+                    "required": ["driver_type", "browser_type"],
                     "properties": {
-                        "url": {
+                        "driver_type": {
                             "type": "string",
-                            "format": "uri",  # optional JSON-Schema hint
-                            "description": "URL of the web page to open",
+                            "enum": ["webdriver", "cdp"],
+                            "default": "webdriver",
+                            "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession",
+                        },
+                        "browser_type": {
+                            "type": "string",
+                            "enum": ["adspower", "existing chrome", "chromium"],
+                            "default": "existing chrome",
+                            "description": "Browser type to use (only applicable when driver_type is 'cdp')",
+                        },
+                        "source_selector": {
+                            "type": "string",
+                            "description": "CSS selector of the source element to drag (use this OR source_x/source_y)",
+                        },
+                        "target_selector": {
+                            "type": "string",
+                            "description": "CSS selector of the target element to drop onto (use this OR target_x/target_y)",
+                        },
+                        "source_x": {
+                            "type": "integer",
+                            "description": "X coordinate of source position (use with source_y instead of source_selector)",
+                        },
+                        "source_y": {
+                            "type": "integer",
+                            "description": "Y coordinate of source position (use with source_x instead of source_selector)",
+                        },
+                        "target_x": {
+                            "type": "integer",
+                            "description": "X coordinate of target position (use with target_y instead of target_selector)",
+                        },
+                        "target_y": {
+                            "type": "integer",
+                            "description": "Y coordinate of target position (use with target_x instead of target_selector)",
                         }
                     },
                 }
@@ -883,15 +1043,27 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_extract_content",
-        description="<category>Browser Automation</category><sub-category>Selenium Search Action</sub-category>use browser driver to extract dom tree from the web page.",
+        description="<category>Browser Automation</category><sub-category>In Browser Extract Content</sub-category>use cdp to extract dom tree from the web page.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["url"],  # url is required *inside* input
+                    "required": ["driver_type", "browser_type", "url"],  # url is required *inside* input
                     "properties": {
+                        "driver_type": {
+                            "type": "string",
+                            "enum": ["webdriver", "cdp"],
+                            "default": "webdriver",
+                            "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession",
+                        },
+                        "browser_type": {
+                            "type": "string",
+                            "enum": ["adspower", "existing chrome", "chromium"],
+                            "default": "existing chrome",
+                            "description": "Browser type to use (only applicable when driver_type is 'cdp')",
+                        },
                         "url": {
                             "type": "string",
                             "format": "uri",  # optional JSON-Schema hint
@@ -908,19 +1080,30 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_switch_tab",
-        description="<category>Browser Automation</category><sub-category>Selenium Tab Action</sub-category>use browser driver like selenium or playwright to drag and drop an item.",
+        description="<category>Browser Automation</category><sub-category>In Browser Tab Action</sub-category>use webdriver or cdp to switch to a tab in a browser.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["url"],  # url is required *inside* input
+                    "required": ["driver_type", "browser_type", "tab_title"],  # url is required *inside* input
                     "properties": {
-                        "url": {
+                        "driver_type": {
                             "type": "string",
-                            "format": "uri",  # optional JSON-Schema hint
-                            "description": "URL of the web page to open",
+                            "enum": ["webdriver", "cdp"],
+                            "default": "webdriver",
+                            "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession",
+                        },
+                        "browser_type": {
+                            "type": "string",
+                            "enum": ["adspower", "existing chrome", "chromium"],
+                            "default": "existing chrome",
+                            "description": "Browser type to use (only applicable when driver_type is 'cdp')",
+                        },
+                        "tab_title": {
+                            "type": "string",
+                            "description": "the title of the tab to switch to. and its dom tree will be automatically extracted after the page loads.",
                         }
                     },
                 }
@@ -933,19 +1116,31 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_open_tab",
-        description="<category>Browser Automation</category><sub-category>Selenium Tab Action</sub-category>use browser driver like selenium or playwright to drag and drop an item.",
+        description="<category>Browser Automation</category><sub-category>In Browser Tab Action</sub-category>use webdriver or cdp to open a new tab in a browser and open an specified URL.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["url"],  # url is required *inside* input
+                    "required": ["driver_type", "browser_type", "url"],  # url is required *inside* input
                     "properties": {
+                        "driver_type": {
+                            "type": "string",
+                            "enum": ["webdriver", "cdp"],
+                            "default": "webdriver",
+                            "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession",
+                        },
+                        "browser_type": {
+                            "type": "string",
+                            "enum": ["adspower", "existing chrome", "chromium"],
+                            "default": "existing chrome",
+                            "description": "Browser type to use (only applicable when driver_type is 'cdp')",
+                        },
                         "url": {
                             "type": "string",
                             "format": "uri",  # optional JSON-Schema hint
-                            "description": "URL of the web page to open",
+                            "description": "URL of the web page to be opened",
                         }
                     },
                 }
@@ -958,18 +1153,30 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_close_tab",
-        description="<category>Browser Automation</category><sub-category>Selenium Tab Action</sub-category>use browser driver like selenium or playwright to drag and drop an item.",
+        description="<category>Browser Automation</category><sub-category>In Browser Tab Action</sub-category>use webdriver or cdp to close a tab in a browser.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["tab_title"],  # url is required *inside* input
+                    "required": ["driver_type", "browser_type", "tab_title"],  # url is required *inside* input
                     "properties": {
+                        "driver_type": {
+                            "type": "string",
+                            "enum": ["webdriver", "cdp"],
+                            "default": "webdriver",
+                            "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession",
+                        },
+                        "browser_type": {
+                            "type": "string",
+                            "enum": ["adspower", "existing chrome", "chromium"],
+                            "default": "existing chrome",
+                            "description": "Browser type to use (only applicable when driver_type is 'cdp')",
+                        },
                         "tab_title": {
                             "type": "string",
-                            "description": "title of the web page to open",
+                            "description": "title of the browser tab to be closed",
                         }
                     },
                 }
@@ -982,18 +1189,30 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_execute_javascript",
-        description="<category>Browser Automation</category><sub-category>Selenium Run Code Action</sub-category>use browser driver to execute a javascript on a web page.",
+        description="<category>Browser Automation</category><sub-category>In Browser Run Code Action</sub-category>use webdriver or cdp to execute a javascript on a web page.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["tab_title"],  # url is required *inside* input
+                    "required": ["driver_type", "browser_type", "script_code"],  # url is required *inside* input
                     "properties": {
-                        "tab_title": {
+                        "driver_type": {
                             "type": "string",
-                            "description": "title of the web page to open",
+                            "enum": ["webdriver", "cdp"],
+                            "default": "webdriver",
+                            "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession",
+                        },
+                        "browser_type": {
+                            "type": "string",
+                            "enum": ["adspower", "existing chrome", "chromium"],
+                            "default": "existing chrome",
+                            "description": "Browser type to use (only applicable when driver_type is 'cdp')",
+                        },
+                        "script_code": {
+                            "type": "string",
+                            "description": "js script code to be executed in browser",
                         }
                     },
                 }
@@ -1007,18 +1226,35 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_save_href_to_file",
-        description="<category>Browser Automation</category><sub-category>Selenium Download Action</sub-category>download a href pointed file on a web page.",
+        description="<category>Browser Automation</category><sub-category>In Browser Download Action</sub-category>use webdriver or cdp to download a href pointed file on a web page.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["tab_title"],  # url is required *inside* input
+                    "required": ["driver_type", "browser_type", "href", "saved_file_path"],  # url is required *inside* input
                     "properties": {
-                        "tab_title": {
+                        "driver_type": {
                             "type": "string",
-                            "description": "title of the web page to open",
+                            "enum": ["webdriver", "cdp"],
+                            "default": "webdriver",
+                            "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession",
+                        },
+                        "browser_type": {
+                            "type": "string",
+                            "enum": ["adspower", "existing chrome", "chromium"],
+                            "default": "existing chrome",
+                            "description": "Browser type to use (only applicable when driver_type is 'cdp')",
+                        },
+                        "href": {
+                            "type": "string",
+                            "format": "uri",  # optional JSON-Schema hint
+                            "description": "URL of the file to be downloaded",
+                        },
+                        "saved_file_path": {
+                            "type": "string",
+                            "description": "Full path to save the downloaded file",
                         }
                     },
                 }
@@ -1029,20 +1265,36 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
     tool_schema = types.Tool(
-        name="in_browser_download_file",
-        description="<category>Browser Automation</category><sub-category>Selenium Download Action</sub-category>use browser driver like selenium or playwright to drag and drop an item.",
+        name="in_browser_upload_file",
+        description="<category>Browser Automation</category><sub-category>In Browser Upload Action</sub-category>use webdriver or cdp to upload a file.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["url"],  # url is required *inside* input
+                    "required": ["driver_type", "browser_type", "href", "upload_file_path"],  # url is required *inside* input
                     "properties": {
-                        "url": {
+                        "driver_type": {
+                            "type": "string",
+                            "enum": ["webdriver", "cdp"],
+                            "default": "webdriver",
+                            "description": "Driver mode: 'webdriver' for Selenium WebDriver, 'cdp' for Chrome DevTools Protocol via BrowserSession",
+                        },
+                        "browser_type": {
+                            "type": "string",
+                            "enum": ["adspower", "existing chrome", "chromium"],
+                            "default": "existing chrome",
+                            "description": "Browser type to use (only applicable when driver_type is 'cdp')",
+                        },
+                        "href": {
                             "type": "string",
                             "format": "uri",  # optional JSON-Schema hint
-                            "description": "URL of the web page to open",
+                            "description": "URL of the file upload element",
+                        },
+                        "upload_file_path": {
+                            "type": "string",
+                            "description": "Full path to the file to be uploaded",
                         }
                     },
                 }
@@ -1055,14 +1307,14 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="in_browser_go_to_url",
-        description="<category>Browser Automation</category><sub-category>Selenium Tab Action</sub-category>use browser driver like selenium or playwright to open a new url site.",
+        description="<category>Browser Automation</category><sub-category>In Browser Tab Action</sub-category>use webdriver or cdp to open a new url site.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
             "properties": {
                 "input": {  # nested object
                     "type": "object",
-                    "required": ["url"],  # url is required *inside* input
+                    "required": ["driver_type", "browser_type", "url"],  # url is required *inside* input
                     "properties": {
                         "url": {
                             "type": "string",
@@ -1792,6 +2044,7 @@ def build_agent_mcp_tools_schemas():
     add_gmail_respond_tool_schema(tool_schemas)
     add_gmail_write_new_tool_schema(tool_schemas)
     add_gmail_move_email_tool_schema(tool_schemas)
+    add_gmail_mark_status_tool_schema(tool_schemas)
     add_gmail_delete_email_tool_schema(tool_schemas)
 
     add_privacy_reserve_tool_schema(tool_schemas)

@@ -111,6 +111,7 @@ from agent.mcp.server.scrapers.gmail.gmail_read import (
     gmail_respond,
     gmail_write_new,
     gmail_read_titles,
+    gmail_mark_status,
     gmail_read_full_email,
 )
 from agent.mcp.server.Privacy.privacy_reserve import privacy_reserve
@@ -310,18 +311,125 @@ def get_selector(element_type):
     return selectors.get(element_type.lower(), By.CSS_SELECTOR)
 
 
+# ============================================================================
+# Dual-Mode Browser Helpers: WebDriver vs CDP (BrowserSession)
+# ============================================================================
+
+def _get_browser_type_enum(browser_type_str: str):
+    """Convert browser_type string to BrowserType enum."""
+    from gui.manager.browser_manager import BrowserType
+    mapping = {
+        "adspower": BrowserType.ADSPOWER,
+        "existing chrome": BrowserType.CHROME,
+        "chrome": BrowserType.CHROME,
+        "chromium": BrowserType.CHROMIUM,
+    }
+    return mapping.get(browser_type_str.lower(), BrowserType.CHROME)
+
+
+def _get_driver_mode(args) -> str:
+    """
+    Determine driver mode from args.
+    Returns: 'webdriver' or 'cdp'
+    """
+    driver_type = args.get("input", {}).get("driver_type", "webdriver")
+    return driver_type.lower() if driver_type else "webdriver"
+
+
+async def _get_browser_session_by_type(mainwin, browser_type_str: str):
+    """
+    Get or create a BrowserSession based on browser_type.
+    
+    Args:
+        mainwin: Main window instance
+        browser_type_str: One of "adspower", "existing chrome", "chromium"
+    
+    Returns:
+        BrowserSession instance
+    """
+    from gui.manager.browser_manager import BrowserManager, BrowserType
+    
+    browser_type = _get_browser_type_enum(browser_type_str)
+    
+    # Try to get from mainwin first
+    browser_session = mainwin.getBrowserSession() if hasattr(mainwin, 'getBrowserSession') else None
+    if browser_session:
+        return browser_session
+    
+    # Try to get from BrowserManager
+    browser_manager = getattr(mainwin, 'browser_manager', None)
+    if browser_manager:
+        auto_browser = browser_manager.find_available_browser(browser_type=browser_type)
+        if auto_browser and auto_browser.browser_session:
+            return auto_browser.browser_session
+    
+    # Create new session if needed
+    if hasattr(mainwin, 'createBrowserSession'):
+        browser_session = mainwin.createBrowserSession(browser_type_str)
+        await browser_session.start()
+        return browser_session
+    
+    return None
+
+
+async def _get_current_page(browser_session):
+    """Get the current page from a BrowserSession."""
+    if browser_session:
+        return await browser_session.get_current_page()
+    return None
+
+
+def _get_webdriver(mainwin):
+    """Get WebDriver from mainwin."""
+    return mainwin.getWebDriver() if hasattr(mainwin, 'getWebDriver') else None
+
+
 async def in_browser_wait_for_element(mainwin, args):
     """Waits for the element specified by the CSS selector to become visible within the given timeout."""
     try:
-        crawler = mainwin.getWebCrawler()
-        if not crawler:
-            web_driver = mainwin.getWebDriver()
-            wait = WebDriverWait(web_driver, args["input"]["timeout"])
-            sel = get_selector(args['input']["element_type"])
-            args.tool_result = wait.until(EC.element_to_be_clickable((sel, args['input']["element_name"])))
+        driver_mode = _get_driver_mode(args)
+        element_type = args['input'].get("element_type", "css_selector")
+        element_name = args['input'].get("element_name", "")
+        timeout = args['input'].get("timeout", 10)
+        found = False
+        
+        if driver_mode == "webdriver":
+            web_driver = _get_webdriver(mainwin)
+            if web_driver:
+                wait = WebDriverWait(web_driver, timeout)
+                sel = get_selector(element_type)
+                args.tool_result = wait.until(EC.element_to_be_clickable((sel, element_name)))
+                found = args.tool_result is not None
         else:
-            browser_use_wait_for_element(args['input']['element_type'], args['input']['element_name'], args['input']['timeout'])
-        msg=f"completed loading element{args['input']['element_name']}."
+            # CDP mode using BrowserSession
+            browser_type = args['input'].get("browser_type", "existing chrome")
+            browser_session = await _get_browser_session_by_type(mainwin, browser_type)
+            if browser_session:
+                page = await _get_current_page(browser_session)
+                if page:
+                    # Poll for element visibility - handle both CSS selector and XPath
+                    for _ in range(int(timeout * 2)):
+                        if element_type == "xpath":
+                            # Use JS to find element by XPath
+                            escaped_xpath = element_name.replace('"', '\\"')
+                            js_code = f'() => {{ const result = document.evaluate("{escaped_xpath}", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null); return result.singleNodeValue ? true : false; }}'
+                            result = await page.evaluate(js_code)
+                            if result:
+                                found = True
+                                break
+                        else:
+                            # CSS selector
+                            elements = await page.get_elements_by_css_selector(element_name)
+                            if elements:
+                                args.tool_result = elements[0]
+                                found = True
+                                break
+                        await asyncio.sleep(0.5)
+        
+        if found:
+            msg = f"completed loading element {element_name}."
+        else:
+            msg = f"timeout waiting for element {element_name}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -332,15 +440,49 @@ async def in_browser_wait_for_element(mainwin, args):
 
 # Element Interaction Actions
 async def in_browser_click_element_by_index(mainwin, args):
+    """Click element by DOM index (primarily used with browser_use DOM tree)."""
     try:
-        crawler = mainwin.getWebCrawler()
-        if not crawler:
-            web_driver = mainwin.getWebDriver()
-            raise Exception(f"Element with index {args['input']['index']} without crawler not implemented")
+        driver_mode = _get_driver_mode(args)
+        index = args['input'].get('index', 0)
+        clicked = False
+        
+        if driver_mode == "webdriver":
+            # WebDriver doesn't have native DOM index support
+            # This requires a DOM tree to be built first with indexed elements
+            web_driver = _get_webdriver(mainwin)
+            if web_driver:
+                # Try to find element by data-index attribute if DOM was indexed
+                element = web_driver.find_element(By.CSS_SELECTOR, f"[data-dom-index='{index}']")
+                if element:
+                    element.click()
+                    clicked = True
+                else:
+                    raise Exception(f"Element with index {index} not found. Build DOM tree first.")
         else:
-            br_result = await browser_use_click_element_by_index(mainwin, args['input']['index'])
+            # CDP mode using BrowserSession - use browser_use's indexed DOM
+            browser_type = args['input'].get("browser_type", "existing chrome")
+            browser_session = await _get_browser_session_by_type(mainwin, browser_type)
+            if browser_session:
+                page = await _get_current_page(browser_session)
+                if page:
+                    # Get the DOM state's selector_map which maps index -> DOMElementNode
+                    browser_state = await browser_session.get_browser_state_summary(include_screenshot=False)
+                    selector_map = browser_state.dom_state.selector_map
+                    if index in selector_map:
+                        # selector_map[index] is a DOMElementNode with backend_node_id
+                        dom_element = selector_map[index]
+                        # Get Element from backend_node_id and click it
+                        element = await page.get_element(dom_element.backend_node_id)
+                        await element.click()
+                        await asyncio.sleep(0.5)
+                        clicked = True
+                    else:
+                        raise Exception(f"Element with index {index} not found in selector_map. Available indices: {list(selector_map.keys())[:10]}...")
 
-        msg = f"completed loading element by index {args['input']['index']}."
+        if clicked:
+            msg = f"completed clicking element by index {index}."
+        else:
+            msg = f"failed to click element by index {index}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -355,19 +497,28 @@ def webDriverWaitForVisibility(web_driver, by, selector, timeout):
 
 async def in_browser_click_element_by_selector(mainwin, args):
     try:
-        crawler = mainwin.getWebCrawler()
-        if not crawler:
-            web_driver = mainwin.getWebDriver()
+        driver_mode = _get_driver_mode(args)
+        css_selector = args['input'].get('css_selector', '')
+        timeout = args['input'].get('timeout', 10)
+        
+        if driver_mode == "webdriver":
+            web_driver = _get_webdriver(mainwin)
             if web_driver:
-                element_handle = webDriverWaitForVisibility(web_driver, By.CSS_SELECTOR, args['input']['css_selector'], args['input']['timeout'])
+                element_handle = webDriverWaitForVisibility(web_driver, By.CSS_SELECTOR, css_selector, timeout)
                 element_handle.click()
         else:
-            browser_session = mainwin.browser_session
-            element_handle = await browser_session.get_locate_element_by_css_selector(args['input']["css_selector"])
-            await element_handle.click()
-            await asyncio.sleep(0.8)
+            # CDP mode using BrowserSession
+            browser_type = args['input'].get("browser_type", "existing chrome")
+            browser_session = await _get_browser_session_by_type(mainwin, browser_type)
+            if browser_session:
+                page = await _get_current_page(browser_session)
+                if page:
+                    elements = await page.get_elements_by_css_selector(css_selector)
+                    if elements:
+                        await elements[0].click()
+                        await asyncio.sleep(0.5)
 
-        msg = f"completed loading element by index {args['input']['css_selector']}."
+        msg = f"completed clicking element by selector {css_selector}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -378,20 +529,29 @@ async def in_browser_click_element_by_selector(mainwin, args):
 
 async def in_browser_click_element_by_xpath(mainwin, args):
     try:
-        crawler = mainwin.getWebCrawler()
-        if not crawler:
-            web_driver = mainwin.getWebDriver()
+        driver_mode = _get_driver_mode(args)
+        xpath = args['input'].get('xpath', '')
+        timeout = args['input'].get('timeout', 10)
+        
+        if driver_mode == "webdriver":
+            web_driver = _get_webdriver(mainwin)
             if web_driver:
-                element_handle = webDriverWaitForVisibility(web_driver, By.XPATH, args['input']['xpath'],
-                                                            args['input']['timeout'])
+                element_handle = webDriverWaitForVisibility(web_driver, By.XPATH, xpath, timeout)
                 element_handle.click()
         else:
-            browser_session = mainwin.browser_session
-            element_handle = await browser_session.get_locate_element_by_xpath(args['input']["xpath"])
-            await element_handle.click()
-            await asyncio.sleep(0.8)
+            # CDP mode using BrowserSession - convert xpath to JS evaluation
+            browser_type = args['input'].get("browser_type", "existing chrome")
+            browser_session = await _get_browser_session_by_type(mainwin, browser_type)
+            if browser_session:
+                page = await _get_current_page(browser_session)
+                if page:
+                    # Use JavaScript to find element by xpath and click
+                    escaped_xpath = xpath.replace('"', '\\"')
+                    js_code = f'() => {{ const result = document.evaluate("{escaped_xpath}", document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null); const elem = result.singleNodeValue; if (elem) elem.click(); return elem ? "clicked" : "not found"; }}'
+                    await page.evaluate(js_code)
+                    await asyncio.sleep(0.5)
 
-        msg = f"completed loading element by index {args['input']['xpath']}."
+        msg = f"completed clicking element by xpath {xpath}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -402,26 +562,74 @@ async def in_browser_click_element_by_xpath(mainwin, args):
 
 async def in_browser_click_element_by_text(mainwin, args):
     try:
-        crawler = mainwin.getWebCrawler()
-        if not crawler:
-            web_driver = mainwin.getWebDriver()
-            web_elements = web_driver.find_elements(args['input']["element_type"], args['input']["element_name"])
-            # find element
-            targets = [ele for ele in web_elements if ele.text == args['input']["element_text"]]
-            if targets and args['input']["nth"] < len(targets):
-                target = targets[args['input']["nth"]]
-            else:
-                target = None
+        driver_mode = _get_driver_mode(args)
+        element_type = args['input'].get("element_type", "css_selector")
+        element_name = args['input'].get("element_name", "")
+        element_text = args['input'].get("element_text", "")
+        nth = args['input'].get("nth", 0)
+        post_wait = args['input'].get("post_wait", 0)
+        clicked = False
+        
+        if driver_mode == "webdriver":
+            web_driver = _get_webdriver(mainwin)
+            if web_driver:
+                web_elements = web_driver.find_elements(get_selector(element_type), element_name)
+                # find element by text match
+                targets = [ele for ele in web_elements if ele.text == element_text]
+                target = targets[nth] if targets and nth < len(targets) else None
 
-            if target:
-                target.click()
+                if target:
+                    target.click()
+                    clicked = True
 
-            if args['input']["post_wait"]:
-                time.sleep(args['input']["post_wait"])
+                if post_wait:
+                    time.sleep(post_wait)
         else:
-            br_result = await browser_use_click_element_by_index(mainwin,args['input']['element_text'])
+            # CDP mode using BrowserSession - use JavaScript text search
+            browser_type = args['input'].get("browser_type", "existing chrome")
+            browser_session = await _get_browser_session_by_type(mainwin, browser_type)
+            if browser_session:
+                page = await _get_current_page(browser_session)
+                if page:
+                    escaped_text = element_text.replace('"', '\\"')
+                    escaped_selector = element_name.replace('"', '\\"') if element_name else "*"
+                    
+                    # JavaScript to find elements by selector and filter by text content
+                    js_code = f'''() => {{
+                        const selector = "{escaped_selector}";
+                        const targetText = "{escaped_text}";
+                        const nth = {nth};
+                        
+                        // Get all elements matching selector
+                        const elements = document.querySelectorAll(selector);
+                        const matches = [];
+                        
+                        for (const el of elements) {{
+                            // Check if element's text content matches (exact or contains)
+                            const text = el.textContent.trim();
+                            if (text === targetText || text.includes(targetText)) {{
+                                matches.push(el);
+                            }}
+                        }}
+                        
+                        // Click the nth match
+                        if (matches.length > nth) {{
+                            matches[nth].click();
+                            return true;
+                        }}
+                        return false;
+                    }}'''
+                    
+                    result = await page.evaluate(js_code)
+                    clicked = result == "true" or result is True
+                    
+                    if post_wait:
+                        await asyncio.sleep(post_wait)
 
-        msg = f"completed in-browser click."
+        if clicked:
+            msg = f"completed in-browser click by text '{element_text}'."
+        else:
+            msg = f"element with text '{element_text}' not found."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -449,29 +657,47 @@ def webDriverKeyIn(web_driver, element, text, clear_first=True):
 
 async def in_browser_input_text(mainwin, args):
     try:
-        crawler = mainwin.getWebCrawler()
-        if not crawler:
-            web_driver = mainwin.getWebDriver()
+        driver_mode = _get_driver_mode(args)
+        element_type = args['input'].get("element_type", "css_selector")
+        element_name = args['input'].get("element_name", "")
+        element_text = args['input'].get("element_text", "")
+        text_to_input = args['input'].get("text", "")
+        nth = args['input'].get("nth", 0)
+        post_enter = args['input'].get("post_enter", False)
+        post_wait = args['input'].get("post_wait", 0)
+        
+        if driver_mode == "webdriver":
+            web_driver = _get_webdriver(mainwin)
+            if web_driver:
+                web_elements = web_driver.find_elements(get_selector(element_type), element_name)
+                # find element by text match
+                targets = [ele for ele in web_elements if ele.text == element_text] if element_text else web_elements
+                target = targets[nth] if targets and nth < len(targets) else (web_elements[0] if web_elements else None)
 
-            web_elements = web_driver.find_elements(args['input']["element_type"], args['input']["element_name"])
-            # find element
-            targets = [ele for ele in web_elements if ele.text == args['input']["element_text"]]
-            if targets and args['input']["nth"] < len(targets):
-                target = targets[args['input']["nth"]]
-            else:
-                target = None
+                if target:
+                    webDriverKeyIn(web_driver, target, text_to_input)
+                    if post_enter:
+                        target.send_keys(Keys.ENTER)
 
-            webDriverKeyIn(web_driver, target, args['input']["text"])
-            if args['input']["post_enter"]:
-                target.send_keys(Keys.ENTER)
-
-            if args['input']["post_wait"]:
-                time.sleep(args['input']["post_wait"])
+                if post_wait:
+                    time.sleep(post_wait)
         else:
-            dom_index = args['input']["text"]
-            bu_result = await browser_use_input_text(mainwin, dom_index, args['input']['text'])
+            # CDP mode using BrowserSession
+            browser_type = args['input'].get("browser_type", "existing chrome")
+            browser_session = await _get_browser_session_by_type(mainwin, browser_type)
+            if browser_session:
+                page = await _get_current_page(browser_session)
+                if page:
+                    elements = await page.get_elements_by_css_selector(element_name)
+                    if elements:
+                        target_elem = elements[nth] if nth < len(elements) else elements[0]
+                        await target_elem.fill(text_to_input)
+                        if post_enter:
+                            await page.press("Enter")
+                    if post_wait:
+                        await asyncio.sleep(post_wait)
 
-        msg = f"completed loading element by index {args['input']['index']}."
+        msg = f"completed input text to element {element_name}."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -513,15 +739,38 @@ def webDriverSwitchTab(web_driver, tab_title_txt=None, url=None):
 
 async def in_browser_switch_tab(mainwin, args):
     try:
-        crawler = mainwin.getWebCrawler()
-        if not crawler:
-            web_driver = mainwin.getWebDriver()
-            webDriverSwitchTab(web_driver, args['input']["tab_title_txt"], args['input']["url"])
+        driver_mode = _get_driver_mode(args)
+        tab_title_txt = args['input'].get("tab_title_txt", "")
+        url = args['input'].get("url", "")
+        switched = False
+        
+        if driver_mode == "webdriver":
+            web_driver = _get_webdriver(mainwin)
+            if web_driver:
+                switched = webDriverSwitchTab(web_driver, tab_title_txt, url)
         else:
-            page_id = args['input']["url"]
-            bu_result = await browser_use_switch_tab(mainwin, page_id, args['input']['url'])
+            # CDP mode using BrowserSession
+            browser_type = args['input'].get("browser_type", "existing chrome")
+            browser_session = await _get_browser_session_by_type(mainwin, browser_type)
+            if browser_session:
+                pages = await browser_session.get_pages()
+                for page in pages:
+                    page_url = await page.get_url()
+                    page_title = await page.get_title()
+                    if (url and url in page_url) or (tab_title_txt and tab_title_txt in page_title):
+                        # Switch to this page using event
+                        target_info = await page.get_target_info()
+                        # target_info is a TypedDict with 'targetId' key
+                        target_id = target_info.get("targetId") if target_info else None
+                        if target_id:
+                            await browser_session.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
+                            switched = True
+                        break
 
-        msg = f"completed in-browser switch tab {args['input']['url']}."
+        if switched:
+            msg = f"completed in-browser switch tab to '{url or tab_title_txt}'."
+        else:
+            msg = f"tab not found matching '{url or tab_title_txt}'."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -531,28 +780,31 @@ async def in_browser_switch_tab(mainwin, args):
 
 
 async def in_browser_open_tab(mainwin, args):
-
     try:
-        crawler = mainwin.getWebCrawler()
-        if not crawler:
-            web_driver = mainwin.getWebDriver()
-            url = args['input']["url"]
-            web_driver.switch_to.window(web_driver.window_handles[0])
-            time.sleep(3)
-            web_driver.execute_script(f"window.open('{url}', '_blank');")
-
-            # Switch to the new tab
-            web_driver.switch_to.window(web_driver.window_handles[-1])
-            time.sleep(3)
-            # Navigate to the new URL in the new tab
-            if url:
-                web_driver.get(url)  # Replace with the new URL
-                logger.info("open URL: " + url)
+        driver_mode = _get_driver_mode(args)
+        url = args['input'].get("url", "")
+        
+        if driver_mode == "webdriver":
+            web_driver = _get_webdriver(mainwin)
+            if web_driver:
+                web_driver.switch_to.window(web_driver.window_handles[0])
+                time.sleep(1)
+                web_driver.execute_script(f"window.open('{url}', '_blank');")
+                # Switch to the new tab
+                web_driver.switch_to.window(web_driver.window_handles[-1])
+                time.sleep(1)
+                if url:
+                    web_driver.get(url)
+                    logger.info("open URL: " + url)
         else:
-            logger.info('browser_use: in_browser_open_tab:' + args["input"]["url"])
-            bu_result = await browser_use_go_to_url(mainwin, args["input"]["url"])
+            # CDP mode using BrowserSession
+            browser_type = args['input'].get("browser_type", "existing chrome")
+            browser_session = await _get_browser_session_by_type(mainwin, browser_type)
+            if browser_session:
+                page = await browser_session.new_page(url)
+                logger.info(f'browser_use: opened new tab with URL: {url}')
 
-        msg = f'completed openning tab and go to site:{args["input"]["url"]}.'
+        msg = f'completed opening tab and go to site: {url}.'
         logger.info(msg)
         result = [TextContent(type="text", text=msg)]
         return result
@@ -562,22 +814,84 @@ async def in_browser_open_tab(mainwin, args):
         return [TextContent(type="text", text=err_trace)]
 
 
+async def in_browser_go_to_url(mainwin, args):
+    """Navigate the current tab to a specified URL."""
+    try:
+        driver_mode = _get_driver_mode(args)
+        url = args['input'].get("url", "")
+        
+        if not url:
+            return [TextContent(type="text", text="Error: url is required")]
+        
+        if driver_mode == "webdriver":
+            web_driver = _get_webdriver(mainwin)
+            if web_driver:
+                web_driver.get(url)
+                logger.info(f"navigated to URL: {url}")
+        else:
+            # CDP mode using BrowserSession
+            browser_type = args['input'].get("browser_type", "existing chrome")
+            browser_session = await _get_browser_session_by_type(mainwin, browser_type)
+            if browser_session:
+                page = await _get_current_page(browser_session)
+                if page:
+                    await page.goto(url)
+                    logger.info(f'browser_use: navigated to URL: {url}')
+
+        msg = f'completed navigating to: {url}.'
+        result = [TextContent(type="text", text=msg)]
+        return result
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorInBrowserGoToUrl")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
 async def in_browser_close_tab(mainwin, args):
     try:
-        crawler = mainwin.getWebCrawler()
-        if not crawler:
-            web_driver = mainwin.getWebDriver()
-            if args['input']["tab_title"]:
-                for handle in web_driver.window_handles:
-                    web_driver.switch_to.window(handle)
-                    if args['input']["tab_title"] in web_driver.current_url:
-                        break
-            web_driver.close()
+        driver_mode = _get_driver_mode(args)
+        tab_title = args['input'].get("tab_title", "")
+        closed = False
+        
+        if driver_mode == "webdriver":
+            web_driver = _get_webdriver(mainwin)
+            if web_driver:
+                if tab_title:
+                    for handle in web_driver.window_handles:
+                        web_driver.switch_to.window(handle)
+                        if tab_title in web_driver.title or tab_title in web_driver.current_url:
+                            break
+                web_driver.close()
+                closed = True
+                # Switch to remaining tab if any
+                if web_driver.window_handles:
+                    web_driver.switch_to.window(web_driver.window_handles[0])
         else:
-            page_id = args['input']["url"]
-            bu_result = await browser_use_close_tab(mainwin, page_id, args['input']["url"])
+            # CDP mode using BrowserSession
+            browser_type = args['input'].get("browser_type", "existing chrome")
+            browser_session = await _get_browser_session_by_type(mainwin, browser_type)
+            if browser_session:
+                if tab_title:
+                    # Find the tab by title/url first
+                    pages = await browser_session.get_pages()
+                    for page in pages:
+                        page_url = await page.get_url()
+                        page_title = await page.get_title()
+                        if tab_title in page_title or tab_title in page_url:
+                            await browser_session.close_page(page)
+                            closed = True
+                            break
+                else:
+                    # Close current tab
+                    page = await _get_current_page(browser_session)
+                    if page:
+                        await browser_session.close_page(page)
+                        closed = True
 
-        msg = f"completed closing tab {args['input']['url']}."
+        if closed:
+            msg = f"completed closing tab '{tab_title or 'current'}'."
+        else:
+            msg = f"tab not found matching '{tab_title}'."
         result = [TextContent(type="text", text=msg)]
         return result
     except Exception as e:
@@ -590,61 +904,27 @@ async def get_page_info(page):
 
 # Content Actions
 async def in_browser_extract_content(mainwin, args):
+    """
+    Extract browser content using CDP mode via browser_use.
+    Returns DOM state, page info, and interactive elements.
+    """
     try:
-
-        # web_driver = mainwin.getWebDriver()
-        # dom_tree = web_driver.execute_cdp_cmd(
-        #     "DOM.getDocument",
-        #     {"depth": -1, "pierce": True}
-        # )
-
-        # let's piggy back on browser_use's rich functionalities.
-        browser_session = mainwin.getBrowserSession()
+        # CDP mode only - piggyback on browser_use's rich functionalities
+        browser_type = args['input'].get("browser_type", "existing chrome")
+        include_screenshot = args['input'].get("include_screenshot", False)
+        
+        browser_session = await _get_browser_session_by_type(mainwin, browser_type)
         if not browser_session:
-            print("creating session....")
-            browser_session = mainwin.createBrowserSession("existing_chrome")
-            # browser_session = mainwin.createBrowserSession("new_chromium")
-            print("starting browser session...")
-            await browser_session.start()
-            print("browser session started!")
-        # Note: include_screenshot=False to avoid CDP timeout issues with existing Chrome instances
-        # that have many tabs. Screenshot capture via CDP can hang on complex browser states.
-        # If you need screenshots, consider using a fresh browser instance or fewer tabs.
+            return [TextContent(type="text", text="Error: Could not get browser session")]
+        
+        # Note: include_screenshot=False by default to avoid CDP timeout issues with existing Chrome
+        # instances that have many tabs. Screenshot capture via CDP can hang on complex browser states.
         browser_state_summary = await browser_session.get_browser_state_summary(
-            include_screenshot=False,  # Disabled due to CDP timeout issues with existing Chrome
+            include_screenshot=include_screenshot,
             include_recent_events=True
         )
 
-        msg = f"completed extracting browser content."
-        result = TextContent(type="text", text=msg)
-        # SimplifiedNode has __json__() that breaks circular refs
-        # if browser_state_summary.dom_state._root:
-        #     json_tree = browser_state_summary.dom_state._root.__json__()
-        #     print("json_tree:", json_tree)
-
-        pages = await browser_session.get_pages()
-        print("pages:", [await get_page_info(page) for page in pages])
-
-
-
-        current_page = await browser_session.get_current_page()
-        print("current_page:", await get_page_info(current_page))
-
-        # switch to a tab.
-        target_id = "6A806E3DD394DB15724B5B09FB83494C"
-        event = browser_session.event_bus.dispatch(SwitchTabEvent(target_id=target_id))
-        await event
-        target_page = await browser_session.get_current_page()
-        content, content_stats = await target_page._extract_clean_markdown()
-        print("target_page:", content, content_stats)
-
-        # target_page = Page(browser_session, target_id, session_id)
-        # print("current_page:", current_page)
-        browser_state_summary = await browser_session.get_browser_state_summary(
-            include_screenshot=False,  # Disabled due to CDP timeout issues with existing Chrome
-            include_recent_events=True
-        )
-
+        # Build serializable state
         serializable_state = {
             "url": browser_state_summary.url,
             "title": browser_state_summary.title,
@@ -653,12 +933,13 @@ async def in_browser_extract_content(mainwin, args):
             "dom_text": browser_state_summary.dom_state.llm_representation(),
             "interactive_elements": list(browser_state_summary.dom_state.selector_map.keys()),
         }
-        logger.debug("browser_state_summary: ",serializable_state)
 
+        msg = f"completed extracting browser content from '{browser_state_summary.title}'."
+        result = TextContent(type="text", text=msg)
         result.meta = {"browser_state": serializable_state}
         return [result]
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorInBrowserScrapeContents")
+        err_trace = get_traceback(e, "ErrorInBrowserExtractContent")
         logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
@@ -687,53 +968,33 @@ def execute_js_script(web_driver, script, target=None):
 
 async def in_browser_execute_javascript(mainwin, args):
     try:
-        crawler = mainwin.getWebCrawler()
-        if not crawler:
-            web_driver = mainwin.getWebDriver()
-            result = execute_js_script(web_driver, args['input']["script"], args['input']["target"])
+        driver_mode = _get_driver_mode(args)
+        script = args['input'].get("script", "")
+        target = args['input'].get("target", None)
+        
+        js_result = None
+        if driver_mode == "webdriver":
+            web_driver = _get_webdriver(mainwin)
+            if web_driver:
+                js_result = execute_js_script(web_driver, script, target)
         else:
-            bu_result = await browser_use_execute_javascript(mainwin, args['input']['script'])
+            # CDP mode using BrowserSession
+            browser_type = args['input'].get("browser_type", "existing chrome")
+            browser_session = await _get_browser_session_by_type(mainwin, browser_type)
+            if browser_session:
+                page = await _get_current_page(browser_session)
+                if page:
+                    # Wrap script in arrow function if not already
+                    if not script.strip().startswith("("):
+                        script = f"() => {{ {script} }}"
+                    js_result = await page.evaluate(script)
 
-        msg = f"completed in browser execute javascript {args['input']['script']}."
-        tool_result = [TextContent(type="text", text=msg)]
-        return tool_result
+        msg = f"completed in browser execute javascript."
+        tool_result = TextContent(type="text", text=msg)
+        tool_result.meta = {"result": js_result}
+        return [tool_result]
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserExecuteJavascript")
-        logger.error(err_trace)
-        return [TextContent(type="text", text=err_trace)]
-
-
-async def in_browser_build_dom_tree(mainwin, args):
-    try:
-        crawler = mainwin.getWebCrawler()
-        if not crawler:
-            webdriver = mainwin.getWebDriver()
-            script = mainwin.load_build_dom_tree_script()
-            # logger.debug("dom tree build script to be executed", script)
-            target = None
-            domTree = execute_js_script(webdriver, script, target)
-            logger.debug(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-            logger.debug(f"obtained dom tree: {domTree}")
-            with open("domtree.json", 'w', encoding="utf-8") as dtjf:
-                json.dump(domTree, dtjf, ensure_ascii=False, indent=4)
-                # self.rebuildHTML()
-                dtjf.close()
-        else:
-            logger.debug("build dom tree....")
-            # bu_result = await browser_use_build_dom_tree(mainwin)
-
-        domTreeJSString = json.dumps(domTree)            # clear error
-        time.sleep(1)
-
-        result_text_content = "completed building DOM tree."
-
-        tool_result = TextContent(type="text", text=result_text_content)
-
-        tool_result.meta = {"dom_tree": domTree}
-        return [tool_result]
-
-    except Exception as e:
-        err_trace = get_traceback(e, "ErrorInBrowserBuildDomTree")
         logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
@@ -795,106 +1056,199 @@ def webDriverDownloadFile(web_driver, ele_type, ele_text, dl_dir, dl_file):
     return file_path
 
 
-async def browser_use_download_file(mainwin, ele_type, ele_text, dl_dir, dl_file):
-    """Download a file using browser_use session.
+async def cdp_download_file(browser_session, page, href, saved_file_path):
+    """Download a file using CDP session and aiohttp.
     
     Args:
-        mainwin: Main window instance with browser_session
-        ele_type: Element type to search for
-        ele_text: Text content to match in the element
-        dl_dir: Directory to save the file
-        dl_file: Filename to save as
+        browser_session: BrowserSession instance
+        page: Current page
+        href: URL to download
+        saved_file_path: Full path to save the file
     
     Returns:
         Full path of the saved file
     """
     import aiohttp
-    import os
     
-    browser_session = mainwin.browser_session
-    page = await browser_session.get_current_page()
+    # Get cookies from the browser via JavaScript
+    cookies_js = '() => document.cookie'
+    cookie_string = await page.evaluate(cookies_js)
     
-    # Find element by text
-    element = await page.query_selector(f'{ele_type}:has-text("{ele_text}")')
-    if not element:
-        # Try broader search
-        elements = await page.query_selector_all(ele_type)
-        for elem in elements:
-            text = await elem.inner_text()
-            if ele_text in text:
-                element = elem
-                break
-    
-    if not element:
-        raise ValueError(f"Element with type '{ele_type}' and text '{ele_text}' not found")
-    
-    # Get href
-    href = await element.get_attribute('href')
-    if not href:
-        href = await element.get_attribute('data-href') or await element.get_attribute('data-url')
-    
-    if not href:
-        raise ValueError(f"No href found on element with text '{ele_text}'")
+    # Parse cookie string into dict
+    cookie_dict = {}
+    if cookie_string:
+        for item in cookie_string.split(';'):
+            item = item.strip()
+            if '=' in item:
+                key, value = item.split('=', 1)
+                cookie_dict[key.strip()] = value.strip()
     
     # Ensure download directory exists
-    os.makedirs(dl_dir, exist_ok=True)
-    
-    # Get cookies from browser context
-    context = page.context
-    cookies = await context.cookies()
-    cookie_dict = {cookie['name']: cookie['value'] for cookie in cookies}
+    dl_dir = os.path.dirname(saved_file_path)
+    if dl_dir:
+        os.makedirs(dl_dir, exist_ok=True)
     
     # Download using aiohttp
-    async with aiohttp.ClientSession(cookies=cookie_dict) as session:
-        async with session.get(href) as response:
+    async with aiohttp.ClientSession() as session:
+        # Set cookies in the request
+        async with session.get(href, cookies=cookie_dict) as response:
             response.raise_for_status()
-            file_path = os.path.join(dl_dir, dl_file)
-            with open(file_path, 'wb') as f:
+            with open(saved_file_path, 'wb') as f:
                 async for chunk in response.content.iter_chunked(8192):
                     f.write(chunk)
     
-    return file_path
+    return saved_file_path
 
 
-# HTML Download
+# File Download
 async def in_browser_save_href_to_file(mainwin, args) -> CallToolResult:
-    """Retrieves and returns the full HTML content of the current page to a file"""
+    """Download a file from a URL (href) and save it to a specified path."""
     try:
-        crawler = mainwin.getWebCrawler()
-        if not crawler:
-            web_driver = mainwin.getWebDriver()
-
-            saved = webDriverDownloadFile(web_driver, args["input"]["ele_type"], args["input"]["ele_text"], args["input"]["dl_dir"], args["input"]["dl_file"])
+        driver_mode = _get_driver_mode(args)
+        href = args["input"].get("href", "")
+        saved_file_path = args["input"].get("saved_file_path", "")
+        
+        if not href:
+            return [TextContent(type="text", text="Error: href is required")]
+        if not saved_file_path:
+            return [TextContent(type="text", text="Error: saved_file_path is required")]
+        
+        if driver_mode == "webdriver":
+            web_driver = _get_webdriver(mainwin)
+            if web_driver:
+                import requests
+                
+                # Get cookies from webdriver for authenticated downloads
+                cookies = {cookie['name']: cookie['value'] for cookie in web_driver.get_cookies()}
+                
+                # Ensure download directory exists
+                dl_dir = os.path.dirname(saved_file_path)
+                if dl_dir:
+                    os.makedirs(dl_dir, exist_ok=True)
+                
+                # Download the file
+                response = requests.get(href, cookies=cookies, stream=True)
+                response.raise_for_status()
+                
+                # Save to file
+                with open(saved_file_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
         else:
-            br_result = await browser_use_download_file(mainwin, args["input"]["ele_type"], args["input"]["ele_text"], args["input"]["dl_dir"], args["input"]["dl_file"])
+            # CDP mode using BrowserSession
+            browser_type = args['input'].get("browser_type", "existing chrome")
+            browser_session = await _get_browser_session_by_type(mainwin, browser_type)
+            if browser_session:
+                page = await _get_current_page(browser_session)
+                if page:
+                    await cdp_download_file(browser_session, page, href, saved_file_path)
 
-        msg = f"completed loading {saved}."
+        msg = f"completed downloading file to {saved_file_path}."
         tool_result = [TextContent(type="text", text=msg)]
         return tool_result
     except Exception as e:
-        err_trace = get_traceback(e, "ErrorInBrowserSaveHtmlToFile")
+        err_trace = get_traceback(e, "ErrorInBrowserSaveHrefToFile")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
+async def in_browser_upload_file(mainwin, args) -> CallToolResult:
+    """Upload a file to a file input element on the page."""
+    try:
+        driver_mode = _get_driver_mode(args)
+        file_input_selector = args["input"].get("file_input_selector", "")
+        upload_file_path = args["input"].get("upload_file_path", "")
+        
+        if not upload_file_path:
+            return [TextContent(type="text", text="Error: upload_file_path is required")]
+        
+        # Verify file exists
+        if not os.path.exists(upload_file_path):
+            return [TextContent(type="text", text=f"Error: file not found: {upload_file_path}")]
+        
+        uploaded = False
+        if driver_mode == "webdriver":
+            web_driver = _get_webdriver(mainwin)
+            if web_driver:
+                # Find file input element
+                if file_input_selector:
+                    file_input = web_driver.find_element(By.CSS_SELECTOR, file_input_selector)
+                else:
+                    # Try to find any file input
+                    file_input = web_driver.find_element(By.CSS_SELECTOR, "input[type='file']")
+                
+                if file_input:
+                    # Send the file path to the input element
+                    file_input.send_keys(upload_file_path)
+                    uploaded = True
+        else:
+            # CDP mode using BrowserSession
+            browser_type = args['input'].get("browser_type", "existing chrome")
+            browser_session = await _get_browser_session_by_type(mainwin, browser_type)
+            if browser_session:
+                page = await _get_current_page(browser_session)
+                if page:
+                    # Use JavaScript to set file on input element via CDP
+                    selector = file_input_selector if file_input_selector else "input[type='file']"
+                    elements = await page.get_elements_by_css_selector(selector)
+                    if elements:
+                        # Get the backend node id for the file input
+                        file_input_element = elements[0]
+                        # Use CDP DOM.setFileInputFiles to set the file
+                        session_id = await page.session_id
+                        # Get node id from backend node id
+                        node_id = await file_input_element._get_node_id()
+                        await browser_session.cdp_client.send.DOM.setFileInputFiles(
+                            params={
+                                'files': [upload_file_path],
+                                'nodeId': node_id
+                            },
+                            session_id=session_id
+                        )
+                        uploaded = True
+
+        if uploaded:
+            msg = f"completed uploading file: {upload_file_path}."
+        else:
+            msg = f"failed to upload file: {upload_file_path}."
+        tool_result = [TextContent(type="text", text=msg)]
+        return tool_result
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorInBrowserUploadFile")
         logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
 
 async def in_browser_scroll(mainwin, args):
     try:
-        crawler = mainwin.getWebCrawler()
-        if not crawler:
-            web_driver = mainwin.getWebDriver()
-
-            if args["input"]["direction"].lower() == "down":
-                scroll_amount = 0 - args["input"]["amount"]
-            else:
-                scroll_amount = args["input"]["amount"]
-            web_driver.execute_script(f"window.scrollBy(0, {args['input']['amount']});")
-
-            if args["input"]["post_wait"]:
-                time.sleep(args["input"]["post_wait"])
+        driver_mode = _get_driver_mode(args)
+        direction = args["input"].get("direction", "down").lower()
+        amount = args["input"].get("amount", 300)
+        post_wait = args["input"].get("post_wait", 0)
+        
+        # Calculate scroll amount (negative for down in CDP)
+        scroll_y = -amount if direction == "down" else amount
+        
+        if driver_mode == "webdriver":
+            web_driver = _get_webdriver(mainwin)
+            if web_driver:
+                js_amount = amount if direction == "down" else -amount
+                web_driver.execute_script(f"window.scrollBy(0, {js_amount});")
+                if post_wait:
+                    time.sleep(post_wait)
         else:
-            br_result = await browser_use_scroll(mainwin, args["input"]["direction"], args["input"]["amount"], args["input"]["post_wait"])
+            # CDP mode using BrowserSession
+            browser_type = args['input'].get("browser_type", "existing chrome")
+            browser_session = await _get_browser_session_by_type(mainwin, browser_type)
+            if browser_session:
+                page = await _get_current_page(browser_session)
+                if page:
+                    mouse = await page.mouse
+                    await mouse.scroll(x=0, y=0, delta_x=0, delta_y=scroll_y)
+                    if post_wait:
+                        await asyncio.sleep(post_wait)
 
-        msg = f"completed in browser scroll {args['input']['direction']} {args['input']['amount']}."
+        msg = f"completed in browser scroll {direction} {amount}."
         tool_result = [TextContent(type="text", text=msg)]
         return tool_result
     except Exception as e:
@@ -905,21 +1259,27 @@ async def in_browser_scroll(mainwin, args):
 # send keys
 async def in_browser_send_keys(mainwin, args):
     try:
-        crawler = mainwin.getWebCrawler()
-        if not crawler:
-            web_driver = mainwin.getWebDriver()
-            browser_context = AppContext.get_main_window().getBrowserContextById(args["context_id"])
-            browser = browser_context.browser
-            page = await browser.get_current_page()
-
-
-            await page.keyboard.press(args.keys)
+        driver_mode = _get_driver_mode(args)
+        keys = args['input'].get('keys', '')
+        
+        if driver_mode == "webdriver":
+            web_driver = _get_webdriver(mainwin)
+            if web_driver:
+                # Send keys to active element
+                from selenium.webdriver.common.action_chains import ActionChains
+                actions = ActionChains(web_driver)
+                actions.send_keys(keys).perform()
         else:
-            br_result = await browser_use_send_keys(mainwin, args["context_id"], args['input']['keys'])
+            # CDP mode using BrowserSession
+            browser_type = args['input'].get("browser_type", "existing chrome")
+            browser_session = await _get_browser_session_by_type(mainwin, browser_type)
+            if browser_session:
+                page = await _get_current_page(browser_session)
+                if page:
+                    await page.press(keys)
 
-        msg = f'⌨️  Sent keys: {args.keys}'
+        msg = f'⌨️  Sent keys: {keys}'
         logger.info(msg)
-        msg = f"completed loading element by index {args['input']['index']}."
         tool_result = [TextContent(type="text", text=msg)]
         return tool_result
     except Exception as e:
@@ -930,18 +1290,29 @@ async def in_browser_send_keys(mainwin, args):
 
 async def in_browser_scroll_to_text(mainwin, args):  # type: ignore
     try:
-        crawler = mainwin.getWebCrawler()
-        if not crawler:
-            web_driver = mainwin.getWebDriver()
-
-            element = web_driver.find_element("xpath", "//*[contains(text(), args['input']['text'])]")
-
-            # Scroll to the element
-            web_driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", element)
+        driver_mode = _get_driver_mode(args)
+        text = args['input'].get('text', '')
+        
+        if driver_mode == "webdriver":
+            web_driver = _get_webdriver(mainwin)
+            if web_driver:
+                escaped_text = text.replace("'", "\\'")
+                element = web_driver.find_element("xpath", f"//*[contains(text(), '{escaped_text}')]")
+                # Scroll to the element
+                web_driver.execute_script("arguments[0].scrollIntoView({block: 'center', behavior: 'smooth'});", element)
         else:
-            br_result = await browser_use_scroll_to_text(mainwin, args["input"]["text"])
+            # CDP mode using BrowserSession
+            browser_type = args['input'].get("browser_type", "existing chrome")
+            browser_session = await _get_browser_session_by_type(mainwin, browser_type)
+            if browser_session:
+                page = await _get_current_page(browser_session)
+                if page:
+                    # Use JS to find and scroll to text
+                    escaped_text = text.replace('"', '\\"')
+                    js_code = f'() => {{ const xpath = "//*[contains(text(), \"{escaped_text}\")]"; const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null); const elem = result.singleNodeValue; if (elem) elem.scrollIntoView({{block: "center", behavior: "smooth"}}); return elem ? "scrolled" : "not found"; }}'
+                    await page.evaluate(js_code)
 
-        msg = f"completed in browser scroll to text {args['input']['text']}."
+        msg = f"completed in browser scroll to text '{text}'."
         tool_result = [TextContent(type="text", text=msg)]
         return tool_result
     except Exception as e:
@@ -952,17 +1323,36 @@ async def in_browser_scroll_to_text(mainwin, args):  # type: ignore
 
 async def in_browser_get_dropdown_options(mainwin, args) -> CallToolResult:
     try:
-        crawler = mainwin.getWebCrawler()
-        if not crawler:
-            web_driver = mainwin.getWebDriver()
+        driver_mode = _get_driver_mode(args)
+        selector = args['input'].get('selector', '')
+        options = []
+        
+        if driver_mode == "webdriver":
+            web_driver = _get_webdriver(mainwin)
+            if web_driver:
+                select_element = web_driver.find_element(By.CSS_SELECTOR, selector)
+                select = Select(select_element)
+                options = [opt.text for opt in select.options]
         else:
-            br_result = await browser_use_get_dropdown_options(mainwin, args["context_id"], args['input']['index'])
+            # CDP mode using BrowserSession
+            browser_type = args['input'].get("browser_type", "existing chrome")
+            browser_session = await _get_browser_session_by_type(mainwin, browser_type)
+            if browser_session:
+                page = await _get_current_page(browser_session)
+                if page:
+                    # Use JavaScript to get option text content reliably
+                    escaped_selector = selector.replace('"', '\\"')
+                    js_code = f'() => {{ const select = document.querySelector("{escaped_selector}"); if (!select) return []; return Array.from(select.options).map(opt => ({{ text: opt.textContent.trim(), value: opt.value }})); }}'
+                    result = await page.evaluate(js_code)
+                    if result:
+                        import json
+                        option_list = json.loads(result) if isinstance(result, str) else result
+                        options = [opt.get("text", "") for opt in option_list]
 
-
-        msg = f"completed loading element by index {args['input']['index']}."
-        tool_result = [TextContent(type="text", text=msg)]
-        return tool_result
-
+        msg = f"completed getting dropdown options: {options}."
+        tool_result = TextContent(type="text", text=msg)
+        tool_result.meta = {"options": options}
+        return [tool_result]
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserGetDropdownOptions")
@@ -972,13 +1362,55 @@ async def in_browser_get_dropdown_options(mainwin, args) -> CallToolResult:
 
 async def in_browser_select_dropdown_option(mainwin, args) -> CallToolResult:
     try:
-        crawler = mainwin.getWebCrawler()
-        if not crawler:
-            web_driver = mainwin.getWebDriver()
+        driver_mode = _get_driver_mode(args)
+        selector = args['input'].get('selector', '')
+        option_value = args['input'].get('option_value', '')
+        option_text = args['input'].get('option_text', '')
+        option_index = args['input'].get('option_index', None)
+        selected = False
+        
+        if driver_mode == "webdriver":
+            web_driver = _get_webdriver(mainwin)
+            if web_driver:
+                select_element = web_driver.find_element(By.CSS_SELECTOR, selector)
+                select = Select(select_element)
+                if option_value:
+                    select.select_by_value(option_value)
+                    selected = True
+                elif option_text:
+                    select.select_by_visible_text(option_text)
+                    selected = True
+                elif option_index is not None:
+                    select.select_by_index(option_index)
+                    selected = True
         else:
-            br_result = await browser_use_select_dropdown_option(mainwin, args["context_id"], args['input']['index'])
+            # CDP mode using BrowserSession
+            browser_type = args['input'].get("browser_type", "existing chrome")
+            browser_session = await _get_browser_session_by_type(mainwin, browser_type)
+            if browser_session:
+                page = await _get_current_page(browser_session)
+                if page:
+                    # browser_use element.select_option takes values: str | list[str]
+                    # Use JavaScript for more reliable selection with value/text/index support
+                    escaped_selector = selector.replace('"', '\\"')
+                    if option_value:
+                        escaped_value = option_value.replace('"', '\\"')
+                        js_code = f'() => {{ const select = document.querySelector("{escaped_selector}"); if (select) {{ select.value = "{escaped_value}"; select.dispatchEvent(new Event("change", {{ bubbles: true }})); return true; }} return false; }}'
+                    elif option_text:
+                        escaped_text = option_text.replace('"', '\\"')
+                        js_code = f'() => {{ const select = document.querySelector("{escaped_selector}"); if (select) {{ for (const opt of select.options) {{ if (opt.textContent.trim() === "{escaped_text}") {{ select.value = opt.value; select.dispatchEvent(new Event("change", {{ bubbles: true }})); return true; }} }} }} return false; }}'
+                    elif option_index is not None:
+                        js_code = f'() => {{ const select = document.querySelector("{escaped_selector}"); if (select && select.options[{option_index}]) {{ select.selectedIndex = {option_index}; select.dispatchEvent(new Event("change", {{ bubbles: true }})); return true; }} return false; }}'
+                    else:
+                        js_code = '() => false'
+                    
+                    result = await page.evaluate(js_code)
+                    selected = result == "true" or result is True
 
-        msg = f"completed loading element by index {args['input']['index']}."
+        if selected:
+            msg = f"completed selecting dropdown option."
+        else:
+            msg = f"failed to select dropdown option (selector: {selector})."
         tool_result = [TextContent(type="text", text=msg)]
         return tool_result
     except Exception as e:
@@ -988,21 +1420,90 @@ async def in_browser_select_dropdown_option(mainwin, args) -> CallToolResult:
 
 
 async def in_browser_drag_drop(mainwin, args) -> CallToolResult:
+    """
+    Drag and drop operation supporting both element-based (CSS selectors) and coordinate-based modes.
+    
+    Element-based: Use source_selector and target_selector to drag from one element to another.
+    Coordinate-based: Use source_x/source_y and target_x/target_y for precise coordinate control.
+    """
     try:
-        crawler = mainwin.getWebCrawler()
-        if not crawler:
-            web_driver = mainwin.getWebDriver()
+        driver_mode = _get_driver_mode(args)
+        # Element-based parameters
+        source_selector = args["input"].get("source_selector", "")
+        target_selector = args["input"].get("target_selector", "")
+        # Coordinate-based parameters
+        source_x = args["input"].get("source_x", None)
+        source_y = args["input"].get("source_y", None)
+        target_x = args["input"].get("target_x", None)
+        target_y = args["input"].get("target_y", None)
+        
+        # Determine mode: element-based or coordinate-based
+        use_element_mode = bool(source_selector)
+        
+        if driver_mode == "webdriver":
+            web_driver = _get_webdriver(mainwin)
+            if web_driver:
+                from selenium.webdriver.common.action_chains import ActionChains
+                actions = ActionChains(web_driver)
+                
+                if use_element_mode:
+                    # Element-based drag and drop
+                    source_element = web_driver.find_element(By.CSS_SELECTOR, source_selector)
+                    if target_selector:
+                        target_element = web_driver.find_element(By.CSS_SELECTOR, target_selector)
+                        actions.drag_and_drop(source_element, target_element).perform()
+                    elif target_x is not None and target_y is not None:
+                        # Drag element to coordinates
+                        actions.click_and_hold(source_element)
+                        actions.move_by_offset(target_x, target_y)
+                        actions.release()
+                        actions.perform()
+                else:
+                    # Coordinate-based drag and drop
+                    if source_x is not None and source_y is not None:
+                        actions.move_by_offset(source_x, source_y)
+                        actions.click_and_hold()
+                        if target_x is not None and target_y is not None:
+                            actions.move_by_offset(target_x - source_x, target_y - source_y)
+                        actions.release()
+                        actions.perform()
         else:
-            source_x = args["input"]["source_x"]
-            source_y = args["input"]["source_y"]
-            target_x = args["input"]["target_x"]
-            target_y = args["input"]["target_y"]
-            br_result = await browser_use_drag_drop(mainwin, args["context_id"], args['input']['index'])
+            # CDP mode using BrowserSession
+            browser_type = args['input'].get("browser_type", "existing chrome")
+            browser_session = await _get_browser_session_by_type(mainwin, browser_type)
+            if browser_session:
+                page = await _get_current_page(browser_session)
+                if page:
+                    if use_element_mode:
+                        # Element-based drag and drop using element.drag_to()
+                        source_elements = await page.get_elements_by_css_selector(source_selector)
+                        if source_elements:
+                            source_element = source_elements[0]
+                            if target_selector:
+                                # Drag to target element
+                                target_elements = await page.get_elements_by_css_selector(target_selector)
+                                if target_elements:
+                                    await source_element.drag_to(target_elements[0])
+                            elif target_x is not None and target_y is not None:
+                                # Drag to coordinates using Position dict
+                                await source_element.drag_to({"x": target_x, "y": target_y})
+                    else:
+                        # Coordinate-based drag and drop using mouse operations
+                        if source_x is not None and source_y is not None:
+                            mouse = await page.mouse
+                            await mouse.move(source_x, source_y)
+                            await mouse.down()
+                            if target_x is not None and target_y is not None:
+                                await mouse.move(target_x, target_y)
+                            await mouse.up()
 
-        msg = f'🖱️ Dragged from ({source_x}, {source_y}) to ({target_x}, {target_y})'
+        # Build result message
+        if use_element_mode:
+            msg = f'🖱️ Dragged from "{source_selector}" to "{target_selector or f"({target_x}, {target_y})"}"'
+        else:
+            msg = f'🖱️ Dragged from ({source_x}, {source_y}) to ({target_x}, {target_y})'
         logger.info(msg)
-        return CallToolResult(content=[TextContent(type="text", text=msg)], isError=False)
-
+        return [TextContent(type="text", text=msg)]
 
     except Exception as e:
         err_trace = get_traceback(e, "ErrorInBrowserDragDrop")
@@ -2094,11 +2595,12 @@ tool_function_mapping = {
         "in_browser_input_text": in_browser_input_text,
         "in_browser_switch_tab": in_browser_switch_tab,
         "in_browser_open_tab": in_browser_open_tab,
+        "in_browser_go_to_url": in_browser_go_to_url,
         "in_browser_close_tab": in_browser_close_tab,
         "in_browser_extract_content": in_browser_extract_content,
         "in_browser_save_href_to_file": in_browser_save_href_to_file,
+        "in_browser_upload_file": in_browser_upload_file,
         "in_browser_execute_javascript": in_browser_execute_javascript,
-        "in_browser_build_dom_tree": in_browser_build_dom_tree,
         "in_browser_scroll": in_browser_scroll,
         "in_browser_send_keys": in_browser_send_keys,
         "in_browser_scroll_to_text": in_browser_scroll_to_text,
@@ -2204,6 +2706,7 @@ tool_function_mapping = {
         "gmail_respond": gmail_respond,
         "gmail_write_new": gmail_write_new,
         "gmail_read_titles": gmail_read_titles,
+        "gmail_mark_status": gmail_mark_status,
         "gmail_read_full_email": gmail_read_full_email,
         "privacy_reserve": privacy_reserve,
         "pirate_shipping_purchase_labels": pirate_shipping_purchase_labels,
