@@ -76,18 +76,19 @@ def get_subprocess_creation_flags() -> Tuple[int, Optional[Any]]:
     creation_flags |= DETACHED_PROCESS
     
     # In frozen environment, add additional flags to completely hide window
-    if IS_FROZEN:
-        # CREATE_NO_WINDOW - prevents console window creation (Windows 10+)
-        # This is the most effective flag for preventing window popup
-        if hasattr(subprocess, 'CREATE_NO_WINDOW'):
-            creation_flags |= subprocess.CREATE_NO_WINDOW
-        
-        # STARTF_USESHOWWINDOW - hide window (compatible with older Windows)
-        # This provides backward compatibility
-        if hasattr(subprocess, 'STARTF_USESHOWWINDOW'):
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = 0  # SW_HIDE
+    # NOTE: For consistency with development runs, we now apply these flags
+    # whenever available on Windows, not only when IS_FROZEN is True.
+    # CREATE_NO_WINDOW - prevents console window creation (Windows 10+)
+    # This is the most effective flag for preventing window popup
+    if hasattr(subprocess, 'CREATE_NO_WINDOW'):
+        creation_flags |= subprocess.CREATE_NO_WINDOW
+    
+    # STARTF_USESHOWWINDOW - hide window (compatible with older Windows)
+    # This provides backward compatibility
+    if hasattr(subprocess, 'STARTF_USESHOWWINDOW'):
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0  # SW_HIDE
     
     return creation_flags, startupinfo
 

@@ -53,7 +53,7 @@ export interface SkillStoreState extends BaseStoreState<Skill> {
 export const useSkillStore = createExtendedResourceStore<Skill, SkillStoreState>(
   {
     name: 'skill',
-    persist: true,
+    persist: false,  // 关闭持久化，避免数据不一致
     cacheDuration: CACHE_DURATION.MEDIUM,
   },
   new SkillAPI(),

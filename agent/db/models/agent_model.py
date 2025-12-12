@@ -26,7 +26,7 @@ class DBAgent(BaseModel, TimestampMixin, ExtensibleMixin):
     owner = Column(String(128), nullable=False)
 
     # Agent profile
-    gender = Column(String(16))  # male, female, other
+    gender = Column(String(16), default='gender_options.male')  # male, female, other
     title = Column(JSON)  # job titles (array of strings)
     rank = Column(String(64))    # seniority level
     birthday = Column(String(32))  # birth date
@@ -60,7 +60,7 @@ class DBAgent(BaseModel, TimestampMixin, ExtensibleMixin):
         d = super().to_dict()
         
         # Parse JSON string fields back to arrays/objects for frontend
-        json_fields = ['personalities', 'title', 'tasks', 'skills', 'extra_data']  # Use personalities (unified naming)
+        json_fields = ['personalities', 'title', 'extra_data']  # Use personalities (unified naming)
         for field in json_fields:
             if field in d and isinstance(d[field], str):
                 try:
@@ -87,10 +87,12 @@ class DBAgent(BaseModel, TimestampMixin, ExtensibleMixin):
                 if len(self.org_rels) > 0:
                     d['org_id'] = self.org_rels[0].org_id  # org_id is the organization ID in the relationship
             # For skills and tasks, return the actual skill/task objects, not the relationship objects
+            # Skip relationships where the skill/task object doesn't exist (orphaned foreign keys)
             if hasattr(self, 'skill_rels') and self.skill_rels:
-                d['skills'] = [assoc.skill.to_dict(deep=False) if assoc.skill else assoc.to_dict(deep=False) for assoc in self.skill_rels]
+                d['skills'] = [assoc.skill.to_dict(deep=False) for assoc in self.skill_rels if assoc.skill]
             if hasattr(self, 'task_rels') and self.task_rels:
-                d['tasks'] = [assoc.task.to_dict(deep=False) if assoc.task else assoc.to_dict(deep=False) for assoc in self.task_rels]
+                d['tasks'] = [assoc.task.to_dict(deep=False) for assoc in self.task_rels if assoc.task]
+        
         return d
 
 

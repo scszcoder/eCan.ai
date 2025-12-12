@@ -155,14 +155,24 @@ class EC_Agent(Agent):
 		"""
 		# Helper function to serialize skills/tasks
 		def serialize_items(items):
+			"""Serialize skills/tasks to dict format.
+			
+			Handles:
+			- Pydantic models (EC_Skill, ManagedTask) with to_dict() method
+			- Plain dicts
+			- String IDs (converted to minimal dict)
+			"""
 			result = []
 			if items:
 				for item in items:
 					if hasattr(item, 'to_dict'):
+						# EC_Skill and ManagedTask have to_dict() method
 						result.append(item.to_dict())
 					elif isinstance(item, dict):
+						# Already a dict
 						result.append(item)
 					elif isinstance(item, str):
+						# String ID, convert to minimal dict
 						result.append({'id': item, 'name': item})
 			return result
 
@@ -187,9 +197,9 @@ class EC_Agent(Agent):
 			# Agent characteristics
 			'title': self.title,
 			'personalities': self.personalities or [],
-			# Use _db_skills/_db_tasks if available (from database), otherwise serialize runtime skills/tasks
-			'skills': getattr(self, '_db_skills', []) or serialize_items(getattr(self, 'skills', [])),
-			'tasks': getattr(self, '_db_tasks', []) or serialize_items(getattr(self, 'tasks', [])),
+			# Unified serialization: single source of truth
+			'skills': serialize_items(self.skills or []),
+			'tasks': serialize_items(self.tasks or []),
 
 			# Configuration
 			'vehicle_id': getattr(self, 'vehicle_id', None),

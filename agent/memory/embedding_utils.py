@@ -252,7 +252,18 @@ class EmbeddingFactory:
                 try:
                     # Get base_url and API key using common helper functions
                     from gui.manager.provider_settings_helper import get_ollama_base_url, get_ollama_api_key
-                    base_url = get_ollama_base_url('embedding', provider_config)
+                    
+                    # Convert provider_config to dict if it's an object
+                    provider_config_dict = None
+                    if provider_config:
+                        try:
+                            # If it's an EmbeddingProviderConfig object, extract base_url
+                            if hasattr(provider_config, 'base_url'):
+                                provider_config_dict = {'base_url': provider_config.base_url}
+                        except Exception:
+                            pass
+                    
+                    base_url = get_ollama_base_url('embedding', provider_config_dict)
                     ollama_api_key = get_ollama_api_key('embedding')
                     
                     # Convert native Ollama URL to OpenAI-compatible endpoint

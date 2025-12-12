@@ -28,6 +28,7 @@ def create_skill_dev_task(mainwin):
             id=task_id,
             name="dev:run task for skill under development",
             description="a holder for the skill under development.",
+            source="code",  # Mark as code-generated task
             status=status,  # or whatever default status you need
             sessionId=session_id,
             skill=dev_skill,

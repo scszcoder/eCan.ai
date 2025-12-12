@@ -6,6 +6,8 @@ from agent.agent_service import get_agent_by_id
 from agent.ec_skills.search_parts.pre_llm_hooks import *
 from agent.ec_skills.search_parts.post_llm_hooks import *
 from agent.ec_skills.llm_utils.llm_utils import _deep_merge
+from langchain_core.prompts import ChatPromptTemplate
+import json
 
 
 # just get the right prompt for this node
@@ -212,7 +214,6 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state, prompt_src, promp
 
 def standard_post_llm_func(askid, node_name, state, response):
     try:
-        import json
         import ast  # Add this import at the top of your file
 
         # Extract content from AIMessage if needed

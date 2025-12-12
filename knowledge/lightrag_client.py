@@ -359,6 +359,76 @@ class LightragClient:
     def status(self, job_id: str) -> Dict[str, Any]:
         """Deprecated: Use track_status instead."""
         return self.track_status(job_id)
+    
+    def cancel_pipeline(self) -> Dict[str, Any]:
+        """Cancel the currently running document processing pipeline.
+        
+        This will:
+        1. Stop processing new documents
+        2. Cancel all running document processing tasks
+        3. Mark all PROCESSING documents as FAILED with reason "User cancelled"
+        
+        The cancellation is graceful and ensures data consistency.
+        Documents that have completed processing will remain in PROCESSED status.
+        
+        Returns:
+            Dict with cancellation status:
+            - status="cancellation_requested": Cancellation flag has been set
+            - status="not_busy": Pipeline is not currently running
+        """
+        try:
+            logger.info(f"[LightragClient] Requesting pipeline cancellation")
+            
+            r = self.session.post(f"{self.base_url}/documents/cancel_pipeline", timeout=10)
+            
+            logger.info(f"[LightragClient] Cancel pipeline response status: {r.status_code}")
+            
+            if r.status_code >= 400:
+                logger.error(f"Cancel pipeline failed with status {r.status_code}: {r.text}")
+            
+            r.raise_for_status()
+            result = r.json()
+            logger.info(f"[LightragClient] Pipeline cancellation result: {result}")
+            return {"status": "success", "data": result}
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response else str(e)
+            logger.error(f"LightragClient.cancel_pipeline HTTP error: {error_msg}")
+            return {"status": "error", "message": error_msg}
+        except Exception as e:
+            err = get_traceback(e, "LightragClient.cancel_pipeline")
+            logger.error(err)
+            return {"status": "error", "message": str(e)}
+    
+    def abort_document(self, doc_id: str) -> Dict[str, Any]:
+        """Abort processing of a specific document.
+        
+        Note: LightRAG doesn't have a per-document abort API.
+        This method will cancel the entire pipeline, which will:
+        1. Stop all document processing
+        2. Mark all PROCESSING documents (including this one) as FAILED
+        
+        If you only want to stop this specific document, you'll need to:
+        - Wait for it to complete, then delete it
+        - Or use cancel_pipeline() to stop all processing
+        
+        Args:
+            doc_id: ID of the document to abort
+            
+        Returns:
+            Dict with abort status
+        """
+        logger.warning(f"[LightragClient] Aborting document {doc_id} by cancelling pipeline")
+        logger.warning(f"[LightragClient] Note: This will cancel ALL processing documents, not just {doc_id}")
+        
+        # Cancel the entire pipeline
+        result = self.cancel_pipeline()
+        
+        if result.get('status') == 'success':
+            logger.info(f"[LightragClient] Pipeline cancelled, document {doc_id} will be marked as FAILED")
+        else:
+            logger.error(f"[LightragClient] Failed to cancel pipeline for document {doc_id}: {result.get('message')}")
+        
+        return result
 
     def scan(self) -> Dict[str, Any]:
         """Trigger scanning for new documents in the input directory.
@@ -419,20 +489,34 @@ class LightragClient:
             Dict with deletion status
         """
         try:
+            logger.info(f"[LightragClient] Attempting to delete document: {doc_id}")
+            
             # Server expects list of doc_ids
             payload = {"doc_ids": [doc_id]}
             # Use request with json body for DELETE
             r = self.session.request("DELETE", f"{self.base_url}/documents/delete_document", json=payload, timeout=10)
             
+            logger.info(f"[LightragClient] Delete response status: {r.status_code}")
+            
             if r.status_code >= 400:
-                logger.error(f"Delete failed with status {r.status_code}: {r.text}")
+                error_text = r.text
+                logger.error(f"[LightragClient] Delete failed with status {r.status_code}: {error_text}")
+                
+                # Try to parse error message from response
+                try:
+                    error_json = r.json()
+                    error_detail = error_json.get('detail', error_text)
+                    return {"status": "error", "message": f"Cannot delete document: {error_detail}"}
+                except:
+                    return {"status": "error", "message": f"Cannot delete document (HTTP {r.status_code}): {error_text}"}
                 
             r.raise_for_status()
             result = r.json()
+            logger.info(f"[LightragClient] Document deleted successfully: {doc_id}")
             return {"status": "success", "data": result}
         except requests.exceptions.HTTPError as e:
             error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response else str(e)
-            logger.error(f"LightragClient.delete_document HTTP error: {error_msg}")
+            logger.error(f"[LightragClient] delete_document HTTP error: {error_msg}")
             return {"status": "error", "message": error_msg}
         except Exception as e:
             err = get_traceback(e, "LightragClient.delete_document")
@@ -695,6 +779,35 @@ class LightragClient:
             logger.error(err)
             return {"status": "error", "message": str(e)}
 
+    def get_pipeline_status(self) -> Dict[str, Any]:
+        """Get the current status of the document indexing pipeline.
+        
+        Returns information about:
+        - busy: Whether the pipeline is currently busy
+        - job_name: Current job name (e.g., indexing files/indexing texts)
+        - docs: Total number of documents to be indexed
+        - batchs: Number of batches for processing documents
+        - cur_batch: Current processing batch
+        - latest_message: Latest message from pipeline processing
+        """
+        try:
+            r = self.session.get(f"{self.base_url}/documents/pipeline_status", timeout=10)
+            
+            if r.status_code >= 400:
+                logger.error(f"Get pipeline status failed with status {r.status_code}: {r.text}")
+            
+            r.raise_for_status()
+            result = r.json()
+            return {"status": "success", "data": result}
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response else str(e)
+            logger.error(f"LightragClient.get_pipeline_status HTTP error: {error_msg}")
+            return {"status": "error", "message": error_msg}
+        except Exception as e:
+            err = get_traceback(e, "LightragClient.get_pipeline_status")
+            logger.error(err)
+            return {"status": "error", "message": str(e)}
+
     def get_popular_labels(self, limit: int = 300) -> Dict[str, Any]:
         """Get popular labels by node degree."""
         try:
@@ -771,13 +884,22 @@ class LightragClient:
     def get_documents_paginated(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Get documents with pagination."""
         try:
+            logger.info(f"[LightragClient] get_documents_paginated called with params: {params}")
+            logger.info(f"[LightragClient] Calling LightRAG API: POST {self.base_url}/documents/paginated")
+            
             r = self.session.post(f"{self.base_url}/documents/paginated", json=params, timeout=30)
+            
+            logger.info(f"[LightragClient] LightRAG API response status: {r.status_code}")
             
             if r.status_code >= 400:
                 logger.error(f"Get documents paginated failed with status {r.status_code}: {r.text}")
             
             r.raise_for_status()
             result = r.json()
+            
+            logger.info(f"[LightragClient] LightRAG API returned data: {result}")
+            logger.info(f"[LightragClient] Documents count: {len(result.get('documents', []))}")
+            
             return {"status": "success", "data": result}
         except requests.exceptions.HTTPError as e:
             error_msg = f"HTTP Error {e.response.status_code}: {e.response.text}" if e.response else str(e)
