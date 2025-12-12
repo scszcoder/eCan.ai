@@ -62,7 +62,7 @@ async def build_agent_skills_parallel(mainwin):
     # Batch 3: Advanced skills (example skills from resource/my_skills + complex skills)
     advanced_skills = [
         # Example skills from resource/my_skills (loaded from JSON)
-        ("web_rag_assistant", create_web_rag_assistant_skill),
+        # ("web_rag_assistant", create_web_rag_assistant_skill),
         ("demo0", create_demo0_skill),
         ("ebay_fullfill_messages", create_ebay_fullfill_messages_skill),
         ("search_digikey_chatter", create_search_digikey_chatter_skill),
@@ -249,8 +249,12 @@ def create_skill_from_resource(
             json_path=json_path,
             source="code",
         )
-        
+
         if sk:
+            # Load mapping rules using common helper
+            mapping_rules = _load_mapping_rules_from_path(str(json_path), sk.name)
+            if mapping_rules:
+                sk.mapping_rules = mapping_rules
             logger.info(f"[create_skill_from_resource] ✅ Created skill '{sk.name}' from {skill_folder.name}")
         return sk
         
@@ -520,6 +524,77 @@ async def _load_skills_from_database_async(mainwin):
         return []
 
 
+def _load_mapping_rules_from_path(skill_path: str, skill_name: str = "Unknown") -> dict | None:
+    """Load mapping rules from data_mapping.json based on skill path.
+    
+    Args:
+        skill_path: Path to skill JSON file (e.g., .../diagram_dir/<name>_skill.json)
+        skill_name: Skill name for logging
+        
+    Returns:
+        Mapping rules dict or None if not found/failed
+    """
+    try:
+        spath = (skill_path or "").strip()
+        if not spath:
+            return None
+            
+        p = Path(spath)
+        # Expected: <skill_root>/diagram_dir/<name>_skill.json
+        skill_root = p.parent.parent if p.parent.name == "diagram_dir" else p.parent
+        mapping_file = skill_root / "data_mapping.json"
+        
+        if mapping_file.exists():
+            with mapping_file.open("r", encoding="utf-8") as mf:
+                mapping_rules = json.load(mf)
+            logger.info(f"[build_agent_skills] Loaded mapping rules for {skill_name} from {mapping_file}")
+            return mapping_rules
+        return None
+    except Exception as e:
+        logger.warning(f"[build_agent_skills] Failed to load mapping rules for {skill_name}: {e}")
+        return None
+
+
+def _load_diagram_from_path(skill_path: str, skill_name: str = "Unknown") -> dict | None:
+    """Load diagram from skill JSON file.
+    
+    Args:
+        skill_path: Path to skill JSON file
+        skill_name: Skill name for logging
+        
+    Returns:
+        Diagram dict or None if not found/failed
+    """
+    try:
+        spath = (skill_path or "").strip()
+        if not spath:
+            return None
+            
+        p = Path(spath)
+        if not (p.exists() and p.is_file() and p.suffix.lower() == ".json"):
+            return None
+            
+        with p.open("r", encoding="utf-8") as f:
+            file_obj = json.load(f)
+            
+        if not isinstance(file_obj, dict):
+            return None
+            
+        # Try 'diagram' field first, then 'workFlow' for compatibility
+        diagram = None
+        if isinstance(file_obj.get("diagram"), dict) and file_obj.get("diagram"):
+            diagram = file_obj.get("diagram")
+        elif isinstance(file_obj.get("workFlow"), dict) and file_obj.get("workFlow"):
+            diagram = file_obj.get("workFlow")
+            
+        if diagram:
+            logger.info(f"[build_agent_skills] Loaded diagram for {skill_name} from {p}")
+        return diagram
+    except Exception as e:
+        logger.warning(f"[build_agent_skills] Failed to load diagram for {skill_name}: {e}")
+        return None
+
+
 def _convert_db_skill_to_object(db_skill):
     """Convert database skill data to skill object with compiled workflow"""
     try:
@@ -550,12 +625,22 @@ def _convert_db_skill_to_object(db_skill):
         skill_obj.objectives = v.list('objectives', getattr(skill_obj, 'objectives', []) or [])
         skill_obj.need_inputs = v.list('need_inputs', getattr(skill_obj, 'need_inputs', []) or [])
 
-        diagram = db_skill.get('diagram')
+        # Load mapping rules from data_mapping.json
+        mapping_rules = _load_mapping_rules_from_path(skill_obj.path, skill_obj.name)
+        if mapping_rules:
+            skill_obj.mapping_rules = mapping_rules
+
+        # Load diagram from file (priority) or DB (fallback)
+        diagram = _load_diagram_from_path(skill_obj.path, skill_obj.name)
+        if diagram:
+            skill_obj.diagram = diagram
+        else:
+            diagram = db_skill.get('diagram')
         if diagram and isinstance(diagram, dict):
             try:
                 logger.debug(f"[build_agent_skills] Rebuilding workflow for skill: {skill_obj.name}")
-                # Store diagram for reference
-                skill_obj.diagram = diagram
+                if not skill_obj.diagram:
+                    skill_obj.diagram = diagram
                 logger.debug(f"[build_agent_skills] Rebuilding workflow diagram: {diagram}")
 
                 # Convert flowgram diagram to LangGraph workflow with breakpoint support (v2 preprocessing)
