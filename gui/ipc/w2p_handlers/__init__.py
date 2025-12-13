@@ -10,6 +10,14 @@ try:
 except Exception:
     pass
 
+# Import label_config_handler separately with error logging
+try:
+    from . import label_config_handler  # noqa: F401 - Label config handlers (whitelisted)
+except Exception as e:
+    import traceback
+    print(f"[w2p_handlers] Failed to import label_config_handler: {e}")
+    print(traceback.format_exc())
+
 # Lazy import function for other handlers
 def _ensure_handlers_loaded():
     """Lazy load all handlers when first needed"""

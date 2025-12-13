@@ -1952,7 +1952,8 @@
     "tools": "工具",
     "vehicles": "电脑",
     "warehouses": "仓库",
-    "prompts": "提示词"
+    "prompts": "提示词",
+    "shipping_label": "快递标签"
   },
   "agentnotify": {
     "behind_the_scene": "幕后",

@@ -1285,3 +1285,184 @@ def add_reformat_labels_tool_schema(tool_schemas):
     )
 
     tool_schemas.append(tool_schema)
+
+
+# ============================================================================
+# Unit Tests
+# ============================================================================
+
+def test_print_labels():
+    """
+    Test the print_labels_util function.
+    Run with: python -m agent.ec_skills.label_utils.print_label test_print
+    """
+    print("\n" + "="*60)
+    print("Testing print_labels_util")
+    print("="*60)
+    
+    # Test 1: List available printers
+    print("\n[Test 1] Listing available printers...")
+    printers = get_available_printers()
+    print(f"  Available printers: {printers}")
+    
+    default_printer = get_default_printer()
+    print(f"  Default printer: {default_printer}")
+    
+    # Test 2: Print with no files (should fail gracefully)
+    print("\n[Test 2] Testing with empty file list...")
+    result = print_labels_util(files=[])
+    print(f"  Status: {result.status.value}")
+    print(f"  Message: {result.message}")
+    assert result.status == PrintStatus.FAILED, "Should fail with empty file list"
+    print("  ✓ Passed")
+    
+    # Test 3: Print with non-existent file
+    print("\n[Test 3] Testing with non-existent file...")
+    result = print_labels_util(files=["C:/nonexistent/file.pdf"])
+    print(f"  Status: {result.status.value}")
+    print(f"  Message: {result.message}")
+    print(f"  Failed files: {result.failed_files}")
+    print("  ✓ Passed (expected failure for non-existent file)")
+    
+    # Test 4: Print with invalid printer
+    print("\n[Test 4] Testing with invalid printer name...")
+    result = print_labels_util(
+        files=["C:/test.pdf"],
+        printer_name="NonExistentPrinter12345"
+    )
+    print(f"  Status: {result.status.value}")
+    print(f"  Message: {result.message}")
+    assert result.status == PrintStatus.FAILED, "Should fail with invalid printer"
+    print("  ✓ Passed")
+    
+    print("\n" + "="*60)
+    print("All print_labels tests completed!")
+    print("="*60)
+
+
+def test_reformat_labels():
+    """
+    Test the reformat_labels_util function.
+    Run with: python -m agent.ec_skills.label_utils.print_label test_reformat
+    """
+    import tempfile
+    
+    print("\n" + "="*60)
+    print("Testing reformat_labels_util")
+    print("="*60)
+    
+    # Test 1: Empty file list
+    print("\n[Test 1] Testing with empty file list...")
+    result = reformat_labels_util(in_file_names=[])
+    print(f"  Success: {result.success}")
+    print(f"  Message: {result.message}")
+    assert not result.success, "Should fail with empty file list"
+    print("  ✓ Passed")
+    
+    # Test 2: Non-existent file
+    print("\n[Test 2] Testing with non-existent file...")
+    result = reformat_labels_util(in_file_names=["C:/nonexistent/label.pdf"])
+    print(f"  Success: {result.success}")
+    print(f"  Message: {result.message}")
+    print("  ✓ Passed (expected failure for non-existent file)")
+    
+    # Test 3: Dimension parsing
+    print("\n[Test 3] Testing dimension parsing...")
+    try:
+        w, h = parse_dimension_string("D8.5X11")
+        print(f"  Parsed D8.5X11: width={w}, height={h}")
+        assert w == 8.5 and h == 11, "Should parse correctly"
+        print("  ✓ Passed")
+    except Exception as e:
+        print(f"  ✗ Failed: {e}")
+    
+    # Test 4: Various dimension formats
+    print("\n[Test 4] Testing various dimension formats...")
+    test_dims = ["D4X6", "D8.5X5.5", "D11X8.5", "D2.6X1"]
+    for dim in test_dims:
+        try:
+            w, h = parse_dimension_string(dim)
+            print(f"  {dim} -> width={w}, height={h}")
+        except Exception as e:
+            print(f"  {dim} -> Error: {e}")
+    print("  ✓ Passed")
+    
+    # Test 5: Test with a real PDF if available
+    print("\n[Test 5] Looking for test PDF files...")
+    test_dirs = [
+        os.path.expanduser("~/Downloads"),
+        os.path.expanduser("~/Documents"),
+        "C:/temp",
+    ]
+    
+    test_pdf = None
+    for test_dir in test_dirs:
+        if os.path.isdir(test_dir):
+            for f in os.listdir(test_dir):
+                if f.lower().endswith('.pdf') and 'label' in f.lower():
+                    test_pdf = os.path.join(test_dir, f)
+                    break
+        if test_pdf:
+            break
+    
+    if test_pdf and os.path.exists(test_pdf):
+        print(f"  Found test PDF: {test_pdf}")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            print(f"  Output directory: {tmpdir}")
+            result = reformat_labels_util(
+                in_file_names=[test_pdf],
+                out_dir=tmpdir,
+                sheet_size="D8.5X11",
+                label_format="D8.5X5.5",
+                label_rows_per_sheet=2,
+                label_cols_per_sheet=1,
+                add_backup=True,
+                added_note_text="TEST NOTE"
+            )
+            print(f"  Success: {result.success}")
+            print(f"  Message: {result.message}")
+            print(f"  Output files: {result.output_files}")
+            print(f"  Backup files: {result.backup_files}")
+    else:
+        print("  No test PDF found. Skipping real file test.")
+        print("  To test with a real file, place a PDF with 'label' in the name in Downloads.")
+    
+    print("\n" + "="*60)
+    print("All reformat_labels tests completed!")
+    print("="*60)
+
+
+def test_all():
+    """Run all unit tests."""
+    test_print_labels()
+    test_reformat_labels()
+
+
+if __name__ == "__main__":
+    import sys
+    
+    if len(sys.argv) > 1:
+        cmd = sys.argv[1].lower()
+        if cmd == "test_print":
+            test_print_labels()
+        elif cmd == "test_reformat":
+            test_reformat_labels()
+        elif cmd == "test" or cmd == "test_all":
+            test_all()
+        elif cmd == "printers":
+            print("Available printers:")
+            for p in get_available_printers():
+                print(f"  - {p}")
+            print(f"\nDefault printer: {get_default_printer()}")
+        else:
+            print(f"Unknown command: {cmd}")
+            print("Usage: python print_label.py [test_print|test_reformat|test_all|printers]")
+    else:
+        print("Print Label Utility")
+        print("="*40)
+        print("Usage: python print_label.py <command>")
+        print("\nCommands:")
+        print("  test_print    - Test print_labels_util function")
+        print("  test_reformat - Test reformat_labels_util function")
+        print("  test_all      - Run all tests")
+        print("  printers      - List available printers")

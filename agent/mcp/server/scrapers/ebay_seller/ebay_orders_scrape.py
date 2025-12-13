@@ -9,7 +9,6 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.action_chains import ActionChains
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
-from agent.mcp.server.utils.print_utils import save_page_pdf_via_cdp, ensure_download_dir
 from mcp.types import CallToolResult, TextContent
 from agent.mcp.server.ads_power.ads_power import connect_to_adspower
 

@@ -1,0 +1,15 @@
+{
+  "name": "Avery 5160 Address Labels",
+  "id": "avery_5160",
+  "unit": "in",
+  "sheet_width": 8.5,
+  "sheet_height": 11.0,
+  "label_width": 2.625,
+  "label_height": 1.0,
+  "top_margin": 0.5,
+  "left_margin": 0.1875,
+  "rows": 10,
+  "cols": 3,
+  "row_pitch": 0.0,
+  "col_pitch": 0.125
+}

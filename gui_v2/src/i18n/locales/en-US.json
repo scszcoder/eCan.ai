@@ -1952,7 +1952,8 @@
     "tools": "Tools",
     "vehicles": "Vehicles",
     "warehouses": "Warehouses",
-    "prompts": "Prompts"
+    "prompts": "Prompts",
+    "shipping_label": "Shipping Label"
   },
   "agentnotify": {
     "behind_the_scene": "Behind_the_scene",
