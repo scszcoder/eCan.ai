@@ -45,6 +45,8 @@ class IPCHandlerRegistry:
         'show_open_dialog', 'show_save_dialog', 'read_skill_file', 'write_skill_file', 'open_folder',
         # User preferences (language, theme) should be available before login
         'update_user_preferences',
+        # Label config operations
+        'label_config.get_all', 'label_config.save', 'label_config.delete', 'label_config.check_name',
     }
 
     @classmethod

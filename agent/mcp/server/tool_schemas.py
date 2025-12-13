@@ -108,7 +108,6 @@ from agent.mcp.server.scrapers.shopify_seller.shopify_orders_scrape import add_g
 from agent.mcp.server.scrapers.shopify_seller.shopify_messages_scrape import add_shopify_handle_next_message_tool_schema
 
 from agent.mcp.server.scrapers.pirate_shipping.purchase_label import add_pirate_shipping_purchase_labels_tool_schema
-from agent.mcp.server.utils.print_utils import add_reformat_and_print_labels_tool_schema
 from agent.ec_skills.label_utils.print_label import (
     add_print_labels_tool_schema,
     add_reformat_labels_tool_schema,

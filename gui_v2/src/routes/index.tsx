@@ -28,6 +28,7 @@ const Warehouses = React.lazy(() => import('../pages/Warehouses/Warehouses'));
 const Products = React.lazy(() => import('../pages/Products/Products'));
 const Prompts = React.lazy(() => import('../pages/Prompts/Prompts'));
 const Account = React.lazy(() => import('../pages/Account/Account'));
+const ShippingLabel = React.lazy(() => import('../pages/ShippingLabel/ShippingLabel'));
 
 // LoadComponent包装器
 const LazyWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -212,6 +213,11 @@ export const protectedRoutes: RouteConfig[] = [
                 element: <LazyWrapper><Orgs /></LazyWrapper>,
                 keepAlive: true,
             },
+            {
+                path: 'shipping-label',
+                element: <LazyWrapper><ShippingLabel /></LazyWrapper>,
+                keepAlive: true,
+            },
         ],
     },
 ];
@@ -295,5 +301,10 @@ export const menuItems = [
         key: '/tests',
         icon: 'ExperimentOutlined',
         label: 'menu.tests',
+    },
+    {
+        key: '/shipping-label',
+        icon: 'PrinterOutlined',
+        label: 'menu.shipping_label',
     },
 ]; 

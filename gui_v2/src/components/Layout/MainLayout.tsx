@@ -19,7 +19,8 @@ import {
     IdcardOutlined,
     ApartmentOutlined,
     ShopOutlined,
-    ShoppingOutlined
+    ShoppingOutlined,
+    PrinterOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import styled from '@emotion/styled';
@@ -121,6 +122,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         { key: '/warehouses', icon: <ShopOutlined />, label: t('menu.warehouses') },
         { key: '/products', icon: <ShoppingOutlined />, label: t('menu.products') },
         { key: '/knowledge-ported', icon: <ReadOutlined />, label: t('menu.knowledge') },
+        { key: '/shipping-label', icon: <PrinterOutlined />, label: t('menu.shipping_label') },
         { key: '/settings', icon: <SettingOutlined />, label: t('menu.settings') },
         { key: '/dashboard', icon: <DashboardOutlined />, label: t('menu.dashboard') },
 
