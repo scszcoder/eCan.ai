@@ -24,21 +24,40 @@ class FilesPrintAction(BaseModel):
 	)
 
 
+class LabelInputFile(BaseModel):
+	"""Input file specification with per-file note settings."""
+	file_name: str = Field(
+		default="", description="path to the PDF file"
+	)
+	added_note_text: str = Field(
+		default="", description="note text to add to backup label (e.g., order number)"
+	)
+	added_note_font: str = Field(
+		default="", description="path to TTF font file for note text (optional)"
+	)
+	added_note_size: int = Field(
+		default=24, description="font size for note text"
+	)
+
+
 class LabelsReformatAction(BaseModel):
-	in_file_names: str = Field(
-		default="", description="to-be-reformated label pdf file's full path name"
+	in_files: list[LabelInputFile] = Field(
+		default_factory=list, description="list of input file specifications with per-file note settings"
 	)
-	out_file_names: str = Field(
-		default="", description="after reformat label file's full path name"
+	out_dir: str = Field(
+		default="", description="output directory path. If not specified, uses same directory as first input file."
 	)
-	sheet_size: str = Field(
-		default="D11X8.5", description="width x height of sheet in inches, choices: D6X4, D8.5X5.5, D5X4, D4X3, D3X2, D2.6X1"
+	sheet_width: float = Field(
+		default=8.5, description="sheet width in inches (e.g., 8.5 for letter size)"
 	)
-	add_backup: bool = Field(
-		default=True, description="create a duplicate copy of the label for note text and proof of packaging."
+	sheet_height: float = Field(
+		default=11.0, description="sheet height in inches (e.g., 11.0 for letter size)"
 	)
-	label_format: str = Field(
-		default="D8.5X5.5", description="width x height of label in inches, choices: D6X4, D8.5X5.5, D5X4, D4X3, D3X2, D2.6X1"
+	label_width: float = Field(
+		default=8.5, description="label width in inches"
+	)
+	label_height: float = Field(
+		default=5.5, description="label height in inches"
 	)
 	label_orientation: str = Field(
 		default="landscape", description="label orientation, choices: landscape, portrait"
@@ -49,22 +68,19 @@ class LabelsReformatAction(BaseModel):
 	label_cols_per_sheet: int = Field(
 		default=1, description="number of label columns placed per sheet"
 	)
-	label_rows_pitch: int = Field(
-		default=2, description="number of inches of label rows pitch"
+	label_rows_pitch: float = Field(
+		default=0, description="row pitch in inches. If 0, auto-calculated for even distribution."
 	)
-	label_cols_pitch: int = Field(
-		default=1, description="number of inches of label columns pitch"
+	label_cols_pitch: float = Field(
+		default=0, description="column pitch in inches. If 0, auto-calculated for even distribution."
 	)
-	top_side_margin: int = Field(
-		default=2, description="number of inches of top side margin"
+	top_side_margin: float = Field(
+		default=0.25, description="top margin in inches"
 	)
-	left_side_margin: int = Field(
-		default=1, description="number of inches of left side margin"
+	left_side_margin: float = Field(
+		default=0.25, description="left margin in inches"
 	)
-	added_note_text: str = Field(
-		default="", description="note text to be added to 2nd copy of the label, if add_backup is true"
-	)
-	added_note_font_size: str = Field(
-		default="", description="font size of note text"
+	add_backup: bool = Field(
+		default=True, description="create backup copies with note text on same sheet"
 	)
 

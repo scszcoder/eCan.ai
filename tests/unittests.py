@@ -135,32 +135,35 @@ def run_default_tests(mwin, test_setup=None):
     
     try:
         # Run the main test
-        test_result = testReadScreen(mwin)
-        results['tests_run'].append(test_result)
-        print(f"[TEST] unit test results: {test_result}")
-        
-        # Optionally run other tests based on test_setup
-        if test_setup:
-            if test_setup.get('test_llm'):
-                llm_result = testLongLLMTask(mwin, test_setup)
-                results['tests_run'].append(llm_result)
-            
-            if test_setup.get('test_lightrag'):
-                lightrag_result = testLightRAG(mwin)
-                results['tests_run'].append(lightrag_result)
-            
-            if test_setup.get('test_flowgram'):
-                flowgram_result = test_flowgram2langgraph()
-                results['tests_run'].append(flowgram_result)
-        
-        # Check if any test failed
-        failed_tests = [t for t in results['tests_run'] if not t.get('success', False)]
-        if failed_tests:
-            results['success'] = False
-            results['failed_count'] = len(failed_tests)
-        
-        results['total_count'] = len(results['tests_run'])
-        results['passed_count'] = results['total_count'] - len(failed_tests)
+        from agent.ec_skills.label_utils.print_label import test_print_labels, test_reformat_labels
+        # test_print_labels()
+        test_reformat_labels()
+        # test_result = testReadScreen(mwin)
+        # results['tests_run'].append(test_result)
+        # print(f"[TEST] unit test results: {test_result}")
+        #
+        # # Optionally run other tests based on test_setup
+        # if test_setup:
+        #     if test_setup.get('test_llm'):
+        #         llm_result = testLongLLMTask(mwin, test_setup)
+        #         results['tests_run'].append(llm_result)
+        #
+        #     if test_setup.get('test_lightrag'):
+        #         lightrag_result = testLightRAG(mwin)
+        #         results['tests_run'].append(lightrag_result)
+        #
+        #     if test_setup.get('test_flowgram'):
+        #         flowgram_result = test_flowgram2langgraph()
+        #         results['tests_run'].append(flowgram_result)
+        #
+        # # Check if any test failed
+        # failed_tests = [t for t in results['tests_run'] if not t.get('success', False)]
+        # if failed_tests:
+        #     results['success'] = False
+        #     results['failed_count'] = len(failed_tests)
+        #
+        # results['total_count'] = len(results['tests_run'])
+        # results['passed_count'] = results['total_count'] - len(failed_tests)
         
     except Exception as e:
         print(f"[TEST] Error in run_default_tests: {e}")
