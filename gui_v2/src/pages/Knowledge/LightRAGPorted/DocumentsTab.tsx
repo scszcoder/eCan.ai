@@ -84,6 +84,7 @@ const DocumentsTab: React.FC = () => {
   const [pageSize, setPageSize] = useState(20);
   const [totalDocs, setTotalDocs] = useState(0);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  
 
   const { t } = useTranslation();
   const { token } = theme.useToken();
@@ -933,8 +934,7 @@ const DocumentsTab: React.FC = () => {
 
   return (
     <div style={{ 
-      height: '100%', 
-      overflow: 'auto'
+      height: '100%'
     }}>
       {contextHolder}
       <div style={{ 
@@ -1321,7 +1321,7 @@ const DocumentsTab: React.FC = () => {
               <div style={{ fontSize: 13 }}>{t('pages.knowledge.documents.noDocumentsDesc')}</div>
             </div>
           ) : (
-            <div style={{ flex: 1, overflow: 'auto' }}>
+            <div style={{ flex: 1 }}>
               {documents.map((doc, idx) => (
                 <div key={doc.id || doc.file_path || idx} style={{ 
                   display: 'grid', 
