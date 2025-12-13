@@ -100,6 +100,17 @@ so we have built in mechanism to protect your privacy:
 ### Interfacing with Agents over the internet
 You will need to subscribe to ["Pro" plan](). With "Pro" plan, you can chat with any agent remotely even when you're on the road.
 
+
+## 📥 Download Latest Release (v0.0.5)
+
+| Platform | Download | Size | SHA256 |
+|----------|----------|------|--------|
+| **Windows (64-bit)** | [⬇️ eCan-0.0.5-windows-amd64-Setup.exe](https://ecan-releases.s3.us-east-1.amazonaws.com/production/releases/v0.0.5/windows/amd64/eCan-0.0.5-windows-amd64-Setup.exe) | 547 MB | `2a6bb3b1...` |
+| **macOS (Apple Silicon)** | [⬇️ eCan-0.0.5-macos-aarch64.pkg](https://ecan-releases.s3.us-east-1.amazonaws.com/production/releases/v0.0.5/macos/aarch64/eCan-0.0.5-macos-aarch64.pkg) | 615 MB | `3e5864e2...` |
+| **macOS (Intel)** | [⬇️ eCan-0.0.5-macos-amd64.pkg](https://ecan-releases.s3.us-east-1.amazonaws.com/production/releases/v0.0.5/macos/amd64/eCan-0.0.5-macos-amd64.pkg) | 740 MB | `cd6a630c...` |
+
+> **Release Date:** December 8, 2025 | **Channel:** Stable
+
 ## 🔨 Building eCan.ai (On Local Machine)
 
 eCan.ai supports multiple build modes for different use cases:
