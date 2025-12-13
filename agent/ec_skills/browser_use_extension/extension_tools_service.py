@@ -1,10 +1,11 @@
-import os
+﻿import os
 from utils.logger_helper import logger_helper as logger
 from browser_use.agent.views import ActionResult
 from browser_use import BrowserSession, Controller
 from agent.ec_skills.browser_use_extension.extension_tools_views import (
     FileRenameAction,
     FilesPrintAction,
+    LabelInputFile,
     LabelsReformatAction,
 )
 from agent.ec_skills.label_utils.print_label import (
@@ -55,44 +56,41 @@ async def print_labels(params: FilesPrintAction, browser_session: BrowserSession
 
 @custom_controller.action('Reformat label PDFs to fit on multi-label sheets with configurable layout and optional backup copies', param_model=LabelsReformatAction)
 async def reformat_labels(params: LabelsReformatAction, browser_session: BrowserSession):
-    logger.info(f"[Browser Use Extension] Reformatting labels: {params.in_file_names}")
+    logger.info(f"[Browser Use Extension] Reformatting {len(params.in_files)} label files")
     
     try:
-        # Parse in_file_names - could be a single file or comma-separated list
-        if isinstance(params.in_file_names, str):
-            in_files = [f.strip() for f in params.in_file_names.split(',') if f.strip()]
-        else:
-            in_files = params.in_file_names
-        
-        # Parse font size
-        font_size = 24
-        if params.added_note_font_size:
-            try:
-                font_size = int(params.added_note_font_size)
-            except ValueError:
-                font_size = 24
+        # Convert LabelInputFile objects to dicts for the utility function
+        in_files = [
+            {
+                "file_name": f.file_name,
+                "added_note_text": f.added_note_text,
+                "added_note_font": f.added_note_font if f.added_note_font else None,
+                "added_note_size": f.added_note_size
+            }
+            for f in params.in_files
+        ]
         
         result = await reformat_labels_async(
-            in_file_names=in_files,
-            out_dir=params.out_file_names if params.out_file_names else None,
-            sheet_size=params.sheet_size,
-            label_format=params.label_format,
+            in_files=in_files,
+            out_dir=params.out_dir if params.out_dir else None,
+            sheet_width=params.sheet_width,
+            sheet_height=params.sheet_height,
+            label_width=params.label_width,
+            label_height=params.label_height,
             label_orientation=params.label_orientation,
             label_rows_per_sheet=params.label_rows_per_sheet,
             label_cols_per_sheet=params.label_cols_per_sheet,
-            label_rows_pitch=float(params.label_rows_pitch) if params.label_rows_pitch else None,
-            label_cols_pitch=float(params.label_cols_pitch) if params.label_cols_pitch else None,
-            top_side_margin=float(params.top_side_margin) if params.top_side_margin else None,
-            left_side_margin=float(params.left_side_margin) if params.left_side_margin else None,
-            add_backup=params.add_backup,
-            added_note_text=params.added_note_text,
-            added_note_font_size=font_size
+            label_rows_pitch=params.label_rows_pitch if params.label_rows_pitch > 0 else None,
+            label_cols_pitch=params.label_cols_pitch if params.label_cols_pitch > 0 else None,
+            top_side_margin=params.top_side_margin if params.top_side_margin > 0 else None,
+            left_side_margin=params.left_side_margin if params.left_side_margin > 0 else None,
+            add_backup=params.add_backup
         )
         
         if result.success:
             msg = f"Reformatted {result.input_count} labels into {result.output_count} output files"
-            if result.backup_files:
-                msg += f" with {len(result.backup_files)} backup copies"
+            if params.add_backup:
+                msg += " (with backup copies on same sheet)"
             return ActionResult(extracted_content=msg)
         else:
             return ActionResult(error=result.message)

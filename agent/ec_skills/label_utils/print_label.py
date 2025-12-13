@@ -169,17 +169,35 @@ def _print_file_windows(file_path: str, printer_name: str, n_copies: int = 1) ->
 def _print_pdf_ghostscript_windows(file_path: str, printer_name: str, n_copies: int = 1) -> tuple[bool, str]:
     """
     Silent PDF printing using Ghostscript on Windows.
+    Uses gswin64c.exe (console version) for silent operation.
     """
-    # Common Ghostscript paths
-    gs_paths = [
-        r"C:\Program Files\gs\gs10.06.0\bin\gswin64.exe",
-        r"C:\Program Files\gs\gs10.06.0\bin\gswin64c.exe"
+    # Find Ghostscript console executable (gswin64c.exe for silent printing)
+    # Search common installation paths
+    gs_exe = None
+    
+    # Check Program Files for various GS versions
+    gs_base_dirs = [
+        r"C:\Program Files\gs",
+        r"C:\Program Files (x86)\gs",
     ]
     
-    gs_exe = None
-    for path in gs_paths:
-        if os.path.exists(path):
-            gs_exe = path
+    for base_dir in gs_base_dirs:
+        if os.path.exists(base_dir):
+            # List version directories and find the console executable
+            try:
+                for version_dir in sorted(os.listdir(base_dir), reverse=True):  # Newest first
+                    console_exe = os.path.join(base_dir, version_dir, "bin", "gswin64c.exe")
+                    if os.path.exists(console_exe):
+                        gs_exe = console_exe
+                        break
+                    # Try 32-bit version
+                    console_exe = os.path.join(base_dir, version_dir, "bin", "gswin32c.exe")
+                    if os.path.exists(console_exe):
+                        gs_exe = console_exe
+                        break
+            except OSError:
+                pass
+        if gs_exe:
             break
     
     # Also check if gswin64c is in PATH
@@ -188,6 +206,8 @@ def _print_pdf_ghostscript_windows(file_path: str, printer_name: str, n_copies: 
     
     if not gs_exe:
         return False, "Ghostscript not found"
+    
+    logger.debug(f"[_print_pdf_ghostscript_windows] Using Ghostscript: {gs_exe}")
     
     try:
         cmd = [
@@ -201,11 +221,15 @@ def _print_pdf_ghostscript_windows(file_path: str, printer_name: str, n_copies: 
             "-dFitPage",
             f"-dNumCopies={n_copies}",
             "-sDEVICE=mswinpr2",
-            f'-sOutputFile="%printer%{printer_name}"' if printer_name else "",
-            file_path
         ]
-        # Filter out empty strings
-        cmd = [c for c in cmd if c]
+        
+        # Add printer output - no extra quotes needed, subprocess handles it
+        if printer_name:
+            cmd.append(f"-sOutputFile=%printer%{printer_name}")
+        
+        cmd.append(file_path)
+        
+        logger.debug(f"[_print_pdf_ghostscript_windows] Command: {cmd}")
         
         result = subprocess.run(
             cmd,
@@ -218,7 +242,7 @@ def _print_pdf_ghostscript_windows(file_path: str, printer_name: str, n_copies: 
         if result.returncode == 0:
             return True, f"Printed via Ghostscript: {file_path}"
         else:
-            return False, f"Ghostscript error: {result.stderr}"
+            return False, f"Ghostscript error (code {result.returncode}): {result.stderr or result.stdout}"
             
     except subprocess.TimeoutExpired:
         return False, "Ghostscript print timeout"
@@ -523,7 +547,7 @@ def extract_label_from_pdf_page(
     dpi: int = DEFAULT_DPI
 ) -> Optional[Image.Image]:
     """
-    Extract the label content from a PDF page, crop to content, and resize.
+    Extract the label content from a PDF page and resize to target dimensions.
     
     Args:
         page: fitz page object
@@ -538,7 +562,7 @@ def extract_label_from_pdf_page(
     import cv2
     
     try:
-        # Render page to pixmap
+        # Render page to pixmap at target DPI
         mat = fitz.Matrix(dpi / 72, dpi / 72)  # Scale from 72 DPI to target DPI
         pix = page.get_pixmap(matrix=mat)
         
@@ -546,39 +570,33 @@ def extract_label_from_pdf_page(
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
         img_array = lazy.np.array(img)
         
-        # Convert to grayscale for contour detection
+        # Find content bounds by detecting non-white pixels
+        # Convert to grayscale
         gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
-        gray = cv2.bilateralFilter(gray, 11, 17, 17)
         
-        # Morphological operations to clean up
-        kernel = lazy.np.ones((5, 5), lazy.np.uint8)
-        erosion = cv2.erode(gray, kernel, iterations=2)
-        kernel = lazy.np.ones((4, 4), lazy.np.uint8)
-        dilation = cv2.dilate(erosion, kernel, iterations=2)
+        # Threshold to find non-white areas (content)
+        # White is ~255, so anything below 250 is considered content
+        _, thresh = cv2.threshold(gray, 250, 255, cv2.THRESH_BINARY_INV)
         
-        # Edge detection
-        edged = cv2.Canny(dilation, 30, 200)
+        # Find bounding box of all non-white content
+        coords = cv2.findNonZero(thresh)
         
-        # Find contours
-        contours, _ = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        if not contours:
-            # No contours found, use the whole image
-            logger.warning("[extract_label_from_pdf_page] No contours found, using full page")
-            cropped = img_array
-        else:
-            # Find the largest contour (main label area)
-            largest_contour = max(contours, key=cv2.contourArea)
-            x, y, w, h = cv2.boundingRect(largest_contour)
+        if coords is not None and len(coords) > 0:
+            x, y, w, h = cv2.boundingRect(coords)
             
-            # Add small padding around the detected area
-            padding = 5
+            # Add padding around content
+            padding = 10
             x = max(0, x - padding)
             y = max(0, y - padding)
             w = min(img_array.shape[1] - x, w + 2 * padding)
             h = min(img_array.shape[0] - y, h + 2 * padding)
             
             cropped = img_array[y:y+h, x:x+w]
+            logger.debug(f"[extract_label_from_pdf_page] Cropped to content: {w}x{h} from {img_array.shape[1]}x{img_array.shape[0]}")
+        else:
+            # No content found, use the whole image
+            logger.warning("[extract_label_from_pdf_page] No content found, using full page")
+            cropped = img_array
         
         # Determine if rotation is needed based on orientation
         crop_h, crop_w = cropped.shape[:2]
@@ -588,14 +606,38 @@ def extract_label_from_pdf_page(
         if is_landscape != want_landscape:
             # Rotate 90 degrees
             cropped = cv2.rotate(cropped, cv2.ROTATE_90_CLOCKWISE)
+            logger.debug(f"[extract_label_from_pdf_page] Rotated to match orientation: {orientation}")
         
-        # Resize to target dimensions
-        resized = cv2.resize(cropped, (target_width_px, target_height_px), interpolation=cv2.INTER_AREA)
+        # Resize to target dimensions while maintaining aspect ratio
+        crop_h, crop_w = cropped.shape[:2]
         
-        return Image.fromarray(resized)
+        # Calculate scale to fit within target while maintaining aspect ratio
+        scale_w = target_width_px / crop_w
+        scale_h = target_height_px / crop_h
+        scale = min(scale_w, scale_h)  # Use smaller scale to fit within bounds
+        
+        new_w = int(crop_w * scale)
+        new_h = int(crop_h * scale)
+        
+        resized = cv2.resize(cropped, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        
+        # Create white background at target size and center the resized content
+        result = lazy.np.full((target_height_px, target_width_px, 3), 255, dtype=lazy.np.uint8)
+        
+        # Calculate position to center
+        x_offset = (target_width_px - new_w) // 2
+        y_offset = (target_height_px - new_h) // 2
+        
+        result[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = resized
+        
+        logger.debug(f"[extract_label_from_pdf_page] Final size: {target_width_px}x{target_height_px}, content: {new_w}x{new_h}")
+        
+        return Image.fromarray(result)
         
     except Exception as e:
         logger.error(f"[extract_label_from_pdf_page] Error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return None
 
 
@@ -648,12 +690,113 @@ def create_label_sheet(
     return sheet
 
 
+def find_largest_white_region(img_array, min_area: int = 1000, text_width: int = 100, text_height: int = 20) -> Optional[tuple[int, int, int, int]]:
+    """
+    Find the largest white rectangular region in an image that can fit the text.
+    Uses a scanning approach to find white rectangular areas within the content.
+    
+    Args:
+        img_array: numpy array of the image (RGB or grayscale)
+        min_area: Minimum area in pixels for a valid white region
+        text_width: Width of text to fit
+        text_height: Height of text to fit
+    
+    Returns:
+        Tuple of (x, y, width, height) of the largest white region, or None if not found.
+    """
+    import cv2
+    
+    img_h, img_w = img_array.shape[:2]
+    
+    # Convert to grayscale if needed
+    if len(img_array.shape) == 3:
+        gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = img_array
+    
+    # First, find the content bounding box (non-white area)
+    _, content_mask = cv2.threshold(gray, 250, 255, cv2.THRESH_BINARY_INV)
+    content_coords = cv2.findNonZero(content_mask)
+    
+    if content_coords is None:
+        logger.debug("[find_largest_white_region] No content found in image")
+        return None
+    
+    # Get content bounding box
+    cx, cy, cw, ch = cv2.boundingRect(content_coords)
+    logger.debug(f"[find_largest_white_region] Content bounds: ({cx}, {cy}, {cw}x{ch})")
+    
+    # Create a binary mask where white pixels are 1
+    _, white_mask = cv2.threshold(gray, 245, 255, cv2.THRESH_BINARY)
+    
+    # Apply mild erosion to the INVERSE (content) to shrink thin lines
+    # This effectively expands white regions by removing thin content elements
+    content_binary = cv2.bitwise_not(white_mask)  # Invert: content=255, white=0
+    
+    # Mild erosion: 3x3 kernel, 1 iteration (removes ~3 pixel thin lines)
+    erosion_kernel = lazy.np.ones((3, 3), lazy.np.uint8)
+    eroded_content = cv2.erode(content_binary, erosion_kernel, iterations=1)
+    
+    # Invert back: white areas are now 255
+    white_mask = cv2.bitwise_not(eroded_content)
+    
+    logger.debug(f"[find_largest_white_region] Applied mild erosion to expand white regions")
+    
+    white_mask = white_mask // 255  # Convert to 0/1
+    
+    # Use integral image for fast rectangle sum computation
+    integral = cv2.integral(white_mask)
+    
+    # Scan for white rectangles that can fit the text
+    # We need at least text_width x text_height of white space
+    min_w = text_width + 20  # Add padding
+    min_h = text_height + 10
+    
+    best_region = None
+    best_area = 0
+    
+    # Scan with a step size for efficiency
+    step = 20
+    
+    # Only scan within the content area (not the outer margins)
+    scan_margin = 30  # Pixels inside content bounds
+    scan_x1 = cx + scan_margin
+    scan_y1 = cy + scan_margin
+    scan_x2 = cx + cw - scan_margin
+    scan_y2 = cy + ch - scan_margin
+    
+    for y in range(scan_y1, scan_y2 - min_h, step):
+        for x in range(scan_x1, scan_x2 - min_w, step):
+            # Try expanding from this point to find largest white rectangle
+            for h in range(min_h, min(scan_y2 - y, 200), step):
+                for w in range(min_w, min(scan_x2 - x, 400), step):
+                    # Calculate sum of white pixels in this rectangle using integral image
+                    # integral[y2+1, x2+1] - integral[y1, x2+1] - integral[y2+1, x1] + integral[y1, x1]
+                    x1, y1, x2, y2 = x, y, x + w, y + h
+                    white_sum = (integral[y2, x2] - integral[y1, x2] - integral[y2, x1] + integral[y1, x1])
+                    total_pixels = w * h
+                    
+                    # Check if at least 95% of pixels are white
+                    if white_sum >= total_pixels * 0.95:
+                        area = w * h
+                        if area > best_area:
+                            best_area = area
+                            best_region = (x, y, w, h)
+    
+    if best_region:
+        logger.debug(f"[find_largest_white_region] Best white region: {best_region} (area: {best_area})")
+    else:
+        logger.debug("[find_largest_white_region] No suitable white region found that fits text")
+    
+    return best_region
+
+
 def add_note_to_label(
     label_img: Image.Image,
     note_text: str,
     font_size: int = 24,
     font_path: Optional[str] = None,
-    position: str = "bottom"  # 'bottom', 'top', 'center'
+    position: str = "auto"  # 'auto', 'bottom', 'top', 'center'
 ) -> Image.Image:
     """
     Add note text to a label image.
@@ -663,13 +806,20 @@ def add_note_to_label(
         note_text: Text to add
         font_size: Font size in points
         font_path: Path to TTF font file (optional)
-        position: Where to place the text
+        position: Where to place the text:
+            - 'auto': Find largest white region and place text there
+            - 'bottom': Place at bottom center
+            - 'top': Place at top center
+            - 'center': Place at image center
     
     Returns:
         PIL Image with text added.
     """
     if not note_text:
+        logger.debug("[add_note_to_label] No note text provided, returning original image")
         return label_img
+    
+    logger.debug(f"[add_note_to_label] Adding note: '{note_text}' at {position}, font_size={font_size}")
     
     img = label_img.copy()
     draw = ImageDraw.Draw(img)
@@ -678,9 +828,12 @@ def add_note_to_label(
     try:
         if font_path and os.path.exists(font_path):
             font = ImageFont.truetype(font_path, font_size)
+            logger.debug(f"[add_note_to_label] Using custom font: {font_path}")
         else:
             font = ImageFont.truetype("arial.ttf", font_size)
-    except Exception:
+            logger.debug("[add_note_to_label] Using arial.ttf")
+    except Exception as e:
+        logger.warning(f"[add_note_to_label] Font loading failed ({e}), using default font")
         font = ImageFont.load_default()
     
     # Get text bounding box
@@ -688,19 +841,45 @@ def add_note_to_label(
     text_width = bbox[2] - bbox[0]
     text_height = bbox[3] - bbox[1]
     
-    # Calculate position
     img_width, img_height = img.size
-    x = (img_width - text_width) // 2  # Center horizontally
     
-    if position == "bottom":
-        y = img_height - text_height - 10
-    elif position == "top":
-        y = 10
-    else:  # center
-        y = (img_height - text_height) // 2
+    # Calculate position based on mode
+    if position == "auto":
+        # Try to find the largest white region that can fit the text
+        img_array = lazy.np.array(img)
+        white_region = find_largest_white_region(
+            img_array, 
+            min_area=text_width * text_height,
+            text_width=text_width,
+            text_height=text_height
+        )
+        
+        if white_region:
+            rx, ry, rw, rh = white_region
+            # Center text within the white region
+            x = rx + (rw - text_width) // 2
+            y = ry + (rh - text_height) // 2
+            logger.debug(f"[add_note_to_label] Found white region at ({rx}, {ry}, {rw}x{rh}), placing text at ({x}, {y})")
+        else:
+            # Fallback to bottom if no suitable white region found
+            logger.debug("[add_note_to_label] No suitable white region found, falling back to bottom")
+            x = (img_width - text_width) // 2
+            y = img_height - text_height - 20
+    else:
+        # Fixed position modes
+        x = (img_width - text_width) // 2  # Center horizontally
+        
+        if position == "bottom":
+            y = img_height - text_height - 20
+        elif position == "top":
+            y = 20
+        else:  # center
+            y = (img_height - text_height) // 2
+    
+    logger.debug(f"[add_note_to_label] Text position: ({x}, {y}), size: {text_width}x{text_height}")
     
     # Draw text with slight shadow for visibility
-    draw.text((x + 1, y + 1), note_text, font=font, fill=(128, 128, 128))
+    draw.text((x + 2, y + 2), note_text, font=font, fill=(128, 128, 128))
     draw.text((x, y), note_text, font=font, fill=(0, 0, 0))
     
     return img
@@ -717,11 +896,22 @@ class ReformatResult:
     message: str
 
 
+@dataclass
+class LabelInputFile:
+    """Input file specification with per-file note settings."""
+    file_name: str
+    added_note_text: str = ""
+    added_note_font: Optional[str] = None
+    added_note_size: int = 24
+
+
 def reformat_labels_util(
-    in_file_names: list[str],
+    in_files: list[dict],
     out_dir: Optional[str] = None,
-    sheet_size: str = "D8.5X11",
-    label_format: str = "D8.5X5.5",
+    sheet_width: float = 8.5,
+    sheet_height: float = 11.0,
+    label_width: float = 8.5,
+    label_height: float = 5.5,
     label_orientation: str = "landscape",
     label_rows_per_sheet: int = 2,
     label_cols_per_sheet: int = 1,
@@ -730,9 +920,6 @@ def reformat_labels_util(
     top_side_margin: Optional[float] = None,
     left_side_margin: Optional[float] = None,
     add_backup: bool = True,
-    added_note_text: str = "",
-    added_note_font_size: int = 24,
-    font_path: Optional[str] = None,
     dpi: int = DEFAULT_DPI
 ) -> ReformatResult:
     """
@@ -742,10 +929,16 @@ def reformat_labels_util(
     that may contain multiple labels (e.g., 4 labels per sheet).
     
     Args:
-        in_file_names: List of input PDF file paths
+        in_files: List of input file specifications, each a dict with:
+            - file_name (str): Path to the PDF file
+            - added_note_text (str, optional): Text to add to backup copy
+            - added_note_font (str, optional): Path to TTF font file
+            - added_note_size (int, optional): Font size for note (default: 24)
         out_dir: Output directory (defaults to same as first input file)
-        sheet_size: Sheet dimensions (e.g., 'D8.5X11' for letter size)
-        label_format: Individual label dimensions (e.g., 'D4X2.5')
+        sheet_width: Sheet width in inches (e.g., 8.5 for letter)
+        sheet_height: Sheet height in inches (e.g., 11.0 for letter)
+        label_width: Individual label width in inches
+        label_height: Individual label height in inches
         label_orientation: 'landscape' or 'portrait'
         label_rows_per_sheet: Number of label rows per sheet
         label_cols_per_sheet: Number of label columns per sheet
@@ -754,26 +947,28 @@ def reformat_labels_util(
         top_side_margin: Top margin in inches. Default: 0.25"
         left_side_margin: Left margin in inches. Default: 0.25"
         add_backup: If True, create backup copies with note text
-        added_note_text: Text to add to backup copies
-        added_note_font_size: Font size for note text
-        font_path: Path to TTF font file for notes
         dpi: Output DPI
     
     Returns:
         ReformatResult with output file paths and status.
     
     Example:
-        # 4 labels per sheet (2x2 layout)
-        result = reformat_labels(
-            in_file_names=["label1.pdf", "label2.pdf", "label3.pdf", "label4.pdf"],
-            sheet_size="D8.5X11",
-            label_format="D4X2.5",
+        # 4 labels per sheet (2x2 layout) with per-file notes
+        result = reformat_labels_util(
+            in_files=[
+                {"file_name": "label1.pdf", "added_note_text": "Order #123"},
+                {"file_name": "label2.pdf", "added_note_text": "Order #456"},
+            ],
+            sheet_width=8.5,
+            sheet_height=11.0,
+            label_width=4.0,
+            label_height=2.5,
             label_rows_per_sheet=2,
             label_cols_per_sheet=2
         )
-        # Result: 1 output file with all 4 labels arranged on one sheet
+        # Result: 1 output file with all labels arranged on sheets
     """
-    if not in_file_names:
+    if not in_files:
         return ReformatResult(
             success=False,
             output_files=[],
@@ -783,18 +978,21 @@ def reformat_labels_util(
             message="No input files provided"
         )
     
-    # Parse dimensions
-    try:
-        sheet_w, sheet_h = parse_dimension_string(sheet_size)
-        label_w, label_h = parse_dimension_string(label_format)
-    except ValueError as e:
+    # Use dimensions directly (already floats)
+    sheet_w = sheet_width
+    sheet_h = sheet_height
+    label_w = label_width
+    label_h = label_height
+    
+    # Validate dimensions
+    if sheet_w <= 0 or sheet_h <= 0 or label_w <= 0 or label_h <= 0:
         return ReformatResult(
             success=False,
             output_files=[],
             backup_files=[],
-            input_count=len(in_file_names),
+            input_count=len(in_files),
             output_count=0,
-            message=str(e)
+            message="Invalid dimensions: all dimensions must be positive"
         )
     
     # Apply defaults for margins (1/4 inch)
@@ -844,14 +1042,28 @@ def reformat_labels_util(
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
     else:
-        out_dir = os.path.dirname(in_file_names[0]) or "."
+        # Get first file path from in_files
+        first_file = in_files[0].get("file_name", "") if isinstance(in_files[0], dict) else str(in_files[0])
+        out_dir = os.path.dirname(first_file) or "."
     
     # Extract all labels from input PDFs
     all_labels: list[Image.Image] = []
-    all_backup_labels: list[Image.Image] = []
     
-    for pdf_path in in_file_names:
-        if not os.path.exists(pdf_path):
+    for file_spec in in_files:
+        # Parse file specification (dict with file_name, added_note_text, etc.)
+        if isinstance(file_spec, dict):
+            pdf_path = file_spec.get("file_name", "")
+            note_text = file_spec.get("added_note_text", "")
+            note_font = file_spec.get("added_note_font")
+            note_size = file_spec.get("added_note_size", 24)
+        else:
+            # Fallback for plain string paths
+            pdf_path = str(file_spec)
+            note_text = ""
+            note_font = None
+            note_size = 24
+        
+        if not pdf_path or not os.path.exists(pdf_path):
             logger.warning(f"[reformat_labels] File not found: {pdf_path}")
             continue
         
@@ -868,16 +1080,18 @@ def reformat_labels_util(
                 )
                 if label_img:
                     all_labels.append(label_img)
+                    logger.debug(f"[reformat_labels] Extracted label {len(all_labels)} from {pdf_path} page {page_num+1}")
                     
-                    # Create backup with note if requested
+                    # If add_backup is True, add a duplicate with per-file note
                     if add_backup:
+                        logger.debug(f"[reformat_labels] Adding backup copy with note: '{note_text}'")
                         backup_label = add_note_to_label(
                             label_img,
-                            added_note_text,
-                            added_note_font_size,
-                            font_path
+                            note_text,
+                            note_size,
+                            note_font
                         )
-                        all_backup_labels.append(backup_label)
+                        all_labels.append(backup_label)
             doc.close()
         except Exception as e:
             logger.error(f"[reformat_labels] Error processing {pdf_path}: {e}")
@@ -887,17 +1101,25 @@ def reformat_labels_util(
             success=False,
             output_files=[],
             backup_files=[],
-            input_count=len(in_file_names),
+            input_count=len(in_files),
             output_count=0,
             message="No labels could be extracted from input files"
         )
     
     # Arrange labels onto sheets
+    # When add_backup=True, each input label becomes 2 labels (original + backup)
+    # so they fill row-by-row on the same sheet
     output_files: list[str] = []
-    backup_files: list[str] = []
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     
-    # Process main labels
+    # Calculate actual labels per input (1 if no backup, 2 if backup)
+    labels_per_input = 2 if add_backup else 1
+    actual_input_labels = len(all_labels) // labels_per_input
+    
+    logger.debug(f"[reformat_labels] Total labels to arrange: {len(all_labels)} "
+                 f"({actual_input_labels} inputs x {labels_per_input})")
+    
+    # Process labels into sheets
     for sheet_idx in range(0, len(all_labels), labels_per_sheet):
         sheet_labels = all_labels[sheet_idx:sheet_idx + labels_per_sheet]
         sheet_img = create_label_sheet(sheet_labels, config)
@@ -907,43 +1129,32 @@ def reformat_labels_util(
         out_path = os.path.join(out_dir, out_filename)
         sheet_img.save(out_path, "PDF", resolution=dpi)
         output_files.append(out_path)
-        logger.debug(f"[reformat_labels] Created: {out_path}")
+        logger.debug(f"[reformat_labels] Created: {out_path} with {len(sheet_labels)} labels")
     
-    # Process backup labels if requested
-    if add_backup and all_backup_labels:
-        for sheet_idx in range(0, len(all_backup_labels), labels_per_sheet):
-            sheet_labels = all_backup_labels[sheet_idx:sheet_idx + labels_per_sheet]
-            sheet_img = create_label_sheet(sheet_labels, config)
-            
-            # Save as PDF
-            out_filename = f"labels_backup_{sheet_idx // labels_per_sheet + 1}_{timestamp}.pdf"
-            out_path = os.path.join(out_dir, out_filename)
-            sheet_img.save(out_path, "PDF", resolution=dpi)
-            backup_files.append(out_path)
-            logger.debug(f"[reformat_labels] Created backup: {out_path}")
-    
-    message = (f"Reformatted {len(all_labels)} labels from {len(in_file_names)} files "
+    message = (f"Reformatted {actual_input_labels} labels from {len(in_files)} files "
                f"into {len(output_files)} sheets ({labels_per_sheet} labels/sheet)")
-    if backup_files:
-        message += f", plus {len(backup_files)} backup sheets"
+    if add_backup:
+        message += " (with backup copies)"
     
     logger.info(f"[reformat_labels] {message}")
     
     return ReformatResult(
         success=True,
         output_files=output_files,
-        backup_files=backup_files,
-        input_count=len(in_file_names),
+        backup_files=[],  # Backups are now on same sheet, not separate files
+        input_count=len(in_files),
         output_count=len(output_files),
         message=message
     )
 
 
 async def reformat_labels_async(
-    in_file_names: list[str],
+    in_files: list[dict],
     out_dir: Optional[str] = None,
-    sheet_size: str = "D8.5X11",
-    label_format: str = "D8.5X5.5",
+    sheet_width: float = 8.5,
+    sheet_height: float = 11.0,
+    label_width: float = 8.5,
+    label_height: float = 5.5,
     label_orientation: str = "landscape",
     label_rows_per_sheet: int = 2,
     label_cols_per_sheet: int = 1,
@@ -952,9 +1163,6 @@ async def reformat_labels_async(
     top_side_margin: Optional[float] = None,
     left_side_margin: Optional[float] = None,
     add_backup: bool = True,
-    added_note_text: str = "",
-    added_note_font_size: int = 24,
-    font_path: Optional[str] = None,
     dpi: int = DEFAULT_DPI
 ) -> ReformatResult:
     """Async version of reformat_labels_util."""
@@ -963,10 +1171,12 @@ async def reformat_labels_async(
         result = await loop.run_in_executor(
             pool,
             lambda: reformat_labels_util(
-                in_file_names=in_file_names,
+                in_files=in_files,
                 out_dir=out_dir,
-                sheet_size=sheet_size,
-                label_format=label_format,
+                sheet_width=sheet_width,
+                sheet_height=sheet_height,
+                label_width=label_width,
+                label_height=label_height,
                 label_orientation=label_orientation,
                 label_rows_per_sheet=label_rows_per_sheet,
                 label_cols_per_sheet=label_cols_per_sheet,
@@ -975,9 +1185,6 @@ async def reformat_labels_async(
                 top_side_margin=top_side_margin,
                 left_side_margin=left_side_margin,
                 add_backup=add_backup,
-                added_note_text=added_note_text,
-                added_note_font_size=added_note_font_size,
-                font_path=font_path,
                 dpi=dpi
             )
         )
@@ -995,10 +1202,16 @@ async def reformat_labels(mainwin, args):  # type: ignore
     Reformats label PDFs to fit on multi-label sheets.
     
     Input args (from LabelsReformatAction):
-        - in_file_names: list of input PDF file paths (or comma-separated string)
-        - out_file_names: output directory (optional)
-        - sheet_size: e.g., 'D8.5X11'
-        - label_format: e.g., 'D4X2.5'
+        - in_files: list of input file specs, each with:
+            - file_name: PDF file path
+            - added_note_text: note text for backup (optional)
+            - added_note_font: font path (optional)
+            - added_note_size: font size (optional, default 24)
+        - out_dir: output directory (optional)
+        - sheet_width: sheet width in inches (default 8.5)
+        - sheet_height: sheet height in inches (default 11.0)
+        - label_width: label width in inches
+        - label_height: label height in inches
         - label_orientation: 'landscape' or 'portrait'
         - label_rows_per_sheet: number of rows
         - label_cols_per_sheet: number of columns
@@ -1007,8 +1220,6 @@ async def reformat_labels(mainwin, args):  # type: ignore
         - top_side_margin: top margin in inches (optional, default 0.25)
         - left_side_margin: left margin in inches (optional, default 0.25)
         - add_backup: create backup copies with notes
-        - added_note_text: text for backup labels
-        - added_note_font_size: font size for notes
     """
     from mcp.types import TextContent
     
@@ -1016,18 +1227,26 @@ async def reformat_labels(mainwin, args):  # type: ignore
         input_data = args.get("input", args)
         logger.debug(f"[reformat_labels] Starting with input: {input_data}")
         
-        # Extract parameters from input
-        in_file_names = input_data.get("in_file_names", [])
-        if isinstance(in_file_names, str):
-            # Handle comma-separated string or single file
-            in_file_names = [f.strip() for f in in_file_names.split(",") if f.strip()]
+        # Extract in_files - list of dicts with file_name and note settings
+        in_files = input_data.get("in_files", [])
+        if not in_files:
+            # Fallback: check for legacy in_file_names parameter
+            legacy_files = input_data.get("in_file_names", [])
+            if isinstance(legacy_files, str):
+                legacy_files = [f.strip() for f in legacy_files.split(",") if f.strip()]
+            # Convert to new format
+            in_files = [{"file_name": f} for f in legacy_files]
         
-        out_dir = input_data.get("out_file_names", None)
+        out_dir = input_data.get("out_dir", input_data.get("out_file_names", None))
         if out_dir and os.path.isfile(out_dir):
             out_dir = os.path.dirname(out_dir)
         
-        sheet_size = input_data.get("sheet_size", "D8.5X11")
-        label_format = input_data.get("label_format", "D8.5X5.5")
+        # Get dimensions directly as floats
+        sheet_width = float(input_data.get("sheet_width", 8.5))
+        sheet_height = float(input_data.get("sheet_height", 11.0))
+        label_width = float(input_data.get("label_width", 8.5))
+        label_height = float(input_data.get("label_height", 5.5))
+        
         label_orientation = input_data.get("label_orientation", "landscape")
         label_rows_per_sheet = int(input_data.get("label_rows_per_sheet", 2))
         label_cols_per_sheet = int(input_data.get("label_cols_per_sheet", 1))
@@ -1059,20 +1278,15 @@ async def reformat_labels(mainwin, args):  # type: ignore
             left_side_margin = None
         
         add_backup = input_data.get("add_backup", True)
-        added_note_text = input_data.get("added_note_text", "")
-        added_note_font_size = input_data.get("added_note_font_size", 24)
-        if isinstance(added_note_font_size, str):
-            try:
-                added_note_font_size = int(added_note_font_size)
-            except ValueError:
-                added_note_font_size = 24
         
         # Call the utility function
         result = reformat_labels_util(
-            in_file_names=in_file_names,
+            in_files=in_files,
             out_dir=out_dir,
-            sheet_size=sheet_size,
-            label_format=label_format,
+            sheet_width=sheet_width,
+            sheet_height=sheet_height,
+            label_width=label_width,
+            label_height=label_height,
             label_orientation=label_orientation,
             label_rows_per_sheet=label_rows_per_sheet,
             label_cols_per_sheet=label_cols_per_sheet,
@@ -1080,9 +1294,7 @@ async def reformat_labels(mainwin, args):  # type: ignore
             label_cols_pitch=label_cols_pitch,
             top_side_margin=top_side_margin,
             left_side_margin=left_side_margin,
-            add_backup=add_backup,
-            added_note_text=added_note_text,
-            added_note_font_size=added_note_font_size
+            add_backup=add_backup
         )
         
         msg = result.message
@@ -1204,33 +1416,65 @@ def add_reformat_labels_tool_schema(tool_schemas):
 
     tool_schema = types.Tool(
         name="reformat_labels",
-        description="<category>Label</category><sub-category>Reformat</sub-category>Reformat label PDFs to fit on multi-label sheets. Supports configurable sheet sizes, label layouts (rows/columns), margins, and optional backup copies with note text.",
+        description="<category>Label</category><sub-category>Reformat</sub-category>Reformat label PDFs to fit on multi-label sheets. Supports configurable sheet sizes, label layouts (rows/columns), margins, and optional backup copies with per-file note text.",
         inputSchema={
             "type": "object",
             "required": ["input"],
             "properties": {
                 "input": {
                     "type": "object",
-                    "required": ["in_file_names"],
+                    "required": ["in_files"],
                     "properties": {
-                        "in_file_names": {
+                        "in_files": {
                             "type": "array",
-                            "items": {"type": "string"},
-                            "description": "List of input PDF file paths to reformat"
+                            "items": {
+                                "type": "object",
+                                "required": ["file_name"],
+                                "properties": {
+                                    "file_name": {
+                                        "type": "string",
+                                        "description": "Path to the PDF file"
+                                    },
+                                    "added_note_text": {
+                                        "type": "string",
+                                        "description": "Note text to add to backup label (e.g., order number)"
+                                    },
+                                    "added_note_font": {
+                                        "type": "string",
+                                        "description": "Path to TTF font file for note text (optional)"
+                                    },
+                                    "added_note_size": {
+                                        "type": "integer",
+                                        "description": "Font size for note text. Default: 24",
+                                        "default": 24
+                                    }
+                                }
+                            },
+                            "description": "List of input file specifications with per-file note settings"
                         },
-                        "out_file_names": {
+                        "out_dir": {
                             "type": "string",
                             "description": "Output directory path. If not specified, uses same directory as first input file."
                         },
-                        "sheet_size": {
-                            "type": "string",
-                            "description": "Sheet size in format 'DWIDTHxHEIGHT' (e.g., 'D8.5X11' for letter size). Default: D8.5X11",
-                            "default": "D8.5X11"
+                        "sheet_width": {
+                            "type": "number",
+                            "description": "Sheet width in inches (e.g., 8.5 for letter size). Default: 8.5",
+                            "default": 8.5
                         },
-                        "label_format": {
-                            "type": "string",
-                            "description": "Label size in format 'DWIDTHxHEIGHT' (e.g., 'D4X2.5'). Default: D8.5X5.5",
-                            "default": "D8.5X5.5"
+                        "sheet_height": {
+                            "type": "number",
+                            "description": "Sheet height in inches (e.g., 11.0 for letter size). Default: 11.0",
+                            "default": 11.0
+                        },
+                        "label_width": {
+                            "type": "number",
+                            "description": "Label width in inches. Default: 8.5",
+                            "default": 8.5
+                        },
+                        "label_height": {
+                            "type": "number",
+                            "description": "Label height in inches. Default: 5.5",
+                            "default": 5.5
                         },
                         "label_orientation": {
                             "type": "string",
@@ -1266,17 +1510,8 @@ def add_reformat_labels_tool_schema(tool_schemas):
                         },
                         "add_backup": {
                             "type": "boolean",
-                            "description": "Create backup copies with note text for packaging proof. Default: true",
+                            "description": "Create backup copies with note text on same sheet. Default: true",
                             "default": True
-                        },
-                        "added_note_text": {
-                            "type": "string",
-                            "description": "Note text to add to backup labels (e.g., order number, product info)"
-                        },
-                        "added_note_font_size": {
-                            "type": "integer",
-                            "description": "Font size for note text. Default: 24",
-                            "default": 24
                         }
                     }
                 }
@@ -1318,7 +1553,7 @@ def test_print_labels():
     
     # Test 3: Print with non-existent file
     print("\n[Test 3] Testing with non-existent file...")
-    result = print_labels_util(files=["C:/nonexistent/file.pdf"])
+    result = print_labels_util(files=["C:/shopify/orders/JessicaP_WF_1.pdf"])
     print(f"  Status: {result.status.value}")
     print(f"  Message: {result.message}")
     print(f"  Failed files: {result.failed_files}")
@@ -1327,7 +1562,7 @@ def test_print_labels():
     # Test 4: Print with invalid printer
     print("\n[Test 4] Testing with invalid printer name...")
     result = print_labels_util(
-        files=["C:/test.pdf"],
+        files=["C:/shopify/orders/JessicaP_WF_1.pdf"],
         printer_name="NonExistentPrinter12345"
     )
     print(f"  Status: {result.status.value}")
@@ -1353,7 +1588,7 @@ def test_reformat_labels():
     
     # Test 1: Empty file list
     print("\n[Test 1] Testing with empty file list...")
-    result = reformat_labels_util(in_file_names=[])
+    result = reformat_labels_util(in_files=[])
     print(f"  Success: {result.success}")
     print(f"  Message: {result.message}")
     assert not result.success, "Should fail with empty file list"
@@ -1361,7 +1596,7 @@ def test_reformat_labels():
     
     # Test 2: Non-existent file
     print("\n[Test 2] Testing with non-existent file...")
-    result = reformat_labels_util(in_file_names=["C:/nonexistent/label.pdf"])
+    result = reformat_labels_util(in_files=[{"file_name": "C:/shopify/test/shipping_label9.pdf"}])
     print(f"  Success: {result.success}")
     print(f"  Message: {result.message}")
     print("  ✓ Passed (expected failure for non-existent file)")
@@ -1390,34 +1625,48 @@ def test_reformat_labels():
     # Test 5: Test with a real PDF if available
     print("\n[Test 5] Looking for test PDF files...")
     test_dirs = [
-        os.path.expanduser("~/Downloads"),
-        os.path.expanduser("~/Documents"),
-        "C:/temp",
+        # os.path.expanduser("~/Downloads"),
+        # os.path.expanduser("~/Documents"),
+        "C:/shopify/test",
     ]
     
     test_pdf = None
+    test_pdfs = []
     for test_dir in test_dirs:
         if os.path.isdir(test_dir):
             for f in os.listdir(test_dir):
                 if f.lower().endswith('.pdf') and 'label' in f.lower():
                     test_pdf = os.path.join(test_dir, f)
-                    break
-        if test_pdf:
-            break
-    
-    if test_pdf and os.path.exists(test_pdf):
-        print(f"  Found test PDF: {test_pdf}")
+                    test_pdfs.append(test_pdf)
+        # if test_pdf:
+        #     break
+    print(f"  Found test PDFs: {test_pdfs}")
+    if test_pdfs and os.path.exists(test_pdf):
+        print(f"  Found {len(test_pdfs)} test PDFs")
         with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = "C:/shopify/test/output"
             print(f"  Output directory: {tmpdir}")
+            
+            # Build input files list with per-file notes
+            in_files = [
+                {
+                    "file_name": pdf_path,
+                    "added_note_text": f"Note for {os.path.basename(pdf_path)}",
+                    "added_note_size": 20
+                }
+                for pdf_path in test_pdfs
+            ]
+            
             result = reformat_labels_util(
-                in_file_names=[test_pdf],
+                in_files=in_files,
                 out_dir=tmpdir,
-                sheet_size="D8.5X11",
-                label_format="D8.5X5.5",
-                label_rows_per_sheet=2,
-                label_cols_per_sheet=1,
-                add_backup=True,
-                added_note_text="TEST NOTE"
+                sheet_width=8.5,
+                sheet_height=11.0,
+                label_width=3.9,
+                label_height=2.9,
+                label_rows_per_sheet=3,
+                label_cols_per_sheet=2,
+                add_backup=True
             )
             print(f"  Success: {result.success}")
             print(f"  Message: {result.message}")
@@ -1440,29 +1689,32 @@ def test_all():
 
 if __name__ == "__main__":
     import sys
-    
-    if len(sys.argv) > 1:
-        cmd = sys.argv[1].lower()
-        if cmd == "test_print":
-            test_print_labels()
-        elif cmd == "test_reformat":
-            test_reformat_labels()
-        elif cmd == "test" or cmd == "test_all":
-            test_all()
-        elif cmd == "printers":
-            print("Available printers:")
-            for p in get_available_printers():
-                print(f"  - {p}")
-            print(f"\nDefault printer: {get_default_printer()}")
-        else:
-            print(f"Unknown command: {cmd}")
-            print("Usage: python print_label.py [test_print|test_reformat|test_all|printers]")
-    else:
-        print("Print Label Utility")
-        print("="*40)
-        print("Usage: python print_label.py <command>")
-        print("\nCommands:")
-        print("  test_print    - Test print_labels_util function")
-        print("  test_reformat - Test reformat_labels_util function")
-        print("  test_all      - Run all tests")
-        print("  printers      - List available printers")
+
+    # test_print_labels()
+    test_reformat_labels()
+
+    # if len(sys.argv) > 1:
+    #     cmd = sys.argv[1].lower()
+    #     if cmd == "test_print":
+    #         test_print_labels()
+    #     elif cmd == "test_reformat":
+    #         test_reformat_labels()
+    #     elif cmd == "test" or cmd == "test_all":
+    #         test_all()
+    #     elif cmd == "printers":
+    #         print("Available printers:")
+    #         for p in get_available_printers():
+    #             print(f"  - {p}")
+    #         print(f"\nDefault printer: {get_default_printer()}")
+    #     else:
+    #         print(f"Unknown command: {cmd}")
+    #         print("Usage: python print_label.py [test_print|test_reformat|test_all|printers]")
+    # else:
+    #     print("Print Label Utility")
+    #     print("="*40)
+    #     print("Usage: python print_label.py <command>")
+    #     print("\nCommands:")
+    #     print("  test_print    - Test print_labels_util function")
+    #     print("  test_reformat - Test reformat_labels_util function")
+    #     print("  test_all      - Run all tests")
+    #     print("  printers      - List available printers")
