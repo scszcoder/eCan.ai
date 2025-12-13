@@ -8,6 +8,8 @@ from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from utils.logger_helper import logger_helper as logger
 from agent.cloud_api.constants import Operation
+import json
+from pathlib import Path
 
 # --- Simple in-memory simulation state for step-sim debug ---
 _SIM_BUNDLE: Optional[Dict[str, Any]] = None
@@ -573,8 +575,8 @@ def _update_skill_in_memory(skill_id: str, skill_data: Dict[str, Any]) -> bool:
         skill_obj.path = skill_path
         skill_obj.config = skill_data.get('config', {})
         skill_obj.level = skill_data.get('level', 'entry')
-        skill_obj.source = 'ui'  # Mark as UI-created skill
-
+        skill_obj.source = skill_data.get('source', 'ui')
+        
         if existing_index is not None:
             # Update existing skill
             main_window.agent_skills[existing_index] = skill_obj
@@ -630,6 +632,11 @@ def _create_clean_skill_response(skill_id: str, skill_data: Dict[str, Any]) -> D
 # ============================================================================
 # Cloud Synchronization Functions
 # ============================================================================
+
+
+def is_code_skill(file_path: str) -> bool:
+    file_path_obj = Path(file_path)
+    return 'resource/my_skills' in str(file_path_obj) or 'resource\\my_skills' in str(file_path_obj)
 
 
 def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation') -> None:
@@ -743,26 +750,30 @@ def sync_skill_from_file(file_path: str) -> Dict[str, Any]:
     Standard function to sync skill from file to database.
     This function reads the skill JSON file and creates/updates the skill in database.
     
+    **IMPORTANT**: Skills from resource/my_skills are code-based (source=code) and should NOT
+    be saved to database. They are read-only examples that only exist in memory.
+    
     Args:
         file_path: Full path to the skill JSON file
     
     Returns:
         Dict with success status and skill_id
     """
-    import json
     
     try:
+        # Check if this is a code-based skill from resource/my_skills
+        code_skill = is_code_skill(file_path)
+        
+        # Read skill JSON file
+        with open(file_path, 'r', encoding='utf-8') as f:
+            skill_data = json.load(f)
+        
         # Get username from AppContext
         main_window = AppContext.get_main_window()
         if not main_window or not hasattr(main_window, 'user'):
             raise ValueError("Cannot get username: main_window or main_window.user not available")
         
         username = main_window.user
-        logger.debug(f"[skill_handler] Using username: {username}")
-        
-        # Read skill data from file
-        with open(file_path, 'r', encoding='utf-8') as f:
-            skill_data = json.load(f)
         
         # Get skill service
         skill_service = _get_skill_service()
@@ -803,6 +814,17 @@ def sync_skill_from_file(file_path: str) -> Dict[str, Any]:
         
         logger.debug(f"[skill_handler] Prepared skill_info with {len(skill_info)} fields")
         
+        # For code skills, skip database operations (only update memory)
+        if code_skill:
+            logger.info(f"[skill_handler] ⚠️ Code skill detected, skipping database sync: {skill_name}")
+            return {
+                'success': True,
+                'skipped': True,
+                'reason': 'code_skill',
+                'message': 'Code skills are not saved to database'
+            }
+        
+        # For UI skills, perform normal database operations
         if existing_skill.get('success') and existing_skill.get('data'):
             # Update existing skill
             skill_id = existing_skill['data']['id']
