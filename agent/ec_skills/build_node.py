@@ -402,6 +402,37 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         from agent.agent_service import get_agent_by_id
         from agent.ec_skills.llm_utils.llm_utils import get_recent_context
 
+        import time as _time
+        _t0 = _time.perf_counter()
+
+        def _perf_llm(stage: str, t_start: float, extra: dict | None = None):
+            try:
+                dt_ms = int(max((_time.perf_counter() - t_start), 0.0) * 1000)
+                logger.info(
+                    f"[PERF][LLM] node={node_name} skill={skill_name} stage={stage} duration_ms={dt_ms}"
+                )
+                if isinstance(state, dict):
+                    attrs = state.get("attributes")
+                    if not isinstance(attrs, dict):
+                        attrs = {}
+                        state["attributes"] = attrs
+                    lst = attrs.get("__llm_timings__")
+                    if not isinstance(lst, list):
+                        lst = []
+                        attrs["__llm_timings__"] = lst
+                    item = {
+                        "node": str(node_name),
+                        "skill": str(skill_name),
+                        "stage": str(stage),
+                        "duration_ms": dt_ms,
+                        "ts_ms": int(_time.time() * 1000),
+                    }
+                    if isinstance(extra, dict) and extra:
+                        item.update(extra)
+                    lst.append(item)
+            except Exception:
+                pass
+
         log_msg = f"🤖 Executing node LLM node: {node_name}"
         logger.info(log_msg)
         web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
@@ -444,6 +475,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
         # Substitute {{var_name}} with values from format_context
         try:
+            _t_stage = _time.perf_counter()
             final_system_prompt = active_system_prompt
             final_user_prompt = active_user_prompt
             for var, val in format_context.items():
@@ -452,6 +484,15 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
             logger.debug("final_system_prompt:", final_system_prompt)
             logger.debug("final_user_prompt:", final_user_prompt)
+            _perf_llm(
+                "prompt_format",
+                _t_stage,
+                extra={
+                    "system_len": len(final_system_prompt or ""),
+                    "user_len": len(final_user_prompt or ""),
+                    "vars": len(variables or []),
+                },
+            )
         except Exception as e:
             err_msg = f"Error formatting prompt: {e}"
             logger.error(err_msg)
@@ -469,7 +510,9 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         if state["messages"]:
             agent_id = state["messages"][0]
             agent = get_agent_by_id(agent_id)
+            _t_stage = _time.perf_counter()
             run_pre_llm_hook(full_node_name, agent, state, prompt_src="local", prompt_data=messages)
+            _perf_llm("pre_hook", _t_stage)
 
             # Adjust context window based on provider limitations
             # Fetch max_tokens from LLM config (gui/config/llm_providers.json)
@@ -478,7 +521,13 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             logger.debug(f"Using max_tokens={context_limit} from config for {llm_provider}/{model_name}")
             
             logger.debug(f"Forming context (limit={context_limit})......")
+            _t_stage = _time.perf_counter()
             recent_context = get_recent_context(state.get("history", []), max_tokens=context_limit)
+            _perf_llm(
+                "build_recent_context",
+                _t_stage,
+                extra={"context_limit": int(context_limit or 0), "context_msgs": len(recent_context or [])},
+            )
 
             log_msg = f"recent_context: [{len(recent_context)} messages] {recent_context}"
             logger.debug(log_msg)
@@ -487,6 +536,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             # Build LLM from node config (do NOT depend on mainwin.llm)
             llm = None
             try:
+                _t_stage = _time.perf_counter()
                 # Helper: resolve API key (prefer node config; fallback to settings/secure store)
                 def _resolve_api_key(provider: str, provided_key: str | None) -> str | None:
                     def _looks_masked(value: str) -> bool:
@@ -667,6 +717,15 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         kwargs["base_url"] = host
                     llm = ChatOpenAI(**kwargs)
 
+                _perf_llm(
+                    "build_llm",
+                    _t_stage,
+                    extra={
+                        "provider": str(llm_provider),
+                        "model": str(model_name),
+                    },
+                )
+
             except Exception as e:
                 err = f"Failed to create LLM from node config (provider={llm_provider}, model={model_name}): {e}"
                 logger.error(f"[build_llm_node] {err}")
@@ -736,15 +795,22 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     return resp
 
                 # Single attempt (node-configured llm, no fallback)
+                _t_stage = _time.perf_counter()
                 response = _invoke_with_thread(llm, 150.0)
+                _perf_llm("invoke", _t_stage)
 
                 log_msg = f"✅ LLM response received from {llm_provider}"
                 logger.info(log_msg)
                 web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
                 # It's good practice to put results in specific keys
+                _t_stage = _time.perf_counter()
                 run_post_llm_hook(full_node_name, agent, state, response)
+                _perf_llm("post_hook", _t_stage)
                 logger.debug(f"llm_node finished..... {state}")
+
+                # Total time for llm_node_callable (best-effort)
+                _perf_llm("total", _t0)
 
             except Exception as e:
                 error_type = type(e).__name__

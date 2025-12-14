@@ -421,6 +421,33 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
         result = None
         logger.info(f"[node_builder] ENTERING node={node_name}, skill={skill_name}")
         runtime.context["this_node"] = {"name": node_name, "skill_name": skill_name, "owner": owner}
+
+        node_t0 = time.perf_counter()
+
+        def _record_node_timing(st: dict, status: str, duration_s: float) -> None:
+            try:
+                if not isinstance(st, dict):
+                    return
+                attrs = st.get("attributes")
+                if not isinstance(attrs, dict):
+                    attrs = {}
+                    st["attributes"] = attrs
+                timings = attrs.get("__node_timings__")
+                if not isinstance(timings, list):
+                    timings = []
+                    attrs["__node_timings__"] = timings
+                timings.append({
+                    "node": str(node_name),
+                    "skill": str(skill_name),
+                    "status": str(status),
+                    "duration_ms": int(max(duration_s, 0.0) * 1000),
+                    "ts_ms": int(time.time() * 1000),
+                })
+                logger.info(
+                    f"[PERF][NODE] skill={skill_name} node={node_name} status={status} duration={duration_s:.3f}s"
+                )
+            except Exception:
+                pass
         # Ensure attributes dict exists before use
         try:
             node_rules_map = None
@@ -670,6 +697,10 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
             except Exception as e:
                 # Do not treat intended graph interrupt as an error: no retry, no warning
                 if isinstance(e, GraphInterrupt):
+                    try:
+                        _record_node_timing(state, "interrupt", time.perf_counter() - node_t0)
+                    except Exception:
+                        pass
                     raise e
 
                 attempts += 1
@@ -690,6 +721,7 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                     except Exception:
                         pass
                 _notify_node_status("failed", state)
+                _record_node_timing(state, "failed", time.perf_counter() - node_t0)
             except Exception:
                 pass
             raise last_exc
@@ -720,6 +752,11 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
 
         # Successful completion: notify frontend for this specific node.
         _notify_node_status("completed", state)
+
+        try:
+            _record_node_timing(state, "completed", time.perf_counter() - node_t0)
+        except Exception:
+            pass
 
         logger.debug("[node_builder]returning state...", state)
         return state
