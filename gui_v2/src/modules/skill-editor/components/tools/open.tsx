@@ -23,6 +23,7 @@ export const Open = ({ disabled }: OpenProps) => {
   const setBreakpoints = useSkillInfoStore((state) => state.setBreakpoints);
   const setCurrentFilePath = useSkillInfoStore((state) => state.setCurrentFilePath);
   const setHasUnsavedChanges = useSkillInfoStore((state) => state.setHasUnsavedChanges);
+  const setPreviewMode = useSkillInfoStore((state) => state.setPreviewMode);
   const addRecentFile = useRecentFilesStore((state) => state.addRecentFile);
   const loadBundle = useSheetsStore((s) => s.loadBundle);
   const { setFlipped, clear: clearFlipStore } = useNodeFlipStore();
@@ -53,6 +54,8 @@ export const Open = ({ disabled }: OpenProps) => {
           console.log('[SKILL_IO][FRONTEND][LOAD_RESULT]', { success: result.success, migrated: result.migrated });
 
           if (result.success && result.skillInfo) {
+            // Open explicitly exits preview mode
+            setPreviewMode(false);
             const data = result.skillInfo;
             // skillName is already normalized by skill-loader.ts
             console.log('[SKILL_IO][FRONTEND][SKILL_NAME]', data.skillName);
@@ -89,7 +92,7 @@ export const Open = ({ disabled }: OpenProps) => {
                   if (node?.data?.hFlip === true) {
                     console.log('[Open] Restoring hFlip state for node:', node.id);
                     setFlipped(node.id, true);
-                    const loadedNode = workflowDocument.getNode(node.id);
+                    const loadedNode = workflowDocument.getNode(node.id) as any;
                     if (loadedNode) {
                       if (loadedNode.raw?.data) loadedNode.raw.data.hFlip = true;
                       if (loadedNode.json?.data) loadedNode.json.data.hFlip = true;
@@ -188,7 +191,7 @@ export const Open = ({ disabled }: OpenProps) => {
                   setFlipped(node.id, true);
                   
                   // Also set it directly on the loaded node's raw data
-                  const loadedNode = workflowDocument.getNode(node.id);
+                  const loadedNode = workflowDocument.getNode(node.id) as any;
                   if (loadedNode) {
                     if (loadedNode.raw?.data) {
                       loadedNode.raw.data.hFlip = true;
@@ -237,7 +240,7 @@ export const Open = ({ disabled }: OpenProps) => {
 
     document.body.appendChild(input);
     input.click();
-  }, [workflowDocument, setSkillInfo, setBreakpoints, setCurrentFilePath, setHasUnsavedChanges]);
+  }, [workflowDocument, setSkillInfo, setBreakpoints, setCurrentFilePath, setHasUnsavedChanges, setPreviewMode]);
 
   return (
     <Tooltip content="Open">

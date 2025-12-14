@@ -38,6 +38,7 @@ import { useUserStore } from '../../../../stores/userStore';
 export const Tools = () => {
   const { history, playground, document } = useClientContext();
   const skillInfoFromStore = useSkillInfoStore((state) => state.skillInfo);
+  const previewMode = useSkillInfoStore((state) => state.previewMode);
   const username = useUserStore((state) => state.username);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
@@ -120,8 +121,8 @@ export const Tools = () => {
         <Divider layout="vertical" style={{ height: '16px' }} margin={3} />
         <Open disabled={playground.config.readonly} />
         <NewPage disabled={playground.config.readonly} />
-        <Save disabled={playground.config.readonly} />
-        <SaveAs disabled={playground.config.readonly} />
+        <Save disabled={playground.config.readonly || previewMode} />
+        <SaveAs disabled={playground.config.readonly || previewMode} />
         <Divider layout="vertical" style={{ height: '16px' }} margin={3} />
         <SkillNameBadge />
         <Info />

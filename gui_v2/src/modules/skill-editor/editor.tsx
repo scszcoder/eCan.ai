@@ -20,7 +20,7 @@ import emptyFlowData from './data/empty-flow.json';
 import { useSkillInfoStore } from './stores/skill-info-store';
 import { createSkillInfo } from './typings/skill-info';
 import { NodeInfoDisplay } from './components/node-info-display';
-import { useSimpleAutoLoad } from './hooks/useAutoLoadRecentFile';
+import { useAutoLoadRecentFile } from './hooks/useAutoLoadRecentFile';
 import { RouteFileLoader } from './components/RouteFileLoader';
 import { FilePathDisplay } from './components/file-path-display';
 import { useUnsavedChangesTracker } from './hooks/useUnsavedChangesTracker';
@@ -34,24 +34,13 @@ import { RunningNodeNavigator } from './components/tabs/RunningNodeNavigator';
 import { isValidationDisabled } from './services/validation-config';
 import { useAutoSave } from './stores/editor-auto-save-store';
 import { BreakpointBinder } from './components/runtime/BreakpointBinder';
+import { useLocation } from 'react-router-dom';
+import { PageRefreshManager } from '../../services/events/PageRefreshManager';
 
 const EditorContainer = styled.div`
   position: relative;
   width: 100%;
   height: 100%;
-`;
-
-const SkillNameLabel = styled.div`
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  background-color: rgba(255, 255, 255, 0.8);
-  padding: 5px 10px;
-  border-radius: 5px;
-  font-weight: bold;
-  z-index: 10;
-  pointer-events: none; /* Make it non-interactive */
-  color: #333; /* Add a dark color for the text */
 `;
 
 export const Editor = () => {
@@ -131,6 +120,7 @@ export const Editor = () => {
   // Get current state for auto-save
   const breakpoints = useSkillInfoStore((state) => state.breakpoints);
   const currentFilePath = useSkillInfoStore((state) => state.currentFilePath);
+  const previewMode = useSkillInfoStore((state) => state.previewMode);
 
   // Initialize main sheet once when editor is ready
   const sheetsInitializedRef = useRef(false);
@@ -179,7 +169,7 @@ export const Editor = () => {
     skillInfo,
     sheetsState,
     breakpoints,
-    currentFilePath,
+    previewMode ? null : currentFilePath,
     null, // viewState - can be added later if needed
     emptySelectionIds
   );
@@ -231,7 +221,16 @@ export const Editor = () => {
 
 // AutoLoadHandler - handles auto-loading recent files (must be inside FreeLayoutEditorProvider)
 const AutoLoadHandler: React.FC = () => {
-  useSimpleAutoLoad();
+  const location = useLocation();
+  const currentFilePath = useSkillInfoStore((state) => state.currentFilePath);
+
+  const state = location.state as { filePath?: string } | null;
+  const hasRouteFile = !!state?.filePath;
+
+  const isReloadSkillEditor = PageRefreshManager.isReloadSkillEditor();
+
+  const shouldAutoLoad = !currentFilePath && (!hasRouteFile || isReloadSkillEditor);
+  useAutoLoadRecentFile({ enabled: shouldAutoLoad });
   return null;
 };
 

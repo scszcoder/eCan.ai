@@ -12,6 +12,7 @@ import { useNodeFlipStore } from '../stores/node-flip-store';
 import { SkillInfo } from '../typings/skill-info';
 import { loadSkillFile } from '../services/skill-loader';
 import '../../../services/ipc/file-api'; // Import file API extensions
+import { PageRefreshManager } from '../../../services/events/PageRefreshManager';
 
 interface AutoLoadOptions {
   enabled?: boolean;
@@ -69,6 +70,8 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
 
     const autoLoadRecentFile = async () => {
       try {
+        PageRefreshManager.consumeSkillEditorReload();
+        
         // First, try to get recent files from backend (more reliable than localStorage)
         const { IPCAPI } = await import('../../../services/ipc/api');
         const ipcApi = IPCAPI.getInstance();
@@ -81,9 +84,10 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
             cacheData: any; 
             recentFiles?: Array<{ filePath: string; fileName: string; skillName?: string; lastOpened?: string }> 
           }>();
-          
-          if (cacheResponse.success && cacheResponse.data?.recentFiles?.length > 0) {
-            const mostRecent = cacheResponse.data.recentFiles[0];
+
+          const recentFiles = cacheResponse.success ? cacheResponse.data?.recentFiles : undefined;
+          if (recentFiles && recentFiles.length > 0) {
+            const mostRecent = recentFiles[0];
             fileToLoad = {
               filePath: mostRecent.filePath,
               fileName: mostRecent.fileName,

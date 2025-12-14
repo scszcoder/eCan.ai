@@ -159,6 +159,12 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
     // Check if this is a code-based skill (read-only)
     const isCodeSkill = skill?.source === 'code';
 
+    const isResourceMySkillsPath = (p?: string | null) => {
+        if (!p) return false;
+        const norm = String(p).replace(/\\/g, '/');
+        return norm.includes('/resource/my_skills/') || norm.startsWith('resource/my_skills/');
+    };
+
     // ScrollPositionSave
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const savedScrollPositionRef = useRef<number>(0);
@@ -371,31 +377,23 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
 
     const goToEditor = () => {
         if (!skill) return;
-        
-        console.log('[SkillDetails] goToEditor called:', {
-            hasSkill: !!skill,
-            filePath: form.getFieldValue('path') || (skill as any).path,
-            skillId: (skill as any).id
-        });
-        
+
         // Get the file path from form or skill object
         const filePath = form.getFieldValue('path') || (skill as any).path;
+
+        const previewMode = isCodeSkill && isResourceMySkillsPath(filePath);
         
         if (!filePath) {
             message.warning(t('pages.skills.noPathWarning', '该技能没有关联的文件Path'));
             return;
         }
-        
-        console.log('[SkillDetails] Navigating to skill_editor with state:', {
-            filePath,
-            skillId: (skill as any).id
-        });
-        
+
         // Navigate to skill editor with file path
         navigate('/skill_editor', { 
             state: { 
                 filePath: filePath,
-                skillId: (skill as any).id 
+                skillId: (skill as any).id,
+                previewMode
             } 
         });
     };
@@ -512,8 +510,14 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                 <Form.Item name="path" noStyle>
                                     <Input id="skill-path-input" readOnly placeholder={t('pages.skills.pathPlaceholder', 'Skill file path')} />
                                 </Form.Item>
-                                <Tooltip title={t('pages.skills.openEditor', 'Open in Editor')}>
-                                    <Button icon={<FileTextOutlined />} onClick={goToEditor} />
+                                <Tooltip title={isCodeSkill && isResourceMySkillsPath(form.getFieldValue('path') || (skill as any)?.path)
+                                    ? t('pages.skills.previewFile', '预览')
+                                    : t('pages.skills.openEditor', 'Open in Editor')}>
+                                    <Button
+                                        icon={<FileTextOutlined />}
+                                        onClick={goToEditor}
+                                        disabled={!(form.getFieldValue('path') || (skill as any)?.path)}
+                                    />
                                 </Tooltip>
                             </Space.Compact>
                         </StyledFormItem>
