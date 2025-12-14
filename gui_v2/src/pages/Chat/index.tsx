@@ -21,17 +21,6 @@ import { iTagManager } from './managers/ITagManager';
 import { chatStateManager } from './managers/ChatStateManager';
 import { eventBus } from '@/utils/eventBus';
 
-// ToolFunction：尝试将字符串Parse为对象
-function parseMaybeJson(str: any): any {
-    if (typeof str === 'string') {
-        try {
-            const obj = JSON.parse(str);
-            if (typeof obj === 'object' && obj !== null) return obj;
-        } catch {}
-    }
-    return str;
-}
-
 const ChatPage: React.FC = () => {
     const { t } = useTranslation();
     const [searchParams, setSearchParams] = useSearchParams();
@@ -395,26 +384,6 @@ const ChatPage: React.FC = () => {
         }
     };
     
-    // ProcessagentId变化的Function
-    const handleAgentIdChange = async (targetAgentId: string) => {
-        if (!targetAgentId) return;
-        
-        
-        // 查找是否存在Include该agentId的聊天
-        const chatWithAgent = chats.find(chat => 
-            chat.members?.some(member => member.userId === targetAgentId)
-        );
-        
-        if (chatWithAgent) {
-            // If找到，Settings为活动聊天并GetMessage
-            // 直接调用setActiveChatIdAndFetchMessages，避免重复调用handleChatSelect
-            setActiveChatIdAndFetchMessages(chatWithAgent.id);
-        } else {
-            // If没找到，Create新的聊天
-            await createChatWithAgent(targetAgentId);
-        }
-    };
-
     // GeneralGet聊天Data的Function，使用新的 API，并在GetData后ProcessagentId相关逻辑
     const getChatsAndSetState = async (userId?: string) => {
         if (!userId) {
@@ -1076,6 +1045,10 @@ const ChatPage: React.FC = () => {
     // ProcessFilter器Select
     const handleFilterSelect = useCallback((selectedAgentId: string | null) => {
         setShowFilterModal(false);
+
+        if (username) {
+            chatStateManager.saveAgentId(username, selectedAgentId);
+        }
         
         // Update URL Parameter
         if (selectedAgentId) {
@@ -1083,7 +1056,7 @@ const ChatPage: React.FC = () => {
         } else {
             setSearchParams({});
         }
-    }, [setSearchParams]);
+    }, [setSearchParams, username]);
 
     // Filter chats based on agentId parameter
     // Always filter out chats that only have My Twin Agent as the sole member

@@ -52,6 +52,113 @@ const RetrievalTab: React.FC = () => {
   const isComposingRef = useRef(false);
 
   const endRef = useRef<HTMLDivElement>(null);
+  const messagesAreaRef = useRef<HTMLDivElement>(null);
+  const settingsPanelRef = useRef<HTMLDivElement>(null);
+
+  const storagePrefix = 'lightrag-ported:tabs';
+  const messagesScrollKey = `${storagePrefix}:innerScroll:retrieval:messages`;
+  const settingsScrollKey = `${storagePrefix}:innerScroll:retrieval:settings`;
+
+  const restoringRef = useRef(false);
+
+  const saveScroll = () => {
+    if (messagesAreaRef.current) {
+      const v = messagesAreaRef.current.scrollTop;
+      const saved = Number(sessionStorage.getItem(messagesScrollKey) || 0);
+      if (v > 0 || saved === 0) sessionStorage.setItem(messagesScrollKey, String(v));
+    }
+    if (settingsPanelRef.current) {
+      const v = settingsPanelRef.current.scrollTop;
+      const saved = Number(sessionStorage.getItem(settingsScrollKey) || 0);
+      if (v > 0 || saved === 0) sessionStorage.setItem(settingsScrollKey, String(v));
+    }
+  };
+
+  const restoreScrollWithRetry = (attempts = 0) => {
+    restoringRef.current = true;
+    const msgSaved = Number(sessionStorage.getItem(messagesScrollKey) || 0);
+    const settingsSaved = Number(sessionStorage.getItem(settingsScrollKey) || 0);
+
+    console.log('[RetrievalTab] Restore attempt', attempts, 'msgSaved:', msgSaved, 'settingsSaved:', settingsSaved);
+
+    const msgEl = messagesAreaRef.current;
+    const settingsEl = settingsPanelRef.current;
+
+    console.log('[RetrievalTab] Elements:', 'msgEl:', !!msgEl, 'settingsEl:', !!settingsEl);
+
+    // refs 可能在外层 page 切换回来时短暂为 null，必须持续重试直到元素出现
+    const needMsg = msgSaved > 0;
+    const needSettings = settingsSaved > 0;
+
+    if (msgEl && needMsg) {
+      msgEl.scrollTop = msgSaved;
+      console.log('[RetrievalTab] Set msgEl.scrollTop to', msgSaved, 'actual:', msgEl.scrollTop);
+    }
+    if (settingsEl && needSettings) {
+      settingsEl.scrollTop = settingsSaved;
+      console.log('[RetrievalTab] Set settingsEl.scrollTop to', settingsSaved, 'actual:', settingsEl.scrollTop);
+    }
+
+    const msgOk = !needMsg || (msgEl !== null && msgEl.scrollTop === msgSaved);
+    const settingsOk = !needSettings || (settingsEl !== null && settingsEl.scrollTop === settingsSaved);
+
+    console.log('[RetrievalTab] Status:', 'msgOk:', msgOk, 'settingsOk:', settingsOk);
+
+    // 兼容：元素尚未挂载、或 scrollTop 设置后又被后续渲染覆盖
+    if ((!msgOk || !settingsOk) && attempts < 80) {
+      setTimeout(() => restoreScrollWithRetry(attempts + 1), 50);
+    } else {
+      console.log('[RetrievalTab] Restore complete at attempt', attempts);
+      // 结束恢复窗口，允许后续正常写入（包括写回 0）
+      restoringRef.current = false;
+    }
+  };
+
+  useEffect(() => {
+    const activeTab = sessionStorage.getItem(`${storagePrefix}:active`);
+    console.log('[RetrievalTab] Mount effect, activeTab:', activeTab);
+    if (activeTab === 'retrieval') {
+      console.log('[RetrievalTab] Starting restore on mount');
+      requestAnimationFrame(() => restoreScrollWithRetry());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const onActivate = (e: Event) => {
+      const ce = e as CustomEvent<{ key?: string }>;
+      console.log('[RetrievalTab] Activate event, key:', ce.detail?.key);
+      if (ce.detail?.key === 'retrieval') {
+        console.log('[RetrievalTab] Starting restore on activate');
+        requestAnimationFrame(() => restoreScrollWithRetry());
+      }
+    };
+
+    const onDeactivate = (e: Event) => {
+      const ce = e as CustomEvent<{ key?: string }>;
+      if (ce.detail?.key === 'retrieval') {
+        saveScroll();
+      }
+    };
+
+    window.addEventListener('lightrag-tab-activate', onActivate);
+    window.addEventListener('lightrag-tab-deactivate', onDeactivate);
+
+    const onPageHide = () => saveScroll();
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') saveScroll();
+    };
+    window.addEventListener('pagehide', onPageHide);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      window.removeEventListener('lightrag-tab-activate', onActivate);
+      window.removeEventListener('lightrag-tab-deactivate', onDeactivate);
+      window.removeEventListener('pagehide', onPageHide);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const thinkingStartTimeRef = useRef<number | null>(null);
   // Map stream_id (from backend) to message_id (frontend)
   const streamMapRef = useRef<Map<string, string>>(new Map());
@@ -120,8 +227,11 @@ const RetrievalTab: React.FC = () => {
         const res = await get_ipc_api().lightragApi.getConversationHistory();
         if (res.success && Array.isArray(res.data)) {
           setMessages(res.data as MessageState[]);
-          // Scroll to end after loading to show latest messages
-          setTimeout(scrollToEnd, 100);
+          // Only scroll to end if there's no saved scroll position to restore
+          const savedMsg = Number(sessionStorage.getItem(messagesScrollKey) || 0);
+          if (savedMsg === 0) {
+            setTimeout(scrollToEnd, 100);
+          }
         }
       } catch (e) {
         console.error('Failed to load conversation history', e);
@@ -130,6 +240,7 @@ const RetrievalTab: React.FC = () => {
       }
     };
     loadConversation();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Save conversation history when messages change (debounced)
@@ -530,16 +641,25 @@ const RetrievalTab: React.FC = () => {
       {/* Left panel */}
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
         {/* Messages area */}
-        <div style={{ 
-          flex: 1, 
-          minHeight: 0, 
-          border: `1px solid ${token.colorBorder}`, 
-          borderRadius: 16, 
-          padding: 20, 
-          overflow: 'auto', 
-          background: token.colorBgContainer,
-          boxShadow: isDark ? '0 4px 16px rgba(0, 0, 0, 0.15)' : '0 4px 16px rgba(0, 0, 0, 0.06)'
-        }}>
+        <div 
+          ref={messagesAreaRef}
+          onScroll={(e) => {
+            const v = e.currentTarget.scrollTop;
+            const saved = Number(sessionStorage.getItem(messagesScrollKey) || 0);
+            if (restoringRef.current && v === 0 && saved > 0) return;
+            if (v > 0 || saved === 0) sessionStorage.setItem(messagesScrollKey, String(v));
+          }}
+          style={{ 
+            flex: 1, 
+            minHeight: 0, 
+            border: `1px solid ${token.colorBorder}`, 
+            borderRadius: 16, 
+            padding: 20, 
+            overflow: 'auto', 
+            background: token.colorBgContainer,
+            boxShadow: isDark ? '0 4px 16px rgba(0, 0, 0, 0.15)' : '0 4px 16px rgba(0, 0, 0, 0.06)'
+          }}
+        >
           {messages.length === 0 ? (
             <div style={{ 
               display: 'flex',
@@ -651,7 +771,16 @@ const RetrievalTab: React.FC = () => {
         <div style={{ padding: '20px 24px', borderBottom: `1px solid ${token.colorBorderSecondary}` }}>
           <h4 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: token.colorText }}>⚙️ {t('pages.knowledge.retrieval.querySettings')}</h4>
         </div>
-        <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div 
+          ref={settingsPanelRef}
+          onScroll={(e) => {
+            const v = e.currentTarget.scrollTop;
+            const saved = Number(sessionStorage.getItem(settingsScrollKey) || 0);
+            if (restoringRef.current && v === 0 && saved > 0) return;
+            if (v > 0 || saved === 0) sessionStorage.setItem(settingsScrollKey, String(v));
+          }}
+          style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}
+        >
           <div className="param-group">
             <div className="param-group-title">{t('pages.knowledge.retrieval.customPrompt')}</div>
             <textarea 

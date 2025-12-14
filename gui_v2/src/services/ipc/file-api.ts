@@ -68,6 +68,7 @@ declare module './api' {
     showOpenDialog<T = FileDialogResponse>(filters?: FileFilter[]): Promise<APIResponse<T>>;
     showSaveDialog<T = FileDialogResponse>(defaultFilename?: string, filters?: FileFilter[]): Promise<APIResponse<T>>;
     readSkillFile<T = FileContentResponse>(filePath: string): Promise<APIResponse<T>>;
+    openSkillFile<T = FileContentResponse>(filePath: string, skillName?: string): Promise<APIResponse<T>>;
     writeSkillFile<T = FileWriteResponse>(filePath: string, content: string): Promise<APIResponse<T>>;
     /**
      * Scaffold a new skill with standard directory structure
@@ -142,6 +143,13 @@ IPCAPI.prototype.readSkillFile = function<T = FileContentResponse>(filePath: str
     console.error('[FileAPI] readSkillFile: request error', err);
   });
   return p;
+};
+
+IPCAPI.prototype.openSkillFile = function<T = FileContentResponse>(
+  filePath: string,
+  skillName?: string
+): Promise<APIResponse<T>> {
+  return this.executeRequest<T>('open_skill_file', { filePath, skillName });
 };
 
 IPCAPI.prototype.writeSkillFile = function<T = FileWriteResponse>(

@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.1] - 2025-11-21
+## [0.0.5] - 2025-11-21
 
 ### Added
 - S3 accelerated download URL support - Provides both standard and accelerated download URLs for each update package
@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Build time optimization: Saves ~21 seconds per build (~28% improvement)
 - Dependency installation optimization: Saves ~80% time when pip cache hits
 
-## [1.0.0] - 2025-11-20
+## [0.0.4] - 2025-11-20
 
 ### Added
 - Initial release

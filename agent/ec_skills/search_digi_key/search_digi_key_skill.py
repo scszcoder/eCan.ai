@@ -700,7 +700,7 @@ async def create_search_digi_key_skill(mainwin):
             return state
 
         # Router logic
-        async def route_logic(state: NodeState) -> str:
+        def route_logic(state: NodeState) -> str:
             if state["resolved"] or state["retries"] >= 5:
                 return END
             return "llm_loop"

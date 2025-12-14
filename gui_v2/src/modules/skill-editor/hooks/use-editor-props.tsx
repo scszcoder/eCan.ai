@@ -107,7 +107,7 @@ export function useEditorProps(
        * @param node
        * @param json
        */
-      fromNodeJSON(node, json) {
+      fromNodeJSON(_node, json) {
         return json;
       },
       /**
@@ -116,7 +116,7 @@ export function useEditorProps(
        * @param node
        * @param json
        */
-      toNodeJSON(node, json) {
+      toNodeJSON(_node, json) {
         return json;
       },
       lineColor: {
@@ -132,7 +132,7 @@ export function useEditorProps(
        * Check whether the line can be added
        * 判断是否连线
        */
-      canAddLine(ctx, fromPort, toPort) {
+      canAddLine(_ctx, fromPort, toPort) {
         // Cannot be a self-loop on the same node / 不能是同一节点自Loop
         if (fromPort.node === toPort.node) {
           return false;
@@ -167,7 +167,7 @@ export function useEditorProps(
        * 是否允许拖入子画布 (loop or group)
        * Whether to allow dragging into the sub-canvas (loop or group)
        */
-      canDropToNode: (ctx, params) => canContainNode(params.dragNodeType!, params.dropNodeType!),
+      canDropToNode: (_ctx, params) => canContainNode(params.dragNodeType!, params.dropNodeType!),
       /**
        * Whether to reset line
        * 是否允许重连
@@ -319,7 +319,7 @@ export function useEditorProps(
       isFlowingLine: (ctx, line) => {
         try {
           return ctx.get(WorkflowRuntimeService).isFlowingLine(line);
-        } catch (e) {
+        } catch {
           // WorkflowRuntimeService might not be available in all contexts
           return false;
         }
@@ -331,7 +331,7 @@ export function useEditorProps(
       /**
        * Bind custom service
        */
-      onBind: ({ bind, isBound, rebind }) => {
+      onBind: ({ bind, isBound }) => {
         bind(CustomService).toSelf().inSingletonScope();
         bind(ValidateService).toSelf().inSingletonScope();
         if (!isBound(WorkflowDocument)) {

@@ -340,7 +340,7 @@ export const useSheetsStore = create<SheetsState>((set, get) => ({
     }
     const map: Record<string, Sheet> = {};
     const order: string[] = [];
-    cloned.sheets.forEach((s) => {
+    cloned.sheets.forEach((s: Sheet) => {
       map[s.id] = { ...s, lastOpenedAt: Date.now(), createdAt: s.createdAt ?? Date.now() } as Sheet;
       order.push(s.id);
     });
@@ -350,7 +350,7 @@ export const useSheetsStore = create<SheetsState>((set, get) => ({
     }
     const maxTabs = get().maxOpenTabs;
     const openTabs = cloned.openTabs && cloned.openTabs.length
-      ? cloned.openTabs.filter((id) => map[id])
+      ? cloned.openTabs.filter((id: string) => map[id])
       : order.slice(0, maxTabs);
     // visibility log
     try { console.log('[Sheets][LOAD_BUNDLE]', { sheetsCount: order.length, mainSheetId: cloned.mainSheetId, openTabs }); } catch {}

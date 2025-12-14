@@ -11,12 +11,11 @@ import { useSkillInfoStore } from '../../stores/skill-info-store';
  */
 export const ActiveSheetBinder = () => {
   const ctx = useClientContext();
-  const playground = usePlayground();
   const tools = usePlaygroundTools();
+  const playground = usePlayground();
   const selectService = useService(WorkflowSelectService);
   const activeSheetId = useSheetsStore((s) => s.activeSheetId);
   const getActiveDocument = useSheetsStore((s) => s.getActiveDocument);
-  const saveActiveDocument = useSheetsStore((s) => s.saveActiveDocument);
   const saveDocumentFor = useSheetsStore((s) => s.saveDocumentFor);
   const revision = useSheetsStore((s) => s.revision);
   const saveViewStateFor = useSheetsStore((s) => s.saveViewStateFor);
@@ -55,13 +54,14 @@ export const ActiveSheetBinder = () => {
         } catch {}
         // Save to the previously active sheet, not the newly activated one
         saveDocumentFor && saveDocumentFor(lastId, currentJson);
-      } catch (e) {
+      } catch {
         /* noop */
       }
       // Save current zoom as view state to the PREVIOUS sheet (lastId), not the new active sheet
       try {
-        if (typeof tools.zoom === 'number') {
-          saveViewStateFor(lastId, { zoom: tools.zoom });
+        const currentZoom = playground?.config?.zoom;
+        if (typeof currentZoom === 'number') {
+          saveViewStateFor(lastId, { zoom: currentZoom });
         }
       } catch {}
       // Save current selection ids to the PREVIOUS sheet
@@ -122,16 +122,16 @@ export const ActiveSheetBinder = () => {
                     } else {
                       console.warn('[ActiveSheetBinder] formControl.setFieldValue not available for node:', node.id);
                     }
-                  } catch (e) {
-                    console.warn('[ActiveSheetBinder] Could not set form field:', e);
+                  } catch (err) {
+                    console.warn('[ActiveSheetBinder] Could not set form field:', err);
                   }
                 }
               }
             });
           }, 200); // Increased delay to ensure forms are ready
         }
-      } catch (e) {
-        console.error('[ActiveSheetBinder] fromJSON error', e);
+      } catch (err) {
+        console.error('[ActiveSheetBinder] fromJSON error', err);
       }
     }
     // Restore view state (zoom) if available, otherwise fit view
@@ -171,8 +171,8 @@ export const ActiveSheetBinder = () => {
           }
         }
         initialFitViewDoneRef.current = true;
-      } catch (e) {
-        console.error('[ActiveSheetBinder] fitView error', e);
+      } catch (err) {
+        console.error('[ActiveSheetBinder] fitView error', err);
       }
     };
     
@@ -202,7 +202,7 @@ export const ActiveSheetBinder = () => {
       clearTimeout(fitViewTimeout);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSheetId, revision, ctx, getActiveDocument, saveActiveDocument]);
+  }, [activeSheetId, revision, ctx, getActiveDocument]);
 
   return null;
 };

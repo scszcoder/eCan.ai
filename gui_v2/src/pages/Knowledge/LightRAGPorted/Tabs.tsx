@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { theme } from 'antd';
 import { FileTextOutlined, ShareAltOutlined, SearchOutlined, SettingOutlined } from '@ant-design/icons';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -17,16 +17,100 @@ interface TabsProps {
 }
 
 const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', onChange, renderTab }) => {
-  const [active, setActive] = useState<TabKey>(defaultActive);
+  const storagePrefix = 'lightrag-ported:tabs';
+
+  const readActiveFromStorage = (): TabKey => {
+    const raw = sessionStorage.getItem(`${storagePrefix}:active`);
+    const key = raw as TabKey | null;
+    if (key === 'documents' || key === 'knowledge-graph' || key === 'retrieval' || key === 'settings' || key === 'api') {
+      return key;
+    }
+    return defaultActive;
+  };
+
+  const readVisitedFromStorage = (activeKey: TabKey): Set<TabKey> => {
+    try {
+      const raw = sessionStorage.getItem(`${storagePrefix}:visited`);
+      if (!raw) return new Set([activeKey]);
+      const arr = JSON.parse(raw) as TabKey[];
+      const valid = arr.filter((k) => k === 'documents' || k === 'knowledge-graph' || k === 'retrieval' || k === 'settings' || k === 'api');
+      const set = new Set<TabKey>(valid);
+      set.add(activeKey);
+      return set;
+    } catch {
+      return new Set([activeKey]);
+    }
+  };
+
+  const [active, setActive] = useState<TabKey>(() => readActiveFromStorage());
   // Keep track of visited tabs to lazy-load them but keep them alive afterwards
-  const [visited, setVisited] = useState<Set<TabKey>>(new Set([defaultActive]));
+  const [visited, setVisited] = useState<Set<TabKey>>(() => readVisitedFromStorage(readActiveFromStorage()));
   
   const { t } = useTranslation();
   const { token } = theme.useToken();
   const { theme: currentTheme } = useTheme();
   const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
 
+  const scrollPositions = useRef<Map<TabKey, number>>(new Map());
+  const tabRefs = useRef<Map<TabKey, HTMLDivElement>>(new Map());
+
+  const isOuterScrollable = (key: TabKey) => {
+    return key === 'documents' || key === 'knowledge-graph' || key === 'api';
+  };
+
+  const saveScrollPosition = (key: TabKey, scrollTop: number) => {
+    scrollPositions.current.set(key, scrollTop);
+    sessionStorage.setItem(`${storagePrefix}:scroll:${key}`, String(scrollTop));
+  };
+
+  const readScrollPosition = (key: TabKey): number => {
+    const inMemory = scrollPositions.current.get(key);
+    if (typeof inMemory === 'number') return inMemory;
+    const raw = sessionStorage.getItem(`${storagePrefix}:scroll:${key}`);
+    const num = raw ? Number(raw) : 0;
+    return Number.isFinite(num) ? num : 0;
+  };
+
+  const emitTabEvent = (type: 'activate' | 'deactivate', key: TabKey) => {
+    window.dispatchEvent(new CustomEvent(`lightrag-tab-${type}`, { detail: { key } }));
+  };
+
+  const restoreScrollWithRetry = (key: TabKey, attempts = 0) => {
+    if (!isOuterScrollable(key)) return;
+    const el = tabRefs.current.get(key);
+    const saved = readScrollPosition(key);
+    if (!el || saved <= 0) return;
+
+    if (el.scrollHeight <= el.clientHeight && attempts < 12) {
+      setTimeout(() => restoreScrollWithRetry(key, attempts + 1), 50);
+      return;
+    }
+
+    el.scrollTop = saved;
+  };
+
+  useEffect(() => {
+    sessionStorage.setItem(`${storagePrefix}:active`, active);
+    sessionStorage.setItem(`${storagePrefix}:visited`, JSON.stringify(Array.from(visited)));
+  }, [active, visited]);
+
+  useEffect(() => {
+    emitTabEvent('activate', active);
+    requestAnimationFrame(() => restoreScrollWithRetry(active));
+    return () => {
+      emitTabEvent('deactivate', active);
+    };
+  }, [active]);
+
   const handleClick = (key: TabKey) => {
+    // 保存当前标签页的滚动位置
+    if (isOuterScrollable(active)) {
+      const currentTabElement = tabRefs.current.get(active);
+      if (currentTabElement) {
+        saveScrollPosition(active, currentTabElement.scrollTop);
+      }
+    }
+    
     setActive(key);
     setVisited(prev => {
       const next = new Set(prev);
@@ -34,6 +118,18 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', onChange, rend
       return next;
     });
     onChange?.(key);
+  };
+  
+  // 设置 tab ref
+  const setTabRef = (key: TabKey) => (el: HTMLDivElement | null) => {
+    if (el) {
+      tabRefs.current.set(key, el);
+      if (key === active) {
+        requestAnimationFrame(() => restoreScrollWithRetry(key));
+      }
+    } else {
+      tabRefs.current.delete(key);
+    }
   };
 
   // 使用主题 token 的背景色
@@ -78,12 +174,22 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', onChange, rend
           if (!visited.has(key)) return null;
           return (
             <div 
-              key={key} 
+              key={key}
+              ref={setTabRef(key)}
+              onScroll={(e) => {
+                if (active === key && isOuterScrollable(key)) {
+                  saveScrollPosition(key, e.currentTarget.scrollTop);
+                }
+              }}
               style={{ 
+                position: 'absolute',
+                top: 0,
+                left: 0,
                 height: '100%', 
                 width: '100%', 
-                display: active === key ? 'block' : 'none',
-                overflow: 'auto' // Inner scroll for each tab
+                visibility: active === key ? 'visible' : 'hidden',
+                overflow: isOuterScrollable(key) ? 'auto' : 'hidden',
+                pointerEvents: active === key ? 'auto' : 'none'
               }}
             >
               {renderTab(key)}
