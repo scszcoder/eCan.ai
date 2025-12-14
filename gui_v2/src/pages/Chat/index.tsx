@@ -1076,6 +1076,10 @@ const ChatPage: React.FC = () => {
     // ProcessFilter器Select
     const handleFilterSelect = useCallback((selectedAgentId: string | null) => {
         setShowFilterModal(false);
+
+        if (username) {
+            chatStateManager.saveAgentId(username, selectedAgentId);
+        }
         
         // Update URL Parameter
         if (selectedAgentId) {
@@ -1083,7 +1087,7 @@ const ChatPage: React.FC = () => {
         } else {
             setSearchParams({});
         }
-    }, [setSearchParams]);
+    }, [setSearchParams, username]);
 
     // Filter chats based on agentId parameter
     // Always filter out chats that only have My Twin Agent as the sole member
