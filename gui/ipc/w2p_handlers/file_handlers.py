@@ -256,6 +256,123 @@ def handle_show_save_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
         )
 
 
+@IPCHandlerRegistry.handler('open_skill_file')
+def handle_open_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Open a skill file (main skill json) and update recent files list.
+
+    This is a semantic operation representing a user opening a skill.
+    Bundle files should still be read via read_skill_file.
+
+    Args:
+        request: IPC request object
+        params: Request params, must include filePath; optional skillName
+
+    Returns:
+        IPCResponse: Response with file content
+    """
+    try:
+        logger.debug(f"Open skill file handler called with request: {request}")
+
+        # Validate parameters
+        is_valid, data, error = validate_params(params, ['filePath'])
+        if not is_valid:
+            logger.warning(f"Invalid parameters for open skill file: {error}")
+            return create_error_response(
+                request,
+                'INVALID_PARAMS',
+                error
+            )
+
+        file_path = data['filePath']
+        original_path = file_path
+        skill_name = (params or {}).get('skillName')
+
+        # Convert relative path to absolute path
+        if not os.path.isabs(file_path):
+            from app_context import AppContext
+            app_context = AppContext()
+            base_dir = app_context.get_app_dir()
+            file_path = os.path.join(base_dir, file_path)
+
+        logger.info(f"[SKILL_IO][BACKEND][OPEN_ATTEMPT] Original: {original_path} -> Resolved: {file_path}")
+
+        # Safety check: ensure file exists
+        if not os.path.exists(file_path):
+            logger.warning(f"[SKILL_IO][BACKEND][OPEN_NOT_FOUND] {file_path}")
+            return create_error_response(
+                request,
+                'FILE_NOT_FOUND',
+                f'File not found: {file_path}'
+            )
+
+        # Validate file extension
+        if not file_path.lower().endswith('.json'):
+            return create_error_response(
+                request,
+                'INVALID_FILE_TYPE',
+                'Only JSON files are supported'
+            )
+
+        # Read file content
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Validate JSON format
+            json.loads(content)
+
+            size = os.path.getsize(file_path)
+            logger.info(f"[SKILL_IO][BACKEND][OPEN_OK] {file_path} size={size}")
+
+            # Update recent files (skip bundle files)
+            file_name = os.path.basename(file_path)
+            is_bundle_file = file_name.endswith('_bundle.json') or file_name.endswith('-bundle.json')
+            if not is_bundle_file:
+                try:
+                    from gui.ipc.w2p_handlers.skill_editor_handler import _update_recent_files
+
+                    if not skill_name:
+                        file_dir = os.path.dirname(file_path)
+                        parent_dir = os.path.dirname(file_dir)
+                        if os.path.basename(file_dir) == 'diagram_dir':
+                            skill_name = os.path.basename(parent_dir)
+                        else:
+                            skill_name = os.path.basename(file_dir)
+
+                    _update_recent_files(file_path, skill_name)
+                    logger.debug(f"[SKILL_IO][BACKEND][RECENT_FILES_UPDATED] {file_path}")
+                except Exception as e:
+                    logger.warning(f"[SKILL_IO][BACKEND][RECENT_FILES_UPDATE_FAILED] {e}")
+
+            return create_success_response(request, {
+                'content': content,
+                'filePath': file_path,
+                'fileName': os.path.basename(file_path),
+                'fileSize': size
+            })
+
+        except json.JSONDecodeError as e:
+            return create_error_response(
+                request,
+                'INVALID_JSON',
+                f'Invalid JSON file: {str(e)}'
+            )
+        except UnicodeDecodeError as e:
+            return create_error_response(
+                request,
+                'ENCODING_ERROR',
+                f'File encoding error: {str(e)}'
+            )
+
+    except Exception as e:
+        logger.error(f"Error in open_skill_file handler: {e}")
+        return create_error_response(
+            request,
+            'OPEN_SKILL_FILE_ERROR',
+            f"Error opening skill file: {str(e)}"
+        )
+
+
 @IPCHandlerRegistry.handler('read_skill_file')
 def handle_read_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Handle reading a skill file.
@@ -320,6 +437,7 @@ def handle_read_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]]
             
             size = os.path.getsize(file_path)
             logger.info(f"[SKILL_IO][BACKEND][READ_OK] {file_path} size={size}")
+            
             return create_success_response(request, {
                 'content': content,
                 'filePath': file_path,

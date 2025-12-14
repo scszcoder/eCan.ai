@@ -29,45 +29,131 @@ export interface SkillLoadResult {
  * Load a skill file with automatic migration
  * This is the unified entry point for all skill file loading
  */
-export async function loadSkillFile(filePath: string): Promise<SkillLoadResult> {
+export async function loadSkillFile(
+  filePath: string,
+  options: {
+    autoSaveMigrated?: boolean;
+  } = {}
+): Promise<SkillLoadResult> {
   const ipcApi = IPCAPI.getInstance();
+  const autoSaveMigrated = options.autoSaveMigrated !== false;
+  const nowIso = new Date().toISOString();
   
   try {
     console.log('[SkillLoader] Loading skill file:', filePath);
     
     // 1. Read the main skill file
-    const fileResponse = await ipcApi.readSkillFile(filePath);
-    if (!fileResponse.success || !fileResponse.data) {
+    let fileResponse = await ipcApi.openSkillFile(filePath).catch((e: any) => {
       return {
         success: false,
-        filePath,
-        migrated: false,
-        error: typeof fileResponse.error === 'string' ? fileResponse.error : 'Failed to read skill file',
-      };
+        error: e?.message || String(e),
+      } as any;
+    });
+    if (!fileResponse.success || !fileResponse.data) {
+      // Fallback for older backends that don't implement open_skill_file yet
+      const fallbackResp = await ipcApi.readSkillFile(filePath);
+      if (!fallbackResp.success || !fallbackResp.data) {
+        const err1 = typeof (fileResponse as any).error === 'string' ? (fileResponse as any).error : '';
+        const err2 = typeof fallbackResp.error === 'string' ? fallbackResp.error : '';
+        return {
+          success: false,
+          filePath,
+          migrated: false,
+          error: err2 || err1 || 'Failed to read skill file',
+        };
+      }
+      fileResponse = fallbackResp as any;
     }
     
-    const skillInfo = JSON.parse(fileResponse.data.content) as SkillInfo;
+    const parsed = JSON.parse(fileResponse.data.content);
     let migrated = false;
     let bundle: SheetsBundle | undefined;
     let bundlePath: string | undefined;
-    
-    // 1.5. Normalize skillName (remove _skill suffix, derive from folder if needed)
+
+    // Derive a stable skill name from file path (folder before diagram_dir or filename)
+    let nameFromPath = '';
     try {
       const norm = String(filePath).replace(/\\/g, '/');
       const parts = norm.split('/');
       const diagramIdx = parts.lastIndexOf('diagram_dir');
-      let nameFromFolder = '';
       if (diagramIdx > 0) {
         const folder = parts[diagramIdx - 1];
-        nameFromFolder = folder?.replace(/_skill$/i, '') || '';
+        nameFromPath = folder?.replace(/_skill$/i, '') || '';
       }
-      if (!nameFromFolder) {
+      if (!nameFromPath) {
         const fileName = parts[parts.length - 1] || '';
-        nameFromFolder = fileName.replace(/\.json$/i, '').replace(/_skill$/i, '');
+        nameFromPath = fileName.replace(/\.json$/i, '').replace(/_skill$/i, '');
       }
-      // Always use the normalized name from folder/filename
-      if (nameFromFolder) {
-        skillInfo.skillName = nameFromFolder;
+    } catch {
+      // ignore
+    }
+
+    // If the selected file itself is a bundle JSON, load it as bundle (multi-sheet)
+    if (looksLikeBundle(parsed)) {
+      const normalizedBundle = normalizeBundle(parsed);
+      if (!normalizedBundle) {
+        return {
+          success: false,
+          filePath,
+          migrated: false,
+          error: 'Invalid bundle format',
+        };
+      }
+
+      const bundleFromMainFile = normalizedBundle;
+      bundle = bundleFromMainFile;
+      bundlePath = filePath;
+
+      const mainSheet =
+        bundleFromMainFile.sheets.find((s) => s.id === bundleFromMainFile.mainSheetId) || bundleFromMainFile.sheets[0];
+      const mainDoc = (mainSheet as any)?.document || { nodes: [], edges: [] };
+
+      const syntheticSkillInfo: SkillInfo = {
+        skillId: '',
+        skillName: nameFromPath || 'Skill',
+        version: '1.0.0',
+        lastModified: nowIso,
+        workFlow: mainDoc as any,
+        schemaVersion: (parsed as any)?.schemaVersion,
+      };
+
+      const bundleMigrationResult = migrateBundle(bundleFromMainFile);
+      migrated = bundleMigrationResult.migratedCount > 0;
+      if (migrated) {
+        console.log('[SkillLoader] Bundle migration applied (main file bundle):', bundleMigrationResult);
+      } else {
+        console.log('[SkillLoader] Bundle migration not applied (main file bundle):', bundleMigrationResult);
+      }
+
+      // IMPORTANT: if the main selected file is the bundle itself, never overwrite it with SkillInfo JSON
+      if (migrated && autoSaveMigrated) {
+        try {
+          const sanitizedBundle = JSON.parse(JSON.stringify(bundleFromMainFile));
+          (sanitizedBundle as any).schemaVersion = CURRENT_SCHEMA_VERSION;
+          sanitizeApiKeysDeep(sanitizedBundle);
+          await ipcApi.writeSkillFile(bundlePath, JSON.stringify(sanitizedBundle, null, 2));
+          console.log('[SkillLoader] Saved migrated bundle file (main file bundle):', bundlePath);
+        } catch (saveErr) {
+          console.warn('[SkillLoader] Failed to auto-save migrated bundle (main file bundle):', saveErr);
+        }
+      }
+
+      return {
+        success: true,
+        skillInfo: syntheticSkillInfo,
+        bundle,
+        filePath,
+        bundlePath,
+        migrated,
+      };
+    }
+
+    const skillInfo = parsed as SkillInfo;
+
+    // 1.5. Normalize skillName (remove _skill suffix, derive from folder if needed)
+    try {
+      if (nameFromPath) {
+        skillInfo.skillName = nameFromPath;
       }
     } catch {
       // Keep original skillName if normalization fails
@@ -123,7 +209,7 @@ export async function loadSkillFile(filePath: string): Promise<SkillLoadResult> 
     }
     
     // 4. Auto-save if migration was applied
-    if (migrated) {
+    if (migrated && autoSaveMigrated) {
       console.log('[SkillLoader] Auto-saving migrated files...');
       
       // Update schemaVersion on skillInfo

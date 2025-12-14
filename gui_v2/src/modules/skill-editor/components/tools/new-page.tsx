@@ -16,6 +16,7 @@ export const NewPage = ({ disabled }: NewPageProps) => {
   const tools = usePlaygroundTools();
   const skillInfo = useSkillInfoStore((state) => state.skillInfo);
   const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
+  const setPreviewMode = useSkillInfoStore((state) => state.setPreviewMode);
   const breakpoints = useSkillInfoStore((state) => state.breakpoints);
 
   const handleNewPage = useCallback(async () => {
@@ -197,6 +198,8 @@ export const NewPage = ({ disabled }: NewPageProps) => {
       const scaffoldResponse = await ipcApi.scaffoldSkill(skillBaseName, '', 'diagram', skillJson, bundleJson, mappingJson);
       
       if (scaffoldResponse.success && scaffoldResponse.data) {
+        // Creating a new skill exits preview mode
+        setPreviewMode(false);
         skillRoot = (scaffoldResponse.data as any).skillRoot;
         // Use diagramPath from backend response (more reliable)
         diagramJsonPath = (scaffoldResponse.data as any).diagramPath || 
@@ -239,7 +242,7 @@ export const NewPage = ({ disabled }: NewPageProps) => {
       title: 'Success',
       content: `Skill "${skillBaseName}" created successfully!`,
     });
-  }, [workflowDocument, tools, setSkillInfo, skillInfo, breakpoints]);
+  }, [workflowDocument, tools, setSkillInfo, setPreviewMode, skillInfo, breakpoints]);
 
   return (
     <Tooltip content="New Skill">
