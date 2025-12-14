@@ -24,6 +24,7 @@ from agent.ec_skills.extern_skills.extern_skills import user_skills_root, ensure
 from agent.ec_skills.extern_skills.inproc_loader import temp_sys_path, _site_packages
 from agent.ec_skill import EC_Skill
 from agent.ec_skills.flowgram2langgraph import flowgram2langgraph
+from langgraph.graph import StateGraph
 from app_context import AppContext
 from config.app_info import app_info
 from agent.ec_skills.dev_defs import BreakpointManager
@@ -113,26 +114,20 @@ async def build_agent_skills_parallel(mainwin):
 
 
 def _create_skill_from_workflow(
-    *,
-    core_dict: dict,
-    workflow,
-    skill_name: str,
-    json_path: Path,
-    source: str,
-) -> Optional[EC_Skill]:
+    core_dict: dict, 
+    workflow: StateGraph, 
+    skill_name: str, 
+    json_path: Path, 
+    source: str = "ui") -> Optional[EC_Skill]:
     """Create EC_Skill and populate fields from diagram dict + an already built workflow.
 
-    Notes:
-    - This helper intentionally does NOT call flowgram2langgraph() to avoid changing
-      breakpoint manager / breakpoint list behaviors in different call sites.
-    - For `source="ui"`, we keep the historical behavior and DO NOT overwrite `id`.
-    - For `source="code"`, we ensure deterministic stable id generation.
+    - For `source="ui"`, keep the historical behavior and do NOT overwrite `id`.
+    - For `source="code"`, ensure deterministic stable id generation.
     """
     try:
         if not workflow:
             logger.error(f"[_create_skill_from_workflow] Empty workflow for {skill_name}")
             return None
-
         sk = EC_Skill()
         sk.name = core_dict.get("skillName") or core_dict.get("name") or skill_name
         sk.version = str(core_dict.get("version", "1.0.0"))
@@ -229,7 +224,7 @@ def create_skill_from_resource(
 
         # Keep consistent breakpoint manager behavior with file-loaded skills
         bp_mgr = BreakpointManager()
-        workflow, _breakpoints = flowgram2langgraph(core_dict, bundle_dict, bp_mgr)
+        workflow, _breakpoints = flowgram2langgraph_v2(core_dict, bundle_json=bundle_dict, enable_subgraph=False, bp_mgr=bp_mgr)
         try:
             if isinstance(_breakpoints, (list, tuple)):
                 bp_mgr.set_breakpoints(list(_breakpoints))
@@ -589,72 +584,162 @@ def _load_diagram_from_path(skill_path: str, skill_name: str = "Unknown") -> dic
         return None
 
 
+def _fill_skill_from_db_view(skill_obj: EC_Skill, v: DBAgentSkill) -> None:
+    skill_obj.id = v.str('id', str(uuid.uuid4()))
+    skill_obj.askid = v.int('askid', 0)
+    skill_obj.name = v.str('name', 'Unknown Skill')
+    skill_obj.description = v.str('description', '')
+    skill_obj.version = v.str('version', '1.0.0')
+    skill_obj.owner = v.str('owner', '')
+    skill_obj.config = v.dict('config', {})
+    skill_obj.level = v.str('level', 'entry')
+    skill_obj.path = v.str('path', '')
+
+    skill_obj.tags = v.list('tags', skill_obj.tags or [])
+    skill_obj.examples = v.list('examples', skill_obj.examples or [])
+    skill_obj.inputModes = v.list('inputModes', skill_obj.inputModes or [])
+    skill_obj.outputModes = v.list('outputModes', skill_obj.outputModes or [])
+    skill_obj.apps = v.json('apps', getattr(skill_obj, 'apps', None))
+    skill_obj.limitations = v.json('limitations', getattr(skill_obj, 'limitations', None))
+    skill_obj.price = v.int('price', getattr(skill_obj, 'price', 0) or 0)
+    skill_obj.price_model = v.str('price_model', getattr(skill_obj, 'price_model', '') or '')
+    skill_obj.public = v.bool('public', getattr(skill_obj, 'public', False) or False)
+    skill_obj.rentable = v.bool('rentable', getattr(skill_obj, 'rentable', False) or False)
+    skill_obj.ui_info = v.dict('ui_info', getattr(skill_obj, 'ui_info', {}) or {})
+    skill_obj.objectives = v.list('objectives', getattr(skill_obj, 'objectives', []) or [])
+    skill_obj.need_inputs = v.list('need_inputs', getattr(skill_obj, 'need_inputs', []) or [])
+
+
+def _load_core_and_bundle_for_skill_path(skill_path: str) -> tuple[dict | None, dict | None]:
+    """Load (core_dict, bundle_dict) from skill json path.
+
+    - core_dict: <name>_skill.json
+    - bundle_dict: <name>_skill_bundle.json (optional, same folder)
+    """
+    try:
+        spath = (skill_path or "").strip()
+        if not spath:
+            return None, None
+
+        core_path = Path(spath)
+        if not (core_path.exists() and core_path.is_file() and core_path.suffix.lower() == ".json"):
+            return None, None
+
+        with core_path.open("r", encoding="utf-8") as f:
+            core_dict = json.load(f)
+        if not isinstance(core_dict, dict):
+            core_dict = None
+
+        bundle_dict = None
+        try:
+            bundle_path = core_path.with_name(f"{core_path.stem}_bundle.json")
+            if bundle_path.exists():
+                with bundle_path.open("r", encoding="utf-8") as bf:
+                    bundle_dict = json.load(bf)
+                if not isinstance(bundle_dict, dict):
+                    bundle_dict = None
+        except Exception:
+            bundle_dict = None
+
+        return core_dict, bundle_dict
+    except Exception:
+        return None, None
+
+
+def _extract_workflow_from_core_dict(skill_name: str, core_dict: dict | None) -> tuple[dict | None, dict | None]:
+    """Extract (flow_for_convert, diagram) from file-loaded core_dict."""
+    if not (isinstance(core_dict, dict) and core_dict):
+        return None, None
+
+    wf = core_dict.get("workFlow")
+    if isinstance(wf, dict) and wf:
+        return core_dict, wf
+
+    d0 = core_dict.get("diagram")
+    if isinstance(d0, dict) and d0:
+        wf2 = d0.get("workFlow")
+        if isinstance(wf2, dict) and wf2:
+            return core_dict, wf2
+        if isinstance(d0.get("nodes"), list) and isinstance(d0.get("edges"), list):
+            return core_dict, d0
+
+    if isinstance(core_dict.get("nodes"), list) and isinstance(core_dict.get("edges"), list):
+        return {"skillName": skill_name, "workFlow": core_dict}, core_dict
+
+    return None, None
+
+
+def _compile_skill_workflow_from_flow(
+    *,
+    skill_obj: EC_Skill,
+    flow_for_convert: dict,
+    bundle_dict: dict | None,
+) -> None:
+    """Compile workflow via `flowgram2langgraph_v2` and set `skill_obj.runnable`.
+
+    - `flow_for_convert` should be the file-loaded outer shell when available.
+    - `bundle_dict` is optional.
+    """
+    logger.debug(f"[build_agent_skills] Rebuilding workflow for skill: {skill_obj.name}")
+    wf_obj = flow_for_convert.get("workFlow") if isinstance(flow_for_convert.get("workFlow"), dict) else {}
+    logger.debug(
+        f"[build_agent_skills] Rebuilding workflow diagram: nodes={len(wf_obj.get('nodes') or [])}, edges={len(wf_obj.get('edges') or [])}"
+    )
+
+    bp_mgr = BreakpointManager()
+    workflow, bp_list = flowgram2langgraph_v2(flow_for_convert, bundle_json=bundle_dict, enable_subgraph=False, bp_mgr=bp_mgr)
+    try:
+        if isinstance(bp_list, (list, tuple)):
+            bp_mgr.set_breakpoints(list(bp_list))
+    except Exception:
+        pass
+
+    if workflow:
+        skill_obj.set_work_flow(workflow)
+        logger.info(f"[build_agent_skills] ✅ Successfully compiled workflow for: {skill_obj.name}")
+    else:
+        logger.warning(f"[build_agent_skills] ⚠️ Failed to convert diagram to workflow for: {skill_obj.name}")
+
+
 def _convert_db_skill_to_object(db_skill):
     """Convert database skill data to skill object with compiled workflow"""
     try:
         skill_obj = EC_Skill()
         v = DBAgentSkill.view(db_skill)
 
-        skill_obj.id = v.str('id', str(uuid.uuid4()))
-        skill_obj.askid = v.int('askid', 0)
-        skill_obj.name = v.str('name', 'Unknown Skill')
-        skill_obj.description = v.str('description', '')
-        skill_obj.version = v.str('version', '1.0.0')
-        skill_obj.owner = v.str('owner', '')
-        skill_obj.config = v.dict('config', {})
-        skill_obj.level = v.str('level', 'entry')
-        skill_obj.path = v.str('path', '')
-
-        skill_obj.tags = v.list('tags', skill_obj.tags or [])
-        skill_obj.examples = v.list('examples', skill_obj.examples or [])
-        skill_obj.inputModes = v.list('inputModes', skill_obj.inputModes or [])
-        skill_obj.outputModes = v.list('outputModes', skill_obj.outputModes or [])
-        skill_obj.apps = v.json('apps', getattr(skill_obj, 'apps', None))
-        skill_obj.limitations = v.json('limitations', getattr(skill_obj, 'limitations', None))
-        skill_obj.price = v.int('price', getattr(skill_obj, 'price', 0) or 0)
-        skill_obj.price_model = v.str('price_model', getattr(skill_obj, 'price_model', '') or '')
-        skill_obj.public = v.bool('public', getattr(skill_obj, 'public', False) or False)
-        skill_obj.rentable = v.bool('rentable', getattr(skill_obj, 'rentable', False) or False)
-        skill_obj.ui_info = v.dict('ui_info', getattr(skill_obj, 'ui_info', {}) or {})
-        skill_obj.objectives = v.list('objectives', getattr(skill_obj, 'objectives', []) or [])
-        skill_obj.need_inputs = v.list('need_inputs', getattr(skill_obj, 'need_inputs', []) or [])
+        _fill_skill_from_db_view(skill_obj, v)
 
         # Load mapping rules from data_mapping.json
         mapping_rules = _load_mapping_rules_from_path(skill_obj.path, skill_obj.name)
         if mapping_rules:
             skill_obj.mapping_rules = mapping_rules
 
-        # Load diagram from file (priority) or DB (fallback)
-        diagram = _load_diagram_from_path(skill_obj.path, skill_obj.name)
+        core_dict, bundle_dict = _load_core_and_bundle_for_skill_path(skill_obj.path)
+
+        # IMPORTANT: DB diagram is a fallback source.
+        # Preferred source-of-truth for workflow is the on-disk JSON pointed by skill_obj.path.
+        # Only when we cannot extract workflow from file, we fall back to db_skill['diagram'].
+        # If we later enforce "file-only" workflows, we can remove the DB fallback block below.
+        flow_for_convert, diagram = _extract_workflow_from_core_dict(skill_obj.name, core_dict)
+        if flow_for_convert is None:
+            raw_db_diagram = (db_skill or {}).get("diagram")
+            if isinstance(raw_db_diagram, dict) and raw_db_diagram:
+                wf = raw_db_diagram.get("workFlow")
+                if isinstance(wf, dict) and wf:
+                    flow_for_convert, diagram = raw_db_diagram, wf
+                else:
+                    flow_for_convert, diagram = {"skillName": skill_obj.name, "workFlow": raw_db_diagram}, raw_db_diagram
+
         if diagram:
             skill_obj.diagram = diagram
-        else:
-            diagram = db_skill.get('diagram')
-        if diagram and isinstance(diagram, dict):
-            try:
-                logger.debug(f"[build_agent_skills] Rebuilding workflow for skill: {skill_obj.name}")
-                if not skill_obj.diagram:
-                    skill_obj.diagram = diagram
-                logger.debug(f"[build_agent_skills] Rebuilding workflow diagram: {diagram}")
 
-                # Convert flowgram diagram to LangGraph workflow with breakpoint support (v2 preprocessing)
-                bp_mgr = BreakpointManager()
-                workflow, bp_list = flowgram2langgraph_v2(diagram, bundle_json=None, enable_subgraph=False, bp_mgr=bp_mgr)
-                try:
-                    # Populate manager after construction; node wrappers hold the same reference
-                    if isinstance(bp_list, (list, tuple)):
-                        bp_mgr.set_breakpoints(list(bp_list))
-                except Exception:
-                    pass
-                
-                if workflow:
-                    # Compile the workflow with checkpointer
-                    from langgraph.checkpoint.memory import InMemorySaver
-                    checkpointer = InMemorySaver()
-                    skill_obj.runnable = workflow.compile(checkpointer=checkpointer)
-                    logger.info(f"[build_agent_skills] ✅ Successfully compiled workflow for: {skill_obj.name}")
-                else:
-                    logger.warning(f"[build_agent_skills] ⚠️ Failed to convert diagram to workflow for: {skill_obj.name}")
+        if flow_for_convert and isinstance(flow_for_convert, dict):
+            try:
+                _compile_skill_workflow_from_flow(
+                    skill_obj=skill_obj,
+                    flow_for_convert=flow_for_convert,
+                    bundle_dict=bundle_dict,
+                )
             except Exception as e:
                 logger.error(f"[build_agent_skills] ❌ Error rebuilding workflow for {skill_obj.name}: {e}")
                 logger.error(f"[build_agent_skills] Traceback: {traceback.format_exc()}")
@@ -822,10 +907,21 @@ def load_skill_from_folder(skill_folder_path: Path, mainwin=None) -> Optional[EC
             No need to manually regenerate it here.
             """
             sk.source = source
-            sk.path = path
+            norm_path = path.replace('\\', '/')
+            is_code_dir = '/code_dir' in norm_path
+            is_code_skill_dir = '/code_skill' in norm_path
+
+            if is_code_dir:
+                sk.path = None
+            elif is_code_skill_dir:
+                diagram_path = skill_root / 'diagram_dir' / f"{skill_root.name}.json"
+                sk.path = str(diagram_path) if diagram_path.exists() else None
+            else:
+                sk.path = path
             # ID will be automatically regenerated by model_post_init when source changes
             load_mapping_rules(sk, skill_root)
-            logger.debug(f"[build_agent_skills] Finalized skill: {sk.name} (source={source})")
+            log_path = sk.path or 'None (code_only)'
+            logger.debug(f"[build_agent_skills] Finalized skill: {sk.name} (source={source}, path={log_path})")
             return sk
 
         def find_package_dir_in_code(code_dir: Path) -> Optional[Tuple[Path, Optional[str], str]]:
@@ -996,7 +1092,7 @@ def load_skill_from_folder(skill_folder_path: Path, mainwin=None) -> Optional[EC
 
                 # Keep original breakpoint behavior for file-loaded skills
                 bp_mgr = BreakpointManager()
-                workflow, _breakpoints = flowgram2langgraph(core_dict, bundle_dict, bp_mgr)
+                workflow, _breakpoints = flowgram2langgraph_v2(core_dict, bundle_json=bundle_dict, enable_subgraph=False, bp_mgr=bp_mgr)
                 try:
                     if isinstance(_breakpoints, (list, tuple)):
                         bp_mgr.set_breakpoints(list(_breakpoints))

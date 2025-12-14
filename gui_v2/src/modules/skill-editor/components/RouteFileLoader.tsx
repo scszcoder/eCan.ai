@@ -9,6 +9,7 @@ import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { useSkillInfoStore } from '../stores/skill-info-store';
 import { useSheetsStore } from '../stores/sheets-store';
 import { loadSkillFile } from '../services/skill-loader';
+import { PageRefreshManager } from '../../../services/events/PageRefreshManager';
 
 export const RouteFileLoader = () => {
   const location = useLocation();
@@ -17,6 +18,7 @@ export const RouteFileLoader = () => {
   const setBreakpoints = useSkillInfoStore((state) => state.setBreakpoints);
   const setCurrentFilePath = useSkillInfoStore((state) => state.setCurrentFilePath);
   const setHasUnsavedChanges = useSkillInfoStore((state) => state.setHasUnsavedChanges);
+  const setPreviewMode = useSkillInfoStore((state) => state.setPreviewMode);
   const loadBundle = useSheetsStore((s) => s.loadBundle);
   
   const lastLoadedPath = useRef<string | null>(null);
@@ -24,41 +26,43 @@ export const RouteFileLoader = () => {
 
   useEffect(() => {
     // Check if we have a file path in route state
-    const state = location.state as { filePath?: string; skillId?: string } | null;
+    const state = location.state as { filePath?: string; skillId?: string; previewMode?: boolean } | null;
     const locationKey = location.key || 'default';
+
+    const isReloadSkillEditor = PageRefreshManager.isReloadSkillEditor();
     
-    console.log('[RouteFileLoader] Effect triggered:', {
-      hasState: !!state,
-      filePath: state?.filePath,
-      lastLoadedPath: lastLoadedPath.current,
-      locationKey,
-      lastLocationKey: lastLocationKey.current
-    });
-    
-    if (!state?.filePath) {
+    if (isReloadSkillEditor && state?.filePath) {
+      // On reload, ignore stale route state and let AutoLoadHandler handle file loading
+      setPreviewMode(false);
       return;
     }
+    
+    if (!state?.filePath) {
+      // No route file load => default to normal editing
+      setPreviewMode(false);
+      return;
+    }
+
+    // Apply preview mode from navigation state
+    setPreviewMode(!!state.previewMode);
 
     // Skip if already loaded this exact path with same location key
     // (location.key changes on each navigation, even to same path)
     if (lastLoadedPath.current === state.filePath && lastLocationKey.current === locationKey) {
-      console.log('[RouteFileLoader] Already loaded this path with same key, skipping');
       return;
     }
 
     // Wait for workflowDocument to be available
     if (!workflowDocument) {
-      console.log('[RouteFileLoader] workflowDocument not ready');
       return;
     }
 
     const loadFile = async () => {
       try {
         const filePath = state.filePath!;
-        console.log('[RouteFileLoader] Loading file:', filePath);
 
         // Use unified skill loader (handles migration automatically)
-        const result = await loadSkillFile(filePath);
+        const result = await loadSkillFile(filePath, { autoSaveMigrated: !state.previewMode });
         
         if (result.success && result.skillInfo) {
           const data = result.skillInfo;
@@ -102,7 +106,6 @@ export const RouteFileLoader = () => {
         // Mark this path and location key as loaded
         lastLoadedPath.current = filePath;
         lastLocationKey.current = locationKey;
-        console.log('[RouteFileLoader] File loaded successfully:', filePath);
       } catch (error) {
         console.error('[RouteFileLoader] Error loading file:', error);
       }
@@ -114,7 +117,17 @@ export const RouteFileLoader = () => {
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [location.state, location.key, workflowDocument, setSkillInfo, setBreakpoints, setCurrentFilePath, setHasUnsavedChanges]);
+  }, [
+    location.state,
+    location.key,
+    workflowDocument,
+    setSkillInfo,
+    setBreakpoints,
+    setCurrentFilePath,
+    setHasUnsavedChanges,
+    setPreviewMode,
+    loadBundle,
+  ]);
 
   return null; // This component doesn't render anything
 };

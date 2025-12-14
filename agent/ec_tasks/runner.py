@@ -571,33 +571,46 @@ class TaskRunner(Generic[Context]):
             
             for t in tasks_list:
                 if not t or not getattr(t, "skill", None):
+                    logger.debug(f"[ROUTING] Skipping task (no skill): {getattr(t, 'name', 'UNKNOWN')}")
                     continue
                 
                 skill = t.skill
+                skill_name = getattr(skill, "name", "UNKNOWN")
+                logger.debug(f"[ROUTING] Checking task: {t.name}, skill: {skill_name}")
+                
                 rules = getattr(skill, "mapping_rules", None)
                 
                 if not isinstance(rules, dict):
+                    logger.debug(f"[ROUTING] No mapping_rules for skill: {skill_name}")
                     continue
                 
                 # Get event_routing from rules
                 event_routing = rules.get("event_routing")
                 if not isinstance(event_routing, dict):
                     run_mode = getattr(skill, "run_mode", None)
+                    logger.debug(f"[ROUTING] No top-level event_routing, checking run_mode: {run_mode}")
                     if run_mode and isinstance(rules.get(run_mode), dict):
                         event_routing = rules.get(run_mode, {}).get("event_routing")
                 
                 if not isinstance(event_routing, dict):
+                    logger.debug(f"[ROUTING] No event_routing found for skill: {skill_name}")
                     continue
+                
+                logger.debug(f"[ROUTING] event_routing keys: {list(event_routing.keys())}")
                 
                 rule = event_routing.get(etype)
                 if not isinstance(rule, dict):
+                    logger.debug(f"[ROUTING] No rule for event type '{etype}' in skill: {skill_name}")
                     continue
                 
                 # Evaluate selector
                 selector = rule.get("task_selector") or ""
+                logger.debug(f"[ROUTING] Evaluating selector '{selector}' for task: {t.name}, skill: {skill_name}")
                 if self._evaluate_selector(selector, t):
-                    logger.info(f"[ROUTING] Matched task: {t.name}, id={t.id}")
+                    logger.info(f"[ROUTING] ✅ Matched task: {t.name}, id={t.id}")
                     return t
+                else:
+                    logger.debug(f"[ROUTING] ❌ Selector '{selector}' did not match task: {t.name}")
                     
         except Exception as e:
             logger.error(get_traceback(e, "ErrorResolveEventRouting"))
@@ -1144,6 +1157,51 @@ class TaskRunner(Generic[Context]):
             final_state = self._deep_merge(final_state, dev_init_state)
         
         return final_state or task.metadata.get("state", {})
+
+    def _log_task_node_timings(self, task: "ManagedTask", waiter_task_id: Optional[str], response: Any) -> None:
+        try:
+            cp = None
+            values = None
+            if isinstance(response, dict):
+                cp = response.get("cp")
+            if cp is not None and hasattr(cp, "values"):
+                values = getattr(cp, "values", None)
+            if values is None:
+                values = task.metadata.get("state")
+
+            if not isinstance(values, dict):
+                return
+
+            attrs = values.get("attributes")
+            timings = attrs.get("__node_timings__") if isinstance(attrs, dict) else None
+            if not (isinstance(timings, list) and timings):
+                return
+
+            total_ms = 0
+            status_cnt = {}
+            cleaned = []
+            for t in timings:
+                if not isinstance(t, dict):
+                    continue
+                dms = int(t.get("duration_ms") or 0)
+                total_ms += max(dms, 0)
+                st = str(t.get("status") or "")
+                status_cnt[st] = status_cnt.get(st, 0) + 1
+                cleaned.append(t)
+
+            cleaned.sort(key=lambda x: int(x.get("duration_ms") or 0), reverse=True)
+            topn = cleaned[:10]
+            logger.info(
+                f"[PERF][TASK] task={getattr(task, 'name', '')} waiter={waiter_task_id} "
+                f"nodes={len(cleaned)} total_node_time={total_ms}ms status={status_cnt}"
+            )
+            for i, t in enumerate(topn, 1):
+                logger.info(
+                    f"[PERF][TASK][TOP{i}] {t.get('skill')}::{t.get('node')} "
+                    f"status={t.get('status')} duration_ms={t.get('duration_ms')}"
+                )
+        except Exception:
+            pass
     
     def _on_skill_complete(
         self,
@@ -1156,6 +1214,8 @@ class TaskRunner(Generic[Context]):
         try:
             response, was_initial = future.result()
             logger.info(f"[COMPLETE] Skill completed for waiter={waiter_task_id}")
+
+            self._log_task_node_timings(task, waiter_task_id, response)
             
             # Check for interrupt
             task_interrupted = False

@@ -4,7 +4,7 @@
  */
 
 import { create } from 'zustand';
-import type { SkillInfo } from '../../typings/skill-info';
+import type { SkillInfo } from '../typings/skill-info';
 
 interface SkillInfoStoreState {
   skillInfo: SkillInfo | null;
@@ -18,6 +18,8 @@ interface SkillInfoStoreState {
   setCurrentFilePath: (path: string | null) => void;
   hasUnsavedChanges: boolean;
   setHasUnsavedChanges: (hasChanges: boolean) => void;
+  previewMode: boolean;
+  setPreviewMode: (preview: boolean) => void;
 }
 
 export const useSkillInfoStore = create<SkillInfoStoreState>((set) => ({
@@ -34,4 +36,6 @@ export const useSkillInfoStore = create<SkillInfoStoreState>((set) => ({
   setCurrentFilePath: (path) => set({ currentFilePath: path }),
   hasUnsavedChanges: false,
   setHasUnsavedChanges: (hasChanges) => set({ hasUnsavedChanges: hasChanges }),
+  previewMode: false,
+  setPreviewMode: (preview) => set({ previewMode: preview }),
 }));

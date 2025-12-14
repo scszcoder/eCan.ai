@@ -13,7 +13,54 @@ export class PageRefreshManager {
     private cleanupFunctions: (() => void)[] = [];
     private isEnabled = false; // Disabled by default, only enabled after login success
 
+    private static readonly STORAGE_PAGE_LOAD_HASH = 'page_load_hash';
+    private static readonly STORAGE_PAGE_WAS_REFRESH = 'page_was_refresh';
+    private static readonly STORAGE_SKILL_EDITOR_RELOAD_CONSUMED = 'skill_editor_reload_consumed';
+
     private constructor() {}
+
+    private static safeGet(key: string): string {
+        try {
+            return sessionStorage.getItem(key) || '';
+        } catch {
+            return '';
+        }
+    }
+
+    private static safeSet(key: string, value: string): void {
+        try {
+            sessionStorage.setItem(key, value);
+        } catch {
+            // ignore
+        }
+    }
+
+    public static getPageLoadHash(): string {
+        return PageRefreshManager.safeGet(PageRefreshManager.STORAGE_PAGE_LOAD_HASH);
+    }
+
+    public static wasPageRefresh(): boolean {
+        return PageRefreshManager.safeGet(PageRefreshManager.STORAGE_PAGE_WAS_REFRESH) === 'true';
+    }
+
+    public static isSkillEditorReloadConsumed(): boolean {
+        return PageRefreshManager.safeGet(PageRefreshManager.STORAGE_SKILL_EDITOR_RELOAD_CONSUMED) === 'true';
+    }
+
+    public static resetSkillEditorReloadConsumed(): void {
+        PageRefreshManager.safeSet(PageRefreshManager.STORAGE_SKILL_EDITOR_RELOAD_CONSUMED, 'false');
+    }
+
+    public static consumeSkillEditorReload(): void {
+        PageRefreshManager.safeSet(PageRefreshManager.STORAGE_SKILL_EDITOR_RELOAD_CONSUMED, 'true');
+    }
+
+    public static isReloadSkillEditor(): boolean {
+        const pageLoadHash = PageRefreshManager.getPageLoadHash();
+        const pageWasRefresh = PageRefreshManager.wasPageRefresh();
+        const reloadConsumed = PageRefreshManager.isSkillEditorReloadConsumed();
+        return pageWasRefresh && pageLoadHash.includes('skill_editor') && !reloadConsumed;
+    }
 
     // Singleton pattern
     public static getInstance(): PageRefreshManager {
@@ -32,6 +79,9 @@ export class PageRefreshManager {
             return;
         }
 
+        PageRefreshManager.safeSet(PageRefreshManager.STORAGE_PAGE_LOAD_HASH, window.location.hash || '');
+        PageRefreshManager.resetSkillEditorReloadConsumed();
+
         logger.info('Initialize PageRefreshManager...');
         this.setupEventListeners();
         this.registerDefaultActions();
@@ -41,6 +91,10 @@ export class PageRefreshManager {
         // 禁用应用启动时的自动登录，但保留页面刷新后的会话恢复
         // 通过检查 sessionStorage 来判断是否是应用首次启动
         const isAppRestart = !sessionStorage.getItem('app_session_active');
+
+        // Persist a reliable refresh marker for this page load.
+        // In some desktop runtimes (Qt WebEngine), performance.navigation.type may not be reliable.
+        PageRefreshManager.safeSet(PageRefreshManager.STORAGE_PAGE_WAS_REFRESH, isAppRestart ? 'false' : 'true');
         
         if (isAppRestart) {
             // 应用首次启动：清除 localStorage，强制显示登录界面

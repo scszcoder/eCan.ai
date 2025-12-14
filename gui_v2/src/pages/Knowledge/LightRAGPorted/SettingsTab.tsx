@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { theme, App, Tabs, Tooltip, Input, Select, Switch } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
@@ -88,6 +88,127 @@ const mergeProviders = (staticList: ProviderConfig[], systemList: ProviderConfig
 const SettingsTab: React.FC = () => {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+  const savedScrollPosition = useRef<number>(0);
+  const restoringRef = useRef(false);
+
+  const storagePrefix = 'lightrag-ported:tabs';
+  const settingsScrollKey = `${storagePrefix}:innerScroll:settings`;
+
+  const readSaved = () => {
+    const raw = sessionStorage.getItem(settingsScrollKey);
+    const num = raw ? Number(raw) : 0;
+    return Number.isFinite(num) ? num : 0;
+  };
+
+  const saveScroll = () => {
+    const tabsContent = document.querySelector('.lightrag-settings-tabs .ant-tabs-content-holder') as HTMLElement | null;
+    if (tabsContent) {
+      const v = tabsContent.scrollTop;
+      const saved = readSaved();
+      // 避免在“刚返回页面/刚挂载”的 0 把已有的非 0 保存覆盖掉
+      if (restoringRef.current && v === 0 && saved > 0) return;
+      savedScrollPosition.current = v;
+      if (v > 0 || saved === 0) {
+        sessionStorage.setItem(settingsScrollKey, String(savedScrollPosition.current));
+      }
+    }
+  };
+
+  const restoreScrollWithRetry = (attempts = 0) => {
+    const tabsContent = document.querySelector('.lightrag-settings-tabs .ant-tabs-content-holder') as HTMLElement | null;
+    const saved = readSaved();
+    if (saved <= 0) return;
+
+    restoringRef.current = true;
+
+    // 外层 page 切回时，content-holder 可能还没挂载出来，必须重试
+    if (!tabsContent) {
+      if (attempts < 80) {
+        setTimeout(() => restoreScrollWithRetry(attempts + 1), 50);
+      }
+      return;
+    }
+
+    tabsContent.scrollTop = saved;
+    if (tabsContent.scrollTop !== saved && attempts < 80) {
+      setTimeout(() => restoreScrollWithRetry(attempts + 1), 50);
+      return;
+    }
+
+    restoringRef.current = false;
+  };
+
+  useEffect(() => {
+    const activeTab = sessionStorage.getItem(`${storagePrefix}:active`);
+    if (activeTab === 'settings') {
+      requestAnimationFrame(() => restoreScrollWithRetry());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    let currentEl: HTMLElement | null = null;
+    const onScroll = () => {
+      if (currentEl) {
+        const v = currentEl.scrollTop;
+        const saved = readSaved();
+        if (restoringRef.current && v === 0 && saved > 0) return;
+        if (v > 0 || saved === 0) {
+          sessionStorage.setItem(settingsScrollKey, String(v));
+        }
+      }
+    };
+
+    const bindWithRetry = (attempts = 0) => {
+      const el = document.querySelector('.lightrag-settings-tabs .ant-tabs-content-holder') as HTMLElement | null;
+      if (el) {
+        if (currentEl !== el) {
+          if (currentEl) currentEl.removeEventListener('scroll', onScroll);
+          currentEl = el;
+          currentEl.addEventListener('scroll', onScroll, { passive: true });
+        }
+        return;
+      }
+      if (attempts < 80) {
+        setTimeout(() => bindWithRetry(attempts + 1), 50);
+      }
+    };
+
+    bindWithRetry();
+
+    return () => {
+      // 卸载时也保存一次，避免外层 page 切换时没来得及触发事件
+      saveScroll();
+      if (currentEl) {
+        currentEl.removeEventListener('scroll', onScroll);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const onActivate = (e: Event) => {
+      const ce = e as CustomEvent<{ key?: string }>;
+      if (ce.detail?.key === 'settings') {
+        requestAnimationFrame(() => restoreScrollWithRetry());
+      }
+    };
+
+    const onDeactivate = (e: Event) => {
+      const ce = e as CustomEvent<{ key?: string }>;
+      if (ce.detail?.key === 'settings') {
+        saveScroll();
+      }
+    };
+
+    window.addEventListener('lightrag-tab-activate', onActivate);
+    window.addEventListener('lightrag-tab-deactivate', onDeactivate);
+    return () => {
+      window.removeEventListener('lightrag-tab-activate', onActivate);
+      window.removeEventListener('lightrag-tab-deactivate', onDeactivate);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [llmProviders, setLlmProviders] = useState<ProviderConfig[]>(LLM_PROVIDERS);
   const [embeddingProviders, setEmbeddingProviders] = useState<ProviderConfig[]>(EMBEDDING_PROVIDERS);
   const [rerankingProviders, setRerankingProviders] = useState<ProviderConfig[]>(RERANKING_PROVIDERS);
@@ -904,7 +1025,8 @@ const SettingsTab: React.FC = () => {
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
-          flex: 1
+          flex: 1,
+          minHeight: 0
         }}>
           <Tabs
             defaultActiveKey="basic"

@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { List, Tag, Typography, Space, Empty } from 'antd';
+import { useEffectOnActive } from 'keepalive-for-react';
 import {
     RobotOutlined,
     ClockCircleOutlined,
@@ -370,6 +371,37 @@ const SkillList: React.FC<SkillListProps> = ({ skills, loading, onSelectSkill, s
         sortBy: 'name',
     });
 
+    // Scroll position preservation for keepalive
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const savedScrollPositionRef = useRef<number>(0);
+
+    // Restore scroll position when component becomes active
+    useEffectOnActive(
+        () => {
+            const container = scrollContainerRef.current;
+            if (container && savedScrollPositionRef.current > 0) {
+                requestAnimationFrame(() => {
+                    if (container) {
+                        container.scrollTop = savedScrollPositionRef.current;
+                    }
+                });
+            }
+            
+            return () => {
+                const container = scrollContainerRef.current;
+                if (container) {
+                    savedScrollPositionRef.current = container.scrollTop;
+                }
+            };
+        },
+        []
+    );
+
+    // Save scroll position when scrolling
+    const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+        savedScrollPositionRef.current = e.currentTarget.scrollTop;
+    };
+
     // 筛选和Sort技能
     const filteredAndSortedSkills = useMemo(() => {
         let result = [...skills];
@@ -441,7 +473,7 @@ const SkillList: React.FC<SkillListProps> = ({ skills, loading, onSelectSkill, s
         <ListContainer>
             <SkillFilters filters={filters} onChange={setFilters} />
             
-            <SkillsScrollArea>
+            <SkillsScrollArea ref={scrollContainerRef} onScroll={handleScroll}>
                 {filteredAndSortedSkills.length === 0 ? (
                     <EmptyContainer>
                         <Empty
