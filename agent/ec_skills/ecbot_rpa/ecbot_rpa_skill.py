@@ -100,12 +100,13 @@ async def create_rpa_helper_skill(mainwin):
             if "resolved" in last_msg:
                 state["resolved"] = True
             else:
-                state["retries"] += 1
+                state["resolved"] = False
+                state["retries"] = int(state.get("retries") or 0) + 1
             return state
 
         # Router logic
-        async def route_logic(state: NodeState) -> str:
-            if state["resolved"] or state["retries"] >= 5:
+        def route_logic(state: NodeState) -> str:
+            if bool(state.get("resolved")) or int(state.get("retries") or 0) >= 5:
                 return END
             return "llm_loop"
 
