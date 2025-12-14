@@ -575,6 +575,7 @@ class BrowserManager:
                 try:
                     if hasattr(browser.browser_session, 'browser_profile') and browser.browser_session.browser_profile:
                         browser.browser_session.browser_profile.downloads_path = downloads_path
+                        browser.browser_session.browser_profile.auto_download_pdfs = True
                         logger.debug(f"[BrowserManager] Updated downloads_path on existing browser {browser.id}")
                 except Exception as e:
                     logger.warning(f"[BrowserManager] Failed to update downloads_path on browser {browser.id}: {e}")
