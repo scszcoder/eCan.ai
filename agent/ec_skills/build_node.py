@@ -510,6 +510,56 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         if state["messages"]:
             agent_id = state["messages"][0]
             agent = get_agent_by_id(agent_id)
+            
+            # =================================================================
+            # Context Engineering: Build structured context from providers
+            # =================================================================
+            # Check if context builder is enabled via state attributes
+            context_builder_enabled = state.get("attributes", {}).get("context_builder_enabled", False)
+            if context_builder_enabled:
+                try:
+                    _t_stage = _time.perf_counter()
+                    from agent.ec_skills.context_utils.context_utils import (
+                        ContextBuilder,
+                        ContextBuilderConfig,
+                    )
+                    
+                    # Get config from state or use default
+                    context_config = state.get("attributes", {}).get("context_builder_config")
+                    if context_config and isinstance(context_config, dict):
+                        # Convert dict to ContextBuilderConfig
+                        builder_config = ContextBuilderConfig(**context_config)
+                    elif isinstance(context_config, ContextBuilderConfig):
+                        builder_config = context_config
+                    else:
+                        builder_config = ContextBuilderConfig()
+                    
+                    # Build structured context
+                    context_builder = ContextBuilder(builder_config)
+                    structured_context = context_builder.build_context(state)
+                    
+                    # Store in state for use by hooks and prompts
+                    if "attributes" not in state:
+                        state["attributes"] = {}
+                    state["attributes"]["structured_context"] = structured_context
+                    
+                    _perf_llm("context_builder", _t_stage, extra={
+                        "context_len": len(structured_context or ""),
+                        "providers": len(builder_config.enabled_providers),
+                    })
+                    
+                    log_msg = f"📦 ContextBuilder: built {len(structured_context)} chars from {len(builder_config.enabled_providers)} providers"
+                    logger.debug(log_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                    
+                except Exception as e:
+                    err_msg = f"[ContextBuilder] Failed to build context: {e}"
+                    logger.warning(err_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("warning", err_msg)
+            # =================================================================
+            # End Context Engineering
+            # =================================================================
+            
             _t_stage = _time.perf_counter()
             run_pre_llm_hook(full_node_name, agent, state, prompt_src="local", prompt_data=messages)
             _perf_llm("pre_hook", _t_stage)
@@ -749,8 +799,10 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 import time
                 import threading
                 import queue
+                import asyncio
 
                 def _invoke_with_thread(llm_to_use, timeout_sec: float):
+                    """Sync LLM invocation with thread-based timeout (legacy)."""
                     result_queue = queue.Queue()
                     exception_queue = queue.Queue()
 
@@ -794,9 +846,83 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
                     return resp
 
+                async def _invoke_async(llm_to_use, timeout_sec: float):
+                    """Async LLM invocation using ainvoke with timeout."""
+                    log_msg = "🔄 LLM async invocation started"
+                    logger.debug(log_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                    
+                    start_time = time.time()
+                    try:
+                        # Use ainvoke with asyncio timeout
+                        result = await asyncio.wait_for(
+                            llm_to_use.ainvoke(recent_context),
+                            timeout=timeout_sec
+                        )
+                        elapsed = time.time() - start_time
+                        
+                        log_msg = f"✅ LLM async invocation completed in {elapsed:.2f}s"
+                        logger.debug(log_msg)
+                        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                        return result
+                        
+                    except asyncio.TimeoutError:
+                        err_msg = f"⏱️ LLM async request timed out after {timeout_sec}s"
+                        logger.error(err_msg)
+                        web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+                        raise TimeoutError(err_msg)
+
+                def _invoke_hybrid(llm_to_use, timeout_sec: float):
+                    """
+                    Hybrid LLM invocation: uses async if in event loop, else sync.
+                    
+                    This allows the same node to work in both sync and async contexts.
+                    Controlled by env var ECAN_ASYNC_LLM (default: true).
+                    """
+                    # Check if async LLM is enabled
+                    use_async_llm = os.getenv("ECAN_ASYNC_LLM", "true").lower() in ("1", "true", "yes", "on")
+                    
+                    if not use_async_llm:
+                        logger.debug("[HYBRID_LLM] Async disabled, using sync invocation")
+                        return _invoke_with_thread(llm_to_use, timeout_sec)
+                    
+                    # Check if LLM supports ainvoke
+                    if not hasattr(llm_to_use, 'ainvoke'):
+                        logger.debug("[HYBRID_LLM] LLM doesn't support ainvoke, using sync")
+                        return _invoke_with_thread(llm_to_use, timeout_sec)
+                    
+                    # Try to detect if we're in an async context
+                    try:
+                        loop = asyncio.get_running_loop()
+                        # We're in an async context - use run_coroutine_threadsafe
+                        # to avoid blocking the event loop
+                        logger.debug("[HYBRID_LLM] Running in async context, using ainvoke")
+                        future = asyncio.run_coroutine_threadsafe(
+                            _invoke_async(llm_to_use, timeout_sec),
+                            loop
+                        )
+                        return future.result(timeout=timeout_sec + 5)
+                    except RuntimeError:
+                        # No running event loop - we're in sync context
+                        # Try to run async in a new loop (best effort)
+                        try:
+                            logger.debug("[HYBRID_LLM] No event loop, trying new loop for ainvoke")
+                            new_loop = asyncio.new_event_loop()
+                            try:
+                                return new_loop.run_until_complete(
+                                    _invoke_async(llm_to_use, timeout_sec)
+                                )
+                            finally:
+                                new_loop.close()
+                        except Exception as e:
+                            # Fallback to sync
+                            logger.debug(f"[HYBRID_LLM] Async failed ({e}), falling back to sync")
+                            return _invoke_with_thread(llm_to_use, timeout_sec)
+
                 # Single attempt (node-configured llm, no fallback)
+                # Use hybrid invocation for async/sync compatibility
                 _t_stage = _time.perf_counter()
-                response = _invoke_with_thread(llm, 150.0)
+                response = _invoke_hybrid(llm, 150.0)
                 _perf_llm("invoke", _t_stage)
 
                 log_msg = f"✅ LLM response received from {llm_provider}"

@@ -35,7 +35,12 @@ from .scheduler import (
 
 from .serializer import TaskSerializer
 
-from .executor import TaskExecutor
+from .executor import (
+    TaskExecutor,
+    execute_task_stream,
+    execute_task_astream,
+    execute_task_hybrid,
+)
 
 from .message_sender import ChatMessageSender, MessageType
 
@@ -74,6 +79,9 @@ __all__ = [
     "TaskSerializer",
     # Executor
     "TaskExecutor",
+    "execute_task_stream",
+    "execute_task_astream",
+    "execute_task_hybrid",
     # Message Sender
     "ChatMessageSender",
     "MessageType",

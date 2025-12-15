@@ -116,6 +116,17 @@ from agent.mcp.server.scrapers.gmail.gmail_read import (
 )
 from agent.mcp.server.Privacy.privacy_reserve import privacy_reserve
 from agent.ec_skills.rag.local_rag_mcp import ragify, rag_query
+from agent.mcp.server.self_utils.self_tools import (
+    async_describe_self,
+    async_start_task_using_skill,
+    async_stop_task_using_skill,
+)
+from agent.mcp.server.code_utils.code_tools import async_run_code, async_run_shell_script
+from agent.mcp.server.chat_utils.chat_tools import (
+    async_send_chat,
+    async_list_chat_agents,
+    async_get_chat_history,
+)
 from agent.ec_skills.label_utils.print_label import reformat_labels, print_labels
 from agent.ec_skills.browser_use_extension.extension_tools_service import *
 from app_context import AppContext
@@ -2713,7 +2724,18 @@ tool_function_mapping = {
         "reformat_labels": reformat_labels,
         "print_labels": print_labels,
         "ragify": ragify,
-        "rag_query": rag_query
+        "rag_query": rag_query,
+        # Self-introspection tools
+        "describe_self": async_describe_self,
+        "start_task_using_skill": async_start_task_using_skill,
+        "stop_task_using_skill": async_stop_task_using_skill,
+        # Code execution tools
+        "run_code": async_run_code,
+        "run_shell_script": async_run_shell_script,
+        # Chat/communication tools
+        "send_chat": async_send_chat,
+        "list_chat_agents": async_list_chat_agents,
+        "get_chat_history": async_get_chat_history,
     }
 
 def set_server_main_win(mw):
