@@ -21,6 +21,8 @@ import { useUserStore } from '../../stores/userStore';
 interface PromptsDetailProps {
   prompt: Prompt | null;
   onChange: (next: Prompt) => void;
+  initialEditMode?: boolean;
+  onEditModeConsumed?: () => void;
 }
 
 const { TextArea } = Input;
@@ -89,11 +91,19 @@ const DEFAULT_PROMPT: Prompt = {
 
 const HISTORY_LIMIT = 250;
 
-const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
+const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initialEditMode, onEditModeConsumed }) => {
   const { t } = useTranslation();
   const username = useUserStore((s) => s.username);
   const { tools, fetchTools } = useToolStore();
   const [editing, setEditing] = useState(false);
+
+  // Handle initialEditMode from URL navigation
+  useEffect(() => {
+    if (initialEditMode && prompt && !prompt.readOnly) {
+      setEditing(true);
+      onEditModeConsumed?.();
+    }
+  }, [initialEditMode, prompt, onEditModeConsumed]);
   const [draft, setDraft] = useState<Prompt | null>(prompt);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [topHeight, setTopHeight] = useState<number>(360); // px
