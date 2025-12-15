@@ -12,6 +12,7 @@ venv/
 /dist
 /bot
 *.spec
+*secret*
 test.py
 /resource/skills/public/*/*.psk
 *.psk
