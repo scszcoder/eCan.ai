@@ -546,3 +546,78 @@ async def execute_task_astream(task: "ManagedTask", in_msg: Any = "", **kwargs) 
     """Execute a task using async stream mode."""
     executor = TaskExecutor(task)
     return await executor.astream_run(in_msg, **kwargs)
+
+
+# ==================== Hybrid Async Execution ====================
+
+def execute_task_hybrid(
+    task: "ManagedTask",
+    in_msg: Any = "",
+    use_async: bool = True,
+    **kwargs
+) -> dict:
+    """
+    Execute a task with hybrid async/sync support.
+    
+    This function runs async execution in a new event loop within the current thread,
+    with automatic fallback to sync execution if async fails.
+    
+    Args:
+        task: The ManagedTask to execute.
+        in_msg: Input message or state for the skill.
+        use_async: If True, attempt async execution first. If False, use sync directly.
+        **kwargs: Additional arguments to pass to the executor.
+        
+    Returns:
+        Run result dictionary.
+        
+    Usage:
+        # In ThreadPoolExecutor worker thread:
+        result = execute_task_hybrid(task, state, use_async=True)
+    """
+    import asyncio
+    import os
+    
+    # Check environment variable for async mode (can be overridden)
+    env_async = os.getenv("ECAN_ASYNC_EXECUTION", "true").lower() in ("1", "true", "yes", "on")
+    use_async = use_async and env_async
+    
+    executor = TaskExecutor(task)
+    
+    if not use_async:
+        logger.debug("[HYBRID] Using sync execution (async disabled)")
+        return executor.stream_run(in_msg, **kwargs)
+    
+    # Try async execution with fallback
+    try:
+        logger.debug("[HYBRID] Attempting async execution")
+        
+        # Create a new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            result = loop.run_until_complete(
+                executor.astream_run(in_msg, **kwargs)
+            )
+            logger.debug("[HYBRID] Async execution completed successfully")
+            return result
+            
+        finally:
+            # Clean up the event loop
+            try:
+                # Cancel any pending tasks
+                pending = asyncio.all_tasks(loop)
+                for t in pending:
+                    t.cancel()
+                if pending:
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            except Exception:
+                pass
+            finally:
+                loop.close()
+                
+    except Exception as e:
+        # Fallback to sync execution
+        logger.warning(f"[HYBRID] Async execution failed, falling back to sync: {e}")
+        return executor.stream_run(in_msg, **kwargs)

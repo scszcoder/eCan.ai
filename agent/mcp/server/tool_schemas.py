@@ -2057,6 +2057,31 @@ def build_agent_mcp_tools_schemas():
 
     add_rag_query_tool_schema(tool_schemas)
 
+    # Self-introspection tools
+    from agent.mcp.server.self_utils.self_tools import (
+        add_describe_self_tool_schema,
+        add_start_task_using_skill_tool_schema,
+        add_stop_task_using_skill_tool_schema,
+    )
+    add_describe_self_tool_schema(tool_schemas)
+    add_start_task_using_skill_tool_schema(tool_schemas)
+    add_stop_task_using_skill_tool_schema(tool_schemas)
+
+    # Code execution tools
+    from agent.mcp.server.code_utils.code_tools import add_run_code_tool_schema, add_run_shell_script_tool_schema
+    add_run_code_tool_schema(tool_schemas)
+    add_run_shell_script_tool_schema(tool_schemas)
+
+    # Chat/communication tools for inter-agent messaging
+    from agent.mcp.server.chat_utils.chat_tools import (
+        add_send_chat_tool_schema,
+        add_list_chat_agents_tool_schema,
+        add_get_chat_history_tool_schema,
+    )
+    add_send_chat_tool_schema(tool_schemas)
+    add_list_chat_agents_tool_schema(tool_schemas)
+    add_get_chat_history_tool_schema(tool_schemas)
+
     add_extern_tools_schemas(tool_schemas)
 
     return tool_schemas

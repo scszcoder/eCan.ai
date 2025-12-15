@@ -1094,9 +1094,23 @@ class TaskRunner(Generic[Context]):
         is_initial_run: bool,
         dev_init_state: Optional[dict]
     ) -> Tuple[Optional[dict], bool]:
-        """Execute a skill and return result."""
+        """Execute a skill and return result.
+        
+        Uses hybrid async/sync execution with automatic fallback.
+        Async mode can be controlled via:
+        - Environment variable: ECAN_ASYNC_EXECUTION=true/false
+        - Task metadata: task.metadata.get("use_async", True)
+        """
         try:
-            executor = TaskExecutor(task)
+            from .executor import execute_task_hybrid
+            
+            # Determine if async execution should be used
+            # Can be disabled per-task or globally via env var
+            use_async = task.metadata.get("use_async", True)
+            
+            # Dev mode defaults to sync for easier debugging (can be overridden)
+            if trigger_type == "dev":
+                use_async = task.metadata.get("use_async", False)
             
             if is_initial_run:
                 # Prepare state
@@ -1106,7 +1120,9 @@ class TaskRunner(Generic[Context]):
                     final_state = prep_skills_run(task.skill, self.agent, task.id, msg, None)
                 
                 task.metadata["state"] = final_state
-                response = executor.stream_run(final_state)
+                
+                # Use hybrid execution with fallback
+                response = execute_task_hybrid(task, final_state, use_async=use_async)
                 return response, True
             else:
                 # Resume run
@@ -1123,15 +1139,20 @@ class TaskRunner(Generic[Context]):
                 if resume_tag:
                     resume_context = {"skip_bp_once": [resume_tag]}
 
+                # Use hybrid execution with fallback
                 if cp:
-                    response = executor.stream_run(
+                    response = execute_task_hybrid(
+                        task,
                         resume_cmd,
+                        use_async=use_async,
                         checkpoint=cp,
                         context=resume_context,
                     )
                 else:
-                    response = executor.stream_run(
+                    response = execute_task_hybrid(
+                        task,
                         resume_cmd,
+                        use_async=use_async,
                         context=resume_context,
                     )
                 return response, False
