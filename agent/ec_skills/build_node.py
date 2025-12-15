@@ -510,6 +510,56 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         if state["messages"]:
             agent_id = state["messages"][0]
             agent = get_agent_by_id(agent_id)
+            
+            # =================================================================
+            # Context Engineering: Build structured context from providers
+            # =================================================================
+            # Check if context builder is enabled via state attributes
+            context_builder_enabled = state.get("attributes", {}).get("context_builder_enabled", False)
+            if context_builder_enabled:
+                try:
+                    _t_stage = _time.perf_counter()
+                    from agent.ec_skills.context_utils.context_utils import (
+                        ContextBuilder,
+                        ContextBuilderConfig,
+                    )
+                    
+                    # Get config from state or use default
+                    context_config = state.get("attributes", {}).get("context_builder_config")
+                    if context_config and isinstance(context_config, dict):
+                        # Convert dict to ContextBuilderConfig
+                        builder_config = ContextBuilderConfig(**context_config)
+                    elif isinstance(context_config, ContextBuilderConfig):
+                        builder_config = context_config
+                    else:
+                        builder_config = ContextBuilderConfig()
+                    
+                    # Build structured context
+                    context_builder = ContextBuilder(builder_config)
+                    structured_context = context_builder.build_context(state)
+                    
+                    # Store in state for use by hooks and prompts
+                    if "attributes" not in state:
+                        state["attributes"] = {}
+                    state["attributes"]["structured_context"] = structured_context
+                    
+                    _perf_llm("context_builder", _t_stage, extra={
+                        "context_len": len(structured_context or ""),
+                        "providers": len(builder_config.enabled_providers),
+                    })
+                    
+                    log_msg = f"📦 ContextBuilder: built {len(structured_context)} chars from {len(builder_config.enabled_providers)} providers"
+                    logger.debug(log_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                    
+                except Exception as e:
+                    err_msg = f"[ContextBuilder] Failed to build context: {e}"
+                    logger.warning(err_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("warning", err_msg)
+            # =================================================================
+            # End Context Engineering
+            # =================================================================
+            
             _t_stage = _time.perf_counter()
             run_pre_llm_hook(full_node_name, agent, state, prompt_src="local", prompt_data=messages)
             _perf_llm("pre_hook", _t_stage)
