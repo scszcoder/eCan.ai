@@ -29,6 +29,8 @@ Usage:
 
 import asyncio
 import copy
+import os
+import time
 from typing import Any, Callable, Awaitable, Literal
 
 from utils.logger_helper import logger_helper as logger
@@ -85,6 +87,8 @@ class PrivacyAgent:
         privacy_filter: PrivacyFilter | None = None,
         privacy_config: PrivacyConfig | None = None,
         privacy_enabled: bool = True,  # Set to False to bypass filtering
+        privacy_debug: bool | None = None,
+        privacy_step_delay_seconds: float | None = None,
         # Pass through all other Agent parameters
         browser_profile: "BrowserProfile | None" = None,
         browser_session: "BrowserSession | None" = None,
@@ -139,6 +143,20 @@ class PrivacyAgent:
             raise ImportError(
                 "browser-use is not installed. Install it with: pip install browser-use"
             )
+
+        if privacy_debug is None:
+            privacy_debug = os.environ.get("EC_PRIVACY_AGENT_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+
+        if privacy_step_delay_seconds is None:
+            delay_raw = os.environ.get("EC_PRIVACY_AGENT_STEP_DELAY_SECONDS", "").strip()
+            if delay_raw:
+                try:
+                    privacy_step_delay_seconds = float(delay_raw)
+                except Exception:
+                    privacy_step_delay_seconds = None
+
+        self.privacy_debug = bool(privacy_debug)
+        self.privacy_step_delay_seconds = privacy_step_delay_seconds
         
         # Privacy enabled flag - can be toggled at runtime
         self.privacy_enabled = privacy_enabled
@@ -199,7 +217,13 @@ class PrivacyAgent:
         self._agent._prepare_context = self._privacy_prepare_context
         
         status = "enabled" if self.privacy_enabled else "DISABLED (passthrough mode)"
-        logger.info(f"[PrivacyAgent] Initialized with privacy filtering {status}")
+        debug_status = "debug=on" if self.privacy_debug else "debug=off"
+        delay_status = (
+            f"step_delay={self.privacy_step_delay_seconds}s"
+            if (self.privacy_step_delay_seconds is not None and self.privacy_step_delay_seconds > 0)
+            else "step_delay=off"
+        )
+        logger.info(f"[PrivacyAgent] Initialized with privacy filtering {status} ({debug_status}, {delay_status})")
     
     async def _privacy_prepare_context(
         self, 
@@ -214,18 +238,38 @@ class PrivacyAgent:
         3. Updates the message manager with filtered state
         4. Returns the filtered state
         """
+        t0 = time.perf_counter()
+        if self.privacy_debug:
+            logger.debug(
+                f"[PrivacyAgent] _prepare_context start "
+                f"(step_info={type(step_info).__name__ if step_info is not None else None})"
+            )
+
         # Call original to get browser state and create messages
         browser_state_summary = await self._original_prepare_context(step_info)
+        t_original = time.perf_counter()
         
         # Skip filtering if disabled
         if not self.privacy_enabled:
+            if self.privacy_debug:
+                logger.debug(
+                    f"[PrivacyAgent] _prepare_context passthrough (privacy_enabled=False) "
+                    f"elapsed={t_original - t0:.3f}s"
+                )
             return browser_state_summary
         
         # Apply privacy filter
         url = browser_state_summary.url if browser_state_summary else ""
+        if self.privacy_debug:
+            logger.debug(
+                f"[PrivacyAgent] Filtering browser state "
+                f"url={url!r} "
+                f"original_elapsed={t_original - t0:.3f}s"
+            )
         filter_result = self.privacy_filter.filter_browser_state(
             browser_state_summary, url
         )
+        t_filtered = time.perf_counter()
         
         # Store result for debugging
         self._filter_results.append(filter_result)
@@ -246,6 +290,13 @@ class PrivacyAgent:
                 sensitive_data=self._agent.sensitive_data,
                 available_file_paths=self._agent.available_file_paths,
             )
+
+            if self.privacy_debug:
+                logger.debug(
+                    f"[PrivacyAgent] Rebuilt state messages "
+                    f"elapsed_filter={t_filtered - t_original:.3f}s "
+                    f"elapsed_total={time.perf_counter() - t0:.3f}s"
+                )
             
             logger.debug(
                 f"[PrivacyAgent] Applied privacy filter, "
@@ -254,6 +305,18 @@ class PrivacyAgent:
             
             return filtered_state
         
+        if self.privacy_debug:
+            logger.debug(
+                f"[PrivacyAgent] No filtering applied "
+                f"elapsed_filter={t_filtered - t_original:.3f}s "
+                f"elapsed_total={time.perf_counter() - t0:.3f}s"
+            )
+
+        if self.privacy_step_delay_seconds is not None and self.privacy_step_delay_seconds > 0:
+            if self.privacy_debug:
+                logger.debug(f"[PrivacyAgent] Step delay sleep={self.privacy_step_delay_seconds}s")
+            await asyncio.sleep(self.privacy_step_delay_seconds)
+
         return browser_state_summary
     
     async def run(self, max_steps: int = 100) -> Any:

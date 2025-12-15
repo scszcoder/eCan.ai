@@ -9,7 +9,8 @@ export type PromptSectionType =
   | 'examples'
   | 'variables'
   | 'additional'
-  | 'custom';
+  | 'custom'
+  | 'tools_to_use';
 
 export interface PromptSection {
   id: string;
