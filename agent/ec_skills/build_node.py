@@ -2301,12 +2301,21 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
     async def _run_browser_use(task: str, mainwin) -> dict:
         try:
-            from browser_use import Agent as BUAgent, Browser as BUBrowser
+            from browser_use import Agent as BUAgent
             from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller
             # from browser_use.browser.context import BrowserContext as BUBrowserContext
             log_msg = f"🤖 Executing node Browser Automation node: {node_name}"
             logger.debug(log_msg)
             web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
+            # Prefer privacy-aware wrapper if available; fall back to vanilla Agent.
+            AgentClass = BUAgent
+            try:
+                from agent.ec_skills.browser_use_extension.privacy_agent import PrivacyAgent
+                AgentClass = PrivacyAgent
+                logger.info("[BrowserAutomation] Using PrivacyAgent for browser-use")
+            except Exception as _privacy_import_exc:
+                logger.info(f"[BrowserAutomation] PrivacyAgent not available, using browser_use.Agent ({_privacy_import_exc})")
 
             if not mainwin:
                 raise ValueError("mainwin is required. Must use mainwin configuration for browser_use LLM.")
@@ -2330,7 +2339,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             if browser_type_setting == 'new chromium':
                 # For new chromium, let browser_use create its own browser
                 logger.info("[BrowserAutomation] Using new chromium - browser_use will create browser")
-                agent = BUAgent(task=task, llm=llm, controller=controller, **agent_kwargs)
+                agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
             elif browser_driver_setting == 'native' and browser_session:
                 # For native (CDP) mode with existing browser session
                 logger.info(f"[BrowserAutomation] Using existing browser session via CDP: {browser_type_setting}")
@@ -2342,15 +2351,16 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 # browser = BUBrowser(config={"cdp_url": cdp_url})
                 await browser_session.start()
                 # browser_context = BUBrowserContext(browser=browser)
-                agent = BUAgent(task=task, llm=llm, controller=controller, browser_session=browser_session, **agent_kwargs)
+                agent = AgentClass(task=task, llm=llm, controller=controller, browser_session=browser_session, **agent_kwargs)
             else:
                 # Fallback: let browser_use create its own browser
                 logger.info(f"[BrowserAutomation] Fallback - browser_use will create browser (driver={browser_driver_setting})")
-                agent = BUAgent(task=task, llm=llm, controller=controller, **agent_kwargs)
+                agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
             
             history = await agent.run()
-            print("[BROWSER USE]Agent Run Results:", history)
+            print("[BROWSER USE]Agent Run History:", history)
             final = history.final_result() if hasattr(history, 'final_result') else None
+            print("[BROWSER USE]Agent Run Results:", final)
             return {"final": final, "history": str(history)}
         except Exception as e:
             err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNode")
@@ -2398,8 +2408,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         else:
             combined_task = task_instructions
 
-        print("final_system_prompt:", final_system_prompt)
-        print("final_user_prompt:", final_user_prompt)
+        # print("final_system_prompt:", final_system_prompt)
+        # print("final_user_prompt:", final_user_prompt)
         print("combined_task:", combined_task)
         if provider == 'browser-use':
             # Get mainwin from agent via state

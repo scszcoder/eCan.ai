@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Input, Typography, Space, Button, Divider, Tooltip, Select, message, Card } from 'antd';
+import { Input, Typography, Space, Button, Divider, Tooltip, Select, message, Card, Collapse, Checkbox } from 'antd';
 import {
   PlusOutlined,
   DeleteOutlined,
@@ -15,6 +15,8 @@ import {
 import type { Prompt, PromptSection, PromptSectionType } from './types';
 import { useTranslation } from 'react-i18next';
 import styles from './PromptsDetail.module.css';
+import { useToolStore } from '../../stores/toolStore';
+import { useUserStore } from '../../stores/userStore';
 
 interface PromptsDetailProps {
   prompt: Prompt | null;
@@ -51,6 +53,7 @@ const SECTION_LABELS: Record<PromptSectionType, string> = {
   examples: 'Examples',
   variables: 'Variables',
   additional: 'Additional Text',
+  tools_to_use: 'Tools To Use',
   custom: 'Custom Section',
 };
 
@@ -88,6 +91,8 @@ const HISTORY_LIMIT = 250;
 
 const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
   const { t } = useTranslation();
+  const username = useUserStore((s) => s.username);
+  const { tools, fetchTools } = useToolStore();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Prompt | null>(prompt);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -107,6 +112,12 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
   const promptReadOnlyRef = useRef<boolean>(!!(prompt?.readOnly));
 
   const clonePrompt = useCallback((value: Prompt): Prompt => JSON.parse(JSON.stringify(value)), []);
+
+  useEffect(() => {
+    if (username) {
+      fetchTools(username).catch(() => {});
+    }
+  }, [username, fetchTools]);
 
   const pushUndoStack = useCallback((snapshot: Prompt) => {
     const stack = undoStackRef.current;
@@ -285,6 +296,91 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
   const isReadOnly = !isEditable;
 
   const sortedSections = useMemo(() => active.sections ?? [], [active.sections]);
+
+  const parseToolsToUseItem = useCallback((raw: string): string[] => {
+    const s = safeString(raw).trim();
+    if (!s) return [];
+    try {
+      const parsed = JSON.parse(s);
+      if (Array.isArray(parsed)) {
+        return parsed.map((v) => safeString(v)).filter(Boolean);
+      }
+    } catch {}
+    return s.split(',').map((v) => v.trim()).filter(Boolean);
+  }, []);
+
+  const formatToolsToUseItem = useCallback((toolIds: string[]): string => {
+    try {
+      return JSON.stringify(toolIds);
+    } catch {
+      return toolIds.join(',');
+    }
+  }, []);
+
+  const copyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      message.success(t('pages.prompts.copied', { defaultValue: 'Copied' }));
+    } catch {}
+  };
+
+  const renderSelectedToolSchemas = (selectedIds: string[]) => {
+    const selectedTools = (tools ?? []).filter((tool) => selectedIds.includes(tool.id || tool.name));
+    if (!selectedTools.length) {
+      return (
+        <Typography.Text type="secondary">
+          {t('pages.prompts.toolsToUse.noSchemas', { defaultValue: 'No tools selected.' })}
+        </Typography.Text>
+      );
+    }
+
+    return (
+      <Collapse
+        size="small"
+        bordered
+        style={{ marginTop: 12, background: 'rgba(15,23,42,0.25)', borderColor: 'rgba(148,163,184,0.2)' }}
+        items={selectedTools.map((tool) => {
+          const toolId = tool.id || tool.name;
+          const schemaObj = {
+            id: toolId,
+            name: tool.name,
+            description: tool.description,
+            inputSchema: (tool as any).inputSchema,
+            outputSchema: (tool as any).outputSchema,
+          };
+          const schemaText = (() => {
+            try {
+              return JSON.stringify(schemaObj, null, 2);
+            } catch {
+              return String(schemaObj);
+            }
+          })();
+
+          return {
+            key: toolId,
+            label: (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, width: '100%' }}>
+                <span style={{ color: 'rgba(255,255,255,0.9)' }}>{tool.name}</span>
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<CopyOutlined />}
+                  className={styles.smallButton}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    copyText(schemaText);
+                  }}
+                />
+              </div>
+            ),
+            children: (
+              <pre style={{ margin: 0, whiteSpace: 'pre-wrap', color: 'rgba(255,255,255,0.8)' }}>{schemaText}</pre>
+            ),
+          };
+        })}
+      />
+    );
+  };
 
   const handleSectionChange = (sectionId: string, items: string[]) => {
     update((prev) => ({
@@ -581,6 +677,46 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
             return { ...section, items: localizedItems };
           });
 
+      const parseToolsToUseItem = (raw: string): string[] => {
+        const s = safeString(raw).trim();
+        if (!s) return [];
+        try {
+          const parsed = JSON.parse(s);
+          if (Array.isArray(parsed)) {
+            return parsed.map((v) => safeString(v)).filter(Boolean);
+          }
+        } catch {}
+        return s.split(',').map((v) => v.trim()).filter(Boolean);
+      };
+
+      const renderToolsToUse = (items: string[]) => {
+        const seen = new Set<string>();
+        const orderedIds: string[] = [];
+        items.forEach((raw) => {
+          parseToolsToUseItem(raw).forEach((id) => {
+            if (seen.has(id)) return;
+            seen.add(id);
+            orderedIds.push(id);
+          });
+        });
+
+        orderedIds.forEach((toolId) => {
+          const tool = (tools ?? []).find((t) => (t.id || t.name) === toolId);
+          if (!tool) return;
+          const schemaObj = {
+            id: tool.id || tool.name,
+            name: tool.name,
+            description: tool.description,
+            inputSchema: (tool as any).inputSchema,
+            outputSchema: (tool as any).outputSchema,
+          };
+          const schemaLines = JSON.stringify(schemaObj, null, 2).split('\n');
+          if (!schemaLines.length) return;
+          lines.push(`- ${schemaLines[0]}`);
+          schemaLines.slice(1).forEach((l) => lines.push(`  ${l}`));
+        });
+      };
+
       sectionsToRender.forEach((section) => {
         if (!section.items.length) return;
         // Use customLabel if available, otherwise use standard label
@@ -589,11 +725,15 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
         const tagName = label.toLowerCase().replace(/[^a-z0-9_]/g, '_');
         
         lines.push(`<${tagName}>`);
-        section.items.forEach((item) => {
-          const trimmed = safeString(item).trim();
-          if (!trimmed) return;
-          lines.push(`- ${trimmed}`);
-        });
+        if (section.type === 'tools_to_use') {
+          renderToolsToUse(section.items);
+        } else {
+          section.items.forEach((item) => {
+            const trimmed = safeString(item).trim();
+            if (!trimmed) return;
+            lines.push(`- ${trimmed}`);
+          });
+        }
         lines.push(`</${tagName}>`);
         lines.push(''); // blank line between sections
       });
@@ -807,34 +947,106 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
                   }
                 >
                   <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                    {section.items.map((item, idx) => (
-                      <div key={`${section.id}-${idx}`} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                        <Typography.Text style={{ color: 'rgba(148,163,184,0.9)', minWidth: 28 }}>
-                          {idx + 1})
-                        </Typography.Text>
-                        <TextArea
-                          autoSize={autoSizeEnabled && editing ? { minRows: 2, maxRows: 6 } : undefined}
-                          rows={autoSizeEnabled && editing ? undefined : 2}
-                          value={item}
-                          placeholder={t(`pages.prompts.sectionPlaceholders.${section.type}`, {
-                            defaultValue: SECTION_PLACEHOLDERS[section.type] || t('pages.prompts.sectionPlaceholders.default', { defaultValue: 'Enter text…' }),
-                          })}
-                          onChange={(e) => handleSectionItemUpdate(section.id, idx, e.target.value)}
-                          disabled={isReadOnly}
-                          style={{ lineHeight: '20px', fontSize: 14 }}
-                        />
-                        <Button
-                          danger
-                          type="text"
-                          size="small"
-                          icon={<DeleteOutlined style={{ color: '#000' }} />}
-                          disabled={!isEditable}
-                          onClick={() => handleSectionItemRemove(section.id, idx)}
-                          className={styles.tinyIconButton}
-                          style={{ marginTop: 4 }}
-                        />
-                      </div>
-                    ))}
+                    {section.type === 'tools_to_use' ? (
+                      <Collapse
+                        size="small"
+                        bordered
+                        style={{ background: 'rgba(15,23,42,0.35)', borderColor: 'rgba(148,163,184,0.2)' }}
+                        items={section.items.map((item, idx) => {
+                          const selectedIds = parseToolsToUseItem(item);
+                          const selectedTools = (tools ?? []).filter((t) => selectedIds.includes(t.id || t.name));
+                          const header = selectedTools.length
+                            ? `(${selectedTools.length}) ${selectedTools.map((t) => t.name).join(', ')}`
+                            : t('pages.prompts.toolsToUse.emptyRow', { defaultValue: 'Select tools…' });
+
+                          return {
+                            key: `${section.id}-${idx}`,
+                            label: (
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%' }}>
+                                <span>{idx + 1}) {header}</span>
+                                <Button
+                                  danger
+                                  type="text"
+                                  size="small"
+                                  icon={<DeleteOutlined style={{ color: '#000' }} />}
+                                  disabled={!isEditable}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleSectionItemRemove(section.id, idx);
+                                  }}
+                                  className={styles.tinyIconButton}
+                                />
+                              </div>
+                            ),
+                            children: (
+                              <div style={{ paddingTop: 8 }}>
+                                {!isEditable && (
+                                  <Typography.Text type="secondary">
+                                    {t('pages.prompts.toolsToUse.editHint', { defaultValue: 'Click Edit to select tools.' })}
+                                  </Typography.Text>
+                                )}
+                                <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                                  {(tools ?? []).map((tool) => {
+                                    const toolId = tool.id || tool.name;
+                                    const isChecked = selectedIds.includes(toolId);
+                                    return (
+                                      <Checkbox
+                                        key={toolId}
+                                        checked={isChecked}
+                                        disabled={!isEditable}
+                                        onChange={(e) => {
+                                          e.stopPropagation();
+                                          const newIds = e.target.checked
+                                            ? [...selectedIds, toolId]
+                                            : selectedIds.filter((id) => id !== toolId);
+                                          handleSectionItemUpdate(section.id, idx, formatToolsToUseItem(newIds));
+                                        }}
+                                        style={{ color: 'rgba(255,255,255,0.85)' }}
+                                      >
+                                        {tool.name}
+                                        {tool.description ? (
+                                          <span style={{ marginLeft: 8, color: 'rgba(148,163,184,0.8)' }}>{tool.description}</span>
+                                        ) : null}
+                                      </Checkbox>
+                                    );
+                                  })}
+                                </Space>
+                                {renderSelectedToolSchemas(selectedIds)}
+                              </div>
+                            ),
+                          };
+                        })}
+                      />
+                    ) : (
+                      section.items.map((item, idx) => (
+                        <div key={`${section.id}-${idx}`} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                          <Typography.Text style={{ color: 'rgba(148,163,184,0.9)', minWidth: 28 }}>
+                            {idx + 1})
+                          </Typography.Text>
+                          <TextArea
+                            autoSize={autoSizeEnabled && editing ? { minRows: 2, maxRows: 6 } : undefined}
+                            rows={autoSizeEnabled && editing ? undefined : 2}
+                            value={item}
+                            placeholder={t(`pages.prompts.sectionPlaceholders.${section.type}`, {
+                              defaultValue: SECTION_PLACEHOLDERS[section.type] || t('pages.prompts.sectionPlaceholders.default', { defaultValue: 'Enter text…' }),
+                            })}
+                            onChange={(e) => handleSectionItemUpdate(section.id, idx, e.target.value)}
+                            disabled={isReadOnly}
+                            style={{ lineHeight: '20px', fontSize: 14 }}
+                          />
+                          <Button
+                            danger
+                            type="text"
+                            size="small"
+                            icon={<DeleteOutlined style={{ color: '#000' }} />}
+                            disabled={!isEditable}
+                            onClick={() => handleSectionItemRemove(section.id, idx)}
+                            className={styles.tinyIconButton}
+                            style={{ marginTop: 4 }}
+                          />
+                        </div>
+                      ))
+                    )}
                     <Button
                       type="dashed"
                       size="small"
@@ -957,31 +1169,103 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange }) => {
                   }
                 >
                   <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                    {section.items.map((item, idx) => (
-                      <div key={`${section.id}-${idx}`} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                        <Typography.Text style={{ color: 'rgba(148,163,184,0.9)', minWidth: 28 }}>
-                          {idx + 1})
-                        </Typography.Text>
-                        <TextArea
-                          autoSize={autoSizeEnabled && editing ? { minRows: 2, maxRows: 6 } : undefined}
-                          rows={autoSizeEnabled && editing ? undefined : 2}
-                          value={item}
-                          placeholder={SECTION_PLACEHOLDERS[section.type] || t('pages.prompts.placeholders.addItem', { defaultValue: 'Add an item' })}
-                          disabled={isReadOnly}
-                          onChange={(e) => handleUserSectionItemUpdate(section.id, idx, e.target.value)}
-                        />
-                        <Button
-                          danger
-                          type="text"
-                          size="small"
-                          icon={<DeleteOutlined style={{ color: '#000' }} />}
-                          disabled={!isEditable}
-                          onClick={() => handleUserSectionItemRemove(section.id, idx)}
-                          className={styles.tinyIconButton}
-                          style={{ marginTop: 4 }}
-                        />
-                      </div>
-                    ))}
+                    {section.type === 'tools_to_use' ? (
+                      <Collapse
+                        size="small"
+                        bordered
+                        style={{ background: 'rgba(15,23,42,0.35)', borderColor: 'rgba(148,163,184,0.2)' }}
+                        items={section.items.map((item, idx) => {
+                          const selectedIds = parseToolsToUseItem(item);
+                          const selectedTools = (tools ?? []).filter((t) => selectedIds.includes(t.id || t.name));
+                          const header = selectedTools.length
+                            ? `(${selectedTools.length}) ${selectedTools.map((t) => t.name).join(', ')}`
+                            : t('pages.prompts.toolsToUse.emptyRow', { defaultValue: 'Select tools…' });
+
+                          return {
+                            key: `${section.id}-${idx}`,
+                            label: (
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%' }}>
+                                <span>{idx + 1}) {header}</span>
+                                <Button
+                                  danger
+                                  type="text"
+                                  size="small"
+                                  icon={<DeleteOutlined style={{ color: '#000' }} />}
+                                  disabled={!isEditable}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleUserSectionItemRemove(section.id, idx);
+                                  }}
+                                  className={styles.tinyIconButton}
+                                />
+                              </div>
+                            ),
+                            children: (
+                              <div style={{ paddingTop: 8 }}>
+                                {!isEditable && (
+                                  <Typography.Text type="secondary">
+                                    {t('pages.prompts.toolsToUse.editHint', { defaultValue: 'Click Edit to select tools.' })}
+                                  </Typography.Text>
+                                )}
+                                <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                                  {(tools ?? []).map((tool) => {
+                                    const toolId = tool.id || tool.name;
+                                    const isChecked = selectedIds.includes(toolId);
+                                    return (
+                                      <Checkbox
+                                        key={toolId}
+                                        checked={isChecked}
+                                        disabled={!isEditable}
+                                        onChange={(e) => {
+                                          e.stopPropagation();
+                                          const newIds = e.target.checked
+                                            ? [...selectedIds, toolId]
+                                            : selectedIds.filter((id) => id !== toolId);
+                                          handleUserSectionItemUpdate(section.id, idx, formatToolsToUseItem(newIds));
+                                        }}
+                                        style={{ color: 'rgba(255,255,255,0.85)' }}
+                                      >
+                                        {tool.name}
+                                        {tool.description ? (
+                                          <span style={{ marginLeft: 8, color: 'rgba(148,163,184,0.8)' }}>{tool.description}</span>
+                                        ) : null}
+                                      </Checkbox>
+                                    );
+                                  })}
+                                </Space>
+                                {renderSelectedToolSchemas(selectedIds)}
+                              </div>
+                            ),
+                          };
+                        })}
+                      />
+                    ) : (
+                      section.items.map((item, idx) => (
+                        <div key={`${section.id}-${idx}`} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                          <Typography.Text style={{ color: 'rgba(148,163,184,0.9)', minWidth: 28 }}>
+                            {idx + 1})
+                          </Typography.Text>
+                          <TextArea
+                            autoSize={autoSizeEnabled && editing ? { minRows: 2, maxRows: 6 } : undefined}
+                            rows={autoSizeEnabled && editing ? undefined : 2}
+                            value={item}
+                            placeholder={SECTION_PLACEHOLDERS[section.type] || t('pages.prompts.placeholders.addItem', { defaultValue: 'Add an item' })}
+                            disabled={isReadOnly}
+                            onChange={(e) => handleUserSectionItemUpdate(section.id, idx, e.target.value)}
+                          />
+                          <Button
+                            danger
+                            type="text"
+                            size="small"
+                            icon={<DeleteOutlined style={{ color: '#000' }} />}
+                            disabled={!isEditable}
+                            onClick={() => handleUserSectionItemRemove(section.id, idx)}
+                            className={styles.tinyIconButton}
+                            style={{ marginTop: 4 }}
+                          />
+                        </div>
+                      ))
+                    )}
                     <Button
                       type="dashed"
                       size="small"

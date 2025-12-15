@@ -7,6 +7,8 @@ masking or redacting sensitive information.
 
 import re
 import copy
+import os
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
@@ -121,6 +123,8 @@ class RegexMaskFilter(PrivacyFilter):
         """
         self.config = config or load_privacy_config()
         self._compiled_patterns: dict[str, re.Pattern] = {}
+
+        self._debug = os.environ.get("EC_PRIVACY_FILTER_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
     
     def _get_compiled_pattern(self, pattern_config: PatternConfig) -> re.Pattern:
         """Get or compile a regex pattern."""
@@ -149,6 +153,9 @@ class RegexMaskFilter(PrivacyFilter):
         
         # Get applicable patterns for this URL
         patterns = self.config.get_patterns_for_url(url)
+        
+        if not patterns and not self.config.filter_screenshots:
+            return filtered, stats
         
         for pattern_config in patterns:
             if not pattern_config.enabled:
@@ -188,14 +195,58 @@ class RegexMaskFilter(PrivacyFilter):
         # Use URL from browser_state if not provided
         if not url:
             url = getattr(browser_state, "url", "")
+
+        t0 = time.perf_counter()
+        if self._debug:
+            logger.debug(f"[PrivacyFilter] filter_browser_state start url={url!r}")
+
+        # Fast-path: if there are no enabled patterns for this URL and screenshot
+        # filtering is disabled, do not deepcopy or walk the DOM tree.
+        # This avoids a major performance hit on large pages when the default
+        # config has all patterns disabled (passthrough behavior).
+        try:
+            patterns = self.config.get_patterns_for_url(url)
+        except Exception:
+            patterns = []
+
+        if self._debug:
+            enabled_count = 0
+            try:
+                enabled_count = sum(1 for p in patterns if getattr(p, "enabled", False))
+            except Exception:
+                enabled_count = 0
+            logger.debug(
+                f"[PrivacyFilter] patterns_for_url total={len(patterns)} enabled={enabled_count} "
+                f"filter_screenshots={self.config.filter_screenshots} "
+                f"elapsed={time.perf_counter() - t0:.3f}s"
+            )
+
+        if (not patterns) and (not self.config.filter_screenshots):
+            if self._debug:
+                logger.debug(
+                    f"[PrivacyFilter] fast-path return (no patterns, screenshots off) "
+                    f"elapsed_total={time.perf_counter() - t0:.3f}s"
+                )
+            return FilterResult(
+                filtered_data=browser_state,
+                original_data=browser_state if self.config.keep_original else None,
+                stats={},
+                was_filtered=False,
+                url=url,
+            )
         
         # Keep original if configured
         original = None
         if self.config.keep_original:
             original = copy.deepcopy(browser_state)
+
+        if self._debug:
+            logger.debug(f"[PrivacyFilter] deepcopy(original) elapsed_total={time.perf_counter() - t0:.3f}s")
         
         # Create a copy to modify
         filtered_state = copy.deepcopy(browser_state)
+        if self._debug:
+            logger.debug(f"[PrivacyFilter] deepcopy(filtered_state) elapsed_total={time.perf_counter() - t0:.3f}s")
         total_stats: dict[str, int] = {}
         
         # Filter URL (especially query parameters)
@@ -211,6 +262,9 @@ class RegexMaskFilter(PrivacyFilter):
         # Filter DOM state
         if hasattr(filtered_state, "dom_state") and filtered_state.dom_state:
             self._filter_dom_state(filtered_state.dom_state, url, total_stats)
+
+        if self._debug:
+            logger.debug(f"[PrivacyFilter] dom_state filtered elapsed_total={time.perf_counter() - t0:.3f}s")
         
         # Filter tabs
         if hasattr(filtered_state, "tabs") and filtered_state.tabs:
@@ -240,6 +294,13 @@ class RegexMaskFilter(PrivacyFilter):
         
         if self.config.log_stats:
             result.log_stats()
+
+        if self._debug:
+            logger.debug(
+                f"[PrivacyFilter] filter_browser_state done was_filtered={result.was_filtered} "
+                f"stats_total={sum(result.stats.values()) if result.stats else 0} "
+                f"elapsed_total={time.perf_counter() - t0:.3f}s"
+            )
         
         return result
     
