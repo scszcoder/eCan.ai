@@ -986,6 +986,538 @@ class TestStopTaskUsingSkill(unittest.TestCase):
         mock_task.cancellation_event.set.assert_called_once()
 
 
+# ==================== Chat Utils Tests ====================
+
+def send_chat_standalone(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
+    """Standalone send_chat for testing."""
+    try:
+        sender_agent_id = config.get("sender_agent_id", "")
+        recipient_agent_id = config.get("recipient_agent_id", "")
+        recipient_agent_name = config.get("recipient_agent_name", "")
+        chat_id = config.get("chat_id", "")
+        message_text = config.get("message", "")
+        message_type = config.get("message_type", "text")
+        async_send = config.get("async_send", True)
+        
+        if not sender_agent_id:
+            return {"success": False, "error": "sender_agent_id is required", "timestamp": int(time.time() * 1000)}
+        
+        if not message_text:
+            return {"success": False, "error": "message is required", "timestamp": int(time.time() * 1000)}
+        
+        if not recipient_agent_id and not recipient_agent_name:
+            return {"success": False, "error": "Either recipient_agent_id or recipient_agent_name is required", "timestamp": int(time.time() * 1000)}
+        
+        # Get sender agent from mainwin
+        sender_agent = None
+        if hasattr(mainwin, 'agents') and mainwin.agents:
+            for agent in mainwin.agents:
+                card = getattr(agent, 'card', None)
+                if card and getattr(card, 'id', '') == sender_agent_id:
+                    sender_agent = agent
+                    break
+        
+        if not sender_agent:
+            return {"success": False, "error": f"Sender agent not found: {sender_agent_id}", "timestamp": int(time.time() * 1000)}
+        
+        # Get recipient agent
+        recipient_agent = None
+        if hasattr(mainwin, 'agents') and mainwin.agents:
+            for agent in mainwin.agents:
+                card = getattr(agent, 'card', None)
+                if card:
+                    if recipient_agent_id and getattr(card, 'id', '') == recipient_agent_id:
+                        recipient_agent = agent
+                        break
+                    if recipient_agent_name and getattr(card, 'name', '').lower() == recipient_agent_name.lower():
+                        recipient_agent = agent
+                        break
+        
+        if not recipient_agent:
+            return {"success": False, "error": f"Recipient agent not found: {recipient_agent_id or recipient_agent_name}", "timestamp": int(time.time() * 1000)}
+        
+        # Generate chat_id if not provided
+        import uuid
+        if not chat_id:
+            chat_id = f"chat-{str(uuid.uuid4())[:8]}"
+        
+        msg_id = str(uuid.uuid4())
+        
+        # Simulate sending (call mock method if available)
+        if hasattr(sender_agent, 'a2a_send_chat_message_async') and async_send:
+            sender_agent.a2a_send_chat_message_async(recipient_agent, {"message": message_text})
+        elif hasattr(sender_agent, 'a2a_send_chat_message_sync'):
+            sender_agent.a2a_send_chat_message_sync(recipient_agent, {"message": message_text})
+        
+        recipient_card = getattr(recipient_agent, 'card', None)
+        return {
+            "success": True,
+            "message_id": msg_id,
+            "chat_id": chat_id,
+            "recipient_id": getattr(recipient_card, 'id', '') if recipient_card else '',
+            "recipient_name": getattr(recipient_card, 'name', '') if recipient_card else '',
+            "async": async_send,
+            "message": f"Message sent to {getattr(recipient_card, 'name', 'recipient') if recipient_card else 'recipient'}",
+            "timestamp": int(time.time() * 1000)
+        }
+        
+    except Exception as e:
+        return {"success": False, "error": str(e), "timestamp": int(time.time() * 1000)}
+
+
+def list_chat_agents_standalone(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
+    """Standalone list_chat_agents for testing."""
+    try:
+        exclude_self = config.get("exclude_self", "")
+        filter_name = config.get("filter_name", "").lower()
+        
+        agents = []
+        if hasattr(mainwin, 'agents') and mainwin.agents:
+            for agent in mainwin.agents:
+                card = getattr(agent, 'card', None)
+                if card:
+                    agents.append({
+                        "id": getattr(card, 'id', ''),
+                        "name": getattr(card, 'name', 'Unknown'),
+                        "description": getattr(card, 'description', ''),
+                        "url": getattr(card, 'url', ''),
+                        "status": getattr(agent, 'status', 'unknown'),
+                    })
+        
+        # Apply filters
+        if exclude_self:
+            agents = [a for a in agents if a["id"] != exclude_self]
+        
+        if filter_name:
+            agents = [a for a in agents if filter_name in a["name"].lower()]
+        
+        return {
+            "success": True,
+            "agents": agents,
+            "count": len(agents),
+            "timestamp": int(time.time() * 1000)
+        }
+        
+    except Exception as e:
+        return {"success": False, "error": str(e), "agents": [], "count": 0, "timestamp": int(time.time() * 1000)}
+
+
+def get_chat_history_standalone(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
+    """Standalone get_chat_history for testing."""
+    try:
+        chat_id = config.get("chat_id", "")
+        limit = config.get("limit", 50)
+        offset = config.get("offset", 0)
+        
+        if not chat_id:
+            return {"success": False, "error": "chat_id is required", "timestamp": int(time.time() * 1000)}
+        
+        # Get chat history from mock db_chat_service
+        if not hasattr(mainwin, 'db_chat_service') or not mainwin.db_chat_service:
+            return {"success": False, "error": "Chat service not available", "timestamp": int(time.time() * 1000)}
+        
+        chat_data = mainwin.db_chat_service.get_chat_by_id(chat_id, True)
+        
+        if not chat_data or not chat_data.get("success"):
+            return {"success": False, "error": f"Chat not found: {chat_id}", "timestamp": int(time.time() * 1000)}
+        
+        messages = chat_data.get("data", {}).get("messages", [])
+        total_count = len(messages)
+        messages = messages[offset:offset + limit]
+        
+        return {
+            "success": True,
+            "chat_id": chat_id,
+            "messages": messages,
+            "count": len(messages),
+            "total_count": total_count,
+            "offset": offset,
+            "limit": limit,
+            "timestamp": int(time.time() * 1000)
+        }
+        
+    except Exception as e:
+        return {"success": False, "error": str(e), "timestamp": int(time.time() * 1000)}
+
+
+class TestSendChat(unittest.TestCase):
+    """Tests for send_chat tool."""
+    
+    @classmethod
+    def setUpClass(cls):
+        """Use standalone implementation for testing."""
+        cls.send_chat = staticmethod(send_chat_standalone)
+    
+    def _create_mock_agents(self):
+        """Create mock agents for testing."""
+        # Sender agent
+        sender_card = Mock()
+        sender_card.id = "sender_agent_123"
+        sender_card.name = "SenderAgent"
+        sender_card.description = "A sender agent"
+        sender_card.url = "http://localhost:8001"
+        
+        sender_agent = Mock()
+        sender_agent.card = sender_card
+        sender_agent.status = "active"
+        sender_agent.a2a_send_chat_message_async = Mock(return_value=Mock())
+        sender_agent.a2a_send_chat_message_sync = Mock(return_value={"success": True})
+        
+        # Recipient agent
+        recipient_card = Mock()
+        recipient_card.id = "recipient_agent_456"
+        recipient_card.name = "RecipientAgent"
+        recipient_card.description = "A recipient agent"
+        recipient_card.url = "http://localhost:8002"
+        
+        recipient_agent = Mock()
+        recipient_agent.card = recipient_card
+        recipient_agent.status = "active"
+        
+        return sender_agent, recipient_agent
+    
+    def test_missing_sender_agent_id(self):
+        """Test error when sender_agent_id is missing."""
+        result = self.send_chat(None, {"message": "Hello"})
+        
+        self.assertFalse(result["success"])
+        self.assertIn("sender_agent_id is required", result["error"])
+    
+    def test_missing_message(self):
+        """Test error when message is missing."""
+        result = self.send_chat(None, {"sender_agent_id": "agent_123"})
+        
+        self.assertFalse(result["success"])
+        self.assertIn("message is required", result["error"])
+    
+    def test_missing_recipient(self):
+        """Test error when neither recipient_agent_id nor recipient_agent_name is provided."""
+        result = self.send_chat(None, {
+            "sender_agent_id": "agent_123",
+            "message": "Hello"
+        })
+        
+        self.assertFalse(result["success"])
+        self.assertIn("recipient_agent_id or recipient_agent_name is required", result["error"])
+    
+    def test_sender_not_found(self):
+        """Test error when sender agent is not found."""
+        mock_mainwin = Mock()
+        mock_mainwin.agents = []
+        
+        result = self.send_chat(mock_mainwin, {
+            "sender_agent_id": "nonexistent_sender",
+            "recipient_agent_id": "some_recipient",
+            "message": "Hello"
+        })
+        
+        self.assertFalse(result["success"])
+        self.assertIn("Sender agent not found", result["error"])
+    
+    def test_recipient_not_found(self):
+        """Test error when recipient agent is not found."""
+        sender_agent, _ = self._create_mock_agents()
+        mock_mainwin = Mock()
+        mock_mainwin.agents = [sender_agent]
+        
+        result = self.send_chat(mock_mainwin, {
+            "sender_agent_id": "sender_agent_123",
+            "recipient_agent_id": "nonexistent_recipient",
+            "message": "Hello"
+        })
+        
+        self.assertFalse(result["success"])
+        self.assertIn("Recipient agent not found", result["error"])
+    
+    def test_send_chat_success_by_id(self):
+        """Test successful chat send by recipient ID."""
+        sender_agent, recipient_agent = self._create_mock_agents()
+        mock_mainwin = Mock()
+        mock_mainwin.agents = [sender_agent, recipient_agent]
+        
+        result = self.send_chat(mock_mainwin, {
+            "sender_agent_id": "sender_agent_123",
+            "recipient_agent_id": "recipient_agent_456",
+            "message": "Hello, recipient!"
+        })
+        
+        self.assertTrue(result["success"])
+        self.assertIn("message_id", result)
+        self.assertIn("chat_id", result)
+        self.assertEqual(result["recipient_id"], "recipient_agent_456")
+        self.assertEqual(result["recipient_name"], "RecipientAgent")
+        sender_agent.a2a_send_chat_message_async.assert_called_once()
+    
+    def test_send_chat_success_by_name(self):
+        """Test successful chat send by recipient name."""
+        sender_agent, recipient_agent = self._create_mock_agents()
+        mock_mainwin = Mock()
+        mock_mainwin.agents = [sender_agent, recipient_agent]
+        
+        result = self.send_chat(mock_mainwin, {
+            "sender_agent_id": "sender_agent_123",
+            "recipient_agent_name": "RecipientAgent",
+            "message": "Hello by name!"
+        })
+        
+        self.assertTrue(result["success"])
+        self.assertEqual(result["recipient_name"], "RecipientAgent")
+    
+    def test_send_chat_sync_mode(self):
+        """Test synchronous chat send."""
+        sender_agent, recipient_agent = self._create_mock_agents()
+        mock_mainwin = Mock()
+        mock_mainwin.agents = [sender_agent, recipient_agent]
+        
+        result = self.send_chat(mock_mainwin, {
+            "sender_agent_id": "sender_agent_123",
+            "recipient_agent_id": "recipient_agent_456",
+            "message": "Sync message",
+            "async_send": False
+        })
+        
+        self.assertTrue(result["success"])
+        self.assertFalse(result["async"])
+        sender_agent.a2a_send_chat_message_sync.assert_called_once()
+    
+    def test_send_chat_with_existing_chat_id(self):
+        """Test sending to an existing chat."""
+        sender_agent, recipient_agent = self._create_mock_agents()
+        mock_mainwin = Mock()
+        mock_mainwin.agents = [sender_agent, recipient_agent]
+        
+        result = self.send_chat(mock_mainwin, {
+            "sender_agent_id": "sender_agent_123",
+            "recipient_agent_id": "recipient_agent_456",
+            "chat_id": "existing-chat-123",
+            "message": "Message to existing chat"
+        })
+        
+        self.assertTrue(result["success"])
+        self.assertEqual(result["chat_id"], "existing-chat-123")
+
+
+class TestListChatAgents(unittest.TestCase):
+    """Tests for list_chat_agents tool."""
+    
+    @classmethod
+    def setUpClass(cls):
+        """Use standalone implementation for testing."""
+        cls.list_chat_agents = staticmethod(list_chat_agents_standalone)
+    
+    def _create_mock_agents(self):
+        """Create multiple mock agents for testing."""
+        agents = []
+        for i in range(3):
+            card = Mock()
+            card.id = f"agent_{i}"
+            card.name = f"Agent{i}"
+            card.description = f"Description for agent {i}"
+            card.url = f"http://localhost:800{i}"
+            
+            agent = Mock()
+            agent.card = card
+            agent.status = "active"
+            agents.append(agent)
+        return agents
+    
+    def test_list_all_agents(self):
+        """Test listing all agents."""
+        agents = self._create_mock_agents()
+        mock_mainwin = Mock()
+        mock_mainwin.agents = agents
+        
+        result = self.list_chat_agents(mock_mainwin, {})
+        
+        self.assertTrue(result["success"])
+        self.assertEqual(result["count"], 3)
+        self.assertEqual(len(result["agents"]), 3)
+    
+    def test_list_agents_exclude_self(self):
+        """Test excluding self from agent list."""
+        agents = self._create_mock_agents()
+        mock_mainwin = Mock()
+        mock_mainwin.agents = agents
+        
+        result = self.list_chat_agents(mock_mainwin, {
+            "exclude_self": "agent_1"
+        })
+        
+        self.assertTrue(result["success"])
+        self.assertEqual(result["count"], 2)
+        agent_ids = [a["id"] for a in result["agents"]]
+        self.assertNotIn("agent_1", agent_ids)
+    
+    def test_list_agents_filter_by_name(self):
+        """Test filtering agents by name."""
+        agents = self._create_mock_agents()
+        # Add a special agent
+        special_card = Mock()
+        special_card.id = "special_agent"
+        special_card.name = "SpecialHelper"
+        special_card.description = "A special helper agent"
+        special_card.url = "http://localhost:9000"
+        
+        special_agent = Mock()
+        special_agent.card = special_card
+        special_agent.status = "active"
+        agents.append(special_agent)
+        
+        mock_mainwin = Mock()
+        mock_mainwin.agents = agents
+        
+        result = self.list_chat_agents(mock_mainwin, {
+            "filter_name": "special"
+        })
+        
+        self.assertTrue(result["success"])
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["agents"][0]["name"], "SpecialHelper")
+    
+    def test_list_agents_empty(self):
+        """Test listing when no agents available."""
+        mock_mainwin = Mock()
+        mock_mainwin.agents = []
+        
+        result = self.list_chat_agents(mock_mainwin, {})
+        
+        self.assertTrue(result["success"])
+        self.assertEqual(result["count"], 0)
+        self.assertEqual(result["agents"], [])
+    
+    def test_list_agents_no_mainwin(self):
+        """Test listing when mainwin has no agents attribute."""
+        mock_mainwin = Mock(spec=[])  # No agents attribute
+        
+        result = self.list_chat_agents(mock_mainwin, {})
+        
+        self.assertTrue(result["success"])
+        self.assertEqual(result["count"], 0)
+
+
+class TestGetChatHistory(unittest.TestCase):
+    """Tests for get_chat_history tool."""
+    
+    @classmethod
+    def setUpClass(cls):
+        """Use standalone implementation for testing."""
+        cls.get_chat_history = staticmethod(get_chat_history_standalone)
+    
+    def _create_mock_chat_service(self, chat_id: str, messages: List[Dict]):
+        """Create a mock chat service."""
+        mock_service = Mock()
+        mock_service.get_chat_by_id = Mock(return_value={
+            "success": True,
+            "data": {
+                "id": chat_id,
+                "messages": messages
+            }
+        })
+        return mock_service
+    
+    def test_missing_chat_id(self):
+        """Test error when chat_id is missing."""
+        result = self.get_chat_history(None, {})
+        
+        self.assertFalse(result["success"])
+        self.assertIn("chat_id is required", result["error"])
+    
+    def test_chat_service_not_available(self):
+        """Test error when chat service is not available."""
+        mock_mainwin = Mock()
+        mock_mainwin.db_chat_service = None
+        
+        result = self.get_chat_history(mock_mainwin, {"chat_id": "chat_123"})
+        
+        self.assertFalse(result["success"])
+        self.assertIn("Chat service not available", result["error"])
+    
+    def test_chat_not_found(self):
+        """Test error when chat is not found."""
+        mock_service = Mock()
+        mock_service.get_chat_by_id = Mock(return_value={"success": False})
+        
+        mock_mainwin = Mock()
+        mock_mainwin.db_chat_service = mock_service
+        
+        result = self.get_chat_history(mock_mainwin, {"chat_id": "nonexistent_chat"})
+        
+        self.assertFalse(result["success"])
+        self.assertIn("Chat not found", result["error"])
+    
+    def test_get_history_success(self):
+        """Test successful chat history retrieval."""
+        messages = [
+            {"id": "msg_1", "content": {"text": "Hello"}, "senderId": "agent_1"},
+            {"id": "msg_2", "content": {"text": "Hi there"}, "senderId": "agent_2"},
+            {"id": "msg_3", "content": {"text": "How are you?"}, "senderId": "agent_1"},
+        ]
+        mock_service = self._create_mock_chat_service("chat_123", messages)
+        
+        mock_mainwin = Mock()
+        mock_mainwin.db_chat_service = mock_service
+        
+        result = self.get_chat_history(mock_mainwin, {"chat_id": "chat_123"})
+        
+        self.assertTrue(result["success"])
+        self.assertEqual(result["chat_id"], "chat_123")
+        self.assertEqual(result["count"], 3)
+        self.assertEqual(result["total_count"], 3)
+        self.assertEqual(len(result["messages"]), 3)
+    
+    def test_get_history_with_limit(self):
+        """Test chat history with limit."""
+        messages = [{"id": f"msg_{i}", "content": {"text": f"Message {i}"}} for i in range(10)]
+        mock_service = self._create_mock_chat_service("chat_123", messages)
+        
+        mock_mainwin = Mock()
+        mock_mainwin.db_chat_service = mock_service
+        
+        result = self.get_chat_history(mock_mainwin, {
+            "chat_id": "chat_123",
+            "limit": 5
+        })
+        
+        self.assertTrue(result["success"])
+        self.assertEqual(result["count"], 5)
+        self.assertEqual(result["total_count"], 10)
+        self.assertEqual(result["limit"], 5)
+    
+    def test_get_history_with_offset(self):
+        """Test chat history with offset."""
+        messages = [{"id": f"msg_{i}", "content": {"text": f"Message {i}"}} for i in range(10)]
+        mock_service = self._create_mock_chat_service("chat_123", messages)
+        
+        mock_mainwin = Mock()
+        mock_mainwin.db_chat_service = mock_service
+        
+        result = self.get_chat_history(mock_mainwin, {
+            "chat_id": "chat_123",
+            "offset": 5,
+            "limit": 3
+        })
+        
+        self.assertTrue(result["success"])
+        self.assertEqual(result["count"], 3)
+        self.assertEqual(result["total_count"], 10)
+        self.assertEqual(result["offset"], 5)
+        # Should get messages 5, 6, 7
+        self.assertEqual(result["messages"][0]["id"], "msg_5")
+    
+    def test_get_history_empty_chat(self):
+        """Test getting history from empty chat."""
+        mock_service = self._create_mock_chat_service("chat_123", [])
+        
+        mock_mainwin = Mock()
+        mock_mainwin.db_chat_service = mock_service
+        
+        result = self.get_chat_history(mock_mainwin, {"chat_id": "chat_123"})
+        
+        self.assertTrue(result["success"])
+        self.assertEqual(result["count"], 0)
+        self.assertEqual(result["messages"], [])
+
+
 # ==================== Integration Tests (require full environment) ====================
 # These tests are skipped when dependencies are not available
 

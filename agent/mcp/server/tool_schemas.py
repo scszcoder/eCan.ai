@@ -2072,6 +2072,16 @@ def build_agent_mcp_tools_schemas():
     add_run_code_tool_schema(tool_schemas)
     add_run_shell_script_tool_schema(tool_schemas)
 
+    # Chat/communication tools for inter-agent messaging
+    from agent.mcp.server.chat_utils.chat_tools import (
+        add_send_chat_tool_schema,
+        add_list_chat_agents_tool_schema,
+        add_get_chat_history_tool_schema,
+    )
+    add_send_chat_tool_schema(tool_schemas)
+    add_list_chat_agents_tool_schema(tool_schemas)
+    add_get_chat_history_tool_schema(tool_schemas)
+
     add_extern_tools_schemas(tool_schemas)
 
     return tool_schemas
