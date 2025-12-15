@@ -3,9 +3,10 @@
  * All LLM configuration is dynamically loaded from backend llm_providers.json
  */
 import { useMemo, useRef, useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
 import { Divider, Select, Button, Space, Tag, Tooltip } from '@douyinfe/semi-ui';
-import { IconPaperclip } from '@douyinfe/semi-icons';
+import { IconPaperclip, IconEdit } from '@douyinfe/semi-icons';
 import { defaultFormMeta } from '../default-form-meta';
 import { FormContent, FormHeader, FormItem, FormInputs } from '../../form-components';
 import { PromptInputWithSelector } from '../../form-components/PromptInputWithSelector';
@@ -88,6 +89,7 @@ async function fetchProvidersWithCredentials(): Promise<LLMProvider[]> {
 }
 
 export const FormRender = (_props: FormRenderProps<any>) => {
+  const navigate = useNavigate();
   const username = useUserStore((s) => s.username || 'user');
   const { prompts, fetch, fetched } = usePromptStore();
   const [providers, setProviders] = useState<LLMProvider[]>([]);
@@ -182,15 +184,31 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           <Field<string> name="inputsValues.promptSelection.content">
             {({ field: promptSelectorField }) => {
               const selected = (promptSelectorField.value as string) || 'inline';
+              const showEditButton = selected && selected !== 'inline';
               return (
-                <Select
-                  value={selected}
-                  optionList={promptOptions}
-                  onChange={(val) => promptSelectorField.onChange(val as string)}
-                  style={{ width: '100%' }}
-                  size="small"
-                  dropdownMatchSelectWidth
-                />
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center', width: '100%' }}>
+                  <Select
+                    value={selected}
+                    optionList={promptOptions}
+                    onChange={(val) => promptSelectorField.onChange(val as string)}
+                    style={{ flex: 1 }}
+                    size="small"
+                    dropdownMatchSelectWidth
+                  />
+                  {showEditButton && (
+                    <Tooltip content="Edit prompt">
+                      <Button
+                        icon={<IconEdit />}
+                        size="small"
+                        theme="borderless"
+                        onClick={() => {
+                          navigate(`/prompts?id=${encodeURIComponent(selected)}&edit=true`);
+                        }}
+                        style={{ flexShrink: 0 }}
+                      />
+                    </Tooltip>
+                  )}
+                </div>
               );
             }}
           </Field>

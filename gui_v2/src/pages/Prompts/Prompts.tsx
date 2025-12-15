@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import DetailLayout from '../../components/Layout/DetailLayout';
 import PromptsList from './PromptsList';
 import PromptsDetail from './PromptsDetail';
@@ -13,6 +14,25 @@ const Prompts: React.FC = () => {
   const { prompts, fetch, save, clone, fetched } = usePromptStore();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [initialEditMode, setInitialEditMode] = useState(false);
+
+  // Handle URL params for direct navigation to a specific prompt in edit mode
+  useEffect(() => {
+    const urlPromptId = searchParams.get('id');
+    const urlEdit = searchParams.get('edit');
+    if (urlPromptId && fetched) {
+      const exists = prompts.some(p => p.id === urlPromptId);
+      if (exists) {
+        setSelectedId(urlPromptId);
+        if (urlEdit === 'true') {
+          setInitialEditMode(true);
+        }
+        // Clear the URL params after applying them
+        setSearchParams({}, { replace: true });
+      }
+    }
+  }, [searchParams, fetched, prompts, setSearchParams]);
 
   useEffect(() => {
     if (!fetched) fetch(username);
@@ -92,7 +112,14 @@ const Prompts: React.FC = () => {
           onClone={handleClone}
         />
       }
-      detailsContent={<PromptsDetail prompt={selected} onChange={handleChange} />}
+      detailsContent={
+        <PromptsDetail
+          prompt={selected}
+          onChange={handleChange}
+          initialEditMode={initialEditMode}
+          onEditModeConsumed={() => setInitialEditMode(false)}
+        />
+      }
     />
   );
 };

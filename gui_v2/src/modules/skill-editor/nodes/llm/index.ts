@@ -60,9 +60,17 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
             type: 'template',
             content: '# Role\nYou are an AI assistant.\n',
           },
+          systemPromptId: {
+            type: 'constant',
+            content: 'in-line',
+          },
           prompt: {
             type: 'template',
             content: '',
+          },
+          promptId: {
+            type: 'constant',
+            content: 'in-line',
           },
           promptSelection: {
             type: 'constant',
@@ -102,11 +110,19 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
                 formComponent: 'prompt-editor',
               },
             },
+            systemPromptId: {
+              type: 'string',
+              extra: { skipDefault: true },
+            },
             prompt: {
               type: 'string',
               extra: {
                 formComponent: 'prompt-editor',
               },
+            },
+            promptId: {
+              type: 'string',
+              extra: { skipDefault: true },
             },
             promptSelection: {
               type: 'string',
