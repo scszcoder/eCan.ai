@@ -235,11 +235,16 @@ def start_task_using_skill(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         if not task_name:
             task_name = f"{skill_name}_task_{task_id[:8]}"
         
-        # Create managed task
+        # Create managed task with proper trigger and run_id
+        import uuid as uuid_module
+        run_id = str(uuid_module.uuid4())
+        
         new_task = ManagedTask(
             id=task_id,
+            run_id=run_id,
             name=task_name,
             skill=target_skill,
+            trigger="interaction",  # MCP tool invocation is an interaction trigger
             metadata={"initial_state": initial_state} if initial_state else {}
         )
         
@@ -248,16 +253,38 @@ def start_task_using_skill(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             agent.tasks = []
         agent.tasks.append(new_task)
         
-        # Start the task via runner if available
+        # Start the task via runner (like ec_agent.py does)
         runner = getattr(agent, 'runner', None)
         if runner:
-            # Queue the task for execution
+            from concurrent.futures import ThreadPoolExecutor
             try:
-                if hasattr(new_task, 'queue') and new_task.queue:
-                    new_task.queue.put_nowait({"__start__": True, "initial_state": initial_state})
-                logger.info(f"[start_task_using_skill] Task {task_id} queued for execution")
-            except Exception as queue_err:
-                logger.warning(f"[start_task_using_skill] Could not queue task: {queue_err}")
+                # Get or create thread pool executor
+                thread_pool = getattr(agent, 'thread_pool_executor', None)
+                if not thread_pool:
+                    thread_pool = ThreadPoolExecutor(max_workers=4)
+                
+                # Launch via runner.launch_unified_run (the proper way)
+                future = thread_pool.submit(
+                    runner.launch_unified_run,
+                    new_task,
+                    "interaction"  # trigger_type
+                )
+                
+                # Register active task if agent supports it
+                if hasattr(agent, 'active_tasks') and hasattr(agent, 'task_lock'):
+                    with agent.task_lock:
+                        agent.active_tasks[run_id] = future
+                
+                logger.info(f"[start_task_using_skill] Task {task_id} submitted to runner, run_id={run_id}")
+            except Exception as launch_err:
+                logger.error(f"[start_task_using_skill] Could not launch task: {launch_err}")
+                return {
+                    "success": False,
+                    "error": f"Failed to launch task: {launch_err}",
+                    "timestamp": int(time.time() * 1000)
+                }
+        else:
+            logger.warning(f"[start_task_using_skill] No runner available for agent {agent_id}")
         
         result = {
             "success": True,

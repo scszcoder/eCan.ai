@@ -2498,11 +2498,12 @@ def get_recent_context(history: list, max_tokens: int = CONTEXT_WINDOW_SIZE) -> 
 
     from langchain_core.messages import SystemMessage
 
-    # Filter out unsupported message types (e.g., custom ActionMessage) that
-    # LangChain's OpenAI chat models cannot serialize. We only keep standard
-    # chat message types so that ChatOpenAI/others do not raise
-    # `TypeError: Got unknown type ...` when converting to OpenAI payload.
+    # Filter out unsupported message types that LangChain's OpenAI chat models 
+    # cannot serialize. We keep standard chat message types.
+    # ActionMessage (tool results) must be converted to HumanMessage for LangChain compatibility.
     allowed_types = {"system", "human", "ai", "tool", "function"}
+    
+    from langchain_core.messages import HumanMessage
 
     filtered_history: list = []
     for msg in history:
@@ -2510,6 +2511,14 @@ def get_recent_context(history: list, max_tokens: int = CONTEXT_WINDOW_SIZE) -> 
             msg_type = getattr(msg, "type", None)
             if msg_type in allowed_types or isinstance(msg, SystemMessage):
                 filtered_history.append(msg)
+            elif msg_type == "action":
+                # Convert ActionMessage to HumanMessage for LangChain compatibility
+                # This preserves the tool result content so the LLM can see it
+                action_content = msg.content if hasattr(msg, 'content') else str(msg)
+                # Wrap in a clear format so LLM knows this is a tool result
+                converted_msg = HumanMessage(content=f"[Tool Result]\n{action_content}")
+                filtered_history.append(converted_msg)
+                logger.debug(f"[get_recent_context] Converted ActionMessage to HumanMessage (len={len(action_content)})")
             else:
                 # Keep for debugging but do not send to LLM
                 logger.debug(

@@ -2084,6 +2084,55 @@ async def python_run_extern(mainwin, args):
         logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
+async def os_list_dir(mainwin, args):
+    """List files and directories in a given path with optional pattern filtering."""
+    try:
+        import glob
+        dir_path = args["input"]["dir_path"]
+        pattern = args["input"].get("pattern", "*")
+        recursive = args["input"].get("recursive", False)
+        
+        if not os.path.exists(dir_path):
+            return [TextContent(type="text", text=f"Error: Directory '{dir_path}' does not exist")]
+        
+        if not os.path.isdir(dir_path):
+            return [TextContent(type="text", text=f"Error: '{dir_path}' is not a directory")]
+        
+        # Build the search pattern
+        if recursive:
+            search_pattern = os.path.join(dir_path, "**", pattern)
+            files = glob.glob(search_pattern, recursive=True)
+        else:
+            search_pattern = os.path.join(dir_path, pattern)
+            files = glob.glob(search_pattern)
+        
+        # Get relative paths and sort
+        result_files = []
+        for f in sorted(files):
+            rel_path = os.path.relpath(f, dir_path)
+            is_dir = os.path.isdir(f)
+            result_files.append({
+                "name": rel_path,
+                "is_dir": is_dir,
+                "full_path": f
+            })
+        
+        import json
+        result_json = json.dumps({
+            "dir_path": dir_path,
+            "pattern": pattern,
+            "recursive": recursive,
+            "count": len(result_files),
+            "files": result_files
+        }, indent=2)
+        
+        return [TextContent(type="text", text=result_json)]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorOSListDir")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
 async def os_make_dir(mainwin, args):
     try:
         if not os.path.exists(args["input"]["dir_path"]):
@@ -2201,21 +2250,30 @@ async def os_seven_zip(mainwin, args):
     try:
         exe = 'C:/Program Files/7-Zip/7z.exe'
         from utils.subprocess_helper import run_no_window, popen_no_window
-        if "zip" in args["input"]["dest"]:
-            # we are zipping a folder or file
-            if args["input"]["dest"] != "":
-                cmd_output = run_no_window([exe, "a", args["input"]["src"], "-o" + args["input"]["dest"]])
-            else:
-                cmd_output = run_no_window([exe, "e", args["input"]["src"]])
-            msg = f"completed seven zip {args['input']['src']}"
+        src = args["input"]["src"]
+        dest = args["input"]["dest"]
+        
+        # Determine if we're zipping or unzipping based on dest extension
+        is_zipping = dest.endswith(('.7z', '.zip', '.tar', '.gz', '.bz2', '.xz'))
+        
+        if is_zipping:
+            # Zipping: 7z a <archive_name> <source_files>
+            # Correct syntax: archive name first, then source files to add
+            cmd = [exe, "a", dest, src]
+            logger.info(f"[os_seven_zip] Zipping: {cmd}")
+            cmd_output = run_no_window(cmd)
+            msg = f"completed seven zip {src} -> {dest}"
         else:
-            # we are unzipping a single file
-            if args["input"]["dest"] != "":
-                cmd = [exe, 'e', args["input"]["src"],  f'-o{args["input"]["dest"]}']
+            # Unzipping: 7z e <archive> -o<output_dir>
+            if dest != "":
+                cmd = [exe, 'e', src, f'-o{dest}', '-y']
+                logger.info(f"[os_seven_zip] Unzipping: {cmd}")
                 cmd_output = popen_no_window(cmd)
             else:
-                cmd_output = run_no_window([exe, "e", args["input"]["src"]])
-            msg = f"completed seven unzip {args['input']['src']}"
+                cmd = [exe, "e", src, '-y']
+                logger.info(f"[os_seven_zip] Unzipping: {cmd}")
+                cmd_output = run_no_window(cmd)
+            msg = f"completed seven unzip {src}"
 
         result = [TextContent(type="text", text=msg)]
         return result
@@ -2631,6 +2689,7 @@ tool_function_mapping = {
         "os_close_app": os_close_app,
         "os_switch_to_app": os_switch_to_app,
         "python_run_extern": python_run_extern,
+        "os_list_dir": os_list_dir,
         "os_make_dir": os_make_dir,
         "os_delete_dir": os_delete_dir,
         "os_delete_file": os_delete_file,
