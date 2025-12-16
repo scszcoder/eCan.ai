@@ -31,6 +31,7 @@ SECTION_TYPES: Tuple[str, ...] = (
     "variables",
     "additional",
     "custom",
+    "tools_to_use",
 )
 
 

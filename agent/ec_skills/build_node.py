@@ -153,6 +153,88 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
                 lines.append(f"{idx}. {text}")
         return "\n".join(lines)
 
+    def _parse_tools_to_use_item(raw: str) -> list[str]:
+        """Parse a tools_to_use item which can be JSON array or comma-separated string."""
+        s = str(raw or "").strip()
+        if not s:
+            return []
+        try:
+            parsed = json.loads(s)
+            if isinstance(parsed, list):
+                return [str(v).strip() for v in parsed if v]
+        except Exception:
+            pass
+        return [v.strip() for v in s.split(',') if v.strip()]
+
+    def _get_tool_schemas_for_names(tool_names: list[str]) -> list[dict]:
+        """Fetch full tool schemas for the given tool names from MCP registry."""
+        try:
+            mainwin = AppContext.get_main_window()
+            all_schemas = getattr(mainwin, 'mcp_tools_schemas', None) or []
+            logger.debug(f"[_get_tool_schemas_for_names] Looking for {len(tool_names)} tools in registry with {len(all_schemas)} schemas")
+            result = []
+            seen = set()
+            for name in tool_names:
+                if name in seen:
+                    continue
+                seen.add(name)
+                for schema in all_schemas:
+                    schema_name = getattr(schema, 'name', None) or (schema.get('name') if isinstance(schema, dict) else None)
+                    schema_id = getattr(schema, 'id', None) or (schema.get('id') if isinstance(schema, dict) else None)
+                    if schema_name == name or schema_id == name:
+                        # Convert to dict if it's a pydantic model
+                        if hasattr(schema, 'model_dump'):
+                            schema_dict = schema.model_dump()
+                        elif isinstance(schema, dict):
+                            schema_dict = schema
+                        else:
+                            schema_dict = {
+                                'name': getattr(schema, 'name', ''),
+                                'description': getattr(schema, 'description', ''),
+                                'inputSchema': getattr(schema, 'inputSchema', {}),
+                            }
+                        result.append(schema_dict)
+                        break
+            return result
+        except Exception as e:
+            logger.warning(f"Failed to get tool schemas: {e}")
+            return []
+
+    def _format_tools_to_use_section(items: list[str]) -> str:
+        """Format tools_to_use section with full tool schemas instead of just names."""
+        # Collect all tool names from items
+        all_tool_names = []
+        seen = set()
+        for item in items:
+            for name in _parse_tools_to_use_item(item):
+                if name not in seen:
+                    seen.add(name)
+                    all_tool_names.append(name)
+        
+        logger.debug(f"[_format_tools_to_use_section] Parsed tool names: {all_tool_names}")
+        
+        if not all_tool_names:
+            logger.debug("[_format_tools_to_use_section] No tool names found, returning empty")
+            return ""
+        
+        # Get full schemas
+        schemas = _get_tool_schemas_for_names(all_tool_names)
+        logger.debug(f"[_format_tools_to_use_section] Got {len(schemas)} schemas for {len(all_tool_names)} tool names")
+        
+        if not schemas:
+            # Fallback to just listing names if schemas not available
+            logger.debug("[_format_tools_to_use_section] No schemas found, falling back to name list")
+            return _join_list(all_tool_names)
+        
+        # Format schemas as JSON for LLM to understand
+        lines = []
+        for idx, schema in enumerate(schemas, 1):
+            schema_json = json.dumps(schema, indent=2, ensure_ascii=False)
+            lines.append(f"{idx}. {schema_json}")
+        result = "\n".join(lines)
+        logger.debug(f"[_format_tools_to_use_section] Formatted {len(schemas)} tool schemas, total length: {len(result)}")
+        return result
+
     def _section_label(section: dict) -> str:
         sec_type = str((section or {}).get("type") or "").strip()
         if not sec_type:
@@ -175,13 +257,40 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
     if role_context:
         sys_parts.append(role_context)
 
+    # Track if tools_to_use section has been added to avoid duplication
+    tools_to_use_added = False
+    
+    # Check if inline system prompt already contains an actual tools_to_use SECTION header
+    # We look for section headers at the start of a line, not just mentions in text
+    # e.g. "[Tools To Use]\n" or "<tools_to_use>\n...content...\n</tools_to_use>"
+    import re
+    inline_lower = inline_system.lower()
+    # Match actual section headers: [Tools To Use] at line start, or XML-style <tools_to_use>...</tools_to_use>
+    has_tools_section = bool(
+        re.search(r'^\s*\[tools[_ ]to[_ ]use\]', inline_lower, re.MULTILINE) or
+        re.search(r'<tools_to_use>\s*\n.*?</tools_to_use>', inline_lower, re.DOTALL)
+    )
+    if has_tools_section:
+        tools_to_use_added = True
+        logger.debug("[_resolve_prompt_templates] tools_to_use section header found in inline system prompt, skipping structured section")
+
     structured_sections = normalized.get("sections") or []
     if structured_sections:
         for section in structured_sections:
             if not isinstance(section, dict):
                 continue
+            sec_type = str(section.get("type") or "").strip().lower()
             items = section.get("items") if isinstance(section.get("items"), list) else []
-            joined = _join_list(items)
+            # Handle tools_to_use specially - fetch full schemas, skip if already added
+            if sec_type == "tools_to_use":
+                if tools_to_use_added:
+                    logger.debug("[_resolve_prompt_templates] Skipping duplicate tools_to_use section")
+                    continue
+                joined = _format_tools_to_use_section(items)
+                if joined:
+                    tools_to_use_added = True
+            else:
+                joined = _join_list(items)
             if not joined:
                 continue
             label = _section_label(section)
@@ -191,9 +300,19 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
         for section in system_sections:
             if not isinstance(section, dict):
                 continue
-            label = str(section.get("type") or "").strip()
+            sec_type = str(section.get("type") or "").strip().lower()
+            label = sec_type.replace("_", " ").title() if sec_type else ""
             items = section.get("items") if isinstance(section.get("items"), list) else []
-            joined = _join_list(items)
+            # Handle tools_to_use specially - fetch full schemas, skip if already added
+            if sec_type == "tools_to_use":
+                if tools_to_use_added:
+                    logger.debug("[_resolve_prompt_templates] Skipping duplicate tools_to_use section")
+                    continue
+                joined = _format_tools_to_use_section(items)
+                if joined:
+                    tools_to_use_added = True
+            else:
+                joined = _join_list(items)
             _add_section(sys_parts, label or None, joined if joined else "")
 
         for label, field_name in (
@@ -222,21 +341,35 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
     if instructions_joined:
         _add_section(user_parts, "Instructions", instructions_joined)
 
-    human_inputs = normalized.get("humanInputs") or []
-    human_inputs_joined = _join_list(human_inputs if isinstance(human_inputs, list) else [])
-    if human_inputs_joined:
-        _add_section(user_parts, "Provide", human_inputs_joined)
-
+    # Prioritize userSections over humanInputs - only use humanInputs if userSections is empty
     user_sections = normalized.get("userSections") or []
-    for section in user_sections:
-        if not isinstance(section, dict):
-            continue
-        items = section.get("items") if isinstance(section.get("items"), list) else []
-        joined = _join_list(items)
-        if not joined:
-            continue
-        label = _section_label(section)
-        _add_section(user_parts, label or None, joined)
+    user_sections_has_content = any(
+        isinstance(s, dict) and s.get("items") and any(str(i).strip() for i in (s.get("items") if isinstance(s.get("items"), list) else []))
+        for s in user_sections
+    )
+    
+    if user_sections_has_content:
+        # Use userSections
+        for section in user_sections:
+            if not isinstance(section, dict):
+                continue
+            sec_type = str(section.get("type") or "").strip().lower()
+            items = section.get("items") if isinstance(section.get("items"), list) else []
+            # Handle tools_to_use specially - fetch full schemas
+            if sec_type == "tools_to_use":
+                joined = _format_tools_to_use_section(items)
+            else:
+                joined = _join_list(items)
+            if not joined:
+                continue
+            label = _section_label(section)
+            _add_section(user_parts, label or None, joined)
+    else:
+        # Fallback to humanInputs if userSections is empty
+        human_inputs = normalized.get("humanInputs") or []
+        human_inputs_joined = _join_list(human_inputs if isinstance(human_inputs, list) else [])
+        if human_inputs_joined:
+            _add_section(user_parts, "Provide", human_inputs_joined)
 
     sys_inputs = normalized.get("sysInputs") or []
     sys_inputs_joined = _join_list(sys_inputs if isinstance(sys_inputs, list) else [])
@@ -452,11 +585,13 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
 
-        active_system_prompt, active_user_prompt = _resolve_prompt_templates(
-            prompt_selection,
-            system_prompt_template,
-            user_prompt_template,
-        )
+        # Use the already-resolved templates from build time (which include full tool schemas)
+        # instead of calling _resolve_prompt_templates again at runtime
+        # The build-time resolution (lines 475-492) already processed prompt_selection and
+        # fetched tool schemas - calling it again at runtime may lose that context
+        active_system_prompt = system_prompt_template
+        active_user_prompt = user_prompt_template
+        logger.debug(f"[LLM] Using pre-resolved prompts: system_len={len(active_system_prompt)}, user_len={len(active_user_prompt)}")
 
         # Find all variable placeholders (e.g., {{var_name}}) in the prompts
         variables = re.findall(r'\{\{(\w+)\}\}', active_system_prompt + active_user_prompt)
@@ -578,6 +713,32 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 _t_stage,
                 extra={"context_limit": int(context_limit or 0), "context_msgs": len(recent_context or [])},
             )
+            
+            # Intelligent system prompt precedence:
+            # If the node has explicit prompts configured (prompt_selection or non-default inline),
+            # those take higher precedence over what's in history. This ensures tool schemas and
+            # other dynamically resolved content are properly sent to the LLM.
+            # Otherwise, preserve history system message for continuity.
+            node_has_explicit_prompt = bool(prompt_selection) or (
+                system_prompt_template and 
+                system_prompt_template.strip() != STANDARD_SYS_PROMPT.strip() and
+                len(system_prompt_template) > len(STANDARD_SYS_PROMPT)
+            )
+            
+            if node_has_explicit_prompt and final_system_prompt and recent_context:
+                # Node has explicit prompt config - use the freshly resolved system prompt
+                # (which includes full tool schemas from tools_to_use section)
+                if recent_context and isinstance(recent_context[0], SystemMessage):
+                    old_len = len(recent_context[0].content)
+                    new_len = len(final_system_prompt)
+                    logger.debug(f"[LLM] Node has explicit prompt - replacing system message (len={old_len}) with resolved one (len={new_len})")
+                    recent_context[0] = SystemMessage(content=final_system_prompt)
+                else:
+                    # Prepend the new system message if none exists
+                    logger.debug(f"[LLM] Node has explicit prompt - prepending system message (len={len(final_system_prompt)})")
+                    recent_context.insert(0, SystemMessage(content=final_system_prompt))
+            else:
+                logger.debug(f"[LLM] No explicit prompt on node - preserving history system message for continuity")
 
             log_msg = f"recent_context: [{len(recent_context)} messages] {recent_context}"
             logger.debug(log_msg)
@@ -1522,6 +1683,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
     web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
     tool_name = None
+    use_llm_auto_select = False
     try:
         tool_name = (config_metadata.get('tool_name')
                      or config_metadata.get('toolName')
@@ -1529,17 +1691,26 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                      or ((config_metadata.get('inputsValues') or {}).get('toolName') or {}).get('content')
                      or (config_metadata.get('inputs') or {}).get('tool_name')
                      or (config_metadata.get('inputs') or {}).get('toolName'))
+        
+        # Also check callable.id or callable.name for "llm-auto-select"
+        callable_info = config_metadata.get('callable') or {}
+        callable_id = callable_info.get('id', '') if isinstance(callable_info, dict) else ''
+        callable_name = callable_info.get('name', '') if isinstance(callable_info, dict) else ''
 
     except Exception:
         tool_name = None
+        callable_id = ''
+        callable_name = ''
 
-    # If tool_name is not specified, return an error node
-    if not tool_name:
-        err_msg = f"'tool_name' is missing in config_metadata for mcp_tool_calling_node. node_name={node_name}, skill_name={skill_name}"
-        logger.error(err_msg)
-        logger.debug(f"[MCP] config_metadata keys: {list(config_metadata.keys()) if config_metadata else 'None'}")
-        web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
-        return lambda state, **kwargs: {**state, 'error': f'MCP tool_name not configured for node {node_name}'}
+    # Check if "llm auto select" mode is enabled
+    if (not tool_name 
+        or tool_name in ('llm-auto-select', 'llm auto select')
+        or callable_id in ('llm-auto-select',)
+        or callable_name in ('llm auto select',)):
+        use_llm_auto_select = True
+        log_msg = f"[MCP] Node '{node_name}' using LLM auto-select mode - tool will be determined at runtime from state['result']['llm_result']"
+        logger.info(log_msg)
+        web_gui.get_ipc_api().send_skill_editor_log("info", log_msg)
 
     # --- MCP tool input helpers (schema-aware) ---
 
@@ -1811,28 +1982,149 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             return inp
 
     def mcp_tool_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
-        log_msg = f"🤖 Executing node MCP tool node for tool: {tool_name}"
-        logger.info(log_msg)
-        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
-
-        # By convention, the input for the tool is expected in state['tool_input']
-        tool_input = state.get('tool_input', {})
+        # Determine actual tool name and input at runtime
+        actual_tool_name = tool_name
+        actual_tool_input = state.get('tool_input', {})
+        
+        # --- LLM Auto-Select Mode ---
+        if use_llm_auto_select:
+            log_msg = f"🤖 Executing MCP node '{node_name}' in LLM auto-select mode"
+            logger.info(log_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+            
+            # Extract LLM result from state
+            llm_result = (state.get('result') or {}).get('llm_result') or {}
+            
+            # Handle case where LLM response is wrapped in 'message' field (multi-line JSON parsing fallback)
+            # Try to extract the JSON object containing next_tool_name
+            if 'message' in llm_result and isinstance(llm_result.get('message'), str):
+                message_content = llm_result['message']
+                logger.debug(f"[MCP Auto-Select] Found 'message' wrapper, attempting to parse: {message_content[:300]}...")
+                
+                # Parse all complete JSON objects from the message and find the one with next_tool_name
+                parsed_objects = []
+                idx = 0
+                while idx < len(message_content):
+                    # Find next '{'
+                    start_idx = message_content.find('{', idx)
+                    if start_idx < 0:
+                        break
+                    
+                    # Find matching closing brace using depth tracking
+                    depth = 0
+                    end_idx = -1
+                    for i, c in enumerate(message_content[start_idx:]):
+                        if c == '{':
+                            depth += 1
+                        elif c == '}':
+                            depth -= 1
+                            if depth == 0:
+                                end_idx = start_idx + i
+                                break
+                    
+                    if end_idx > start_idx:
+                        json_str = message_content[start_idx:end_idx + 1]
+                        try:
+                            parsed = json.loads(json_str)
+                            parsed_objects.append(parsed)
+                            logger.debug(f"[MCP Auto-Select] Parsed JSON object: {list(parsed.keys())}")
+                        except json.JSONDecodeError as e:
+                            logger.debug(f"[MCP Auto-Select] Skipping invalid JSON: {e}")
+                        idx = end_idx + 1
+                    else:
+                        idx = start_idx + 1
+                
+                # Find the object with next_tool_name
+                for obj in parsed_objects:
+                    if isinstance(obj, dict) and 'next_tool_name' in obj:
+                        llm_result = obj
+                        logger.debug(f"[MCP Auto-Select] Found target JSON with next_tool_name: {obj}")
+                        # Update state so loop condition can properly check work_done
+                        if 'result' in state and isinstance(state['result'], dict):
+                            state['result']['llm_result'] = obj
+                            logger.debug(f"[MCP Auto-Select] Updated state['result']['llm_result'] with parsed object")
+                        break
+            
+            work_done = llm_result.get('work_done', False)
+            next_tool_name = llm_result.get('next_tool_name', '')
+            next_tool_input = llm_result.get('next_tool_input', {})
+            
+            log_msg = f"[MCP Auto-Select] work_done={work_done}, next_tool_name='{next_tool_name}', next_tool_input={next_tool_input}"
+            logger.debug(log_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+            
+            # Check if work is done - skip tool call
+            if work_done:
+                log_msg = f"[MCP Auto-Select] work_done=True, skipping tool call for node '{node_name}'"
+                logger.info(log_msg)
+                web_gui.get_ipc_api().send_skill_editor_log("info", log_msg)
+                return state
+            
+            # Check if next_tool_name is empty or not provided
+            if not next_tool_name or not isinstance(next_tool_name, str) or not next_tool_name.strip():
+                # Check if this is an invalid LLM response format
+                # The LLM should return: {"work_done": bool, "next_tool_name": str, "next_tool_input": dict}
+                # But sometimes it returns just {"input": {...}} or {"message": ""}
+                
+                # Case 1: Empty message wrapper
+                if 'message' in llm_result and not llm_result.get('message', '').strip():
+                    log_msg = f"[MCP Auto-Select] WARNING: LLM returned empty message with no next_tool_name. Setting work_done=True to exit loop gracefully."
+                    logger.warning(log_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("warning", log_msg)
+                # Case 2: LLM returned just the input schema without required fields
+                elif 'input' in llm_result and 'next_tool_name' not in llm_result:
+                    log_msg = f"[MCP Auto-Select] WARNING: LLM returned invalid format (just 'input' without 'next_tool_name'). Expected format: {{work_done, next_tool_name, next_tool_input}}. Got: {list(llm_result.keys())}. Setting work_done=True."
+                    logger.warning(log_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("warning", log_msg)
+                else:
+                    log_msg = f"[MCP Auto-Select] next_tool_name is empty or not provided. LLM result keys: {list(llm_result.keys())}. Skipping tool call for node '{node_name}'"
+                    logger.info(log_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("info", log_msg)
+                
+                # Set work_done to True so the loop condition exits gracefully
+                if 'result' in state and isinstance(state['result'], dict):
+                    if 'llm_result' not in state['result']:
+                        state['result']['llm_result'] = {}
+                    state['result']['llm_result']['work_done'] = True
+                return state
+            
+            actual_tool_name = next_tool_name.strip()
+            
+            # Validate tool name against MCP tool registry
+            tool_schema = _get_tool_schema_by_name(actual_tool_name)
+            if not tool_schema:
+                log_msg = f"[MCP Auto-Select] Tool '{actual_tool_name}' not found in MCP tool registry, skipping tool call for node '{node_name}'"
+                logger.warning(log_msg)
+                web_gui.get_ipc_api().send_skill_editor_log("warning", log_msg)
+                return state
+            
+            # Use next_tool_input from LLM result
+            if isinstance(next_tool_input, dict) and next_tool_input:
+                actual_tool_input = next_tool_input
+            
+            log_msg = f"[MCP Auto-Select] Resolved tool: '{actual_tool_name}' with input: {actual_tool_input}"
+            logger.info(log_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+        else:
+            log_msg = f"🤖 Executing node MCP tool node for tool: {actual_tool_name}"
+            logger.info(log_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
         # Schema-aware compile-time fallback from node editor config
         try:
-            _schema = _get_tool_schema_by_name(tool_name)
+            _schema = _get_tool_schema_by_name(actual_tool_name)
             _root = _normalize_schema_root(_schema) if _schema else {}
-            if _root and not _validate_tool_input_against_schema(tool_input, _root):
+            if _root and not _validate_tool_input_against_schema(actual_tool_input, _root):
                 compiled_input = _build_input_from_config(config_metadata, _root)
-                tool_input = _merge_inputs(tool_input if isinstance(tool_input, dict) else {}, compiled_input)
+                actual_tool_input = _merge_inputs(actual_tool_input if isinstance(actual_tool_input, dict) else {}, compiled_input)
             
             # Always coerce all inputs to match schema types (handles empty strings, wrong types)
             if _root:
-                tool_input = _coerce_all_inputs(tool_input, _root)
+                actual_tool_input = _coerce_all_inputs(actual_tool_input, _root)
             
-            state['tool_input'] = tool_input
+            state['tool_input'] = actual_tool_input
 
-            log_msg = f"tool_input backfilled for {tool_name}: {state['tool_input']}"
+            log_msg = f"tool_input backfilled for {actual_tool_name}: {state['tool_input']}"
             logger.debug(log_msg)
             web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
@@ -1841,15 +2133,18 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             logger.debug(err_msg)
             web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
 
+        # Capture for closure
+        _actual_tool_name = actual_tool_name
+        _actual_tool_input = actual_tool_input
 
         async def run_tool_call():
             """A local async function to perform the actual tool call."""
-            log_msg = f"Calling MCP tool '{tool_name}' with input: {tool_input}"
+            log_msg = f"Calling MCP tool '{_actual_tool_name}' with input: {_actual_tool_input}"
             logger.info(log_msg)
             web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
             from config.constants import DEFAULT_API_TIMEOUT
             timeout = config_metadata.get('timeout', DEFAULT_API_TIMEOUT)
-            return await mcp_call_tool(tool_name, tool_input, timeout=timeout)
+            return await mcp_call_tool(_actual_tool_name, _actual_tool_input, timeout=timeout)
 
         try:
             # Use the utility to run the async function from a sync context
@@ -1860,10 +2155,10 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
             # Add the result to the state (result is a dict, not a list)
-            state['tool_result'] = tool_result
-            state['n_steps'] += 1
+            state["tool_result"] = tool_result
+            state["n_steps"] += 1
 
-            tool_call_summary = ActionMessage(content=f"action: mcp call to {tool_name}; result: {tool_result}")
+            tool_call_summary = ActionMessage(content=f"action: mcp call to {_actual_tool_name}; result: {tool_result}")
             add_to_history(state, tool_call_summary)
 
             # Also update attributes for easier access by subsequent nodes
@@ -1872,7 +2167,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
         except Exception as e:
-            err_msg = get_traceback(e, f"ErrorMCPToolCallable({tool_name})")
+            err_msg = get_traceback(e, f"ErrorMCPToolCallable({_actual_tool_name})")
             logger.error(err_msg)
             web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
             state['error'] = err_msg
@@ -2443,7 +2738,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             except Exception as e:
                 info = {"error": f"browser-use run failed: {e}"}
             state.setdefault("tool_result", {})
-            state["tool_result"][node_name] = {
+            # state["tool_result"][node_name] = {
+            state["tool_result"] = {
                 "provider": provider,
                 "task": task_instructions,
                 "systemPrompt": final_system_prompt,
@@ -2453,6 +2749,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             if wait_for_done and info.get("error"):
                 interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": f"Automation pending: {action}"})
 
+            state["n_steps"] += 1
             add_to_history(state, ActionMessage(content=f"action: browser-use {task_instructions}; result: {info}"))
 
             return state

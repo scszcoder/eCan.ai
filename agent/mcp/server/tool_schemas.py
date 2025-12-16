@@ -1539,6 +1539,37 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
     tool_schema = types.Tool(
+        name="os_list_dir",
+        description="<category>System</category><sub-category>File System</sub-category>in OS, list files and directories in a given path. Returns a list of file/directory names with optional filtering by pattern.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {
+                "input": {
+                    "type": "object",
+                    "required": ["dir_path"],
+                    "properties": {
+                        "dir_path": {
+                            "type": "string",
+                            "description": "the directory path to list contents of",
+                        },
+                        "pattern": {
+                            "type": "string",
+                            "description": "optional glob pattern to filter files (e.g., '*.txt', '*.py'). Default is '*' for all files.",
+                        },
+                        "recursive": {
+                            "type": "boolean",
+                            "description": "if true, list files recursively in subdirectories. Default is false.",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(
         name="os_make_dir",
         description="<category>System</category><sub-category>File System</sub-category>in OS, make a directory",
         inputSchema={
@@ -1663,7 +1694,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="os_seven_zip",
-        description="<category>System</category><sub-category>File System</sub-category>zip or unzip using 7z app",
+        description="<category>System</category><sub-category>File System</sub-category>Compress or extract files using 7-Zip. Operation is determined by dest extension: if dest ends with .7z/.zip/.tar/.gz/.bz2/.xz, it compresses src into dest archive; otherwise it extracts src archive to dest directory.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1674,11 +1705,11 @@ def build_agent_mcp_tools_schemas():
                     "properties": {
                         "src": {
                             "type": "string",
-                            "description": "the full path of the sourcefile or dir to be ziped or unziped",
+                            "description": "For compression: the file or directory to compress. For extraction: the archive file to extract.",
                         },
                         "dest": {
                             "type": "string",
-                            "description": "the full path of the resulting file or dir to be ziped or unziped",
+                            "description": "For compression: the output archive path (must end with .7z, .zip, .tar, .gz, .bz2, or .xz). For extraction: the output directory path.",
                         }
                     },
                 }

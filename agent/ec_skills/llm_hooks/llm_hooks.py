@@ -166,42 +166,44 @@ def standard_pre_llm_hook(askid, full_node_name, agent, state, prompt_src, promp
         if not isinstance(state.get("history"), list):
             state["history"] = []
 
-        # Smart history management: avoid duplicate SystemMessages
+        # Smart history management: avoid duplicate SystemMessages AND HumanMessages
         # formatted_prompt is typically [SystemMessage(...), HumanMessage(...)]
-        from langchain_core.messages import SystemMessage
+        # In a loop, we should NOT re-add the same HumanMessage (goals) on each iteration
+        from langchain_core.messages import SystemMessage, HumanMessage
 
         if formatted_prompt and len(formatted_prompt) > 0:
             logger.debug(f"[LLM_HOOKS] updating messages to history......")
 
-            first_msg = formatted_prompt[0]
-            # Check if first message is a SystemMessage
-            if isinstance(first_msg, SystemMessage):
-                # Find the most recent SystemMessage in history (from the end)
-                recent_system = None
-                for _msg in reversed(state["history"]):
-                    if isinstance(_msg, SystemMessage):
-                        recent_system = _msg
-                        break
-
-                is_duplicate_of_recent = (
-                    recent_system is not None and recent_system.content == first_msg.content
-                )
-
-                if is_duplicate_of_recent:
-                    # Skip the SystemMessage, only add the rest (e.g., HumanMessage)
-                    state["history"].extend(formatted_prompt[1:])
-                    state["prompts"] = formatted_prompt[1:]
-                    logger.debug(f"[LLM_HOOKS] Skipped duplicate SystemMessage, added {len(formatted_prompt) - 1} messages to history")
-                else:
-                    # Add all messages including the new SystemMessage
-                    state["history"].extend(formatted_prompt)
-                    state["prompts"] = formatted_prompt
-                    logger.debug(f"[LLM_HOOKS] Added all {len(formatted_prompt)} messages to history (new SystemMessage)")
+            # Filter out messages that are already in history (by content match)
+            messages_to_add = []
+            for msg in formatted_prompt:
+                is_duplicate = False
+                
+                if isinstance(msg, SystemMessage):
+                    # Check for duplicate SystemMessage
+                    for hist_msg in reversed(state["history"]):
+                        if isinstance(hist_msg, SystemMessage) and hist_msg.content == msg.content:
+                            is_duplicate = True
+                            logger.debug(f"[LLM_HOOKS] Skipping duplicate SystemMessage (len={len(msg.content)})")
+                            break
+                elif isinstance(msg, HumanMessage):
+                    # Check for duplicate HumanMessage (important for loops!)
+                    for hist_msg in reversed(state["history"]):
+                        if isinstance(hist_msg, HumanMessage) and hist_msg.content == msg.content:
+                            is_duplicate = True
+                            logger.debug(f"[LLM_HOOKS] Skipping duplicate HumanMessage (len={len(msg.content)})")
+                            break
+                
+                if not is_duplicate:
+                    messages_to_add.append(msg)
+            
+            if messages_to_add:
+                state["history"].extend(messages_to_add)
+                state["prompts"] = messages_to_add
+                logger.debug(f"[LLM_HOOKS] Added {len(messages_to_add)} non-duplicate messages to history")
             else:
-                # No SystemMessage at start, add all messages
-                state["history"].extend(formatted_prompt)
-                state["prompts"] = formatted_prompt
-                logger.debug(f"[LLM_HOOKS] Added all {len(formatted_prompt)} messages to history (no SystemMessage)")
+                state["prompts"] = formatted_prompt  # Keep prompts for reference even if not added to history
+                logger.debug(f"[LLM_HOOKS] All {len(formatted_prompt)} messages were duplicates, skipped adding to history")
 
         logger.debug("[LLM_HOOKS] pre ll hook formatted_prompt:",formatted_prompt)
 

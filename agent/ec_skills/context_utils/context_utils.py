@@ -27,6 +27,7 @@ Usage:
 
 import asyncio
 import json
+import re
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -350,6 +351,32 @@ class ToolContextProvider(ContextProvider):
     name = "tool"
     
     def get_context(self, state: dict, config: ContextBuilderConfig, token_budget: int) -> ContextChunk:
+        # Check if tools_to_use section already exists in system prompt to avoid duplication
+        system_prompt = state.get("attributes", {}).get("system_prompt", "")
+        if not system_prompt:
+            system_prompt = state.get("system_prompt", "")
+        system_prompt_lower = (system_prompt or "").lower()
+        
+        # Match actual section headers: [Tools To Use] at line start, or XML-style <tools_to_use>...</tools_to_use>
+        # We look for actual section headers, not just mentions in text
+        has_tools_section = bool(
+            re.search(r'^\s*\[tools[_ ]to[_ ]use\]', system_prompt_lower, re.MULTILINE) or
+            re.search(r'<tools_to_use>\s*\n.*?</tools_to_use>', system_prompt_lower, re.DOTALL) or
+            re.search(r'^\s*\[available[_ ]tools\]', system_prompt_lower, re.MULTILINE) or
+            re.search(r'<available_tools>\s*\n.*?</available_tools>', system_prompt_lower, re.DOTALL)
+        )
+        
+        if has_tools_section:
+            logger.debug("[ToolContextProvider] tools_to_use section header found in system prompt, skipping to avoid duplication")
+            return ContextChunk(
+                provider_name=self.name,
+                section_name="available_tools",
+                content="",  # Empty - tools already in prompt
+                token_estimate=0,
+                priority=0.0,
+                metadata={"skipped": True, "reason": "tools_already_in_prompt"}
+            )
+        
         # Get tools from state
         tools = state.get("attributes", {}).get("available_tools", [])
         mcp_tools = state.get("attributes", {}).get("mcp_tools", [])
