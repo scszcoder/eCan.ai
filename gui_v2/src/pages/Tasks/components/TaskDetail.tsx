@@ -129,6 +129,21 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   const skills = useSkillStore((s) => s.items);
   const setSkills = useSkillStore((s) => s.setItems);
 
+  // Extract only id and name to avoid circular reference in deep comparison
+  const skillsSimplified = React.useMemo(() => 
+    (skills || []).map((s: any) => ({ id: s.id, name: s.name })), 
+    [skills?.length]  // Only depend on length, not the complex objects
+  );
+
+  // Memoize skill options to avoid circular reference warnings
+  const skillOptions = React.useMemo(() => 
+    skillsSimplified.map((s) => ({ 
+      key: s.id || s.name,
+      value: s.name, 
+      label: s.name 
+    })), [skillsSimplified]
+  );
+
   React.useEffect(() => {
     const api = get_ipc_api();
     const ensureSkills = async () => {
@@ -151,10 +166,15 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
 
   React.useEffect(() => {
     if (task) {
-      const metaStr = (task as any).metadata ? JSON.stringify((task as any).metadata, null, 2) : '';
+      // Skill comes directly from task (loaded from relationship table)
+      const taskSkill = (task as any).skill || '';
+      
+      // Metadata is clean (no skill stored in it anymore)
+      const metadata = (task as any).metadata || {};
+      const metaStr = Object.keys(metadata).length > 0 ? JSON.stringify(metadata, null, 2) : '';
 
       // 使用 name Field，If不存在则使用 skill Field作为后备
-      const taskName = (task as any).name || (task as any).skill || '';
+      const taskName = (task as any).name || taskSkill || '';
 
       // 使用 description Field，If不存在则使用 metadata 中的Description作为后备
       const taskDescription = (task as any).description
@@ -164,8 +184,9 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       // 确保AllField都正确Settings
       const formValues = {
         ...(task as any),
-        name: taskName,  // 使用 name 或 skill
-        description: taskDescription,  // 使用 description 或其他后备Field
+        name: taskName,
+        description: taskDescription,
+        skill: taskSkill,  // Skill from backend (relationship table)
         metadata_text: metaStr,
       };
 
@@ -220,20 +241,19 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   const handleEdit = () => {
     if (isCodeGenerated) {
         message.warning(t('pages.tasks.readOnlyCodeGenerated') || 'This task is code-generated and read-only');
-        return;
     }
-    console.log('[TaskDetail] Edit button clicked, setting editMode to true');
     setEditMode(true);
   };
 
-  // Debug: Monitor editMode changes
-  React.useEffect(() => {
-    console.log('[TaskDetail] editMode changed:', editMode, 'isNew:', isNew, 'formDisabled:', !editMode && !isNew);
-  }, [editMode, isNew]);
 
   const handleSave = async () => {
     try {
       const values = await form.validateFields();
+      
+      // Find skill object by name (use simplified skills to avoid circular refs)
+      const skillName = (values as any).skill || '';
+      const skillObj = skillName ? skillsSimplified.find(s => s.name === skillName) : null;
+      
       const payload: any = {
         id: (values as any).id,
         name: (values as any).name || t('pages.tasks.newTaskName', 'New Task'),
@@ -242,7 +262,8 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         latest_version: (values as any).latest_version || '1.0.0',
         priority: (values as any).priority || 'medium',
         trigger: (values as any).trigger || 'manual',
-        skill: (values as any).skill || '',
+        skill_id: skillObj?.id || null,  // Pass skill_id instead of skill name
+        skill_name: skillName,  // Also pass name for backward compatibility
         schedule: {
           repeat_type: (values as any).schedule?.repeat_type || 'none',
           repeat_number: (values as any).schedule?.repeat_number || 1,
@@ -440,7 +461,11 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                   </StyledFormItem>
                 </Col>
                 <Col span={24}>
-                  <StyledFormItem label={t('pages.tasks.skill', 'Skill')} name="skill" htmlFor="task-skill">
+                  <StyledFormItem 
+                    label={t('pages.tasks.skill', 'Skill')} 
+                    name="skill" 
+                    htmlFor="task-skill"
+                  >
                     {editMode || isNew ? (
                       <Select
                         id="task-skill"
@@ -448,11 +473,11 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                         showSearch
                         size="large"
                         placeholder={t('pages.tasks.skillPlaceholder', 'Select a skill')}
-                        options={(skills || []).map((s: any) => ({ 
-                          key: s.id || s.name,  // Use unique ID as key
-                          value: s.name, 
-                          label: s.name 
-                        }))}
+                        onChange={(value) => {
+                          // Explicitly set empty string when cleared (value is undefined when cleared)
+                          form.setFieldValue('skill', value ?? '');
+                        }}
+                        options={skillOptions}
                         filterOption={(input, option) =>
                           (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
                         }

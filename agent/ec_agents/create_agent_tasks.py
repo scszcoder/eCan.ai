@@ -379,6 +379,21 @@ def _convert_db_agent_task_to_object(db_agent_task_dict):
         
         # Create ManagedTask object (agent task)
         # Note: ManagedTask is a Pydantic model, we can only set fields that are defined in the model
+        
+        # Load metadata
+        # NOTE: DB uses 'settings' ORM attribute (maps to 'metadata' column) due to SQLAlchemy reserved word
+        # to_dict() converts 'settings' back to 'metadata', but support both for compatibility
+        metadata = db_agent_task_dict.get('metadata', db_agent_task_dict.get('settings', {}))
+            
+        # Ensure metadata is a dict
+        if not isinstance(metadata, dict):
+            metadata = {}
+        
+        # Get skill from task-skill relationship table
+        from gui.ipc.w2p_handlers.task_handler import _get_task_skill_info
+        skill_info = _get_task_skill_info(db_agent_task_dict.get('id'))
+        skill_name = skill_info['name'] if skill_info else ''
+        
         agent_task = ManagedTask(
             id=db_agent_task_dict.get('id', f"agent_task_{uuid.uuid4().hex[:16]}"),
             name=db_agent_task_dict.get('name', 'Unnamed Agent Task'),
@@ -387,15 +402,16 @@ def _convert_db_agent_task_to_object(db_agent_task_dict):
             owner=db_agent_task_dict.get('owner', ''),
             status=status,
             sessionId='',
-            skill=None,
+            skill=skill_name,  # Use skill name from metadata
             schedule=schedule,
             resumeFrom='',
             state={},
+            metadata=metadata,
             trigger=db_agent_task_dict.get('trigger', 'manual'),
             priority=priority_value
         )
 
-        # Note: task_type, objectives, progress, result, error_message, settings are not fields in ManagedTask
+        # Note: task_type, objectives, progress, result, error_message are not fields in ManagedTask
         # They are stored in the database but not needed for the ManagedTask object
         
         return agent_task

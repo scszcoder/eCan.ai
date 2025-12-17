@@ -61,7 +61,6 @@ class AsyncPreloader:
             ('mainwindow_deps', self._preload_mainwindow_dependencies()),
             ('crypto_modules', self._preload_crypto_modules()),
             ('database_services', self._preload_database_services()),
-            ('bot_modules', self._preload_bot_modules()),
             ('gui_tools', self._preload_gui_tools()),
         ]
         
@@ -253,53 +252,6 @@ class AsyncPreloader:
                 'error': str(e),
                 'load_time': time.time() - start_time,
                 'description': "Database services load failed"
-            }
-    
-    async def _preload_bot_modules(self) -> Dict[str, Any]:
-        """Preload Bot modules (heavy dependency)"""
-        start_time = time.time()
-        modules = []
-        
-        try:
-            loop = asyncio.get_event_loop()
-            
-            def _load_bot_modules():
-                nonlocal modules
-                try:
-                    # Cloud service imports (heavy)
-                    from agent.cloud_api.cloud_api import (send_dequeue_tasks_to_cloud, send_schedule_request_to_cloud,
-                                          set_up_cloud, upload_file)
-                    modules.append("Cloud services")
-                    
-                    # Bot module imports (heavy)
-                    modules.append("Bot core modules")
-                    
-                    # Agent database (very heavy)
-                    from agent.db import initialize_ecan_database
-                    modules.append("Agent database")
-                    
-                except ImportError as e:
-                    modules.append(f"Bot modules (partial: {e})")
-                
-                return modules
-            
-            with ThreadPoolExecutor(max_workers=1, thread_name_prefix="BotPreload") as executor:
-                modules = await loop.run_in_executor(executor, _load_bot_modules)
-            
-            load_time = time.time() - start_time
-            return {
-                'success': True,
-                'modules': modules,
-                'load_time': load_time,
-                'description': f"Bot modules ({len(modules)} groups)"
-            }
-            
-        except Exception as e:
-            return {
-                'success': False,
-                'error': str(e),
-                'load_time': time.time() - start_time,
-                'description': "Bot modules load failed"
             }
     
     async def _preload_gui_tools(self) -> Dict[str, Any]:
