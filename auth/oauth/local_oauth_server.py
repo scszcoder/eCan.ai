@@ -71,7 +71,7 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
             self._send_error_response("server_error", "Internal server error")
     
     def _send_success_response(self, language: str = None):
-        """Send success response to browser with scheme-based app launch"""
+        """Send success response to browser with user-initiated app launch (Plan A)"""
         self.send_response(200)
         self.send_header('Content-type', 'text/html; charset=utf-8')
         self.end_headers()
@@ -83,11 +83,10 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
         lang = language or self._detect_language()
         title = auth_messages.get_message('oauth_success_title', lang)
         message = auth_messages.get_message('oauth_success_message', lang)
-        app_prompt = auth_messages.get_message('oauth_success_app_prompt', lang)
-        # Use a single countdown setting and inject into i18n string
-        countdown_seconds = 3
-        launching_text = auth_messages.get_message('oauth_success_launching', lang).format(countdown=countdown_seconds)
-        manual_launch_text = auth_messages.get_message('oauth_manual_launch', lang)
+        instruction = auth_messages.get_message('oauth_success_instruction', lang)
+        primary_button = auth_messages.get_message('oauth_primary_button', lang)
+        secondary_button = auth_messages.get_message('oauth_secondary_button', lang)
+        hint = auth_messages.get_message('oauth_app_not_installed_hint', lang)
         
         # Schedule server shutdown after response is sent
         self._schedule_server_shutdown()
@@ -98,151 +97,234 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
         <head>
             <meta charset="utf-8">
             <title>{title}</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <style>
+                * {{
+                    margin: 0;
+                    padding: 0;
+                    box-sizing: border-box;
+                }}
                 body {{ 
-                    font-family: Arial, sans-serif; 
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
                     text-align: center; 
-                    padding: 50px;
                     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                     color: white;
-                    margin: 0;
                     min-height: 100vh;
                     display: flex;
                     align-items: center;
                     justify-content: center;
+                    padding: 20px;
                 }}
                 .container {{ 
-                    max-width: 500px; 
-                    background: rgba(255, 255, 255, 0.1);
-                    backdrop-filter: blur(10px);
-                    border-radius: 20px;
-                    padding: 40px;
-                    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-                }}
-                .success {{ 
-                    color: #4CAF50; 
-                    margin-bottom: 20px;
-                    font-size: 2.5em;
-                }}
-                .message {{ 
-                    font-size: 1.2em; 
-                    margin: 20px 0;
-                    line-height: 1.6;
-                }}
-                .countdown {{ 
-                    font-size: 1.5em; 
-                    font-weight: bold; 
-                    color: #FFD700;
-                    margin: 20px 0;
-                }}
-                .progress-bar {{
+                    max-width: 480px;
                     width: 100%;
-                    height: 6px;
-                    background: rgba(255, 255, 255, 0.2);
-                    border-radius: 3px;
-                    margin: 20px 0;
-                    overflow: hidden;
-                }}
-                .progress-fill {{
-                    height: 100%;
-                    background: linear-gradient(90deg, #4CAF50, #45a049);
-                    border-radius: 3px;
-                    animation: progress {countdown_seconds}s linear;
-                }}
-                @keyframes progress {{
-                    from {{ width: 0%; }}
-                    to {{ width: 100%; }}
+                    background: rgba(255, 255, 255, 0.95);
+                    backdrop-filter: blur(10px);
+                    border-radius: 24px;
+                    padding: 48px 40px;
+                    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+                    color: #333;
                 }}
                 .icon {{
-                    font-size: 4em;
-                    margin-bottom: 20px;
+                    font-size: 72px;
+                    margin-bottom: 24px;
+                    animation: scaleIn 0.5s ease-out;
                 }}
-                a {{ 
-                    color: #FFD700; 
-                    text-decoration: none; 
-                    font-weight: bold;
-                    border: 2px solid #FFD700;
-                    padding: 10px 20px;
-                    border-radius: 25px;
-                    display: inline-block;
-                    margin-top: 20px;
-                    transition: all 0.3s ease;
+                @keyframes scaleIn {{
+                    from {{
+                        transform: scale(0);
+                        opacity: 0;
+                    }}
+                    to {{
+                        transform: scale(1);
+                        opacity: 1;
+                    }}
                 }}
-                a:hover {{ 
-                    background: #FFD700; 
+                h1 {{ 
+                    color: #1a1a1a;
+                    font-size: 28px;
+                    font-weight: 600;
+                    margin-bottom: 12px;
+                }}
+                .message {{ 
+                    font-size: 16px; 
+                    color: #666;
+                    margin-bottom: 8px;
+                    line-height: 1.5;
+                }}
+                .instruction {{
+                    font-size: 16px;
                     color: #333;
+                    margin-bottom: 32px;
+                    line-height: 1.6;
+                    font-weight: 500;
+                }}
+                .button-group {{
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                    margin-bottom: 24px;
+                }}
+                .primary-button {{ 
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                    border: none;
+                    padding: 16px 32px;
+                    border-radius: 12px;
+                    font-size: 18px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.3s ease;
+                    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+                    text-decoration: none;
+                    display: inline-block;
+                }}
+                .primary-button:hover {{ 
                     transform: translateY(-2px);
-                    box-shadow: 0 4px 15px rgba(255, 215, 0, 0.3);
+                    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+                }}
+                .primary-button:active {{
+                    transform: translateY(0);
+                }}
+                .secondary-button {{
+                    background: transparent;
+                    color: #666;
+                    border: none;
+                    padding: 12px 24px;
+                    border-radius: 8px;
+                    font-size: 15px;
+                    font-weight: 500;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                    text-decoration: none;
+                    display: inline-block;
+                }}
+                .secondary-button:hover {{
+                    background: rgba(0, 0, 0, 0.05);
+                    color: #333;
+                }}
+                .hint {{
+                    font-size: 13px;
+                    color: #999;
+                    line-height: 1.5;
+                    padding: 16px;
+                    background: rgba(0, 0, 0, 0.02);
+                    border-radius: 8px;
+                    border-left: 3px solid #667eea;
+                }}
+                .status-message {{
+                    margin-top: 16px;
+                    font-size: 14px;
+                    color: #4CAF50;
+                    font-weight: 500;
+                    min-height: 20px;
                 }}
             </style>
         </head>
-            <body>
+        <body>
             <div class="container">
-                <div class="success">✅</div>
+                <div class="icon">✅</div>
+                <h1>{title}</h1>
                 <div class="message">{message}</div>
-                <div class="message" style="font-size: 1.4em; font-weight: bold; margin-top: 30px;">{app_prompt}</div>
-                <div class="progress-bar">
-                    <div class="progress-fill"></div>
+                <div class="instruction">{instruction}</div>
+                
+                <div class="button-group">
+                    <button class="primary-button" id="open-app-btn">
+                        {primary_button}
+                    </button>
+                    <button class="secondary-button" id="close-window-btn">
+                        {secondary_button}
+                    </button>
                 </div>
-                <div id="launch-message" class="countdown">{launching_text}</div>
-                <a href="{app_scheme}" id="manual-launch">{manual_launch_text}</a>
+                
+                <div class="hint">{hint}</div>
+                <div class="status-message" id="status-message"></div>
                 
                 <script>
-                    let countdown = {countdown_seconds};
+                    const appScheme = '{app_scheme}';
                     let appLaunched = false;
 
                     function launchApplication() {{
                         if (appLaunched) return;
                         appLaunched = true;
 
-                        // 尝试多种方式拉起客户端
-                        // 方法 1: 直接跳转
-                        window.location.href = '{app_scheme}';
+                        // Show status message
+                        const statusMsg = document.getElementById('status-message');
+                        if (statusMsg) {{
+                            statusMsg.textContent = 'Opening application...';
+                            statusMsg.style.color = '#667eea';
+                        }}
 
-                        // 方法 2: 隐藏 iframe（兼容性更好）
-                        const iframe = document.createElement('iframe');
-                        iframe.style.display = 'none';
-                        iframe.src = '{app_scheme}';
-                        document.body.appendChild(iframe);
+                        // Method 1: Direct location change (most reliable)
+                        try {{
+                            window.location.href = appScheme;
+                        }} catch(e) {{
+                            console.log('Direct launch failed:', e);
+                        }}
 
-                        // 方法 3: 兜底 window.open
+                        // Method 2: Hidden iframe (fallback for some browsers)
                         setTimeout(function() {{
                             try {{
-                                window.open('{app_scheme}', '_blank');
+                                const iframe = document.createElement('iframe');
+                                iframe.style.display = 'none';
+                                iframe.src = appScheme;
+                                document.body.appendChild(iframe);
+                                
+                                // Clean up iframe after a delay
+                                setTimeout(function() {{
+                                    document.body.removeChild(iframe);
+                                }}, 2000);
                             }} catch(e) {{
-                                console.log('Window.open failed:', e);
+                                console.log('Iframe method failed:', e);
+                            }}
+                        }}, 100);
+
+                        // Update status after attempt
+                        setTimeout(function() {{
+                            if (statusMsg) {{
+                                statusMsg.textContent = 'Application opened. You can close this window.';
+                                statusMsg.style.color = '#4CAF50';
+                            }}
+                        }}, 1500);
+                    }}
+
+                    function closeWindow() {{
+                        // Try to close the window
+                        try {{
+                            window.close();
+                        }} catch(e) {{
+                            console.log('Cannot close window:', e);
+                        }}
+                        
+                        // If window.close() doesn't work (some browsers block it),
+                        // show a message
+                        setTimeout(function() {{
+                            const statusMsg = document.getElementById('status-message');
+                            if (statusMsg && !document.hidden) {{
+                                statusMsg.textContent = 'Please close this tab manually.';
+                                statusMsg.style.color = '#999';
                             }}
                         }}, 500);
-
-                        // 更新提示文案
-                        setTimeout(function() {{
-                            const launchMsg = document.getElementById('launch-message');
-                            if (launchMsg) {{
-                                launchMsg.innerHTML = '{manual_launch_text}';
-                                launchMsg.style.color = '#4CAF50';
-                            }}
-                        }}, 1000);
                     }}
 
-                    function updateCountdown() {{
-                        if (countdown > 0) {{
-                            countdown--;
-                            setTimeout(updateCountdown, 1000);
-                        }} else {{
-                            // 倒计时结束后，直接尝试拉起客户端
-                            launchApplication();
-                        }}
-                    }}
-
-                    document.addEventListener('DOMContentLoaded', function() {{
-                        // 页面加载后只显示成功信息和倒计时
-                        updateCountdown();
-                    }});
-
-                    // 手动点击“打开应用”按钮时立即尝试拉起客户端
-                    document.getElementById('manual-launch').addEventListener('click', function(e) {{
+                    // Event listeners
+                    document.getElementById('open-app-btn').addEventListener('click', function(e) {{
                         e.preventDefault();
                         launchApplication();
+                    }});
+
+                    document.getElementById('close-window-btn').addEventListener('click', function(e) {{
+                        e.preventDefault();
+                        closeWindow();
+                    }});
+
+                    // Keyboard accessibility
+                    document.addEventListener('keydown', function(e) {{
+                        if (e.key === 'Enter' && !appLaunched) {{
+                            launchApplication();
+                        }} else if (e.key === 'Escape') {{
+                            closeWindow();
+                        }}
                     }});
                 </script>
             </div>

@@ -49,9 +49,10 @@ class AuthMessages:
             # OAuth callback messages
             'oauth_success_title': 'Authentication Successful',
             'oauth_success_message': 'You have successfully authenticated with Google.',
-            'oauth_success_app_prompt': 'Please open the ecan.ai application',
-            'oauth_success_launching': 'Opening ecan.ai application in {countdown} seconds...',
-            'oauth_manual_launch': 'Open ecan.ai Application',
+            'oauth_success_instruction': 'Click the button below to open the eCan.ai application and complete the login process.',
+            'oauth_primary_button': 'Open eCan.ai Application',
+            'oauth_secondary_button': 'Close Window',
+            'oauth_app_not_installed_hint': 'If the application does not open automatically, please ensure eCan.ai is installed on your device.',
             'oauth_success_confirm_prompt': (
                 'Authentication successful!\\n\\n'
                 'Do you want to open the ecan.ai application to complete login?\\n\\n'
@@ -101,14 +102,15 @@ class AuthMessages:
             
             # OAuth callback messages
             'oauth_success_title': '认证成功',
-            'oauth_success_message': '您已成功通过Google认证。',
-            'oauth_success_app_prompt': '请打开 ecan.ai 应用',
-            'oauth_success_launching': '正在打开 ecan.ai 应用，{countdown} 秒后自动启动...',
-            'oauth_manual_launch': '打开 ecan.ai 应用',
+            'oauth_success_message': '您已成功通过 Google 认证。',
+            'oauth_success_instruction': '点击下方按钮打开 eCan.ai 应用完成登录流程。',
+            'oauth_primary_button': '打开 eCan.ai 应用',
+            'oauth_secondary_button': '关闭窗口',
+            'oauth_app_not_installed_hint': '如果应用未自动打开，请确认已安装 eCan.ai 应用。',
             'oauth_success_confirm_prompt': (
                 '认证成功！\\n\\n'
                 '是否同意打开 ecan.ai 应用以完成登录？\\n\\n'
-                '如果应用没有自动打开，您可以点击页面上的“打开 ecan.ai 应用”按钮。'
+                '如果应用没有自动打开，您可以点击页面上的"打开 ecan.ai 应用"按钮。'
             ),
             
             # OAuth error messages
