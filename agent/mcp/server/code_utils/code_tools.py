@@ -797,3 +797,457 @@ async def async_run_shell_script(mainwin, args: Dict[str, Any]) -> List[TextCont
         err_trace = get_traceback(e, "ErrorAsyncRunShellScript")
         logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
+
+
+# ==================== Search Tools ====================
+
+import glob
+import fnmatch
+import re as regex_module
+
+
+def grep_search(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Search for patterns within files.
+    
+    Args:
+        mainwin: Main window instance (unused but required for MCP pattern)
+        config: Configuration dict with:
+            - pattern: str (required) - Pattern to search for
+            - path: str (required) - File or directory path to search in
+            - recursive: bool (optional) - Search recursively in subdirectories (default: True)
+            - file_pattern: str (optional) - Glob pattern to filter files (e.g., "*.py", "*.txt")
+            - case_sensitive: bool (optional) - Case-sensitive search (default: False)
+            - is_regex: bool (optional) - Treat pattern as regex (default: False)
+            - max_results: int (optional) - Maximum number of matches to return (default: 100)
+            - context_lines: int (optional) - Number of context lines before/after match (default: 0)
+            
+    Returns:
+        Dict with search results
+    """
+    try:
+        pattern = config.get("pattern", "")
+        search_path = config.get("path", "")
+        recursive = config.get("recursive", True)
+        file_pattern = config.get("file_pattern", "*")
+        case_sensitive = config.get("case_sensitive", False)
+        is_regex = config.get("is_regex", False)
+        max_results = config.get("max_results", 100)
+        context_lines = config.get("context_lines", 0)
+        
+        if not pattern:
+            return {"success": False, "error": "pattern is required", "matches": [], "total_matches": 0}
+        
+        if not search_path:
+            return {"success": False, "error": "path is required", "matches": [], "total_matches": 0}
+        
+        if not os.path.exists(search_path):
+            return {"success": False, "error": f"Path does not exist: {search_path}", "matches": [], "total_matches": 0}
+        
+        # Compile pattern
+        if is_regex:
+            flags = 0 if case_sensitive else regex_module.IGNORECASE
+            try:
+                compiled_pattern = regex_module.compile(pattern, flags)
+            except regex_module.error as e:
+                return {"success": False, "error": f"Invalid regex: {e}", "matches": [], "total_matches": 0}
+        else:
+            if not case_sensitive:
+                pattern = pattern.lower()
+        
+        matches = []
+        files_searched = 0
+        
+        # Get list of files to search
+        if os.path.isfile(search_path):
+            files_to_search = [search_path]
+        else:
+            if recursive:
+                files_to_search = []
+                for root, dirs, files in os.walk(search_path):
+                    for filename in files:
+                        if fnmatch.fnmatch(filename, file_pattern):
+                            files_to_search.append(os.path.join(root, filename))
+            else:
+                files_to_search = glob.glob(os.path.join(search_path, file_pattern))
+                files_to_search = [f for f in files_to_search if os.path.isfile(f)]
+        
+        # Search each file
+        for filepath in files_to_search:
+            if len(matches) >= max_results:
+                break
+            
+            try:
+                with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                    lines = f.readlines()
+                
+                files_searched += 1
+                
+                for line_num, line in enumerate(lines, 1):
+                    if len(matches) >= max_results:
+                        break
+                    
+                    # Check for match
+                    if is_regex:
+                        match = compiled_pattern.search(line)
+                    else:
+                        search_line = line if case_sensitive else line.lower()
+                        match = pattern in search_line
+                    
+                    if match:
+                        # Get context lines
+                        context_before = []
+                        context_after = []
+                        
+                        if context_lines > 0:
+                            start = max(0, line_num - 1 - context_lines)
+                            end = min(len(lines), line_num + context_lines)
+                            context_before = [l.rstrip() for l in lines[start:line_num-1]]
+                            context_after = [l.rstrip() for l in lines[line_num:end]]
+                        
+                        matches.append({
+                            "file": filepath,
+                            "line_number": line_num,
+                            "line": line.rstrip(),
+                            "context_before": context_before,
+                            "context_after": context_after
+                        })
+            
+            except Exception as e:
+                # Skip files that can't be read
+                continue
+        
+        return {
+            "success": True,
+            "matches": matches,
+            "total_matches": len(matches),
+            "files_searched": files_searched,
+            "truncated": len(matches) >= max_results
+        }
+        
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorGrepSearch")
+        logger.error(err_trace)
+        return {"success": False, "error": err_trace, "matches": [], "total_matches": 0}
+
+
+def find_files(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Find files by name pattern.
+    
+    Args:
+        mainwin: Main window instance (unused but required for MCP pattern)
+        config: Configuration dict with:
+            - path: str (required) - Directory path to search in
+            - pattern: str (optional) - Glob pattern to match files (default: "*")
+            - recursive: bool (optional) - Search recursively (default: True)
+            - file_type: str (optional) - Filter by type: "file", "directory", "any" (default: "any")
+            - max_results: int (optional) - Maximum number of results (default: 100)
+            - include_size: bool (optional) - Include file sizes (default: True)
+            - include_modified: bool (optional) - Include modification times (default: False)
+            
+    Returns:
+        Dict with found files
+    """
+    try:
+        search_path = config.get("path", "")
+        pattern = config.get("pattern", "*")
+        recursive = config.get("recursive", True)
+        file_type = config.get("file_type", "any")
+        max_results = config.get("max_results", 100)
+        include_size = config.get("include_size", True)
+        include_modified = config.get("include_modified", False)
+        
+        if not search_path:
+            return {"success": False, "error": "path is required", "files": [], "total_found": 0}
+        
+        if not os.path.exists(search_path):
+            return {"success": False, "error": f"Path does not exist: {search_path}", "files": [], "total_found": 0}
+        
+        if not os.path.isdir(search_path):
+            return {"success": False, "error": f"Path is not a directory: {search_path}", "files": [], "total_found": 0}
+        
+        results = []
+        
+        if recursive:
+            for root, dirs, files in os.walk(search_path):
+                if len(results) >= max_results:
+                    break
+                
+                # Check directories
+                if file_type in ("directory", "any"):
+                    for dirname in dirs:
+                        if len(results) >= max_results:
+                            break
+                        if fnmatch.fnmatch(dirname, pattern):
+                            full_path = os.path.join(root, dirname)
+                            entry = {"path": full_path, "name": dirname, "type": "directory"}
+                            if include_modified:
+                                try:
+                                    entry["modified"] = os.path.getmtime(full_path)
+                                except:
+                                    pass
+                            results.append(entry)
+                
+                # Check files
+                if file_type in ("file", "any"):
+                    for filename in files:
+                        if len(results) >= max_results:
+                            break
+                        if fnmatch.fnmatch(filename, pattern):
+                            full_path = os.path.join(root, filename)
+                            entry = {"path": full_path, "name": filename, "type": "file"}
+                            if include_size:
+                                try:
+                                    entry["size"] = os.path.getsize(full_path)
+                                except:
+                                    pass
+                            if include_modified:
+                                try:
+                                    entry["modified"] = os.path.getmtime(full_path)
+                                except:
+                                    pass
+                            results.append(entry)
+        else:
+            # Non-recursive search
+            for item in os.listdir(search_path):
+                if len(results) >= max_results:
+                    break
+                
+                full_path = os.path.join(search_path, item)
+                is_dir = os.path.isdir(full_path)
+                
+                if file_type == "file" and is_dir:
+                    continue
+                if file_type == "directory" and not is_dir:
+                    continue
+                
+                if fnmatch.fnmatch(item, pattern):
+                    entry = {
+                        "path": full_path,
+                        "name": item,
+                        "type": "directory" if is_dir else "file"
+                    }
+                    if include_size and not is_dir:
+                        try:
+                            entry["size"] = os.path.getsize(full_path)
+                        except:
+                            pass
+                    if include_modified:
+                        try:
+                            entry["modified"] = os.path.getmtime(full_path)
+                        except:
+                            pass
+                    results.append(entry)
+        
+        return {
+            "success": True,
+            "files": results,
+            "total_found": len(results),
+            "truncated": len(results) >= max_results
+        }
+        
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorFindFiles")
+        logger.error(err_trace)
+        return {"success": False, "error": err_trace, "files": [], "total_found": 0}
+
+
+# ==================== Search Tool Schemas ====================
+
+def add_grep_search_tool_schema(tool_schemas: List[types.Tool]) -> None:
+    """Add grep_search tool schema to the tool schemas list."""
+    tool_schema = types.Tool(
+        name="grep_search",
+        description=(
+            "<category>Search</category><sub-category>Content Search</sub-category>"
+            "Search for patterns within files. Supports literal text and regex patterns. "
+            "Can search recursively in directories with file type filtering. "
+            "Returns matching lines with file paths and line numbers."
+        ),
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {
+                "input": {
+                    "type": "object",
+                    "required": ["pattern", "path"],
+                    "properties": {
+                        "pattern": {
+                            "type": "string",
+                            "description": "Pattern to search for (text or regex)."
+                        },
+                        "path": {
+                            "type": "string",
+                            "description": "File or directory path to search in."
+                        },
+                        "recursive": {
+                            "type": "boolean",
+                            "description": "Search recursively in subdirectories. Default: true."
+                        },
+                        "file_pattern": {
+                            "type": "string",
+                            "description": "Glob pattern to filter files (e.g., '*.py', '*.txt'). Default: '*'."
+                        },
+                        "case_sensitive": {
+                            "type": "boolean",
+                            "description": "Case-sensitive search. Default: false."
+                        },
+                        "is_regex": {
+                            "type": "boolean",
+                            "description": "Treat pattern as regex. Default: false."
+                        },
+                        "max_results": {
+                            "type": "integer",
+                            "description": "Maximum matches to return. Default: 100."
+                        },
+                        "context_lines": {
+                            "type": "integer",
+                            "description": "Number of context lines before/after match. Default: 0."
+                        }
+                    }
+                }
+            }
+        }
+    )
+    tool_schemas.append(tool_schema)
+
+
+def add_find_files_tool_schema(tool_schemas: List[types.Tool]) -> None:
+    """Add find_files tool schema to the tool schemas list."""
+    tool_schema = types.Tool(
+        name="find_files",
+        description=(
+            "<category>Search</category><sub-category>File Search</sub-category>"
+            "Find files and directories by name pattern. Supports glob patterns like '*.py', 'test_*'. "
+            "Can filter by file type (file/directory) and search recursively. "
+            "Returns file paths with optional size and modification time."
+        ),
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {
+                "input": {
+                    "type": "object",
+                    "required": ["path"],
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Directory path to search in."
+                        },
+                        "pattern": {
+                            "type": "string",
+                            "description": "Glob pattern to match (e.g., '*.py', 'test_*'). Default: '*'."
+                        },
+                        "recursive": {
+                            "type": "boolean",
+                            "description": "Search recursively. Default: true."
+                        },
+                        "file_type": {
+                            "type": "string",
+                            "enum": ["file", "directory", "any"],
+                            "description": "Filter by type. Default: 'any'."
+                        },
+                        "max_results": {
+                            "type": "integer",
+                            "description": "Maximum results to return. Default: 100."
+                        },
+                        "include_size": {
+                            "type": "boolean",
+                            "description": "Include file sizes. Default: true."
+                        },
+                        "include_modified": {
+                            "type": "boolean",
+                            "description": "Include modification times. Default: false."
+                        }
+                    }
+                }
+            }
+        }
+    )
+    tool_schemas.append(tool_schema)
+
+
+# ==================== Search Tool Async Wrappers ====================
+
+async def async_grep_search(mainwin, args: Dict[str, Any]) -> List[TextContent]:
+    """Async wrapper for grep_search tool."""
+    try:
+        input_config = args.get('input', {})
+        result = grep_search(mainwin, input_config)
+        
+        if result.get("success"):
+            matches = result.get("matches", [])
+            if matches:
+                msg_parts = [f"🔍 Found {result['total_matches']} match(es) in {result['files_searched']} file(s)"]
+                if result.get("truncated"):
+                    msg_parts.append(" (results truncated)")
+                msg_parts.append("\n\n")
+                
+                for m in matches[:20]:  # Show first 20 in message
+                    msg_parts.append(f"📄 {m['file']}:{m['line_number']}\n")
+                    msg_parts.append(f"   {m['line']}\n")
+                
+                if len(matches) > 20:
+                    msg_parts.append(f"\n... and {len(matches) - 20} more matches")
+                
+                msg = "".join(msg_parts)
+            else:
+                msg = f"🔍 No matches found in {result['files_searched']} file(s)"
+        else:
+            msg = f"❌ Search failed: {result.get('error', 'Unknown error')}"
+        
+        text_result = TextContent(type="text", text=msg)
+        text_result.meta = {"grep_search_result": result}
+        return [text_result]
+        
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorAsyncGrepSearch")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
+async def async_find_files(mainwin, args: Dict[str, Any]) -> List[TextContent]:
+    """Async wrapper for find_files tool."""
+    try:
+        input_config = args.get('input', {})
+        result = find_files(mainwin, input_config)
+        
+        if result.get("success"):
+            files = result.get("files", [])
+            if files:
+                msg_parts = [f"📁 Found {result['total_found']} item(s)"]
+                if result.get("truncated"):
+                    msg_parts.append(" (results truncated)")
+                msg_parts.append("\n\n")
+                
+                for f in files[:30]:  # Show first 30 in message
+                    icon = "📁" if f['type'] == 'directory' else "📄"
+                    size_str = ""
+                    if 'size' in f:
+                        size = f['size']
+                        if size < 1024:
+                            size_str = f" ({size} B)"
+                        elif size < 1024 * 1024:
+                            size_str = f" ({size/1024:.1f} KB)"
+                        else:
+                            size_str = f" ({size/1024/1024:.1f} MB)"
+                    msg_parts.append(f"{icon} {f['path']}{size_str}\n")
+                
+                if len(files) > 30:
+                    msg_parts.append(f"\n... and {len(files) - 30} more items")
+                
+                msg = "".join(msg_parts)
+            else:
+                msg = "📁 No matching files found"
+        else:
+            msg = f"❌ Search failed: {result.get('error', 'Unknown error')}"
+        
+        text_result = TextContent(type="text", text=msg)
+        text_result.meta = {"find_files_result": result}
+        return [text_result]
+        
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorAsyncFindFiles")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]

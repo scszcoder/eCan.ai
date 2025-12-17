@@ -115,13 +115,18 @@ from agent.mcp.server.scrapers.gmail.gmail_read import (
     gmail_read_full_email,
 )
 from agent.mcp.server.Privacy.privacy_reserve import privacy_reserve
-from agent.ec_skills.rag.local_rag_mcp import ragify, rag_query
+from agent.ec_skills.rag.local_rag_mcp import ragify, rag_query, wait_for_rag_completion, ragify_async
 from agent.mcp.server.self_utils.self_tools import (
     async_describe_self,
     async_start_task_using_skill,
     async_stop_task_using_skill,
 )
-from agent.mcp.server.code_utils.code_tools import async_run_code, async_run_shell_script
+from agent.mcp.server.code_utils.code_tools import (
+    async_run_code,
+    async_run_shell_script,
+    async_grep_search,
+    async_find_files,
+)
 from agent.mcp.server.chat_utils.chat_tools import (
     async_send_chat,
     async_list_chat_agents,
@@ -2248,6 +2253,7 @@ async def os_screen_capture(mainwin, args):
 
 async def os_seven_zip(mainwin, args):
     try:
+        import glob
         exe = 'C:/Program Files/7-Zip/7z.exe'
         from utils.subprocess_helper import run_no_window, popen_no_window
         src = args["input"]["src"]
@@ -2258,11 +2264,38 @@ async def os_seven_zip(mainwin, args):
         
         if is_zipping:
             # Zipping: 7z a <archive_name> <source_files>
-            # Correct syntax: archive name first, then source files to add
-            cmd = [exe, "a", dest, src]
-            logger.info(f"[os_seven_zip] Zipping: {cmd}")
+            # src can be a string (single path/wildcard) or array of paths
+            
+            # Normalize src to a list
+            if isinstance(src, str):
+                src_list = [src]
+            else:
+                src_list = src
+            
+            # Expand wildcards and collect all files
+            expanded_files = []
+            for s in src_list:
+                # Check if path contains wildcards
+                if '*' in s or '?' in s:
+                    # Use glob to expand wildcards (Windows doesn't do this automatically)
+                    matches = glob.glob(s)
+                    if matches:
+                        expanded_files.extend(matches)
+                    else:
+                        logger.warning(f"[os_seven_zip] No files matched pattern: {s}")
+                else:
+                    expanded_files.append(s)
+            
+            if not expanded_files:
+                msg = f"Error: No files found to compress. Patterns: {src_list}"
+                logger.error(f"[os_seven_zip] {msg}")
+                return [TextContent(type="text", text=msg)]
+            
+            # Build command: 7z a <archive> <file1> <file2> ...
+            cmd = [exe, "a", dest] + expanded_files
+            logger.info(f"[os_seven_zip] Zipping {len(expanded_files)} file(s): {cmd}")
             cmd_output = run_no_window(cmd)
-            msg = f"completed seven zip {src} -> {dest}"
+            msg = f"completed seven zip {len(expanded_files)} file(s) -> {dest}"
         else:
             # Unzipping: 7z e <archive> -o<output_dir>
             if dest != "":
@@ -2784,6 +2817,8 @@ tool_function_mapping = {
         "print_labels": print_labels,
         "ragify": ragify,
         "rag_query": rag_query,
+        "wait_for_rag_completion": wait_for_rag_completion,
+        "ragify_async": ragify_async,
         # Self-introspection tools
         "describe_self": async_describe_self,
         "start_task_using_skill": async_start_task_using_skill,
@@ -2791,6 +2826,9 @@ tool_function_mapping = {
         # Code execution tools
         "run_code": async_run_code,
         "run_shell_script": async_run_shell_script,
+        # Search tools
+        "grep_search": async_grep_search,
+        "find_files": async_find_files,
         # Chat/communication tools
         "send_chat": async_send_chat,
         "list_chat_agents": async_list_chat_agents,
