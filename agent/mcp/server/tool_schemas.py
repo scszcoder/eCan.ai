@@ -113,7 +113,12 @@ from agent.ec_skills.label_utils.print_label import (
     add_reformat_labels_tool_schema,
 )
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import add_ecan_ai_api_get_agent_status_tool_schema
-from agent.ec_skills.rag.local_rag_mcp import add_ragify_tool_schema, add_rag_query_tool_schema
+from agent.ec_skills.rag.local_rag_mcp import (
+    add_ragify_tool_schema,
+    add_rag_query_tool_schema,
+    add_wait_for_rag_completion_tool_schema,
+    add_ragify_async_tool_schema,
+)
 from agent.mcp.server.extern_tools_schemas import add_extern_tools_schemas
 
 tool_schemas = []
@@ -1694,7 +1699,7 @@ def build_agent_mcp_tools_schemas():
 
     tool_schema = types.Tool(
         name="os_seven_zip",
-        description="<category>System</category><sub-category>File System</sub-category>Compress or extract files using 7-Zip. Operation is determined by dest extension: if dest ends with .7z/.zip/.tar/.gz/.bz2/.xz, it compresses src into dest archive; otherwise it extracts src archive to dest directory.",
+        description="<category>System</category><sub-category>File System</sub-category>Compress or extract files using 7-Zip. Operation is determined by dest extension: if dest ends with .7z/.zip/.tar/.gz/.bz2/.xz, it compresses src into dest archive; otherwise it extracts src archive to dest directory. Wildcards (*, ?) in src are auto-expanded.",
         inputSchema={
             "type": "object",
             "required": ["input"],  # the root requires *input*
@@ -1704,8 +1709,11 @@ def build_agent_mcp_tools_schemas():
                     "required": ["src", "dest"],
                     "properties": {
                         "src": {
-                            "type": "string",
-                            "description": "For compression: the file or directory to compress. For extraction: the archive file to extract.",
+                            "oneOf": [
+                                {"type": "string"},
+                                {"type": "array", "items": {"type": "string"}}
+                            ],
+                            "description": "For compression: a file path, directory, wildcard pattern (e.g. C:/dir/*.txt), or array of paths. Wildcards are auto-expanded. For extraction: the archive file path.",
                         },
                         "dest": {
                             "type": "string",
@@ -2088,6 +2096,10 @@ def build_agent_mcp_tools_schemas():
 
     add_rag_query_tool_schema(tool_schemas)
 
+    add_wait_for_rag_completion_tool_schema(tool_schemas)
+
+    add_ragify_async_tool_schema(tool_schemas)
+
     # Self-introspection tools
     from agent.mcp.server.self_utils.self_tools import (
         add_describe_self_tool_schema,
@@ -2099,9 +2111,18 @@ def build_agent_mcp_tools_schemas():
     add_stop_task_using_skill_tool_schema(tool_schemas)
 
     # Code execution tools
-    from agent.mcp.server.code_utils.code_tools import add_run_code_tool_schema, add_run_shell_script_tool_schema
+    from agent.mcp.server.code_utils.code_tools import (
+    add_run_code_tool_schema,
+    add_run_shell_script_tool_schema,
+    add_grep_search_tool_schema,
+    add_find_files_tool_schema,
+)
     add_run_code_tool_schema(tool_schemas)
     add_run_shell_script_tool_schema(tool_schemas)
+
+    # Search tools
+    add_grep_search_tool_schema(tool_schemas)
+    add_find_files_tool_schema(tool_schemas)
 
     # Chat/communication tools for inter-agent messaging
     from agent.mcp.server.chat_utils.chat_tools import (
