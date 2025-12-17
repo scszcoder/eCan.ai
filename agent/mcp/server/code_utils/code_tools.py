@@ -109,6 +109,8 @@ def create_safe_globals() -> Dict[str, Any]:
             "RuntimeError": RuntimeError,
             "StopIteration": StopIteration,
             "ZeroDivisionError": ZeroDivisionError,
+            # Import function for import statements
+            "__import__": __import__,
         },
         "__name__": "__main__",
         "__doc__": None,
@@ -190,6 +192,13 @@ def create_safe_globals() -> Dict[str, Any]:
     try:
         import urllib.parse
         safe_globals["urllib"] = {"parse": urllib.parse}
+    except ImportError:
+        pass
+    
+    # Add os module for file system operations
+    try:
+        import os as os_module
+        safe_globals["os"] = os_module
     except ImportError:
         pass
     
@@ -399,7 +408,7 @@ def add_run_code_tool_schema(tool_schemas: List[types.Tool]) -> None:
         description=(
             "<category>Code</category><sub-category>Execution</sub-category>"
             "Execute Python code in a sandboxed environment. The code runs with access to "
-            "common safe modules (json, math, re, datetime, collections, itertools, functools, "
+            "common safe modules (os, json, math, re, datetime, collections, itertools, functools, "
             "random, string, uuid, hashlib, base64). Input arguments are accessible via 'args' dict "
             "or as individual variables. Returns stdout, stderr, return value, and execution time. "
             "Use 'result' variable to return a value."
