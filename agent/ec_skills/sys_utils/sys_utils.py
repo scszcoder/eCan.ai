@@ -45,10 +45,10 @@ def getScreenSize():
                     device = win32api.EnumDisplayDevices()
                     if device:
                         # Get current display settings for actual resolution
-                        settings = win32api.EnumDisplaySettings(device.DeviceName, win32con.ENUM_CURRENT_SETTINGS)
-                        if settings:
-                            width = settings.PelsWidth
-                            height = settings.PelsHeight
+                        display_settings = win32api.EnumDisplaySettings(device.DeviceName, win32con.ENUM_CURRENT_SETTINGS)
+                        if display_settings:
+                            width = display_settings.PelsWidth
+                            height = display_settings.PelsHeight
                             logger.info(f"getScreenSize (Windows actual): {width}x{height}")
                             return (width, height)
                 except:
