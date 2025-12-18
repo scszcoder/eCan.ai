@@ -10,6 +10,8 @@ Modular architecture for task management:
 - dev_runner: Debug support
 - runner: TaskRunner
 - resume: Event normalization, checkpoint, resume payload
+- timer_service: Timeout timer management
+- pending_events: Async operation registration and routing
 
 Usage:
     from agent.ec_tasks import ManagedTask, TaskRunner, TaskExecutor
@@ -60,6 +62,28 @@ from .resume import (
     DEFAULT_MAPPINGS,
 )
 
+from .timer_service import (
+    TimerService,
+    TimerHandle,
+    get_timer_service,
+    set_timer_service,
+)
+
+from .pending_events import (
+    register_async_operation,
+    resolve_async_operation,
+    cancel_task_async_operations,
+    generate_correlation_id,
+    parse_correlation_id,
+    build_callback_event,
+    route_callback_to_task,
+)
+
+from .models import (
+    PendingEvent,
+    PendingEventStatus,
+)
+
 __all__ = [
     # Models
     "ManagedTask",
@@ -100,4 +124,19 @@ __all__ = [
     "load_mapping_for_task",
     "get_current_state",
     "DEFAULT_MAPPINGS",
+    # Timer Service
+    "TimerService",
+    "TimerHandle",
+    "get_timer_service",
+    "set_timer_service",
+    # Pending Events
+    "PendingEvent",
+    "PendingEventStatus",
+    "register_async_operation",
+    "resolve_async_operation",
+    "cancel_task_async_operations",
+    "generate_correlation_id",
+    "parse_correlation_id",
+    "build_callback_event",
+    "route_callback_to_task",
 ]
