@@ -38,6 +38,7 @@ from .scheduler import find_tasks_ready_to_run
 from .message_sender import ChatMessageSender, MessageType
 from .dev_runner import DevRunner
 from .executor import TaskExecutor
+from .timer_service import get_timer_service, TimerService
 
 if TYPE_CHECKING:
     from agent.ec_agent import EC_Agent
@@ -276,10 +277,14 @@ class TaskRunner(Generic[Context]):
     
     def _stop_managed_tasks(self):
         """Stop all managed tasks."""
+        from .pending_events import cancel_task_async_operations
+        
         try:
             for task_id, managed_task in self.tasks.items():
                 try:
                     if managed_task:
+                        # Cancel pending async operations first
+                        cancel_task_async_operations(managed_task)
                         managed_task.cancel()
                         managed_task.exit()
                         logger.debug(f"[TaskRunner] Stopped managed task: {task_id}")
@@ -446,6 +451,10 @@ class TaskRunner(Generic[Context]):
                     await asyncio.wait_for(task.task, timeout=timeout)
                 except (asyncio.CancelledError, asyncio.TimeoutError):
                     pass
+            
+            # Cancel pending async operations and their timers
+            from .pending_events import cancel_task_async_operations
+            cancel_task_async_operations(task)
             
             # Update status
             task.status.state = TaskState.CANCELED
@@ -675,6 +684,11 @@ class TaskRunner(Generic[Context]):
         try:
             logger.debug(f"sync task waiting: {event_type}, {self.agent.card.name}")
             
+            # Handle async callback events (from webhooks/SSE)
+            if event_type == "async_callback":
+                self._route_async_callback(request)
+                return
+            
             # Attach async_response to request
             if async_response is not None:
                 try:
@@ -702,6 +716,114 @@ class TaskRunner(Generic[Context]):
                 
         except Exception as e:
             logger.error(get_traceback(e, "ErrorWaitInLine"))
+    
+    def _route_async_callback(self, request: Any) -> bool:
+        """
+        Route an async callback event to the correct task.
+        
+        Uses the correlation_id to find the target task.
+        
+        Args:
+            request: The callback request (dict with correlation_id, result, error)
+            
+        Returns:
+            True if routed successfully, False otherwise
+        """
+        from .pending_events import parse_correlation_id, build_callback_event
+        
+        try:
+            # Extract correlation_id from request
+            if isinstance(request, dict):
+                correlation_id = request.get("correlation_id")
+                result = request.get("result")
+                error = request.get("error")
+            else:
+                correlation_id = getattr(request, "correlation_id", None)
+                result = getattr(request, "result", None)
+                error = getattr(request, "error", None)
+            
+            if not correlation_id:
+                logger.error("[CALLBACK] No correlation_id in request")
+                return False
+            
+            # Parse task_id from correlation_id
+            task_id, _ = parse_correlation_id(correlation_id)
+            if not task_id:
+                logger.error(f"[CALLBACK] Invalid correlation_id format: {correlation_id}")
+                return False
+            
+            # Find the task
+            target_task = self._find_task_by_id(task_id)
+            if not target_task:
+                logger.error(f"[CALLBACK] Task not found: {task_id}")
+                return False
+            
+            if not target_task.queue:
+                logger.error(f"[CALLBACK] Task has no queue: {task_id}")
+                return False
+            
+            # Build and queue the callback event
+            event = build_callback_event(correlation_id, result, error)
+            target_task.queue.put(event)
+            
+            logger.info(f"[CALLBACK] Routed callback {correlation_id} to task {task_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"[CALLBACK] Error routing callback: {e}")
+            return False
+    
+    def _find_task_by_id(self, task_id: str) -> Optional[ManagedTask]:
+        """
+        Find a task by its ID.
+        
+        Searches both self.tasks and agent.tasks.
+        
+        Args:
+            task_id: The task ID to find
+            
+        Returns:
+            The ManagedTask if found, None otherwise
+        """
+        # Check local tasks dict first
+        if task_id in self.tasks:
+            return self.tasks[task_id]
+        
+        # Check agent.tasks list
+        try:
+            for t in getattr(self.agent, "tasks", []) or []:
+                if t and getattr(t, "id", None) == task_id:
+                    return t
+        except Exception:
+            pass
+        
+        return None
+    
+    def route_webhook_callback(
+        self,
+        correlation_id: str,
+        result: Any = None,
+        error: Optional[str] = None
+    ) -> bool:
+        """
+        Public API for routing webhook callbacks.
+        
+        Call this from your webhook endpoint handler.
+        
+        Args:
+            correlation_id: The operation's correlation ID
+            result: Success result (if any)
+            error: Error message (if failed)
+            
+        Returns:
+            True if routed successfully, False otherwise
+        """
+        request = {
+            "correlation_id": correlation_id,
+            "result": result,
+            "error": error,
+        }
+        return self._route_async_callback(request)
     
     # ==================== Resume Payload Building ====================
     

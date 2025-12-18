@@ -32,6 +32,8 @@ from langgraph.types import interrupt
 from langgraph.errors import GraphInterrupt
 from utils.logger_helper import logger_helper as logger, get_traceback
 from agent.ec_tasks.resume import build_node_transfer_patch
+from agent.ec_tasks.pending_events import resolve_async_operation
+from queue import Empty
 # ---------------------------------------------------------------------------
 # ── 1.  Typed State for LangGraph ───────────────────────────────────────────
 # ---------------------------------------------------------------------------
@@ -678,6 +680,56 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                         logger.info(f"[breakpoint] HIT at node={node_name}. Pausing before execution.")
                         interrupt({"paused_at": node_name, "i_tag": node_name, "state": _safe_state_view(state)})
 
+        # ============================================================
+        # Process pending async events from task queue before node runs
+        # ============================================================
+        try:
+            task = None
+            try:
+                task = runtime.context.get('task') or runtime.context.get('managed_task')
+            except Exception:
+                pass
+            if task is None:
+                task = state.get('_managed_task')
+            
+            if task and hasattr(task, 'queue') and task.queue:
+                # Non-blocking drain of callback/timeout events
+                events_processed = 0
+                while events_processed < 10:  # Limit to prevent infinite loop
+                    try:
+                        event = task.queue.get_nowait()
+                        event_type = event.get("type", "")
+                        
+                        if event_type == "async_callback":
+                            corr_id = event.get("correlation_id")
+                            result = event.get("result")
+                            error = event.get("error")
+                            logger.info(f"[NODE_QUEUE] Processing callback {corr_id} before node {node_name}")
+                            resolve_async_operation(task, corr_id, result=result, error=error)
+                            events_processed += 1
+                            
+                        elif event_type == "async_timeout":
+                            corr_id = event.get("correlation_id")
+                            logger.warning(f"[NODE_QUEUE] Processing timeout {corr_id} before node {node_name}")
+                            resolve_async_operation(task, corr_id, error="timeout")
+                            events_processed += 1
+                            
+                        else:
+                            # Put non-async events back for the main loop
+                            task.queue.put(event)
+                            break
+                            
+                    except Empty:
+                        break
+                    except Exception as eq:
+                        logger.debug(f"[NODE_QUEUE] Error processing queue: {eq}")
+                        break
+                        
+                if events_processed > 0:
+                    logger.info(f"[NODE_QUEUE] Processed {events_processed} async events before node {node_name}")
+        except Exception as qe:
+            logger.debug(f"[NODE_QUEUE] Queue check skipped: {qe}")
+
         # Send running status to frontend before executing node
         # This must be OUTSIDE the retry loop and AFTER breakpoint checks
         _notify_node_status("running", state)
@@ -722,6 +774,21 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                         pass
                 _notify_node_status("failed", state)
                 _record_node_timing(state, "failed", time.perf_counter() - node_t0)
+                
+                # Record consecutive failure for guardrail tracking
+                try:
+                    task = None
+                    try:
+                        task = runtime.context.get('task') or runtime.context.get('managed_task')
+                    except Exception:
+                        pass
+                    if task is None:
+                        task = state.get('_managed_task')
+                    if task and hasattr(task, 'record_failure'):
+                        failure_count = task.record_failure()
+                        logger.warning(f"[GUARDRAIL] Node {node_name} failed. Consecutive failures: {failure_count}/{task.max_failures}")
+                except Exception as fe:
+                    logger.debug(f"[GUARDRAIL] Failed to record failure: {fe}")
             except Exception:
                 pass
             raise last_exc
@@ -752,6 +819,20 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
 
         # Successful completion: notify frontend for this specific node.
         _notify_node_status("completed", state)
+
+        # Reset consecutive failure counter on success
+        try:
+            task = None
+            try:
+                task = runtime.context.get('task') or runtime.context.get('managed_task')
+            except Exception:
+                pass
+            if task is None:
+                task = state.get('_managed_task')
+            if task and hasattr(task, 'reset_failures'):
+                task.reset_failures()
+        except Exception:
+            pass
 
         try:
             _record_node_timing(state, "completed", time.perf_counter() - node_t0)

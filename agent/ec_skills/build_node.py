@@ -8,6 +8,7 @@ from urllib.parse import urlparse, parse_qsl, urlunparse
 from agent.mcp.local_client import mcp_call_tool
 from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
 from agent.ec_skills.dev_defs import BreakpointManager
+from agent.ec_tasks.pending_events import register_async_operation, resolve_async_operation
 from langchain_core.messages import HumanMessage, SystemMessage
 from agent.ec_skill import node_builder
 from utils.logger_helper import logger_helper as logger
@@ -27,6 +28,127 @@ web_gui = AppContext.get_web_gui()
 from typing import Any, Literal, cast, overload
 
 from langchain_core.messages.base import BaseMessage, BaseMessageChunk
+
+
+def resolve_timeout(
+    node_name: str,
+    state: dict,
+    tool_input: dict = None,
+    config_timeout: float = None,
+    default_timeout: float = 60.0
+) -> float:
+    """
+    Resolve timeout with precedence: tool_input > state override > config > default.
+    
+    Args:
+        node_name: Name of the current node
+        state: Current workflow state
+        tool_input: Tool input dict (for MCP tools)
+        config_timeout: Timeout from node config (design-time)
+        default_timeout: Final fallback default
+        
+    Returns:
+        Resolved timeout in seconds
+        
+    Precedence (highest to lowest):
+        1. tool_input["_timeout"] - per-call override
+        2. state["_timeout_overrides"][node_name] - per-node runtime override
+        3. state["_timeout_overrides"]["*"] - global runtime override
+        4. config_timeout - design-time config
+        5. default_timeout - hardcoded default
+    """
+    # 1. Check tool_input override (Option B)
+    if tool_input and isinstance(tool_input, dict):
+        if "_timeout" in tool_input:
+            try:
+                return float(tool_input["_timeout"])
+            except (ValueError, TypeError):
+                pass
+    
+    # 2. Check state overrides (Option A)
+    if state and isinstance(state, dict):
+        overrides = state.get("_timeout_overrides")
+        if isinstance(overrides, dict):
+            # Per-node override
+            if node_name in overrides:
+                try:
+                    return float(overrides[node_name])
+                except (ValueError, TypeError):
+                    pass
+            # Global override
+            if "*" in overrides:
+                try:
+                    return float(overrides["*"])
+                except (ValueError, TypeError):
+                    pass
+    
+    # 3. Config timeout (design-time)
+    if config_timeout is not None:
+        try:
+            return float(config_timeout)
+        except (ValueError, TypeError):
+            pass
+    
+    # 4. Default
+    return default_timeout
+
+
+def resolve_hard_timeout(
+    node_name: str,
+    state: dict,
+    tool_input: dict = None,
+    config_hard_timeout: bool = False
+) -> bool:
+    """
+    Resolve whether to use hard timeout (cancel on timeout) vs soft timeout (guardrail only).
+    
+    Args:
+        node_name: Name of the current node
+        state: Current workflow state
+        tool_input: Tool input dict (for MCP tools)
+        config_hard_timeout: Hard timeout setting from node config
+        
+    Returns:
+        True if hard timeout should be used (cancel operation on timeout)
+        
+    Precedence (highest to lowest):
+        1. tool_input["_hard_timeout"] - per-call override
+        2. state["_hard_timeout_overrides"][node_name] - per-node runtime override
+        3. state["_hard_timeout_overrides"]["*"] - global runtime override
+        4. config_hard_timeout - design-time config
+        5. False (default: soft timeout)
+    """
+    # 1. Check tool_input override
+    if tool_input and isinstance(tool_input, dict):
+        if "_hard_timeout" in tool_input:
+            val = tool_input["_hard_timeout"]
+            if isinstance(val, bool):
+                return val
+            return str(val).lower() in ('true', '1', 'yes', 'on')
+    
+    # 2. Check state overrides
+    if state and isinstance(state, dict):
+        overrides = state.get("_hard_timeout_overrides")
+        if isinstance(overrides, dict):
+            # Per-node override
+            if node_name in overrides:
+                val = overrides[node_name]
+                if isinstance(val, bool):
+                    return val
+                return str(val).lower() in ('true', '1', 'yes', 'on')
+            # Global override
+            if "*" in overrides:
+                val = overrides["*"]
+                if isinstance(val, bool):
+                    return val
+                return str(val).lower() in ('true', '1', 'yes', 'on')
+    
+    # 3. Config setting
+    if config_hard_timeout:
+        return True
+    
+    # 4. Default: soft timeout
+    return False
 
 
 class ActionMessage(BaseMessage):
@@ -431,6 +553,8 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     Args:
         config_metadata: A dictionary containing the configuration for the LLM node,
                          including provider, model, temperature, and prompt templates.
+                         - timeout_seconds: Max time for LLM call (default 150)
+                         - enable_guardrail_timer: If True, register pending event for timeout tracking
 
     Returns:
         A callable function that takes a state dictionary and returns the updated state.
@@ -438,6 +562,29 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     # Extract configuration from metadata with sensible defaults (tolerant to missing keys)
     logger.debug("building llm node:", config_metadata)
     inputs = (config_metadata or {}).get("inputsValues", {}) or {}
+    
+    # Guardrail timer configuration
+    enable_guardrail_timer = False
+    llm_timeout_seconds = 150.0
+    hard_timeout_config = False  # If True, cancel operation on timeout (like browser-use)
+    try:
+        enable_guardrail_timer = (config_metadata.get('enable_guardrail_timer')
+                                  or ((inputs.get('enable_guardrail_timer') or {}).get('content'))
+                                  or (config_metadata.get('inputs') or {}).get('enable_guardrail_timer'))
+        enable_guardrail_timer = str(enable_guardrail_timer).lower() in ('true', '1', 'yes', 'on') if enable_guardrail_timer else False
+        
+        timeout_val = (config_metadata.get('timeout_seconds')
+                       or ((inputs.get('timeout_seconds') or {}).get('content'))
+                       or (config_metadata.get('inputs') or {}).get('timeout_seconds'))
+        if timeout_val:
+            llm_timeout_seconds = float(timeout_val)
+        
+        hard_timeout_val = (config_metadata.get('hard_timeout')
+                            or ((inputs.get('hard_timeout') or {}).get('content'))
+                            or (config_metadata.get('inputs') or {}).get('hard_timeout'))
+        hard_timeout_config = str(hard_timeout_val).lower() in ('true', '1', 'yes', 'on') if hard_timeout_val else False
+    except Exception:
+        pass
     # Prefer explicit provider; infer from apiHost if absent
     raw_provider = None
     try:
@@ -1083,7 +1230,108 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 # Single attempt (node-configured llm, no fallback)
                 # Use hybrid invocation for async/sync compatibility
                 _t_stage = _time.perf_counter()
-                response = _invoke_hybrid(llm, 150.0)
+                
+                # Resolve timeout with hybrid precedence (runtime > config > default)
+                full_node_name = f"{owner}:{skill_name}:{node_name}"
+                effective_timeout = resolve_timeout(
+                    node_name=full_node_name,
+                    state=state,
+                    tool_input=None,  # LLM nodes don't have tool_input
+                    config_timeout=llm_timeout_seconds,
+                    default_timeout=150.0
+                )
+                
+                # Resolve hard timeout mode
+                use_hard_timeout = resolve_hard_timeout(
+                    node_name=full_node_name,
+                    state=state,
+                    tool_input=None,
+                    config_hard_timeout=hard_timeout_config
+                )
+                
+                # Guardrail timer for long-running LLM calls (soft timeout)
+                correlation_id = None
+                if enable_guardrail_timer and not use_hard_timeout:
+                    try:
+                        task = None
+                        try:
+                            if runtime and hasattr(runtime, 'context'):
+                                task = runtime.context.get('task') or runtime.context.get('managed_task')
+                        except Exception:
+                            pass
+                        if task is None:
+                            task = state.get('_managed_task')
+                        
+                        if task:
+                            correlation_id = register_async_operation(
+                                task=task,
+                                source_node=f"llm:{full_node_name}",
+                                timeout_seconds=effective_timeout
+                            )
+                            log_msg = f"[LLM_GUARDRAIL] Started timer {correlation_id} ({effective_timeout}s)"
+                            logger.info(log_msg)
+                            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                    except Exception as e:
+                        logger.warning(f"[LLM_GUARDRAIL] Failed to start timer: {e}")
+                
+                # Execute LLM call with optional hard timeout
+                if use_hard_timeout:
+                    import asyncio
+                    log_msg = f"[LLM_HARD_TIMEOUT] Using hard timeout ({effective_timeout}s) - will cancel on timeout"
+                    logger.info(log_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                    try:
+                        # Hard timeout: cancel operation if it exceeds timeout
+                        async def _invoke_with_hard_timeout():
+                            return await asyncio.wait_for(
+                                _invoke_async(llm, effective_timeout),
+                                timeout=effective_timeout
+                            )
+                        
+                        # Run in event loop (sync context)
+                        try:
+                            loop = asyncio.get_event_loop()
+                            if loop.is_running():
+                                # Use run_async_in_sync for nested event loop
+                                response = run_async_in_sync(_invoke_with_hard_timeout())
+                            else:
+                                response = loop.run_until_complete(_invoke_with_hard_timeout())
+                        except RuntimeError:
+                            new_loop = asyncio.new_event_loop()
+                            try:
+                                response = new_loop.run_until_complete(_invoke_with_hard_timeout())
+                            finally:
+                                new_loop.close()
+                    except asyncio.TimeoutError:
+                        error_msg = f"LLM call timed out after {effective_timeout}s (hard timeout)"
+                        logger.error(f"[LLM_HARD_TIMEOUT] {error_msg}")
+                        web_gui.get_ipc_api().send_skill_editor_log("error", error_msg)
+                        # Record failure if task available
+                        try:
+                            task = state.get('_managed_task')
+                            if task is None and runtime and hasattr(runtime, 'context'):
+                                task = runtime.context.get('task') or runtime.context.get('managed_task')
+                            if task and hasattr(task, 'record_failure'):
+                                task.record_failure()
+                        except Exception:
+                            pass
+                        raise TimeoutError(error_msg)
+                else:
+                    response = _invoke_hybrid(llm, effective_timeout)
+                
+                # Cancel guardrail timer on success
+                if correlation_id:
+                    try:
+                        task = state.get('_managed_task')
+                        if task is None and runtime and hasattr(runtime, 'context'):
+                            task = runtime.context.get('task') or runtime.context.get('managed_task')
+                        if task:
+                            resolve_async_operation(task, correlation_id, result={"status": "completed"})
+                            log_msg = f"[LLM_GUARDRAIL] Cancelled timer {correlation_id} (LLM completed)"
+                            logger.info(log_msg)
+                    except Exception as e:
+                        logger.warning(f"[LLM_GUARDRAIL] Failed to cancel timer: {e}")
+                
                 _perf_llm("invoke", _t_stage)
 
                 log_msg = f"✅ LLM response received from {llm_provider}"
@@ -1673,6 +1921,8 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
     Args:
         config_metadata: A dictionary containing the tool configuration:
                          - tool_name: The name of the MCP tool to call.
+                         - async_mode: If True, use fire-and-forget pattern with pending events.
+                         - async_timeout: Timeout in seconds for async operations (default 60).
 
     Returns:
         A callable function that takes a state dictionary.
@@ -1684,6 +1934,24 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
 
     tool_name = None
     use_llm_auto_select = False
+    
+    # Async mode configuration for fire-and-forget pattern
+    async_mode = False
+    async_timeout = 60.0
+    try:
+        async_mode = (config_metadata.get('async_mode')
+                      or ((config_metadata.get('inputsValues') or {}).get('async_mode') or {}).get('content')
+                      or (config_metadata.get('inputs') or {}).get('async_mode'))
+        async_mode = str(async_mode).lower() in ('true', '1', 'yes', 'on') if async_mode else False
+        
+        async_timeout_val = (config_metadata.get('async_timeout')
+                             or ((config_metadata.get('inputsValues') or {}).get('async_timeout') or {}).get('content')
+                             or (config_metadata.get('inputs') or {}).get('async_timeout'))
+        if async_timeout_val:
+            async_timeout = float(async_timeout_val)
+    except Exception:
+        pass
+    
     try:
         tool_name = (config_metadata.get('tool_name')
                      or config_metadata.get('toolName')
@@ -2146,6 +2414,90 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             timeout = config_metadata.get('timeout', DEFAULT_API_TIMEOUT)
             return await mcp_call_tool(_actual_tool_name, _actual_tool_input, timeout=timeout)
 
+        # ============================================================
+        # Async Mode: Fire-and-forget with pending event tracking
+        # ============================================================
+        if async_mode:
+            try:
+                # Get task from runtime context for pending event registration
+                task = None
+                try:
+                    if runtime and hasattr(runtime, 'context'):
+                        task = runtime.context.get('task') or runtime.context.get('managed_task')
+                except Exception:
+                    pass
+                
+                if task is None:
+                    # Fallback: try to get from state
+                    task = state.get('_managed_task')
+                
+                if task is None:
+                    log_msg = f"[ASYNC_MODE] No task context available for async tracking, falling back to sync mode"
+                    logger.warning(log_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("warning", log_msg)
+                else:
+                    # Register pending event and get correlation ID
+                    full_node_name = f"{owner}:{skill_name}:{node_name}"
+                    
+                    # Resolve timeout with hybrid precedence (tool_input > state > config > default)
+                    effective_timeout = resolve_timeout(
+                        node_name=full_node_name,
+                        state=state,
+                        tool_input=_actual_tool_input,
+                        config_timeout=async_timeout,
+                        default_timeout=60.0
+                    )
+                    
+                    correlation_id = register_async_operation(
+                        task=task,
+                        source_node=full_node_name,
+                        timeout_seconds=effective_timeout
+                    )
+                    
+                    # Inject correlation_id into tool input for webhook callback
+                    if isinstance(_actual_tool_input, dict):
+                        _actual_tool_input['_correlation_id'] = correlation_id
+                    
+                    log_msg = f"[ASYNC_MODE] Registered pending event {correlation_id} for {_actual_tool_name} (timeout={effective_timeout}s)"
+                    logger.info(log_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                    
+                    # Make the tool call (fire-and-forget - we don't wait for full completion)
+                    tool_result = run_async_in_sync(run_tool_call())
+                    
+                    # Store initial result and correlation_id
+                    state["tool_result"] = tool_result
+                    state["n_steps"] += 1
+                    
+                    # Track pending operation in state
+                    pending_ops = state.setdefault("_pending_async_operations", [])
+                    pending_ops.append({
+                        "correlation_id": correlation_id,
+                        "tool_name": _actual_tool_name,
+                        "node_name": full_node_name,
+                        "initial_result": tool_result,
+                    })
+                    
+                    tool_call_summary = ActionMessage(
+                        content=f"action: async mcp call to {_actual_tool_name}; correlation_id: {correlation_id}; initial_result: {tool_result}"
+                    )
+                    add_to_history(state, tool_call_summary)
+                    
+                    log_msg = f"[ASYNC_MODE] Tool call initiated, workflow continues. Completion will be tracked via correlation_id={correlation_id}"
+                    logger.info(log_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                    
+                    return state
+                    
+            except Exception as e:
+                err_msg = get_traceback(e, f"ErrorAsyncMCPToolCallable({_actual_tool_name})")
+                logger.error(err_msg)
+                web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+                # Fall through to sync mode on error
+        
+        # ============================================================
+        # Sync Mode: Standard blocking tool call
+        # ============================================================
         try:
             # Use the utility to run the async function from a sync context
             tool_result = run_async_in_sync(run_tool_call())
@@ -2473,9 +2825,36 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
       - action/params: legacy fields folded into task when present
       - wait_for_done: whether to interrupt when external completion is needed
       - model: optional LLM model for browser-use (env fallback supported)
+      - enable_guardrail_timer: If True, register pending event for timeout tracking
+      - timeout_seconds: Max time for browser automation (default 300)
     """
     log_msg = f"building browser automation node : {config_metadata}"
     logger.debug(log_msg)
+    
+    # Guardrail timer configuration
+    inputs = (config_metadata or {}).get("inputsValues", {}) or {}
+    enable_guardrail_timer = False
+    browser_timeout_seconds = 300.0  # 5 minutes default for browser automation
+    hard_timeout_config = False  # If True, cancel operation on timeout (like browser-use native)
+    try:
+        enable_guardrail_timer = (config_metadata.get('enable_guardrail_timer')
+                                  or ((inputs.get('enable_guardrail_timer') or {}).get('content'))
+                                  or (config_metadata.get('inputs') or {}).get('enable_guardrail_timer'))
+        enable_guardrail_timer = str(enable_guardrail_timer).lower() in ('true', '1', 'yes', 'on') if enable_guardrail_timer else False
+        
+        timeout_val = (config_metadata.get('timeout_seconds')
+                       or ((inputs.get('timeout_seconds') or {}).get('content'))
+                       or (config_metadata.get('inputs') or {}).get('timeout_seconds'))
+        if timeout_val:
+            browser_timeout_seconds = float(timeout_val)
+        
+        hard_timeout_val = (config_metadata.get('hard_timeout')
+                            or ((inputs.get('hard_timeout') or {}).get('content'))
+                            or (config_metadata.get('inputs') or {}).get('hard_timeout'))
+        hard_timeout_config = str(hard_timeout_val).lower() in ('true', '1', 'yes', 'on') if hard_timeout_val else False
+    except Exception:
+        pass
+    
     provider = ((config_metadata or {}).get("provider") or "browser-use").lower()
     action = (config_metadata or {}).get("action") or "open_page"
     params = (config_metadata or {}).get("params") or {}
@@ -2733,9 +3112,105 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 return state
             
             info = {}
+            correlation_id = None
+            full_node_name = f"{owner}:{skill_name}:{node_name}"
+            
+            # Resolve timeout with hybrid precedence (runtime > config > default)
+            effective_timeout = resolve_timeout(
+                node_name=full_node_name,
+                state=state,
+                tool_input=None,  # Browser nodes don't have tool_input
+                config_timeout=browser_timeout_seconds,
+                default_timeout=300.0
+            )
+            
+            # Resolve hard timeout mode
+            use_hard_timeout = resolve_hard_timeout(
+                node_name=full_node_name,
+                state=state,
+                tool_input=None,
+                config_hard_timeout=hard_timeout_config
+            )
+            
+            # Start guardrail timer for long-running browser automation (soft timeout only)
+            if enable_guardrail_timer and not use_hard_timeout:
+                try:
+                    task = None
+                    try:
+                        if runtime and hasattr(runtime, 'context'):
+                            task = runtime.context.get('task') or runtime.context.get('managed_task')
+                    except Exception:
+                        pass
+                    if task is None:
+                        task = state.get('_managed_task')
+                    
+                    if task:
+                        correlation_id = register_async_operation(
+                            task=task,
+                            source_node=f"browser:{full_node_name}",
+                            timeout_seconds=effective_timeout
+                        )
+                        log_msg = f"[BROWSER_GUARDRAIL] Started timer {correlation_id} ({effective_timeout}s)"
+                        logger.info(log_msg)
+                        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                except Exception as e:
+                    logger.warning(f"[BROWSER_GUARDRAIL] Failed to start timer: {e}")
+            
             try:
-                info = run_async_in_sync(_run_browser_use(combined_task, mainwin)) or {}
+                # Execute browser automation with optional hard timeout
+                if use_hard_timeout:
+                    import asyncio
+                    log_msg = f"[BROWSER_HARD_TIMEOUT] Using hard timeout ({effective_timeout}s) - will cancel on timeout"
+                    logger.info(log_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                    try:
+                        async def _run_with_hard_timeout():
+                            return await asyncio.wait_for(
+                                _run_browser_use(combined_task, mainwin),
+                                timeout=effective_timeout
+                            )
+                        info = run_async_in_sync(_run_with_hard_timeout()) or {}
+                    except asyncio.TimeoutError:
+                        error_msg = f"Browser automation timed out after {effective_timeout}s (hard timeout)"
+                        logger.error(f"[BROWSER_HARD_TIMEOUT] {error_msg}")
+                        web_gui.get_ipc_api().send_skill_editor_log("error", error_msg)
+                        # Record failure if task available
+                        try:
+                            task = state.get('_managed_task')
+                            if task is None and runtime and hasattr(runtime, 'context'):
+                                task = runtime.context.get('task') or runtime.context.get('managed_task')
+                            if task and hasattr(task, 'record_failure'):
+                                task.record_failure()
+                        except Exception:
+                            pass
+                        info = {"error": error_msg, "timed_out": True}
+                else:
+                    info = run_async_in_sync(_run_browser_use(combined_task, mainwin)) or {}
+                
+                # Cancel guardrail timer on success
+                if correlation_id:
+                    try:
+                        task = state.get('_managed_task')
+                        if task is None and runtime and hasattr(runtime, 'context'):
+                            task = runtime.context.get('task') or runtime.context.get('managed_task')
+                        if task:
+                            resolve_async_operation(task, correlation_id, result={"status": "completed"})
+                            log_msg = f"[BROWSER_GUARDRAIL] Cancelled timer {correlation_id} (browser automation completed)"
+                            logger.info(log_msg)
+                    except Exception as e:
+                        logger.warning(f"[BROWSER_GUARDRAIL] Failed to cancel timer: {e}")
+                        
             except Exception as e:
+                # Cancel guardrail timer on error too
+                if correlation_id:
+                    try:
+                        task = state.get('_managed_task')
+                        if task is None and runtime and hasattr(runtime, 'context'):
+                            task = runtime.context.get('task') or runtime.context.get('managed_task')
+                        if task:
+                            resolve_async_operation(task, correlation_id, error=str(e))
+                    except Exception:
+                        pass
                 info = {"error": f"browser-use run failed: {e}"}
             state.setdefault("tool_result", {})
             # state["tool_result"][node_name] = {
