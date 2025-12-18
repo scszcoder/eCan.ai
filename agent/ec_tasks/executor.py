@@ -12,6 +12,7 @@ This module handles the actual execution of tasks, including:
 import time
 import traceback
 import uuid
+from queue import Empty
 from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING
 
 from langgraph.types import Command
@@ -20,6 +21,9 @@ from utils.logger_helper import logger_helper as logger
 
 if TYPE_CHECKING:
     from .models import ManagedTask
+
+# Default timeout for waiting on pending events at workflow end
+DEFAULT_PENDING_EVENTS_TIMEOUT = 300  # 5 minutes
 
 
 class TaskExecutor:
@@ -278,7 +282,16 @@ class TaskExecutor:
         if not current_checkpoint:
             current_checkpoint = self.task.skill.runnable.get_state(config=effective_config)
         
+        # Wait for pending async events before marking complete
+        if success and self.task.has_pending_events():
+            logger.info(f"[EXECUTOR] Waiting for {len(self.task.get_pending_events())} pending events")
+            self._wait_for_pending_events(timeout=DEFAULT_PENDING_EVENTS_TIMEOUT)
+        
         run_result = {"success": success, "step": step, "cp": current_checkpoint}
+        
+        # Include pending event results in the run result
+        if self.task.pending_events:
+            run_result["pending_event_results"] = self.task.get_all_pending_event_results()
         
         # Emit completion status (only if truly completed, not paused)
         if success:
@@ -286,6 +299,67 @@ class TaskExecutor:
             self.emit_run_status("completed", "", st_js)
         
         return run_result
+    
+    def _wait_for_pending_events(self, timeout: float = DEFAULT_PENDING_EVENTS_TIMEOUT):
+        """
+        Wait for all pending async operations to complete or timeout.
+        
+        This is the "completion gate" that blocks task completion until
+        all fire-and-forget async operations have resolved.
+        
+        Args:
+            timeout: Maximum seconds to wait for all events
+        """
+        from .pending_events import resolve_async_operation
+        
+        start = time.time()
+        poll_interval = 0.5
+        
+        while self.task.has_pending_events():
+            # Check cancellation
+            if self.task.cancellation_event.is_set():
+                logger.info("[EXECUTOR] Task cancelled, stopping pending event wait")
+                self.task.cancel_all_pending_events()
+                break
+            
+            # Check overall timeout
+            elapsed = time.time() - start
+            if elapsed > timeout:
+                logger.warning(f"[EXECUTOR] Pending events wait timeout after {elapsed:.1f}s")
+                self.task.cleanup_expired_events()
+                break
+            
+            # Poll queue for callback/timeout events
+            try:
+                event = self.task.queue.get(timeout=poll_interval)
+                
+                if event.get("type") == "async_callback":
+                    corr_id = event.get("correlation_id")
+                    result = event.get("result")
+                    error = event.get("error")
+                    resolve_async_operation(self.task, corr_id, result=result, error=error)
+                    logger.debug(f"[EXECUTOR] Resolved callback for {corr_id}")
+                    
+                elif event.get("type") == "async_timeout":
+                    corr_id = event.get("correlation_id")
+                    resolve_async_operation(self.task, corr_id, error="timeout")
+                    logger.debug(f"[EXECUTOR] Resolved timeout for {corr_id}")
+                    
+                else:
+                    # Put non-pending-event messages back (they're for the next run)
+                    self.task.queue.put(event)
+                    
+            except Empty:
+                # No events in queue, check for expired events
+                expired = self.task.cleanup_expired_events()
+                if expired:
+                    logger.debug(f"[EXECUTOR] Cleaned up {len(expired)} expired events")
+        
+        pending_count = len(self.task.get_pending_events())
+        if pending_count > 0:
+            logger.warning(f"[EXECUTOR] Exiting wait with {pending_count} still pending")
+        else:
+            logger.info("[EXECUTOR] All pending events resolved")
     
     # ==================== Validation ====================
     
@@ -384,6 +458,27 @@ class TaskExecutor:
                 if self.task.cancellation_event.is_set():
                     logger.info(f"Task {self.task.name} ({self.task.run_id}) received cancellation signal. Stopping.")
                     self.task.status.state = TaskState.CANCELED
+                    break
+                
+                # Guardrail: Check max steps limit
+                self.task.increment_step()
+                if self.task.is_max_steps_reached():
+                    logger.warning(f"[GUARDRAIL] Task {self.task.name} reached max_steps={self.task.max_steps}. Stopping.")
+                    self.task.status.state = TaskState.COMPLETED
+                    self.task.status.message = Message(
+                        role="agent",
+                        parts=[TextPart(type="text", text=f"Reached maximum steps limit ({self.task.max_steps})")]
+                    )
+                    break
+                
+                # Guardrail: Check max consecutive failures
+                if self.task.is_max_failures_reached():
+                    logger.error(f"[GUARDRAIL] Task {self.task.name} reached max_failures={self.task.max_failures}. Stopping.")
+                    self.task.status.state = TaskState.FAILED
+                    self.task.status.message = Message(
+                        role="agent",
+                        parts=[TextPart(type="text", text=f"Stopped due to {self.task.max_failures} consecutive failures")]
+                    )
                     break
                 
                 # Update status message
@@ -487,6 +582,33 @@ class TaskExecutor:
             async for step in agen:
                 logger.debug(f"async Step output: {step}")
                 await self.task.pause_event.wait()
+                
+                # Check for cancellation
+                if self.task.cancellation_event.is_set():
+                    logger.info(f"Task {self.task.name} ({self.task.run_id}) received cancellation signal. Stopping.")
+                    self.task.status.state = TaskState.CANCELED
+                    break
+                
+                # Guardrail: Check max steps limit
+                self.task.increment_step()
+                if self.task.is_max_steps_reached():
+                    logger.warning(f"[GUARDRAIL] Task {self.task.name} reached max_steps={self.task.max_steps}. Stopping.")
+                    self.task.status.state = TaskState.COMPLETED
+                    self.task.status.message = Message(
+                        role="agent",
+                        parts=[TextPart(type="text", text=f"Reached maximum steps limit ({self.task.max_steps})")]
+                    )
+                    break
+                
+                # Guardrail: Check max consecutive failures
+                if self.task.is_max_failures_reached():
+                    logger.error(f"[GUARDRAIL] Task {self.task.name} reached max_failures={self.task.max_failures}. Stopping.")
+                    self.task.status.state = TaskState.FAILED
+                    self.task.status.message = Message(
+                        role="agent",
+                        parts=[TextPart(type="text", text=f"Stopped due to {self.task.max_failures} consecutive failures")]
+                    )
+                    break
                 
                 # Update status message
                 self.task.status.message = Message(

@@ -392,6 +392,114 @@ class PrivacyAgent:
     def stop(self) -> None:
         """Stop the agent."""
         self._agent.stop()
+    
+    # ==================== Single-Step Execution ====================
+    
+    async def take_step(self, step_info: "AgentStepInfo | None" = None) -> tuple[bool, bool]:
+        """
+        Execute a single step of the workflow.
+        
+        This is the simplest way to run the agent step-by-step.
+        Privacy filtering is automatically applied via the patched _prepare_context.
+        
+        Args:
+            step_info: Optional step info. If None, uses current step count.
+            
+        Returns:
+            Tuple[bool, bool]: (is_done, is_valid)
+                - is_done: True if the task is complete
+                - is_valid: True if the step executed successfully
+        """
+        return await self._agent.take_step(step_info)
+    
+    async def step(self, step_info: "AgentStepInfo | None" = None) -> None:
+        """
+        Execute one step of the task (lower-level than take_step).
+        
+        This directly calls the agent's step method without the
+        initial actions and done callback handling that take_step provides.
+        
+        Args:
+            step_info: Optional step info for this step.
+        """
+        await self._agent.step(step_info)
+    
+    async def initialize_for_stepping(self) -> None:
+        """
+        Initialize the browser session for step-by-step execution.
+        
+        Call this before using take_step() or step() in a manual loop.
+        This starts the browser and executes any initial actions.
+        
+        Usage:
+            agent = PrivacyAgent(task=..., llm=...)
+            await agent.initialize_for_stepping()
+            
+            for step_num in range(max_steps):
+                is_done, _ = await agent.take_step()
+                if is_done:
+                    break
+                # Inspect state, pause for user input, etc.
+        """
+        # Start browser session
+        await self._agent.browser_session.start()
+        
+        # Execute initial actions if any
+        if self._agent.initial_actions:
+            await self._agent._execute_initial_actions()
+    
+    async def run_with_step_callback(
+        self,
+        max_steps: int = 100,
+        on_step_start: "Callable[['PrivacyAgent'], Awaitable[None]] | None" = None,
+        on_step_end: "Callable[['PrivacyAgent'], Awaitable[None]] | None" = None,
+    ) -> Any:
+        """
+        Run the agent with callbacks before/after each step.
+        
+        This allows inspection and control at each step while still
+        using the standard run loop.
+        
+        Args:
+            max_steps: Maximum number of steps to run.
+            on_step_start: Async callback called before each step.
+            on_step_end: Async callback called after each step.
+                         Can call agent.pause() to pause execution.
+        
+        Returns:
+            Agent result (AgentHistoryList)
+        """
+        # Wrap callbacks to pass self (PrivacyAgent) instead of inner Agent
+        async def wrapped_start(agent):
+            if on_step_start:
+                await on_step_start(self)
+        
+        async def wrapped_end(agent):
+            if on_step_end:
+                await on_step_end(self)
+        
+        return await self._agent.run(
+            max_steps=max_steps,
+            on_step_start=wrapped_start if on_step_start else None,
+            on_step_end=wrapped_end if on_step_end else None,
+        )
+    
+    def get_step_state(self) -> dict:
+        """
+        Get current step state for debugging/inspection.
+        
+        Returns:
+            Dict with current step information.
+        """
+        return {
+            "step_number": self._agent.state.n_steps,
+            "is_done": self._agent.history.is_done() if self._agent.history else False,
+            "is_paused": self._agent.state.paused,
+            "is_stopped": self._agent.state.stopped,
+            "consecutive_failures": self._agent.state.consecutive_failures,
+            "last_result": self._agent.state.last_result,
+            "filter_stats": self.get_filter_stats(),
+        }
 
 
 # Convenience function to create a privacy-enabled agent
