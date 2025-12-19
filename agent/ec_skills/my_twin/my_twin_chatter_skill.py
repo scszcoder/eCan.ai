@@ -133,13 +133,24 @@ def parrot(state: NodeState) -> NodeState:
 
             if recipient_agent:
                 logger.info("[my_twin_chatter_skill] parrot recipient found:", recipient_agent.card.name)
+                recipient_id = recipient_agent.card.id
+                # Register the recipient in unified messenger for LAN routing
+                if recipient_agent.card.url:
+                    a2a_url = recipient_agent.card.url
+                    if not a2a_url.endswith('/a2a/'):
+                        a2a_url = a2a_url.rstrip('/') + '/a2a/'
+                    agent.unified_messenger.register_lan_agent(recipient_id, a2a_url)
             else:
                 logger.error("[my_twin_chatter_skill] parrot recipient agent not found!")
-            # Use non-blocking send: A sends to B and returns immediately
-            # B will send response back to A via a2a_send_chat_message_async
+                recipient_id = None
+            
+            # Use unified messenger for auto LAN/WAN routing
+            # Non-blocking send: A sends to B and returns immediately
+            # B will send response back to A via unified_send_chat_message_async
             # A's parrot skill will receive the response and display to GUI
-            result = agent.a2a_send_chat_message_async(recipient_agent, state)
-            logger.info("[my_twin_chatter_skill] message forwarded to recipient (non-blocking)")
+            if recipient_id:
+                result = agent.unified_send_chat_message_async(recipient_id, state)
+                logger.info("[my_twin_chatter_skill] message forwarded via unified messenger (non-blocking)")
         else:
             # Send this message to GUI
             logger.debug("[my_twin_chatter_skill] parrot showing agent msg", state)
