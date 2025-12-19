@@ -68,11 +68,19 @@ def _prepare_agent_task_data(agent_task_info: Dict[str, Any], username: str, age
     Returns:
         Dict containing prepared agent task data
     """
+    # Get metadata from frontend (could be 'metadata' or 'settings' key)
+    metadata = agent_task_info.get('metadata', agent_task_info.get('settings', {}))
+    if not isinstance(metadata, dict):
+        metadata = {}
+    
+    # NOTE: skill is now managed through task-skill relationship table (DBAgentTaskSkillRel)
+    # Don't store skill in metadata anymore
+    
     agent_task_data = {
         'name': agent_task_info.get('name', 'Unnamed Agent Task'),
         'owner': username,
         'description': agent_task_info.get('description', ''),
-        'source': agent_task_info.get('source', 'ui'),  # Preserve source field
+        'source': agent_task_info.get('source', 'ui'),
         'priority': agent_task_info.get('priority', 'medium'),
         'status': agent_task_info.get('status', 'pending'),
         'task_type': agent_task_info.get('task_type', ''),
@@ -82,7 +90,7 @@ def _prepare_agent_task_data(agent_task_info: Dict[str, Any], username: str, age
         'progress': agent_task_info.get('progress', 0.0),
         'result': agent_task_info.get('result', {}),
         'error_message': agent_task_info.get('error_message', ''),
-        'settings': agent_task_info.get('settings', {}),
+        'settings': metadata,
         'org_id': agent_task_info.get('org_id', None),
     }
 
@@ -91,6 +99,93 @@ def _prepare_agent_task_data(agent_task_info: Dict[str, Any], username: str, age
         agent_task_data['id'] = agent_task_id
 
     return agent_task_data
+
+
+def _manage_task_skill_relationship(task_id: str, skill_id: Optional[str]) -> bool:
+    """Create or update task-skill relationship using task service
+    
+    Args:
+        task_id: Task ID
+        skill_id: Skill ID (None to remove relationship)
+        
+    Returns:
+        bool: True if successful
+    """
+    try:
+        task_service = _get_agent_task_service()
+        if not task_service:
+            return False
+        
+        # Get existing skills for this task
+        existing_skills = task_service.get_task_skills(task_id, role='primary')
+        
+        # Remove existing primary skill relationships
+        if existing_skills.get('success') and existing_skills.get('data'):
+            for skill_rel in existing_skills['data']:
+                task_service.remove_skill_from_task(task_id, skill_rel['skill_id'])
+        
+        # Add new relationship if skill_id provided
+        if skill_id:
+            result = task_service.add_skill_to_task(
+                task_id=task_id,
+                skill_id=skill_id,
+                role='primary',
+                is_required=True
+            )
+            if not result.get('success'):
+                logger.error(f"[task_handler] Failed to add skill to task: {result.get('error')}")
+                return False
+        
+        return True
+            
+    except Exception as e:
+        logger.error(f"[task_handler] Failed to manage task-skill relationship: {e}")
+        return False
+
+
+def _get_task_skill_info(task_id: str) -> Optional[Dict[str, Any]]:
+    """Get skill information from task-skill relationship using task service
+    
+    Args:
+        task_id: Task ID
+        
+    Returns:
+        Dict with skill info (id, name) or None
+    """
+    try:
+        task_service = _get_agent_task_service()
+        if not task_service:
+            logger.error(f"[task_handler] Task service not available")
+            return None
+        
+        skills = task_service.get_task_skills(task_id, role='primary')
+        
+        if skills.get('success') and skills.get('data'):
+            skill_rels = skills['data']
+            if skill_rels and len(skill_rels) > 0:
+                skill_rel = skill_rels[0]
+                skill_id = skill_rel.get('skill_id')
+                
+                if skill_id:
+                    main_window = AppContext.get_main_window()
+                    
+                    if main_window and hasattr(main_window, 'ec_db_mgr'):
+                        skill_service = main_window.ec_db_mgr.get_skill_service()
+                        
+                        if skill_service:
+                            skill_result = skill_service.get_skill_by_id(skill_id)
+                            if skill_result.get('success') and skill_result.get('data'):
+                                skill_data = skill_result['data']
+                                return {
+                                    'id': skill_data.get('id'),
+                                    'name': skill_data.get('name')
+                                }
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"[task_handler] Failed to get task skill info: {e}")
+        return None
 
 
 def _update_agent_task_in_memory(agent_task_id: str, agent_task_data: Dict[str, Any]) -> bool:
@@ -134,6 +229,15 @@ def _update_agent_task_in_memory(agent_task_id: str, agent_task_data: Dict[str, 
         }
         task_status = status_mapping.get(task_status, task_status)
         
+        # Get metadata from 'settings' (DB field name) or 'metadata' (API field name)
+        metadata = agent_task_data.get('settings', agent_task_data.get('metadata', {}))
+        if not isinstance(metadata, dict):
+            metadata = {}
+        
+        # Get skill from task-skill relationship table
+        skill_info = _get_task_skill_info(agent_task_id)
+        skill_name = skill_info['name'] if skill_info else ''
+        
         agent_task_obj = ManagedTask(
             id=agent_task_id,
             name=agent_task_data['name'],
@@ -142,8 +246,9 @@ def _update_agent_task_in_memory(agent_task_id: str, agent_task_data: Dict[str, 
             status=TaskStatus(
                 state=TaskState(task_status)
             ),
-            skill=agent_task_data.get('skill', ''),  # Skill name or empty string
-            state={}  # Empty state dict for new tasks
+            skill=skill_name,
+            state={},
+            metadata=metadata
         )
 
         if existing_index is not None:
@@ -174,6 +279,15 @@ def _create_clean_agent_task_response(agent_task_id: str, agent_task_data: Dict[
     Returns:
         Dict containing clean agent task data
     """
+    # Get metadata from 'settings' (DB field name) or 'metadata' (API field name)
+    metadata = agent_task_data.get('settings', agent_task_data.get('metadata', {}))
+    if not isinstance(metadata, dict):
+        metadata = {}
+    
+    # Get skill info from task-skill relationship table
+    skill_info = _get_task_skill_info(agent_task_id)
+    skill_name = skill_info['name'] if skill_info else ''
+    
     return {
         'id': agent_task_id,
         'name': agent_task_data['name'],
@@ -182,7 +296,11 @@ def _create_clean_agent_task_response(agent_task_id: str, agent_task_data: Dict[
         'priority': agent_task_data.get('priority', 'medium'),
         'status': agent_task_data.get('status', 'pending'),
         'task_type': agent_task_data.get('task_type', ''),
-        'progress': agent_task_data.get('progress', 0.0)
+        'progress': agent_task_data.get('progress', 0.0),
+        'schedule': agent_task_data.get('schedule', {}),
+        'trigger': agent_task_data.get('trigger', 'manual'),
+        'skill': skill_name,  # Get skill from relationship table
+        'metadata': metadata
     }
 
 @IPCHandlerRegistry.handler('get_agent_tasks')
@@ -229,12 +347,14 @@ def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]
                     # Use Pydantic's model_dump() for proper serialization
                     if hasattr(agent_task, 'model_dump'):
                         # Pydantic v2: model_dump() with exclude for non-serializable fields
+                        # Exclude 'skill' since it can be complex object (StateGraph)
                         agent_task_dict = agent_task.model_dump(
                             exclude={'skill', 'task', 'pause_event', 'cancellation_event', 'queue'},
                             mode='json'
                         )
                     elif hasattr(agent_task, 'dict'):
                         # Pydantic v1: dict() method
+                        # Exclude 'skill' since it can be complex object (StateGraph)
                         agent_task_dict = agent_task.dict(
                             exclude={'skill', 'task', 'pause_event', 'cancellation_event', 'queue'}
                         )
@@ -243,6 +363,16 @@ def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]
                         logger.error(f"Agent task {i} is not a Pydantic model! Type: {type(agent_task)}, Name: {getattr(agent_task, 'name', 'UNKNOWN')}")
                         logger.error(f"This indicates a serious data structure issue. Skipping this task.")
                         continue
+                    
+                    # Manually extract skill name (handle both string and object)
+                    skill_value = getattr(agent_task, 'skill', None)
+                    
+                    if isinstance(skill_value, str):
+                        agent_task_dict['skill'] = skill_value
+                    elif skill_value and hasattr(skill_value, 'name'):
+                        agent_task_dict['skill'] = skill_value.name
+                    else:
+                        agent_task_dict['skill'] = ''
                     
                     # Ensure owner field is set
                     agent_task_dict['owner'] = username
@@ -254,7 +384,7 @@ def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]
                         agent_task_dict['status'] = _serialize_task_status(agent_task_dict['status'])
                     
                     agent_tasks_dicts.append(agent_task_dict)
-                    logger.debug(f"Converted agent task: {agent_task_dict.get('name', 'NO NAME')}, source: {agent_task_dict.get('source', 'N/A')}")
+                    logger.debug(f"Converted agent task: {agent_task_dict.get('name', 'NO NAME')}, source: {agent_task_dict.get('source', 'N/A')}, metadata: {agent_task_dict.get('metadata', 'N/A')}")
                 except Exception as e:
                     logger.error(f"Failed to convert agent task {i}: {e}")
                     import traceback
@@ -309,6 +439,7 @@ def handle_save_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]]
         username = data['username']
         agent_task_info = data['task_info']
         agent_task_id = agent_task_info.get('id')
+        
 
         if not agent_task_id:
             return create_error_response(request, 'INVALID_PARAMS', 'Agent task ID is required for save operation')
@@ -338,8 +469,11 @@ def handle_save_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]]
 
         if existing_agent_task.get('success') and existing_agent_task.get('data'):
             # Update existing agent task
+            existing_data = existing_agent_task.get('data', [{}])[0] if existing_agent_task.get('data') else {}
+            logger.info(f"[task_handler] Existing task metadata before update: {existing_data.get('metadata', existing_data.get('settings', {}))}")
             logger.info(f"Updating existing agent task: {agent_task_id}")
             result = agent_task_service.update_task(agent_task_id, agent_task_data)
+            logger.info(f"[task_handler] Update result: {result}")
         else:
             # Create new agent task
             logger.info(f"Creating new agent task: {agent_task_id}")
@@ -349,6 +483,11 @@ def handle_save_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]]
             # Get the actual agent_task_id from database response (in case it was generated)
             actual_agent_task_id = result.get('id', agent_task_id)
             logger.info(f"Agent task saved successfully: {agent_task_data['name']} (ID: {actual_agent_task_id})")
+
+            # Step 1.5: Manage task-skill relationship
+            skill_id = agent_task_info.get('skill_id')
+            if skill_id or skill_id is None:  # Update relationship (including removing)
+                _manage_task_skill_relationship(actual_agent_task_id, skill_id)
 
             # Step 2: Update memory after database update succeeds
             _update_agent_task_in_memory(actual_agent_task_id, agent_task_data)

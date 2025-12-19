@@ -22,6 +22,7 @@ class DBAgentTask(BaseModel, TimestampMixin, ExtensibleMixin):
     name = Column(String(128), nullable=False)
     description = Column(Text)
     owner = Column(String(128), nullable=False)
+    source = Column(String(32), default='ui')  # ui, code, system
 
     # Task assignment (removed direct foreign keys, use association tables instead)
     # Note: agent assignment now handled through DBAgentTaskRel
@@ -42,8 +43,10 @@ class DBAgentTask(BaseModel, TimestampMixin, ExtensibleMixin):
     result = Column(JSON)                  # execution result
     error_message = Column(Text)           # error details if failed
 
-    # Metadata and settings
-    settings = Column(JSON)  # flexible settings storage
+    # NOTE: 'metadata' is a reserved attribute name in SQLAlchemy Declarative API.
+    # We use 'settings' as the Python attribute name, but it maps to the 'metadata' column in database.
+    # When reading/writing, use 'settings' in code; the API layer converts to/from 'metadata' for external use.
+    settings = Column('metadata', JSON)  # flexible task configuration (DB column: metadata)
 
     # Relationships
     organization = relationship("DBAgentOrg", backref="tasks")
@@ -51,9 +54,11 @@ class DBAgentTask(BaseModel, TimestampMixin, ExtensibleMixin):
 
     def to_dict(self, deep=False):
         """Convert model instance to dictionary"""
+        # Use parent's to_dict for standard column handling
         d = super().to_dict()
-        # Database records are always UI-created (code-based tasks are not stored in DB)
-        d['source'] = 'ui'
+        
+        d['metadata'] = self.settings
+        
         if deep:
             # Include organization details
             if self.organization:
