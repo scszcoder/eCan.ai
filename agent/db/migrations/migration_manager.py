@@ -73,7 +73,8 @@ class MigrationManager:
             "3.0.3": "migration_302_to_303",
             "3.0.4": "migration_303_to_304",
             "3.0.5": "migration_304_to_305",
-            "3.0.6": "migration_305_to_306"
+            "3.0.6": "migration_305_to_306",
+            "3.0.7": "migration_306_to_307"
         }
         
         module_name = version_patterns.get(version)
