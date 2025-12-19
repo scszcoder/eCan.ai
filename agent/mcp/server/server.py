@@ -120,6 +120,7 @@ from agent.mcp.server.self_utils.self_tools import (
     async_describe_self,
     async_start_task_using_skill,
     async_stop_task_using_skill,
+    async_schedule_task,
 )
 from agent.mcp.server.code_utils.code_tools import (
     async_run_code,
@@ -2823,6 +2824,7 @@ tool_function_mapping = {
         "describe_self": async_describe_self,
         "start_task_using_skill": async_start_task_using_skill,
         "stop_task_using_skill": async_stop_task_using_skill,
+        "schedule_task": async_schedule_task,
         # Code execution tools
         "run_code": async_run_code,
         "run_shell_script": async_run_shell_script,
