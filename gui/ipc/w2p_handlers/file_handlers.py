@@ -289,9 +289,8 @@ def handle_open_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]]
 
         # Convert relative path to absolute path
         if not os.path.isabs(file_path):
-            from app_context import AppContext
-            app_context = AppContext()
-            base_dir = app_context.get_app_dir()
+            from config.app_info import app_info
+            base_dir = app_info.appdata_path
             file_path = os.path.join(base_dir, file_path)
 
         logger.info(f"[SKILL_IO][BACKEND][OPEN_ATTEMPT] Original: {original_path} -> Resolved: {file_path}")
@@ -402,9 +401,8 @@ def handle_read_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]]
         
         # Convert relative path to absolute path
         if not os.path.isabs(file_path):
-            from app_context import AppContext
-            app_context = AppContext()
-            base_dir = app_context.get_app_dir()
+            from config.app_info import app_info
+            base_dir = app_info.appdata_path
             file_path = os.path.join(base_dir, file_path)
         
         # Distinct marker for any read attempt

@@ -923,8 +923,8 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
             
             # Convert relative path to absolute path
             if not skill_file.is_absolute():
-                app_context = AppContext()
-                base_dir = Path(app_context.get_app_dir())
+                from config.app_info import app_info
+                base_dir = Path(app_info.appdata_path)
                 skill_file = base_dir / skill_file
             
             # Check if skillName changed - need to rename directory and files
