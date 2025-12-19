@@ -1048,7 +1048,7 @@ class MainWindow:
         self.agent_tools = []
         self.agent_knowledges = []
 
-        # Bot and mission management
+        # Agent and mission management
         self.missions = []
         self.vehicles = []
         self.products = []
@@ -1076,13 +1076,13 @@ class MainWindow:
         self.unified_browser_manager = None
         self._browser_session = None
 
-        # Bot states and profiles
-        self.bot_states = ["active", "disabled", "banned", "deleted"]
+        # Agent states and profiles
+        self.agent_states = ["active", "disabled", "banned", "deleted"]
 
         # Working state
         self.rpa_work_assigned_for_today = False
         self.running_mission = None
-        self.botsFingerPrintsReady = False
+        self.agentsFingerPrintsReady = False
         self.default_webdriver = None
         self.working_state = "running_idle"
         self.staff_officer_on_line = False
@@ -3610,7 +3610,7 @@ class MainWindow:
                 # Create new vehicle record
                 vehicle_model = VehicleModel()
                 vehicle_model.arch = vehicle.arch
-                vehicle_model.bot_ids = str(vehicle.bot_ids)
+                vehicle_model.agent_ids = str(vehicle.agent_ids)
                 vehicle_model.daily_mids = str(vehicle.daily_mids)
                 vehicle_model.ip = vehicle.ip
                 vehicle_model.mstats = str(vehicle.mstats)
@@ -3624,9 +3624,9 @@ class MainWindow:
             else:
                 # Update existing vehicle record and sync data
                 vehicle.setVid(v.id)
-                vehicle.setBotIds(ast.literal_eval(v.bot_ids))
-                vehicle.setMStats(ast.literal_eval(v.mstats))
-                vehicle.setMids(ast.literal_eval(v.daily_mids))
+                vehicle.setAgentIds(ast.literal_eval(v.agent_ids) if v.agent_ids else [])
+                vehicle.setMStats(ast.literal_eval(v.mstats) if v.mstats else {})
+                vehicle.setMids(ast.literal_eval(v.daily_mids) if v.daily_mids else [])
                 v.cap = vehicle.CAP
                 v.status = vehicle.status  # Update status in database
                 self.vehicle_service.update_vehicle(v)
@@ -3925,6 +3925,7 @@ class MainWindow:
     # { sender: "ip addr", type: "intro/status/report", content : "another json" }
     # content format varies according to type.
     async def processPlatoonMsgs(self, msgString, ip):
+        from agent.mcp.server.ads_power.ads_power import receivePlatoonAgentsADSProfileUpdateMessage, receiveAgentsADSProfilesBatchUpdateMessage
         try:
             global fieldLinks
             fl_ips = [x["ip"] for x in fieldLinks]
@@ -4037,19 +4038,19 @@ class MainWindow:
                     # this means all reports are collected, this is the last missing piece, ready to send to cloud.
                     await self.doneWithToday()
                     self.num_todays_task_groups = 0
-            elif msg["type"] == "botsADSProfilesUpdate":
-                logger.debug("received botsADSProfilesUpdate message", "servePlatoons", self)
+            elif msg["type"] == "agentsADSProfilesUpdate":
+                logger.debug("received agentsADSProfilesUpdate message", "servePlatoons", self)
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
-                self.receivePlatoonBotsADSProfileUpdateMessage(msg)
-            elif msg["type"] == "botsADSProfilesBatchUpdate":
-                logger.debug("received botsADSProfilesBatchUpdate message", "servePlatoons", self)
+                receivePlatoonAgentsADSProfileUpdateMessage(msg)
+            elif msg["type"] == "agentsADSProfilesBatchUpdate":
+                logger.debug("received agentsADSProfilesBatchUpdate message", "servePlatoons", self)
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
-                remote_outdated = self.receiveBotsADSProfilesBatchUpdateMessage(msg)
+                remote_outdated = receiveAgentsADSProfilesBatchUpdateMessage(msg)
                 self.expected_vehicle_responses[found_vehicle.getName()] = "Yes"
 
                 if self.allResponded():
                     logger.debug("all ads profiles updated...", "servePlatoons", self)
-                    self.botsFingerPrintsReady = True
+                    self.agentsFingerPrintsReady = True
 
                 if remote_outdated:
                     logger.debug("remote outdated...", "servePlatoons", self)
@@ -4093,12 +4094,12 @@ class MainWindow:
             elif msg["type"] == "chat":
                 logger.debug("received chat message")
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
-                self.receiveBotChatMessage(msg["content"])
+                self.receiveAgentChatMessage(msg["content"])
 
             elif msg["type"] == "exlog":
                 self.showMsg("received exlog message")
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
-                self.receiveBotLogMessage(msg["content"])
+                self.receiveAgentLogMessage(msg["content"])
             elif msg["type"] == "heartbeat":
                 # message format {type: chat, msg: msg} msg will be in format of timestamp>from>to>text
 
@@ -4214,23 +4215,13 @@ class MainWindow:
 
 
 
-    def send_chat_to_local_bot(self, chat_msg):
-        # """ Directly enqueue a message to the asyncio task when the button is clicked. """
-        asyncio.create_task(self.gui_chat_msg_queue.put(chat_msg))
-
-    # the message will be in the format of botid:send time stamp in yyyy:mm:dd hh:mm:ss format:msg in html format
-    # from network the message will have chatmsg: prepend to the message.
-    def update_chat_gui(self, rcvd_msg):
-        # Chat GUI removed - no longer updating chat display
-        pass
-
-    # this is the interface to the chatting bots, taking message from the running bots and display them on GUI
+    # this is the interface to the chatting agents, taking message from the running agents and display them on GUI
     async def connectChat(self, chat_msg_queue):
         running = True
         while running:
             if not chat_msg_queue.empty():
                 message = await chat_msg_queue.get()
-                self.showMsg(f"Rx Chat message from bot: {message}")
+                self.showMsg(f"Rx Chat message from agent: {message}")
                 # Chat GUI removed - no longer updating chat display
                 if self.host_role != "Staff Officer":
                     response = self.think_about_a_reponse(message)
@@ -4275,7 +4266,7 @@ class MainWindow:
                         "status": vstat,
                         "lastseen": v.getLastUpdateTime().strftime("%Y-%m-%d %H:%M:%S.%f")[:19],
                         "functions": v.getFunctions(),
-                        "bids": ",".join(str(v.getBotIds())),
+                        "agent_ids": ",".join(str(v.getAgentIds())),
                         "hardware": v.getArch(),
                         "software": v.getOS(),
                         "ip": v.getIP(),
@@ -4289,7 +4280,7 @@ class MainWindow:
                         "status": self.working_state,
                         "lastseen": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:19],
                         "functions": self.functions,
-                        "bids": self.getAgentIdsOnThisVehicle(),
+                        "agent_ids": self.getAgentIdsOnThisVehicle(),
                         "hardware": self.processor,
                         "software": self.platform,
                         "ip": self.ip,
@@ -4341,7 +4332,7 @@ class MainWindow:
                 "status": v.getStatus(),
                 "lastseen": v.getLastUpdateTime().strftime("%Y-%m-%d %H:%M:%S.%f")[:19],
                 "functions": v.getFunctions(),
-                "bids": json.dumps(v.getBotIds()),
+                "agent_ids": json.dumps(v.getAgentIds()),
                 "hardware": v.getArch(),
                 "software": v.getOS(),
                 "ip": v.getIP(),
@@ -4366,7 +4357,7 @@ class MainWindow:
         return report
 
 
-    # this is the interface to the chatting bots, taking message from the running bots and display them on GUI
+    # this is the interface to the chatting agents, taking message from the running agents and display them on GUI
     async def runAgentsMonitor(self, monitor_msg_queue):
         running = True
         ticks = 0
@@ -4461,7 +4452,7 @@ class MainWindow:
             logger.error(ex_stat)
 
     # note recipient could be a group ID.
-    def sendBotChatMessage(self, sender, recipient, text):
+    def sendAgentChatMessage(self, sender, recipient, text):
         # first find out where the recipient is at (which vehicle) and then, send the message to it.
         if isinstance(recipient, list):
             recipients = recipient
@@ -4469,23 +4460,23 @@ class MainWindow:
             recipients = [recipient]
         dtnow = datetime.now()
         date_word = dtnow.isoformat()
-        allbids = [b.getBid() for b in self.bots]
+        allagentids = [a.card.id for a in self.agents]
         found = None
         for vidx, v in enumerate(self.vehicles):
             if len(recipients) > 0:
                 receivers = set(recipients)
-                vbots = set(v.getBotIds())
+                vagents = set(v.getAgentIds())
 
                 # Find the intersection
-                intersection = receivers.intersection(vbots)
+                intersection = receivers.intersection(vagents)
 
                 # Convert intersection back to a list (optional)
-                bids_on_this_vehicle = list(intersection)
-                if len(bids_on_this_vehicle) > 0:
-                    bids_on_this_vehicle_string = ",".join(bids_on_this_vehicle)
+                agent_ids_on_this_vehicle = list(intersection)
+                if len(agent_ids_on_this_vehicle) > 0:
+                    agent_ids_on_this_vehicle_string = ",".join(agent_ids_on_this_vehicle)
 
-                    #now send the message to bots on this vehicle.
-                    full_txt = date_word + ">" + str(sender) + ">" + bids_on_this_vehicle_string + ">" + text
+                    #now send the message to agents on this vehicle.
+                    full_txt = date_word + ">" + str(sender) + ">" + agent_ids_on_this_vehicle_string + ">" + text
                     cmd = {"cmd": "chat", "message": full_txt.decode('latin1')}
                     cmd_str = json.dumps(cmd)
                     if v.getFieldLink()["transport"] and not v.getFieldLink()["transport"].is_closing():
@@ -4498,31 +4489,29 @@ class MainWindow:
                     # get updated recipients
                     recipients = list(receivers)
 
-        # if there are still recipients not sent, that means these are local bots,
-        #self.send_chat_to_local_bot(text)
 
         if len(recipient) > 0:
             # recipient here could be comma seperated recipient ids.
             receivers = set(recipients)
-            vbots = set(allbids)
+            vagents = set(allagentids)
 
             # Find the intersection
-            intersection = receivers.intersection(vbots)
+            intersection = receivers.intersection(vagents)
 
             # Convert intersection back to a list (optional)
-            bids_on_this_vehicle = list(intersection)
+            agent_ids_on_this_vehicle = list(intersection)
 
             # Chat GUI removed - no longer adding active chat history
             pass
 
-            if len(bids_on_this_vehicle) > 0:
-                # now send the message to local bots on this vehicle.
-                unfound_bid_string = ",".join(bids_on_this_vehicle)
-                self.showMsg(f"Error: Bot[{unfound_bid_string}] not found")
+            if len(agent_ids_on_this_vehicle) > 0:
+                # now send the message to local agents on this vehicle.
+                unfound_agent_id_string = ",".join(agent_ids_on_this_vehicle)
+                self.showMsg(f"Error: Agent[{unfound_agent_id_string}] not found")
 
 
     # note recipient could be a group ID.
-    def receiveBotChatMessage(self, msg_text):
+    def receiveAgentChatMessage(self, msg_text):
         msg_parts = msg_text.split(">")
         sender = msg_parts[1]
         receiver = msg_parts[2]
@@ -4532,14 +4521,14 @@ class MainWindow:
             receivers = [int(receiver.strip())]
 
 
-        # deliver the message for the other bots. - allowed for inter-bot communication.
+        # deliver the message for the other agents. - allowed for inter-agent communication.
         if len(receivers) > 0:
             # now route message to everybody.
             # Chat GUI removed - no longer adding network chat history
             pass
 
     # note recipient could be a group ID.
-    def receiveBotLogMessage(self, msg_text):
+    def receiveAgentLogMessage(self, msg_text):
         msg_json = json.loads(msg_text)
 
         sender = msg_json["sender"]
@@ -4547,7 +4536,7 @@ class MainWindow:
         #logger will only be sent to the boss.
         receivers = [0]
 
-        # deliver the message for the other bots. - allowed for inter-bot communication.
+        # deliver the message for the other agent. - allowed for inter-agent communication.
         # Chat GUI removed - no longer adding network chat history
         pass
 
@@ -4630,7 +4619,7 @@ class MainWindow:
                 encoded_data = base64.b64encode(binary_data).decode('utf-8')
 
                 # Embed in JSON
-                json_data = json.dumps({"type": "botsADSProfilesUpdate", "file_name": file_name_full_path, "file_type": file_type,
+                json_data = json.dumps({"type": "agentsADSProfilesUpdate", "file_name": file_name_full_path, "file_type": file_type,
                                         "file_contents": encoded_data})
                 length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
                 # Send data
@@ -4677,15 +4666,15 @@ class MainWindow:
 
             # Send data
             json_data = json.dumps({
-                "type": "botsADSProfilesBatchUpdate",
+                "type": "agentsADSProfilesBatchUpdate",
                 "ip": self.ip,
                 "profiles": profiles
             })
             length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
             if len(json_data) < 128:
-                logger.debug("About to send botsADSProfilesBatchUpdate to commander: "+json_data)
+                logger.debug("About to send agentsADSProfilesBatchUpdate to commander: "+json_data)
             else:
-                logger.debug("About to send botsADSProfilesBatchUpdate to commander: ..." + json_data[-127:])
+                logger.debug("About to send agentsADSProfilesBatchUpdate to commander: ..." + json_data[-127:])
 
             if commander_link and not commander_link.is_closing():
                 commander_link.write(length_prefix + json_data.encode('utf-8'))
@@ -4734,15 +4723,15 @@ class MainWindow:
             # Send data
             logger.debug("profiles ready")
             json_data = json.dumps({
-                "cmd": "botsADSProfilesBatchUpdate",
+                "cmd": "agentsADSProfilesBatchUpdate",
                 "ip": self.ip,
                 "profiles": profiles
             })
 
             if len(json_data) < 128:
-                logger.debug("About to send botsADSProfilesBatchUpdate to platoon: " + json_data)
+                logger.debug("About to send agentsADSProfilesBatchUpdate to platoon: " + json_data)
             else:
-                logger.debug("About to send botsADSProfilesBatchUpdate to platoon: ..." + json_data[-127:])
+                logger.debug("About to send agentsADSProfilesBatchUpdate to platoon: ..." + json_data[-127:])
 
 
             length_prefix = len(json_data.encode('utf-8')).to_bytes(4, byteorder='big')
