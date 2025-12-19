@@ -5,7 +5,7 @@ import time
 class VEHICLE:
     def __init__(self, parent, name="x", ip="0.0.0.0"):
         self.parent = parent
-        self.bot_ids = []
+        self.agent_ids = []
         self.arch = ""
         self.os = parent.os_short if parent else "unknown"
         self.name = name
@@ -88,21 +88,21 @@ class VEHICLE:
     def setOS(self, vos):
         self.os = vos
 
-    def getBotIds(self):
-        return self.bot_ids
+    def getAgentIds(self):
+        return self.agent_ids
 
-    def addBot(self, bid):
-        if len(self.getBotIds()) < self.CAP and bid not in self.getBotIds():
-            self.bot_ids.append(bid)
+    def addAgent(self, agid):
+        if len(self.getAgentIds()) < self.CAP and agid not in self.getAgentIds():
+            self.agent_ids.append(agid)
             nAdded = 1
         else:
             nAdded = 0
 
         return nAdded
 
-    def removeBot(self, bid):
-        if bid in self.bot_ids:
-            self.bot_ids.remove(bid)
+    def removeAgent(self, agid):
+        if agid in self.agent_ids:
+            self.agent_ids.remove(agid)
             nRemoved = 1
         else:
             nRemoved = 0
@@ -110,11 +110,11 @@ class VEHICLE:
         return nRemoved
 
 
-    def setBotIds(self, bot_ids):
-        self.bot_ids = bot_ids
+    def setAgentIds(self, agent_ids):
+        self.agent_ids = agent_ids
 
-    def getBotsOverCapStatus(self):
-        return (len(self.bot_ids) > self.CAP)
+    def getAgentsOverCapStatus(self):
+        return (len(self.agent_ids) > self.CAP)
 
     def getMids(self):
         return self.daily_mids
@@ -214,7 +214,7 @@ class VEHICLE:
                 "name": self.name,
                 "os": self.os,
                 "arch": self.arch,
-                "bot_ids": self.bot_ids,
+                "agent_ids": self.agent_ids,
                 "status": self.status,
                 "functions": self.functions,
                 "test_disabled": self.test_disabled,
@@ -251,7 +251,7 @@ class VEHICLE:
         self.os = dj.get("os", "")
         self.arch = dj.get("arch", "")  # Default to empty string if "arch" is missing
         self.setStatus(dj.get("status", ""))
-        self.bot_ids = dj.get("bot_ids", [])
+        self.agent_ids = dj.get("agent_ids", [])
         self.functions = dj.get("functions", "")
         self.test_disabled = dj.get("test_disabled", False)
         self.last_update_time = datetime.strptime(dj.get("last_update_time", "1970-01-01 00:00:00.000"), "%Y-%m-%d %H:%M:%S.%f")
