@@ -87,9 +87,11 @@ class DBAgentSkill(BaseModel, TimestampMixin, ExtensibleMixin):
     description = Column(Text)
     version = Column(String(128), nullable=False)  # Changed to version, consistent with EC_Skill
     path = Column(Text)
+    source = Column(String(32), default='ui')  # ui, code, system
     level = Column(String(64))  # Changed to String, consistent with EC_Skill (entry/intermediate/advanced)
     config = Column(JSON)
     diagram = Column(JSON)  # Flowgram diagram data (nodes, edges, etc.)
+
     # Fields added from EC_Skill
     tags = Column(JSON)  # List[str] | None
     examples = Column(JSON)  # List[str] | None
@@ -115,8 +117,6 @@ class DBAgentSkill(BaseModel, TimestampMixin, ExtensibleMixin):
     def to_dict(self, deep=False):
         """Convert model instance to dictionary"""
         d = super().to_dict()
-        # Database records are always UI-created (code-based skills are not stored in DB)
-        d['source'] = 'ui'
         if deep:
             # Include association details through backref relationships
             if hasattr(self, 'agent_skills_rel') and self.agent_skills_rel:
