@@ -5,7 +5,7 @@ from common.db_init import Base
 class VehicleModel(Base):
     __tablename__ = 'vehicle'
     id = Column(Integer, primary_key=True)
-    bot_ids = Column(Text)
+    agent_ids = Column(Text)
     arch = Column(Text)
     os = Column(Text)
     name = Column(Text)
@@ -21,7 +21,7 @@ class VehicleModel(Base):
         return {
             'id': self.id,
             'status': self.status,
-            'bot_ids': self.bot_ids,
+            'agent_ids': self.agent_ids,
             'arch': self.arch,
             'os': self.os,
             'name': self.name,
