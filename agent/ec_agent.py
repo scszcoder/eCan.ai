@@ -12,6 +12,7 @@ from agent.a2a.common.types import AgentCard
 from agent.a2a.common.utils.push_notification_auth import PushNotificationSenderAuth
 from agent.a2a.langgraph_agent.task_manager import AgentTaskManager
 from agent.a2a.common.types import Message, TextPart, FilePart, FileContent, TaskSendParams
+from agent.chats.unified_messenger import UnifiedMessenger, create_unified_messenger
 
 from browser_use.agent.service import Agent
 from agent.ec_skill import EC_Skill
@@ -136,6 +137,9 @@ class EC_Agent(Agent):
 
 		self.runner = TaskRunner(self)
 		self.human_chatter = HumanChatter(self)
+
+		# Initialize unified messenger for LAN/WAN auto-routing
+		self.unified_messenger = UnifiedMessenger(self, mainwin)
 
 
 
@@ -513,6 +517,227 @@ class EC_Agent(Agent):
 		logger.debug(f"[a2a_nonblocking] Message submission queued, returning immediately")
 		return future
 
+	# =========================================================================
+	# Unified Messaging API (LAN/WAN auto-routing)
+	# =========================================================================
+
+	def unified_send_chat_message(self, recipient_id: str, message: dict, use_wan_fallback: bool = True):
+		"""
+		Send a chat message using unified messenger with auto LAN/WAN routing.
+		
+		This is the preferred method for sending messages as it automatically
+		routes between LAN (direct A2A HTTP) and WAN (AWS AppSync WebSocket).
+		
+		Args:
+			recipient_id: Target agent ID
+			message: Message dict with 'messages' and 'attributes' keys (same as a2a_send_chat_message_sync)
+			use_wan_fallback: If True, try WAN when agent not found in LAN registry
+			
+		Returns:
+			Response dict with transport info and result
+		"""
+		try:
+			# Extract message content
+			if isinstance(message["attributes"]['params']['content'], str):
+				msg_text = message["attributes"]['params']['content']
+			elif isinstance(message["attributes"]['params']['content'], dict):
+				msg_text = message["attributes"]['params']['content']['text']
+			else:
+				msg_text = message['attributes']['params']['content']['text']
+			
+			# Build message parts
+			msg_parts = [TextPart(type="text", text=msg_text)]
+			
+			if message["attributes"]['params'].get('attachments'):
+				for attachment in message["attributes"]['params']['attachments']:
+					file_data = attachment.get('data', '')
+					if isinstance(file_data, bytes):
+						file_data = base64.b64encode(file_data).decode('utf-8')
+					
+					fc = FileContent(
+						name=attachment.get('name', ''),
+						mimeType=attachment.get('type', ''),
+						bytes=file_data,
+						uri=attachment.get('url', '')
+					)
+					msg_parts.append(FilePart(type="file", file=fc))
+			
+			# Determine message type
+			if msg_text.lstrip().lower().startswith("dev>"):
+				mtype = "dev_send_chat"
+			else:
+				mtype = "send_chat"
+			
+			# Build A2A Message
+			chat_msg = Message(role="user", parts=msg_parts, metadata={"mtype": mtype})
+			
+			# Extract session info
+			sess_id = message['messages'][1]  # chat_id
+			
+			# Send via unified messenger
+			return self.unified_messenger.send_sync(
+				recipient_id=recipient_id,
+				message=chat_msg,
+				session_id=sess_id,
+				accepted_output_modes=["text", "json", "image/png"],
+				metadata={"params": message['attributes']["params"]}
+			)
+			
+		except Exception as e:
+			logger.error(f"[unified_send] Error: {traceback.format_exc()}")
+			raise
+
+	def unified_send_chat_message_async(self, recipient_id: str, message: dict):
+		"""
+		Non-blocking fire-and-forget unified send.
+		
+		Use this when you don't need to wait for a response.
+		"""
+		return self.unified_messenger.send_async_fire_and_forget(
+			recipient_id=recipient_id,
+			message=self._build_a2a_message_from_dict(message),
+			session_id=message.get('messages', [None, None])[1],
+			metadata={"params": message.get('attributes', {}).get("params", {})}
+		)
+
+	def _build_a2a_message_from_dict(self, message: dict) -> Message:
+		"""Helper to convert legacy message dict to A2A Message."""
+		try:
+			params = message.get("attributes", {}).get("params", {})
+			content = params.get("content", "")
+			
+			if isinstance(content, str):
+				msg_text = content
+			elif isinstance(content, dict):
+				msg_text = content.get("text", "")
+			else:
+				msg_text = str(content)
+			
+			msg_parts = [TextPart(type="text", text=msg_text)]
+			
+			# Add attachments
+			for attachment in params.get("attachments", []) or []:
+				file_data = attachment.get('data', '')
+				if isinstance(file_data, bytes):
+					file_data = base64.b64encode(file_data).decode('utf-8')
+				
+				fc = FileContent(
+					name=attachment.get('name', ''),
+					mimeType=attachment.get('type', ''),
+					bytes=file_data,
+					uri=attachment.get('url', '')
+				)
+				msg_parts.append(FilePart(type="file", file=fc))
+			
+			mtype = "dev_send_chat" if msg_text.lstrip().lower().startswith("dev>") else "send_chat"
+			return Message(role="user", parts=msg_parts, metadata={"mtype": mtype})
+			
+		except Exception as e:
+			logger.error(f"[_build_a2a_message] Error: {e}")
+			return Message(role="user", parts=[TextPart(type="text", text="")], metadata={})
+
+	def register_lan_agent(self, agent_id: str, a2a_url: str):
+		"""Register an agent as reachable on LAN."""
+		self.unified_messenger.register_lan_agent(agent_id, a2a_url)
+
+	def register_wan_agent(self, agent_id: str):
+		"""Register an agent as reachable via WAN."""
+		self.unified_messenger.register_wan_agent(agent_id)
+
+	def sync_agent_registry(self):
+		"""Sync agent registry from MainWindow's agent list."""
+		self.unified_messenger.sync_from_mainwin()
+
+	# =========================================================================
+	# WAN Subscription Handling
+	# =========================================================================
+
+	async def subscribe_to_wan_channel(self, channel_id: str = None, on_message_callback=None):
+		"""
+		Subscribe to WAN messages on a channel via AWS AppSync WebSocket.
+		
+		Args:
+			channel_id: Channel to subscribe to. Defaults to agent's own ID for direct messages.
+			on_message_callback: Optional callback(TaskSendParams, sender_id, channel_id)
+		"""
+		channel_id = channel_id or (self.card.id if self.card else "default")
+		
+		async def _default_callback(task_params, sender_id, chan_id):
+			"""Default handler routes messages to agent's message queue."""
+			logger.info(f"[WAN] Received message from {sender_id} on channel {chan_id}")
+			try:
+				# Route to agent's A2A message queue for processing
+				self.a2a_msg_queue.put({
+					"type": "wan_a2a_message",
+					"task_params": task_params,
+					"sender_id": sender_id,
+					"channel_id": chan_id
+				})
+			except Exception as e:
+				logger.error(f"[WAN] Error routing message: {e}")
+		
+		callback = on_message_callback or _default_callback
+		logger.info(f"[EC_Agent] Subscribing to WAN channel: {channel_id}")
+		await self.unified_messenger.subscribe(channel_id, callback)
+
+	def subscribe_to_wan_channel_background(self, channel_id: str = None, on_message_callback=None):
+		"""
+		Start WAN subscription in background (non-blocking).
+		
+		Returns:
+			asyncio.Task: The subscription task
+		"""
+		channel_id = channel_id or (self.card.id if self.card else "default")
+		
+		async def _run_subscription():
+			await self.subscribe_to_wan_channel(channel_id, on_message_callback)
+		
+		# Get or create event loop
+		try:
+			loop = asyncio.get_running_loop()
+			task = loop.create_task(_run_subscription())
+		except RuntimeError:
+			# No running loop, create one in a thread
+			import threading
+			def _run_in_thread():
+				asyncio.run(_run_subscription())
+			thread = threading.Thread(target=_run_in_thread, daemon=True)
+			thread.start()
+			task = None
+		
+		logger.info(f"[EC_Agent] WAN subscription started in background for channel: {channel_id}")
+		return task
+
+	def unsubscribe_from_wan_channel(self, channel_id: str):
+		"""Unsubscribe from a WAN channel."""
+		self.unified_messenger.unsubscribe(channel_id)
+		logger.info(f"[EC_Agent] Unsubscribed from WAN channel: {channel_id}")
+
+	# =========================================================================
+	# Group Chat Support
+	# =========================================================================
+
+	def create_group(self, group_id: str, member_ids: list):
+		"""Create a group for group chat."""
+		self.unified_messenger.register_group(group_id, member_ids)
+		logger.info(f"[EC_Agent] Created group {group_id} with {len(member_ids)} members")
+
+	def join_group(self, group_id: str):
+		"""Add this agent to a group."""
+		self.unified_messenger.add_to_group(group_id, self.card.id if self.card else "unknown")
+
+	def leave_group(self, group_id: str):
+		"""Remove this agent from a group."""
+		self.unified_messenger.remove_from_group(group_id, self.card.id if self.card else "unknown")
+
+	async def send_to_group(self, group_id: str, text: str, metadata: dict = None):
+		"""Send a text message to all members of a group."""
+		return await self.unified_messenger.send_text_to_group(
+			group_id=group_id,
+			text=text,
+			role="agent",
+			metadata=metadata
+		)
 
 	def launch_dev_run_task(self, init_state):
 		"""Launches a development run, ensuring any previous dev run is cancelled first."""
