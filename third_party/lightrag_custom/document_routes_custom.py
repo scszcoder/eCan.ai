@@ -19,6 +19,7 @@ from fastapi import (
     HTTPException,
     UploadFile,
 )
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 
 from lightrag import LightRAG
@@ -3045,6 +3046,87 @@ def create_document_routes(
 
         except Exception as e:
             logger.error(f"Error requesting pipeline cancellation: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.get(
+        "/download/{file_path:path}",
+        dependencies=[Depends(combined_auth)],
+        summary="Download original document file",
+    )
+    async def download_document(file_path: str):
+        """
+        Download the original document file by its file path.
+        
+        This endpoint allows downloading the original document file from the 
+        __enqueued__ directory where processed files are stored.
+        
+        Args:
+            file_path: The file path/name of the document to download
+            
+        Returns:
+            FileResponse: The original document file for download
+            
+        Raises:
+            HTTPException: If file not found (404) or other errors (500)
+        """
+        try:
+            # Security: Validate file path to prevent path traversal
+            if not file_path or '..' in file_path or file_path.startswith('/'):
+                raise HTTPException(status_code=400, detail="Invalid file path")
+            
+            # Get just the filename (remove any path components for security)
+            filename = Path(file_path).name
+            
+            # Look for file in __enqueued__ directory first (processed files)
+            enqueued_dir = doc_manager.input_dir / "__enqueued__"
+            
+            # Try exact match first
+            target_file = enqueued_dir / filename
+            
+            if not target_file.exists():
+                # Try to find file with numeric suffix (e.g., file_001.pdf)
+                base_name = Path(filename).stem
+                extension = Path(filename).suffix
+                
+                # Search for files matching the pattern
+                if enqueued_dir.exists():
+                    for f in enqueued_dir.glob(f"{base_name}*{extension}"):
+                        target_file = f
+                        break
+            
+            # If still not found, try input_dir (unprocessed files)
+            if not target_file.exists():
+                target_file = doc_manager.input_dir / filename
+            
+            if not target_file.exists():
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"Document file not found: {filename}"
+                )
+            
+            # Validate the resolved path is within allowed directories
+            resolved_path = target_file.resolve()
+            input_dir_resolved = doc_manager.input_dir.resolve()
+            
+            if not (resolved_path.is_relative_to(input_dir_resolved)):
+                raise HTTPException(
+                    status_code=403, 
+                    detail="Access denied: file outside allowed directory"
+                )
+            
+            logger.info(f"Downloading document: {resolved_path}")
+            
+            return FileResponse(
+                path=str(resolved_path),
+                filename=filename,
+                media_type="application/octet-stream"
+            )
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error downloading document: {str(e)}")
             logger.error(traceback.format_exc())
             raise HTTPException(status_code=500, detail=str(e))
 

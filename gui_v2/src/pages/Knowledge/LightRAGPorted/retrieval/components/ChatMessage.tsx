@@ -83,6 +83,7 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ role, content, isThinking: is
     }
   }, [isThinking, displayContent, thinkingContent]);
 
+
   const handleCopy = () => {
     navigator.clipboard.writeText(displayContent || content);
     setCopied(true);
@@ -197,6 +198,38 @@ const ChatMessage: React.FC<ChatMessageProps> = ({ role, content, isThinking: is
                       <code style={role === 'user' ? { ...codeStyle, backgroundColor: 'rgba(255,255,255,0.2)' } : codeStyle} {...props}>
                         {children}
                       </code>
+                    );
+                  },
+                  a({ href, children, ...props }: any) {
+                    // Handle #download: links - styled as download icon
+                    // The actual download is handled by fileDownloadProtocol in RetrievalTab
+                    if (href?.startsWith('#download:')) {
+                      const filePath = decodeURIComponent(href.replace('#download:', ''));
+                      return (
+                        <a
+                          href={href}
+                          style={{
+                            textDecoration: 'none',
+                            cursor: 'pointer',
+                            opacity: 0.8,
+                          }}
+                          title={t('pages.knowledge.retrieval.clickToDownload', { filePath })}
+                        >
+                          {children}
+                        </a>
+                      );
+                    }
+                    // Regular links
+                    return (
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: token.colorPrimary }}
+                        {...props}
+                      >
+                        {children}
+                      </a>
                     );
                   }
                 }}
