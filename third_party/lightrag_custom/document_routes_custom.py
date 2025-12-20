@@ -2976,16 +2976,6 @@ def create_document_routes(
                         message="Pipeline is not currently running. No cancellation needed.",
                     )
 
-                # ========== eCan.ai Custom: Set StopController flag ==========
-                try:
-                    from knowledge.lightrag_launcher import get_stop_controller
-                    stop_controller = get_stop_controller()
-                    stop_controller.request_stop()
-                    logger.info("[cancel_pipeline] StopController flag set")
-                except Exception as e:
-                    logger.warning(f"[cancel_pipeline] Could not set StopController: {e}")
-                # ========== End eCan.ai Custom ==========
-
                 # Set cancellation flag
                 pipeline_status["cancellation_requested"] = True
                 cancel_msg = "Pipeline cancellation requested by user"
@@ -2993,12 +2983,22 @@ def create_document_routes(
                 pipeline_status["latest_message"] = cancel_msg
                 pipeline_status["history_messages"].append(cancel_msg)
 
-            # IMMEDIATE CANCELLATION: Cancel all running extraction tasks
-            cancel_func = _get_cancel_function()
-            cancelled_count = await cancel_func()
-            logger.info(f"[cancel_pipeline] Cancelled {cancelled_count} running extraction tasks immediately")
+            # ========== eCan.ai Custom: Use async_request_stop to cancel tasks and close HTTP clients ==========
+            try:
+                from knowledge.lightrag_launcher import get_stop_controller
+                stop_controller = get_stop_controller()
+                await stop_controller.async_request_stop()  # This cancels tasks and closes HTTP clients
+                logger.info("[cancel_pipeline] StopController async_request_stop completed (tasks cancelled + HTTP clients closed)")
+            except Exception as e:
+                logger.warning(f"[cancel_pipeline] Could not execute async_request_stop: {e}")
+                # Fallback to just cancelling tasks
+                cancel_func = _get_cancel_function()
+                cancelled_count = await cancel_func()
+                logger.info(f"[cancel_pipeline] Fallback: Cancelled {cancelled_count} running extraction tasks")
+            # ========== End eCan.ai Custom ==========
 
             # Mark all PROCESSING documents as FAILED
+            processing_count = 0
             try:
                 processing_docs = await rag.doc_status.get_docs_by_status(DocStatus.PROCESSING)
                 if processing_docs:
@@ -3015,7 +3015,8 @@ def create_document_routes(
                                 "track_id": doc_status.track_id,
                             }
                         })
-                    logger.info(f"[cancel_pipeline] Marked {len(processing_docs)} documents as FAILED")
+                    processing_count = len(processing_docs)
+                    logger.info(f"[cancel_pipeline] Marked {processing_count} PROCESSING documents as FAILED")
             except Exception as mark_err:
                 logger.error(f"[cancel_pipeline] Error marking documents as FAILED: {mark_err}")
 
@@ -3023,7 +3024,7 @@ def create_document_routes(
             async with pipeline_status_lock:
                 pipeline_status["busy"] = False
                 pipeline_status["cancellation_requested"] = False
-                done_msg = f"Pipeline cancelled immediately. {cancelled_count} tasks terminated."
+                done_msg = f"Pipeline cancelled. {processing_count} documents marked as FAILED."
                 pipeline_status["latest_message"] = done_msg
                 pipeline_status["history_messages"].append(done_msg)
 
@@ -3039,7 +3040,7 @@ def create_document_routes(
 
             return CancelPipelineResponse(
                 status="cancelled",
-                message=f"Pipeline cancelled immediately. {cancelled_count} tasks terminated.",
+                message=f"Pipeline cancelled. {processing_count} documents marked as FAILED.",
             )
 
         except Exception as e:

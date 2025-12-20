@@ -134,24 +134,39 @@ class LightRAGConfidenceScorer:
             # Extract response and references
             response_text = response_data.get("response", "")
             references = response_data.get("references", [])
+            
+            # Also try to get chunks from data (for /query/data endpoint or enriched responses)
+            # chunks may contain rerank_score which references don't have
+            chunks = response_data.get("data", {}).get("chunks", []) if isinstance(response_data.get("data"), dict) else []
 
-            # IMPORTANT: Filter out invalid/empty references
+            # IMPORTANT: Filter out invalid/empty references and deduplicate
             # Only count references that have actual content (file_path or reference_id)
             valid_references = []
+            seen_file_paths = set()  # For deduplication
             for ref in references:
                 if isinstance(ref, dict):
                     # Check if reference has meaningful data
-                    has_file_path = ref.get('file_path') and ref.get('file_path') != 'unknown_source'
+                    file_path = ref.get('file_path', '')
+                    has_file_path = file_path and file_path != 'unknown_source'
                     has_ref_id = ref.get('reference_id')
                     if has_file_path or has_ref_id:
+                        # Deduplicate by file_path
+                        if file_path and file_path in seen_file_paths:
+                            continue  # Skip duplicate
+                        if file_path:
+                            seen_file_paths.add(file_path)
                         valid_references.append(ref)
             
             # Use valid_references instead of all references
             references = valid_references
-            logger.debug(f"Filtered references: {len(valid_references)} valid out of {len(response_data.get('references', []))} total")
+            logger.debug(f"Filtered references: {len(valid_references)} unique valid out of {len(response_data.get('references', []))} total")
 
-            # Extract retrieval scores (if provided by backend)
+            # Extract retrieval scores from multiple sources:
+            # 1. First try references (may have score from /query/data endpoint)
+            # 2. Then try chunks (may have rerank_score from reranking)
             scores: List[float] = []
+            
+            # Try to get scores from references first
             for ref in references:
                 if isinstance(ref, dict):
                     score_val = ref.get('score') or ref.get('similarity') or ref.get('relevance')
@@ -160,6 +175,19 @@ class LightRAGConfidenceScorer:
                             scores.append(float(score_val))
                         except (ValueError, TypeError):
                             pass
+            
+            # If no scores from references, try to get from chunks (rerank_score)
+            if not scores and chunks:
+                for chunk in chunks:
+                    if isinstance(chunk, dict):
+                        # Try rerank_score first (from reranking), then other score fields
+                        score_val = chunk.get('rerank_score') or chunk.get('score') or chunk.get('similarity')
+                        if score_val is not None:
+                            try:
+                                scores.append(float(score_val))
+                            except (ValueError, TypeError):
+                                pass
+                logger.debug(f"Extracted {len(scores)} scores from chunks (rerank_score)")
 
             scores_sorted = sorted(scores, reverse=True)
             top1 = scores_sorted[0] if len(scores_sorted) >= 1 else None
@@ -173,7 +201,9 @@ class LightRAGConfidenceScorer:
                 except Exception:
                     std = None
 
-            retrieval_threshold = 0.60
+            # Rerank score threshold - lowered from 0.60 to 0.50 for better recall
+            # Rerank scores are typically lower than embedding similarity scores
+            retrieval_threshold = 0.50
             supporting_refs = sum(1 for s in scores_sorted if s >= retrieval_threshold)
             retrieval_signal: Dict[str, Any] = {
                 "threshold": retrieval_threshold,
@@ -187,7 +217,9 @@ class LightRAGConfidenceScorer:
             }
             
             # Calculate individual scores
-            ref_score = self._calculate_reference_score(references)
+            # Pass scores_sorted to _calculate_reference_score as external_scores
+            # This allows using rerank_score from chunks when references don't have score fields
+            ref_score = self._calculate_reference_score(references, external_scores=scores_sorted)
             quality_score = self._calculate_content_quality_score(response_text)
             relevance_score = self._calculate_relevance_score(query, response_text)
             completeness_score = self._calculate_completeness_score(
@@ -203,17 +235,19 @@ class LightRAGConfidenceScorer:
             )
 
             # Decision: should we answer or decline due to weak retrieval?
+            # Optimized logic: focus on overall score and reference count, not just retrieval threshold
             should_answer = True
             no_answer_reason = None
             if len(references) == 0:
                 should_answer = False
                 no_answer_reason = "no_references"
-            elif len(scores_sorted) > 0 and supporting_refs == 0:
-                should_answer = False
-                no_answer_reason = "retrieval_below_threshold"
-            elif overall < 0.30:
+            elif overall < 0.25:
+                # Only decline if overall confidence is very low
                 should_answer = False
                 no_answer_reason = "overall_too_low"
+            # Note: Removed strict retrieval_below_threshold check
+            # If we have references and reasonable overall score, we should answer
+            # The confidence score itself will indicate quality to the user
 
             decision: Dict[str, Any] = {
                 "should_answer": bool(should_answer),
@@ -266,7 +300,7 @@ class LightRAGConfidenceScorer:
                 decision={"should_answer": False, "no_answer_reason": "scoring_error"}
             )
     
-    def _calculate_reference_score(self, references: List[Dict[str, Any]]) -> float:
+    def _calculate_reference_score(self, references: List[Dict[str, Any]], external_scores: List[float] = None) -> float:
         """
         Calculate score based on references.
         
@@ -280,6 +314,10 @@ class LightRAGConfidenceScorer:
         - 4+ references: 0.85
         - 6+ references: 0.95
         - 10+ references: 1.0
+        
+        Args:
+            references: List of reference dictionaries
+            external_scores: Optional list of scores from chunks (rerank_score)
         """
         ref_count = len(references)
         
@@ -313,20 +351,25 @@ class LightRAGConfidenceScorer:
                     except (ValueError, TypeError):
                         pass
         
+        # If no scores from references, use external scores (from chunks rerank_score)
+        if not scores and external_scores:
+            scores = external_scores
+            logger.debug(f"Using {len(scores)} external scores (from chunks) for reference scoring")
+        
         # If we have similarity scores, adjust the confidence
         if scores:
             avg_similarity = sum(scores) / len(scores)
             
-            # Industry standard thresholds for RAG:
-            # >= 0.80: strong match
-            # 0.60-0.80: weak match
-            # < 0.60: poor match
-            if avg_similarity >= 0.80:
+            # Adjusted thresholds for rerank scores (typically lower than embedding similarity):
+            # >= 0.70: strong match
+            # 0.50-0.70: moderate match
+            # < 0.50: weak match
+            if avg_similarity >= 0.70:
                 similarity_factor = 1.0
-            elif avg_similarity >= 0.60:
-                similarity_factor = 0.7 + (avg_similarity - 0.60) * 1.5  # 0.7-1.0
+            elif avg_similarity >= 0.50:
+                similarity_factor = 0.7 + (avg_similarity - 0.50) * 1.5  # 0.7-1.0
             else:
-                similarity_factor = avg_similarity / 0.60  # 0.0-0.7
+                similarity_factor = avg_similarity / 0.50  # 0.0-0.7
             
             # Combine count score with similarity factor
             # Weight: 60% count, 40% similarity
