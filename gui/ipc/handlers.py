@@ -203,8 +203,11 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
                 main_win = AppContext.get_main_window()
                 print("oooooooooooooo running default test ooooooooooooooooooooooooooo")
                 # results = []
-                from tests.unittests import run_default_tests
-                result = run_default_tests(main_win)
+
+                procurement_agent = next((ag for ag in agents if ag.card.name == "Engineering Procurement Agent"), None)
+                procurement_agent.self_wan_ping()
+                # from tests.unittests import run_default_tests
+                # result = run_default_tests(main_win)
             # Add other test cases as needed
             else:
                 print(">>>>>running test:", test_id, "trigger running procrement task")

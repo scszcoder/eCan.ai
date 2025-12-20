@@ -25,6 +25,8 @@ import base64
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
 from agent.db.services.db_avatar_service import DBAvatarService
+from app_context import AppContext
+web_gui = AppContext.get_web_gui()
 
 # Thread pool for non-blocking A2A message sending
 _a2a_send_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="a2a_send_")
@@ -355,6 +357,10 @@ class EC_Agent(Agent):
 		# runnable = self.skills[0].get_runnable()
 		# response: dict[str, Any] = await self.runnable.ainvoke(input_messages)
 		# runnable.ainvoke()
+		
+		# Start WAN subscription for receiving messages over the internet
+		self._start_wan_subscriptions()
+		
 		logger.info("Ready to A2A chat....", self.card.name)
 
 	async def hone_skills(self):
@@ -652,6 +658,31 @@ class EC_Agent(Agent):
 	# WAN Subscription Handling
 	# =========================================================================
 
+	def _start_wan_subscriptions(self):
+		"""
+		Start WAN subscriptions for this agent.
+		
+		Subscribes to:
+		1. Agent's own card.id - for receiving direct messages
+		2. Any group channels the agent belongs to
+		"""
+		try:
+			# Subscribe to direct messages using agent's own ID
+			if self.card and self.card.id:
+				logger.info(f"[EC_Agent] Starting WAN subscription for direct messages: {self.card.id}")
+				self.subscribe_to_wan_channel_background(channel_id=self.card.id)
+			
+			# Subscribe to group channels
+			if hasattr(self, 'unified_messenger') and self.unified_messenger:
+				for group_id in self.unified_messenger.groups.keys():
+					logger.info(f"[EC_Agent] Starting WAN subscription for group: {group_id}")
+					self.subscribe_to_wan_channel_background(channel_id=group_id)
+					
+		except Exception as e:
+			logger.error(f"[EC_Agent] Error starting WAN subscriptions: {e}")
+			import traceback
+			logger.error(traceback.format_exc())
+
 	async def subscribe_to_wan_channel(self, channel_id: str = None, on_message_callback=None):
 		"""
 		Subscribe to WAN messages on a channel via AWS AppSync WebSocket.
@@ -664,7 +695,7 @@ class EC_Agent(Agent):
 		
 		async def _default_callback(task_params, sender_id, chan_id):
 			"""Default handler routes messages to agent's message queue."""
-			logger.info(f"[WAN] Received message from {sender_id} on channel {chan_id}")
+			logger.info(f"[WAN] Received message from {sender_id} on channel {chan_id}: {task_params}")
 			try:
 				# Route to agent's A2A message queue for processing
 				self.a2a_msg_queue.put({
@@ -704,14 +735,110 @@ class EC_Agent(Agent):
 			thread = threading.Thread(target=_run_in_thread, daemon=True)
 			thread.start()
 			task = None
-		
-		logger.info(f"[EC_Agent] WAN subscription started in background for channel: {channel_id}")
+
+		log_msg = f"[EC_Agent] WAN subscription started in background for channel: {channel_id}"
+		logger.info(log_msg)
+		web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
 		return task
 
 	def unsubscribe_from_wan_channel(self, channel_id: str):
 		"""Unsubscribe from a WAN channel."""
 		self.unified_messenger.unsubscribe(channel_id)
 		logger.info(f"[EC_Agent] Unsubscribed from WAN channel: {channel_id}")
+
+	def self_wan_ping(self, test_message: str = None):
+		"""
+		Send a WAN ping message to self for testing WAN connectivity.
+		
+		This sends a message via AWS AppSync to the agent's own channel_id,
+		which should be received back via the WAN subscription.
+		
+		Args:
+			test_message: Optional custom test message. Defaults to timestamp-based message.
+			
+		Returns:
+			dict: Response from wan_a2a_send_message
+		"""
+		from datetime import datetime
+		from agent.chats.wan_a2a_chat import wan_a2a_send_message_sync
+		from agent.a2a.common.types import Message, TextPart
+		
+		try:
+			agent_id = self.card.id if self.card else "unknown"
+			timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+			ping_text = test_message or f"🏓 WAN PING from {agent_id} at {timestamp}"
+			
+			logger.info(f"[WAN_PING] Sending self-ping to channel: {agent_id}")
+			logger.info(f"[WAN_PING] Message: {ping_text}")
+			
+			# Build A2A Message
+			message = Message(
+				role="agent",
+				parts=[TextPart(type="text", text=ping_text)],
+				metadata={"type": "wan_ping", "timestamp": timestamp}
+			)
+			
+			# Send via WAN (sync version for simplicity)
+			response = wan_a2a_send_message_sync(
+				mainwin=self.mainwin,
+				channel_id=agent_id,  # Send to self
+				message=message,
+				sender_id=agent_id,
+				recipient_id=agent_id,
+				session_id=f"wan_ping_{timestamp.replace(' ', '_').replace(':', '-')}",
+				metadata={"ping": True}
+			)
+			
+			logger.info(f"[WAN_PING] ✅ Ping sent successfully. Response: {response}")
+			return response
+			
+		except Exception as e:
+			logger.error(f"[WAN_PING] ❌ Ping failed: {e}")
+			import traceback
+			logger.error(traceback.format_exc())
+			return {"error": str(e)}
+
+	async def self_wan_ping_async(self, test_message: str = None):
+		"""
+		Async version of self_wan_ping.
+		"""
+		from datetime import datetime
+		from agent.chats.wan_a2a_chat import wan_a2a_send_message
+		from agent.a2a.common.types import Message, TextPart
+		
+		try:
+			agent_id = self.card.id if self.card else "unknown"
+			timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+			ping_text = test_message or f"🏓 WAN PING from {agent_id} at {timestamp}"
+			
+			logger.info(f"[WAN_PING] Sending self-ping (async) to channel: {agent_id}")
+			logger.info(f"[WAN_PING] Message: {ping_text}")
+			
+			message = Message(
+				role="agent",
+				parts=[TextPart(type="text", text=ping_text)],
+				metadata={"type": "wan_ping", "timestamp": timestamp}
+			)
+			
+			response = await wan_a2a_send_message(
+				mainwin=self.mainwin,
+				channel_id=agent_id,
+				message=message,
+				sender_id=agent_id,
+				recipient_id=agent_id,
+				session_id=f"wan_ping_{timestamp.replace(' ', '_').replace(':', '-')}",
+				metadata={"ping": True}
+			)
+			
+			logger.info(f"[WAN_PING] ✅ Ping sent successfully (async). Response: {response}")
+			return response
+			
+		except Exception as e:
+			logger.error(f"[WAN_PING] ❌ Ping failed (async): {e}")
+			import traceback
+			logger.error(traceback.format_exc())
+			return {"error": str(e)}
 
 	# =========================================================================
 	# Group Chat Support
