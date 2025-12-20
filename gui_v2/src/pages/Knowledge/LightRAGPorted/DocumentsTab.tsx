@@ -1441,23 +1441,41 @@ const DocumentsTab: React.FC = () => {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
                         <span style={{ fontSize: 11 }}>{getStatusText(doc.status)}</span>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <Progress 
-                            percent={
-                              doc.status?.toUpperCase() === 'PROCESSING' && processingProgress?.pipeline?.total_chunks && processingProgress.pipeline.total_chunks > 0
-                                ? Math.round((processingProgress.pipeline.processed_chunks || 0) / processingProgress.pipeline.total_chunks * 100)
-                                : (documentProgress.get(doc.id) || (doc.status?.toUpperCase() === 'PROCESSING' ? 20 : 10))
-                            }
-                            size="small"
-                            status="active"
-                            strokeColor={token.colorWarning}
-                            style={{ width: 60, margin: 0 }}
-                            showInfo={false}
-                          />
-                          {doc.status?.toUpperCase() === 'PROCESSING' && processingProgress?.pipeline?.total_chunks && processingProgress.pipeline.total_chunks > 0 ? (
-                            <span style={{ fontSize: 10, color: token.colorTextSecondary, whiteSpace: 'nowrap' }}>
-                              {processingProgress.pipeline.processed_chunks || 0}/{processingProgress.pipeline.total_chunks}
-                            </span>
-                          ) : null}
+                          {/* Only show chunk progress for the document currently being processed */}
+                          {(() => {
+                            const pipeline = processingProgress?.pipeline;
+                            const currentFile = pipeline?.current_chunk_file;
+                            const isCurrentDoc = doc.status?.toUpperCase() === 'PROCESSING' && 
+                              currentFile && 
+                              (currentFile === doc.file_path ||
+                               currentFile.endsWith(doc.file_path || '') ||
+                               (doc.file_path?.endsWith(currentFile) ?? false));
+                            const totalChunks = pipeline?.total_chunks ?? 0;
+                            const processedChunks = pipeline?.processed_chunks ?? 0;
+                            const hasChunkProgress = isCurrentDoc && totalChunks > 0;
+                            
+                            return (
+                              <>
+                                <Progress 
+                                  percent={
+                                    hasChunkProgress
+                                      ? Math.round(processedChunks / totalChunks * 100)
+                                      : (documentProgress.get(doc.id) || (doc.status?.toUpperCase() === 'PROCESSING' ? 20 : 10))
+                                  }
+                                  size="small"
+                                  status="active"
+                                  strokeColor={token.colorWarning}
+                                  style={{ width: 60, margin: 0 }}
+                                  showInfo={false}
+                                />
+                                {hasChunkProgress ? (
+                                  <span style={{ fontSize: 10, color: token.colorTextSecondary, whiteSpace: 'nowrap' }}>
+                                    {processedChunks}/{totalChunks}
+                                  </span>
+                                ) : null}
+                              </>
+                            );
+                          })()}
                         </div>
                       </div>
                     ) : (

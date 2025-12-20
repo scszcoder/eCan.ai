@@ -1009,6 +1009,8 @@ def handle_get_processing_progress(request: IPCRequest, params: Optional[Dict[st
                 # Get chunk progress from pipeline_data (set by operate_custom.py)
                 total_chunks = pipeline_data.get('total_chunks', 0)
                 processed_chunks = pipeline_data.get('processed_chunks', 0)
+                # Get current processing file path for per-document progress display
+                current_chunk_file = pipeline_data.get('current_chunk_file', None)
                 
                 pipeline_info = {
                     'job_name': pipeline_data.get('job_name'),
@@ -1016,7 +1018,8 @@ def handle_get_processing_progress(request: IPCRequest, params: Optional[Dict[st
                     'total_batches': pipeline_data.get('batchs', 0),
                     'latest_message': pipeline_data.get('latest_message'),
                     'total_chunks': total_chunks if total_chunks > 0 else None,
-                    'processed_chunks': processed_chunks if total_chunks > 0 else None
+                    'processed_chunks': processed_chunks if total_chunks > 0 else None,
+                    'current_chunk_file': current_chunk_file  # File path of current processing document
                 }
                 
                 logger.info(f"[lightrag_handler] Pipeline info: {pipeline_info}")
