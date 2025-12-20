@@ -1790,6 +1790,8 @@
         "dirIngestHint": "将导入目录内所有支持的文档类型",
         "ingestSuccess": "导入成功",
         "selectFilesWithCount": "选择文件 (已选 {{count}} 个)",
+        "supportedFiles": "支持的文档",
+        "allFiles": "所有文件",
         "clearCache": "清除缓存",
         "clearLog": "清除日志",
         "browse": "浏览",
