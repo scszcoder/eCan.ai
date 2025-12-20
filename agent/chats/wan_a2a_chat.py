@@ -206,9 +206,18 @@ def task_send_params_to_graphql_input(
             part_dict["data"] = part.data
         
         if part.metadata:
-            part_dict["metadata"] = part.metadata
+            part_dict["metadata"] = json.dumps(part.metadata) if isinstance(part.metadata, dict) else part.metadata
             
         parts.append(part_dict)
+    
+    # Serialize metadata dicts to JSON strings for AWSJSON scalar type
+    msg_metadata = params.message.metadata
+    if isinstance(msg_metadata, dict):
+        msg_metadata = json.dumps(msg_metadata)
+    
+    top_metadata = params.metadata
+    if isinstance(top_metadata, dict):
+        top_metadata = json.dumps(top_metadata)
     
     return {
         "channelId": channel_id,
@@ -218,12 +227,24 @@ def task_send_params_to_graphql_input(
         "message": {
             "role": params.message.role,
             "parts": parts,
-            "metadata": params.message.metadata
+            "metadata": msg_metadata
         },
         "acceptedOutputModes": params.acceptedOutputModes,
         "historyLength": params.historyLength,
-        "metadata": params.metadata
+        "metadata": top_metadata
     }
+
+
+def _parse_metadata(metadata):
+    """Parse metadata from JSON string to dict if needed."""
+    if metadata is None:
+        return None
+    if isinstance(metadata, str):
+        try:
+            return json.loads(metadata)
+        except (json.JSONDecodeError, TypeError):
+            return metadata
+    return metadata
 
 
 def graphql_response_to_task_send_params(response: Dict[str, Any]) -> TaskSendParams:
@@ -243,7 +264,7 @@ def graphql_response_to_task_send_params(response: Dict[str, Any]) -> TaskSendPa
             parts.append(TextPart(
                 type="text",
                 text=part_data.get("text", ""),
-                metadata=part_data.get("metadata")
+                metadata=_parse_metadata(part_data.get("metadata"))
             ))
         elif part_type == "file":
             file_data = part_data.get("file", {})
@@ -255,19 +276,19 @@ def graphql_response_to_task_send_params(response: Dict[str, Any]) -> TaskSendPa
                     bytes=file_data.get("bytes"),
                     uri=file_data.get("uri")
                 ),
-                metadata=part_data.get("metadata")
+                metadata=_parse_metadata(part_data.get("metadata"))
             ))
         elif part_type == "data":
             parts.append(DataPart(
                 type="data",
                 data=part_data.get("data", {}),
-                metadata=part_data.get("metadata")
+                metadata=_parse_metadata(part_data.get("metadata"))
             ))
     
     message = Message(
         role=msg_data.get("role", "agent"),
         parts=parts,
-        metadata=msg_data.get("metadata")
+        metadata=_parse_metadata(msg_data.get("metadata"))
     )
     
     return TaskSendParams(
@@ -276,7 +297,7 @@ def graphql_response_to_task_send_params(response: Dict[str, Any]) -> TaskSendPa
         message=message,
         acceptedOutputModes=response.get("acceptedOutputModes"),
         historyLength=response.get("historyLength"),
-        metadata=response.get("metadata")
+        metadata=_parse_metadata(response.get("metadata"))
     )
 
 
@@ -415,7 +436,7 @@ def wan_a2a_send_message_sync(
     }
     
     try:
-        logger.debug(f"[wan_a2a_sync] Sending message to channel: {channel_id}")
+        logger.debug(f"[wan_a2a_sync] Sending message to channel: {endpoints["http"]}, {headers}, {query_string}, {variables}")
         
         response = requests.post(
             url=endpoints["http"],

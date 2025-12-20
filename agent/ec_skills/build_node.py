@@ -14,7 +14,6 @@ from agent.ec_skill import node_builder
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
 from langgraph.types import interrupt
-from app_context import AppContext
 from utils.env.secure_store import secure_store, get_current_username
 from agent.ec_skills.llm_utils.llm_utils import _create_no_proxy_http_client
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
@@ -22,6 +21,7 @@ from langchain_community.chat_models import ChatAnthropic
 from langchain_community.chat_models import ChatOllama
 from langchain_deepseek import ChatDeepSeek
 from gui.ipc.w2p_handlers import prompt_handler
+from app_context import AppContext
 web_gui = AppContext.get_web_gui()
 
 
