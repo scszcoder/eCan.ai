@@ -6,6 +6,7 @@ import { SendOutlined, ClearOutlined } from '@ant-design/icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import ChatMessage from './retrieval/components/ChatMessage';
 import { eventBus } from '@/utils/eventBus';
+import { fileDownloadProtocol } from '@/utils/fileDownloadProtocol';
 
 type MessageState = { 
   id: string; 
@@ -163,6 +164,31 @@ const RetrievalTab: React.FC = () => {
   // Map stream_id (from backend) to message_id (frontend)
   const streamMapRef = useRef<Map<string, string>>(new Map());
 
+  // Initialize file download protocol for LightRAG
+  useEffect(() => {
+    // 设置下载处理器
+    fileDownloadProtocol.setDownloadHandler({
+      downloadFile: async (fileName: string) => {
+        const api = get_ipc_api();
+        const result = await api.lightragApi.downloadFile<{ filePath: string; fileName: string }>({
+          fileName
+        });
+        if (!result.success || !result.data) {
+          throw new Error(result.error?.message || t('pages.knowledge.retrieval.downloadFailed', { error: 'Unknown error' }));
+        }
+        return result.data;
+      },
+      t
+    });
+    
+    // 初始化协议处理器
+    fileDownloadProtocol.init();
+    
+    return () => {
+      fileDownloadProtocol.cleanup();
+    };
+  }, []);
+
   // Load history on mount
   useEffect(() => {
     const loadHistory = async () => {
@@ -296,6 +322,15 @@ const RetrievalTab: React.FC = () => {
       const messageId = streamMapRef.current.get(streamId);
       if (!messageId) return;
 
+      // Handle references data (sent as first chunk in streaming mode)
+      if (chunk?.references && Array.isArray(chunk.references)) {
+        setMessages(prev => prev.map(m => {
+          if (m.id !== messageId) return m;
+          return { ...m, references: chunk.references };
+        }));
+        // Don't return - there might be other data in this chunk
+      }
+
       // Handle confidence data (sent as final chunk)
       if (chunk?.confidence) {
         const shouldAnswer = chunk?.confidence?.decision?.should_answer;
@@ -361,6 +396,52 @@ const RetrievalTab: React.FC = () => {
       const { id: streamId } = data;
       const messageId = streamMapRef.current.get(streamId);
       if (messageId) {
+        // Append references to content when streaming is done
+        setMessages(prev => prev.map(m => {
+          if (m.id !== messageId) return m;
+          
+          const refs = (m as any).references;
+          if (!refs || !Array.isArray(refs) || refs.length === 0) return m;
+          
+          // Build reference list with download buttons
+          const refLines = refs.map((r: any, idx: number) => {
+            if (!r || typeof r !== 'object') {
+              return `- [${idx + 1}] ` + String(r);
+            }
+
+            const filePath = (r.file_path || r.filename || r.file_name) as string | undefined;
+            const title = (r.title || r.name || filePath) as string | undefined;
+            const source = (r.source || r.doc_id || r.document_id) as string | undefined;
+            const score = (r.score ?? r.similarity) as number | undefined;
+
+            // Use file_path as the primary label, fallback to title or source
+            let label = filePath || title || source || JSON.stringify(r).slice(0, 80) + '...';
+            if (source && title && source !== title) {
+              label = `${title} (${source})`;
+            }
+            
+            // Format: filename [下载图标] (score: 0.xxx)
+            // Use hash URL format that won't be filtered by ReactMarkdown
+            let refText = `- [${idx + 1}] ${label}`;
+            if (filePath) {
+              refText += ` [⬇️](#download:${encodeURIComponent(filePath)})`;
+            }
+            
+            if (score !== undefined) {
+              refText += `  (score: ${score.toFixed ? score.toFixed(3) : score})`;
+            }
+            return refText;
+          });
+
+          // Remove existing references section from LLM response and add our version with download links
+          // Match "References", "参考文献", etc. followed by optional colon and everything after
+          const referenceSectionRegex = /(\n+\s*)?(#{1,3}\s*)?(参考文献|参考文档|参考资料|references?)\s*([:：])?[\s\S]*$/i;
+          let baseContent = (m.content || '').replace(referenceSectionRegex, '').trim();
+          
+          const newContent = `${baseContent}\n\n${t('pages.knowledge.retrieval.referenceDocs')}\n${refLines.join('\n')}`;
+          return { ...m, content: newContent };
+        }));
+        
         streamMapRef.current.delete(streamId);
         setLoading(false);
         thinkingStartTimeRef.current = null;
@@ -499,37 +580,53 @@ const RetrievalTab: React.FC = () => {
               const confidence = (resultData as any)?.confidence;
               const shouldAnswer = confidence?.decision?.should_answer;
 
-              const hasReferencesSection = /(^|\n)\s*(references|reference|参考文档|参考资料)\s*[:：]?/i.test(base);
-
               if (shouldAnswer === false) {
                 content = base;
-              } else if (hasRefs && !hasReferencesSection) {
-                // Build a simple human-readable reference list
+              } else if (hasRefs) {
+                // Build a simple human-readable reference list with download buttons
                 const refLines = refs.map((r: any, idx: number) => {
                   if (!r || typeof r !== 'object') {
                     return `- [${idx + 1}] ` + String(r);
                   }
 
-                  const title = (r.title || r.name || r.filename || r.file_name) as string | undefined;
-                  const source = (r.source || r.doc_id || r.document_id || r.id) as string | undefined;
+                  const filePath = (r.file_path || r.filename || r.file_name) as string | undefined;
+                  const title = (r.title || r.name || filePath) as string | undefined;
+                  const source = (r.source || r.doc_id || r.document_id) as string | undefined;
                   const score = (r.score ?? r.similarity) as number | undefined;
 
-                  let label = title || source || JSON.stringify(r).slice(0, 80) + '...';
+                  // Use file_path as the primary label, fallback to title or source
+                  let label = filePath || title || source || JSON.stringify(r).slice(0, 80) + '...';
                   if (source && title && source !== title) {
                     label = `${title} (${source})`;
                   }
-                  if (score !== undefined) {
-                    return `- [${idx + 1}] ${label}  (score: ${score.toFixed ? score.toFixed(3) : score})`;
+                  
+                  // Format: filename [下载图标] (score: 0.xxx)
+                  // Use hash URL format that won't be filtered by ReactMarkdown
+                  let refText = `- [${idx + 1}] ${label}`;
+                  if (filePath) {
+                    refText += ` [⬇️](#download:${encodeURIComponent(filePath)})`;
                   }
-                  return `- [${idx + 1}] ${label}`;
+                  
+                  if (score !== undefined) {
+                    refText += `  (score: ${score.toFixed ? score.toFixed(3) : score})`;
+                  }
+                  return refText;
                 });
 
-                content = `${base}\n\n参考文档：\n${refLines.join('\n')}`;
-              } else if (!hasReferencesSection) {
-                // When there is no reference, append a friendly hint line
-                content = base + '\n\n(没有检索到相关文档引用)';
+                // Remove existing references section from LLM response and add our version with download links
+                // Match "References", "参考文献", etc. followed by optional colon and everything after
+                const referenceSectionRegex = /(\n+\s*)?(#{1,3}\s*)?(参考文献|参考文档|参考资料|references?)\s*([:：])?[\s\S]*$/i;
+                const baseContent = base.replace(referenceSectionRegex, '').trim();
+                
+                content = `${baseContent}\n\n${t('pages.knowledge.retrieval.referenceDocs')}\n${refLines.join('\n')}`;
               } else {
-                content = base;
+                // No references available
+                const hasReferencesSection = /(^|\n)\s*(references|reference|参考文档|参考资料|参考文献)\s*[:：]?/i.test(base);
+                if (!hasReferencesSection) {
+                  content = base + '\n\n' + t('pages.knowledge.retrieval.noReferencesFound');
+                } else {
+                  content = base;
+                }
               }
             } else if (typeof resultData === 'string') {
               content = resultData;

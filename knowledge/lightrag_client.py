@@ -977,6 +977,20 @@ class LightragClient:
             logger.error(err)
             return {"status": "error", "message": str(e)}
 
+    def get_document_download_url(self, file_path: str) -> str:
+        """Get the download URL for a document.
+        
+        Args:
+            file_path: The file path/name of the document
+            
+        Returns:
+            str: The download URL for the document
+        """
+        # URL encode the file path to handle special characters
+        from urllib.parse import quote
+        encoded_path = quote(file_path, safe='')
+        return f"{self.base_url}/documents/download/{encoded_path}"
+
 
 # Convenience factory
 def get_client(api_key: Optional[str] = None, token: Optional[str] = None) -> LightragClient:

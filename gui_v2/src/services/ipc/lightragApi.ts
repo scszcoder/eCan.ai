@@ -202,6 +202,10 @@ export function createLightRAGApi(apiInstance: IPCAPI) {
 
     async pruneNode<T>(payload: { nodeId: string }): Promise<APIResponse<T>> {
       return apiInstance.executeRequest<T>('lightrag.pruneNode', payload);
+    },
+
+    async downloadFile<T>(payload: { fileName: string }): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.downloadFile', payload);
     }
   };
 }
