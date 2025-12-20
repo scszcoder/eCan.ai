@@ -21,6 +21,8 @@ from typing import Optional, Dict, Any, List
 from uuid import uuid4
 from unittest.mock import MagicMock, AsyncMock, patch
 
+import pytest
+
 # Add project root to path for standalone execution
 _project_root = Path(__file__).parent.parent.parent
 if str(_project_root) not in sys.path:
@@ -309,6 +311,7 @@ def build_legacy_message_dict(
 # Test Functions
 # =============================================================================
 
+@pytest.mark.asyncio
 async def test_lan_routing():
     """Test that messages to LAN-registered agents route via HTTP."""
     # UnifiedMessenger already imported at module level (real or mock)
@@ -338,6 +341,7 @@ async def test_lan_routing():
     return True
 
 
+@pytest.mark.asyncio
 async def test_wan_routing():
     """Test that messages to WAN-registered agents route via WebSocket."""
     # UnifiedMessenger already imported at module level (real or mock)
@@ -366,6 +370,7 @@ async def test_wan_routing():
     return True
 
 
+@pytest.mark.asyncio
 async def test_unknown_agent_fallback():
     """Test that unknown agents fall back to WAN."""
     # UnifiedMessenger already imported at module level (real or mock)
@@ -394,6 +399,7 @@ async def test_unknown_agent_fallback():
     return True
 
 
+@pytest.mark.asyncio
 async def test_group_management():
     """Test group creation and membership."""
     # UnifiedMessenger already imported at module level (real or mock)
@@ -431,6 +437,7 @@ async def test_group_management():
     return True
 
 
+@pytest.mark.asyncio
 async def test_message_building():
     """Test message building utilities."""
     print("\n" + "="*60)
@@ -471,6 +478,7 @@ async def test_message_building():
     return True
 
 
+@pytest.mark.asyncio
 async def test_registry_operations():
     """Test agent registry operations."""
     # UnifiedMessenger already imported at module level (real or mock)

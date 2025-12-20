@@ -303,6 +303,20 @@ async def os_wait(mainwin, args):
         logger.error(err_trace)
         return [TextContent(type="text", text=err_trace)]
 
+async def get_current_time(mainwin, args):
+    """Get current date and time in yyyy-mm-dd hh:mm:ss format."""
+    from datetime import datetime
+    try:
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        msg = f'🕐 Current time: {current_time}'
+        logger.info(msg)
+        result = [TextContent(type="text", text=current_time)]
+        return result
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorGetCurrentTime")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
 def get_selector(element_type):
     """Convert element type string to Selenium By locator.
     
@@ -2690,6 +2704,7 @@ async def api_ecan_ai_img2text_icons(mainwin, args):
 tool_function_mapping = {
         "say_hello": say_hello,
         "os_wait": os_wait,
+        "get_current_time": get_current_time,
         "in_browser_wait_for_element": in_browser_wait_for_element,
         "in_browser_click_element_by_index": in_browser_click_element_by_index,
         "in_browser_click_element_by_selector": in_browser_click_element_by_selector,

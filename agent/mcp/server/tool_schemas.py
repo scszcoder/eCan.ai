@@ -1,4 +1,4 @@
-import mcp.types as types
+﻿import mcp.types as types
 from agent.mcp.server.scrapers.amazon_seller.amazon_orders_scrape import (
     add_get_amazon_summary_tool_schema,
     add_amazon_fullfill_next_order_tool_schema,
@@ -124,7 +124,7 @@ from agent.mcp.server.extern_tools_schemas import add_extern_tools_schemas
 tool_schemas = []
 
 def get_tool_schemas():
-    # 确保工具模式已初始化
+    # ç¡®ä¿å·¥å…·æ¨¡å¼å·²åˆå§‹åŒ–
     if not tool_schemas:
         build_agent_mcp_tools_schemas()
     return tool_schemas
@@ -527,6 +527,18 @@ def build_agent_mcp_tools_schemas():
     tool_schema = types.Tool(
         name="say_hello",
         description="<category>OS</category><sub-category>General</sub-category>just a test.",
+        inputSchema={
+            "type": "object",
+            "required": [],
+            "properties": {},
+        },
+    )
+
+    add_tool_schema(tool_schema)
+
+    tool_schema = types.Tool(
+        name="get_current_time",
+        description="<category>OS</category><sub-category>Timer</sub-category>Get the current date and time in yyyy-mm-dd hh:mm:ss format.",
         inputSchema={
             "type": "object",
             "required": [],
