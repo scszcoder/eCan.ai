@@ -1869,7 +1869,13 @@
           "hybrid": "混合",
           "mix": "混合模式",
           "bypass": "旁路"
-        }
+        },
+        "downloading": "正在下载: {{fileName}}",
+        "downloadSuccess": "已保存到: {{filePath}}",
+        "downloadFailed": "下载失败: {{error}}",
+        "referenceDocs": "参考文档：",
+        "noReferencesFound": "(没有检索到相关文档引用)",
+        "clickToDownload": "点击下载: {{filePath}}"
       }
     }
   },

@@ -467,7 +467,7 @@ private async handleRequest(request: IPCRequest): Promise<void> {
 
     try {
         const result = await handler(request);
-        console.trace('[IPCWCClient] Request handled successfully:', request.method);
+        // console.debug('[IPCWCClient] Request handled successfully:', request.method);
         this.sendResponse(request.id, result);
     } catch (error) {
         console.error('[IPCWCClient] Request handling error:', error);

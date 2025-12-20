@@ -1521,3 +1521,68 @@ def handle_prune_node(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
     except Exception as e:
         logger.error(f"Error in prune_node handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'PRUNE_NODE_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('lightrag.downloadFile')
+def handle_download_file(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """
+    Download a file from LightRAG server and save to Downloads folder.
+    
+    Expected params:
+        fileName: str - The file name to download
+    """
+    try:
+        is_valid, data, error = validate_params(params, ['fileName'])
+        if not is_valid:
+            return create_error_response(request, 'INVALID_PARAMS', error)
+        
+        file_name = data['fileName']
+        
+        # Get LightRAG server base URL
+        client = get_client()
+        base_url = client.base_url
+        
+        # Construct download URL
+        import urllib.parse
+        download_url = f"{base_url}/documents/download/{urllib.parse.quote(file_name)}"
+        
+        logger.info(f"Downloading file from: {download_url}")
+        
+        # Download file
+        import requests
+        response = requests.get(download_url, timeout=60)
+        if response.status_code != 200:
+            return create_error_response(request, 'DOWNLOAD_ERROR', f'下载失败: {response.status_code}')
+        
+        # Get Downloads folder
+        downloads_dir = os.path.expanduser('~/Downloads')
+        if not os.path.exists(downloads_dir):
+            os.makedirs(downloads_dir, exist_ok=True)
+        
+        # Handle duplicate filenames
+        dest_file = os.path.join(downloads_dir, file_name)
+        if os.path.exists(dest_file):
+            base_name = os.path.splitext(file_name)[0]
+            extension = os.path.splitext(file_name)[1]
+            counter = 1
+            while os.path.exists(dest_file):
+                dest_file = os.path.join(downloads_dir, f"{base_name}_{counter}{extension}")
+                counter += 1
+        
+        # Write file
+        with open(dest_file, 'wb') as f:
+            f.write(response.content)
+        
+        logger.info(f"File saved to: {dest_file}")
+        
+        return create_success_response(request, {
+            'success': True,
+            'filePath': dest_file,
+            'fileName': os.path.basename(dest_file)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error downloading file: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'DOWNLOAD_ERROR', str(e))
+
+

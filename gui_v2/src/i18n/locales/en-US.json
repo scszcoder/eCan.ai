@@ -1869,7 +1869,13 @@
           "hybrid": "Hybrid",
           "mix": "Mix",
           "bypass": "Bypass"
-        }
+        },
+        "downloading": "Downloading: {{fileName}}",
+        "downloadSuccess": "Saved to: {{filePath}}",
+        "downloadFailed": "Download failed: {{error}}",
+        "referenceDocs": "References:",
+        "noReferencesFound": "(No relevant document references found)",
+        "clickToDownload": "Click to download: {{filePath}}"
       }
     }
   },
