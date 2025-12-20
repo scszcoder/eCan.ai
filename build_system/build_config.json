@@ -101,7 +101,8 @@
         "telemetry",
         "tests",
         "gui_v2/dist",
-        "ota"
+        "ota",
+        "third_party/lightrag_custom"
       ],
       "files": [
         "app_context.py",

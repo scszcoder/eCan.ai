@@ -77,7 +77,9 @@ const DocumentsTab: React.FC = () => {
   const [processingProgress, setProcessingProgress] = useState<ProcessingProgress | null>(null);
   const [documentProgress, setDocumentProgress] = useState<Map<string, number>>(new Map());
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const consoleRef = useRef<HTMLDivElement | null>(null);
   const [autoStopOnFailure, setAutoStopOnFailure] = useState(true); // 默认启用自动停止
+  const [consoleCollapsed, setConsoleCollapsed] = useState(false); // Console折叠状态，默认展开
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -91,7 +93,15 @@ const DocumentsTab: React.FC = () => {
   const { theme: currentTheme } = useTheme();
   const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
 
-  const appendLog = (line: string) => setLog(prev => prev ? prev + '\n' + line : line);
+  const appendLog = (line: string) => {
+    setLog(prev => prev ? prev + '\n' + line : line);
+    // Auto-scroll to bottom when new log is added
+    setTimeout(() => {
+      if (consoleRef.current) {
+        consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
+      }
+    }, 100);
+  };
 
   // Load documents on mount (loadDocuments already updates statusCounts from API response)
   React.useEffect(() => {
@@ -121,10 +131,10 @@ const DocumentsTab: React.FC = () => {
     // Poll immediately
     fetchProgress();
     
-    // Then poll every 2 seconds
+    // Then poll every 3 seconds
     progressIntervalRef.current = setInterval(() => {
       fetchProgress();
-    }, 2000);
+    }, 3000);
   };
 
   const stopProgressPolling = () => {
@@ -178,9 +188,9 @@ const DocumentsTab: React.FC = () => {
           }
         }
         
-        // Refresh document list to get latest status
+        // Refresh document list to get latest status (silent to avoid flicker)
         // This ensures the UI shows updated document statuses during processing
-        loadDocuments();
+        loadDocuments(true);
         
         // Calculate individual document progress
         // Since we don't have per-document progress from backend,
@@ -281,7 +291,7 @@ const DocumentsTab: React.FC = () => {
       return;
     }
     try {
-      appendLog(`Ingesting ${selectedFiles.length} file(s)...`);
+      appendLog(t('pages.knowledge.documents.ingestingFiles', { count: selectedFiles.length }));
       const response = await get_ipc_api().lightragApi.ingestFiles({ paths: selectedFiles });
       if (response.success && response.data) {
         const res = response.data as any;
@@ -319,7 +329,7 @@ const DocumentsTab: React.FC = () => {
         return;
       }
       
-      appendLog(`Ingesting ${allFiles.length} file(s) from ${selectedDirs.length} directory(ies)...`);
+      appendLog(t('pages.knowledge.documents.ingestingFilesFromDirs', { fileCount: allFiles.length, dirCount: selectedDirs.length }));
       const response = await get_ipc_api().lightragApi.ingestFiles({ paths: allFiles });
       if (response.success && response.data) {
         const res = response.data as any;
@@ -354,9 +364,11 @@ const DocumentsTab: React.FC = () => {
     setSelectedDirs([]);
   };
 
-  const loadDocuments = async () => {
+  const loadDocuments = async (silentRefresh: boolean = false) => {
     try {
-      setLoading(true);
+      if (!silentRefresh) {
+        setLoading(true);
+      }
       
       // Use paginated API
       const response = await get_ipc_api().lightragApi.getDocumentsPaginated({
@@ -399,13 +411,27 @@ const DocumentsTab: React.FC = () => {
           }
           
           if (Array.isArray(docsArray)) {
-            setDocuments(docsArray);
-            setTotalDocs(pagination?.total_count || docsArray.length);
-            if (docsArray.length > 0) {
-              appendLog(t('pages.knowledge.documents.loadedDocuments', { count: docsArray.length, page: currentPage }));
+            // Optimize: Only update if documents actually changed (for silent refresh)
+            if (silentRefresh) {
+              // Compare and only update if there are actual changes
+              const hasChanges = JSON.stringify(docsArray) !== JSON.stringify(documents);
+              if (hasChanges) {
+                setDocuments(docsArray);
+              }
             } else {
-              console.warn('[DocumentsTab] Documents array is empty');
-              appendLog('No documents found');
+              // Full refresh - always update
+              setDocuments(docsArray);
+            }
+            
+            setTotalDocs(pagination?.total_count || docsArray.length);
+            
+            if (!silentRefresh) {
+              if (docsArray.length > 0) {
+                appendLog(t('pages.knowledge.documents.loadedDocuments', { count: docsArray.length, page: currentPage }));
+              } else {
+                console.warn('[DocumentsTab] Documents array is empty');
+                appendLog(t('pages.knowledge.documents.noDocumentsFound'));
+              }
             }
           } else if (res && res.data && res.data.statuses) {
             console.log('[DocumentsTab] Using fallback statuses structure');
@@ -438,7 +464,9 @@ const DocumentsTab: React.FC = () => {
       appendLog(errorMsg);
       message.error(errorMsg);
     } finally {
-      setLoading(false);
+      if (!silentRefresh) {
+        setLoading(false);
+      }
     }
   };
 
@@ -697,73 +725,73 @@ const DocumentsTab: React.FC = () => {
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
+          const docId = doc.id;
           appendLog(t('pages.knowledge.documents.stoppingDocument'));
-          const response = await get_ipc_api().lightragApi.abortDocument({ id: doc.id });
+          
+          // Use graceful stop (cancel_pipeline API sets cancellation flag)
+          const response = await get_ipc_api().lightragApi.abortDocument({ id: docId });
+          
           if (response.success) {
               appendLog(t('pages.knowledge.documents.documentStopped'));
               message.success(t('pages.knowledge.documents.documentStopped'));
               
-              // Stop polling immediately
-              console.log('[DocumentsTab] Pipeline cancelled, stopping polling...');
+              // Stop normal polling, start custom polling for this specific document
+              console.log('[DocumentsTab] Pipeline cancelled, polling until document becomes deletable...');
               stopProgressPolling();
               
-              // Poll for status updates until all processing documents are stopped
-              // The cancel_pipeline API is async, it sets a flag and the pipeline
-              // will mark documents as FAILED in the background
-              console.log('[DocumentsTab] Polling for document status updates...');
-              
               let pollCount = 0;
-              const maxPolls = 20; // Maximum 20 polls (20 seconds)
-              const pollInterval = 1000; // Poll every 1 second
+              const maxPolls = 20; // Max 20 polls (60 seconds with 3s interval)
+              const pollInterval = 3000;
               
-              const pollForUpdates = async () => {
+              const pollUntilDeletable = async () => {
                 pollCount++;
-                console.log(`[DocumentsTab] Poll ${pollCount}/${maxPolls} - checking document statuses...`);
+                console.log(`[DocumentsTab] Poll ${pollCount}/${maxPolls} - checking if document is deletable...`);
                 
-                // Reload documents
+                // Refresh document list
                 await loadDocuments();
                 
-                // Check if there are still processing documents
-                // Note: PENDING documents won't be processed after cancel, but they stay in PENDING state
-                const countsResponse = await get_ipc_api().lightragApi.getStatusCounts();
-                if (countsResponse.success && countsResponse.data) {
-                  const counts = countsResponse.data as any;
-                  const processing = counts.processing || 0;
-                  const pending = counts.pending || 0;
-                  const failed = counts.failed || 0;
+                // Check the specific document's status
+                const docsResponse = await get_ipc_api().lightragApi.getDocumentsPaginated({
+                  page: 1, page_size: 100, status_filter: null, sort_field: 'updated_at', sort_direction: 'desc'
+                });
+                
+                if (docsResponse.success && docsResponse.data) {
+                  const docsData = docsResponse.data as any;
+                  const allDocs = docsData.documents || docsData.items || [];
+                  const targetDoc = allDocs.find((d: any) => d.id === docId);
                   
-                  console.log(`[DocumentsTab] Current status - processing: ${processing}, pending: ${pending}, failed: ${failed}`);
-                  
-                  // Only wait for PROCESSING documents to become FAILED
-                  // PENDING documents will stay PENDING after cancel (they won't be processed)
-                  if (processing === 0) {
-                    console.log('[DocumentsTab] All processing documents stopped');
-                    if (pending > 0) {
-                      const msg = t('pages.knowledge.documents.processingStoppedWithPending', { failed, pending });
-                      appendLog(msg);
-                      message.info({
-                        content: msg,
-                        duration: 10,
-                        style: { maxWidth: '600px' }
-                      });
-                    } else {
-                      appendLog('所有文档已停止处理');
+                  if (targetDoc) {
+                    const status = targetDoc.status?.toUpperCase();
+                    console.log(`[DocumentsTab] Document ${docId} status: ${status}`);
+                    
+                    // Document is deletable when status is FAILED, PROCESSED, or not found
+                    if (status === 'FAILED' || status === 'PROCESSED') {
+                      console.log('[DocumentsTab] ✅ Document is now deletable');
+                      appendLog(`文档已停止，状态: ${status}`);
+                      await loadDocuments();
+                      return; // Done
                     }
-                    return; // All done
+                  } else {
+                    // Document not found - might have been deleted
+                    console.log('[DocumentsTab] ✅ Document not found, stop complete');
+                    await loadDocuments();
+                    return;
                   }
                 }
                 
-                // Continue polling if not done and haven't reached max polls
+                // Continue polling if not done
                 if (pollCount < maxPolls) {
-                  setTimeout(pollForUpdates, pollInterval);
+                  setTimeout(pollUntilDeletable, pollInterval);
                 } else {
                   console.log('[DocumentsTab] Max polls reached, stopping');
-                  appendLog('已达到最大轮询次数，请手动刷新查看最新状态');
+                  appendLog('已达到最大轮询次数，请手动刷新');
+                  await loadDocuments();
+                  return; // Important: stop polling
                 }
               };
               
-              // Start polling after a short delay
-              setTimeout(pollForUpdates, 500);
+              // Start polling
+              setTimeout(pollUntilDeletable, 500);
           } else {
               const errorMsg = response.error?.message || 'Unknown error';
               appendLog(t('pages.knowledge.documents.errorStoppingDocument') + errorMsg);
@@ -781,6 +809,22 @@ const DocumentsTab: React.FC = () => {
             duration: 8,
             style: { maxWidth: '600px' }
           });
+          
+          console.log('[DocumentsTab] Stop error occurred, restoring normal polling...');
+          setTimeout(async () => {
+            await loadDocuments();
+            const countsResponse = await get_ipc_api().lightragApi.getStatusCounts();
+            if (countsResponse.success && countsResponse.data) {
+              const counts = countsResponse.data as any;
+              setStatusCounts({
+                all: counts.all || 0,
+                PROCESSED: counts.processed || 0,
+                PROCESSING: counts.processing || 0,
+                PENDING: counts.pending || 0,
+                FAILED: counts.failed || 0
+              });
+            }
+          }, 3000);
         }
       }
     });
@@ -934,24 +978,28 @@ const DocumentsTab: React.FC = () => {
 
   return (
     <div style={{ 
-      height: '100%'
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden'
     }}>
       {contextHolder}
       <div style={{ 
-        padding: '32px', 
-        minHeight: '100%',
+        padding: '16px 24px', 
+        flex: 1,
         display: 'flex', 
         flexDirection: 'column', 
-        gap: 24,
-        background: token.colorBgLayout
+        gap: 12,
+        background: token.colorBgLayout,
+        overflow: 'auto'
       }} data-ec-scope="lightrag-ported">
       {/* Document Management header and actions */}
       <div style={{ 
         display: 'flex', 
         alignItems: 'center', 
         justifyContent: 'space-between',
-        padding: '16px 0',
-        marginBottom: 8
+        padding: '8px 0',
+        marginBottom: 4
       }}>
         <div>
           <h3 style={{ 
@@ -1226,14 +1274,15 @@ const DocumentsTab: React.FC = () => {
       )}
 
       {/* Uploaded Documents section */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
         <div style={{ 
           display: 'flex', 
           alignItems: 'center', 
           justifyContent: 'space-between', 
-          marginBottom: 12,
-          paddingBottom: 12,
-          borderBottom: `1px solid ${token.colorBorderSecondary}`
+          marginBottom: 8,
+          paddingBottom: 8,
+          borderBottom: `1px solid ${token.colorBorderSecondary}`,
+          flexShrink: 0
         }}>
           <h4 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: token.colorText }}>{t('pages.knowledge.documents.uploadedDocuments')}</h4>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -1263,8 +1312,8 @@ const DocumentsTab: React.FC = () => {
 
         {/* Table */}
         <div style={{ 
-          height: '60vh',
-          minHeight: 200,
+          flex: 1,
+          minHeight: 300,
           border: `1px solid ${token.colorBorder}`, 
           borderRadius: 16, 
           background: token.colorBgContainer,
@@ -1370,16 +1419,27 @@ const DocumentsTab: React.FC = () => {
                     fontWeight: 600
                   }}>
                     {(doc.status?.toUpperCase() === 'PROCESSING' || doc.status?.toUpperCase() === 'PENDING') ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'center' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
                         <span style={{ fontSize: 11 }}>{getStatusText(doc.status)}</span>
-                        <Progress 
-                          percent={documentProgress.get(doc.id) || (doc.status?.toUpperCase() === 'PROCESSING' ? 50 : 10)}
-                          size="small"
-                          status="active"
-                          strokeColor={token.colorWarning}
-                          style={{ width: 80, margin: 0 }}
-                          showInfo={false}
-                        />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <Progress 
+                            percent={
+                              doc.status?.toUpperCase() === 'PROCESSING' && processingProgress?.pipeline?.total_chunks && processingProgress.pipeline.total_chunks > 0
+                                ? Math.round((processingProgress.pipeline.processed_chunks || 0) / processingProgress.pipeline.total_chunks * 100)
+                                : (documentProgress.get(doc.id) || (doc.status?.toUpperCase() === 'PROCESSING' ? 20 : 10))
+                            }
+                            size="small"
+                            status="active"
+                            strokeColor={token.colorWarning}
+                            style={{ width: 60, margin: 0 }}
+                            showInfo={false}
+                          />
+                          {doc.status?.toUpperCase() === 'PROCESSING' && processingProgress?.pipeline?.total_chunks && processingProgress.pipeline.total_chunks > 0 ? (
+                            <span style={{ fontSize: 10, color: token.colorTextSecondary, whiteSpace: 'nowrap' }}>
+                              {processingProgress.pipeline.processed_chunks || 0}/{processingProgress.pipeline.total_chunks}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                     ) : (
                       getStatusText(doc.status)
@@ -1505,14 +1565,18 @@ const DocumentsTab: React.FC = () => {
           justifyContent: 'space-between',
           padding: '12px 16px',
           borderBottom: `1px solid ${token.colorBorderSecondary}`,
-          background: isDark ? token.colorBgTextHover : token.colorBgLayout
-        }}>
-          <h4 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: token.colorText }}>
+          background: isDark ? token.colorBgTextHover : token.colorBgLayout,
+          cursor: 'pointer'
+        }}
+        onClick={() => setConsoleCollapsed(!consoleCollapsed)}
+        >
+          <h4 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: token.colorText, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ transform: consoleCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', display: 'inline-block' }}>▼</span>
             {t('pages.knowledge.documents.console', '控制台')}
           </h4>
           <button 
             className="ec-btn-small" 
-            onClick={handleClearLog} 
+            onClick={(e) => { e.stopPropagation(); handleClearLog(); }} 
             title={t('pages.knowledge.documents.clearLog')}
             style={{
               padding: '4px 12px',
@@ -1530,7 +1594,8 @@ const DocumentsTab: React.FC = () => {
           </button>
         </div>
         {/* Console content */}
-        <div style={{ 
+        {!consoleCollapsed && (
+        <div ref={consoleRef} style={{ 
           padding: 16, 
           minHeight: 100,
           maxHeight: 180,
@@ -1557,6 +1622,7 @@ const DocumentsTab: React.FC = () => {
             </span>
           )}
         </div>
+        )}
       </div>
 
       {/* Scoped styles */}
