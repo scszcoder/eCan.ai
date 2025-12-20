@@ -137,7 +137,7 @@ export const LLM_PROVIDERS: ProviderConfig[] = [
       { key: 'LLM_MODEL', label: 'fields.model', type: 'text', placeholder: 'qwen2.5:32b', required: true, isDynamicOllamaModel: true },
       { key: 'LLM_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'http://127.0.0.1:11434' },
       { key: 'LLM_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', placeholder: 'fields.optional' },
-      { key: 'OLLAMA_LLM_NUM_CTX', label: 'fields.contextWindow', type: 'number', defaultValue: '32768', tooltip: 'tooltips.ollamaNumCtx' },
+      { key: 'OLLAMA_LLM_NUM_CTX', label: 'fields.contextWindow', type: 'number', defaultValue: '8192', tooltip: 'tooltips.ollamaNumCtx' },
       { key: 'OLLAMA_LLM_NUM_PREDICT', label: 'fields.maxPredictTokens', type: 'number', placeholder: '9000' }
     ]
   },

@@ -296,10 +296,13 @@ class LightragClient:
                     'max_entity_tokens',
                     'max_relation_tokens',
                     'max_total_tokens',
+                    'hl_keywords',
+                    'll_keywords',
                     'conversation_history',
                     'user_prompt',
                     'enable_rerank',
                     'include_references',
+                    'include_chunk_content',
                     'stream',
                 ]:
                     if key in options:

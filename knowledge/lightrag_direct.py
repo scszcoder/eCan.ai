@@ -6,6 +6,13 @@ from pathlib import Path
 import sys
 from typing import Any, Dict, List, Optional
 
+# Handle __file__ not defined in PyInstaller frozen environment
+if '__file__' not in dir():
+    if getattr(sys, 'frozen', False):
+        __file__ = os.path.join(sys._MEIPASS, 'knowledge', 'lightrag_direct.py')
+    else:
+        __file__ = os.path.abspath(sys.argv[0])
+
 sys.path.append(str(Path(__file__).parent.parent))
 
 from lightrag.llm.openai import openai_complete_if_cache, openai_embed

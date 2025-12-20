@@ -586,7 +586,6 @@ const SettingsTab: React.FC = () => {
           <div key={field.key} style={{ marginBottom: 12 }}>
             {label}
             <Input
-              type="number"
               value={value}
               placeholder={placeholder}
               onChange={(e) => updateSetting(field.key, e.target.value)}
