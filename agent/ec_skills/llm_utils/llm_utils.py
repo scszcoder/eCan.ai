@@ -39,7 +39,9 @@ from agent.memory.models import MemoryItem
 from utils.env.secure_store import secure_store, get_current_username
 from utils.logger_helper import get_traceback
 from utils.logger_helper import logger_helper as logger
+from app_context import AppContext
 
+web_gui = AppContext.get_web_gui()
 
 def build_a2a_response_message(
     agent_id: str,
@@ -1621,6 +1623,14 @@ def create_browser_use_llm_by_provider_type(
             'model': model_name or default_config['model'],
             'api_key': api_key or default_config['api_key'] or 'dummy-key'
         }
+        
+        # DeepSeek and some other providers don't support response_format (JSON mode)
+        # Set dont_force_structured_output=True to disable structured output for these providers
+        providers_without_structured_output = ['deepseek', 'dashscope', 'qwen', 'qwq', 'baidu_qianfan', 'bytedance', 'ollama']
+        if provider_type in providers_without_structured_output:
+            bu_config['dont_force_structured_output'] = True
+            logger.info(f"[create_browser_use_llm_by_provider_type] Disabled structured output for {provider_type} (not supported)")
+        
         if base_url:
             # Special handling for Ollama: convert native URL to OpenAI-compatible endpoint
             if provider_type == 'ollama':
@@ -1833,7 +1843,11 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                 
                 # Get supports_vision from config (default True if not found)
                 supports_vision = config.get('supports_vision', True)
-                
+
+                log_msg = f"[create_browser_use_llm] provider_type:{provider_type}, model_name:{model_name}, api_key:{api_key}, base_url:{base_url}, class_name:{class_name}, supports_vision:{supports_vision}"
+                logger.debug(log_msg)
+                web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
                 # Use centralized function (already validates BrowserUseChatOpenAI type)
                 llm_instance = create_browser_use_llm_by_provider_type(
                     provider_type=provider_type,
@@ -1847,17 +1861,17 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                 )
                 # Final type check before returning
                 if llm_instance is not None and not isinstance(llm_instance, BrowserUseChatOpenAI):
-                    logger.error(
-                        f"[create_browser_use_llm] Type check failed: expected BrowserUseChatOpenAI, "
-                        f"got {type(llm_instance).__name__}, returning None"
-                    )
+                    log_msg = f"[create_browser_use_llm] Type check failed: expected BrowserUseChatOpenAI, got {type(llm_instance).__name__}, returning None"
+                    logger.error(log_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("error", log_msg)
                     return None
                 
                 # Attach supports_vision to LLM instance for later use
                 if llm_instance is not None:
                     llm_instance.supports_vision = supports_vision
-                    logger.debug(f"[create_browser_use_llm] Model {model_name} supports_vision: {supports_vision}")
-                
+                    log_msg = f"🤖 [create_browser_use_llm] Model {model_name} supports_vision: {supports_vision}"
+                    logger.debug(log_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
                 return llm_instance
                         
             except Exception as e:
@@ -1865,13 +1879,17 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                     f"[create_browser_use_llm] Exception getting LLM config from mainwin: {e}"
                 )
                 import traceback
-                logger.debug(f"[create_browser_use_llm] Exception details: {traceback.format_exc()}")
+                log_msg = f"[create_browser_use_llm] Exception details: {traceback.format_exc()}"
+                logger.error(log_msg)
+                web_gui.get_ipc_api().send_skill_editor_log("error", log_msg)
                 return None
         else:
             if not mainwin:
-                logger.error("[create_browser_use_llm] No mainwin provided - cannot create LLM without mainwin configuration")
+                log_msg = "[create_browser_use_llm] No mainwin provided - cannot create LLM without mainwin configuration"
             else:
-                logger.error("[create_browser_use_llm] mainwin has no config_manager - cannot create LLM")
+                log_msg = "[create_browser_use_llm] mainwin has no config_manager - cannot create LLM"
+            logger.error(log_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("error", log_msg)
             return None
         
     except Exception as e:

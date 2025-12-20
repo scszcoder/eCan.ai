@@ -1169,7 +1169,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         )
                         elapsed = time.time() - start_time
                         
-                        log_msg = f"✅ LLM async invocation completed in {elapsed:.2f}s"
+                        log_msg = f"✅ LLM async invocation completed in {elapsed:.2f}s {result}"
                         logger.debug(log_msg)
                         web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
                         return result
@@ -1334,7 +1334,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 
                 _perf_llm("invoke", _t_stage)
 
-                log_msg = f"✅ LLM response received from {llm_provider}"
+                log_msg = f"✅ LLM response received from {llm_provider} {response}"
                 logger.info(log_msg)
                 web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
@@ -2868,6 +2868,20 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     browser_driver_setting = ((inputs.get("browserDriver") or {}).get("content") or "native").lower().strip()
     cdp_port_setting = ((inputs.get("cdpPort") or {}).get("content") or "").strip()
     
+    # Extract LLM provider/model settings from node editor (like build_llm_node)
+    node_llm_provider = None
+    try:
+        node_llm_provider = ((inputs.get("modelProvider") or {}).get("content")
+                             or (inputs.get("provider") or {}).get("content"))
+    except Exception:
+        node_llm_provider = None
+    node_model_name = ((inputs.get("modelName") or {}).get("content")
+                       or (inputs.get("model") or {}).get("content")
+                       or None)
+    
+    logger.info(f"[BrowserAutomation] Extracted from node editor: provider={node_llm_provider}, model={node_model_name}")
+    web_gui.get_ipc_api().send_skill_editor_log("log", f"[BrowserAutomation] Node LLM settings: provider={node_llm_provider}, model={node_model_name}")
+    
     # Extract shop_name and build downloads_path
     from pathlib import Path
     from datetime import datetime
@@ -2895,8 +2909,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     inline_system_prompt = ((inputs.get("systemPrompt") or {}).get("content") or "")
     inline_user_prompt = ((inputs.get("prompt") or {}).get("content") or "")
 
+
     logger.debug("[BrowserAutomation]inline_system_prompt:", inline_system_prompt)
     logger.debug("[BrowserAutomation]inline_user_prompt:", inline_user_prompt)
+    log_msg = f"[BrowserAutomation]inline_system_prompt: {inline_system_prompt}\n\n{inline_user_prompt}"
+    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
     # Load prompts using prompt loader (handles both inline and saved prompts)
     # Resolve prompt templates based on the selected prompt id first for initial config preview
     resolved_system_prompt, resolved_user_prompt = _resolve_prompt_templates(
@@ -2923,8 +2940,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         """Get or create browser session based on node editor settings."""
         from gui.manager.browser_manager import BrowserManager, BrowserType, BrowserStatus
         
-        logger.debug(f"[BrowserAutomation] Getting browser session: browser={browser_type_setting}, driver={browser_driver_setting}, cdp_port={cdp_port_setting}")
-        
+        log_msg = f"[BrowserAutomation] Getting browser session: browser={browser_type_setting}, driver={browser_driver_setting}, cdp_port={cdp_port_setting}"
+        logger.debug(log_msg)
+        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
         # Get or create BrowserManager
         if not hasattr(mainwin, 'browser_manager') or mainwin.browser_manager is None:
             mainwin.browser_manager = BrowserManager(default_webdriver_path=mainwin.getWebDriverPath())
@@ -2962,9 +2980,15 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             
             # Start browser session if not already started (for CDP/native mode)
             if browser_driver_setting == 'native' and auto_browser.browser_session:
-                logger.info(f"[BrowserAutomation] Starting browser session: {auto_browser.browser_session.id}")
+                log_msg = f"[BrowserAutomation] Starting browser session: {auto_browser.browser_session.id}"
+                logger.info(log_msg)
+                web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
                 await auto_browser.browser_session.start()
-                logger.info(f"[BrowserAutomation] Browser session started!")
+                log_msg = f"[BrowserAutomation] Browser session started!"
+                logger.info(log_msg)
+                web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
                 return auto_browser.browser_session
             
             return auto_browser
@@ -2994,11 +3018,43 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             if not mainwin:
                 raise ValueError("mainwin is required. Must use mainwin configuration for browser_use LLM.")
 
-            # Use mainwin's LLM configuration (no fallback)
-            from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm
-            llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True)
+            # Use node-specific LLM provider/model if configured, otherwise fall back to mainwin default
+            from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm, create_browser_use_llm_by_provider_type, extract_provider_config
+            
+            llm = None
+            if node_llm_provider and node_model_name:
+                # Node editor has specific provider/model selected - use those
+                logger.info(f"[BrowserAutomation] Using node-specific LLM: provider={node_llm_provider}, model={node_model_name}")
+                
+                # Get API key and base_url from mainwin's config for this provider
+                try:
+                    config_manager = mainwin.config_manager
+                    provider_dict = config_manager.llm_manager.get_provider(node_llm_provider)
+                    if provider_dict:
+                        config = extract_provider_config(provider_dict, config_manager=config_manager)
+                        api_key = config.get('api_key')
+                        base_url = config.get('base_url')
+                        # Use node-selected model, not the default from config
+                        llm = create_browser_use_llm_by_provider_type(
+                            provider_type=node_llm_provider.lower(),
+                            model_name=node_model_name,
+                            api_key=api_key,
+                            base_url=base_url,
+                            mainwin=mainwin
+                        )
+                        logger.info(f"[BrowserAutomation] Created LLM with node settings: provider={node_llm_provider}, model={node_model_name}")
+                    else:
+                        logger.warning(f"[BrowserAutomation] Provider '{node_llm_provider}' not found in config, falling back to default")
+                except Exception as e:
+                    logger.warning(f"[BrowserAutomation] Failed to create LLM from node settings: {e}, falling back to default")
+            
+            # Fall back to mainwin's default LLM configuration
             if not llm:
-                raise ValueError("Failed to create browser_use LLM from mainwin. Please configure LLM provider API key in Settings.")
+                logger.info("[BrowserAutomation] Using mainwin default LLM configuration")
+                llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True)
+            
+            if not llm:
+                raise ValueError("Failed to create browser_use LLM. Please configure LLM provider API key in Settings.")
 
             controller = custom_controller
             print("[BROWSER USE]Agent task:", task)
@@ -3016,7 +3072,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
             elif browser_driver_setting == 'native' and browser_session:
                 # For native (CDP) mode with existing browser session
-                logger.info(f"[BrowserAutomation] Using existing browser session via CDP: {browser_type_setting}")
+                log_msg = f"🤖 [BrowserAutomation] Using existing browser session via CDP: {browser_type_setting}"
+                logger.debug(log_msg)
+                web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
                 # Create browser_use Browser with CDP connection
                 cdp_port = int(cdp_port_setting) if cdp_port_setting and cdp_port_setting.isdigit() else 9228
                 cdp_url = f"http://127.0.0.1:{cdp_port}"

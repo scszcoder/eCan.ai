@@ -391,6 +391,7 @@ async def udpBroadcaster(topgui):
     while not over:
         logger.debug("Broadcasting..." + 'Commander Calling:' + myip + " " + topgui.getUser(), "tcpip", topgui)
         if "Commander" in topgui.host_role:
+            logger.debug("sending as commander....")
             message = str.encode('Commander Calling:' + myip + ":" + topgui.getUser())
         elif "Staff" in topgui.host_role:
             message = str.encode('Staff Officer Calling:' + myip + ":" + topgui.getUser())
