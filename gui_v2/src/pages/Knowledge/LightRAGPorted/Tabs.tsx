@@ -94,6 +94,34 @@ const Tabs: React.FC<TabsProps> = ({ defaultActive = 'documents', onChange, rend
     sessionStorage.setItem(`${storagePrefix}:visited`, JSON.stringify(Array.from(visited)));
   }, [active, visited]);
 
+  // 使用 ref 保存最新的 active 值，避免闭包问题
+  const activeRef = useRef(active);
+  activeRef.current = active;
+
+  // 组件挂载时恢复滚动位置，卸载时保存滚动位置
+  useEffect(() => {
+    // 延迟执行，确保 DOM 已经渲染完成
+    const timer = setTimeout(() => {
+      emitTabEvent('activate', activeRef.current);
+      restoreScrollWithRetry(activeRef.current);
+    }, 100);
+    
+    // 组件卸载时保存滚动位置
+    return () => {
+      clearTimeout(timer);
+      // 使用 ref 获取最新的 active 值
+      const currentActive = activeRef.current;
+      if (isOuterScrollable(currentActive)) {
+        const el = tabRefs.current.get(currentActive);
+        if (el) {
+          saveScrollPosition(currentActive, el.scrollTop);
+        }
+      }
+      emitTabEvent('deactivate', currentActive);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     emitTabEvent('activate', active);
     requestAnimationFrame(() => restoreScrollWithRetry(active));

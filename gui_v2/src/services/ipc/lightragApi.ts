@@ -66,6 +66,15 @@ export type ProcessingProgress = {
   progress_percentage: number;
   track_id?: string;
   documents?: any[];
+  pipeline?: {
+    job_name?: string;
+    current_batch?: number;
+    total_batches?: number;
+    latest_message?: string;
+    total_chunks?: number;
+    processed_chunks?: number;
+    current_chunk_file?: string;  // File path of document currently being processed
+  };
 };
 
 // 传入 apiInstance，返回 LightRAG 相关Method的对象

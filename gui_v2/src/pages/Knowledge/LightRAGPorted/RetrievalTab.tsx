@@ -300,42 +300,9 @@ const RetrievalTab: React.FC = () => {
       if (chunk?.confidence) {
         const shouldAnswer = chunk?.confidence?.decision?.should_answer;
         
-        // Adjust confidence based on actual references data and response content
-        let adjustedConfidence = { ...chunk.confidence };
-        
-        // Get actual references from chunk data (this is what's displayed to user)
-        const actualRefs = chunk?.references || [];
-        const actualRefCount = Array.isArray(actualRefs) ? actualRefs.length : 0;
-        
-        // IMPORTANT: Always use actual reference count, not backend's metric
-        // This ensures the displayed number matches the actual References list
-        if (adjustedConfidence.metrics) {
-          adjustedConfidence.metrics.reference_count = actualRefCount;  // Force sync with actual refs
-        }
-        
-        // Get the current message content to check for relevance
-        const currentMessage = messages.find(m => m.id === messageId);
-        const responseContent = currentMessage?.content || '';
-        
-        // Check if response indicates inability to answer (irrelevant references)
-        const noAnswerKeywords = [
-          '无法回答', '不能回答', '没有相关', '没有找到', '不知道',
-          'cannot answer', 'unable to answer', 'no relevant', 'not found', "don't know",
-          '知识库中没有', '文档中没有', 'no information', 'no data'
-        ];
-        const hasNoAnswerIndicator = noAnswerKeywords.some(keyword => 
-          responseContent.toLowerCase().includes(keyword.toLowerCase())
-        );
-        
-        // If no references, or response indicates inability to answer
-        if (actualRefCount === 0 || hasNoAnswerIndicator) {
-          adjustedConfidence.overall_score = 0;
-          adjustedConfidence.confidence_level = 'very_low';
-        } else if (actualRefCount <= 2) {
-          // Very few references (1-2): cap confidence at 30%
-          adjustedConfidence.overall_score = Math.min(adjustedConfidence.overall_score || 0, 0.3);
-          adjustedConfidence.confidence_level = adjustedConfidence.overall_score > 0.2 ? 'low' : 'very_low';
-        }
+        // Trust backend's confidence calculation directly
+        // The backend confidence scorer already handles quality assessment properly
+        const adjustedConfidence = { ...chunk.confidence };
         
         setMessages(prev => prev.map(m => {
           if (m.id !== messageId) return m;
@@ -575,39 +542,9 @@ const RetrievalTab: React.FC = () => {
             
             // Adjust confidence based on actual references data and response content (non-streaming mode)
             if (confidence) {
-              // Get actual references from result data (this is what's displayed to user)
-              const actualRefs = (resultData as any)?.references || [];
-              const actualRefCount = Array.isArray(actualRefs) ? actualRefs.length : 0;
-              
-              // IMPORTANT: Always use actual reference count, not backend's metric
-              // This ensures the displayed number matches the actual References list
-              confidence = {
-                ...confidence,
-                metrics: {
-                  ...confidence.metrics,
-                  reference_count: actualRefCount  // Force sync with actual refs
-                }
-              };
-              
-              // Check if response indicates inability to answer (irrelevant references)
-              const noAnswerKeywords = [
-                '无法回答', '不能回答', '没有相关', '没有找到', '不知道',
-                'cannot answer', 'unable to answer', 'no relevant', 'not found', "don't know",
-                '知识库中没有', '文档中没有', 'no information', 'no data'
-              ];
-              const hasNoAnswerIndicator = noAnswerKeywords.some(keyword => 
-                content.toLowerCase().includes(keyword.toLowerCase())
-              );
-              
-              // If no references, or response indicates inability to answer
-              if (actualRefCount === 0 || hasNoAnswerIndicator) {
-                confidence.overall_score = 0;
-                confidence.confidence_level = 'very_low';
-              } else if (actualRefCount <= 2) {
-                // Very few references (1-2): cap confidence at 30%
-                confidence.overall_score = Math.min(confidence.overall_score || 0, 0.3);
-                confidence.confidence_level = confidence.overall_score > 0.2 ? 'low' : 'very_low';
-              }
+              // Trust backend's confidence calculation directly
+              // The backend confidence scorer already handles quality assessment properly
+              // No frontend adjustments needed
             }
 
             const shouldAnswer = confidence?.decision?.should_answer;
