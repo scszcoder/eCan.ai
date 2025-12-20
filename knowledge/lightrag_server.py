@@ -666,7 +666,17 @@ class LightragServer:
             env["PORT"] = str(self.extra_env.get("PORT", desired_port))
 
             from utils.venv_helper import VenvHelper
+            from config.app_info import app_info
             python_executable = self._get_virtual_env_python()
+            
+            # Add project root to PYTHONPATH for knowledge module import
+            project_root = app_info.app_home_path
+            existing_pythonpath = env.get('PYTHONPATH', '')
+            if existing_pythonpath:
+                env['PYTHONPATH'] = f"{project_root}:{existing_pythonpath}"
+            else:
+                env['PYTHONPATH'] = project_root
+            logger.info(f"[LightragServer] Set PYTHONPATH to include project root: {project_root}")
             
             # Use the static launcher script for SSL patching
             launcher_path = os.path.join(os.path.dirname(__file__), "lightrag_launcher.py")
@@ -833,24 +843,57 @@ class LightragServer:
             self._monitor_thread.start()
         return success
 
-    def stop(self):
+    def stop(self, force: bool = False):
+        """Stop the LightRAG server.
+        
+        Args:
+            force: If True, forcefully kill the entire process group immediately.
+                   This will interrupt all running LLM/embedding HTTP requests.
+                   If False (default), use graceful termination.
+        """
         self._monitor_running = False
         if hasattr(self, '_script_path') and self._script_path and os.path.exists(self._script_path):
             try: os.remove(self._script_path)
             except Exception as e: logger.debug(f"[LightragServer] Error removing script: {e}")
         
         if self.proc:
-            logger.info("[LightragServer] Stopping server...")
-            try:
-                if self.proc.poll() is None:
-                    self.proc.terminate()
-                    try: self.proc.wait(timeout=5)
-                    except: 
-                        logger.warning("[LightragServer] Process unresponsive, killing...")
-                        self.proc.kill()
-            except Exception as e:
-                logger.error(f"[LightragServer] Error stopping process: {e}")
-            finally: self.proc = None
+            if force:
+                logger.info("[LightragServer] Force stopping server (killing process group)...")
+                try:
+                    if self.proc.poll() is None:
+                        pid = self.proc.pid
+                        if sys.platform == 'win32':
+                            # Windows: use taskkill to kill process tree
+                            import subprocess as sp
+                            sp.run(['taskkill', '/F', '/T', '/PID', str(pid)], 
+                                   capture_output=True, timeout=5)
+                        else:
+                            # Unix: kill entire process group
+                            import signal
+                            try:
+                                pgid = os.getpgid(pid)
+                                os.killpg(pgid, signal.SIGKILL)
+                                logger.info(f"[LightragServer] Killed process group {pgid}")
+                            except ProcessLookupError:
+                                pass  # Process already dead
+                        # Wait briefly for process to die
+                        try: self.proc.wait(timeout=2)
+                        except: pass
+                except Exception as e:
+                    logger.error(f"[LightragServer] Error force stopping process: {e}")
+                finally: self.proc = None
+            else:
+                logger.info("[LightragServer] Stopping server...")
+                try:
+                    if self.proc.poll() is None:
+                        self.proc.terminate()
+                        try: self.proc.wait(timeout=5)
+                        except: 
+                            logger.warning("[LightragServer] Process unresponsive, killing...")
+                            self.proc.kill()
+                except Exception as e:
+                    logger.error(f"[LightragServer] Error stopping process: {e}")
+                finally: self.proc = None
             
         self._close_log_files()
         self._remove_pid_file()

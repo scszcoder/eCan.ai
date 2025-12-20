@@ -310,16 +310,16 @@ def handle_delete_document(request: IPCRequest, params: Optional[Dict[str, Any]]
 @IPCHandlerRegistry.handler('lightrag.abortDocument')
 def handle_abort_document(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """
-    Handle document abort request (stop processing).
+    Handle document abort request (stop processing immediately).
     
-    This stops a document that is currently being processed by deleting it.
-    LightRAG will stop processing and clean up any partial work.
+    This immediately cancels all running document processing tasks by calling
+    the enhanced cancel_pipeline API which cancels asyncio tasks directly.
     
     Expected params:
     - id: str - ID of the document to abort
     
     Returns:
-    - Success response with deletion result
+    - Success response with abort result
     - Error response if abort fails
     """
     try:
@@ -332,13 +332,12 @@ def handle_abort_document(request: IPCRequest, params: Optional[Dict[str, Any]])
         if not isinstance(doc_id, str) or not doc_id.strip():
             return create_error_response(request, 'INVALID_PARAMS', 'id must be a non-empty string')
         
-        logger.info(f"[lightrag_handler] Aborting document: {doc_id}")
+        logger.info(f"[lightrag_handler] Aborting document immediately: {doc_id}")
         
         # Get LightRAG client
         client = get_client()
         
-        # Call abort_document method (which internally calls delete_document)
-        # This will stop processing and remove the document
+        # Call abort_document method (which calls cancel_pipeline - now with immediate task cancellation)
         result = client.abort_document(doc_id)
         
         if result.get('status') == 'error':
@@ -347,8 +346,8 @@ def handle_abort_document(request: IPCRequest, params: Optional[Dict[str, Any]])
             return create_error_response(request, 'ABORT_ERROR', error_msg)
         
         logger.info(f"[lightrag_handler] Successfully aborted document: {doc_id}")
-        data = result.get('data', result)
-        return create_success_response(request, data)
+        response_data = result.get('data', result)
+        return create_success_response(request, response_data)
         
     except Exception as e:
         logger.error(f"[lightrag_handler] Error in abort_document handler: {e}\n{traceback.format_exc()}")
@@ -854,15 +853,16 @@ async def handle_get_documents_paginated(request: IPCRequest, params: Optional[D
             None, lambda: client.get_documents_paginated(request_params)
         )
         
-        logger.info(f"[lightrag_handler] Client returned: status={result.get('status')}, data keys={list(result.get('data', {}).keys()) if isinstance(result.get('data'), dict) else 'not a dict'}")
-        
         if result.get('status') == 'error':
-            logger.error(f"[lightrag_handler] Error from client: {result.get('message')}")
-            return create_error_response(request, 'GET_DOCUMENTS_ERROR', result.get('message', 'Failed to get documents'))
+            error_msg = result.get('message', 'Failed to get documents')
+            logger.error(f"Get documents paginated failed: {error_msg}")
+            return create_error_response(request, 'GET_DOCUMENTS_ERROR', error_msg)
             
+        # Extract data from client response
+        # Client returns: {"status": "success", "data": {...}}
         response_data = result.get('data', result)
         
-        # Log document count
+        # Log document count for debugging
         if isinstance(response_data, dict):
             docs = response_data.get('documents', [])
             logger.info(f"[lightrag_handler] Returning {len(docs)} documents")
@@ -960,6 +960,8 @@ def handle_get_processing_progress(request: IPCRequest, params: Optional[Dict[st
             pipeline_result = client.get_pipeline_status()
             pipeline_data = pipeline_result.get('data', {}) if pipeline_result.get('status') == 'success' else {}
             
+            logger.info(f"[lightrag_handler] Pipeline status: busy={pipeline_data.get('busy')}, cur_batch={pipeline_data.get('cur_batch')}, total_batches={pipeline_data.get('batchs')}")
+            
             if total > 0:
                 # Base progress on completed documents
                 base_progress = (processed + failed) / total
@@ -1000,13 +1002,25 @@ def handle_get_processing_progress(request: IPCRequest, params: Optional[Dict[st
             }
             
             # Include pipeline details if available
-            if pipeline_data.get('busy'):
-                response_data['pipeline'] = {
+            # Show pipeline info when busy OR when there are processing/pending documents
+            if pipeline_data.get('busy') or processing > 0 or pending > 0:
+                logger.info(f"[lightrag_handler] Including pipeline data: busy={pipeline_data.get('busy')}, processing={processing}, pending={pending}")
+                
+                # Get chunk progress from pipeline_data (set by operate_custom.py)
+                total_chunks = pipeline_data.get('total_chunks', 0)
+                processed_chunks = pipeline_data.get('processed_chunks', 0)
+                
+                pipeline_info = {
                     'job_name': pipeline_data.get('job_name'),
                     'current_batch': pipeline_data.get('cur_batch', 0),
                     'total_batches': pipeline_data.get('batchs', 0),
-                    'latest_message': pipeline_data.get('latest_message')
+                    'latest_message': pipeline_data.get('latest_message'),
+                    'total_chunks': total_chunks if total_chunks > 0 else None,
+                    'processed_chunks': processed_chunks if total_chunks > 0 else None
                 }
+                
+                logger.info(f"[lightrag_handler] Pipeline info: {pipeline_info}")
+                response_data['pipeline'] = pipeline_info
             
             return create_success_response(request, response_data)
         
