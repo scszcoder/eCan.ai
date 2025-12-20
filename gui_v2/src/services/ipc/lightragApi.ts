@@ -73,6 +73,7 @@ export type ProcessingProgress = {
     latest_message?: string;
     total_chunks?: number;
     processed_chunks?: number;
+    current_chunk_file?: string;  // File path of document currently being processed
   };
 };
 

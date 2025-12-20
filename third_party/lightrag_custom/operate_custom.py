@@ -249,6 +249,8 @@ async def extract_entities_with_cancellation(
                 pipeline_status["history_messages"].append(log_message)
                 pipeline_status["processed_chunks"] = processed_chunks
                 pipeline_status["total_chunks"] = total_chunks
+                # Track current processing document file path for per-document progress display
+                pipeline_status["current_chunk_file"] = file_path
 
         return maybe_nodes, maybe_edges
 
