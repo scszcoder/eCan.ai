@@ -104,9 +104,6 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         }
     };
 
-    const handleLogoClick = () => {
-        navigate('/');
-    };
 
     const menuItems = React.useMemo<MenuProps['items']>(() => [
         { key: '/agents', icon: <TeamOutlined />, label: t('menu.agents') },
@@ -150,8 +147,12 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             targetPath = lastAgentsPathRef.current;
         }
         
-        // Only navigate if not already on the target path
-        if (currentPath !== targetPath && !currentPath.startsWith(targetPath + '/')) {
+        // Only skip navigation if exactly on the same path
+        // Don't skip for different menu items even if current path starts with target
+        const shouldSkip = currentPath === targetPath || 
+            (key === '/agents' && currentPath.startsWith('/agents'));
+        
+        if (!shouldSkip) {
             navigate(targetPath);
         }
     };
@@ -190,7 +191,6 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             <A11yFocusGuard />
             <AppSider
                 collapsed={collapsed}
-                onLogoClick={handleLogoClick}
                 menuItems={menuItems}
                 selectedKey={getSelectedMenuKey()}
                 onMenuClick={onMenuClick}

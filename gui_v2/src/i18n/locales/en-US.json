@@ -1790,6 +1790,8 @@
         "dirIngestHint": "Will import all supported document types in directory",
         "ingestSuccess": "Ingestion successful",
         "selectFilesWithCount": "Select Files ({{count}} selected)",
+        "supportedFiles": "Supported Documents",
+        "allFiles": "All Files",
         "clearCache": "Clear Cache",
         "clearLog": "Clear Log",
         "browse": "Browse",

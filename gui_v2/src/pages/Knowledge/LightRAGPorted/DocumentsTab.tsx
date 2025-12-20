@@ -217,10 +217,29 @@ const DocumentsTab: React.FC = () => {
     }
   };
 
+  // 支持的文件类型（与后端保持一致）
+  const SUPPORTED_FILE_EXTENSIONS = [
+    'txt', 'md', 'pdf', 'docx', 'pptx', 'xlsx', 'rtf', 'odt', 'tex', 'epub',
+    'html', 'htm', 'csv', 'json', 'xml', 'yaml', 'yml', 'log', 'conf', 'ini',
+    'properties', 'sql', 'bat', 'sh', 'c', 'cpp', 'py', 'java', 'js', 'ts',
+    'swift', 'go', 'rb', 'php', 'css', 'scss', 'less'
+  ];
+
   const handleSelectFiles = async () => {
     try {
       // 5 minutes timeout for user interaction
-      const response = await get_ipc_api().executeRequest<any>('fs.selectFiles', { multiple: true }, 300000);
+      // 添加文件类型过滤器
+      const filters = [
+        {
+          name: t('pages.knowledge.documents.supportedFiles'),
+          extensions: SUPPORTED_FILE_EXTENSIONS
+        },
+        {
+          name: t('pages.knowledge.documents.allFiles'),
+          extensions: ['*']
+        }
+      ];
+      const response = await get_ipc_api().executeRequest<any>('fs.selectFiles', { multiple: true, filters }, 300000);
       if (response.success && response.data) {
           const result = response.data;
           if (result && result.paths && result.paths.length > 0) {
