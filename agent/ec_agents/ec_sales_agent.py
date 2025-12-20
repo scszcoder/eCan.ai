@@ -1,21 +1,13 @@
-from agent.a2a.common.client import A2AClient
 from agent.ec_agent import EC_Agent
-from agent.a2a.common.server import A2AServer
-from agent.a2a.common.types import AgentCard, AgentCapabilities, AgentSkill, MissingAPIKeyError
-from agent.a2a.common.utils.push_notification_auth import PushNotificationSenderAuth
-from agent.a2a.langgraph_agent.task_manager import AgentTaskManager
+from agent.a2a.common.types import AgentCard, AgentCapabilities
 from agent.a2a.langgraph_agent.agent import ECRPAHelperAgent
-from agent.a2a.common.types import TaskStatus, TaskState
-from agent.tasks import TaskRunner, ManagedTask, TaskSchedule
 from agent.a2a.langgraph_agent.utils import get_a2a_server_url
 from agent.ec_agents.create_agent_tasks import create_ec_sales_chat_task, create_ec_sales_work_task
-from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
 from utils.logger_helper import logger_helper as logger
+from agent.playwright import create_browser_use_llm
 
-from agent.tasks import Repeat_Types
 import traceback
-import socket
-import uuid
+
 
 def set_up_ec_sales_agent(mainwin):
     try:
@@ -25,6 +17,13 @@ def set_up_ec_sales_agent(mainwin):
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
         worker_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa sales"), None)
         chatter_skill = next((sk for sk in agent_skills if sk.name == "ecbot rpa sales internal chatter"),None)
+        
+        if not worker_skill:
+            logger.error("Skill 'ecbot rpa sales' not found! Aborting setup.")
+            return None
+        if not chatter_skill:
+            logger.error("Skill 'ecbot rpa sales internal chatter' not found! Aborting setup.")
+            return None
 
         agent_card = AgentCard(
             name="ECBot Helper Agent",
@@ -36,12 +35,21 @@ def set_up_ec_sales_agent(mainwin):
             capabilities=capabilities,
             skills=[worker_skill, chatter_skill],
         )
-        logger.info("agent card created:", agent_card.name, agent_card.url)
+        logger.info("ec_sales agent card created:", agent_card.name, agent_card.url)
 
         chatter_task = create_ec_sales_chat_task(mainwin)
+        if not chatter_task:
+            logger.error("Failed to create chatter task for ec_sales! Aborting setup.")
+            return None
+            
         worker_task = create_ec_sales_work_task(mainwin)
-        browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
-        sales = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=[worker_skill, chatter_skill], tasks=[worker_task, chatter_task])
+        if not worker_task:
+            logger.error("Failed to create worker task for ec_sales! Aborting setup.")
+            return None
+            
+        # Use mainwin's unified browser_use_llm instance (shared across all agents)
+        browser_use_llm = mainwin.browser_use_llm
+        sales = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=[worker_skill, chatter_skill], tasks=[worker_task, chatter_task])
 
     except Exception as e:
         # Get the traceback information
@@ -51,7 +59,6 @@ def set_up_ec_sales_agent(mainwin):
             ex_stat = "ErrorSetUpECSalesAgent:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorSetUpECSalesAgent: traceback information not available:" + str(e)
-        # mainwin.showMsg(ex_stat)
         logger.error(ex_stat)
         return None
 

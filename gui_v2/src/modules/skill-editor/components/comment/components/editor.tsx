@@ -18,7 +18,7 @@ export const CommentEditor: FC<ICommentEditor> = (props) => {
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
   const placeholder = model.value || model.focused ? undefined : 'Enter a comment...';
 
-  // 同步编辑器内部值变化
+  // SyncEdit器InternalValue变化
   useEffect(() => {
     const disposer = model.on((params) => {
       if (params.type !== CommentEditorEvent.Change) {

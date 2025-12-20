@@ -1,60 +1,38 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Badge } from 'antd';
 import styled from '@emotion/styled';
-import SplitPane from 'react-split-pane';
-import { MenuFoldOutlined, MenuUnfoldOutlined, RobotOutlined } from '@ant-design/icons';
+import SplitPane, { Pane } from 'split-pane-react';
+import 'split-pane-react/esm/themes/default.css';
 import { useTranslation } from 'react-i18next';
+import { MenuFoldOutlined, MenuUnfoldOutlined, InboxOutlined, AppstoreOutlined } from '@ant-design/icons';
+import { ContextPanel } from './ContextPanel';
 
-// 添加全局样式
+// Add全局样式
 const GlobalStyles = styled.div`
   height: 100%;
   width: 100%;
-  
-  /* SplitPane 样式覆盖 */
+  .SplitPane {
+    height: 100% !important;
+  }
+  /* Resizer styles to make divider grab-friendly */
   .Resizer {
     background: #222;
-    opacity: 0.2;
-    z-index: 1;
+    opacity: 0.25;
+    z-index: 1000; /* keep above Card content */
     box-sizing: border-box;
     background-clip: padding-box;
-  }
-
-  .Resizer.vertical {
-    width: 5px;
-    margin: 0 -2px;
-    cursor: col-resize;
-  }
-
-  .Resizer.vertical:hover {
-    opacity: 1;
-  }
-
-  .Pane {
-    display: flex !important;
-    overflow: hidden !important;
-  }
-
-  .SplitPane {
     position: relative;
-    height: 100% !important;
-    width: 100% !important;
+    user-select: none;
+    -webkit-user-select: none;
   }
-  
-  /* 自定义 Badge 样式 */
-  .custom-badge .ant-badge-dot {
-    width: 10px;
-    height: 10px;
-    box-shadow: 0 0 0 1px #fff;
+  .Resizer.vertical {
+    width: 10px; /* easier to grab */
+    margin: 0 -5px; /* overlap panes to increase hit area */
+    cursor: col-resize;
+    touch-action: none; /* prevent touch scroll interference */
   }
-
-  /* Card 标题白色字体样式 */
-  .ant-card-head-title {
-    color: white !important;
-  }
-  
-  /* 确保所有Card标题都是白色 */
-  .ant-card .ant-card-head .ant-card-head-title {
-    color: white !important;
+  .Resizer:hover {
+    opacity: 0.6;
   }
 `;
 
@@ -81,9 +59,9 @@ const Sider = styled.div<{ collapsed: boolean; side: 'left' | 'right' }>`
 `;
 
 const CollapseButton = styled(Button)<{ side: 'left' | 'right' }>`
-  position: absolute;
-  top: 16px;
-  ${({ side }) => (side === 'left' ? 'right: -16px;' : 'left: -16px;')}
+  position: relative;
+  top: 0;
+  ${({ side }) => (side === 'left' ? 'right: 0;' : 'left: 0;')}
   z-index: 10;
   padding: 0;
   width: 24px;
@@ -102,7 +80,6 @@ const AgentButton = styled(Button)`
   justify-content: center;
 `;
 
-// 自定义红点样式
 const NotificationDot = styled.div`
   position: absolute;
   top: -0px;
@@ -131,15 +108,25 @@ const CenterTitleBar = styled.div`
   width: 100%;
 `;
 
-interface ChatLayoutProps {
+const TitleText = styled.span`
+  flex: 1;
+  color: white;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+
+export interface ChatLayoutProps {
   listTitle: React.ReactNode;
-  detailsTitle: string;
+  detailsTitle: React.ReactNode;
   listContent: React.ReactNode;
   detailsContent: React.ReactNode;
   chatNotificationTitle: React.ReactNode;
   chatNotificationContent: React.ReactNode;
+  chatContextTitle?: React.ReactNode;
+  chatContextContent?: React.ReactNode;
   hasNewAgentNotifications?: boolean;
-  onRightPanelToggle?: (collapsed: boolean) => void;
+  onRightPanelToggle?: (rightCollapsed: boolean) => void;
 }
 
 const ChatLayout: React.FC<ChatLayoutProps> = ({
@@ -149,39 +136,33 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
   detailsContent,
   chatNotificationTitle,
   chatNotificationContent,
+  chatContextTitle,
+  chatContextContent,
   hasNewAgentNotifications = false,
   onRightPanelToggle,
 }) => {
   const { t } = useTranslation();
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(true);
-  const [splitSize, setSplitSize] = useState<string | number>('70%');
+  const [sizes, setSizes] = useState<(string | number)[]>(['60%', '40%']);
+  const [rightMode, setRightMode] = useState<'notifications' | 'context' | null>(null);
 
-  // 当右侧面板展开/折叠时重新计算分割尺寸
   useEffect(() => {
-    if (rightCollapsed) {
-      setSplitSize('100%');
-    } else {
-      setSplitSize('40%'); // 修改为40%，使ChatNotification占60%，聊天框占40%
-    }
-
-    // 调用父组件的回调函数
     onRightPanelToggle?.(rightCollapsed);
   }, [rightCollapsed, onRightPanelToggle]);
 
-  // 处理右侧面板的折叠/展开
-  const handleRightPanelToggle = () => {
+  const openRightMode = (mode: 'notifications' | 'context') => {
     setRightCollapsed((c) => {
-      const newRightCollapsed = !c;
-      // 当展开右侧面板时，自动折叠左侧面板
-      if (!newRightCollapsed) {
-        setLeftCollapsed(true);
+      if (!c && rightMode === mode) {
+        setRightMode(null);
+        return true;
       }
-      return newRightCollapsed;
+      setRightMode(mode);
+      setLeftCollapsed(true);
+      return false;
     });
   };
 
-  // 中间卡片的 title 区域，包含左右折叠按钮和聊天名
   const centerTitle = (
     <CenterTitleBar>
       <CollapseButton
@@ -193,16 +174,25 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
         title={leftCollapsed ? t('pages.chat.expandLeft') : t('pages.chat.collapseLeft')}
         aria-label={leftCollapsed ? t('pages.chat.expandLeft') : t('pages.chat.collapseLeft')}
       />
-      <span style={{ flex: 1, color: 'white' }}>{detailsTitle}</span>
-      <div style={{ position: 'relative' }}>
+      <TitleText>{detailsTitle}</TitleText>
+      <div style={{ position: 'relative', display: 'flex', gap: 8, flexShrink: 0 }}>
         <AgentButton
           type="text"
-          icon={<RobotOutlined style={{ fontSize: '16px' }} />}
-          onClick={handleRightPanelToggle}
-          title={rightCollapsed ? t('pages.chat.expandRight') : t('pages.chat.collapseRight')}
-          aria-label={rightCollapsed ? t('pages.chat.expandRight') : t('pages.chat.collapseRight')}
+          icon={<AppstoreOutlined style={{ fontSize: '16px' }} />}
+          onClick={() => openRightMode('context')}
+          title={rightCollapsed || rightMode !== 'context' ? t('pages.chat.expandRight') : t('pages.chat.collapseRight')}
+          aria-label={rightCollapsed || rightMode !== 'context' ? t('pages.chat.expandRight') : t('pages.chat.collapseRight')}
         />
-        {hasNewAgentNotifications && rightCollapsed && <NotificationDot />}
+        <div style={{ position: 'relative' }}>
+          <AgentButton
+            type="text"
+            icon={<InboxOutlined style={{ fontSize: '16px' }} />}
+            onClick={() => openRightMode('notifications')}
+            title={rightCollapsed || rightMode !== 'notifications' ? t('pages.chat.expandRight') : t('pages.chat.collapseRight')}
+            aria-label={rightCollapsed || rightMode !== 'notifications' ? t('pages.chat.expandRight') : t('pages.chat.collapseRight')}
+          />
+          {hasNewAgentNotifications && (rightCollapsed || rightMode !== 'notifications') && <NotificationDot />}
+        </div>
       </div>
     </CenterTitleBar>
   );
@@ -216,50 +206,53 @@ const ChatLayout: React.FC<ChatLayoutProps> = ({
               title={listTitle}
               variant="borderless"
               style={{ height: '100%', width: '100%', borderRadius: 0 }}
-              styles={{ body: { height: 'calc(100% - 56px)', padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
+              styles={{ body: { height: 'calc(100% - 48px)', padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
             >
               {listContent}
             </Card>
           )}
         </Sider>
-        
-        {/* @ts-ignore */}
         <SplitPane
           split="vertical"
-          minSize={300}
-          maxSize={rightCollapsed ? "100%" : "50%"}
-          size={splitSize}
-          onChange={(size) => setSplitSize(size)}
+          sizes={rightCollapsed ? ['100%', '0%'] : sizes}
           allowResize={!rightCollapsed}
-          style={{ position: 'relative', flex: 1, overflow: 'hidden' }}
+          onChange={(newSizes) => {
+            if (!rightCollapsed) {
+              setSizes(newSizes);
+            }
+          }}
+          sashRender={(index, active) => (rightCollapsed ? null : undefined)}
+          style={{ position: 'relative', flex: 1, overflow: 'hidden', minWidth: 0 }}
           className="custom-split-pane"
         >
-          <CenterPane>
-            <Card
-              title={centerTitle}
-              variant="borderless"
-              style={{ height: '100%', width: '100%', borderRadius: 0 }}
-              styles={{ body: { height: 'calc(100% - 56px)', padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
-            >
-              {detailsContent}
-            </Card>
-          </CenterPane>
-          <div style={{ height: '100%', width: '100%', display: 'flex', overflow: 'hidden' }}>
-            {!rightCollapsed && (
+          <Pane minSize='30%' maxSize='90%'>
+            <CenterPane>
               <Card
-                title={chatNotificationTitle}
+                title={centerTitle}
                 variant="borderless"
-                style={{ height: '100%', width: '100%', borderRadius: 0, flex: 1 }}
+                style={{ height: '100%', width: '100%', borderRadius: 0 }}
                 styles={{ body: { height: 'calc(100% - 56px)', padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
               >
-                {chatNotificationContent}
+                {detailsContent}
               </Card>
-            )}
-          </div>
+            </CenterPane>
+          </Pane>
+          <Pane minSize={rightCollapsed ? 0 : '10%'} maxSize={rightCollapsed ? 0 : '70%'}>
+            <div style={{ height: '100%', width: '100%', display: 'flex', overflow: 'visible', minWidth: 0 }}>
+              <Card
+                title={rightMode === 'context' ? (chatContextTitle ?? 'Context') : chatNotificationTitle}
+                variant="borderless"
+                style={{ height: '100%', width: '100%', borderRadius: 0, flex: 1, display: 'flex', flexDirection: 'column' }}
+                styles={{ body: { flex: 1, minHeight: 0, padding: 0, overflow: 'auto' } }}
+              >
+                {rightMode === 'context' ? (chatContextContent ?? <ContextPanel />) : chatNotificationContent}
+              </Card>
+            </div>
+          </Pane>
         </SplitPane>
       </LayoutContainer>
     </GlobalStyles>
   );
 };
 
-export default ChatLayout; 
+export default ChatLayout;

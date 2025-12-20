@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Playwright 运行时设置模块
-处理应用运行时的 Playwright 浏览器初始化和设置
+Playwright Runtime Setup Module
+Handles Playwright browser initialization and setup at application runtime
 """
 
 import sys
@@ -12,6 +12,7 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 
 from .utils import core_utils
+from .helpers import friendly_error_message
 
 from utils.logger_helper import logger_helper as logger
 
@@ -24,39 +25,6 @@ def _default_app_data_root() -> Path:
 def _validate_browser_installation(browsers_path: Path) -> bool:
     """Validate that the browser installation is complete and usable."""
     return core_utils.validate_browser_installation(browsers_path)
-
-
-def _get_browser_info(browsers_path: Path) -> Dict[str, Any]:
-    """Get information about installed browsers."""
-    info = {
-        'path': str(browsers_path),
-        'browsers': [],
-        'total_size': 0,
-        'last_updated': None
-    }
-    
-    try:
-        # Get browser directories
-        browser_dirs = [d for d in browsers_path.iterdir() 
-                       if d.is_dir() and not d.name.startswith('.')]
-        
-        for browser_dir in browser_dirs:
-            browser_info = {
-                'name': browser_dir.name,
-                'size': sum(f.stat().st_size for f in browser_dir.rglob('*') if f.is_file()),
-                'files': len(list(browser_dir.rglob('*')))
-            }
-            info['browsers'].append(browser_info)
-            info['total_size'] += browser_info['size']
-        
-        # Get last modification time
-        if browsers_path.exists():
-            info['last_updated'] = datetime.fromtimestamp(browsers_path.stat().st_mtime).isoformat()
-            
-    except Exception as e:
-        logger.error(f"Error getting browser info: {e}")
-    
-    return info
 
 
 def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None,
@@ -79,7 +47,7 @@ def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None,
     - If found, copy to <app_data_root>/ms-playwright when missing or incomplete.
     - Finally set PLAYWRIGHT_BROWSERS_PATH to the writable directory and return it.
     """
-    # PyInstaller 特殊处理：直接使用打包的浏览器
+    # PyInstaller special handling: use bundled browsers directly
     if getattr(sys, 'frozen', False):
         bundled_path = Path(sys._MEIPASS) / 'third_party' / 'ms-playwright'
         if bundled_path.exists() and _validate_browser_installation(bundled_path):
@@ -89,113 +57,55 @@ def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None,
         else:
             logger.warning(f"Bundled browsers not found or invalid at: {bundled_path}")
 
-    # 检查是否已经设置了有效的环境变量
+    # Check if valid environment variables are already set
     existing_path = core_utils.get_environment_browsers_path()
     if existing_path and not force_refresh:
         if _validate_browser_installation(existing_path):
             logger.info(f"Using existing PLAYWRIGHT_BROWSERS_PATH: {existing_path}")
             return existing_path
     
-    # 简化：不再从配置文件读取路径，避免过度实现
+    # Simplified: no longer read paths from config files to avoid over-implementation
     
     if app_data_root is None:
         app_data_root = _default_app_data_root()
-    
-    logger.info(f"Setting up Playwright browsers in: {app_data_root}")
-    
+
     # Target directory in app data
     target = app_data_root / 'ms-playwright'
-    
-    # 首先清理任何不完整的浏览器目录
-    if target.exists():
-        core_utils.cleanup_incomplete_browsers(target)
 
-    # 然后检查目标目录是否已经有效
+    # Determine bundled browsers path
+    if getattr(sys, 'frozen', False):
+        bundled = Path(sys._MEIPASS) / 'third_party' / 'ms-playwright'
+    else:
+        bundled = Path.cwd() / 'third_party' / 'ms-playwright'
+
+    # If target already has a valid installation, prefer reusing it but allow version update from bundled
     if not force_refresh and _validate_browser_installation(target):
-        logger.info("Browser installation already exists and is valid")
+        if bundled.exists() and _validate_browser_installation(bundled):
+            logger.info(f"Checking for Playwright browser updates from bundled path: {bundled}")
+            # copy_playwright_browsers() will perform version comparison and only update when needed
+            core_utils.copy_playwright_browsers(bundled, target)
+
+        logger.info(f"Browser installation already exists and is valid at: {target}")
         core_utils.set_environment_variables(target)
-        logger.info(f"Set PLAYWRIGHT_BROWSERS_PATH to: {target}")
+        return target
+
+    # Copy from bundled if available (target missing or invalid, or force_refresh=True)
+    if bundled.exists() and _validate_browser_installation(bundled):
+        logger.info(f"Copying browsers from {bundled}")
+        core_utils.copy_playwright_browsers(bundled, target)
+        core_utils.set_environment_variables(target)
+        logger.info(f"Playwright browsers ready at: {target}")
         return target
     
-    # 检查是否有现有的 Playwright 缓存可以使用
-    existing_cache = core_utils.find_playwright_cache()
-    if existing_cache and existing_cache != target and not force_refresh:
-        logger.info(f"Found existing Playwright cache at: {existing_cache}")
-        # 清理现有缓存中的不完整目录
-        core_utils.cleanup_incomplete_browsers(existing_cache)
-        if _validate_browser_installation(existing_cache):
-            logger.info("Using existing valid browser installation")
-            # 使用专用的复制函数来确保 browsers.json 正确处理
-            try:
-                core_utils.copy_playwright_browsers(existing_cache, target)
-                logger.info(f"Copied existing browsers to: {target}")
-                core_utils.set_environment_variables(target)
-                logger.info(f"Set PLAYWRIGHT_BROWSERS_PATH to: {target}")
-                return target
-            except Exception as e:
-                logger.warning(f"Failed to copy existing browsers: {e}")
-                # 继续使用原有逻辑
+    # Fallback: runtime installation
+    logger.info("Starting runtime installation of Playwright browsers...")
+    core_utils.install_playwright_browsers(target)
     
-    # 在开发环境中，检查是否有本地的 third_party 目录
-    if not getattr(sys, 'frozen', False):
-        local_third_party = Path.cwd() / 'third_party' / 'ms-playwright'
-        if local_third_party.exists() and _validate_browser_installation(local_third_party):
-            logger.info(f"Found valid local third_party browsers at: {local_third_party}")
-            # 确保复制到应用内部目录，而不是直接使用本地目录
-            try:
-                core_utils.copy_playwright_browsers(local_third_party, target)
-                logger.info(f"Copied local third_party browsers to: {target}")
-                core_utils.set_environment_variables(target)
-                logger.info(f"Set PLAYWRIGHT_BROWSERS_PATH to: {target}")
-                return target
-            except Exception as e:
-                logger.warning(f"Failed to copy local third_party browsers: {e}")
-                # 继续使用原有逻辑
+    if not _validate_browser_installation(target):
+        raise RuntimeError("Runtime installation failed to produce valid browser installation")
     
-    # Determine base directory for bundled browsers
-    if getattr(sys, 'frozen', False):
-        # PyInstaller frozen environment
-        base_dir = Path(sys._MEIPASS)
-        bundled = base_dir / 'third_party' / 'ms-playwright'
-    else:
-        # Development environment
-        bundled = Path.cwd() / 'third_party' / 'ms-playwright'
-    
-    # Determine if we need to copy browsers
-    should_copy = force_refresh or not _validate_browser_installation(target)
-    
-    if should_copy and bundled.exists():
-        logger.info(f"Copying bundled browsers from {bundled} to {target}")
-        try:
-            core_utils.copy_playwright_browsers(bundled, target)
-            logger.info("Successfully copied bundled browsers")
-            if _validate_browser_installation(target):
-                core_utils.set_environment_variables(target)
-                logger.info(f"Set PLAYWRIGHT_BROWSERS_PATH to: {target}")
-                return target
-        except Exception as e:
-            logger.error(f"Failed to copy bundled browsers: {e}")
-            # Fall back to runtime installation
-            should_copy = True
-    
-    if should_copy:
-        logger.info("No bundled browsers available for copying, attempting runtime installation.")
-        try:
-            core_utils.install_playwright_browsers(target)
-            if _validate_browser_installation(target):
-                logger.info("Installed Playwright browsers at runtime")
-            else:
-                logger.warning("Runtime installation did not produce a valid installation")
-        except Exception as e:
-            logger.error(f"Runtime installation of Playwright browsers failed: {e}")
-            raise
-    else:
-        logger.info("Browser installation already exists and is valid")
-    
-    # Set environment for Playwright - CRITICAL for custom path
     core_utils.set_environment_variables(target)
-    
-    logger.info(f"Set PLAYWRIGHT_BROWSERS_PATH to: {target}")
+    logger.info(f"✅ Playwright browsers ready at: {target}")
     return target
 
 
@@ -245,7 +155,7 @@ def is_playwright_ready() -> bool:
     return _validate_browser_installation(Path(browsers_path))
 
 
-# 配置持久化与路径覆盖逻辑已移除，避免过度实现，保持初始化流程简单明了
+# Configuration persistence and path override logic removed to avoid over-implementation and keep initialization process simple and clear
 
 
 def setup_playwright(app_data_root: Optional[Path] = None) -> Path:

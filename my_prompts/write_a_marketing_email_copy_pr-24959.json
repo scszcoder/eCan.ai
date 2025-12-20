@@ -1,0 +1,60 @@
+{
+  "id": "pr-24959",
+  "title": "Write a marketing email_copy",
+  "topic": "Marketing email",
+  "usageCount": 12,
+  "humanInputs": [
+    "Audience segment",
+    "Special offers"
+  ],
+  "sections": [
+    {
+      "id": "pr-1-background",
+      "type": "background",
+      "items": [
+        "You are a helpful marketing assistant. Tone: friendly, concise."
+      ]
+    },
+    {
+      "id": "pr-1-goals",
+      "type": "goals",
+      "items": [
+        "Introduce new product",
+        "Encourage click-through"
+      ]
+    },
+    {
+      "id": "pr-1-guidelines",
+      "type": "guidelines",
+      "items": [
+        "Keep under 150 words",
+        "Use American English"
+      ]
+    },
+    {
+      "id": "pr-1-rules",
+      "type": "rules",
+      "items": [
+        "No false claims",
+        "Avoid spammy phrases"
+      ]
+    },
+    {
+      "id": "pr-1-instructions",
+      "type": "instructions",
+      "items": [
+        "Start with a hook",
+        "Add a CTA at the end"
+      ]
+    },
+    {
+      "id": "pr-1-variables",
+      "type": "variables",
+      "items": [
+        "Product name",
+        "Key features"
+      ]
+    }
+  ],
+  "lastModified": "2025-11-29T10:16:37.056944"
+}

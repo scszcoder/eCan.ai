@@ -1,6 +1,6 @@
 
 from utils.logger_helper import logger_helper as logger
-from utils.logger_helper import get_agent_by_id, get_traceback
+from utils.logger_helper import get_traceback
 from bot.basicSkill import mousePressAndHoldOnScreenWord, readRandomWindow8
 
 
@@ -9,7 +9,7 @@ async def px_captcha_solve(main_win, keyword, duration, win_title_keyword=""):
         # take screenshot
         log_user = main_win.user.replace("@", "_").replace(".", "_")
         session = main_win.session
-        token = main_win.tokens['AuthenticationResult']['IdToken']
+        token = main_win.get_auth_token()
 
         mission = main_win.getTrialRunMission()
 

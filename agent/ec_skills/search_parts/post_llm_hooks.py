@@ -1,5 +1,6 @@
 from agent.ec_skill import *
-from utils.logger_helper import get_agent_by_id, get_traceback
+from utils.logger_helper import get_traceback
+from agent.agent_service import get_agent_by_id
 from agent.ec_skills.llm_utils.llm_utils import *
 
 
@@ -10,11 +11,11 @@ def post_llm_hook(state: NodeState) -> NodeState:
 def post_chat_hook(askid, node_name, agent, state, response):
     try:
         llm_output = state["result"]["llm_result"]
-        response = llm_output["casual_chat_response"]
+        response = llm_output["next_prompt"]
 
         state["attributes"]["work_related"] = llm_output["work_related"]
         state["result"]["llm_result"] = response
-        print("post_chat_hook Raw llm response content:", state)  # Debug log
+        logger.debug("post_chat_hook Raw llm response content:", state)  # Debug log
 
         # Clean up the response
         send_result = send_response_back(state)
@@ -86,7 +87,7 @@ def post_pend_for_next_human_msg_hook(askid, node_name, agent, state, response):
     try:
         # Extract content from AIMessage if needed
         llm_output = state["result"]["llm_result"]
-        response = state["result"]["llm_result"]["casual_chat_response"]
+        response = state["result"]["llm_result"]["next_prompt"]
 
         state["job_related"] = state["result"]["job_related"]
         state["result"]["llm_result"] = response

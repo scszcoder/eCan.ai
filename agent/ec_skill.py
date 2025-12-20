@@ -1,46 +1,39 @@
-from typing import Any, Dict, List, Literal, Optional, Type, Callable, Annotated
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
-import uuid
-from langgraph.checkpoint.memory import MemorySaver
-from langgraph.checkpoint.memory import MemorySaver
-from langgraph.graph import END, StateGraph, START
-from langchain_core.runnables import RunnableLambda
-from langchain_core.messages import AIMessage, HumanMessage
-from langchain.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
-from typing import TypedDict, List, Any
-import subprocess
+from typing import Any, Dict, List
+import copy
+import json
+from typing import  Annotated
+from pydantic import BaseModel, Field, ConfigDict, model_validator
+from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.graph.message import AnyMessage, add_messages, MessagesState, BaseMessage
+from typing import List, Any, Annotated, Literal
+import uuid
+from langmem.short_term import RunningSummary
+
+
+from dataclasses import dataclass
+from langgraph.graph.state import CompiledStateGraph
+from langgraph.graph.message import MessagesState, BaseMessage
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langgraph.prebuilt import create_react_agent
-from langgraph.errors import NodeInterrupt
 from langgraph.checkpoint.memory import InMemorySaver
-from langgraph.types import interrupt
 #from sqlalchemy.testing.suite.test_reflection import metadata
 from langgraph.runtime import Runtime
 from langgraph.store.base import BaseStore
 
 from typing_extensions import TypedDict
-from langgraph.prebuilt import tools_condition
-from mcp.client.sse import sse_client
-from mcp.client.session import ClientSession
-from agent.mcp.client.client_manager import MCPClientSessionManager
 from agent.mcp.server.tool_schemas import tool_schemas
-from agent.a2a.common.types import AgentSkill, Message, TextPart
+from agent.a2a.common.types import AgentSkill
 import json
-import traceback
 import time
-import httpx
-import asyncio
-import requests
-import socket
-from urllib.parse import urlparse
+import random
 
 import operator
-from utils.logger_helper import logger_helper as logger
-from agent.mcp.config import mcp_messages_url
-
+from utils.logger_helper import logger_helper as logger, get_traceback
+from langgraph.types import interrupt
+from langgraph.errors import GraphInterrupt
+from utils.logger_helper import logger_helper as logger, get_traceback
+from agent.ec_tasks.resume import build_node_transfer_patch
+from agent.ec_tasks.pending_events import resolve_async_operation
+from queue import Empty
 # ---------------------------------------------------------------------------
 # ── 1.  Typed State for LangGraph ───────────────────────────────────────────
 # ---------------------------------------------------------------------------
@@ -52,10 +45,142 @@ class State(TypedDict):
     resolved: bool
     input: str
 
+DEFAULT_MAPPING_RULE = {
+  "developing": {
+    "mappings": [
+      {
+        "from": ["event.data.qa_form_to_agent", "event.data.qa_form"],
+        "to": [
+          {"target": "state.attributes.forms.qa_form"},
+          {"target": "resume.qa_form_to_agent"}
+        ],
+        "on_conflict": "merge_deep"
+      },
+      {
+        "from": ["event.data.notification_to_agent", "event.data.notification"],
+        "to": [
+          {"target": "state.attributes.notifications.latest"},
+          {"target": "resume.notification_to_agent"}
+        ],
+        "on_conflict": "merge_deep"
+      },
+      {
+        "from": ["event.data.human_text"],
+        "to": [
+          {"target": "state.attributes.human.last_message"},
+          {"target": "resume.human_text"}
+        ],
+        "transform": "to_string",
+        "on_conflict": "overwrite"
+      },
+      {
+        "from": ["event.data.params.metadata.i_tag", "event.data.metadata.i_tag"],
+        "to": [
+          { "target": "event.tag" }
+        ],
+        "on_conflict": "overwrite"
+      },
+      {
+        "from": ["event.tag"],
+        "to": [
+          {"target": "state.attributes.cloud_task_id"}
+        ],
+        "on_conflict": "overwrite"
+      },
+      {
+        "from": ["event.data.metadata"],
+        "to": [
+          {"target": "state.attributes.debug.last_event_metadata"}
+        ],
+        "on_conflict": "overwrite"
+      }
+    ],
+    "options": {
+      "strict": False,
+      "default_on_missing": None,
+      "apply_order": "top_down"
+    }
+  },
+  "released": {
+    "mappings": [
+      {
+        "from": ["event.data.qa_form_to_agent", "event.data.qa_form"],
+        "to": [
+          {"target": "state.attributes.forms.qa_form"},
+          {"target": "resume.qa_form_to_agent"}
+        ],
+        "on_conflict": "merge_deep"
+      },
+      {
+        "from": ["event.data.notification_to_agent", "event.data.notification"],
+        "to": [
+          {"target": "state.attributes.notifications.latest"},
+          {"target": "resume.notification_to_agent"}
+        ],
+        "on_conflict": "merge_deep"
+      },
+      {
+        "from": ["event.data.human_text"],
+        "to": [
+          {"target": "state.attributes.human.last_message"},
+          {"target": "resume.human_text"}
+        ],
+        "transform": "to_string",
+        "on_conflict": "overwrite"
+      },
+      {
+        "from": ["event.data.params.metadata.i_tag", "event.data.metadata.i_tag"],
+        "to": [
+          { "target": "event.tag" }
+        ],
+        "on_conflict": "overwrite"
+      },
+      {
+        "from": ["event.tag"],
+        "to": [
+          {"target": "state.attributes.cloud_task_id"}
+        ],
+        "on_conflict": "overwrite"
+      }
+    ],
+    "options": {
+      "strict": True,
+      "default_on_missing": None,
+      "apply_order": "top_down"
+    }
+  },
+  "node_transfers": {},
+   "event_routing": {
+    "human_chat": {"task_selector": "name_contains:chatter", "queue": ""},
+    "dev_human_chat": {"task_selector": "name_contains:development", "queue": "chat_queue"},
+    "a2a": {"task_selector": "name_contains:chatter", "queue": ""},
+    "api_response": {"task_selector": "id:11111", "queue": ""},
+    "web_hook": {"task_selector": "id:11111", "queue": ""},
+    "cloud_websocket": {"task_selector": "name:search_digikey_chatter", "queue": ""},
+    "web_sse": {"task_selector": "name:abc", "queue": ""},
+    "rerank_search_results": {"task_selector": "name:search_digikey_chatter", "queue": ""},
+    "": {"task_selector": "name:search_digikey_chatter", "queue": ""}
+  }
+}
+
+
+def _generate_stable_id(name: str, source: str) -> str:
+    """Generate a stable ID for code skills based on name, or random UUID for ui skills.
+    
+    Code-generated skills use 'code-skill-' prefix for easy identification.
+    """
+    if source == "code":
+        # Use uuid5 with a namespace to generate deterministic ID from name
+        namespace = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")  # UUID namespace for names
+        uuid_part = str(uuid.uuid5(namespace, f"code:{name}"))
+        return f"code-skill-{uuid_part}"  # Add prefix to identify code-generated skills
+    return str(uuid.uuid4())
+
+
 class EC_Skill(AgentSkill):
     """Holds a compiled LangGraph runnable and metadata."""
 
-    id: str = str(uuid.uuid4())
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     askid: int = 0
     work_flow: StateGraph = StateGraph(State)        # {"app_name": "app_context", ....} "ecbot" being the internal rpa runs.
     diagram: dict = {}
@@ -66,19 +191,51 @@ class EC_Skill(AgentSkill):
     description: str = "to do and not to do"
     config: dict = {}
     ui_info: dict = {"text": "skill", "icon": ""}
-    objectives: [str] = []
-    need_inputs: [dict] = []
+    objectives: List[str] = []
+    need_inputs: List[dict] = []
     version: str = "0.0.0"
     level: str = "entry"
     path: str = ""
+    run_mode: str = "released"      # has to be either "development" or "released"
+    source: str = "ui"              # "code" for code-based, "example" for example skills, "ui" for UI-created
+    # Optional: per-skill mapping rules for resume/state mapping DSL
+    mapping_rules: dict | None = DEFAULT_MAPPING_RULE
 
     tags: List[str] | None = None
     examples: List[str] | None = None
     inputModes: List[str] | None = None
     outputModes: List[str] | None = None
 
+    apps: Any = None
+    limitations: Any = None
+    price: int = 0
+    price_model: str = ""
+    public: bool = False
+    rentable: bool = False
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
+    @model_validator(mode='after')
+    def _ensure_stable_id(self):
+        """Automatically generate/regenerate stable ID based on name and source.
+        
+        This is the ONLY place where ID generation happens:
+        - code skills: deterministic ID from name (code-skill-{uuid5})
+        - ui skills: random UUID (only if not already set)
+        
+        This validator runs:
+        1. After initial object creation
+        2. After any field update via model_validate()
+        """
+        # Always regenerate ID for code skills to ensure consistency
+        if self.source == "code":
+            self.id = _generate_stable_id(self.name, self.source)
+        # For ui skills, only generate if ID is not set or is default
+        elif not self.id or self.id == str(uuid.uuid4()):
+            # Keep existing ID for ui skills unless it's a default UUID
+            pass
+        return self
+    
     def get_config(self):
         return self.config
 
@@ -122,120 +279,41 @@ class EC_Skill(AgentSkill):
             "need_inputs": self.need_inputs,
             "version": self.version,
             "level": self.level,
+            "path": self.path,
+            "source": self.source,  # 'code' or 'ui'
+            "tags": self.tags,
+            "examples": self.examples,
+            "inputModes": self.inputModes,
+            "outputModes": self.outputModes,
+            "apps": self.apps,
+            "limitations": self.limitations,
+            "price": self.price,
+            "price_model": self.price_model,
+            "public": self.public,
+            "rentable": self.rentable,
         }
 
 
+@dataclass
+class SkillDTO:
+    name: str
+    description: str
+    config: Dict[str, Any]
 
-async def wait_until_server_ready(url: str, timeout=30):
-    """
-    更稳健的服务器就绪等待：
-    1) 先等待 TCP 端口进入监听状态；
-    2) 再轮询 /healthz；
-    仅使用 httpx 的超时，不再叠加 asyncio.wait_for；复用连接池。
-    """
-    deadline = time.time() + float(timeout)
-    last_error = None
+@dataclass
+class LoadedSkill:
+    dto: SkillDTO
+    work_flow: StateGraph
 
-    logger.info(f"Waiting for server ready at {url}, timeout: {timeout}s")
-
-    # 解析 URL 获取主机和端口（用于 TCP 探测）
-    parsed = urlparse(url)
-    host = parsed.hostname or "127.0.0.1"
-    port = parsed.port or (443 if (parsed.scheme or "http") == "https" else 80)
-
-    # 第一阶段：端口监听探测（快速轮询，避免首启盲等 HTTP）
-    port_attempts = 0
-    while time.time() < deadline:
-        port_attempts += 1
-        try:
-            with socket.create_connection((host, port), timeout=1.0) as s:
-                s.close()
-                logger.debug(f"TCP {host}:{port} is listening (after {port_attempts} attempts)")
-                break
-        except OSError as e:
-            last_error = f"TCP connect failed: {e}"
-        await asyncio.sleep(0.3)
-    else:
-        error_msg = f"Server port not listening at {host}:{port} within {timeout}s. Last error: {last_error}"
-        logger.error(error_msg)
-        raise RuntimeError(error_msg)
-
-    # 第二阶段：HTTP 健康检查（复用客户端 + 单层超时）
-    http_attempts = 0
-    # 初始超时配置；后续根据剩余时间适当收敛
-    timeout_cfg = httpx.Timeout(connect=2.0, read=2.5, write=1.0, pool=1.0)
-    async with httpx.AsyncClient(timeout=timeout_cfg, trust_env=False) as client:
-        while time.time() < deadline:
-            http_attempts += 1
-            remaining = max(0.5, deadline - time.time())
-            # 动态调整读取超时，但不超过 3s
-            client.timeout = httpx.Timeout(connect=2.0, read=min(3.0, remaining), write=1.0, pool=1.0)
-            try:
-                logger.debug(f"Attempt {http_attempts}: checking {url} (read timeout: {client.timeout.read:.1f}s)")
-                resp = await client.get(url)
-                if resp.status_code == 200:
-                    logger.info(f"Server ready at {url} after {http_attempts} attempts")
-                    return True
-                else:
-                    last_error = f"HTTP {resp.status_code}"
-                    logger.debug(f"Server returned status {resp.status_code}")
-            except httpx.TimeoutException as e:
-                last_error = f"HTTPX timeout: {e}"
-                logger.debug(f"Attempt {http_attempts}: httpx timeout")
-            except httpx.ConnectError as e:
-                last_error = f"Connection error: {e}"
-                logger.debug(f"Attempt {http_attempts}: connection failed - {e}")
-            except httpx.HTTPError as e:
-                last_error = f"HTTP error: {e}"
-                logger.debug(f"Attempt {http_attempts}: HTTP error - {e}")
-            except Exception as e:
-                last_error = f"Unexpected error: {e}"
-                logger.debug(f"Attempt {http_attempts}: unexpected error - {e}")
-
-            await asyncio.sleep(0.5)
-
-    error_msg = f"Server not ready at {url} after {timeout}s ({http_attempts} attempts). Last error: {last_error}"
-    logger.error(error_msg)
-    raise RuntimeError(error_msg)
-
-async def test_post_to_messages():
-    url = mcp_messages_url()  # server expects trailing slash
-
-    # Example MCP message format — adjust to match your server expectation
-    payload = {
-        "stream_id": "stream-1234",
-        "message": {
-            "role": "user",
-            "content": "Hello from test client"
-        }
-    }
-
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(url, json=payload)
-            print("Status code:", response.status_code)
-            print("Response body:", response.text)
-    except Exception as e:
-        print("Request failed:", str(e))
-
-
-def test_msg():
-    resp = requests.post(mcp_messages_url(), json={
-        "type": "ping",
-        "payload": "test message"
-    })
-
-    print("Status:", resp.status_code)
-    print("Response body:", resp.text)
 
 class BaseState(MessagesState):
     messages: Annotated[List[BaseMessage], operator.add]
     my_list: List[int]
     is_last_step: bool
 
-def _bind_to_system_message(state):
-    print(state) # Problem here
-    return "system prompt"
+# def _bind_to_system_message(state):
+#     print(state) # Problem here
+#     return "system prompt"
 
 
 # Goal for graph
@@ -263,19 +341,38 @@ class NodeState(TypedDict):
     input: str
     attachments: List[FileAttachment]
     prompts: List[dict]
-    formatted_prompts: List[dict]
+    prompt_refs: dict
+    history: List[Any]              #raw history
+    summary: RunningSummary | None
     messages: List[Any]
     threads: List[dict]
-    metadata: dict
+    events: List[dict]
+    this_node: str
     attributes: dict
     result: dict
-    tool_input: dict
+    tool_calls: List[dict]
     tool_result: dict
+    http_response: dict
+    cli_input: dict
+    cli_results: dict
     error: str
     retries: int
     condition: bool
+    private: bool
+    condition_vars: dict
+    loop_end_vars: dict
     case: str
     goals: List[Goal]
+    next_action: str
+    breakpoint: bool
+    py_script: str
+    ts_script: str
+    shell_script: str
+    task_start_time: str
+    max_steps: int
+    n_steps: int
+    node_start_time: str
+    metadata: dict
 
 
 class ToT_Context(TypedDict):
@@ -303,63 +400,453 @@ def node_wrapper(fn, node_name, skill_name, owner):
     return wrapped
 
 
+def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retries=3, base_delay=1, jitter=0.5):
+    """
+    A higher-order function that wraps a node's callable to add common functionality
+    like retries, breakpoint handling, and context injection.
+    """
+
+    def wrapper(state: dict, *, runtime: Runtime[WorkFlowContext], store: BaseStore, **kwargs) -> dict:
+        """This inner function is what gets executed by LangGraph for each node.
+        It contains the retry logic and handles processing the return value.
+        """ 
+        # Execute the node function first
+        # Safely get and cast the retry value to an integer
+
+        # Safely get and cast the retry value to an integer
+        try:
+            retries = int(state.get("retry", default_retries))
+        except (ValueError, TypeError):
+            retries = default_retries
+        attempts = 0
+        last_exc = None
+        result = None
+        logger.info(f"[node_builder] ENTERING node={node_name}, skill={skill_name}")
+        runtime.context["this_node"] = {"name": node_name, "skill_name": skill_name, "owner": owner}
+
+        node_t0 = time.perf_counter()
+
+        def _record_node_timing(st: dict, status: str, duration_s: float) -> None:
+            try:
+                if not isinstance(st, dict):
+                    return
+                attrs = st.get("attributes")
+                if not isinstance(attrs, dict):
+                    attrs = {}
+                    st["attributes"] = attrs
+                timings = attrs.get("__node_timings__")
+                if not isinstance(timings, list):
+                    timings = []
+                    attrs["__node_timings__"] = timings
+                timings.append({
+                    "node": str(node_name),
+                    "skill": str(skill_name),
+                    "status": str(status),
+                    "duration_ms": int(max(duration_s, 0.0) * 1000),
+                    "ts_ms": int(time.time() * 1000),
+                })
+                logger.info(
+                    f"[PERF][NODE] skill={skill_name} node={node_name} status={status} duration={duration_s:.3f}s"
+                )
+            except Exception:
+                pass
+        # Ensure attributes dict exists before use
+        try:
+            node_rules_map = None
+            attrs = state.get("attributes") if isinstance(state, dict) else None
+            if isinstance(attrs, dict):
+                node_rules_map = attrs.get("node_transfer_rules")
+            if node_rules_map is None and isinstance(state, dict):
+                node_rules_map = state.get("node_transfer_rules")
+
+            rules_for_node = None
+            if isinstance(node_rules_map, dict):
+                if node_name in node_rules_map and isinstance(node_rules_map[node_name], dict):
+                    rules_for_node = node_rules_map[node_name]
+                elif "mappings" in node_rules_map:
+                    # Treat as mapping spec for this node
+                    rules_for_node = node_rules_map
+
+            if isinstance(rules_for_node, dict) and rules_for_node.get("mappings"):
+                patch = build_node_transfer_patch(node_name, state, {node_name: rules_for_node})
+
+                def _deep_merge(a: dict, b: dict) -> dict:
+                    out = dict(a)
+                    for k, v in b.items():
+                        if k in out and isinstance(out[k], dict) and isinstance(v, dict):
+                            out[k] = _deep_merge(out[k], v)
+                        else:
+                            out[k] = v
+                    return out
+
+                if isinstance(patch, dict) and patch:
+                    # Deep-merge common sections
+                    for sec in ("attributes", "metadata", "tool_input"):
+                        if sec in patch:
+                            base = state.get(sec) if isinstance(state.get(sec), dict) else {}
+                            state[sec] = _deep_merge(base, patch[sec])
+                    # Handle other keys conservatively
+                    for k, v in patch.items():
+                        if k in ("attributes", "metadata", "tool_input"):
+                            continue
+                        if k == "messages" and isinstance(v, list):
+                            if isinstance(state.get("messages"), list):
+                                state["messages"].extend(v)
+                            else:
+                                state["messages"] = list(v)
+                        else:
+                            state[k] = v
+                logger.debug(f"[node_builder] applied node transfer mapping for {node_name}")
+        except Exception as _e:
+            err_msg = get_traceback(_e, "ErrorNodeBuilderWrapper")
+            logger.debug(f"[node_builder] node transfer mapping skipped/failed at {node_name}: {err_msg}")
+
+        # Utility: produce a JSON/checkpoint safe view of state (whitelist fields, avoid cycles)
+        def _prune_result(res: Any) -> Any:
+            # if isinstance(res, dict):
+            #     forbidden = {
+            #         "input","attachments","prompts","history","messages","threads","metadata",
+            #         "attributes","result","tool_input","tool_result","error","retries","condition","case","goals"
+            #     }
+            #     # keep only non-forbidden keys from result
+            #     return {k: _prune_result(v) for k, v in res.items() if k not in forbidden}
+            # elif isinstance(res, list):
+            #     return [_prune_result(v) for v in res]
+            # else:
+            #     return res
+            return res
+
+        def _safe_state_view(st: dict) -> dict:
+            whitelist = [
+                "input","attachments","prompts","history","messages","threads","metadata",
+                "attributes","result","tool_input","tool_result","error","retries","condition","case","goals"
+            ]
+            out = {}
+            for k in whitelist:
+                v = st.get(k)
+                # Prevent obvious self refs and heavy objects
+                if k == "result" and v is st:
+                    v = {}
+                if k == "result":
+                    # Always prune result to prevent nesting/recursion
+                    out[k] = _prune_result(v)
+                elif isinstance(v, dict):
+                    # shallow copy and drop recursive 'result' if points back
+                    vd = dict(v)
+                    if vd.get("result") is st:
+                        vd.pop("result", None)
+                    out[k] = vd
+                elif isinstance(v, (list, tuple, str, int, float, bool)) or v is None:
+                    out[k] = copy.deepcopy(v)
+                else:
+                    # drop unsupported types
+                    out[k] = None
+            # Final JSON check; if fails, degrade fields
+            try:
+                json.dumps(out, ensure_ascii=False, default=str)
+            except Exception:
+                # best-effort: stringify any non-serializable remnants
+                def _stringify(o):
+                    try:
+                        json.dumps(o)
+                        return o
+                    except Exception:
+                        return str(o)
+                out = {k: _stringify(v) for k, v in out.items()}
+            return out
+
+        def _notify_node_status(status_label: str, st: dict) -> None:
+            """Best-effort IPC notification for this node's runtime status.
+
+            Uses the same channel as the existing 'running' status updates,
+            but also emits per-node 'completed' and 'failed' events so the
+            frontend can render accurate node-level indicators.
+            """
+            try:
+                from gui.ipc.api import IPCAPI
+                import time as time_mod
+                ipc = IPCAPI.get_instance()
+                # Get run_id from runtime context if available
+                run_id = "dev_run_singleton"  # default for dev runs
+                try:
+                    run_id = runtime.context.get("run_id", "dev_run_singleton")
+                except Exception:
+                    pass
+                logger.info(f"[SIM][node_builder] sending {status_label} status for node={node_name}, run_id={run_id}")
+                ipc.update_run_stat(
+                    agent_task_id=run_id,
+                    current_node=node_name,
+                    status=status_label,
+                    langgraph_state=st,
+                    timestamp=int(time_mod.time() * 1000)
+                )
+                logger.info(f"[SIM][node_builder] status update sent successfully for node={node_name}, status={status_label}")
+                # For "running" we keep a tiny delay to ensure the frontend
+                # sees the node enter the running state before completion.
+                if status_label == "running":
+                    time_mod.sleep(0.05)
+            except Exception as ex:
+                import traceback
+                logger.error(f"[node_builder] Failed to send {status_label} status for {node_name}: {ex}")
+                logger.error(f"[node_builder] Traceback: {traceback.format_exc()}")
+                pass
+
+        # Step-once: pause at the very next node regardless of configured breakpoints
+        try:
+            step_once = False
+            try:
+                step_once = bool(runtime.context.get("step_once"))
+            except Exception:
+                step_once = False
+
+            # Collect debug context for tracing
+            try:
+                origin = runtime.context.get("step_from")
+            except Exception:
+                origin = None
+            try:
+                skip_list_dbg = runtime.context.get("skip_bp_once", [])
+            except Exception:
+                skip_list_dbg = []
+            logger.debug(f"[step-once] node={node_name}, origin={origin}, step_once={step_once}, skip_bp_once={skip_list_dbg}")
+
+            if step_once:
+                origin = runtime.context.get("step_from")
+                # Pause at the next node (not the origin which was just skipped)
+                if (not origin) or (origin != node_name):
+                    logger.info(f"Step-once: pausing at {node_name} before execution.")
+                    try:
+                        runtime.context["step_once"] = False  # clear so it only pauses once
+                    except Exception:
+                        pass
+                    interrupt({"paused_at": node_name, "i_tag": node_name, "state": _safe_state_view(state)})
+        except GraphInterrupt:
+            # Re-raise GraphInterrupt so the workflow actually pauses
+            raise
+        except Exception as _e:
+            err_msg = get_traceback(_e, "ErrorNodeBuilderWrapper")
+            logger.debug(f"[node_builder] step-once check failed at {node_name}: {err_msg}")
+
+        # Check for breakpoints BEFORE executing the node
+        # This ensures we pause before any node code runs
+        if bp_manager and bp_manager.has_breakpoint(node_name):
+            logger.debug(f"[breakpoint] Configured breakpoint present for node={node_name}")
+            # sanitize potential self-referential result before any interrupt
+            try:
+                if state.get("result") is state:
+                    logger.warning(f"Detected self-referential state.result at {node_name}; clearing to avoid recursion")
+                    state["result"] = {}
+                elif isinstance(state.get("result"), dict) and state["result"].get("result") is state:
+                    logger.warning(f"Detected nested self-reference in state.result at {node_name}; trimming")
+                    state["result"].pop("result", None)
+            except Exception as e:
+                err_msg = get_traceback(e, "ErrorNodeBuilderWrapper")
+                logger.error(f"Error sanitizing state.result at {node_name}: {err_msg}")
+                pass
+            # Support one-shot skip using runtime.context (controlled by the task loop)
+            skip_list = []
+            try:
+                skip_list = runtime.context.get("skip_bp_once", [])
+            except Exception as e:
+                err_msg = get_traceback(e, "ErrorNodeBuilderWrapper")
+                logger.error(f"Error build skip list at {node_name}: {err_msg}")
+                skip_list = []
+
+            logger.debug(f"[breakpoint] skip-once list before at node={node_name}: {skip_list}")
+            if isinstance(skip_list, (list, tuple)) and node_name in skip_list:
+                logger.info(f"[breakpoint] Skip-once: skipping breakpoint at {node_name} per runtime.context")
+                # remove it so it only skips once
+                try:
+                    if isinstance(skip_list, list):
+                        skip_list.remove(node_name)
+                        logger.debug(f"[breakpoint] skip-once list after at node={node_name}: {runtime.context.get('skip_bp_once')}")
+                        runtime.context["skip_bp_once"] = skip_list
+                except Exception:
+                    pass
+            else:
+                # Check if step_once is active and this is the origin - if so, skip breakpoint
+                step_once_active = runtime.context.get("step_once", False)
+                step_origin = runtime.context.get("step_from", "")
+                if step_once_active and step_origin == node_name:
+                    logger.info(f"[breakpoint] Step-once: skipping breakpoint at origin node {node_name}")
+                else:
+                    # Fallback: state-based resume flag (kept for compatibility with older flows)
+                    resuming_from = state.get("_resuming_from")
+                    logger.debug(f"[breakpoint] check for node={node_name}, _resuming_from={resuming_from}")
+                    if resuming_from == node_name:
+                        logger.info(f"[breakpoint] Skipping breakpoint at {node_name} - resuming from this node (state flag)")
+                        state.pop("_resuming_from", None)
+                    else:
+                        logger.info(f"[breakpoint] HIT at node={node_name}. Pausing before execution.")
+                        interrupt({"paused_at": node_name, "i_tag": node_name, "state": _safe_state_view(state)})
+
+        # ============================================================
+        # Process pending async events from task queue before node runs
+        # ============================================================
+        try:
+            task = None
+            try:
+                task = runtime.context.get('task') or runtime.context.get('managed_task')
+            except Exception:
+                pass
+            if task is None:
+                task = state.get('_managed_task')
+            
+            if task and hasattr(task, 'queue') and task.queue:
+                # Non-blocking drain of callback/timeout events
+                events_processed = 0
+                while events_processed < 10:  # Limit to prevent infinite loop
+                    try:
+                        event = task.queue.get_nowait()
+                        event_type = event.get("type", "")
+                        
+                        if event_type == "async_callback":
+                            corr_id = event.get("correlation_id")
+                            result = event.get("result")
+                            error = event.get("error")
+                            logger.info(f"[NODE_QUEUE] Processing callback {corr_id} before node {node_name}")
+                            resolve_async_operation(task, corr_id, result=result, error=error)
+                            events_processed += 1
+                            
+                        elif event_type == "async_timeout":
+                            corr_id = event.get("correlation_id")
+                            logger.warning(f"[NODE_QUEUE] Processing timeout {corr_id} before node {node_name}")
+                            resolve_async_operation(task, corr_id, error="timeout")
+                            events_processed += 1
+                            
+                        else:
+                            # Put non-async events back for the main loop
+                            task.queue.put(event)
+                            break
+                            
+                    except Empty:
+                        break
+                    except Exception as eq:
+                        logger.debug(f"[NODE_QUEUE] Error processing queue: {eq}")
+                        break
+                        
+                if events_processed > 0:
+                    logger.info(f"[NODE_QUEUE] Processed {events_processed} async events before node {node_name}")
+        except Exception as qe:
+            logger.debug(f"[NODE_QUEUE] Queue check skipped: {qe}")
+
+        # Send running status to frontend before executing node
+        # This must be OUTSIDE the retry loop and AFTER breakpoint checks
+        _notify_node_status("running", state)
+
+        # Execute the node function with retry logic
+        while attempts < retries:
+            try:
+                # Add node context to the state, which is mutable
+                if "attributes" not in state or not isinstance(state.get("attributes"), dict):
+                    state["attributes"] = {}
+                state["attributes"]["__this_node__"] = {"name": node_name, "skill_name": skill_name, "owner": owner}
+                
+                # Execute the actual node function
+                result = node_fn(state, runtime=runtime, store=store)
+                break  # success - exit retry loop
+                
+            except Exception as e:
+                # Do not treat intended graph interrupt as an error: no retry, no warning
+                if isinstance(e, GraphInterrupt):
+                    try:
+                        _record_node_timing(state, "interrupt", time.perf_counter() - node_t0)
+                    except Exception:
+                        pass
+                    raise e
+
+                attempts += 1
+                last_exc = e
+                err_msg = get_traceback(e, "ErrorNode")
+                logger.warning(f"[{node_name}] failed (attempt {attempts}/{retries}): {err_msg}")
+                if attempts < retries:
+                    delay = base_delay * (2 ** (attempts - 1)) + random.uniform(0, jitter)
+                    time.sleep(delay)
+
+        if last_exc:
+            # Node ultimately failed after exhausting retries; report a
+            # per-node failed status so the UI can render it accurately.
+            try:
+                if isinstance(state, dict) and not state.get("error"):
+                    try:
+                        state["error"] = str(last_exc)
+                    except Exception:
+                        pass
+                _notify_node_status("failed", state)
+                _record_node_timing(state, "failed", time.perf_counter() - node_t0)
+                
+                # Record consecutive failure for guardrail tracking
+                try:
+                    task = None
+                    try:
+                        task = runtime.context.get('task') or runtime.context.get('managed_task')
+                    except Exception:
+                        pass
+                    if task is None:
+                        task = state.get('_managed_task')
+                    if task and hasattr(task, 'record_failure'):
+                        failure_count = task.record_failure()
+                        logger.warning(f"[GUARDRAIL] Node {node_name} failed. Consecutive failures: {failure_count}/{task.max_failures}")
+                except Exception as fe:
+                    logger.debug(f"[GUARDRAIL] Failed to record failure: {fe}")
+            except Exception:
+                pass
+            raise last_exc
+
+        # Process the result to ensure it's a valid dictionary for state update
+        # if isinstance(result, list):
+        #     # Handle cases where debugging injects an Interrupt object
+        #     dict_result = next((item for item in result if isinstance(item, dict)), None)
+        #     state["result"] = _prune_result(dict_result or {})
+        # elif isinstance(result, dict):
+        #     state["result"] = _prune_result(result)
+        # else:
+        #     # If the result is not a dict (e.g., None), return an empty dict to prevent errors
+        #     state["result"] = result
+
+        # Final sanitation to avoid self-referential recursion in checkpoints
+        try:
+            if state.get("result") is state:
+                logger.warning(f"Detected self-referential state.result after exec at {node_name}; clearing")
+                state["result"] = {}
+            elif isinstance(state.get("result"), dict) and state["result"].get("result") is state:
+                logger.warning(f"Detected nested self-reference in state.result after exec at {node_name}; trimming")
+                state["result"].pop("result", None)
+            # ensure pruned
+            state["result"] = _prune_result(state.get("result", {}))
+        except Exception:
+            pass
+
+        # Successful completion: notify frontend for this specific node.
+        _notify_node_status("completed", state)
+
+        # Reset consecutive failure counter on success
+        try:
+            task = None
+            try:
+                task = runtime.context.get('task') or runtime.context.get('managed_task')
+            except Exception:
+                pass
+            if task is None:
+                task = state.get('_managed_task')
+            if task and hasattr(task, 'reset_failures'):
+                task.reset_failures()
+        except Exception:
+            pass
+
+        try:
+            _record_node_timing(state, "completed", time.perf_counter() - node_t0)
+        except Exception:
+            pass
+
+        logger.debug("[node_builder]returning state...", state)
+        return state
+    # The node_builder itself returns the wrapper function
+    return wrapper
+
 def is_json_parsable(s):
     try:
         json.loads(s)
         return True
     except (ValueError, TypeError):
         return False
-
-# ============ scratch here ==============================
-prompt0 = ChatPromptTemplate.from_messages([
-            ("system", """
-                You're a electronics component procurement expert helping sourcing components for this provided BOM in JSON format. Analyze the screenshot image provided.
-                - If an ad popup blocks the screen, identify the exact (x,y) coordinates to click.
-                - If Wi-Fi is disconnected, instruct to reconnect Wi-Fi.
-                Indicate clearly if the issue has been resolved.
-            """),
-            ("human", [
-                {"type": "text", "text": "{input}"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,{image_b64}"}},
-            ]),
-            ("placeholder", "{messages}"),
-        ])
-
-prompt1 = ChatPromptTemplate.from_messages([
-            ("system", """
-                You're an electronics component procurement expert helping sourcing this component {part} with the user provided parameters in JSON format.
-                - given the parameters, please check against our knowledge base to check whether additional parameters or selection criteria needed from the user, if so, prompt user with questions to get the info about the additional parameters or criteria.
-                - If all required parameters are collected, please generate a long tail search term for components search site: {site_url}
-                Indicate clearly if the issue has been resolved.
-            """),
-            ("human", [
-                {"type": "text", "text": "{input}"},
-                {"type": "image", "source_type": "base64", "data":"{image_b64}", "mime_type": "image/jpeg"}
-            ]),
-            ("placeholder", "{messages}"),
-        ])
-
-# openai file id can be obtained after uploading files to the /v1/files
-# post https://api.openai.com/v1/batches
-# post https://api.openai.com/v1/files
-# get https://api.openai.com/v1/files/{file_id}
-# get https://api.openai.com/v1/files   ---  Returns a list of files.
-
-
-prompt2 = ChatPromptTemplate.from_messages([
-            ("system", """
-                You're an electronics component procurement expert helping sourcing this component {part} with the user provided parameters in JSON format.
-                - given all required parameters, as well as the collected DOM tree of the current web page, please help collect as much required parameter info as possible
-                - If all required parameters are collected, please generate a long tail search term for components search site: {site_url}
-                Indicate clearly if the issue has been resolved.
-            """),
-            ("human", [
-                {"type": "text", "text": "{input}"},
-                {"type": "image_url", "source_type": "url", "image_url": {"url": "data:image/png;base64,{image_b64}"}},
-                {"type": "audio", "source_type": "base64", "data": "audio_data", "mime_type": "audio/wav", "cache_control": {"type": "ephemeral"}},
-                {"type": "file", "file": { "filename": "draconomicon.pdf", "file_data": "...base64 encoded bytes here..." }},
-                {"type": "file", "file": { "file_id": "file-6F2ksmvXxt4VdoqmHRw6kL" }},
-                { "type": "input_audio", "input_audio": { "data": "encoded_string", "format": "wav" }}
-            ]),
-            ("placeholder", "{messages}"),
-        ])

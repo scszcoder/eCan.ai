@@ -12,6 +12,10 @@
     --g-workflow-line-color-hover: #37d0ff;
     --g-workflow-line-color-selected: #37d0ff;
     --g-workflow-line-color-error: red;
+
+    /* Node colors - 确保不透明背景 */
+    --flow-node-bg-color: #ffffff;
+    --flow-node-border-color: #d9d9d9;
   }
   
   /* CodeMirror line color for skill-editor nodes */
@@ -21,7 +25,6 @@
   
   .gedit-selector-bounds-background {
     cursor: move;
-    display: none !important;
   }
   
   .gedit-selector-bounds-foreground {
@@ -34,6 +37,17 @@
     outline: 1px solid var(--g-playground-selectBox-outline);
     z-index: 33;
     background-color: var(--g-playground-selectBox-background);
+  }
+
+  /* When wrapper defines --se-top, apply it as child top to avoid overlap */
+  .se-port[style*="--se-top"] > * {
+    top: var(--se-top) !important;
+  }
+
+  /* For condition outputs we render a separate overlay triangle; disable pseudo-element */
+  .se-port.se-port--no-overlay > *::after {
+    content: none !important;
+    display: none !important;
   }
   
   @keyframes blink {
@@ -83,4 +97,350 @@
     justify-content: center;
     align-items: center;
   }
+
+  /* Use default system cursor (small pointer) and let the editor manage special cursors itself */
+  .demo-editor,
+  .demo-editor * {
+    cursor: default;
+  }
+
+  /* ===== Node State Panel Styles ===== */
   
+  /* Collapse button - seamlessly integrated with background */
+  .ns-toggle,
+  .ns-toggle-panel {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: #555;
+    font-size: 22px;
+    line-height: 0;
+    letter-spacing: 0;
+    vertical-align: middle;
+    text-align: center;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    border-radius: 6px;
+    font-weight: 600;
+  }
+
+  .ns-toggle:hover,
+  .ns-toggle-panel:hover {
+    background-color: rgba(77, 83, 232, 0.08);
+    color: #4d53e8;
+    transform: scale(1.1);
+  }
+
+  .ns-toggle:active,
+  .ns-toggle-panel:active {
+    background-color: rgba(77, 83, 232, 0.15);
+    transform: scale(0.95);
+  }
+
+  /* Focus state only shows with keyboard navigation, not with mouse click */
+  .ns-toggle:focus:not(:focus-visible),
+  .ns-toggle-panel:focus:not(:focus-visible) {
+    outline: none;
+    box-shadow: none;
+  }
+
+  .ns-toggle:focus-visible,
+  .ns-toggle-panel:focus-visible {
+    outline: 2px solid #4d53e8;
+    outline-offset: 2px;
+  }
+
+  /* Smooth icon transition */
+  .ns-toggle::before,
+  .ns-toggle-panel::before {
+    content: '';
+  }
+
+  /* Node header layout - ensure proper alignment */
+  .ns-node-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  /* Key label styling */
+  .ns-key {
+    font-size: 13px;
+    color: #333;
+    line-height: 1.4;
+  }
+
+  /* Secondary button styles for node state panel */
+  .ns-add,
+  .ns-remove,
+  .ns-action-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 12px;
+    height: 28px;
+    background: #f5f5f5;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    color: #333;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+  }
+
+  .ns-add:hover,
+  .ns-remove:hover,
+  .ns-action-button:hover {
+    background: #efefef;
+    border-color: #d0d0d0;
+    color: #000;
+  }
+
+  .ns-add:active,
+  .ns-remove:active,
+  .ns-action-button:active {
+    background: #e5e5e5;
+    border-color: #c0c0c0;
+  }
+
+  .ns-add:focus,
+  .ns-remove:focus,
+  .ns-action-button:focus {
+    outline: 2px solid #4d53e8;
+    outline-offset: -2px;
+  }
+
+  /* Destructive action variant */
+  .ns-remove {
+    border-color: #f5a623;
+  }
+
+  .ns-remove:hover {
+    background: #fff5eb;
+    border-color: #ff7a45;
+  }
+
+  /* Form inputs and selects */
+  .ns-input,
+  .ns-select {
+    color: #333;
+    background: #fff;
+    border: 1px solid #d9d9d9;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    transition: all 0.2s ease;
+  }
+
+  .ns-input:hover,
+  .ns-select:hover {
+    border-color: #b3b3b3;
+  }
+
+  .ns-input:focus,
+  .ns-select:focus {
+    outline: none;
+    border-color: #4d53e8;
+    box-shadow: 0 0 0 2px rgba(77, 83, 232, 0.1);
+  }
+
+  /* === Skill Editor: Unified Port Icons === */
+  /* Wrapper created in node-wrapper.tsx around WorkflowPortRender */
+  /* Let engine control layout/positioning of each port wrapper to avoid overlaps */
+  .se-port { 
+    /* Critical: Use display: contents to make the wrapper "disappear" from the layout box tree.
+       This allows the child (WorkflowPortRender) to be absolutely positioned relative to the NodeWrapper,
+       fixing the "floating at bottom" issue. */
+    display: contents;
+  }
+
+  /* 
+   * Target the actual port element rendered by the library.
+   * We hide its default visual but use it as the anchor for our custom icon.
+   */
+  .se-port.se-port--has-icon > * {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    /* Ensure overflow is visible so our icon (which might be slightly larger) isn't clipped */
+    overflow: visible !important;
+  }
+
+  /* Render Custom Icon via Pseudo-element attached to the LIBRARY's port element */
+  .se-port.se-port--has-icon > *::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 20px;
+    height: 20px;
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    pointer-events: none; /* Let clicks hit the parent (the port element) */
+    z-index: 100;
+    transition: transform 0.3s ease, filter 0.2s ease;
+  }
+
+  /* Input Icon: White circle, Blue arrow in */
+  .se-port.se-port--input > *::after {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='white' stroke='%234d53e8' stroke-width='1.5'/%3E%3Cpath d='M6 5L9 8L6 11' stroke='%234d53e8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+
+  /* Output Icon: Blue circle, White arrow out */
+  .se-port.se-port--output > *::after {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%234d53e8'/%3E%3Cpath d='M6 5L9 8L6 11' stroke='white' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+
+  /* Hover Effect */
+  .se-port.se-port--has-icon > *:hover::after {
+    filter: brightness(1.15);
+    transform: translate(-50%, -50%) scale(1.3);
+  }
+
+  /* Flip Support: Rotate 180deg */
+  .se-node--hflip .se-port.se-port--has-icon > *::after,
+  .se-port.se-port--hflip.se-port--has-icon > *::after {
+    transform: translate(-50%, -50%) rotate(180deg);
+  }
+  /* Maintain hover scale when flipped */
+  .se-node--hflip .se-port.se-port--has-icon > *:hover::after,
+  .se-port.se-port--hflip.se-port--has-icon > *:hover::after {
+    transform: translate(-50%, -50%) rotate(180deg) scale(1.3);
+  }
+
+  /* Keyboard focus indication */
+  .se-port.se-port--has-icon > *:focus-visible::after {
+    filter: drop-shadow(0 0 2px rgba(77, 83, 232, 0.8));
+  }
+
+  /* === Condition Node Specifics === */
+  
+  /* 
+   * Previously, we forced condition ports to be circles with opacity: 1.
+   * Now removed to allow them to use the unified Port Icons.
+   */
+  /* 
+  .se-port[data-se-port-id^="port_input_condition_"] > *:first-child,
+  .se-port[data-se-port-id^="port_output_condition_"] > *:first-child {
+    opacity: 1 !important;
+  }
+  */
+
+  /* === Removed old triangular ::after overlays completely === */
+
+  /* === Condition Node Output Styling (Override inline styles) === */
+  /* FORCE OVERFLOW VISIBLE: Crucial for ports injected inside the form to be seen/connected */
+  .se-node--condition * {
+    overflow: visible !important;
+  }
+
+  /* Target the specific port divs created by Condition Node logic */
+  .gedit-flow-activity-node [data-port-id^="if_"],
+  .gedit-flow-activity-node [data-port-id^="else_"],
+  .gedit-flow-activity-node [data-port-id^="elif_"] {
+    /* Override inline styles to hide default blue dot */
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    width: 20px !important;
+    height: 20px !important;
+    
+    /* Adjust position for larger icon (from right: -6px to -10px) */
+    right: -10px !important; 
+    
+    /* Ensure icon is visible */
+    overflow: visible !important;
+  }
+
+  /* Render Unified Output Icon */
+  .gedit-flow-activity-node [data-port-id^="if_"]::after,
+  .gedit-flow-activity-node [data-port-id^="else_"]::after,
+  .gedit-flow-activity-node [data-port-id^="elif_"]::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 20px;
+    height: 20px;
+    
+    /* Output Icon SVG */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%234d53e8'/%3E%3Cpath d='M6 5L9 8L6 11' stroke='white' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    
+    pointer-events: none;
+    z-index: 200;
+  }
+  
+  /* Hover effect */
+  .gedit-flow-activity-node [data-port-id="if_out"]:hover::after,
+  .gedit-flow-activity-node [data-port-id="else_out"]:hover::after,
+  .gedit-flow-activity-node [data-port-id^="elif_"]:hover::after {
+    filter: brightness(1.15);
+    transform: translate(-50%, -50%) scale(1.3);
+  }
+
+  /* Flip support */
+  .se-node--hflip [data-port-id="if_out"]::after,
+  .se-node--hflip [data-port-id="else_out"]::after,
+  .se-node--hflip [data-port-id^="elif_"]::after {
+    transform: translate(-50%, -50%) rotate(180deg);
+  }
+  .se-node--hflip [data-port-id="if_out"]:hover::after,
+  .se-node--hflip [data-port-id="else_out"]:hover::after,
+  .se-node--hflip [data-port-id^="elif_"]:hover::after {
+    transform: translate(-50%, -50%) rotate(180deg) scale(1.3);
+  }
+
+  /* === JS overlay triangles for condition outputs (Legacy/Backup) === */
+  /* Positioned by NodeWrapper using port.relativePosition */
+  .se-tri {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    left: 0;
+    top: 0;
+    transform: translate(-50%, -50%);
+    background: transparent;
+    /* Use Unified Output Icon */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%234d53e8'/%3E%3Cpath d='M6 5L9 8L6 11' stroke='white' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+    pointer-events: none; /* keep port interactive */
+    z-index: 250; /* above default dots */
+  }
+  .se-tri.se-tri--flip {
+    transform: translate(-50%, -50%) rotate(180deg);
+  }
+
+  /* === Condition node output markers (dynamic positioning via inline styles) === */
+  .se-cond-port {
+    /* Position and transform are set via inline styles for dynamic port count */
+    background: transparent;
+    /* Use Unified Output Icon */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='7' fill='%234d53e8'/%3E%3Cpath d='M6 5L9 8L6 11' stroke='white' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-size: contain;
+    background-repeat: no-repeat;
+    background-position: center;
+  }
+  /* Hover effect for condition ports */
+  .se-cond-port:hover {
+    transform: translate(0, -50%) scale(1.3);
+    filter: brightness(1.1);
+  }
+  .se-node--hflip .se-cond-port:hover {
+    transform: translate(0, -50%) rotate(180deg) scale(1.3);
+  }

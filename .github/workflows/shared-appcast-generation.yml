@@ -1,0 +1,130 @@
+# ============================================================================
+# Reusable Workflow: Appcast Generation (Single Bucket Design)
+# ============================================================================
+# This workflow generates Sparkle-compatible appcast XML files from S3
+# artifacts using the single bucket design for our self-contained OTA system.
+#
+# Generated Files:
+#   - {environment}/channels/{channel}/appcast-macos-amd64.xml
+#   - {environment}/channels/{channel}/appcast-macos-aarch64.xml
+#   - {environment}/channels/{channel}/appcast-windows-amd64.xml
+#   - {environment}/channels/{channel}/latest.json
+#
+# Usage:
+#   jobs:
+#     generate-appcast:
+#       uses: ./.github/workflows/shared-appcast-generation-v2.yml
+#       with:
+#         environment: "production"
+#         channel: "stable"
+#       secrets: inherit
+# ============================================================================
+
+name: Generate Appcast (Single Bucket)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Target environment (dev/test/staging/production/simulation)'
+        required: true
+        type: string
+      channel:
+        description: 'Release channel (dev/beta/stable/lts/simulation)'
+        required: false
+        type: string
+        default: ''
+      version:
+        description: 'Specific version to generate appcast for (e.g., 1.0.1). If empty, scans all versions.'
+        required: false
+        type: string
+        default: ''
+      platform:
+        description: 'Target platform (all/macos/windows)'
+        required: false
+        type: string
+        default: 'all'
+      arch:
+        description: 'Target architecture (all/amd64/aarch64)'
+        required: false
+        type: string
+        default: 'all'
+    outputs:
+      appcast-generated:
+        description: 'Whether appcast generation was successful'
+        value: ${{ jobs.generate.outputs.success }}
+
+jobs:
+  generate:
+    name: Generate Appcast (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    outputs:
+      success: ${{ steps.generate.outputs.success }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: 'build_system/scripts/requirements.txt'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r build_system/scripts/requirements.txt
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+      
+      - name: Generate Appcast
+        id: generate
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          CHANNEL: ${{ inputs.channel }}
+          VERSION: ${{ inputs.version }}
+          PLATFORM: ${{ inputs.platform }}
+          ARCH: ${{ inputs.arch }}
+        run: |
+          echo "=== Generating Appcast ==="
+          echo "Environment: $ENVIRONMENT"
+          echo "Channel: $CHANNEL"
+          echo "Version: $VERSION"
+          echo "Platform: $PLATFORM"
+          echo "Architecture: $ARCH"
+          
+          # Build command
+          CMD="python3 build_system/scripts/generate_appcast.py --env $ENVIRONMENT"
+          
+          if [ -n "$CHANNEL" ]; then
+            CMD="$CMD --channel $CHANNEL"
+          fi
+          
+          if [ -n "$VERSION" ]; then
+            CMD="$CMD --version $VERSION"
+          fi
+          
+          if [ -n "$PLATFORM" ]; then
+            CMD="$CMD --platform $PLATFORM"
+          fi
+          
+          if [ -n "$ARCH" ]; then
+            CMD="$CMD --arch $ARCH"
+          fi
+          
+          # Run generation script
+          $CMD
+          
+          if [ $? -eq 0 ]; then
+            echo "success=true" >> $GITHUB_OUTPUT
+          else
+            echo "success=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi

@@ -10,15 +10,15 @@ export class CommentEditorModel {
 
   private editor: HTMLTextAreaElement;
 
-  /** 注册事件 */
+  /** RegisterEvent */
   public on = this.emitter.event;
 
-  /** 获取当前值 */
+  /** GetWhen前Value */
   public get value(): string {
     return this.innerValue;
   }
 
-  /** 外部设置模型值 */
+  /** ExternalSettings模型Value */
   public setValue(value: string = CommentEditorDefaultValue): void {
     if (!this.initialized) {
       return;
@@ -41,12 +41,12 @@ export class CommentEditorModel {
     this.editor = el;
   }
 
-  /** 获取编辑器 DOM 节点 */
+  /** GetEdit器 DOM 节点 */
   public get element(): HTMLTextAreaElement | null {
     return this.editor;
   }
 
-  /** 编辑器聚焦/失焦 */
+  /** Edit器聚焦/失焦 */
   public setFocus(focused: boolean): void {
     if (!this.initialized) {
       return;
@@ -62,40 +62,40 @@ export class CommentEditorModel {
     }
   }
 
-  /** 选择末尾 */
+  /** Select末尾 */
   public selectEnd(): void {
     if (!this.initialized) {
       return;
     }
-    // 获取文本长度
+    // Get文本Length
     const length = this.editor.value.length;
-    // 将选择范围设置为文本末尾(开始位置和结束位置都是文本长度)
+    // 将SelectRangeSettings为文本末尾(开始Position和结束Position都是文本Length)
     this.editor.setSelectionRange(length, length);
   }
 
-  /** 获取聚焦状态 */
+  /** Get聚焦Status */
   public get focused(): boolean {
     return document.activeElement === this.editor;
   }
 
-  /** 取消选择文本 */
+  /** CancelSelect文本 */
   private deselect(): void {
     const selection: Selection | null = window.getSelection();
 
-    // 清除所有选择区域
+    // 清除AllSelect区域
     if (selection) {
       selection.removeAllRanges();
     }
   }
 
-  /** 是否初始化 */
+  /** 是否Initialize */
   private get initialized(): boolean {
     return Boolean(this.editor);
   }
 
   /**
-   * 同步编辑器实例内容
-   * > **NOTICE:** *为确保不影响性能，应仅在外部值变更导致编辑器值与模型值不一致时调用*
+   * SyncEdit器实例Content
+   * > **NOTICE:** *为确保不影响Performance，应仅在ExternalValue变更导致Edit器Value与模型Value不一致时调用*
    */
   private syncEditorValue(): void {
     if (!this.initialized) {

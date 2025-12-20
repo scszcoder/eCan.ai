@@ -11,7 +11,7 @@ from typing import Optional, Dict, Any
 
 from utils.logger_helper import logger_helper as logger
 from .config import get_webdriver_dir
-from .utils import detect_chrome_version, find_existing_webdriver, find_project_webdriver
+from .utils import detect_chrome_version, find_existing_webdriver
 from .downloader import WebDriverDownloader
 
 
@@ -42,8 +42,11 @@ class WebDriverManager:
                 # Ensure webdriver directory exists
                 os.makedirs(self._webdriver_dir, exist_ok=True)
                 
-                # Detect Chrome version
-                self._chrome_version = detect_chrome_version()
+                # Detect Chrome version in a separate thread to avoid blocking
+                logger.info("Detecting Chrome version...")
+                self._chrome_version = await asyncio.to_thread(detect_chrome_version)
+                # self._chrome_version = detect_chrome_version()
+                logger.info(f"Detected Chrome version: {self._chrome_version}")
                 
                 # Find or download matching webdriver
                 if not await self._ensure_webdriver():
@@ -60,86 +63,37 @@ class WebDriverManager:
                 return False
     
     async def _ensure_webdriver(self) -> bool:
-        """Ensure matching webdriver is available"""
+        """Ensure matching webdriver is available, downloading if necessary."""
         try:
-            # First check existing directories
+            # Priority 2: Check for an automatically cached webdriver.
             existing_driver = self._find_existing_webdriver()
             if existing_driver:
                 self._webdriver_path = existing_driver
-                logger.info(f"Found existing WebDriver: {self._webdriver_path}")
+                logger.info(f"Found cached compatible WebDriver: {self._webdriver_path}")
                 return True
-            
-            # Try to download matching webdriver in background
-            logger.info("No existing WebDriver found, starting background download...")
-            download_id = self._start_background_download()
-            
-            # Return True to indicate initialization started, actual result will come later
-            return True
-            
-        except Exception as e:
-            logger.error(f"WebDriver acquisition failed: {e}")
-            return False
-    
-    def _start_background_download(self) -> str:
-        """Start background download of WebDriver"""
-        try:
+
+            # Priority 3: Attempt to download a new webdriver.
+            logger.info("No compatible WebDriver found. Attempting to download...")
             if not self._chrome_version:
-                logger.error("Chrome version not detected, cannot start download")
-                return ""
-            
-            # Start background download with custom callback
-            download_id = self._downloader.start_background_download(
+                logger.error("Chrome version not detected, cannot download WebDriver.")
+                return False
+
+            driver_path = await self._downloader.download_webdriver(
                 self._chrome_version,
-                self._webdriver_dir,
-                self._download_progress_callback
+                self._webdriver_dir
             )
-            
-            # Save download ID for status checking
-            self._current_download_id = download_id
-            
-            logger.info(f"Background download started with ID: {download_id}")
-            return download_id
-            
+
+            if driver_path:
+                self._webdriver_path = driver_path
+                logger.info(f"Successfully downloaded WebDriver to: {self._webdriver_path}")
+                return True
+            else:
+                logger.error("Failed to download WebDriver.")
+                return False
+
         except Exception as e:
-            logger.error(f"Failed to start background download: {e}")
-            return ""
-    
-    def _download_progress_callback(self, progress: int, message: str):
-        """Callback for download progress updates"""
-        logger.info(f"Download progress: {progress}% - {message}")
-        
-        # Update status for external monitoring
-        self._download_progress = {"progress": progress, "message": message}
-        
-        # Check if download is complete
-        if progress == 100 and "completed" in message.lower():
-            # Try to find the downloaded webdriver
-            try:
-                from .utils import find_existing_webdriver
-                downloaded_path = find_existing_webdriver(self._webdriver_dir)
-                if downloaded_path:
-                    self._webdriver_path = downloaded_path
-                    logger.info(f"✅ WebDriver path updated after download: {self._webdriver_path}")
-                else:
-                    logger.warning("Download completed but WebDriver file not found")
-            except Exception as e:
-                logger.error(f"Failed to update WebDriver path after download: {e}")
-        
-        # Also check if we have a result from the downloader
-        if hasattr(self, '_current_download_id') and self._current_download_id:
-            status = self._downloader.get_download_status(self._current_download_id)
-            if status and status.get('status') == 'completed' and status.get('result'):
-                self._webdriver_path = status.get('result')
-                logger.info(f"✅ WebDriver path updated from download result: {self._webdriver_path}")
-    
-    def get_download_progress(self) -> Optional[dict]:
-        """Get current download progress"""
-        return getattr(self, '_download_progress', None)
-    
-    def is_download_complete(self) -> bool:
-        """Check if background download is complete"""
-        # This is a simplified check - in a real implementation you'd track the actual download status
-        return self._webdriver_path is not None
+            logger.error(f"An error occurred during WebDriver acquisition: {e}")
+            return False
     
     def _find_fallback_webdriver(self) -> Optional[str]:
         """Find any available webdriver as fallback"""
@@ -182,11 +136,6 @@ class WebDriverManager:
     def _find_existing_webdriver(self) -> Optional[str]:
         """Find existing webdriver"""
         try:
-            # Check project directory for webdriver
-            project_driver = find_project_webdriver()
-            if project_driver:
-                return project_driver
-            
             # Check webdriver directory
             return find_existing_webdriver(self._webdriver_dir)
             

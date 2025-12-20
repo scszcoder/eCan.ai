@@ -1,0 +1,41 @@
+[
+  {
+    "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/117.0.0.0 Safari/537.36",
+    "viewport": { "width": 1920, "height": 1080 },
+    "timezone": "America/New_York",
+    "locale": "en-US",
+    "platform": "Win32",
+    "canvasNoiseSeed": "abc123",
+    "proxy": {
+      "server": "http://us1.myproxy.com:3128",
+      "username": "proxyuser",
+      "password": "proxypass"
+    }
+  },
+  {
+    "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.4 Safari/605.1.15",
+    "viewport": { "width": 1440, "height": 900 },
+    "timezone": "America/Los_Angeles",
+    "locale": "en-US",
+    "platform": "MacIntel",
+    "canvasNoiseSeed": "xyz789",
+    "proxy": {
+      "server": "http://us1.myproxy.com:3128",
+      "username": "proxyuser",
+      "password": "proxypass"
+    }
+  },
+  {
+    "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/112.0.0.0 Safari/537.36",
+    "viewport": { "width": 1366, "height": 768 },
+    "timezone": "Europe/Amsterdam",
+    "locale": "nl-NL",
+    "platform": "Linux x86_64",
+    "canvasNoiseSeed": "lmno456",
+    "proxy": {
+      "server": "http://us1.myproxy.com:3128",
+      "username": "proxyuser",
+      "password": "proxypass"
+    }
+  }
+]

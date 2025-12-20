@@ -15,7 +15,7 @@ class CallableManager:
     
     def __init__(self):
         self.storage = CallableStorage()
-        logger.debug("Initializing CallableManager")
+        # logger.debug("Initializing CallableManager")
     
     def get_callables(self, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Get list of callable functions
@@ -35,24 +35,24 @@ class CallableManager:
             return []
     
     def add_custom_callable(self, callable: CallableFunction) -> bool:
-        """添加自定义函数
-        
+        """Add custom function
+
         Args:
-            callable: 可调用函数定义
-            
+            callable: Callable function definition
+
         Returns:
-            bool: 是否添加成功
+            bool: Whether addition was successful
         """
         return self.storage.add_custom_callable(callable)
-    
+
     def remove_custom_callable(self, name: str) -> bool:
-        """删除自定义函数
-        
+        """Remove custom function
+
         Args:
-            name: 函数名称
-            
+            name: Function name
+
         Returns:
-            bool: 是否删除成功
+            bool: Whether removal was successful
         """
         return self.storage.remove_custom_callable(name)
     
@@ -115,14 +115,14 @@ class CallableManager:
             ValueError: If function not found or update fails
         """
         try:
-            # 获取现有函数
+            # Get existing function
             id = data.get('id')
             callables = self.storage.get_callables({'id': id})
             if not callables:
                 raise ValueError(f"Function not found: {id}")
             existing = callables[0]
-                
-            # 更新函数数据
+
+            # Update function data
             updated_data = {
                 'id': id,
                 'name': data.get('name', existing['name']),
@@ -130,16 +130,16 @@ class CallableManager:
                 'params': data.get('params', existing['params']),
                 'returns': data.get('returns', existing['returns']),
                 'type': data.get('type', existing['type']),
-                'code': data.get('code', existing['code'])  # 确保 code 字段存在
+                'code': data.get('code', existing['code'])  # Ensure code field exists
             }
-            
-            # 创建新的函数对象
+
+            # Create new function object
             updated_function = CallableFunction(**updated_data)
-            
-            # 更新存储
+
+            # Update storage
             self.storage.update_callable(id, updated_function.to_dict())
-            
-            # 返回更新后的数据
+
+            # Return updated data
             return updated_function.to_dict()
             
         except Exception as e:
@@ -147,10 +147,10 @@ class CallableManager:
             raise ValueError(f"Failed to update function: {str(e)}")
         
     def delete_callable(self, id: str) -> None:
-        """删除可调用函数
-        
+        """Delete callable function
+
         Args:
-            id: 函数ID
+            id: Function ID
         """
         try:
             self.storage.delete_callable(id)
@@ -182,18 +182,18 @@ class CallableManager:
         Raises:
             ValueError: If required parameters are missing or invalid
         """
-        # 参数验证
+        # Parameter validation
         if not params or 'action' not in params or 'data' not in params:
             raise ValueError("Missing required parameters: action and data")
-            
+
         action = params['action']
         data = params['data']
-        
-        # 验证 action
+
+        # Validate action
         if action not in ['add', 'update', 'delete']:
             raise ValueError(f"Invalid action: {action}")
-            
-        # 验证 id
+
+        # Validate id
         if action in ['update', 'delete'] and 'id' not in data:
             raise ValueError(f"Missing id in data for {action} action")
             

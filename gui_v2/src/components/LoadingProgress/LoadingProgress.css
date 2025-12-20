@@ -1,0 +1,184 @@
+.loading-progress-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  /* Reduced blur for better performance - backdrop blur is expensive */
+  backdrop-filter: none;
+}
+
+.loading-progress-card {
+  width: 400px;
+  max-width: 90vw;
+  background: #1e1e2e; /* solid to avoid gradient compositing */
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  /* Reduced shadow blur for better performance */
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.28);
+}
+
+.loading-progress-content {
+  padding: 32px 24px;
+  text-align: center;
+}
+
+.loading-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.loading-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.loading-progress-bar {
+  margin-bottom: 32px;
+}
+
+.loading-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 24px;
+  text-align: left;
+}
+
+.loading-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  /* Optimize transitions - only animate necessary properties */
+  transition: background-color 120ms ease-out, border-color 120ms ease-out;
+}
+
+.loading-step.loading {
+  background: rgba(24, 144, 255, 0.1);
+  border: 1px solid rgba(24, 144, 255, 0.3);
+}
+
+.loading-step.completed {
+  background: rgba(135, 208, 104, 0.1);
+  border: 1px solid rgba(135, 208, 104, 0.3);
+}
+
+.step-icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.step-check {
+  color: #52c41a;
+  font-size: 16px;
+}
+
+.step-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.step-label {
+  color: #ffffff;
+  font-size: 14px;
+  flex: 1;
+}
+
+.loading-step.completed .step-label {
+  color: #52c41a;
+}
+
+.loading-step.loading .step-label {
+  color: #1890ff;
+}
+
+.loading-description {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Lightweight pulse that only changes opacity (avoids layout/paint) */
+@keyframes fadePulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+.loading-step.loading .step-dot {
+  /* Reduced animation duration and optimized with will-change */
+  animation: fadePulse 1.2s ease-in-out infinite;
+}
+
+/* Compact mode styles for main page */
+.loading-progress-compact {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1000;
+}
+
+.loading-progress-compact-card {
+  background: rgba(30, 30, 46, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  /* Reduced shadow and blur for better performance */
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+  backdrop-filter: none;
+}
+
+/* Respect user/system reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .loading-step { transition: none !important; }
+  .loading-step.loading .step-dot { animation: none !important; }
+}
+
+.loading-progress-compact-content {
+  padding: 12px 16px;
+}
+
+.loading-compact-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.loading-compact-title {
+  font-size: 12px;
+  color: #ffffff;
+  font-weight: 500;
+}
+
+.loading-compact-progress {
+  margin: 0;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .loading-progress-compact {
+    top: 10px;
+    right: 10px;
+    left: 10px;
+    right: 10px;
+  }
+
+  .loading-progress-compact-card {
+    width: 100%;
+  }
+}

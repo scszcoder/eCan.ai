@@ -61,9 +61,9 @@
     padding: 0;
     width: 100%;
     background: none;
-    color: inherit;
+    color: #000; /* better contrast on gray background */
     font-family: inherit;
-    font-size: 16px;
+    font-size: 13px; /* slightly smaller */
     resize: none;
     outline: none;
 }

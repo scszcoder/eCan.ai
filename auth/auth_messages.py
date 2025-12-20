@@ -20,6 +20,8 @@ class AuthMessages:
             'login_invalid_credentials': 'Invalid username or password',
             'login_user_not_confirmed': 'User email confirmation is needed. Please check your email and confirm first.',
             'login_password_incorrect': 'Password incorrect.',
+            'google_login_success': 'Successfully logged in with Google.',
+            'get_last_login_success': 'Last login information retrieved successfully.',
             
             # Signup messages
             'signup_success': 'Please confirm that you have received the verification email and verified it.',
@@ -43,6 +45,25 @@ class AuthMessages:
             # Logout messages
             'logout_success': 'User logged out successfully',
             'logout_failed': 'Logout failed',
+            
+            # OAuth callback messages
+            'oauth_success_title': 'Authentication Successful',
+            'oauth_success_message': 'You have successfully authenticated with Google.',
+            'oauth_success_instruction': 'Click the button below to open the eCan.ai application and complete the login process.',
+            'oauth_primary_button': 'Open eCan.ai Application',
+            'oauth_secondary_button': 'Close Window',
+            'oauth_app_not_installed_hint': 'If the application does not open automatically, please ensure eCan.ai is installed on your device.',
+            'oauth_success_confirm_prompt': (
+                'Authentication successful!\\n\\n'
+                'Do you want to open the ecan.ai application to complete login?\\n\\n'
+                'If the app does not open automatically, you can click the "Open ecan.ai Application" button on this page.'
+            ),
+            
+            # OAuth error messages
+            'oauth_error_title': 'Authentication Error',
+            'oauth_error_label': 'Error',
+            'oauth_error_description_label': 'Description',
+            'oauth_error_close_instruction': 'Please close this window and try again.'
         },
         'zh-CN': {
             # Login messages
@@ -53,6 +74,8 @@ class AuthMessages:
             'login_invalid_credentials': '用户名或密码无效',
             'login_user_not_confirmed': '需要确认用户邮箱。请检查您的邮箱并先确认。',
             'login_password_incorrect': '密码错误。',
+            'google_login_success': 'Google 登录成功',
+            'get_last_login_success': '成功获取上次登录信息',
             
             # Signup messages
             'signup_success': '请确认您已收到验证邮件并完成验证。',
@@ -76,6 +99,25 @@ class AuthMessages:
             # Logout messages
             'logout_success': '用户已成功退出',
             'logout_failed': '退出失败',
+            
+            # OAuth callback messages
+            'oauth_success_title': '认证成功',
+            'oauth_success_message': '您已成功通过 Google 认证。',
+            'oauth_success_instruction': '点击下方按钮打开 eCan.ai 应用完成登录流程。',
+            'oauth_primary_button': '打开 eCan.ai 应用',
+            'oauth_secondary_button': '关闭窗口',
+            'oauth_app_not_installed_hint': '如果应用未自动打开，请确认已安装 eCan.ai 应用。',
+            'oauth_success_confirm_prompt': (
+                '认证成功！\\n\\n'
+                '是否同意打开 ecan.ai 应用以完成登录？\\n\\n'
+                '如果应用没有自动打开，您可以点击页面上的"打开 ecan.ai 应用"按钮。'
+            ),
+            
+            # OAuth error messages
+            'oauth_error_title': '认证错误',
+            'oauth_error_label': '错误',
+            'oauth_error_description_label': '描述',
+            'oauth_error_close_instruction': '请关闭此窗口并重试。'
         }
     }
     

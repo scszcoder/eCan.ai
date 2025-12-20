@@ -6,8 +6,9 @@ from typing import Dict, List, Tuple
 
 from playwright.async_api import async_playwright, Page, TimeoutError as PlaywrightTimeoutError
 from utils.logger_helper import logger_helper as logger
-from utils.logger_helper import get_agent_by_id, get_traceback
-from agent.mcp.server.scrapers.util import write_csv, clean_text, compute_header_order
+from utils.logger_helper import get_traceback
+from agent.agent_service import get_agent_by_id
+from agent.mcp.server.scrapers.scrape_util import write_csv, clean_text, compute_header_order
 
 START_URL = "https://www.digikey.com/en/products/filter/programmable-logic-ics/696"  # <-- put your results URL here
 OUT_CSV = Path("digikey_results_dynamic.csv")

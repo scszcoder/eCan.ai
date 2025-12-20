@@ -18,7 +18,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const [currentLanguage, setCurrentLanguage] = useState(i18n.language || 'zh-CN');
 
     useEffect(() => {
-        // 初始化时从 localStorage 获取语言设置
+        // Initialize时从 localStorage Get语言Settings
         const savedLanguage = localStorage.getItem('i18nextLng');
         if (savedLanguage) {
             setCurrentLanguage(savedLanguage);

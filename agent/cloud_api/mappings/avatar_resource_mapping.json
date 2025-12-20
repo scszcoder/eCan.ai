@@ -1,0 +1,53 @@
+{
+  "data_type": "avatar_resource",
+  "version": "1.0.0",
+  "description": "Avatar Resource field mapping configuration",
+  "last_updated": "2025-10-16",
+  
+  "field_mapping": {
+  },
+  
+  "cloud_required_fields": {
+    "id": ""
+  },
+  
+  "default_values": {
+    "cloud_synced": false,
+    "usage_count": 0,
+    "is_public": false
+  },
+  
+  "excluded_fields": [
+  ],
+  
+  "json_serialize_fields": [
+    "avatar_metadata"
+  ],
+  
+  "aws_date_fields": [
+  ],
+  
+  "aws_datetime_fields": [
+    "created_at",
+    "updated_at",
+    "last_used_at"
+  ],
+  
+  "notes": [
+    "✨ v1.0.0 - Avatar Resource mapping:",
+    "",
+    "Field naming principles:",
+    "1. All field names are consistent between local and cloud (no mapping needed)",
+    "2. JSON serialization for avatar_metadata",
+    "3. AWSDateTime for timestamp fields",
+    "",
+    "Schema responsibilities:",
+    "1. Field name mapping: None (all fields have same names)",
+    "2. Field exclusion: None",
+    "3. JSON serialization: avatar_metadata",
+    "4. Default values: cloud_synced = false, usage_count = 0, is_public = false",
+    "5. AWS type handling:",
+    "   - AWSDateTime: created_at, updated_at, last_used_at (ISO 8601)",
+    "   - AWSJSON: avatar_metadata (JSON string)"
+  ]
+}

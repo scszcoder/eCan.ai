@@ -1,10 +1,11 @@
-// 表单类型定义
+// FormTypeDefinition
 import { FormField as IFormField } from '../../types/chat';
 
 export interface ScoreForm {
   id: string;
   type: 'score';
   title?: string;
+  text?: string;
   components: any[];
 }
 
@@ -12,7 +13,9 @@ export interface NormalForm {
   id: string;
   type: 'normal';
   title?: string;
-  fields: IFormField[];
+  text?: string;
+  fields?: IFormField[];
+  parametric_filters?: IFormField[];
   submit_text?: string;
 }
 

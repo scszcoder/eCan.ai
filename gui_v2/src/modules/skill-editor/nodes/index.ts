@@ -18,9 +18,18 @@ import { CodeNodeRegistry } from './code';
 import { BreakNodeRegistry } from './break';
 import { BlockStartNodeRegistry } from './block-start';
 import { BlockEndNodeRegistry } from './block-end';
-import { BasicNodeRegistry } from './basic';
-import { HttpApiNodeRegistry } from './http-api';
-import { RAGNodeRegistry } from './rag';
+import { MCPNodeRegistry } from './mcp';
+import { ChatNodeRegistry } from './chat';
+import { TaskNodeRegistry } from './task';
+import { ToolPickerNodeRegistry } from './tool-picker';
+import { DummyNodeRegistry } from './dummy';
+import { PendInputNodeRegistry } from './pend-input';
+import { PendEventNodeRegistry } from './pend-event';
+import { EventNodeRegistry } from './event';
+import { BrowserAutomationNodeRegistry } from './browser-automation';
+import { SheetCallNodeRegistry } from './sheet-call';
+import { SheetInputsNodeRegistry } from './sheet-inputs';
+import { SheetOutputsNodeRegistry } from './sheet-outputs';
 export { WorkflowNodeType } from './constants';
 
 export const nodeRegistries: FlowNodeRegistry[] = [
@@ -38,7 +47,17 @@ export const nodeRegistries: FlowNodeRegistry[] = [
   BreakNodeRegistry,
   VariableNodeRegistry,
   GroupNodeRegistry,
-  BasicNodeRegistry,
-  HttpApiNodeRegistry,
-  RAGNodeRegistry,
+  MCPNodeRegistry,
+  ChatNodeRegistry,
+  TaskNodeRegistry,
+  ToolPickerNodeRegistry,
+  DummyNodeRegistry,
+  // Keep PendInput for backward compatibility; prefer PendEvent
+  PendEventNodeRegistry,
+  PendInputNodeRegistry,
+  EventNodeRegistry,
+  BrowserAutomationNodeRegistry,
+  SheetCallNodeRegistry,
+  SheetInputsNodeRegistry,
+  SheetOutputsNodeRegistry,
 ];

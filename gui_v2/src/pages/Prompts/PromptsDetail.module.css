@@ -1,0 +1,27 @@
+/* Smaller button styles - 2/3 of default size */
+.smallButton {
+  height: 22px !important;
+  padding: 0 8px !important;
+  min-width: auto !important;
+}
+
+.smallButtonWithText {
+  height: 22px !important;
+  padding: 0 12px !important;
+  font-size: 12px !important;
+  min-width: auto !important;
+}
+
+.tinyIconButton {
+  height: 20px !important;
+  width: 20px !important;
+  padding: 0 !important;
+  min-width: 20px !important;
+}
+
+.arrowButton {
+  height: 14px !important;
+  width: 14px !important;
+  padding: 0 !important;
+  min-width: 14px !important;
+}

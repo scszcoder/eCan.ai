@@ -11,7 +11,7 @@ import {
 import { IconButton, Tooltip } from '@douyinfe/semi-ui';
 
 import { WorkflowNodeType } from '../../nodes';
-import { IconComment } from '../../assets/icon-comment';
+import { IconCommentColored } from './colored-icons';
 
 export const Comment = () => {
   const playground = usePlayground();
@@ -36,15 +36,15 @@ export const Comment = () => {
     async (mouseEvent: React.MouseEvent<HTMLButtonElement>) => {
       setTooltipVisible(false);
       const canvasPosition = calcNodePosition(mouseEvent);
-      // create comment node - 创建节点
+      // create comment node - Create节点
       const node = document.createWorkflowNodeByType(WorkflowNodeType.Comment, canvasPosition);
-      // wait comment node render - 等待节点渲染
+      // wait comment node render - 等待节点Render
       await delay(16);
       // select comment node - 选中节点
       selectService.selectNode(node);
-      // maybe touch event - 可能是触摸事件
+      // maybe touch event - 可能是触摸Event
       if (mouseEvent.detail !== 0) {
-        // start drag -开始拖拽
+        // start drag -开始Drag
         dragService.startDragSelectedNodes(mouseEvent);
       }
     },
@@ -60,14 +60,7 @@ export const Comment = () => {
     >
       <IconButton
         disabled={playground.config.readonly}
-        icon={
-          <IconComment
-            style={{
-              width: 16,
-              height: 16,
-            }}
-          />
-        }
+        icon={<IconCommentColored size={18} />}
         type="tertiary"
         theme="borderless"
         onClick={createComment}

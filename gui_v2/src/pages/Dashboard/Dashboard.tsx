@@ -1,15 +1,20 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, Row, Col, Statistic, Typography, Space, Tag, Alert, Skeleton } from 'antd';
-import { CarOutlined, RobotOutlined, ScheduleOutlined, ToolOutlined, SettingOutlined } from '@ant-design/icons';
+import { LaptopOutlined, ThunderboltOutlined, ScheduleOutlined, ToolOutlined, SettingOutlined, TeamOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { useAppDataStore, AppData } from '../../stores/appDataStore';
+import { useAppDataStore } from '../../stores/appDataStore';
+import {
+  useAgentStore,
+  useTaskStore,
+  useSkillStore,
+  useVehicleStore,
+  storeSyncManager
+} from '../../stores';
+import { useToolStore } from '../../stores/toolStore';
 import { useUserStore } from '../../stores/userStore';
-import { get_ipc_api } from '../../services/ipc_api';
-import { APIResponse } from '../../services/ipc/api';
 import { logger } from '@/utils/logger';
-import { AppDataStoreHandler } from '@/stores/AppDataStoreHandler';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 interface DataCardProps {
     title: string;
@@ -32,71 +37,128 @@ const DataCard: React.FC<DataCardProps> = ({ title, value, icon, color, loading 
     </Card>
 );
 
+// 在ComponentExternalRegister stores，只Execute一次
+let storesRegistered = false;
+const registerStores = () => {
+    if (!storesRegistered) {
+        storeSyncManager.register('agent', useAgentStore);
+        storeSyncManager.register('task', useTaskStore);
+        storeSyncManager.register('skill', useSkillStore);
+        storeSyncManager.register('vehicle', useVehicleStore);
+        storesRegistered = true;
+        logger.info('[Dashboard] Stores registered:', storeSyncManager.getRegisteredStores());
+    }
+};
+
 const Dashboard: React.FC = () => {
     const { t } = useTranslation();
     const username = useUserStore((state) => state.username);
-    const { 
-        agents, 
-        skills, 
-        tools, 
-        tasks, 
-        vehicles, 
-        settings,
-        isLoading,
-        error,
-        setLoading,
-        setError,
-    } = useAppDataStore();
+    const [syncError, setSyncError] = useState<string | null>(null);
+    const [isSyncing, setIsSyncing] = useState(false);
+
+    // 从新的 stores GetData
+    const agents = useAgentStore((state) => state.items);
+    const agentsLoading = useAgentStore((state) => state.loading);
+
+    const skills = useSkillStore((state) => state.items);
+    const skillsLoading = useSkillStore((state) => state.loading);
+
+    const tasks = useTaskStore((state) => state.items);
+    const tasksLoading = useTaskStore((state) => state.loading);
+
+    const vehicles = useVehicleStore((state) => state.items);
+    const vehiclesLoading = useVehicleStore((state) => state.loading);
+
+    const tools = useToolStore((state) => state.tools);
+    const toolsLoading = useToolStore((state) => state.loading);
+
+    // 从 appDataStore Get全局Status
+    const appDataLoading = useAppDataStore((state) => state.isLoading);
+    const initialized = useAppDataStore((state) => state.initialized);
+
+    // 综合 loading Status
+    const isLoading = isSyncing || agentsLoading || skillsLoading || tasksLoading || vehiclesLoading || toolsLoading || appDataLoading;
 
     useEffect(() => {
-        const fetchData = async () => {
-            if (!username) return;
+        const syncData = async () => {
+            if (!username) {
+                logger.debug('[Dashboard] No username, skipping sync');
+                return;
+            }
 
-            setLoading(true);
-            setError(null);
+            // 确保 stores 已Register（只会Execute一次）
+            registerStores();
+
+            logger.info('[Dashboard] Starting data synchronization...');
+            setIsSyncing(true);
+            setSyncError(null);
+
             try {
-                // await new Promise(resolve => setTimeout(resolve, 6000));
-                const appData = await get_ipc_api().getAll(username);
-                
-                // 将API返回的数据保存到store中
-                console.log('appData', appData);
-                if (appData?.data) {
-                    logger.info('Get all system data successful');
-                    AppDataStoreHandler.updateStore(appData.data as any);
-                    logger.info('system data 数据已保存到store中');
-                 } else {
-                    logger.error('Get all system data failed');
-                 }
+                // 统一SyncAllData
+                const results = await storeSyncManager.syncAll(username, {
+                    parallel: true,  // 并行Sync，提高Performance
+                    force: false,    // 使用Cache
+                    timeout: 30000,  // 30秒Timeout
+                });
+
+                logger.info('[Dashboard] Sync completed:', results);
+
+                // Check是否有Failed的Sync
+                const failed = results.filter(r => !r.success);
+                if (failed.length > 0) {
+                    const errorMsg = `Failed to sync: ${failed.map(f => f.storeName).join(', ')}`;
+                    logger.error('[Dashboard] Sync errors:', failed);
+                    setSyncError(errorMsg);
+                } else {
+                    logger.info('[Dashboard] All stores synced successfully');
+                }
+
+                // SyncSuccess后的统计
+                const successCount = results.filter(r => r.success).length;
+                const totalDuration = results.reduce((sum, r) => sum + (r.duration || 0), 0);
+                logger.info(`[Dashboard] Synced ${successCount}/${results.length} stores in ${totalDuration}ms`);
+
             } catch (err) {
-                setError(err instanceof Error ? err.message : 'An unknown error occurred');
+                const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
+                logger.error('[Dashboard] Sync error:', errorMessage);
+                setSyncError(errorMessage);
             } finally {
-                setLoading(false);
+                setIsSyncing(false);
             }
         };
 
-        fetchData();
-    }, [username, setLoading, setError]);
+        syncData();
+    }, [username]);
 
     const dataCards = [
-        { title: t("pages.dashboard.agentsCount"), value: (agents || []).length, icon: <RobotOutlined />, color: '#3f8600' },
-        { title: t("pages.dashboard.skillsCount"), value: (skills || []).length, icon: <ToolOutlined />, color: '#1890ff' },
-        { title: t("pages.dashboard.toolsCount"), value: (tools || []).length, icon: <SettingOutlined />, color: '#722ed1' },
+        { title: t("pages.dashboard.agentsCount"), value: (agents || []).length, icon: <TeamOutlined />, color: '#3f8600' },
+        { title: t("pages.dashboard.skillsCount"), value: (skills || []).length, icon: <ThunderboltOutlined />, color: '#1890ff' },
+        { title: t("pages.dashboard.toolsCount"), value: (tools || []).length, icon: <ToolOutlined />, color: '#722ed1' },
         { title: t("pages.dashboard.tasksCount"), value: (tasks || []).length, icon: <ScheduleOutlined />, color: '#fa8c16' },
-        { title: t("pages.dashboard.vehiclesCount"), value: (vehicles || []).length, icon: <CarOutlined />, color: '#eb2f96' },
-        { title: t("pages.dashboard.systemStatus"), value: settings ? t("pages.dashboard.statusOnline") : t("pages.dashboard.statusOffline"), icon: <SettingOutlined />, color: settings ? '#52c41a' : '#ff4d4f' }
+        { title: t("pages.dashboard.vehiclesCount"), value: (vehicles || []).length, icon: <LaptopOutlined />, color: '#eb2f96' },
+        { title: t("pages.dashboard.systemStatus"), value: initialized ? t("pages.dashboard.statusOnline") : t("pages.dashboard.statusOffline"), icon: <SettingOutlined />, color: initialized ? '#52c41a' : '#ff4d4f' }
     ];
 
-    if (error) {
-        return <Alert message={t("pages.dashboard.errorTitle")} description={error} type="error" showIcon />;
+    if (syncError) {
+        return (
+            <Alert
+                message={t("pages.dashboard.errorTitle")}
+                description={syncError}
+                type="error"
+                showIcon
+                closable
+                onClose={() => setSyncError(null)}
+            />
+        );
     }
 
     return (
         <div>
-            <Title level={5} style={{ color: 'white' }}>
-              {t('pages.dashboard.welcome')}
-            </Title>
+            <div style={{ fontSize: '16px', fontWeight: 600, lineHeight: '24px', color: 'rgba(248, 250, 252, 0.95)', marginBottom: '16px' }}>
+              {t('pages.dashboard.title')}
+            </div>
 
-            {/* 数据概览部分 */}
+            {/* Data概览部分 */}
             <Row gutter={[16, 16]} style={{ marginTop: '24px' }}>
                 <Col span={24}>
                     <Card title={t("pages.dashboard.overviewTitle")} size="small">
@@ -108,15 +170,15 @@ const Dashboard: React.FC = () => {
                             ))}
                         </Row>
 
-                        {/* 活跃代理列表 */}
+                        {/* 活跃代理List */}
                         <Skeleton loading={isLoading} active paragraph={{ rows: 2 }} style={{ marginTop: '16px' }}>
                             {(agents || []).length > 0 && (
                                 <div style={{ marginTop: '16px' }}>
                                     <Text strong>{t("pages.dashboard.activeAgents")}</Text>
                                     <Space wrap style={{ marginTop: '8px' }}>
-                                        {(agents || []).slice(0, 5).map((agent) => (
-                                            <Tag key={agent.card.id} color="blue">
-                                                {agent.card.name}
+                                        {(agents || []).slice(0, 5).map((agent: any) => (
+                                            <Tag key={agent.card?.id || agent.id} color="blue">
+                                                {agent.card?.name || agent.name}
                                             </Tag>
                                         ))}
                                         {(agents || []).length > 5 && (
@@ -136,9 +198,9 @@ const Dashboard: React.FC = () => {
                                         {(tasks || []).slice(0, 3).map((task) => (
                                             <Tag 
                                                 key={task.id} 
-                                                color={task.state.top === 'ready' ? 'green' : 'orange'}
+                                                color={task.state?.top === 'ready' ? 'green' : 'orange'}
                                             >
-                                                {task.skill}
+                                                {task.skill || task.name || 'Unknown'}
                                             </Tag>
                                         ))}
                                         {(tasks || []).length > 3 && (

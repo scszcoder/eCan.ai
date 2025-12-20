@@ -33,7 +33,7 @@ export class DeleteShortcut implements ShortcutsHandler {
   private historyService: HistoryService;
 
   /**
-   * initialize delete shortcut - 初始化删除快捷键
+   * initialize delete shortcut - InitializeDelete快捷键
    */
   constructor(context: FreeLayoutPluginContext) {
     this.playgroundConfig = context.playground.config;
@@ -44,7 +44,7 @@ export class DeleteShortcut implements ShortcutsHandler {
   }
 
   /**
-   * execute delete operation - 执行删除操作
+   * execute delete operation - ExecuteDeleteOperation
    */
   public async execute(nodes?: WorkflowNodeEntity[]): Promise<void> {
     if (this.readonly) {
@@ -60,7 +60,7 @@ export class DeleteShortcut implements ShortcutsHandler {
     }
     // Merge actions to redo/undo
     this.historyService.startTransaction();
-    // delete selected entities - 删除选中实体
+    // delete selected entities - Delete选中实体
     selection.forEach((entity) => {
       if (entity instanceof WorkflowNodeEntity) {
         this.removeNode(entity);
@@ -70,7 +70,7 @@ export class DeleteShortcut implements ShortcutsHandler {
         entity.dispose();
       }
     });
-    // filter out disposed entities - 过滤掉已删除的实体
+    // filter out disposed entities - Filter掉已Delete的实体
     this.selectService.selection = this.selectService.selection.filter((s) => !s.disposed);
     this.historyService.endTransaction();
   }
@@ -83,24 +83,14 @@ export class DeleteShortcut implements ShortcutsHandler {
   }
 
   /**
-   * validate if nodes can be deleted - 验证节点是否可以删除
+   * validate if nodes can be deleted - Validate节点是否CanDelete
    */
   private isValid(nodes: WorkflowNodeEntity[]): boolean {
-    const hasSystemNodes = nodes.some((n) =>
-      [WorkflowNodeType.Start, WorkflowNodeType.End].includes(n.flowNodeType as WorkflowNodeType)
-    );
-    if (hasSystemNodes) {
-      Toast.error({
-        content: 'Start or End node cannot be deleted',
-        showClose: false,
-      });
-      return false;
-    }
     return true;
   }
 
   /**
-   * remove node from workflow - 从工作流中删除节点
+   * remove node from workflow - 从工作流中Delete节点
    */
   private removeNode(node: WorkflowNodeEntity): void {
     if (!this.document.canRemove(node)) {
@@ -116,7 +106,7 @@ export class DeleteShortcut implements ShortcutsHandler {
   }
 
   /**
-   * remove line from workflow - 从工作流中删除连线
+   * remove line from workflow - 从工作流中Delete连线
    */
   private removeLine(line: WorkflowLineEntity): void {
     if (!this.document.linesManager.canRemove(line)) {

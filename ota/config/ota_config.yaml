@@ -1,0 +1,241 @@
+# ============================================
+# eCan OTA Configuration
+# ============================================
+
+# ============================================
+# OTA Feature Toggle
+# Set to false to completely disable OTA functionality
+# ============================================
+ota_enabled: true
+
+# ============================================
+# Current Environment
+# Valid values: simulation, development, test, staging, production
+# Note: This value should be set during build time, do not modify manually
+# ============================================
+environment: development
+
+# ============================================
+# Common Configuration
+# ============================================
+common:
+  app_name: "eCan"
+  
+  # Single S3 Bucket (shared across all environments)
+  s3_bucket: "ecan-releases"
+  s3_region: "us-east-1"
+  
+  # S3 base path (optional, defaults to empty)
+  s3_base_path: ""
+  
+  # Supported platforms
+  platforms:
+    - macos
+    - windows
+  
+  # Supported architectures
+  architectures:
+    macos:
+      - aarch64
+      - amd64
+    windows:
+      - amd64
+
+# ============================================
+# Environment Configuration
+# ============================================
+environments:
+  # ------------------------------------------
+  # Development Environment
+  # ------------------------------------------
+  development:
+    # S3 path prefix
+    s3_prefix: "dev"
+    
+    # Release channel
+    channel: "dev"
+    
+    # OTA server address (local development)
+    ota_server: "http://127.0.0.1:8080"
+    
+    # Appcast base URL (development environment uses local server)
+    appcast_base: "http://127.0.0.1:8080"
+    
+    # Signature verification (disabled by default for key security)
+    # To enable signature verification:
+    # 1. Ensure private key exists: build_system/certificates/ed25519_private_key.pem
+    # 2. Ensure public key exists: ota/certificates/ed25519_public_key.pem
+    # 3. Set both options below to true
+    signature_required: false
+    signature_verification: false
+    
+    # Automatic updates
+    auto_check: true
+    check_interval: 300  # 5 minutes (seconds)
+    auto_check_initial_delay: 5  # Delay after startup (seconds) - fast check for dev environment
+    silent_mode: false
+    
+    # Development environment OTA check toggle
+    # Even if ota_enabled is true, this switch can independently control OTA checks in dev environment
+    dev_ota_check_enabled: false
+    
+    # Security settings
+    allow_http: true
+    
+    # Development mode
+    dev_mode: true
+  
+  # ------------------------------------------
+  # Test Environment
+  # ------------------------------------------
+  test:
+    # S3 path prefix
+    s3_prefix: "test"
+    
+    # Release channel
+    channel: "beta"
+    
+    # OTA server address
+    ota_server: "https://updates-test.ecan.ai"
+    
+    # Appcast base URL (read from S3)
+    appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/test"
+    
+    # Signature verification (required for test environment)
+    signature_required: true
+    signature_verification: true
+    
+    # Automatic updates
+    auto_check: true
+    check_interval: 1800  # 30 minutes (seconds)
+    auto_check_initial_delay: 120  # Delay after startup (seconds) - 2 minutes
+    silent_mode: false
+    
+    # Security settings
+    allow_http: true
+    
+    # Development mode
+    dev_mode: false
+  
+  # ------------------------------------------
+  # Staging Environment
+  # ------------------------------------------
+  staging:
+    # S3 path prefix
+    s3_prefix: "staging"
+    
+    # Release channel
+    channel: "stable"
+    
+    # OTA server address
+    ota_server: "https://updates-staging.ecan.ai"
+    
+    # Appcast base URL (read from S3)
+    appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/staging"
+    
+    # Signature verification (required for staging)
+    signature_required: true
+    signature_verification: true
+    
+    # Automatic updates
+    auto_check: true
+    check_interval: 3600  # 1 hour (seconds)
+    auto_check_initial_delay: 120  # Delay after startup (seconds) - 2 minutes
+    silent_mode: false
+    
+    # Security settings
+    allow_http: false
+    
+    # Development mode
+    dev_mode: false
+  
+  # ------------------------------------------
+  # Simulation Environment (for testing release workflow)
+  # ------------------------------------------
+  simulation:
+    # S3 path prefix (isolated from all other environments)
+    s3_prefix: "simulation"
+    
+    # Release channel (isolated simulation channel)
+    channel: "simulation"
+    
+    # OTA server address (not used - simulation uses appcast only)
+    ota_server: "https://ecan-releases.s3.us-east-1.amazonaws.com/simulation"
+    
+    # Appcast base URL (isolated S3 path)
+    appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/simulation"
+    
+    # Signature verification (same as production for testing)
+    signature_required: true
+    signature_verification: true
+    
+    # Automatic updates (disabled for simulation)
+    auto_check: false
+    check_interval: 86400  # 24 hours (seconds)
+    auto_check_initial_delay: 300  # 5 minutes
+    silent_mode: false
+    
+    # Security settings
+    allow_http: false
+    
+    # Development mode (false to use platform-specific updater)
+    dev_mode: false
+    
+    # Force use of platform-specific updater (not generic)
+    force_generic_updater_in_dev: false
+  
+  # ------------------------------------------
+  # Production Environment
+  # ------------------------------------------
+  production:
+    # S3 path prefix
+    s3_prefix: "production"
+    
+    # Release channel
+    channel: "stable"
+    
+    # OTA server address
+    ota_server: "https://updates.ecan.ai"
+    
+    # Appcast base URL (read from S3)
+    appcast_base: "https://ecan-releases.s3.us-east-1.amazonaws.com/production"
+    
+    # Signature verification (required for production)
+    signature_required: true
+    signature_verification: true
+    
+    # Automatic updates
+    auto_check: true
+    check_interval: 14400  # 4 hours (seconds)
+    auto_check_initial_delay: 120  # Delay after startup (seconds) - 2 minutes
+    silent_mode: true
+    
+    # Security settings
+    allow_http: false
+    
+    # Development mode
+    dev_mode: false
+
+# ============================================
+# Advanced Configuration (Optional)
+# ============================================
+advanced:
+  # Download path (leave empty to use default)
+  download_path: null
+  
+  # Backup settings
+  backup_enabled: true
+  
+  # Public key path (for signature verification)
+  public_key_path: null
+  
+  # UI update behavior
+  # Valid values: notification, dialog, badge, notification+badge
+  ui_update_behavior: "notification"
+  
+  # macOS DMG installation target directory
+  dmg_target_dir: "/Applications"
+  
+  # Development environment installer settings
+  dev_installer_enabled: false
+  dev_installer_quiet: true

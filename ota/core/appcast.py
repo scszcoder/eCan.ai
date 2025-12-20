@@ -1,9 +1,14 @@
 """
-Sparkle/winSparkle Appcast parsing utilities.
+Appcast XML parsing utilities.
 
-- Parse appcast XML (Sparkle 1.x/2.x style)
+Self-contained implementation that parses Sparkle-compatible appcast XML format.
+No external Sparkle/WinSparkle framework dependencies required.
+
+Features:
+- Parse appcast XML (Sparkle 1.x/2.x compatible format)
 - Select best item for current platform/arch
-- Compare versions with a simple, dependency-free semver-ish comparison
+- Compare versions with simple, dependency-free semver-ish comparison
+- Support Ed25519 signature verification
 """
 from __future__ import annotations
 
@@ -12,6 +17,8 @@ import platform as _platform
 from dataclasses import dataclass
 from typing import List, Optional, Tuple
 import xml.etree.ElementTree as ET
+
+from utils.logger_helper import logger_helper as logger
 
 
 @dataclass
@@ -23,6 +30,7 @@ class AppcastItem:
     length: Optional[int] = None
     content_type: Optional[str] = None
     ed_signature: Optional[str] = None  # Sparkle 2: edSignature (Ed25519, base64)
+    alternate_url: Optional[str] = None  # Accelerated/alternate download URL
     description_html: Optional[str] = None
     pub_date: Optional[str] = None
 
@@ -38,6 +46,7 @@ def parse_appcast(xml_text: str) -> List[AppcastItem]:
       - enclosure/@length (size)
       - enclosure/@type (content-type)
       - enclosure/@sparkle:edSignature (Ed25519 signature)
+      - enclosure/@sparkle:alternateUrl (accelerated/alternate download URL)
       - item/description (release notes HTML)
       - item/pubDate
     """
@@ -59,10 +68,23 @@ def parse_appcast(xml_text: str) -> List[AppcastItem]:
         length_val = enclosure.get('length')
         content_type = enclosure.get('type')
         ed_sig = enclosure.get(f"{{{ns['sparkle']}}}edSignature") or None
+        alternate_url = enclosure.get(f"{{{ns['sparkle']}}}alternateUrl") or None
+        
+        # Debug: Log all enclosure attributes
+        logger.debug(f"[APPCAST] Enclosure attributes for version {version}:")
+        for key, value in enclosure.attrib.items():
+            logger.debug(f"[APPCAST]   {key} = {value}")
 
         # Description may be CDATA/HTML
         desc_el = item.find('description')
-        desc_html = desc_el.text if desc_el is not None else None
+        if desc_el is not None:
+            # Get text content (CDATA is automatically unwrapped by ET)
+            desc_html = ''.join(desc_el.itertext()).strip()
+            # Remove any trailing ]]> that might be included
+            if desc_html.endswith(']]>'):
+                desc_html = desc_html[:-3].strip()
+        else:
+            desc_html = None
         pub_date_el = item.find('pubDate')
         pub_date = pub_date_el.text if pub_date_el is not None else None
 
@@ -82,6 +104,7 @@ def parse_appcast(xml_text: str) -> List[AppcastItem]:
             length=length,
             content_type=content_type,
             ed_signature=ed_sig,
+            alternate_url=alternate_url,
             description_html=desc_html,
             pub_date=pub_date,
         ))

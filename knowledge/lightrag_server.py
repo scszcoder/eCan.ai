@@ -2,612 +2,450 @@ import subprocess
 import os
 import sys
 import signal
-from pathlib import Path
-from dataclasses import dataclass
+import json
+import atexit
 import threading
 import time
+import locale
+from pathlib import Path
 from utils.logger_helper import logger_helper as logger
-
-# Prioritize reading .env file from knowledge directory
-try:
-    from dotenv import load_dotenv
-    load_dotenv(dotenv_path=Path(__file__).parent / ".env", override=True)
-except ImportError:
-    pass
-
+from knowledge.lightrag_config_manager import get_config_manager
 
 class LightragServer:
     def __init__(self, extra_env=None):
         self.extra_env = extra_env or {}
-        logger.info(f"[LightragServer] extra_env: {self.extra_env}")
+        if self.extra_env:
+            logged_keys = sorted(str(k) for k in self.extra_env.keys())
+            logger.info(f"[LightragServer] extra_env keys: {logged_keys}")
         self.proc = None
+        self._stdout_log_handle = None
+        self._stderr_log_handle = None
+        self._pid_file_path = None
+        self._atexit_registered = False
+        self._last_log_paths = (None, None)
+        self._register_atexit_handler()
 
         # Detect if running in PyInstaller packaged environment
         self.is_frozen = getattr(sys, 'frozen', False)
 
-        # Restart control - read configuration from environment variables
+        # Restart control
         self.restart_count = 0
-        self.max_restarts = int(self.extra_env.get("MAX_RESTARTS", "3"))
+        self.max_restarts = 3
         self.last_restart_time = 0
-        self.restart_cooldown = int(self.extra_env.get("RESTART_COOLDOWN", "30"))  # seconds
+        self.restart_cooldown = 30  # seconds
 
-        # Get parent process ID - handle Windows compatibility and PyInstaller
+        # Get parent process ID
         import platform
         is_windows = platform.system().lower().startswith('win')
-
-        # In PyInstaller environment, disable parent process monitoring by default to avoid issues
-        if self.is_frozen:
-            logger.info("[LightragServer] Running in PyInstaller environment, disabling parent monitoring by default")
-            self.disable_parent_monitoring = True
-            self.parent_pid = None
-        else:
+        
+        enable_monitoring = self.extra_env.get("ENABLE_PARENT_MONITORING", "false").lower() == "true"
+        
+        if enable_monitoring:
             if is_windows:
                 try:
                     import psutil
                     self.parent_pid = psutil.Process().ppid()
                 except (ImportError, AttributeError):
-                    # Fallback to os.getppid() if psutil is not available
                     self.parent_pid = os.getppid()
             else:
                 self.parent_pid = os.getppid()
-
-            # Check if parent process monitoring should be disabled
-            self.disable_parent_monitoring = self.extra_env.get("DISABLE_PARENT_MONITORING", "false").lower() == "true"
+            
+            self.disable_parent_monitoring = False
+            logger.info(f"[LightragServer] Parent process monitoring ENABLED (PID: {self.parent_pid})")
+        else:
+            self.disable_parent_monitoring = True
+            self.parent_pid = None
+            logger.info("[LightragServer] Parent process monitoring DISABLED by default")
 
         self._monitor_running = False
         self._monitor_thread = None
 
-        logger.info(f"[LightragServer] Parent PID: {self.parent_pid}, Monitoring disabled: {self.disable_parent_monitoring}")
-
-        # Setup signal handlers
         self._setup_signal_handlers()
+        
+        # Proxy callback registration
+        self._initialized_time = time.time()
+        threading.Thread(target=self._register_proxy_change_callback, name="LightragProxyCallbackReg", daemon=True).start()
 
-        # Automatically handle APP_DATA directory generation
-        app_data_path = self.extra_env.get("APP_DATA_PATH")
-        if app_data_path:
-            input_dir = os.path.join(app_data_path, "inputs")
-            working_dir = os.path.join(app_data_path, "rag_storage")
-            log_dir = os.path.join(app_data_path, "runlogs")
-            self.extra_env.setdefault("INPUT_DIR", input_dir)
-            self.extra_env.setdefault("WORKING_DIR", working_dir)
-            self.extra_env.setdefault("LOG_DIR", log_dir)
-            logger.info(f"[LightragServer] INPUT_DIR: {input_dir}, WORKING_DIR: {working_dir}, LOG_DIR: {log_dir}")
+    def _register_proxy_change_callback(self):
+        try:
+            time.sleep(2.0) # Wait for system to stabilize
+            from agent.ec_skills.system_proxy import get_proxy_manager
+            
+            proxy_manager = get_proxy_manager()
+            if not proxy_manager:
+                logger.debug("[LightragServer] ProxyManager not available")
+                return
+            
+            def on_proxy_change(proxies):
+                if self.is_running():
+                    logger.info("[LightragServer] Proxy settings changed, scheduling restart...")
+                    # Restart in a separate thread to avoid blocking the callback
+                    def restart_task():
+                        try:
+                            self.stop()
+                            time.sleep(1)
+                            self.start(wait_ready=False)
+                        except Exception as e:
+                            logger.error(f"[LightragServer] Restart on proxy change failed: {e}")
+                    
+                    threading.Thread(target=restart_task, name="LightragProxyRestart", daemon=True).start()
+            
+            proxy_manager.register_callback(on_proxy_change)
+            logger.info("[LightragServer] Proxy change callback registered")
+        except Exception as e:
+            logger.warning(f"[LightragServer] Failed to register proxy callback: {e}")
 
     def _setup_signal_handlers(self):
-        """Setup signal handlers"""
         def signal_handler(signum, frame):
             logger.info(f"[LightragServer] Received signal {signum}, stopping server...")
             self.stop()
-            if not self.is_frozen:  # Only exit in non-packaged environment
+            if not self.is_frozen:
                 sys.exit(0)
 
         try:
-            # Register signal handlers
-            signal.signal(signal.SIGTERM, signal_handler)
-            signal.signal(signal.SIGINT, signal_handler)
-
-            # macOS/Linux specific signals
-            if hasattr(signal, 'SIGHUP'):
-                signal.signal(signal.SIGHUP, signal_handler)
-
-            logger.info("[LightragServer] Signal handlers registered")
+            if threading.current_thread() is threading.main_thread():
+                signal.signal(signal.SIGTERM, signal_handler)
+                signal.signal(signal.SIGINT, signal_handler)
+                if hasattr(signal, 'SIGHUP'):
+                    signal.signal(signal.SIGHUP, signal_handler)
         except Exception as e:
             logger.warning(f"[LightragServer] Failed to setup signal handlers: {e}")
 
-    def build_env(self):
-        env = os.environ.copy()
+    def _register_atexit_handler(self):
+        if self._atexit_registered: return
+        try:
+            atexit.register(self._ensure_process_cleanup)
+            self._atexit_registered = True
+        except Exception: pass
 
-        # Force fix Windows encoding issues
+    def _ensure_process_cleanup(self):
+        try:
+            if self.is_running(): self.stop()
+        except Exception: pass
+
+    def _load_proxy_config(self):
+        """
+        Load proxy configuration from rerank_providers.json.
+        
+        Returns:
+            dict: Proxy configuration with keys: proxy_host, proxy_path, proxy_format, enabled
+        """
+        default_config = {
+            'enabled': True,
+            'proxy_host': 'http://localhost:4668',
+            'proxy_path': '/api/rerank',
+            'proxy_format': 'aliyun'
+        }
+        
+        try:
+            import json
+            config_path = os.path.join(os.path.dirname(__file__), '..', 'gui', 'config', 'rerank_providers.json')
+            
+            if not os.path.exists(config_path):
+                logger.warning(f"[LightragServer] Proxy config file not found: {config_path}")
+                logger.info(f"[LightragServer] Using default proxy config")
+                return default_config
+            
+            with open(config_path, 'r', encoding='utf-8') as f:
+                providers_config = json.load(f)
+                ollama_config = providers_config.get('providers', {}).get('Ollama (Local)', {})
+                proxy_info = ollama_config.get('proxy_info', {})
+                
+                if not proxy_info:
+                    logger.warning(f"[LightragServer] No proxy_info found in config")
+                    logger.info(f"[LightragServer] Using default proxy config")
+                    return default_config
+                
+                # Merge with default config
+                config = default_config.copy()
+                config.update({
+                    'enabled': proxy_info.get('enabled', True),
+                    'proxy_host': proxy_info.get('proxy_host', default_config['proxy_host']),
+                    'proxy_path': proxy_info.get('proxy_path', default_config['proxy_path']),
+                    'proxy_format': proxy_info.get('proxy_format', default_config['proxy_format'])
+                })
+                
+                logger.info(f"[LightragServer] ✅ Loaded proxy config from rerank_providers.json:")
+                logger.info(f"   - Enabled:      {config['enabled']}")
+                logger.info(f"   - Proxy Host:   {config['proxy_host']}")
+                logger.info(f"   - Proxy Path:   {config['proxy_path']}")
+                logger.info(f"   - Proxy Format: {config['proxy_format']}")
+                
+                return config
+                
+        except Exception as e:
+            logger.error(f"[LightragServer] ❌ Failed to load proxy config: {e}")
+            logger.info(f"[LightragServer] Using default proxy config")
+            return default_config
+
+    def _intercept_ollama_rerank(self, env):
+        """
+        Intercept Ollama rerank requests and redirect to eCan proxy.
+        
+        This method:
+        1. Detects if RERANK_BINDING is set to 'ollama'
+        2. Loads proxy configuration from rerank_providers.json
+        3. Saves the original Ollama host to OLLAMA_HOST
+        4. Redirects RERANK_BINDING_HOST to the proxy
+        5. Converts RERANK_BINDING to the configured format (default: aliyun)
+        
+        Args:
+            env (dict): Environment variables dictionary
+            
+        Returns:
+            bool: True if interception was applied, False otherwise
+        """
+        rerank_binding = env.get('RERANK_BINDING', '').lower()
+        
+        # Only intercept if binding is 'ollama'
+        if rerank_binding != 'ollama':
+            return False
+        
+        logger.info("=" * 70)
+        logger.info("[LightragServer] 🔄 Ollama Rerank Interception")
+        logger.info("=" * 70)
+        
+        # Get original Ollama host
+        original_host = env.get('RERANK_BINDING_HOST', 'http://localhost:11434')
+        original_model = env.get('RERANK_MODEL', 'N/A')
+        
+        logger.info(f"📋 Original Configuration:")
+        logger.info(f"   - Binding:      {rerank_binding}")
+        logger.info(f"   - Host:         {original_host}")
+        logger.info(f"   - Model:        {original_model}")
+        
+        # Load proxy configuration
+        proxy_config = self._load_proxy_config()
+        
+        if not proxy_config.get('enabled'):
+            logger.warning(f"⚠️  Proxy is disabled in configuration")
+            logger.warning(f"   Ollama rerank will not work (Ollama doesn't support Rerank API)")
+            return False
+        
+        # Build proxy URL
+        proxy_host = proxy_config['proxy_host']
+        proxy_path = proxy_config['proxy_path']
+        proxy_format = proxy_config['proxy_format']
+        proxy_url = f"{proxy_host}{proxy_path}"
+        
+        logger.info(f"")
+        logger.info(f"🔧 Proxy Configuration:")
+        logger.info(f"   - Proxy URL:    {proxy_url}")
+        logger.info(f"   - API Format:   {proxy_format}")
+        
+        # Apply interception
+        env['OLLAMA_HOST'] = original_host  # Save original host for proxy to use
+        env['RERANK_BINDING_HOST'] = proxy_url  # Redirect to proxy
+        env['RERANK_BINDING'] = proxy_format  # Convert to proxy format
+        
+        logger.info(f"")
+        logger.info(f"✅ Interception Applied:")
+        logger.info(f"   - OLLAMA_HOST:           {original_host}  (saved for proxy)")
+        logger.info(f"   - RERANK_BINDING_HOST:   {proxy_url}  (redirected)")
+        logger.info(f"   - RERANK_BINDING:        {proxy_format}  (converted)")
+        
+        logger.info(f"")
+        logger.info(f"📡 Request Flow:")
+        logger.info(f"   LightRAG → {proxy_url} → eCan Proxy → {original_host} → Ollama")
+        logger.info("=" * 70)
+        
+        return True
+
+    def build_env(self):
+        """Build environment variables for LightRAG server process."""
+        # 1. Start with system environment
+        env = os.environ.copy()
+        
+        # 2. Load effective config (File + System API Keys)
+        config_manager = get_config_manager()
+        effective_config = config_manager.get_effective_config()
+        
+        if effective_config:
+            logger.info(f"[LightragServer] Loaded {len(effective_config)} variables from effective config")
+            env.update(effective_config)
+        else:
+            logger.warning("[LightragServer] No effective configuration loaded")
+
+        # 3. Python runtime environment
         env['PYTHONIOENCODING'] = 'utf-8'
         env['PYTHONUTF8'] = '1'
-        env['PYTHONUNBUFFERED'] = '1'  # Force unbuffered output for subprocess to avoid missing logs
+        env['PYTHONUNBUFFERED'] = '1'
         env['PYTHONLEGACYWINDOWSSTDIO'] = '0'
-        env['LANG'] = 'en_US.UTF-8'
-        env['LC_ALL'] = 'en_US.UTF-8'
+        env['NO_COLOR'] = '1'
+        env['ASCII_COLORS_DISABLE'] = '1'
 
-        # Set default values
-        env.setdefault('HOST', '127.0.0.1')
-        env.setdefault('PORT', '9621')
-        env.setdefault('MAX_RESTARTS', '3')
-        env.setdefault('RESTART_COOLDOWN', '5')
-        # Disable LightRAG colored output/startup banner (can be overridden by environment variables)
-        env.setdefault('ECBOT_LIGHTRAG_DISABLE_SPLASH', '1')
-        env.setdefault('NO_COLOR', '1')
-        env.setdefault('ASCII_COLORS_DISABLE', '1')
-
-        # Health check parameters (configurable via environment variables)
-        env.setdefault('LIGHTRAG_HEALTH_TIMEOUT', '45')  # seconds
-        env.setdefault('LIGHTRAG_HEALTH_INTERVAL_INITIAL', '0.5')  # seconds
-        env.setdefault('LIGHTRAG_HEALTH_INTERVAL_MAX', '1.5')  # seconds
-
+        # 4. Apply extra_env overrides
         if self.extra_env:
-            env.update({str(k): str(v) for k, v in self.extra_env.items()})
+            logger.info(f"[LightragServer] Applying {len(self.extra_env)} extra environment variables")
+            for k, v in self.extra_env.items():
+                env[str(k)] = str(v)
+        
+        self._ensure_utf8_locale(env)
 
-        # Special handling in packaged environment
-        if self.is_frozen:
-            # Clear Python environment variables that might cause conflicts
-            env.pop("PYTHONPATH", None)
-            env.pop("PYTHONHOME", None)
-            logger.info("[LightragServer] Cleaned Python environment variables for packaged environment")
-            # Force bind to 127.0.0.1, avoid 0.0.0.0 in .env affecting health checks in packaged environment
-            host = str(env.get('HOST', '127.0.0.1')).strip()
-            if host in ('0.0.0.0', '::', ''):
-                env['HOST'] = '127.0.0.1'
+        if self.is_frozen and not env.get('HOST'):
+            env['HOST'] = '127.0.0.1'
 
-        # Set path-related environment variables
-        if 'APP_DATA_PATH' in env:
-            app_data_path = env['APP_DATA_PATH']
-            env.setdefault('INPUT_DIR', os.path.join(app_data_path, 'inputs'))
-            env.setdefault('WORKING_DIR', os.path.join(app_data_path, 'rag_storage'))
-            env.setdefault('LOG_DIR', os.path.join(app_data_path, 'runlogs'))
+        # 6. Map provider bindings to LightRAG-supported values
+        # LightRAG only supports: lollms, ollama, openai, azure_openai, aws_bedrock
+        # Map all other providers to OpenAI-compatible API
+        
+        # Provider mapping table
+        LIGHTRAG_SUPPORTED = ['lollms', 'ollama', 'openai', 'azure_openai', 'aws_bedrock']
+        PROVIDER_MAPPING = {
+            # AWS
+            'bedrock': 'aws_bedrock',
+            # Chinese LLM providers (OpenAI-compatible)
+            'anthropic': 'openai',
+            'google': 'openai',
+            'deepseek': 'openai',
+            'dashscope': 'openai',
+            'bytedance': 'openai',
+            'baidu_qianfan': 'openai',
+            # Embedding providers (OpenAI-compatible)
+            'huggingface': 'openai',
+            'cohere': 'openai',
+            'voyageai': 'openai',
+            'alibaba_qwen': 'openai',
+            'doubao': 'openai',
+            # Provider display names (map to their provider IDs)
+            'Qwen (DashScope)': 'openai',  # alibaba_qwen
+            'Baidu Qianfan': 'openai',  # baidu_qianfan
+        }
+        
+        # Map LLM binding (case-insensitive)
+        llm_binding = env.get('LLM_BINDING')
+        if llm_binding and llm_binding not in LIGHTRAG_SUPPORTED:
+            # Try case-insensitive matching
+            mapped = None
+            llm_binding_lower = llm_binding.lower()
+            for key, value in PROVIDER_MAPPING.items():
+                if key.lower() == llm_binding_lower:
+                    mapped = value
+                    break
+            if mapped is None:
+                mapped = 'openai'  # Default fallback
+            logger.info(f"[LightragServer] Mapped LLM binding '{llm_binding}' -> '{mapped}'")
+            env['LLM_BINDING'] = mapped
+        
+        # Map Embedding binding (case-insensitive, also supports 'jina')
+        embedding_binding = env.get('EMBEDDING_BINDING')
+        if embedding_binding and embedding_binding not in LIGHTRAG_SUPPORTED + ['jina']:
+            # Try case-insensitive matching
+            mapped = None
+            embedding_binding_lower = embedding_binding.lower()
+            for key, value in PROVIDER_MAPPING.items():
+                if key.lower() == embedding_binding_lower:
+                    mapped = value
+                    break
+            if mapped is None:
+                mapped = 'openai'  # Default fallback
+            logger.info(f"[LightragServer] Mapped Embedding binding '{embedding_binding}' -> '{mapped}'")
+            env['EMBEDDING_BINDING'] = mapped
+        
+        # Map Rerank binding (LightRAG natively supports: cohere, jina, aliyun ONLY)
+        # Special handling for Ollama: redirect to eCan proxy
+        RERANK_NATIVE_SUPPORTED = ['cohere', 'jina', 'aliyun']
+        rerank_binding = env.get('RERANK_BINDING')
+        if rerank_binding and rerank_binding.lower() not in ['null', 'none', '']:
+            rerank_binding_lower = rerank_binding.lower()
+            
+            # Special case: Ollama rerank -> use eCan proxy
+            if rerank_binding_lower == 'ollama':
+                self._intercept_ollama_rerank(env)
+            elif rerank_binding_lower not in RERANK_NATIVE_SUPPORTED:
+                # Map other unsupported providers to aliyun
+                logger.info(f"[LightragServer] Mapped Rerank binding '{rerank_binding}' -> 'aliyun' (Alibaba-compatible API)")
+                env['RERANK_BINDING'] = 'aliyun'
+        
+        # 7. Add SSL/TLS configuration to fix certificate errors
+        # Disable SSL verification for development/testing (can be overridden by extra_env)
+        if 'SSL_VERIFY' not in env:
+            env['SSL_VERIFY'] = 'false'
 
+        # 8. Clean up empty string values that cause argument parsing errors
+        # LightRAG server cannot handle empty strings for numeric/float parameters
+        keys_to_clean = []
+        for key, value in env.items():
+            if isinstance(value, str) and value.strip() == '':
+                keys_to_clean.append(key)
+        
+        for key in keys_to_clean:
+            del env[key]
+            logger.debug(f"[LightragServer] Removed empty env var: {key}")
+
+        # 9. Log API Key Status (Masked)
+        # Only read LLM_BINDING_API_KEY as requested
+        llm_api_key = env.get('LLM_BINDING_API_KEY')
+        if llm_api_key and str(llm_api_key).strip():
+            masked_key = self._mask_env_value('API_KEY', str(llm_api_key))
+            logger.info(f"[LightragServer] ✅ LLM API key set: {masked_key}")
+        else:
+             logger.warning("[LightragServer] ⚠️ No LLM_BINDING_API_KEY found.")
+
+        self._sync_restart_settings(env)
+        
         return env
 
+    def _sync_restart_settings(self, env):
+        try:
+            self.max_restarts = int(env.get('MAX_RESTARTS', self.max_restarts))
+            self.restart_cooldown = int(env.get('RESTART_COOLDOWN', self.restart_cooldown))
+        except (ValueError, TypeError):
+            pass
+
+    def _ensure_utf8_locale(self, env):
+        target_locale = 'en_US.UTF-8'
+        if env.get('LANG') or env.get('LC_ALL'): return
+        if self._locale_available(target_locale):
+            env.setdefault('LANG', target_locale)
+            env.setdefault('LC_ALL', target_locale)
+
+    @staticmethod
+    def _locale_available(locale_name: str) -> bool:
+        try:
+            locale.setlocale(locale.LC_ALL, locale_name)
+            return True
+        except locale.Error:
+            return False
+
+    @staticmethod
+    def _mask_env_value(key: str, value: str) -> str:
+        """Mask sensitive environment values when logging"""
+        if value is None:
+            return "<None>"
+
+        # Only mask if key ends with these sensitive suffixes
+        # This avoids masking config parameters like MAX_TOKENS, TOKEN_LIMIT, etc.
+        sensitive_suffixes = ["_KEY", "_TOKEN", "_SECRET", "_PASSWORD", "_API_KEY"]
+        upper_key = str(key).upper()
+        if any(upper_key.endswith(suffix) for suffix in sensitive_suffixes):
+            text = str(value)
+            if len(text) <= 8:
+                return "***"
+            return f"{text[:4]}...{text[-4:]}"
+
+        return str(value)
+
     def _get_virtual_env_python(self):
-        """Get Python interpreter path in virtual environment"""
-        # In packaged environment, sys.executable is the exe file containing all dependencies
-        # LightRAG server should use the same exe to ensure environment consistency
-        if self.is_frozen:
-            logger.info(f"[LightragServer] Running in PyInstaller environment, using current executable: {sys.executable}")
-            return sys.executable
-
-        # Original logic for non-packaged environment
-        # Check if currently in virtual environment
-        if hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
-            logger.info(f"[LightragServer] Already in virtual environment: {sys.executable}")
-            return sys.executable
-
-        # Try to find virtual environment in project root directory
-        project_root = os.path.dirname(os.path.dirname(__file__))
-        venv_paths = [
-            os.path.join(project_root, "venv", "bin", "python"),
-            os.path.join(project_root, "venv", "Scripts", "python.exe"),
-        ]
-
-        for venv_python in venv_paths:
-            if os.path.exists(venv_python):
-                logger.info(f"[LightragServer] Found virtual environment Python: {venv_python}")
-                return venv_python
-
-        # If virtual environment not found, return current interpreter
-        logger.warning(f"[LightragServer] No virtual environment found, using current Python: {sys.executable}")
-        return sys.executable
+        from utils.venv_helper import VenvHelper
+        from pathlib import Path
+        from config.app_info import app_info
+        
+        # Use app_home_path from app_info as project root
+        project_root = Path(app_info.app_home_path)
+        python_exe = VenvHelper.find_python_interpreter(project_root=project_root, prefer_pythonw=True)
+        return str(python_exe)
+    
 
     def _validate_python_executable(self, python_path):
-        """Validate if Python interpreter is available"""
-        try:
-            # In packaged environment, validate if exe file exists and is executable
-            if self.is_frozen:
-                if os.path.exists(python_path) and os.access(python_path, os.X_OK):
-                    logger.info(f"[LightragServer] PyInstaller executable validation successful: {python_path}")
-                    return True
-                else:
-                    logger.error(f"[LightragServer] PyInstaller executable not found or not executable: {python_path}")
-                    return False
-
-            # In non-packaged environment, test Python interpreter version
-            result = subprocess.run(
-                [python_path, "--version"],
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-            if result.returncode == 0:
-                logger.info(f"[LightragServer] Python validation successful: {result.stdout.strip()}")
-                return True
-            else:
-                logger.error(f"[LightragServer] Python validation failed with return code {result.returncode}")
-                return False
-        except subprocess.TimeoutExpired:
-            logger.error(f"[LightragServer] Python validation timed out: {python_path}")
-            return False
-        except FileNotFoundError:
+        if not python_path or not os.path.exists(python_path):
             logger.error(f"[LightragServer] Python executable not found: {python_path}")
             return False
-        except Exception as e:
-            logger.error(f"[LightragServer] Python validation error: {e}")
-            return False
-
-    def _create_lightrag_startup_script(self):
-        """Create LightRAG startup script for packaged environment"""
-        try:
-            import tempfile
-
-            # Safely handle paths to avoid escaping issues
-            working_dir = self.extra_env.get('WORKING_DIR', '').replace('\\', '/')
-            input_dir = self.extra_env.get('INPUT_DIR', '').replace('\\', '/')
-            log_dir = self.extra_env.get('LOG_DIR', '').replace('\\', '/')
-            host = self.extra_env.get('HOST', '127.0.0.1')
-            port = self.extra_env.get('PORT', '9621')
-
-            # Create temporary startup script
-            # Create cross-platform compatible independent LightRAG startup script
-            script_content = f'''#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-LightRAG Server Independent Startup Script - Cross-platform Compatible Version
-Supports Windows and macOS, does not import main.py to avoid conflicts
-"""
-
-import sys
-import os
-import platform
-import traceback
-
-def setup_environment():
-    """Setup LightRAG runtime environment - cross-platform compatible"""
-    # Detect operating system
-    current_os = platform.system().lower()
-    print(f"Operating System: {{current_os}}")
-
-    # Get paths directly from environment variables to avoid string interpolation escaping issues
-    import os
-
-    # Environment variable settings (use preprocessed variables to avoid escaping issues)
-    env_vars = {{
-        "HOST": "{host}",
-        "PORT": "{port}",
-        "LOG_LEVEL": "INFO",
-        "MAX_TOKENS": "32768",
-        "MAX_ASYNC": "16",
-        "TIMEOUT": "60"
-    }}
-
-    # Safely set path environment variables (use forward slashes, convert in script)
-    path_vars = {{
-        "WORKING_DIR": "{working_dir}",
-        "INPUT_DIR": "{input_dir}",
-        "LOG_DIR": "{log_dir}"
-    }}
-
-    # Set non-path environment variables
-    for key, value in env_vars.items():
-        if value:
-            os.environ[key] = str(value)
-
-    # Safely set path environment variables (avoid escaping issues)
-    for key, value in path_vars.items():
-        if value:
-            # Use os.path.normpath to normalize paths
-            normalized_path = os.path.normpath(value)
-            os.environ[key] = normalized_path
-
-    # Clean command line arguments to avoid argparse conflicts
-    sys.argv = ["lightrag_server"]
-
-    # Display environment information
-    print(f"LightRAG Environment Setup ({{current_os}}):")
-    print(f"  HOST: {{os.environ.get('HOST', 'not set')}}")
-    print(f"  PORT: {{os.environ.get('PORT', 'not set')}}")
-    print(f"  WORKING_DIR: {{os.environ.get('WORKING_DIR', 'not set')}}")
-    print(f"  INPUT_DIR: {{os.environ.get('INPUT_DIR', 'not set')}}")
-    print(f"  LOG_DIR: {{os.environ.get('LOG_DIR', 'not set')}}")
-
-def check_python_environment():
-    """Check Python environment compatibility"""
-    print(f"Python Version: {{sys.version}}")
-    print(f"Python Executable: {{sys.executable}}")
-    print(f"Platform: {{platform.platform()}}")
-    print(f"Architecture: {{platform.architecture()}}")
-
-    # Check if running in PyInstaller environment
-    if getattr(sys, 'frozen', False):
-        print("✅ Running in PyInstaller packaged environment")
-        if hasattr(sys, '_MEIPASS'):
-            print(f"   PyInstaller temp directory: {{sys._MEIPASS}}")
         return True
-    else:
-        print("ℹ️  Running in development environment")
-        return False
-
-def main():
-    """Main function - run LightRAG server independently"""
-    try:
-        print("=" * 70)
-        print("LightRAG Independent Server Starting...")
-        print("=" * 70)
-
-        # Check Python environment
-        is_packaged = check_python_environment()
-
-        # Setup runtime environment
-        setup_environment()
-
-        # Try to import LightRAG
-        print("\\n" + "=" * 50)
-        print("Importing LightRAG...")
-        print("=" * 50)
-
-        try:
-            import lightrag
-            print(f"✅ LightRAG imported successfully")
-            if hasattr(lightrag, '__version__'):
-                print(f"   Version: {{lightrag.__version__}}")
-            else:
-                print("   Version: unknown")
-        except ImportError as e:
-            print(f"❌ Failed to import LightRAG: {{e}}")
-            print("   LightRAG is not available in this environment")
-            if is_packaged:
-                print("   This is normal if LightRAG was not packaged with the application")
-                print("   LightRAG server will be disabled, but main application will continue")
-                return 0  # Return instead of exit, let main program continue
-            else:
-                print("   Please install LightRAG: pip install lightrag")
-                print("   Exiting gracefully...")
-                sys.exit(0)  # Only exit in development environment
-
-        # Import and start LightRAG API server
-        print("\\n" + "=" * 50)
-        print("Starting LightRAG API Server...")
-        print("=" * 50)
-
-        try:
-            from lightrag.api.lightrag_server import main as lightrag_main
-            print("🚀 Calling LightRAG main function...")
-            lightrag_main()
-        except Exception as e:
-            print(f"❌ LightRAG server startup failed: {{e}}")
-            print("\\nFull traceback:")
-            traceback.print_exc()
-            sys.exit(1)
-
-    except KeyboardInterrupt:
-        print("\\n⚠️  LightRAG server interrupted by user (Ctrl+C)")
-        sys.exit(0)
-    except SystemExit as e:
-        if e.code == 0:
-            print(f"\\n✅ LightRAG server exited normally")
-        else:
-            print(f"\\n❌ LightRAG server exited with error code: {{e.code}}")
-        sys.exit(e.code)
-    except Exception as e:
-        print(f"\\n❌ Unexpected error in LightRAG server: {{e}}")
-        print("\\nFull traceback:")
-        traceback.print_exc()
-        sys.exit(1)
-
-# Run directly, don't check __name__ == "__main__"
-# This way won't trigger main program logic in main.py
-  372→if True:  # Always execute, cross-platform compatible
-  373→    main()
-  374→'''
-            return script_path
-
-        except Exception as e:
-            logger.error(f"[LightragServer] Failed to create startup script: {e}")
-            return None
-
-    def _create_simple_lightrag_script(self):
-        """Create simple LightRAG startup script, utilizing main.py protection mechanism"""
-        try:
-            import tempfile
-
-            # Safely handle environment variables
-            env_settings = []
-            for key, value in self.extra_env.items():
-                # Safely escape paths
-                safe_value = str(value).replace('\\', '/')
-                env_settings.append(f'os.environ["{key}"] = r"{safe_value}"')
-
-            env_code = '\n    '.join(env_settings)
-
-            # Create simple startup script
-            # Key: don't import main module, run LightRAG directly
-            script_content = f'''#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-LightRAG Simple Startup Script
-Utilize existing protection mechanism in main.py, don't import main program module
-"""
-
-import sys
-import os
-import io
-
-# Force UTF-8 encoding to avoid UnicodeEncodeError from Windows GBK console encoding
-os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
-os.environ.setdefault('PYTHONUTF8', '1')
-# Most coloring libraries support NO_COLOR to disable colored output, minimize non-ASCII characters
-os.environ.setdefault('NO_COLOR', '1')
-
-try:
-    if hasattr(sys.stdout, 'reconfigure'):
-        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
-    else:
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
-except Exception:
-    pass
-
-def setup_lightrag_environment():
-    """Setup LightRAG environment"""
-    # Set environment variables
-    {env_code}
-
-    # Clean command line arguments
-    sys.argv = ["lightrag_server"]
-
-    print("LightRAG Environment Setup Complete")
-
-def main():
-    """Start LightRAG server"""
-    try:
-        print("=" * 50)
-        print("LightRAG Server Starting...")
-        print("=" * 50)
-
-        # Setup environment
-        setup_lightrag_environment()
-
-        # Check LightRAG availability
-        try:
-            import lightrag
-            print(f"LightRAG version: {{getattr(lightrag, '__version__', 'unknown')}}")
-        except ImportError as e:
-            print(f"LightRAG not available: {{e}}")
-            print("Exiting gracefully...")
-            return 0
-
-        # Start LightRAG server
-        from lightrag.api.lightrag_server import main as lightrag_main
-        print("Starting LightRAG API server...")
-        lightrag_main()
-
-    except KeyboardInterrupt:
-        print("LightRAG server interrupted")
-        return 0
-    except Exception as e:
-        print(f"LightRAG server error: {{e}}")
-        import traceback
-        traceback.print_exc()
-        return 1
-
-# Use standard if __name__ == '__main__'
-# This will be properly handled by main.py protection mechanism
-if __name__ == '__main__':
-    sys.exit(main())
-'''
-
-            # Create temporary file
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as f:
-                f.write(script_content)
-                script_path = f.name
-
-            logger.info(f"[LightragServer] Created simple startup script: {script_path}")
-            return script_path
-
-        except Exception as e:
-            logger.error(f"[LightragServer] Failed to create simple startup script: {e}")
-            return None
-
-
-
-    def _check_and_free_port(self):
-        """Check if port is occupied, try to free it if occupied"""
-        try:
-            import socket
-            import platform
-            import subprocess
-            import time
-
-            port = int(self.extra_env.get("PORT", "9621"))
-            is_windows = platform.system().lower().startswith('win')
-
-            # Check if port is occupied
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.settimeout(1)
-            result = sock.connect_ex(('localhost', port))
-            sock.close()
-
-            if result == 0:
-                # Port is occupied, try to free it
-                logger.warning(f"[LightragServer] Port {port} is in use, attempting to free it...")
-
-                pids = self._find_processes_using_port(port, is_windows)
-
-                if pids:
-                    logger.info(f"[LightragServer] Found {len(pids)} process(es) using port {port}: {pids}")
-
-                    # Try to kill processes
-                    killed_count = 0
-                    for pid in pids:
-                        if self._kill_process(pid, is_windows):
-                            killed_count += 1
-                            logger.info(f"[LightragServer] Successfully killed process {pid}")
-                        else:
-                            logger.warning(f"[LightragServer] Failed to kill process {pid}")
-
-                    if killed_count > 0:
-                        # Wait for port to be released
-                        for i in range(15):  # Wait up to 15 seconds
-                            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                            sock.settimeout(1)
-                            result = sock.connect_ex(('localhost', port))
-                            sock.close()
-                            if result != 0:
-                                logger.info(f"[LightragServer] Port {port} is now free after killing {killed_count} process(es)")
-                                return True
-                            time.sleep(1)
-
-                        logger.warning(f"[LightragServer] Port {port} is still in use after killing processes")
-                    else:
-                        logger.warning(f"[LightragServer] Could not kill any processes using port {port}")
-
-                    # If unable to kill processes, try using different port
-                    return self._try_alternative_port(port)
-                else:
-                    logger.warning(f"[LightragServer] Could not find processes using port {port}")
-                    return self._try_alternative_port(port)
-            else:
-                # Port is available
-                return True
-
-        except Exception as e:
-            logger.warning(f"[LightragServer] Error checking port: {e}")
-            return True  # If check fails, assume port is available
-
-    def _find_processes_using_port(self, port, is_windows):
-        """Find processes using specified port"""
-        try:
-            if is_windows:
-                # Windows: use netstat
-                result = subprocess.run(
-                    ['netstat', '-ano'],
-                    capture_output=True, text=True, timeout=10
-                )
-                if result.returncode == 0:
-                    pids = []
-                    for line in result.stdout.split('\n'):
-                        if f':{port}' in line and 'LISTENING' in line:
-                            parts = line.split()
-                            if len(parts) >= 5:
-                                pid = parts[-1]
-                                if pid.isdigit():
-                                    pids.append(pid)
-                    return pids
-            else:
-                # Unix/Linux/macOS: use lsof
-                result = subprocess.run(
-                    ['lsof', '-ti', f':{port}'],
-                    capture_output=True, text=True, timeout=10
-                )
-                if result.returncode == 0 and result.stdout.strip():
-                    return result.stdout.strip().split('\n')
-
-            return []
-        except Exception as e:
-            logger.warning(f"[LightragServer] Error finding processes using port {port}: {e}")
-            return []
-
-    def _kill_process(self, pid, is_windows):
-        """Try to kill process"""
-        try:
-            if is_windows:
-                # Windows: use taskkill
-                result = subprocess.run(
-                    ['taskkill', '/PID', str(pid), '/F'],
-                    capture_output=True, text=True, timeout=10
-                )
-                return result.returncode == 0
-            else:
-                # Unix/Linux/macOS: use kill
-                result = subprocess.run(
-                    ['kill', '-9', str(pid)],
-                    capture_output=True, text=True, timeout=10
-                )
-                return result.returncode == 0
-        except Exception as e:
-            logger.warning(f"[LightragServer] Error killing process {pid}: {e}")
-            return False
 
     def _try_alternative_port(self, original_port):
-        """Try to use alternative port"""
+        import socket
         try:
-            import socket
-
-            # Try port range 9621-9630
             for port in range(original_port, original_port + 10):
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 sock.settimeout(1)
@@ -615,452 +453,459 @@ if __name__ == '__main__':
                 sock.close()
 
                 if result != 0:
-                    # Found available port
-                    logger.info(f"[LightragServer] Found alternative port {port}")
+                    if port != original_port:
+                        logger.info(f"[LightragServer] Found alternative port {port}")
                     self.extra_env["PORT"] = str(port)
                     return True
+                elif port == original_port and original_port == 9621:
+                    logger.info(f"[LightragServer] Standard port {original_port} in use, retrying...")
+                    time.sleep(1.0)
+                    # Simple single retry for brevity
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.settimeout(1)
+                    res = sock.connect_ex(('localhost', original_port))
+                    sock.close()
+                    if res != 0:
+                        self.extra_env["PORT"] = str(original_port)
+                        return True
 
             logger.error(f"[LightragServer] No available ports found in range {original_port}-{original_port + 9}")
             return False
-
         except Exception as e:
             logger.warning(f"[LightragServer] Error trying alternative ports: {e}")
             return False
 
-    def _monitor_parent(self):
-        import platform
-        is_windows = platform.system().lower().startswith('win')
+    def _wait_for_port_release(self, port: int, timeout: float = 10.0) -> bool:
+        try:
+            import socket
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                    sock.settimeout(1)
+                    result = sock.connect_ex(('localhost', port))
+                if result != 0: return True
+                time.sleep(0.2)
+        except Exception: pass
+        return False
 
-        # Try to import psutil for Windows process monitoring
-        psutil_available = False
-        if is_windows:
+    def _get_pid_file_path(self, env=None):
+        env = env or {}
+        log_dir = env.get('LOG_DIR') or self.extra_env.get('LOG_DIR')
+        if not log_dir:
+            app_data_path = env.get('APP_DATA_PATH') or self.extra_env.get('APP_DATA_PATH')
+            if app_data_path:
+                log_dir = os.path.join(app_data_path, 'runlogs')
+            else:
+                log_dir = os.path.join(str(Path.cwd()), 'lightrag_data', 'runlogs')
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+        except Exception:
+            log_dir = str(Path.cwd())
+        pid_path = os.path.join(log_dir, 'lightrag_server.pid')
+        self._pid_file_path = pid_path
+        return pid_path
+
+    def _read_pid_file(self, env=None):
+        try:
+            pid_file = self._get_pid_file_path(env)
+            if not os.path.exists(pid_file): return None
+            with open(pid_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception: return None
+
+    def _write_pid_file(self, pid, env):
+        try:
+            pid_file = self._get_pid_file_path(env)
+            start_time = self._get_process_start_time(pid)
+            with open(pid_file, 'w', encoding='utf-8') as f:
+                json.dump({'pid': pid, 'start_time': start_time}, f)
+        except Exception: pass
+
+    def _remove_pid_file(self):
+        try:
+            pid_file = self._pid_file_path
+            if pid_file and os.path.exists(pid_file): os.remove(pid_file)
+        except Exception: pass
+
+    @staticmethod
+    def _get_process_start_time(pid):
+        try:
+            import psutil
+            return time.strftime('%a %b %d %H:%M:%S %Y', time.localtime(psutil.Process(int(pid)).create_time()))
+        except Exception: return ''
+
+    @staticmethod
+    def _is_process_alive(pid):
+        try:
+            import psutil
+            return psutil.pid_exists(int(pid))
+        except Exception:
             try:
-                import psutil
-                psutil_available = True
-            except ImportError:
-                logger.warning("psutil not available, parent process monitoring may not work properly on Windows")
-            except Exception as e:
-                logger.warning(f"psutil import error: {e}, falling back to basic monitoring")
+                os.kill(int(pid), 0)
+                return True
+            except Exception: return False
 
-        # Add failure counter to avoid exit due to occasional check failures
-        failure_count = 0
-        max_failures = 3  # Exit only after 3 consecutive failures
+    def _terminate_pid(self, pid, force=False):
+        try:
+            os.kill(pid, signal.SIGKILL if force else signal.SIGTERM)
+        except Exception: pass
 
-        logger.info(f"[LightragServer] Starting parent process monitoring for PID {self.parent_pid}")
+    def _wait_for_process_termination(self, pid, timeout=10.0):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if not self._is_process_alive(pid): return True
+            time.sleep(0.2)
+        return not self._is_process_alive(pid)
 
-        while self._monitor_running:
+    def _cleanup_stale_process(self, env, port):
+        pid_info = self._read_pid_file(env)
+        if not pid_info: return
+        pid = pid_info.get('pid')
+        if not pid or not self._is_process_alive(pid):
+            self._remove_pid_file()
+            return
+        
+        recorded_start = pid_info.get('start_time', '')
+        current_start = self._get_process_start_time(pid)
+        if recorded_start and current_start and recorded_start.strip() != current_start.strip():
+            self._remove_pid_file()
+            return
+
+        logger.warning(f"[LightragServer] Terminating stale process {pid}")
+        self._terminate_pid(pid, force=False)
+        if not self._wait_for_process_termination(pid):
+            self._terminate_pid(pid, force=True)
+        self._wait_for_port_release(port)
+        self._remove_pid_file()
+
+    def _log_startup_failure(self):
+        if not hasattr(self, '_last_log_paths') or not self._last_log_paths:
+            return
+        
+        out_path, err_path = self._last_log_paths
+        
+        def read_tail(path, n=20):
+            if not path or not os.path.exists(path): return []
             try:
-                if self.parent_pid is None:
-                    # If no parent process PID, skip check
-                    time.sleep(5)
-                    continue
+                with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                    return f.readlines()[-n:]
+            except: return []
 
-                if is_windows and psutil_available:
-                    # On Windows, use psutil to check if parent process exists
-                    try:
-                        parent_process = psutil.Process(self.parent_pid)
-                        # Check if process is still running
-                        if not parent_process.is_running():
-                            failure_count += 1
-                            logger.warning(f"Parent process check failed ({failure_count}/{max_failures})")
-                            if failure_count >= max_failures:
-                                logger.error("Parent process is gone, exiting lightrag server...")
-                                os._exit(1)
-                        else:
-                            failure_count = 0  # Reset failure count
-                    except psutil.NoSuchProcess:
-                        failure_count += 1
-                        logger.warning(f"Parent process not found ({failure_count}/{max_failures})")
-                        if failure_count >= max_failures:
-                            logger.error("Parent process is gone, exiting lightrag server...")
-                            os._exit(1)
-                else:
-                    # On Unix-like systems or Windows without psutil, use os.kill
-                    # Note: This may not work reliably on Windows
-                    try:
-                        os.kill(self.parent_pid, 0)
-                        failure_count = 0  # Reset failure count
-                    except (OSError, ProcessLookupError):
-                        failure_count += 1
-                        logger.warning(f"Parent process check failed ({failure_count}/{max_failures})")
-                        if failure_count >= max_failures:
-                            logger.error("Parent process is gone, exiting lightrag server...")
-                            os._exit(1)
-
-            except Exception as e:
-                failure_count += 1
-                logger.warning(f"Parent process monitoring error: {e} ({failure_count}/{max_failures})")
-                if failure_count >= max_failures:
-                    logger.error("Too many parent process monitoring errors, exiting lightrag server...")
-                    os._exit(1)
-
-            time.sleep(5)  # Increase check interval to 5 seconds
-
-    def _monitor_server_process(self):
-        """Monitor server process with automatic restart support"""
-        while self._monitor_running:
-            try:
-                if self.proc is None:
-                    time.sleep(5)
-                    continue
-
-                # Check if process is still running
-                if self.proc.poll() is not None:
-                    # Process has exited
-                    return_code = self.proc.returncode
-                    logger.warning(f"[LightragServer] Server process exited with code {return_code}")
-
-                    # Check if restart is needed
-                    current_time = time.time()
-                    if (current_time - self.last_restart_time) > self.restart_cooldown:
-                        self.restart_count = 0  # Reset restart count
-
-                    if self.restart_count < self.max_restarts:
-                        self.restart_count += 1
-                        self.last_restart_time = current_time
-                        logger.info(f"[LightragServer] Attempting restart {self.restart_count}/{self.max_restarts}")
-
-                        # Wait before restart
-                        time.sleep(5)
-                        if self._start_server_process():
-                            continue
-
-                    logger.error(f"[LightragServer] Max restarts ({self.max_restarts}) reached, giving up")
-                    break
-
-                time.sleep(5)  # Check every 5 seconds
-
-            except Exception as e:
-                logger.error(f"[LightragServer] Process monitor error: {e}")
-                time.sleep(5)
+        stderr_lines = read_tail(err_path)
+        stdout_lines = read_tail(out_path)
+        
+        if stderr_lines:
+            logger.error(f"[LightragServer] Stderr tail:\n{''.join(stderr_lines)}")
+        if stdout_lines:
+            logger.error(f"[LightragServer] Stdout tail:\n{''.join(stdout_lines)}")
 
     def _create_log_files(self):
-        """Create log files"""
-        log_dir = self.extra_env.get("LOG_DIR", ".")
+        """
+        Create log file handles for LightRAG server subprocess output.
+        Uses fixed filenames (lightrag_server.log) instead of timestamped files
+        to avoid accumulating many log files. Implements simple log rotation
+        when files exceed 10MB.
+        """
+        env = self.build_env()
+        log_dir = env.get('LOG_DIR', '')
+        if not log_dir:
+            log_dir = os.path.join(str(Path.cwd()), 'lightrag_data', 'runlogs')
         os.makedirs(log_dir, exist_ok=True)
+        
+        # Use fixed filenames instead of timestamps to avoid log file accumulation
+        out_path = os.path.join(log_dir, "lightrag_server.log")
+        err_path = os.path.join(log_dir, "lightrag_server_error.log")
+        
+        # Simple log rotation: if file > 10MB, rename to .old and start fresh
+        max_size = 10 * 1024 * 1024  # 10MB
+        for path in [out_path, err_path]:
+            if os.path.exists(path) and os.path.getsize(path) > max_size:
+                old_path = path + '.old'
+                try:
+                    if os.path.exists(old_path):
+                        os.remove(old_path)
+                    os.rename(path, old_path)
+                    logger.info(f"[LightragServer] Rotated log file: {path}")
+                except Exception as e:
+                    logger.warning(f"[LightragServer] Failed to rotate log {path}: {e}")
+        
+        # Append mode with line buffering for real-time output
+        return (
+            open(out_path, 'a', encoding='utf-8', buffering=1),
+            open(err_path, 'a', encoding='utf-8', buffering=1),
+            out_path,
+            err_path
+        )
 
-        stdout_log_path = os.path.join(log_dir, "lightrag_server_stdout.log")
-        stderr_log_path = os.path.join(log_dir, "lightrag_server_stderr.log")
-
-        stdout_log = open(stdout_log_path, "a", encoding="utf-8")
-        stderr_log = open(stderr_log_path, "a", encoding="utf-8")
-
-        return stdout_log, stderr_log, stdout_log_path, stderr_log_path
+    def _close_log_files(self):
+        if self._stdout_log_handle:
+            try: self._stdout_log_handle.close()
+            except Exception: pass
+            self._stdout_log_handle = None
+        if self._stderr_log_handle:
+            try: self._stderr_log_handle.close()
+            except Exception: pass
+            self._stderr_log_handle = None
 
     def _start_server_process(self, wait_gating: bool = False):
-        """Start server process
-        
-        Args:
-            wait_gating: Whether to wait for health check to pass in foreground (blocking). Default False non-blocking.
-        """
         try:
             env = self.build_env()
+            self._close_log_files()
             stdout_log, stderr_log, stdout_log_path, stderr_log_path = self._create_log_files()
+            self._stdout_log_handle = stdout_log
+            self._stderr_log_handle = stderr_log
+            self._last_log_paths = (stdout_log_path, stderr_log_path)
 
-            # Check and determine final port (based on env, find available port if necessary), keep env and extra_env consistent
-            try:
-                desired_port = int(env.get("PORT", "9621"))
-            except (ValueError, TypeError):
-                desired_port = 9621
-                logger.warning("[LightragServer] Invalid PORT in env, falling back to 9621")
+            try: desired_port = int(env.get("PORT", "9621"))
+            except: desired_port = 9621
 
+            self._cleanup_stale_process(env, desired_port)
             if not self._try_alternative_port(desired_port):
-                logger.error("[LightragServer] No available port found, cannot start server")
+                logger.error("[LightragServer] No available port")
                 return False
-
-            # _try_alternative_port writes selected port back to self.extra_env['PORT'], sync to env here to ensure subprocess reads consistently
             env["PORT"] = str(self.extra_env.get("PORT", desired_port))
 
-            # Try to find Python interpreter in virtual environment
+            from utils.venv_helper import VenvHelper
+            from config.app_info import app_info
             python_executable = self._get_virtual_env_python()
-
-            # Validate if Python interpreter is available
-            if not self._validate_python_executable(python_executable):
-                logger.error(f"[LightragServer] Python executable validation failed: {python_executable}")
-                if self.is_frozen:
-                    logger.warning("[LightragServer] In packaged environment, LightRAG server will be disabled")
-                    logger.warning("[LightragServer] This is normal if lightrag is not packaged with the application")
-                    return False
-                else:
-                    logger.error("[LightragServer] Cannot start server without valid Python interpreter")
-                    return False
-
-            # In packaged environment, check if lightrag module is available
-            if self.is_frozen:
-                try:
-                    import lightrag
-                    logger.info("[LightragServer] lightrag module is available in packaged environment")
-                except ImportError:
-                    logger.warning("[LightragServer] lightrag module not available in packaged environment")
-                    logger.warning("[LightragServer] LightRAG server will be disabled")
-                    return False
-
-            import platform
-
-            # Build start command
-            if self.is_frozen:
-                # In packaged environment, use the existing protection mechanism in main.py
-                logger.info("[LightragServer] Using main.py protection mechanism for packaged environment")
-
-                # Create a simple startup script to import and run LightRAG
-                script_path = self._create_simple_lightrag_script()
-                if not script_path:
-                    logger.error("[LightragServer] Failed to create startup script")
-                    return False
-
-                # Save the script path so it can be cleaned up when stopping
-                self._script_path = script_path
-
-                # Use environment variable to deliver script path to main.exe (worker mode)
-                env['ECBOT_RUN_SCRIPT'] = script_path
-                env['ECBOT_BYPASS_SINGLE_INSTANCE'] = '1'
-                cmd = [python_executable]  # No -u needed; PYTHONUNBUFFERED=1 forces unbuffered output
-                logger.info(f"[LightragServer] PyInstaller mode command: {cmd} with ECBOT_RUN_SCRIPT={script_path}")
+            
+            # Add project root to PYTHONPATH for knowledge module import
+            project_root = app_info.app_home_path
+            existing_pythonpath = env.get('PYTHONPATH', '')
+            if existing_pythonpath:
+                env['PYTHONPATH'] = f"{project_root}:{existing_pythonpath}"
             else:
-                # Development environment: use -u for unbuffered output to locate errors quickly
-                cmd = [python_executable, "-u", "-m", "lightrag.api.lightrag_server"]
-                logger.info(f"[LightragServer] Development mode command: {' '.join(cmd)}")
+                env['PYTHONPATH'] = project_root
+            logger.info(f"[LightragServer] Set PYTHONPATH to include project root: {project_root}")
+            
+            # Use the static launcher script for SSL patching
+            launcher_path = os.path.join(os.path.dirname(__file__), "lightrag_launcher.py")
 
+            if VenvHelper.is_packaged_environment():
+                # PyInstaller Packaged Environment
+                # We cannot use sys.executable as a generic python interpreter to run scripts with arguments
+                # Instead, we use the main application executable with ECAN_RUN_SCRIPT env var
+                # This triggers the worker mode in main.py
+                logger.info(f"[LightragServer] Running in packaged environment via ECAN_RUN_SCRIPT")
+                
+                if os.path.exists(launcher_path):
+                    env['ECAN_RUN_SCRIPT'] = launcher_path
+                    # Use the main executable itself (e.g., eCan.app/Contents/MacOS/eCan)
+                    cmd = [sys.executable]
+                    logger.info(f"[LightragServer] Using launcher script via worker mode: {launcher_path}")
+                else:
+                     logger.error(f"[LightragServer] Critical: Launcher script not found in packaged env: {launcher_path}")
+                     return False
+            else:
+                # Development Environment
+                if not self._validate_python_executable(python_executable): return False
+            
+                if os.path.exists(launcher_path):
+                    cmd = [python_executable, "-u", launcher_path]
+                    logger.info(f"[LightragServer] Using launcher script: {launcher_path}")
+                else:
+                    logger.warning(f"[LightragServer] Launcher not found at {launcher_path}, falling back to -m (SSL patch will NOT be applied)")
+                    cmd = [python_executable, "-u", "-m", "lightrag.api.lightrag_server"]
+
+            # Log final environment variables (masked) for debugging
+            try:
+                debug_env = {k: self._mask_env_value(k, v) for k, v in env.items()}
+                logger.info(f"[LightragServer] Process Environment:\n{json.dumps(debug_env, ensure_ascii=False, indent=2)}")
+            except Exception as e:
+                logger.warning(f"[LightragServer] Failed to log environment: {e}")
+
+            # Log useful configuration summary
+            try:
+                summary = []
+                summary.append("="*30 + " LightRAG Config Summary " + "="*30)
+                
+                # LLM
+                llm_provider = env.get('LLM_BINDING', 'Unknown')
+                llm_model = env.get('LLM_MODEL', 'Unknown')
+                summary.append(f"🤖 LLM Provider:      {llm_provider}")
+                summary.append(f"   LLM Model:         {llm_model}")
+                if env.get('LLM_BINDING_HOST'):
+                    summary.append(f"   LLM Host:          {env.get('LLM_BINDING_HOST')}")
+                if env.get('LLM_BINDING_API_KEY'):
+                    summary.append(f"   LLM Key:           {self._mask_env_value('LLM_API_KEY', env['LLM_BINDING_API_KEY'])}")
+
+                # Embedding
+                embed_provider = env.get('EMBEDDING_BINDING', 'Unknown')
+                embed_model = env.get('EMBEDDING_MODEL', 'Unknown')
+                summary.append(f"🧠 Embedding Provider: {embed_provider}")
+                summary.append(f"   Embedding Model:   {embed_model}")
+                if env.get('EMBEDDING_BINDING_HOST'):
+                    summary.append(f"   Embedding Host:    {env.get('EMBEDDING_BINDING_HOST')}")
+                if env.get('EMBEDDING_BINDING_API_KEY'):
+                    summary.append(f"   Embedding Key:     {self._mask_env_value('EMBEDDING_API_KEY', env['EMBEDDING_BINDING_API_KEY'])}")
+
+                # Rerank
+                rerank_provider = env.get('RERANK_BINDING', 'null')
+                rerank_model = env.get('RERANK_MODEL', '')
+                rerank_enabled = env.get('RERANK_BY_DEFAULT', 'false')
+                summary.append(f"🔄 Rerank Provider:    {rerank_provider}")
+                summary.append(f"   Rerank Model:      {rerank_model if rerank_model else 'N/A'}")
+                summary.append(f"   Enabled by Default: {rerank_enabled}")
+                if env.get('RERANK_BINDING_HOST'):
+                    summary.append(f"   Rerank Host:       {env.get('RERANK_BINDING_HOST')}")
+                if env.get('RERANK_BINDING_API_KEY'):
+                    summary.append(f"   Rerank Key:        {self._mask_env_value('RERANK_API_KEY', env['RERANK_BINDING_API_KEY'])}")
+
+                # Storage
+                summary.append("-" * 20 + " Storage " + "-" * 20)
+                summary.append(f"📦 KV Storage:        {env.get('LIGHTRAG_KV_STORAGE', 'Default')}")
+                summary.append(f"📊 Vector Storage:    {env.get('LIGHTRAG_VECTOR_STORAGE', 'Default')}")
+                summary.append(f"🕸️ Graph Storage:     {env.get('LIGHTRAG_GRAPH_STORAGE', 'Default')}")
+                summary.append(f"📄 Doc Status:        {env.get('LIGHTRAG_DOC_STATUS_STORAGE', 'Default')}")
+                
+                # Common DB
+                if any(v and v.startswith('PG') for k,v in env.items() if k.endswith('_STORAGE')):
+                     summary.append("-" * 20 + " Database " + "-" * 20)
+                     summary.append(f"🗄️ Postgres Host:     {env.get('POSTGRES_HOST', 'localhost')}:{env.get('POSTGRES_PORT', '5432')}")
+                     summary.append(f"   Database:          {env.get('POSTGRES_DATABASE', '')}")
+
+                summary.append("="*83)
+                logger.info("\n".join(summary))
+            except Exception: pass
+
+            logger.info(f"[LightragServer] Starting: {' '.join(cmd)}")
+            import platform
             if platform.system().lower().startswith('win'):
-                # Hide console window in production by default; enable via env for debugging
-                show_console = os.getenv("ECBOT_CHILD_SHOW_CONSOLE") == "1"
-                creation_flags = 0
-                if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP'):
-                    creation_flags |= subprocess.CREATE_NEW_PROCESS_GROUP
-                if not show_console and hasattr(subprocess, 'CREATE_NO_WINDOW'):
-                    creation_flags |= subprocess.CREATE_NO_WINDOW
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = 0
+                self.proc = subprocess.Popen(cmd, env=env, stdin=subprocess.PIPE, stdout=stdout_log, stderr=stderr_log, text=True, encoding='utf-8', errors='replace', creationflags=subprocess.CREATE_NEW_PROCESS_GROUP, startupinfo=startupinfo)
+            else:
+                self.proc = subprocess.Popen(cmd, env=env, stdin=subprocess.PIPE, stdout=stdout_log, stderr=stderr_log, text=True, encoding='utf-8', errors='replace', preexec_fn=os.setsid)
 
-                self.proc = subprocess.Popen(
-                    cmd,
-                    env=env,
-                    stdin=subprocess.PIPE,
-                    stdout=stdout_log,
-                    stderr=stderr_log,
-                    text=True,
-                    encoding='utf-8',
-                    errors='replace',
-                    creationflags=creation_flags
-                )
-                try:
+            try: 
+                if self.proc.stdin: 
                     self.proc.stdin.write("yes\n")
                     self.proc.stdin.flush()
-                except Exception as e:
-                    logger.error(f"[LightragServer] Failed to write to stdin: {e}")
-            else:
-                # Unix-like systems
-                yes_proc = subprocess.Popen(["yes", "yes"], stdout=subprocess.PIPE)
-                self.proc = subprocess.Popen(
-                    cmd,
-                    env=env,
-                    stdin=yes_proc.stdout,
-                    stdout=stdout_log,
-                    stderr=stderr_log,
-                    text=True,
-                    encoding='utf-8',
-                    errors='replace',
-                    preexec_fn=os.setsid if hasattr(os, 'setsid') else None
-                )
+            except: pass
 
-            final_host = env.get("HOST", "127.0.0.1")
-            final_port = env.get("PORT", "9621")
-
-            # Ensure the port is a valid number
-            try:
-                final_port = str(int(final_port))
-            except (ValueError, TypeError):
-                final_port = "9621"
-                logger.warning(f"[LightragServer] Invalid port, using default: 9621")
-
-            logger.info(f"[LightragServer] Logs: {stdout_log_path}, {stderr_log_path}")
-
-            if wait_gating:
-                # Health-check gating to confirm the server is actually listening (parameterized + exponential backoff)
-                try:
-                    import httpx
-                    health_host = '127.0.0.1' if str(final_host) in ('0.0.0.0', '::', '') else str(final_host)
-                    hc_url = f"http://{health_host}:{final_port}/healthz"
-                    total_timeout = float(env.get('LIGHTRAG_HEALTH_TIMEOUT', '45'))
-                    interval = float(env.get('LIGHTRAG_HEALTH_INTERVAL_INITIAL', '0.5'))
-                    max_interval = float(env.get('LIGHTRAG_HEALTH_INTERVAL_MAX', '1.5'))
-                    deadline = time.time() + total_timeout
-                    last_err = None
-                    # Quickly detect if the process exited immediately to surface logs early
-                    time.sleep(0.2)
-                    if self.proc and self.proc.poll() is not None:
-                        logger.error(f"[LightragServer] Server process exited immediately with code {self.proc.returncode}")
-                        _stderr_tail = _safe_tail(stderr_log_path)
-                        _stdout_tail = _safe_tail(stdout_log_path)
-                        if _stderr_tail:
-                            logger.error(f"[LightragServer] stderr tail:\n{_stderr_tail}")
-                        if _stdout_tail:
-                            logger.error(f"[LightragServer] stdout tail:\n{_stdout_tail}")
+            logger.info(f"[LightragServer] Started on port {env['PORT']}")
+            if self.proc and self.proc.poll() is None:
+                self._write_pid_file(self.proc.pid, env)
+                
+                if wait_gating:
+                    health_timeout = float(env.get('LIGHTRAG_HEALTH_TIMEOUT', 45.0))
+                    if self._wait_for_server_ready(int(env['PORT']), timeout=health_timeout):
+                        return True
+                    else:
+                        logger.error("[LightragServer] Server failed to become ready, stopping...")
+                        self._log_startup_failure()
+                        self.stop()
                         return False
-
-                    while time.time() < deadline:
-                        try:
-                            r = httpx.get(hc_url, timeout=2.0)
-                            if r.status_code < 500:
-                                logger.info(f"[LightragServer] Server started at http://{final_host}:{final_port}")
-                                logger.info(f"[LightragServer] WebUI: http://{final_host}:{final_port}/webui")
-                                return True
-                        except Exception as e:
-                            last_err = e
-                        time.sleep(interval)
-                        interval = min(max_interval, interval * 1.2)
-                    logger.error(f"[LightragServer] Health check failed for {hc_url}: {last_err}")
-                    # Try to surface last few stderr/stdout lines to parent log for quick diagnosis
-                    _stderr_tail = _safe_tail(stderr_log_path)
-                    _stdout_tail = _safe_tail(stdout_log_path)
-                    if _stderr_tail:
-                        logger.error(f"[LightragServer] stderr tail:\n{_stderr_tail}")
-                    if _stdout_tail:
-                        logger.error(f"[LightragServer] stdout tail:\n{_stdout_tail}")
-                except Exception as e:
-                    logger.error(f"[LightragServer] Health check gating error: {e}")
-
-                return False
-            else:
-                # Non-blocking mode: return immediately; health check should be handled by the monitor thread or via logs
-                logger.info(f"[LightragServer] Started (non-blocking) at http://{final_host}:{final_port}, skipping health-gating")
+                
                 return True
-
+            return False
         except Exception as e:
-            logger.error(f"[LightragServer] Failed to start server: {e}")
+            logger.error(f"[LightragServer] Start error: {e}")
             return False
 
-    def start(self, wait_ready: bool = False):
-        """Start the server
+    def _wait_for_server_ready(self, port, timeout=45.0):
+        start_time = time.time()
+        import requests
         
-        Args:
-            wait_ready: Whether to block until health check passes
-        """
-        if self.proc is not None and self.proc.poll() is None:
-            logger.warning("[LightragServer] Server is already running")
-            return self.proc
+        logger.info(f"[LightragServer] Waiting for server to be ready on port {port}...")
+        while time.time() - start_time < timeout:
+            try:
+                # Check if process is still running
+                if self.proc and self.proc.poll() is not None:
+                    logger.error(f"[LightragServer] Server process exited prematurely with code {self.proc.returncode}")
+                    return False
+                
+                response = requests.get(f"http://127.0.0.1:{port}/health", timeout=1)
+                if response.status_code == 200:
+                    logger.info(f"[LightragServer] Server is ready on port {port}")
+                    return True
+            except:
+                pass
+            time.sleep(0.5)
+        
+        logger.error(f"[LightragServer] Timeout waiting for server ready on port {port}")
+        return False
 
-        logger.info("[LightragServer] Starting LightRAG server...")
-
-        # Start server process
-        if not self._start_server_process(wait_gating=wait_ready):
-            return None
-
-        # Any monitoring requires the running flag
-        self._monitor_running = True
-
-        # Start parent process monitor thread
-        if not self.disable_parent_monitoring and self.parent_pid is not None:
+    def start(self, wait_ready=False):
+        if self.is_running(): return True
+        if time.time() - self.last_restart_time > 300: self.restart_count = 0
+        if self.restart_count >= self.max_restarts:
+            logger.error("[LightragServer] Max restarts reached")
+            return False
+        self.restart_count += 1
+        self.last_restart_time = time.time()
+        
+        success = self._start_server_process(wait_gating=wait_ready)
+        if success and not self._monitor_running and not self.disable_parent_monitoring:
+            self._monitor_running = True
             self._monitor_thread = threading.Thread(target=self._monitor_parent, daemon=True)
             self._monitor_thread.start()
-            logger.info(f"[LightragServer] Parent process monitoring enabled for PID {self.parent_pid}")
-        else:
-            logger.info(f"[LightragServer] Parent process monitoring disabled (disabled={self.disable_parent_monitoring}, pid={self.parent_pid})")
+        return success
 
-        # Start process monitor thread (for auto-restart)
-        if self.max_restarts > 0:
-            self._proc_monitor_thread = threading.Thread(target=self._monitor_server_process, daemon=True)
-            self._proc_monitor_thread.start()
-            logger.info("[LightragServer] Process monitoring enabled for auto-restart")
-
-        return self.proc
-
-    def stop(self):
-        """Stop the server"""
-        logger.info("[LightragServer] Stopping server...")
-
-        # Stop monitoring threads
+    def stop(self, force: bool = False):
+        """Stop the LightRAG server.
+        
+        Args:
+            force: If True, forcefully kill the entire process group immediately.
+                   This will interrupt all running LLM/embedding HTTP requests.
+                   If False (default), use graceful termination.
+        """
         self._monitor_running = False
-        if self._monitor_thread is not None:
-            self._monitor_thread.join(timeout=2)
-            self._monitor_thread = None
-        if getattr(self, "_proc_monitor_thread", None) is not None:
-            try:
-                self._proc_monitor_thread.join(timeout=2)
-            except Exception:
-                pass
-            self._proc_monitor_thread = None
-
-        # Stop server process
-        if self.proc is not None:
-            try:
-                # Try graceful shutdown
-                self.proc.terminate()
-
-                # Wait for process to exit
+        if hasattr(self, '_script_path') and self._script_path and os.path.exists(self._script_path):
+            try: os.remove(self._script_path)
+            except Exception as e: logger.debug(f"[LightragServer] Error removing script: {e}")
+        
+        if self.proc:
+            if force:
+                logger.info("[LightragServer] Force stopping server (killing process group)...")
                 try:
-                    self.proc.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    # Force kill the process
-                    logger.warning("[LightragServer] Force killing server process")
-                    self.proc.kill()
-                    self.proc.wait()
-
-                logger.info("[LightragServer] Server stopped")
-
-            except Exception as e:
-                logger.error(f"[LightragServer] Error stopping server: {e}")
-            finally:
-                self.proc = None
-        else:
-            logger.info("[LightragServer] Server is not running")
-
-        # Clean up temporary startup script
-        try:
-            if getattr(self, "_script_path", None):
-                os.remove(self._script_path)
-                self._script_path = None
-        except Exception:
-            pass
+                    if self.proc.poll() is None:
+                        pid = self.proc.pid
+                        if sys.platform == 'win32':
+                            # Windows: use taskkill to kill process tree
+                            import subprocess as sp
+                            sp.run(['taskkill', '/F', '/T', '/PID', str(pid)], 
+                                   capture_output=True, timeout=5)
+                        else:
+                            # Unix: kill entire process group
+                            import signal
+                            try:
+                                pgid = os.getpgid(pid)
+                                os.killpg(pgid, signal.SIGKILL)
+                                logger.info(f"[LightragServer] Killed process group {pgid}")
+                            except ProcessLookupError:
+                                pass  # Process already dead
+                        # Wait briefly for process to die
+                        try: self.proc.wait(timeout=2)
+                        except: pass
+                except Exception as e:
+                    logger.error(f"[LightragServer] Error force stopping process: {e}")
+                finally: self.proc = None
+            else:
+                logger.info("[LightragServer] Stopping server...")
+                try:
+                    if self.proc.poll() is None:
+                        self.proc.terminate()
+                        try: self.proc.wait(timeout=5)
+                        except: 
+                            logger.warning("[LightragServer] Process unresponsive, killing...")
+                            self.proc.kill()
+                except Exception as e:
+                    logger.error(f"[LightragServer] Error stopping process: {e}")
+                finally: self.proc = None
+            
+        self._close_log_files()
+        self._remove_pid_file()
+        logger.info("[LightragServer] Server stopped")
 
     def is_running(self):
-        """Check if the server is running"""
         return self.proc is not None and self.proc.poll() is None
 
-    def get_current_port(self):
-        """Get the current port in use"""
-        try:
-            # Get port from environment variables
-            port = self.extra_env.get("PORT", "9621")
-            return int(port)
-        except (ValueError, TypeError):
-            # If the port is not a valid number, return the default port
-            return 9621
-
-    def get_server_url(self):
-        """Get the server URL"""
-        port = self.get_current_port()
-        host = self.extra_env.get("HOST", "127.0.0.1")
-        return f"http://{host}:{port}"
-
-    def get_webui_url(self):
-        """Get the WebUI URL"""
-        port = self.get_current_port()
-        host = self.extra_env.get("HOST", "127.0.0.1")
-        return f"http://{host}:{port}/webui"
-
-
-# -------- helpers --------
-def _safe_tail(file_path: str, num_lines: int = 80) -> str:
-    try:
-        if not file_path or not os.path.exists(file_path):
-            return ""
-        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-            lines = f.readlines()
-            return ''.join(lines[-num_lines:])
-    except Exception:
-        return ""
-
-if __name__ == "__main__":
-    server = LightragServer()
-    proc = server.start()
-    try:
-        proc.wait()
-    except KeyboardInterrupt:
-        server.stop()
-
-    # import openai
-    # client = openai.OpenAI(api_key="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")
-    # resp = client.embeddings.create(
-    #     input="test",
-    #     model="text-embedding-3-large"
-    # )
-    # print(len(resp.data[0].embedding))
+    def _monitor_parent(self):
+        while self._monitor_running and self.parent_pid:
+             if not self._is_process_alive(self.parent_pid):
+                 logger.warning(f"[LightragServer] Parent process {self.parent_pid} died, stopping server...")
+                 self.stop()
+                 sys.exit(0)
+             time.sleep(2)

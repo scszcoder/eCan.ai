@@ -1,3 +1,13 @@
+/**
+ * Tasks Page特有TypeDefinition
+ * BaseType请从 @/types/domain/task Import
+ */
+
+// 从 domain 层ImportBaseType
+export type { Task } from '@/types/domain/task';
+export { TaskStatus, TaskPriority } from '@/types/domain/task';
+
+// Page特有Type
 export interface Schedule {
   repeat_type: string;
   repeat_number: number;
@@ -5,26 +15,4 @@ export interface Schedule {
   start_date_time: string;
   end_date_time: string;
   time_out: number;
-}
-
-export interface Task {
-  id: string;
-  sessionId: string;
-  skill: string;
-  metadata: {
-    state: {
-      top: string;
-    };
-  };
-  state: {
-    top: string;
-
-  };
-  resume_from: string;
-  trigger: string;
-  schedule: Schedule;
-  checkpoint_nodes: any[];
-  priority: string;
-  last_run_datetime: string | null;
-  already_run_flag: boolean;
 } 

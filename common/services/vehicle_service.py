@@ -11,10 +11,12 @@ from utils.logger_helper import logger_helper
 
 class VehicleService:
 
-    def __init__(self, main_win, session):
+    def __init__(self, main_win, session, engine=None):
         self.main_win = main_win
         self.session = session
-        sync_table_columns(VehicleModel, 'vehicle')
+        self.engine = engine
+        # Pass engine parameter to sync_table_columns
+        sync_table_columns(VehicleModel, 'vehicle', engine)
 
     def insert_vehicle(self, vehicle: VehicleModel):
         self.session.add(vehicle)
@@ -46,7 +48,7 @@ class VehicleService:
 
     def describe_table(self):
         inspector = inspect(VehicleModel)
-        # 打印表结构信息
+        # Print table structure information
         print(f"{VehicleModel.__tablename__} Table column definitions: ")
         columns = inspector.columns
         for column in columns:

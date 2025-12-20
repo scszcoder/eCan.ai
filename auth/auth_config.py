@@ -1,6 +1,6 @@
 """
-Simple Authentication Configuration
-Direct YAML mapping with AuthConfig.xx.xxx access pattern
+Authentication Configuration
+Centralized configuration management
 """
 import yaml
 from pathlib import Path
@@ -13,24 +13,32 @@ class ConfigNamespace:
         self._config = config_dict
     
     def __getattr__(self, name: str) -> Any:
-        """Direct access to config values"""
+        """Direct access to config values with nested dict support"""
         if name in self._config:
-            return self._config[name]
+            value = self._config[name]
+            # If value is a dict, wrap it in another ConfigNamespace for nested access
+            if isinstance(value, dict):
+                return ConfigNamespace(value)
+            return value
         raise AttributeError(f"Configuration key '{name}' not found")
 
-class AuthConfig:
-    """Direct YAML configuration access"""
+class AuthConfigMeta(type):
+    """Metaclass for AuthConfig to enable class-level attribute access"""
     
-    _instance = None
     _config = None
+    _loaded = False
     
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
+    def __getattr__(cls, name: str) -> Any:
+        """Enable AuthConfig.COGNITO.xxx class-level access pattern"""
+        if not cls._loaded:
             cls._load_config()
-        return cls._instance
+        
+        if name in cls._config:
+            if isinstance(cls._config[name], dict):
+                return ConfigNamespace(cls._config[name])
+            return cls._config[name]
+        raise AttributeError(f"Configuration section '{name}' not found")
     
-    @classmethod
     def _load_config(cls):
         """Load configuration from auth_config.yml"""
         config_path = Path(__file__).parent / "auth_config.yml"
@@ -38,17 +46,17 @@ class AuthConfig:
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
                 cls._config = yaml.safe_load(f) or {}
+            cls._loaded = True
         except Exception as e:
             print(f"Error: Failed to load auth_config.yml: {e}")
             cls._config = {}
-    
-    def __getattr__(self, name: str) -> Any:
-        """Enable AuthConfig.COGNITO.xxx access pattern"""
-        if name in self._config:
-            if isinstance(self._config[name], dict):
-                return ConfigNamespace(self._config[name])
-            return self._config[name]
-        raise AttributeError(f"Configuration section '{name}' not found")
+            cls._loaded = True
 
-# Create global instance
-AuthConfig = AuthConfig()
+class AuthConfig(metaclass=AuthConfigMeta):
+    """Centralized authentication configuration with class-level access"""
+    
+    @classmethod
+    def reload_config(cls):
+        """Force reload configuration from file"""
+        cls._loaded = False
+        cls._load_config()

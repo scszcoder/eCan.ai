@@ -1,5 +1,5 @@
-from PySide6.QtCore import Qt, QThread, QObject, Signal, QRectF, QTimer
-from PySide6.QtGui import QPixmap, QPainter, QPen, QColor, QFont, QConicalGradient
+from PySide6.QtCore import Qt, Signal, QTimer
+from PySide6.QtGui import QPainter, QPen, QColor
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -9,15 +9,73 @@ from PySide6.QtWidgets import (
     QApplication,
     QGraphicsDropShadowEffect,
 )
+
 import os
 from datetime import datetime
 import sys
-import json
 
 try:
     from config.app_info import app_info
 except Exception:
     app_info = None
+
+
+# Internationalization for splash screen
+class SplashMessages:
+    """Simple i18n support for splash screen."""
+    
+    DEFAULT_LANG = 'zh-CN'
+    
+    MESSAGES = {
+        'en-US': {
+            'app_subtitle': 'Your Intelligent E-Commerce Agent Network',
+            'loading': 'Loading...',
+            'initializing': 'Initializing...',
+            'init_python_env': 'Initializing APP environment...',
+            'loading_core_modules': 'Loading core modules...',
+            'loading_config': 'Loading configuration...',
+            'init_services': 'Initializing services...',
+            'preparing_gui': 'Preparing interface...',
+            'finalizing': 'Finalizing startup...',
+            'ready': 'Ready to launch!',
+        },
+        'zh-CN': {
+            'app_subtitle': '您的智能电商智能体网络平台',
+            'loading': '加载中...',
+            'initializing': '初始化中...',
+            'init_python_env': '初始化应用环境...',
+            'loading_core_modules': '加载核心模块...',
+            'loading_config': '加载配置...',
+            'init_services': '初始化服务...',
+            'preparing_gui': '准备界面...',
+            'finalizing': '完成启动...',
+            'ready': '准备启动!',
+        }
+    }
+    
+    def __init__(self):
+        from utils.i18n_helper import detect_language
+        self.language = detect_language(
+            default_lang=self.DEFAULT_LANG,
+            supported_languages=list(self.MESSAGES.keys())
+        )
+        print(f"[Splash] Language: {self.language}")
+    
+    def get(self, key: str) -> str:
+        """Get localized message."""
+        lang = self.language if self.language in self.MESSAGES else self.DEFAULT_LANG
+        return self.MESSAGES[lang].get(key, key)
+
+
+# Global instance - lazy initialization
+_splash_messages = None
+
+def _get_splash_messages():
+    """Get SplashMessages instance with lazy initialization."""
+    global _splash_messages
+    if _splash_messages is None:
+        _splash_messages = SplashMessages()
+    return _splash_messages
 
 
 class ThemedSplashScreen(QWidget):
@@ -28,12 +86,36 @@ class ThemedSplashScreen(QWidget):
     """
 
     def __init__(self):
-        super().__init__(None, Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
+        # Initialize ALL state variables FIRST, before any other operations
+        self._is_deleted = False
+        self._is_hidden = False
+        self._centered_on_show = False
+        self._center_timers = []
+        self._last_center_pos = None
+
+        # Use additional window flags for better Windows compatibility
+        window_flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+        if sys.platform == 'win32':
+            # Additional Windows-specific flags to reduce flicker
+            window_flags |= Qt.Tool  # Prevents taskbar entry and reduces flicker
+
+        super().__init__(None, window_flags)
+
+        # Set attributes to reduce flicker and improve appearance
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setFixedSize(640, 400)
 
+        # Set window properties for better positioning
+        self.setWindowFlags(window_flags)
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+
+        # Install event filter for Windows-specific handling
+        if sys.platform == 'win32':
+            self.installEventFilter(self)
+
+        # Build UI first, then position
         self._build_ui()
-        self._center_on_screen()
+        # Defer centering until after show
 
     def _build_ui(self):
         app_name = 'eCan'
@@ -76,12 +158,12 @@ class ThemedSplashScreen(QWidget):
             """
         )
 
-        # subtle shadow
+        # Optimized shadow effect - reduce blur radius for better performance
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(28)
+        shadow.setBlurRadius(16)  # Reduced from 28 for better performance
         shadow.setXOffset(0)
-        shadow.setYOffset(8)
-        shadow.setColor(Qt.black)
+        shadow.setYOffset(6)  # Reduced from 8
+        shadow.setColor(QColor(0, 0, 0, 180))  # Slightly transparent
         container.setGraphicsEffect(shadow)
 
         # Root layout
@@ -109,7 +191,7 @@ class ThemedSplashScreen(QWidget):
         title = QLabel(app_name)
         title.setObjectName("title")
         title.setAlignment(Qt.AlignHCenter)
-        subtitle = QLabel("Your Intelligent E-Commerce Agent Network")
+        subtitle = QLabel(_get_splash_messages().get('app_subtitle'))
         subtitle.setObjectName("subtitle")
         subtitle.setWordWrap(True)
         subtitle.setAlignment(Qt.AlignHCenter)
@@ -126,7 +208,7 @@ class ThemedSplashScreen(QWidget):
         col.addWidget(self.progress_bar)
 
         # Status text
-        self.status_label = QLabel("loading…")
+        self.status_label = QLabel(_get_splash_messages().get('loading'))
         self.status_label.setObjectName("status")
         self.status_label.setAlignment(Qt.AlignHCenter)
         col.addWidget(self.status_label)
@@ -160,6 +242,7 @@ class ThemedSplashScreen(QWidget):
         self._is_hidden = False
 
         # Start Python initialization in background thread to avoid blocking UI
+        from PySide6.QtCore import QThread
         self._py_thread = QThread(self)
         try:
             self._py_thread.setObjectName('SplashInitThread')
@@ -190,20 +273,157 @@ class ThemedSplashScreen(QWidget):
         root.addWidget(container)
 
     def _center_on_screen(self):
-        screen = QApplication.primaryScreen()
-        if not screen:
+        """Center the splash screen on the primary screen with Windows-specific handling"""
+        # Check if object is still valid
+        if self._is_deleted or not hasattr(self, '_is_deleted'):
             return
-        sg = screen.availableGeometry()
-        self.move(
-            sg.center().x() - self.width() // 2,
-            sg.center().y() - self.height() // 2,
-        )
+
+        try:
+            # Prefer the screen where this window is (after show), fallback to cursor screen, then primary
+            from PySide6.QtGui import QGuiApplication, QCursor
+            screen = self.screen()
+            if screen is None:
+                screen = QGuiApplication.screenAt(QCursor.pos()) or QApplication.primaryScreen()
+            if not screen:
+                return
+
+            # Get screen geometry
+            sg = screen.availableGeometry()
+
+            # Calculate center position
+            x = sg.center().x() - self.width() // 2
+            y = sg.center().y() - self.height() // 2
+
+            # Ensure position is within screen bounds
+            x = max(sg.left(), min(x, sg.right() - self.width()))
+            y = max(sg.top(), min(y, sg.bottom() - self.height()))
+
+            # Prefer Windows API for frameless windows to avoid (0,0) jumps
+            if sys.platform == 'win32' and self.windowFlags() & Qt.FramelessWindowHint:
+                try:
+                    import ctypes
+                    hwnd = int(self.winId())
+                    if hwnd:
+                        user32 = ctypes.windll.user32
+                        SWP_NOSIZE = 0x0001
+                        SWP_NOZORDER = 0x0004
+                        SWP_SHOWWINDOW = 0x0040
+                        user32.SetWindowPos(hwnd, 0, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_SHOWWINDOW)
+                    else:
+                        self.move(x, y)
+                except Exception:
+                    self.move(x, y)
+            else:
+                # Fallback to Qt positioning
+                self.move(x, y)
+
+            # Force update and ensure window is properly positioned
+            self.update()
+            QApplication.processEvents()
+            try:
+                # Minimal logging to help diagnose positioning issues
+                from utils.logger_helper import logger_helper as logger
+                final_pos = self.pos()
+                # Record last stable position
+                try:
+                    from PySide6.QtCore import QPoint
+                    self._last_center_pos = QPoint(final_pos.x(), final_pos.y())
+                except Exception:
+                    self._last_center_pos = final_pos
+                logger.info(f"[Splash] Final position: ({final_pos.x()}, {final_pos.y()})")
+            except Exception:
+                pass
+        except RuntimeError as e:
+            if "already deleted" in str(e):
+                self._is_deleted = True
+                return
+            raise
 
     def showEvent(self, event):
-        """Override showEvent to ensure the window is always centered when shown"""
+        """Override showEvent to ensure the window is centered once when shown"""
+        # Center BEFORE calling super to ensure correct position from the start
+        if not self._is_deleted and not hasattr(self, '_centered_on_show'):
+            self._centered_on_show = True
+            self._center_on_screen()
+            # Process events to ensure position is applied
+            QApplication.processEvents()
         super().showEvent(event)
-        # Re-center the window after it's shown to ensure it's always in the center
-        QTimer.singleShot(0, self._center_on_screen)
+
+    def move(self, *args):
+        """Override move to prevent moving to (0,0) at source"""
+        try:
+            # Parse position from args
+            if len(args) == 1:
+                # QPoint argument
+                pos = args[0]
+                x, y = pos.x(), pos.y()
+            elif len(args) == 2:
+                # x, y arguments
+                x, y = args[0], args[1]
+            else:
+                return super().move(*args)
+            
+            # Block moves to (0,0) unless we're being hidden
+            if x < 5 and y < 5 and not self._is_hidden:
+                # Debug log
+                try:
+                    from utils.logger_helper import logger_helper as logger
+                    logger.warning(f"[Splash] 🛡️ BLOCKED move to ({x},{y}), staying at current position")
+                except Exception:
+                    print(f"[Splash] 🛡️ BLOCKED move to ({x},{y})")
+                
+                # Ignore this move request - stay at current position
+                if self._last_center_pos is not None:
+                    return super().move(self._last_center_pos)
+                return  # Don't move at all
+            
+            # Allow valid moves
+            return super().move(*args)
+        except Exception as e:
+            print(f"[Splash] move() exception: {e}")
+            return super().move(*args)
+    
+    def moveEvent(self, event):
+        """Guard against unintended jumps to (0,0) by immediately restoring position."""
+        try:
+            # Only guard if visible and not being hidden
+            if (not self._is_deleted and 
+                not self._is_hidden and 
+                self.isVisible()):
+                pos = event.pos()
+                # If moved to (0,0), immediately restore to saved position
+                if pos.x() < 5 and pos.y() < 5:
+                    try:
+                        from utils.logger_helper import logger_helper as logger
+                        logger.warning(f"[Splash] 🛡️ Detected move to ({pos.x()}, {pos.y()}), restoring position")
+                    except Exception:
+                        pass
+                    # Must call super first to process the event
+                    super().moveEvent(event)
+                    # Then immediately restore position
+                    if self._last_center_pos is not None:
+                        from PySide6.QtCore import QTimer
+                        QTimer.singleShot(0, lambda: super(ThemedSplashScreen, self).move(self._last_center_pos))
+                    return
+        except Exception:
+            pass
+        return super().moveEvent(event)
+
+
+    def eventFilter(self, obj, event):
+        """Event filter to handle Windows-specific window positioning issues"""
+        try:
+            # Check if we have the required attributes and object is valid
+            if (sys.platform == 'win32' and
+                obj == self and
+                hasattr(self, '_is_deleted') and
+                not self._is_deleted):
+                # No-op: avoid aggressive recentering on move/state changes to prevent visible jumps
+                pass
+        except Exception:
+            # If any error occurs, just pass through to parent
+            pass
+        return super().eventFilter(obj, event)
 
     def _load_logo_pixmap(self):
         # Prefer the specified logo path
@@ -219,6 +439,7 @@ class ThemedSplashScreen(QWidget):
             os.path.join(base, 'images', 'logos', 'rounded', 'dock_256x256.png'),
             os.path.join(base, 'images', 'logos', 'desktop_256x256.png'),
         ]
+        from PySide6.QtGui import QPixmap
         for p in candidates:
             if os.path.exists(p):
                 pm = QPixmap(p)
@@ -256,12 +477,12 @@ class ThemedSplashScreen(QWidget):
                 "VERSION",  # Current directory
             ]
 
-        # 使用统一的版本读取函数
+        # Use unified version reading function
         try:
             from utils.app_setup_helper import read_version_file
             return read_version_file(try_paths)
         except ImportError:
-            # 如果导入失败，使用原来的逻辑作为备用
+            # If import fails, use original logic as fallback
             for p in try_paths:
                 try:
                     # Check if it's a file
@@ -289,22 +510,24 @@ class ThemedSplashScreen(QWidget):
         return None
 
     def set_status(self, text: str):
+        """Update status text with optimized repaint."""
         try:
             if hasattr(self, 'status_label') and self.status_label is not None:
                 self.status_label.setText(str(text))
-                # Force immediate repaint of the status label
-                self.status_label.repaint()
-                QApplication.processEvents()
+                # Use update() instead of repaint() for better performance
+                # update() schedules a paint event, while repaint() forces immediate painting
+                self.status_label.update()
+                # Reduce processEvents calls to improve performance
         except Exception:
             pass
 
     def set_progress(self, value: int):
+        """Update progress with optimized rendering."""
         try:
             # Treat as WebView load progress
             self._web_progress = max(0, min(100, int(value)))
             self._update_combined()
-            # Force immediate UI update
-            QApplication.processEvents()
+            # Remove excessive processEvents() calls to reduce CPU usage
         except Exception:
             pass
 
@@ -316,6 +539,23 @@ class ThemedSplashScreen(QWidget):
                 self._target_main_window = main_window
             # Hide immediately once web is ready; keep initialization running
             self._hide_now()
+            # Show and bring main window to front reliably
+            if main_window is not None:
+                try:
+                    main_window.show()
+                    main_window.raise_()
+                    main_window.activateWindow()
+                    if sys.platform == 'win32':
+                        try:
+                            import ctypes
+                            hwnd = int(main_window.winId())
+                            if hwnd:
+                                user32 = ctypes.windll.user32
+                                user32.SetForegroundWindow(hwnd)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
             # Delete later when python init finishes
             self._maybe_delete()
         except Exception:
@@ -337,15 +577,15 @@ class ThemedSplashScreen(QWidget):
             pass
 
     def _on_status_update(self, status: str):
-        """Handle status updates from Python initialization worker"""
+        """Handle status updates from Python initialization worker with optimized rendering."""
         try:
             self.set_status(status)
-            # Force immediate UI update
-            QApplication.processEvents()
+            # Removed excessive processEvents() call for better performance
         except Exception:
             pass
 
     def _update_combined(self):
+        """Update combined progress with optimized rendering."""
         try:
             combined = int(round((self._web_progress + self._py_progress) / 2))
             if combined != self._progress_value:
@@ -358,8 +598,8 @@ class ThemedSplashScreen(QWidget):
                         # Show centered percentage text
                         self.progress_bar.setFormat(f"{self._progress_value}%")
                         self.progress_bar.setAlignment(Qt.AlignCenter)
-                        # Force immediate repaint of the progress bar
-                        self.progress_bar.repaint()
+                        # Use update() instead of repaint() for better performance
+                        self.progress_bar.update()
                     except Exception:
                         pass
         except Exception:
@@ -369,6 +609,27 @@ class ThemedSplashScreen(QWidget):
         try:
             if not self._is_hidden:
                 self._is_hidden = True
+                # Immediately set opacity to 0 for smooth fade
+                try:
+                    self.setWindowOpacity(0.0)
+                except Exception:
+                    pass
+                # On Windows, hide without moving using SetWindowPos
+                if sys.platform == 'win32':
+                    try:
+                        import ctypes
+                        hwnd = int(self.winId())
+                        if hwnd:
+                            user32 = ctypes.windll.user32
+                            SWP_NOSIZE = 0x0001
+                            SWP_NOMOVE = 0x0002
+                            SWP_NOZORDER = 0x0004
+                            SWP_HIDEWINDOW = 0x0080
+                            user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_HIDEWINDOW)
+                            return
+                    except Exception:
+                        pass
+                # Fallback: hide immediately
                 self.hide()
         except Exception:
             pass
@@ -382,8 +643,20 @@ class ThemedSplashScreen(QWidget):
     def _finalize_delete(self):
         try:
             self._progress_value = 100
+            self._is_deleted = True
+            # Clear all centering timers
+            self._clear_center_timers()
             # By now python thread should be finished via _on_py_finished
             self.deleteLater()
+        except Exception:
+            pass
+
+    def _clear_center_timers(self):
+        """Clear all centering timers to prevent memory leaks"""
+        try:
+            # Note: QTimer.singleShot returns None, so we can't actually stop them
+            # But we can clear our tracking list
+            self._center_timers.clear()
         except Exception:
             pass
 
@@ -412,6 +685,8 @@ class ThemedSplashScreen(QWidget):
 
     def closeEvent(self, event):
         try:
+            self._is_deleted = True
+            self._clear_center_timers()
             self._ensure_thread_stopped()
         except Exception:
             pass
@@ -419,6 +694,8 @@ class ThemedSplashScreen(QWidget):
 
     def __del__(self):
         try:
+            self._is_deleted = True
+            self._clear_center_timers()
             self._ensure_thread_stopped()
         except Exception:
             pass
@@ -439,6 +716,9 @@ class CircularProgress(QWidget):
             self.update()
 
     def paintEvent(self, event):
+        from PySide6.QtCore import QRectF
+        from PySide6.QtGui import QConicalGradient, QFont
+        
         with QPainter(self) as painter:
             painter.setRenderHint(QPainter.Antialiasing)
             painter.setRenderHint(QPainter.HighQualityAntialiasing, True)
@@ -476,6 +756,8 @@ class CircularProgress(QWidget):
             painter.drawText(rect, Qt.AlignCenter, f"{self._value}%")
 
 
+from PySide6.QtCore import QObject
+
 class PythonInitWorker(QObject):
     progress = Signal(int)
     status_update = Signal(str)
@@ -484,46 +766,31 @@ class PythonInitWorker(QObject):
     def run(self):
         try:
             # Phase 1: Basic initialization
-            self.status_update.emit("Initializing Python environment...")
+            self.status_update.emit(_get_splash_messages().get('init_python_env'))
             self.progress.emit(5)
 
             # Phase 2: Import core modules
-            self.status_update.emit("Loading core modules...")
+            self.status_update.emit(_get_splash_messages().get('loading_core_modules'))
             self.progress.emit(15)
+            
+            # Phase 3: Load configuration
+            self.status_update.emit(_get_splash_messages().get('loading_config'))
+            self.progress.emit(30)
 
-            # Phase 3: Database migration
-            self.status_update.emit("Checking database...")
-            try:
-                from agent.chats.db_migration import DBMigration
-                migration = DBMigration()
-                ok = migration.upgrade_to_version('2.0.0', 'Auto-upgrade at startup')
-                self.progress.emit(35 if not ok else 45)
-                if ok:
-                    self.status_update.emit("Database updated successfully")
-                else:
-                    self.status_update.emit("Database check completed")
-            except Exception as e:
-                self.status_update.emit("Database initialization failed")
-                self.progress.emit(35)
+            # Phase 4: Initialize services
+            self.status_update.emit(_get_splash_messages().get('init_services'))
+            self.progress.emit(35)
 
-            # Phase 4: Load configuration
-            self.status_update.emit("Loading configuration...")
-            self.progress.emit(55)
+            # Phase 5 Prepare GUI components
+            self.status_update.emit(_get_splash_messages().get('preparing_gui'))
+            self.progress.emit(40)
 
-            # Phase 5: Initialize services
-            self.status_update.emit("Initializing services...")
-            self.progress.emit(70)
-
-            # Phase 6: Prepare GUI components
-            self.status_update.emit("Preparing interface...")
-            self.progress.emit(85)
-
-            # Phase 7: Final preparations
-            self.status_update.emit("Finalizing startup...")
-            self.progress.emit(95)
+            # Phase 6: Final preparations
+            self.status_update.emit(_get_splash_messages().get('finalizing'))
+            self.progress.emit(50)
 
         finally:
-            self.status_update.emit("Ready to launch!")
+            self.status_update.emit(_get_splash_messages().get('ready'))
             self.progress.emit(100)
             self.finished.emit()
 
@@ -558,14 +825,17 @@ class StartupProgressManager:
 
 def init_startup_splash():
     """
-    Ensure QApplication exists, set early icon, create and show ThemedSplashScreen immediately,
-    and process initial events. Returns the splash instance (or None on failure).
+    Create and show ThemedSplashScreen immediately, and process initial events.
+    Returns the splash instance (or None on failure).
+
+    Note: This function assumes QApplication already exists and should NOT create it.
     """
     try:
         from PySide6.QtWidgets import QApplication
         app = QApplication.instance()
         if not app:
-            app = QApplication(sys.argv)
+            print("ERROR: QApplication instance not found in init_startup_splash!")
+            return None
 
         # Set application icon as early as possible (before splash)
         try:
@@ -579,16 +849,149 @@ def init_startup_splash():
         splash = ThemedSplashScreen()
         splash.show()
         app.processEvents()
-        # Ensure the splash is centered after showing and processing events
+        # Set window icon using IconManager for proper platform-specific handling
+        try:
+            from utils.icon_manager import get_icon_manager
+            icon_manager = get_icon_manager()
+            if icon_manager.icon_path:
+                try:
+                    from PySide6.QtGui import QIcon as _QIcon
+                    splash.setWindowIcon(_QIcon(icon_manager.icon_path))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+
+        # Ensure the splash is centered immediately after showing
+        app.processEvents()
         splash._center_on_screen()
         app.processEvents()
+
         return splash
-    except Exception:
+    except Exception as e:
+        print(f"Failed to initialize splash screen: {e}")
         return None
 
 
 def create_startup_progress_manager(splash_screen):
     """Create a startup progress manager for the given splash screen"""
     return StartupProgressManager(splash_screen)
+
+
+def init_minimal_splash():
+    """
+    Create and show a minimal splash screen IMMEDIATELY after QApplication creation.
+    This is a lightweight version that shows instantly, before loading the full splash.
+    The structure and styling match ThemedSplashScreen exactly for smooth transition.
+    Returns the splash instance (or None on failure).
+    
+    This function uses minimal imports to ensure fast display, but matches the
+    exact visual appearance of ThemedSplashScreen for seamless transition.
+    """
+    try:
+        from PySide6.QtWidgets import QWidget, QApplication, QLabel, QVBoxLayout
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QGraphicsDropShadowEffect
+        import sys
+        
+        app = QApplication.instance()
+        if not app:
+            return None
+        
+        # Create minimal splash window - match ThemedSplashScreen exactly
+        window_flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+        if sys.platform == 'win32':
+            window_flags |= Qt.Tool  # Prevents taskbar entry and reduces flicker
+        
+        splash = QWidget(None, window_flags)
+        splash.setAttribute(Qt.WA_TranslucentBackground, True)
+        splash.setFixedSize(640, 400)  # Match ThemedSplashScreen size
+        splash.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        
+        # Create container widget with same styling as ThemedSplashScreen
+        container = QWidget(splash)
+        container.setObjectName("container")
+        container.setStyleSheet("""
+            QWidget#container {
+                background-color: #0f172a; /* --bg-primary */
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 14px;
+            }
+        """)
+        
+        # Optimized shadow effect for minimal splash
+        shadow = QGraphicsDropShadowEffect(splash)
+        shadow.setBlurRadius(16)  # Reduced for better performance
+        shadow.setXOffset(0)
+        shadow.setYOffset(6)
+        shadow.setColor(QColor(0, 0, 0, 180))
+        container.setGraphicsEffect(shadow)
+        
+        # Root layout with same margins as ThemedSplashScreen
+        root_layout = QVBoxLayout(container)
+        root_layout.setContentsMargins(18, 18, 18, 18)  # Match ThemedSplashScreen
+        root_layout.setSpacing(10)
+        
+        # Center column with same width as ThemedSplashScreen
+        center = QWidget()
+        center.setFixedWidth(520)  # Match ThemedSplashScreen center width
+        col_layout = QVBoxLayout(center)
+        col_layout.setContentsMargins(0, 0, 0, 0)
+        col_layout.setSpacing(10)
+        
+        # App name with same styling as ThemedSplashScreen title
+        title_label = QLabel("eCan")
+        title_label.setObjectName("title")
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setStyleSheet("""
+            QLabel#title {
+                color: #f8fafc;
+                font-size: 26px;
+                font-weight: 700;
+                letter-spacing: 0.4px;
+                padding: 0px;
+            }
+        """)
+        col_layout.addWidget(title_label)
+        
+        # Loading text with same styling as ThemedSplashScreen subtitle
+        loading_label = QLabel(_get_splash_messages().get('initializing'))
+        loading_label.setObjectName("subtitle")
+        loading_label.setAlignment(Qt.AlignCenter)
+        loading_label.setStyleSheet("""
+            QLabel#subtitle {
+                color: #94a3b8;
+                font-size: 14px;
+            }
+        """)
+        col_layout.addWidget(loading_label)
+        
+        # Vertical centering relative to footer (match ThemedSplashScreen structure)
+        root_layout.addStretch(1)
+        root_layout.addWidget(center, alignment=Qt.AlignHCenter)
+        root_layout.addStretch(2)
+        
+        # Put container into main widget
+        main_layout = QVBoxLayout(splash)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.addWidget(container)
+        
+        # Center on screen using same logic as ThemedSplashScreen
+        screen = app.primaryScreen()
+        if screen:
+            screen_geometry = screen.availableGeometry()
+            x = screen_geometry.center().x() - splash.width() // 2
+            y = screen_geometry.center().y() - splash.height() // 2
+            splash.move(x, y)
+        
+        # Show immediately
+        splash.show()
+        app.processEvents()
+        
+        return splash
+    except Exception as e:
+        print(f"Failed to initialize minimal splash screen: {e}")
+        return None
 
 

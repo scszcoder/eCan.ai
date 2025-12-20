@@ -123,7 +123,7 @@ const Apps: React.FC = () => {
     } = useDetailView<App>(initialApps);
 
     const translateApp = (app: App): App => {
-        // 如果已经是翻译后的文本（包含中文或特殊字符），直接返回
+        // If已经是翻译后的文本（Include中文或特殊字符），直接返回
         if (app.name.includes('管理器') || app.name.includes('分析器') || app.name.includes('监视器')) {
             return app;
         }
@@ -134,8 +134,8 @@ const Apps: React.FC = () => {
             category: t(`pages.apps.categoriesMap.${app.category}`),
             description: t(`pages.apps.apps.${app.name}.description`),
             features: app.features.map(feature => {
-                // 如果功能名称已经是中文，直接返回
-                if (feature.includes('创建') || feature.includes('跟踪') || feature.includes('协作')) {
+                // If功能Name已经是中文，直接返回
+                if (feature.includes('Create') || feature.includes('跟踪') || feature.includes('协作')) {
                     return feature;
                 }
                 return t(`pages.apps.apps.${app.name}.featuresMap.${feature}`);

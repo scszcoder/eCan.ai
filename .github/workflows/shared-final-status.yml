@@ -1,0 +1,108 @@
+# ============================================================================
+# Reusable Workflow: Final Status Summary
+# ============================================================================
+# Prints a consistent final summary for release and simulation workflows.
+#
+# Inputs:
+#   - version: release version string
+#   - windows-result: result of build-windows job
+#   - macos-result: result of build-macos job
+#   - upload-result: result of upload-to-s3 job
+#   - appcast-result: result of generate-appcast job
+#   - links-result: result of generate-download-links job
+#   - is-simulation: whether this is a simulation run
+#
+# Secrets (inherited):
+#   - AWS / S3 related secrets (optional, used only if present)
+# ============================================================================
+
+name: Shared Final Status
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: 'Release version'
+        required: true
+        type: string
+      windows-result:
+        description: 'Result of build-windows job'
+        required: true
+        type: string
+      macos-result:
+        description: 'Result of build-macos job'
+        required: true
+        type: string
+      upload-result:
+        description: 'Result of upload-to-s3 job'
+        required: true
+        type: string
+      appcast-result:
+        description: 'Result of generate-appcast job'
+        required: true
+        type: string
+      links-result:
+        description: 'Result of generate-download-links job'
+        required: true
+        type: string
+      is-simulation:
+        description: 'Whether this is a simulation run'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  final-status:
+    name: Final Status Summary
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+      WINDOWS_RESULT: ${{ inputs.windows-result }}
+      MACOS_RESULT: ${{ inputs.macos-result }}
+      UPLOAD_RESULT: ${{ inputs.upload-result }}
+      APPCAST_RESULT: ${{ inputs.appcast-result }}
+      LINKS_RESULT: ${{ inputs.links-result }}
+      IS_SIMULATION: ${{ inputs.is-simulation }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID || 'NOT_SET' }}
+      AWS_REGION: ${{ secrets.AWS_REGION || 'NOT_SET' }}
+      S3_BUCKET: ${{ secrets.S3_BUCKET || 'NOT_SET' }}
+      S3_BASE_PATH: ${{ secrets.S3_BASE_PATH || 'NOT_SET' }}
+
+    steps:
+      - name: Display final status
+        run: |
+          echo ""
+          echo "================================================================"
+          if [ "${IS_SIMULATION}" = "true" ]; then
+            echo "Simulation Summary"
+          else
+            echo "Build and Release Summary"
+          fi
+          echo "================================================================"
+          echo ""
+          echo "Version: ${VERSION}"
+          echo ""
+          echo "Build Status:"
+          echo "  - Windows: ${WINDOWS_RESULT}"
+          echo "  - macOS:   ${MACOS_RESULT}"
+          echo ""
+          echo "Distribution Status:"
+          echo "  - S3 Upload:        ${UPLOAD_RESULT}"
+          echo "  - Appcast Generation: ${APPCAST_RESULT}"
+          echo "  - Download Links:   ${LINKS_RESULT}"
+          echo ""
+          echo "Configuration:"
+          echo "  - S3 Upload: $([ "${AWS_ACCESS_KEY_ID}" != "NOT_SET" ] && echo 'Enabled' || echo 'Disabled')"
+          echo "  - Appcast Generation: $([ "${S3_BUCKET}" != "NOT_SET" ] && echo 'Enabled (requires ED25519 key in main workflow)' || echo 'Disabled / Local only')"
+          echo ""
+          if [ "${S3_BUCKET}" != "NOT_SET" ] && [ "${S3_BASE_PATH}" != "NOT_SET" ] && [ "${AWS_REGION}" != "NOT_SET" ]; then
+            echo "Download URLs (base paths):"
+            echo "  Base URL: https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}"
+            echo "  Windows:  https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/v${VERSION}/windows/"
+            echo "  macOS:    https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/v${VERSION}/macos/"
+            echo "  Appcast:  https://${S3_BUCKET}.s3.${AWS_REGION}.amazonaws.com/${S3_BASE_PATH}/channels/stable/"
+          else
+            echo "⚠️  S3 not fully configured - artifacts may be available as GitHub Artifacts only"
+          fi
+          echo ""
+          echo "================================================================"

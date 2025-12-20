@@ -25,7 +25,7 @@ export const DragArea: FC<IDragArea> = (props) => {
     model.setFocus(false);
     onStartDrag(e as MouseEvent);
     selectNode(e as MouseEvent);
-    playground.node.focus(); // 防止节点无法被删除
+    playground.node.focus(); // 防止节点无法被Delete
   };
 
   return (

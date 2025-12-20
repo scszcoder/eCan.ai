@@ -1,13 +1,13 @@
 import { logger } from '../../utils/logger';
 
-// 事件服务接口
+// EventServiceInterface
 interface EventService {
     initialize(): void;
     cleanup(): void;
     getStatus(): { isInitialized: boolean; eventCount: number };
 }
 
-// 事件管理器类
+// Event管理器类
 export class EventManager {
     private static instance: EventManager;
     private services: Map<string, EventService> = new Map();
@@ -23,68 +23,68 @@ export class EventManager {
         return EventManager.instance;
     }
 
-    // 注册事件服务
+    // RegisterEventService
     public registerService(name: string, service: EventService): void {
         if (this.services.has(name)) {
-            logger.warn(`事件服务 ${name} 已经存在，将被覆盖`);
+            logger.warn(`EventService ${name} 已经存在，将被覆盖`);
         }
         this.services.set(name, service);
-        logger.info(`注册事件服务: ${name}`);
+        logger.info(`RegisterEventService: ${name}`);
     }
 
-    // 获取事件服务
+    // GetEventService
     public getService<T extends EventService>(name: string): T | undefined {
         return this.services.get(name) as T | undefined;
     }
 
-    // 初始化所有服务
+    // InitializeAllService
     public initialize(): void {
         if (this.isInitialized) {
-            logger.warn('EventManager 已经初始化过了');
+            logger.warn('EventManager 已经Initialize过了');
             return;
         }
 
-        logger.info('初始化 EventManager...');
+        logger.info('Initialize EventManager...');
         
-        // 注册默认服务
+        // RegisterDefaultService
         this.registerDefaultServices();
         
-        // 初始化所有服务
+        // InitializeAllService
         this.services.forEach((service, name) => {
             try {
                 service.initialize();
-                logger.info(`事件服务 ${name} 初始化成功`);
+                logger.info(`EventService ${name} InitializeSuccess`);
             } catch (error) {
-                logger.error(`事件服务 ${name} 初始化失败:`, error);
+                logger.error(`EventService ${name} InitializeFailed:`, error);
             }
         });
 
         this.isInitialized = true;
-        logger.info('EventManager 初始化完成');
+        logger.info('EventManager InitializeCompleted');
     }
 
-    // 清理所有服务
+    // CleanupAllService
     public cleanup(): void {
         if (!this.isInitialized) {
             return;
         }
 
-        logger.info('清理 EventManager...');
+        logger.info('Cleanup EventManager...');
         
         this.services.forEach((service, name) => {
             try {
                 service.cleanup();
-                logger.info(`事件服务 ${name} 清理成功`);
+                logger.info(`EventService ${name} CleanupSuccess`);
             } catch (error) {
-                logger.error(`事件服务 ${name} 清理失败:`, error);
+                logger.error(`EventService ${name} CleanupFailed:`, error);
             }
         });
 
         this.isInitialized = false;
-        logger.info('EventManager 清理完成');
+        logger.info('EventManager CleanupCompleted');
     }
 
-    // 获取所有服务状态
+    // GetAllServiceStatus
     public getAllServicesStatus(): Record<string, { isInitialized: boolean; eventCount: number }> {
         const status: Record<string, { isInitialized: boolean; eventCount: number }> = {};
         
@@ -95,7 +95,7 @@ export class EventManager {
         return status;
     }
 
-    // 获取管理器状态
+    // Get管理器Status
     public getStatus(): { isInitialized: boolean; serviceCount: number } {
         return {
             isInitialized: this.isInitialized,
@@ -103,33 +103,33 @@ export class EventManager {
         };
     }
 
-    // 注册默认服务
+    // RegisterDefaultService
     private registerDefaultServices(): void {
-        // 这里可以注册其他事件服务
+        // 这里CanRegister其他EventService
         // this.registerService('otherEvent', otherEventService);
     }
 
-    // 获取服务列表
+    // GetServiceList
     public getServiceNames(): string[] {
         return Array.from(this.services.keys());
     }
 
-    // 检查服务是否存在
+    // CheckService是否存在
     public hasService(name: string): boolean {
         return this.services.has(name);
     }
 
-    // 移除服务
+    // RemoveService
     public removeService(name: string): boolean {
         const service = this.services.get(name);
         if (service) {
             try {
                 service.cleanup();
                 this.services.delete(name);
-                logger.info(`移除事件服务: ${name}`);
+                logger.info(`RemoveEventService: ${name}`);
                 return true;
             } catch (error) {
-                logger.error(`移除事件服务 ${name} 失败:`, error);
+                logger.error(`RemoveEventService ${name} Failed:`, error);
                 return false;
             }
         }
@@ -137,5 +137,5 @@ export class EventManager {
     }
 }
 
-// 导出单例实例
+// Export单例实例
 export const eventManager = EventManager.getInstance(); 

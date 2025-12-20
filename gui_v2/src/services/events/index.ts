@@ -1,21 +1,21 @@
-// 导出页面刷新管理器
+// ExportPageRefresh管理器
 export { 
     pageRefreshManager, 
     PageRefreshManager
 } from './PageRefreshManager';
 
-// 导出类型
+// ExportType
 export type { 
     PageRefreshAction
 } from './PageRefreshManager';
 
-// 导出事件管理器
+// ExportEvent管理器
 export { 
     eventManager, 
     EventManager 
 } from './EventManager';
 
-// 导出Hook
+// ExportHook
 export { 
     usePageRefresh,
     usePageRefreshManager 

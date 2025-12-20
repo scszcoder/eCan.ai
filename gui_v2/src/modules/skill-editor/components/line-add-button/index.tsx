@@ -32,16 +32,16 @@ export const LineAddButton = (props: LineRenderProps) => {
   const { fromPort, toPort } = line;
 
   const onClick = useCallback(async () => {
-    // calculate the middle point of the line - 计算线条的中点位置
+    // calculate the middle point of the line - 计算线条的中点Position
     const position = {
       x: (line.position.from.x + line.position.to.x) / 2,
       y: (line.position.from.y + line.position.to.y) / 2,
     };
 
-    // get container node for the new node - 获取新节点的容器节点
-    const containerNode = fromPort.node.parent;
+    // get container node for the new node - Get新节点的Container节点
+    const containerNode = fromPort?.node?.parent;
 
-    // show node selection panel - 显示节点选择面板
+    // show node selection panel - Display节点Select面板
     const result = await nodePanelService.singleSelectNodePanel({
       position,
       containerNode,
@@ -55,7 +55,7 @@ export const LineAddButton = (props: LineRenderProps) => {
 
     const { nodeType, nodeJSON } = result;
 
-    // adjust position for the new node - 调整新节点的位置
+    // adjust position for the new node - 调整新节点的Position
     const nodePosition = WorkflowNodePanelUtils.adjustNodePosition({
       nodeType,
       position,
@@ -66,7 +66,7 @@ export const LineAddButton = (props: LineRenderProps) => {
       dragService,
     });
 
-    // create new workflow node - 创建新的工作流节点
+    // create new workflow node - Create新的工作流节点
     const node: WorkflowNodeEntity = document.createWorkflowNodeByType(
       nodeType,
       nodePosition,
@@ -87,10 +87,10 @@ export const LineAddButton = (props: LineRenderProps) => {
       });
     }
 
-    // wait for node render - 等待节点渲染
+    // wait for node render - 等待节点Render
     await delay(20);
 
-    // build connection lines - 构建连接线
+    // build connection lines - 构建Connection线
     WorkflowNodePanelUtils.buildLine({
       fromPort,
       node,
@@ -98,7 +98,7 @@ export const LineAddButton = (props: LineRenderProps) => {
       linesManager,
     });
 
-    // remove original line - 移除原始线条
+    // remove original line - Remove原始线条
     line.dispose();
   }, []);
 
@@ -106,12 +106,25 @@ export const LineAddButton = (props: LineRenderProps) => {
     return <></>;
   }
 
+  // Use the line's center (computed by WorkflowLineRenderData) so the button
+  // sits on the actual curve mid-point instead of the bounding box center.
+  // center.labelX / labelY are relative to the line container's top-left.
+  let left: string | number = '50%';
+  let top: string | number = '50%';
+  try {
+    const center = (line as any).center as { labelX?: number; labelY?: number } | undefined;
+    if (center && typeof center.labelX === 'number' && typeof center.labelY === 'number') {
+      left = center.labelX;
+      top = center.labelY;
+    }
+  } catch {}
+
   return (
     <div
       className="line-add-button"
       style={{
-        left: '50%',
-        top: '50%',
+        left,
+        top,
         color,
       }}
       data-testid="sdk.workflow.canvas.line.add"

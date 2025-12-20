@@ -1,4 +1,5 @@
 export interface Tool {
+  id: string;
   name: string;
   title: string | null;
   description: string;
@@ -6,4 +7,4 @@ export interface Tool {
   outputSchema: any;
   annotations: any;
   meta: any;
-} 
+}

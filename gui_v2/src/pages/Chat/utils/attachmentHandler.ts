@@ -2,19 +2,19 @@ import { FileUtils } from './fileUtils';
 import { get_ipc_api } from '@/services/ipc_api';
 import { logger } from '@/utils/logger';
 
-// 根据文件类型获取对应的图标
+// 根据文件TypeGet对应的图标
 export const getFileTypeIcon = (fileName: string, mimeType: string): string => {
     const extension = fileName.split('.').pop()?.toLowerCase() || '';
     const type = mimeType.toLowerCase();
     
-    // 文档类型
+    // DocumentationType
     if (type.includes('pdf') || extension === 'pdf') return '📄';
     if (type.includes('word') || extension === 'doc' || extension === 'docx') return '📝';
     if (type.includes('excel') || extension === 'xls' || extension === 'xlsx') return '📊';
     if (type.includes('powerpoint') || extension === 'ppt' || extension === 'pptx') return '📈';
     if (type.includes('text') || extension === 'txt') return '📄';
     
-    // 代码文件
+    // Code文件
     if (type.includes('javascript') || extension === 'js') return '📜';
     if (type.includes('typescript') || extension === 'ts') return '📜';
     if (type.includes('python') || extension === 'py') return '🐍';
@@ -38,21 +38,21 @@ export const getFileTypeIcon = (fileName: string, mimeType: string): string => {
     // 视频文件
     if (type.includes('video') || ['mp4', 'avi', 'mov', 'wmv', 'flv', 'mkv'].includes(extension)) return '🎬';
     
-    // 默认文件图标
+    // Default文件图标
     return '📎';
 };
 
-// 使用系统原生文件保存对话框下载文件
+// 使用System原生文件SaveDialog下载文件
 export const downloadFileWithNativeDialog = async (filePath: string, fileName: string, mimeType: string): Promise<void> => {
     try {
-        // 直接使用完整的文件路径，让 FileUtils 内部处理路径转换
+        // 直接使用完整的文件Path，让 FileUtils InternalProcessPathConvert
         const fileContent = await FileUtils.getFileContent(filePath);
         
         if (!fileContent || !fileContent.dataUrl) {
             throw new Error('Failed to get file content');
         }
 
-        // 从 data URL 创建 Blob
+        // 从 data URL Create Blob
         const base64Data = fileContent.dataUrl.split(',')[1];
         const binaryData = atob(base64Data);
         const bytes = new Uint8Array(binaryData.length);
@@ -62,7 +62,7 @@ export const downloadFileWithNativeDialog = async (filePath: string, fileName: s
         
         const blob = new Blob([bytes], { type: mimeType });
 
-        // 尝试使用 File System Access API（现代浏览器）
+        // 尝试使用 File System Access API（现代Browser）
         if ('showSaveFilePicker' in window) {
             try {
                 const handle = await (window as any).showSaveFilePicker({
@@ -86,7 +86,7 @@ export const downloadFileWithNativeDialog = async (filePath: string, fileName: s
             }
         }
 
-        // 回退到传统的下载方法
+        // 回退到传统的下载Method
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.style.display = 'none';
@@ -95,7 +95,7 @@ export const downloadFileWithNativeDialog = async (filePath: string, fileName: s
         document.body.appendChild(a);
         a.click();
         
-        // 清理
+        // Cleanup
         setTimeout(() => {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
@@ -107,14 +107,14 @@ export const downloadFileWithNativeDialog = async (filePath: string, fileName: s
     }
 };
 
-// 获取文件上传处理配置
+// Get文件上传ProcessConfiguration
 export const getUploadProps = () => ({
-    action: '', // 禁用 HTTP 上传
-    beforeUpload: () => true, // 必须返回 true，允许 customRequest 执行
+    action: '', // Disabled HTTP 上传
+    beforeUpload: () => true, // Must返回 true，Allow customRequest Execute
     customRequest: async (options: any) => {
         const { file, onSuccess, onError } = options;
         try {
-            // 兼容更多 UI 上传组件的 file 结构，优先用 fileInstance
+            // Compatible更多 UI 上传Component的 file 结构，优先用 fileInstance
             let realFile = null;
             if (file.fileInstance instanceof Blob) {
                 realFile = file.fileInstance;
@@ -138,7 +138,7 @@ export const getUploadProps = () => ({
                 return;
             }
             
-            // 优先从 realFile 获取 type、name、size
+            // 优先从 realFile Get type、name、size
             const fileType = realFile.type || file.type || '';
             const fileName = realFile.name || file.name || '';
             const fileSize = realFile.size || file.size || 0;
@@ -162,16 +162,16 @@ export const getUploadProps = () => ({
                 if (resp.success) {
                     const data: any = resp.data;
                     
-                    // 直接使用返回的 URL，不添加协议前缀
+                    // 直接使用返回的 URL，不Add协议前缀
                     const filePath = data.url || '';
                     
-                    // 只传递可序列化的 attachment 字段，避免 circular JSON
+                    // 只传递可Serialize的 attachment Field，避免 circular JSON
                     const safeAttachment = {
                         name: data.name || file.name || 'unknown',
                         type: data.type || file.type || 'application/octet-stream',
                         size: data.size || file.size || 0,
                         url: filePath, // 直接使用返回的 URL
-                        filePath: filePath, // 保存文件路径
+                        filePath: filePath, // Save文件Path
                         mimeType: data.type || file.type || 'application/octet-stream',
                         isImage: FileUtils.isImageFile(data.type || file.type || ''),
                         status: 'complete',

@@ -22,7 +22,7 @@ export const BlankArea: FC<IBlankArea> = (props) => {
         e.stopPropagation();
         model.setFocus(false);
         selectNode(e);
-        playground.node.focus(); // 防止节点无法被删除
+        playground.node.focus(); // 防止节点无法被Delete
       }}
       onClick={(e) => {
         model.setFocus(true);

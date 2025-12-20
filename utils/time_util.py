@@ -5,10 +5,10 @@ class TimeUtil:
 
     @staticmethod
     def formatted_now_with_ms():
-        # 获取当前时间
+        # Get current time
         now = datetime.now()
 
-        # 格式化时间字符串，确保毫秒数为3位
+        # Format time string, ensure milliseconds are 3 digits
         formatted_time = now.strftime('%Y-%m-%d %H:%M:%S')
 
         milliseconds = now.microsecond // 1000

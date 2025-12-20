@@ -1,62 +1,45 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Button, Space } from 'antd';
-import { ReloadOutlined, PlusOutlined } from '@ant-design/icons';
+import { Button, message, Tooltip, Space } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
 import DetailLayout from '../../components/Layout/DetailLayout';
-import { useDetailView } from '../../hooks/useDetailView';
 import { useTranslation } from 'react-i18next';
-import { useAppDataStore } from '../../stores/appDataStore';
+import { useSkillStore } from '../../stores';
 import { useUserStore } from '../../stores/userStore';
-import { Skill, SkillsAPIResponseData } from './types';
 import SkillList from './components/SkillList';
 import SkillDetails from './components/SkillDetails';
-import { get_ipc_api } from '@/services/ipc_api';
+import { logger } from '@/utils/logger';
+import type { Skill } from '@/stores';
+import './Skills.css';
 
 const Skills: React.FC = () => {
     const { t } = useTranslation();
-    
-    const skills = useAppDataStore((state) => state.skills);
-    const isLoading = useAppDataStore((state) => state.isLoading);
-    const setLoading = useAppDataStore((state) => state.setLoading);
-    const setError = useAppDataStore((state) => state.setError);
-    const setSkills = useAppDataStore((state) => state.setSkills);
-    
+
+    // 使用新的 skillStore
+    const skills = useSkillStore((state) => state.items);
+    const isLoading = useSkillStore((state) => state.loading);
+    const fetchItems = useSkillStore((state) => state.fetchItems);
+    const forceRefresh = useSkillStore((state) => state.forceRefresh);
+
     const username = useUserStore((state) => state.username);
     const [isAddingNew, setIsAddingNew] = React.useState(false);
 
-    const {
-        selectedItem: selectedSkill,
-        selectItem,
-    } = useDetailView(skills);
+    // 直接管理选中Status
+    const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
+
+    const selectItem = useCallback((skill: Skill) => {
+        setSelectedSkill(skill);
+    }, []);
 
     const fetchSkills = useCallback(async () => {
-        if (!username) {
-            console.error("Username is not available.");
-            return;
-        }
+        if (!username) return;
 
         try {
-            setLoading(true);
-            setError(null);
-            const response = await get_ipc_api().getSkills<{ skills: Skill[] }>(username, []);
-            if (response && response.success && response.data) {
-                console.log('[Skills] Fetched skills:', response.data.skills);
-                const responseData = response.data as SkillsAPIResponseData;
-                if (responseData.skills && Array.isArray(responseData.skills)) {
-                    setSkills(responseData.skills);
-                } else {
-                    console.error("Fetched skills data is not in the expected format:", response.data);
-                    setError("Fetched skills data is not in the expected format.");
-                }
-            } else {
-                setError((response as any).message || 'Failed to fetch skills.');
-            }
+            await fetchItems(username);
         } catch (error) {
-            console.error('Error fetching skills:', error);
-            setError((error as Error).message);
-        } finally {
-            setLoading(false);
+            logger.error('[Skills] Error fetching skills:', error);
+            message.error(t('pages.skills.fetchError') || 'Failed to fetch skills');
         }
-    }, [username, setLoading, setError, setSkills]);
+    }, [username, fetchItems, t]);
 
     useEffect(() => {
         if (username) {
@@ -64,44 +47,39 @@ const Skills: React.FC = () => {
         }
     }, [username, fetchSkills]);
 
-    const handleRefresh = useCallback(async () => {
-        await fetchSkills();
-    }, [fetchSkills]);
 
-    const handleLevelUp = (id: number) => {
-        const skill = skills.find(s => s.id === id);
-        if (skill && skill.level < 100) {
-            const updatedSkill = {
-                ...skill,
-                level: Math.min(skill.level + 5, 100),
-                lastUsed: t('pages.skills.time.justNow'),
-                usageCount: skill.usageCount + 1,
-            };
-            const updatedSkills = skills.map(s => s.id === id ? updatedSkill : s);
-            setSkills(updatedSkills);
+    const handleRefresh = useCallback(async () => {
+        if (!username) return;
+
+        try {
+            await forceRefresh(username);
+        } catch (error) {
+            logger.error('[Skills] Error refreshing skills:', error);
+            message.error(t('pages.skills.fetchError') || 'Failed to refresh skills');
         }
-    };
+    }, [username, forceRefresh, t]);
+
 
     const listTitle = (
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>{t('pages.skills.title')}</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+            <span style={{ fontSize: '16px', fontWeight: 600, lineHeight: '24px' }}>{t('pages.skills.title')}</span>
             <Space>
-                <Button
-                    type="text"
-                    icon={<ReloadOutlined style={{ color: 'white' }} />}
-                    onClick={handleRefresh}
-                    loading={isLoading}
-                    title={t('pages.skills.refresh')}
-                />
-                <Button
-                    type="primary"
-                    icon={<PlusOutlined />}
-                    onClick={() => {
-                        setIsAddingNew(true);
-                        // do not select an empty item; details will render a clean form
-                    }}
-                    title={t('pages.skills.addSkill')}
-                />
+                <Tooltip title={t('pages.skills.refresh')}>
+                    <Button
+                        type="text"
+                        shape="circle"
+                        icon={<ReloadOutlined />}
+                        onClick={handleRefresh}
+                        loading={isLoading}
+                        style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'rgba(203, 213, 225, 0.9)',
+                            boxShadow: 'none'
+                        }}
+                    />
+                </Tooltip>
+                {/* Add button removed - skills are created from skill_editor */}
             </Space>
         </div>
     );
@@ -111,15 +89,33 @@ const Skills: React.FC = () => {
         handleRefresh();
     };
 
+    const handleSkillCancel = () => {
+        // Cancel时的Process：
+        // - If是新建模式，CloseDetails面板
+        // - If是Edit模式，不Need额外Process（SkillDetails Internal会Process）
+        if (isAddingNew) {
+            setIsAddingNew(false);
+            setSelectedSkill(null);
+        }
+        // Edit模式下，SkillDetails 会自动RestoreData并退出Edit模式，不NeedClose面板
+    };
+
+    const handleSkillDelete = () => {
+        // Delete后清空选中Status，CloseDetails页
+        setSelectedSkill(null);
+        handleRefresh();
+    };
+
     return (
         <DetailLayout
             listTitle={listTitle}
             detailsTitle={t('pages.skills.details')}
             listContent={
-                <SkillList 
-                    skills={skills} 
-                    loading={isLoading} 
-                    onSelectSkill={selectItem} 
+                <SkillList
+                    skills={skills}
+                    loading={isLoading}
+                    onSelectSkill={selectItem}
+                    selectedSkillId={selectedSkill ? String(selectedSkill.id) : undefined}
                 />
             }
             detailsContent={
@@ -127,10 +123,10 @@ const Skills: React.FC = () => {
                     <SkillDetails
                         skill={isAddingNew ? null : selectedSkill}
                         isNew={isAddingNew}
-                        onLevelUp={handleLevelUp}
                         onRefresh={handleRefresh}
                         onSave={handleSkillSave}
-                        onCancel={() => setIsAddingNew(false)}
+                        onCancel={handleSkillCancel}
+                        onDelete={handleSkillDelete}
                     />
                 ) : undefined
             }

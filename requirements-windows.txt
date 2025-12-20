@@ -4,7 +4,5 @@
 # Windows specific packages
 pywin32>=310; platform_system == "Windows"
 pywin32-ctypes>=0.2.2; platform_system == "Windows"
-
-# Note: winSparkle is a C++ library, not a Python package
-# It needs to be installed separately or bundled with the application
-# See: https://winsparkle.org/
+pywifi>=1.1.12; platform_system == "Windows"
+comtypes>=1.2.0; platform_system == "Windows"  # Required by pywifi for COM interface

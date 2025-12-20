@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { Card } from 'antd';
 import styled from '@emotion/styled';
+import { useEffectOnActive } from 'keepalive-for-react';
 
 const Container = styled.div`
     display: flex;
@@ -19,11 +20,12 @@ const ListCard = styled(Card)`
     .ant-card-body {
         flex: 1 1 0;
         min-height: 0;
-        overflow: auto;
+        overflow-x: hidden;
+        overflow-y: auto;
         max-height: 100%;
         display: flex;
         flex-direction: column;
-        padding: 0;
+        padding: 0 !important;
     }
     .ant-card-head-title {
         color: white;
@@ -44,7 +46,7 @@ const DetailsCard = styled(Card)`
         overflow: hidden;
         display: flex;
         flex-direction: column;
-        padding: 0;
+        padding: 0 !important;
     }
     .ant-card-head-title {
         color: white;
@@ -64,9 +66,34 @@ const DetailLayout: React.FC<DetailLayoutProps> = ({
     listContent,
     detailsContent,
 }) => {
+    // ListScrollPositionSave
+    const listCardRef = useRef<HTMLDivElement>(null);
+    const savedListScrollPosition = useRef<number>(0);
+    
+    // 使用 useEffectOnActive 在ComponentActive时RestoreScrollPosition
+    useEffectOnActive(
+        () => {
+            // Get实际的ScrollContainer（Card body）
+            const container = listCardRef.current?.querySelector('.ant-card-body') as HTMLDivElement;
+            if (container && savedListScrollPosition.current > 0) {
+                requestAnimationFrame(() => {
+                    container.scrollTop = savedListScrollPosition.current;
+                });
+            }
+            
+            return () => {
+                const container = listCardRef.current?.querySelector('.ant-card-body') as HTMLDivElement;
+                if (container) {
+                    savedListScrollPosition.current = container.scrollTop;
+                }
+            };
+        },
+        []
+    );
+    
     return (
         <Container>
-            <ListCard variant="borderless" title={listTitle}>
+            <ListCard ref={listCardRef} variant="borderless" title={listTitle}>
                 {listContent}
             </ListCard>
             <DetailsCard variant="borderless" title={detailsTitle}>

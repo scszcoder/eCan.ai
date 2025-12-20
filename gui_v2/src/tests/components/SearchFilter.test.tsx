@@ -17,15 +17,15 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, params?: Record<string, any>) => {
       const translations: Record<string, string> = {
-        'search.placeholder': '搜索文章、标签、作者...',
+        'search.placeholder': 'Search文章、Tag、作者...',
         'search.clear': '清除',
         'search.history': '历史',
         'search.filters': '筛选',
-        'search.deleteHistory': '删除历史',
+        'search.deleteHistory': 'Delete历史',
         'search.clearHistory': '清空历史',
         'search.moreHistory': '更多历史',
-        'search.resetFilters': '重置筛选',
-        'search.selectFilter': `选择${params?.filter || ''}`,
+        'search.resetFilters': 'Reset筛选',
+        'search.selectFilter': `Select${params?.filter || ''}`,
         'search.totalResults': `共 ${params?.count || 0} 项`,
         'search.filteredResults': `筛选出 ${params?.count || 0} 项`,
         'search.searchTime': `耗时 ${params?.time || 0}ms`,
@@ -33,9 +33,9 @@ jest.mock('react-i18next', () => ({
         'search.minutesAgo': `${params?.count || 0} 分钟前`,
         'search.hoursAgo': `${params?.count || 0} 小时前`,
         'search.daysAgo': `${params?.count || 0} 天前`,
-        'search.ariaSearch': '搜索',
-        'search.ariaHistory': '查看搜索历史',
-        'search.ariaFilter': '打开筛选选项',
+        'search.ariaSearch': 'Search',
+        'search.ariaHistory': '查看Search历史',
+        'search.ariaFilter': 'Open筛选选项',
         'search.colon': '：'
       };
       return translations[key] || key;
@@ -59,46 +59,46 @@ describe('SearchFilter Component', () => {
     filterOptions: mockFilterOptions,
     onFilterReset: jest.fn(),
     searchStats: { total: 10, filtered: 10, time: 50 },
-    placeholder: '搜索文章、标签、作者...'
+    placeholder: 'Search文章、Tag、作者...'
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  describe('基础渲染测试', () => {
-    it('应该正确渲染搜索输入框', () => {
+  describe('BaseRenderTest', () => {
+    it('Should正确RenderSearchInput框', () => {
       render(<SearchFilter {...defaultProps} />);
       
-      const searchInput = screen.getByPlaceholderText('搜索文章、标签、作者...');
+      const searchInput = screen.getByPlaceholderText('Search文章、Tag、作者...');
       expect(searchInput).toBeInTheDocument();
-      expect(searchInput).toHaveAttribute('aria-label', '搜索');
+      expect(searchInput).toHaveAttribute('aria-label', 'Search');
     });
 
-    it('应该显示搜索图标', () => {
+    it('ShouldDisplaySearch图标', () => {
       render(<SearchFilter {...defaultProps} />);
       
       const searchIcon = screen.getByRole('img', { name: 'search' });
       expect(searchIcon).toBeInTheDocument();
     });
 
-    it('应该显示历史按钮', () => {
+    it('ShouldDisplay历史Button', () => {
       render(<SearchFilter {...defaultProps} />);
       
-      const historyButton = screen.getByRole('button', { name: '查看搜索历史' });
+      const historyButton = screen.getByRole('button', { name: '查看Search历史' });
       expect(historyButton).toBeInTheDocument();
-      expect(historyButton).toHaveAttribute('aria-label', '查看搜索历史');
+      expect(historyButton).toHaveAttribute('aria-label', '查看Search历史');
     });
 
-    it('应该显示筛选按钮', () => {
+    it('ShouldDisplay筛选Button', () => {
       render(<SearchFilter {...defaultProps} />);
       
-      const filterButton = screen.getByRole('button', { name: '打开筛选选项' });
+      const filterButton = screen.getByRole('button', { name: 'Open筛选选项' });
       expect(filterButton).toBeInTheDocument();
-      expect(filterButton).toHaveAttribute('aria-label', '打开筛选选项');
+      expect(filterButton).toHaveAttribute('aria-label', 'Open筛选选项');
     });
 
-    it('应该显示搜索统计信息', () => {
+    it('ShouldDisplaySearch统计Information', () => {
       render(<SearchFilter {...defaultProps} />);
       
       expect(screen.getByText('共 10 项')).toBeInTheDocument();
@@ -107,12 +107,12 @@ describe('SearchFilter Component', () => {
     });
   });
 
-  describe('搜索功能测试', () => {
-    it('应该处理搜索输入', async () => {
+  describe('Search功能Test', () => {
+    it('ShouldProcessSearchInput', async () => {
       const user = userEvent.setup();
       render(<SearchFilter {...defaultProps} />);
       
-      const searchInput = screen.getByPlaceholderText('搜索文章、标签、作者...');
+      const searchInput = screen.getByPlaceholderText('Search文章、Tag、作者...');
       await act(async () => {
         await user.type(searchInput, 'React');
       });
@@ -120,7 +120,7 @@ describe('SearchFilter Component', () => {
       expect(defaultProps.onSearch).toHaveBeenCalledWith('React');
     });
 
-    it('应该显示清除按钮当有搜索内容时', async () => {
+    it('ShouldDisplay清除ButtonWhen有SearchContent时', async () => {
       const user = userEvent.setup();
       render(<SearchFilter {...defaultProps} value="React" />);
       
@@ -128,7 +128,7 @@ describe('SearchFilter Component', () => {
       expect(clearButton).toBeInTheDocument();
     });
 
-    it('应该清除搜索内容', async () => {
+    it('Should清除SearchContent', async () => {
       const user = userEvent.setup();
       render(<SearchFilter {...defaultProps} value="React" />);
       
@@ -140,11 +140,11 @@ describe('SearchFilter Component', () => {
       expect(defaultProps.onSearch).toHaveBeenCalledWith('');
     });
 
-    it('应该处理空搜索值', async () => {
+    it('ShouldProcess空SearchValue', async () => {
       const user = userEvent.setup();
       render(<SearchFilter {...defaultProps} />);
       
-      const searchInput = screen.getByPlaceholderText('搜索文章、标签、作者...');
+      const searchInput = screen.getByPlaceholderText('Search文章、Tag、作者...');
       await act(async () => {
         await user.type(searchInput, '   ');
       });
@@ -153,80 +153,80 @@ describe('SearchFilter Component', () => {
     });
   });
 
-  describe('历史记录功能测试', () => {
-    it('应该显示历史记录下拉菜单', async () => {
+  describe('历史记录功能Test', () => {
+    it('ShouldDisplay历史记录下拉Menu', async () => {
       const user = userEvent.setup();
       render(<SearchFilter {...defaultProps} />);
       
-      const historyButton = screen.getByRole('button', { name: '查看搜索历史' });
+      const historyButton = screen.getByRole('button', { name: '查看Search历史' });
       await act(async () => {
         await user.click(historyButton);
       });
       
-      // 等待下拉菜单渲染
+      // 等待下拉MenuRender
       await waitFor(() => {
-        expect(screen.getByText('React组件开发')).toBeInTheDocument();
+        expect(screen.getByText('ReactComponentDevelopment')).toBeInTheDocument();
       });
     });
 
-    it('应该处理历史记录点击', async () => {
+    it('ShouldProcess历史记录Click', async () => {
       const user = userEvent.setup();
       render(<SearchFilter {...defaultProps} />);
       
-      const historyButton = screen.getByRole('button', { name: '查看搜索历史' });
+      const historyButton = screen.getByRole('button', { name: '查看Search历史' });
       await act(async () => {
         await user.click(historyButton);
       });
       
       await waitFor(() => {
-        const historyItem = screen.getByText('React组件开发');
+        const historyItem = screen.getByText('ReactComponentDevelopment');
         expect(historyItem).toBeInTheDocument();
       });
       
-      const historyItem = screen.getByText('React组件开发');
+      const historyItem = screen.getByText('ReactComponentDevelopment');
       await act(async () => {
         await user.click(historyItem);
       });
       
       expect(defaultProps.onHistoryClick).toHaveBeenCalledWith(
         expect.objectContaining({
-          text: 'React组件开发',
+          text: 'ReactComponentDevelopment',
           type: 'recent'
         })
       );
     });
 
-    it('应该处理历史记录删除', async () => {
+    it('ShouldProcess历史记录Delete', async () => {
       const user = userEvent.setup();
       render(<SearchFilter {...defaultProps} />);
       
-      const historyButton = screen.getByRole('button', { name: '查看搜索历史' });
+      const historyButton = screen.getByRole('button', { name: '查看Search历史' });
       await act(async () => {
         await user.click(historyButton);
       });
       
       await waitFor(() => {
-        expect(screen.getByText('React组件开发')).toBeInTheDocument();
+        expect(screen.getByText('ReactComponentDevelopment')).toBeInTheDocument();
       });
       
-      // 找到删除按钮并点击
-      const deleteButtons = screen.getAllByLabelText('删除历史');
+      // 找到DeleteButton并Click
+      const deleteButtons = screen.getAllByLabelText('Delete历史');
       await act(async () => {
         await user.click(deleteButtons[0]);
       });
       
       expect(defaultProps.onHistoryDelete).toHaveBeenCalledWith(
         expect.objectContaining({
-          text: 'React组件开发'
+          text: 'ReactComponentDevelopment'
         })
       );
     });
 
-    it('应该处理清空历史记录', async () => {
+    it('ShouldProcess清空历史记录', async () => {
       const user = userEvent.setup();
       render(<SearchFilter {...defaultProps} />);
       
-      const historyButton = screen.getByRole('button', { name: '查看搜索历史' });
+      const historyButton = screen.getByRole('button', { name: '查看Search历史' });
       await act(async () => {
         await user.click(historyButton);
       });
@@ -243,11 +243,11 @@ describe('SearchFilter Component', () => {
       expect(defaultProps.onHistoryClear).toHaveBeenCalled();
     });
 
-    it('应该显示更多历史选项当历史记录超过5条时', async () => {
+    it('ShouldDisplay更多历史选项When历史记录超过5条时', async () => {
       const user = userEvent.setup();
       render(<SearchFilter {...defaultProps} />);
       
-      const historyButton = screen.getByRole('button', { name: '查看搜索历史' });
+      const historyButton = screen.getByRole('button', { name: '查看Search历史' });
       await act(async () => {
         await user.click(historyButton);
       });
@@ -258,39 +258,39 @@ describe('SearchFilter Component', () => {
     });
   });
 
-  describe('筛选功能测试', () => {
-    it('应该显示筛选下拉菜单', async () => {
+  describe('筛选功能Test', () => {
+    it('ShouldDisplay筛选下拉Menu', async () => {
       const user = userEvent.setup();
       render(<SearchFilter {...defaultProps} />);
       
-      const filterButton = screen.getByRole('button', { name: '打开筛选选项' });
+      const filterButton = screen.getByRole('button', { name: 'Open筛选选项' });
       await act(async () => {
         await user.click(filterButton);
       });
       
-      // 等待下拉菜单渲染
+      // 等待下拉MenuRender
       await waitFor(() => {
-        expect(screen.getByText('分类')).toBeInTheDocument();
-        expect(screen.getByText('类型')).toBeInTheDocument();
-        expect(screen.getByText('状态')).toBeInTheDocument();
+        expect(screen.getByText('Category')).toBeInTheDocument();
+        expect(screen.getByText('Type')).toBeInTheDocument();
+        expect(screen.getByText('Status')).toBeInTheDocument();
         expect(screen.getByText('作者')).toBeInTheDocument();
       });
     });
 
-    it('应该处理筛选重置', async () => {
+    it('ShouldProcess筛选Reset', async () => {
       const user = userEvent.setup();
       render(<SearchFilter {...defaultProps} />);
       
-      const filterButton = screen.getByRole('button', { name: '打开筛选选项' });
+      const filterButton = screen.getByRole('button', { name: 'Open筛选选项' });
       await act(async () => {
         await user.click(filterButton);
       });
       
       await waitFor(() => {
-        expect(screen.getByText('重置筛选')).toBeInTheDocument();
+        expect(screen.getByText('Reset筛选')).toBeInTheDocument();
       });
       
-      const resetButton = screen.getByText('重置筛选');
+      const resetButton = screen.getByText('Reset筛选');
       await act(async () => {
         await user.click(resetButton);
       });
@@ -299,22 +299,22 @@ describe('SearchFilter Component', () => {
     });
   });
 
-  describe('边界情况测试', () => {
-    it('应该处理空的搜索历史', () => {
+  describe('Boundary情况Test', () => {
+    it('ShouldProcess空的Search历史', () => {
       render(<SearchFilter {...defaultProps} searchHistory={[]} />);
       
-      const historyButton = screen.queryByRole('button', { name: '查看搜索历史' });
+      const historyButton = screen.queryByRole('button', { name: '查看Search历史' });
       expect(historyButton).not.toBeInTheDocument();
     });
 
-    it('应该处理空的筛选选项', () => {
+    it('ShouldProcess空的筛选选项', () => {
       render(<SearchFilter {...defaultProps} filterOptions={[]} />);
       
-      const filterButton = screen.queryByRole('button', { name: '打开筛选选项' });
+      const filterButton = screen.queryByRole('button', { name: 'Open筛选选项' });
       expect(filterButton).not.toBeInTheDocument();
     });
 
-    it('应该处理空的搜索统计', () => {
+    it('ShouldProcess空的Search统计', () => {
       render(<SearchFilter {...defaultProps} searchStats={undefined} />);
       
       expect(screen.queryByText('共 10 项')).not.toBeInTheDocument();
@@ -322,7 +322,7 @@ describe('SearchFilter Component', () => {
       expect(screen.queryByText('耗时 50ms')).not.toBeInTheDocument();
     });
 
-    it('应该处理未定义的回调函数', async () => {
+    it('ShouldProcess未Definition的CallbackFunction', async () => {
       const user = userEvent.setup();
       render(
         <SearchFilter
@@ -332,64 +332,64 @@ describe('SearchFilter Component', () => {
         />
       );
       
-      // 测试搜索
-      const searchInput = screen.getByPlaceholderText('搜索文章、标签、作者...');
+      // TestSearch
+      const searchInput = screen.getByPlaceholderText('Search文章、Tag、作者...');
       await act(async () => {
         await user.type(searchInput, 'test');
       });
       
-      // 测试历史记录点击
-      const historyButton = screen.getByRole('button', { name: '查看搜索历史' });
+      // Test历史记录Click
+      const historyButton = screen.getByRole('button', { name: '查看Search历史' });
       await act(async () => {
         await user.click(historyButton);
       });
       
-      // 测试筛选
-      const filterButton = screen.getByRole('button', { name: '打开筛选选项' });
+      // Test筛选
+      const filterButton = screen.getByRole('button', { name: 'Open筛选选项' });
       await act(async () => {
         await user.click(filterButton);
       });
       
-      // 这些操作不应该抛出错误
+      // 这些Operation不Should抛出Error
       expect(true).toBe(true);
     });
   });
 
-  describe('可访问性测试', () => {
-    it('搜索输入框应该有正确的aria标签', () => {
+  describe('可访问性Test', () => {
+    it('SearchInput框Should有正确的ariaTag', () => {
       render(<SearchFilter {...defaultProps} />);
       
-      const searchInput = screen.getByPlaceholderText('搜索文章、标签、作者...');
-      expect(searchInput).toHaveAttribute('aria-label', '搜索');
+      const searchInput = screen.getByPlaceholderText('Search文章、Tag、作者...');
+      expect(searchInput).toHaveAttribute('aria-label', 'Search');
     });
 
-    it('按钮应该有正确的aria标签', () => {
+    it('ButtonShould有正确的ariaTag', () => {
       render(<SearchFilter {...defaultProps} />);
       
-      const historyButton = screen.getByRole('button', { name: '查看搜索历史' });
-      const filterButton = screen.getByRole('button', { name: '打开筛选选项' });
+      const historyButton = screen.getByRole('button', { name: '查看Search历史' });
+      const filterButton = screen.getByRole('button', { name: 'Open筛选选项' });
       
-      expect(historyButton).toHaveAttribute('aria-label', '查看搜索历史');
-      expect(filterButton).toHaveAttribute('aria-label', '打开筛选选项');
+      expect(historyButton).toHaveAttribute('aria-label', '查看Search历史');
+      expect(filterButton).toHaveAttribute('aria-label', 'Open筛选选项');
     });
 
-    it('应该支持键盘导航', async () => {
+    it('ShouldSupport键盘Navigation', async () => {
       const user = userEvent.setup();
       render(<SearchFilter {...defaultProps} />);
       
-      const searchInput = screen.getByPlaceholderText('搜索文章、标签、作者...');
+      const searchInput = screen.getByPlaceholderText('Search文章、Tag、作者...');
       await act(async () => {
         await user.tab();
       });
       expect(searchInput).toHaveFocus();
       
-      const historyButton = screen.getByRole('button', { name: '查看搜索历史' });
+      const historyButton = screen.getByRole('button', { name: '查看Search历史' });
       await act(async () => {
         await user.tab();
       });
       expect(historyButton).toHaveFocus();
       
-      const filterButton = screen.getByRole('button', { name: '打开筛选选项' });
+      const filterButton = screen.getByRole('button', { name: 'Open筛选选项' });
       await act(async () => {
         await user.tab();
       });
@@ -397,19 +397,19 @@ describe('SearchFilter Component', () => {
     });
   });
 
-  describe('国际化测试', () => {
-    it('应该正确显示中文占位符', () => {
+  describe('国际化Test', () => {
+    it('Should正确Display中文占位符', () => {
       render(<SearchFilter {...defaultProps} />);
-      expect(screen.getByPlaceholderText('搜索文章、标签、作者...')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('Search文章、Tag、作者...')).toBeInTheDocument();
     });
 
-    it('应该正确显示中文按钮文本', () => {
+    it('Should正确Display中文Button文本', () => {
       render(<SearchFilter {...defaultProps} />);
       expect(screen.getByText('历史')).toBeInTheDocument();
       expect(screen.getByText('筛选')).toBeInTheDocument();
     });
 
-    it('应该正确显示中文统计信息', () => {
+    it('Should正确Display中文统计Information', () => {
       render(<SearchFilter {...defaultProps} />);
       expect(screen.getByText('共 10 项')).toBeInTheDocument();
       expect(screen.getByText('筛选出 10 项')).toBeInTheDocument();
@@ -417,76 +417,76 @@ describe('SearchFilter Component', () => {
     });
   });
 
-  describe('工具函数测试', () => {
+  describe('ToolFunctionTest', () => {
     describe('searchArticles', () => {
-      it('应该返回所有数据当搜索值为空', () => {
+      it('Should返回AllDataWhenSearchValue为空', () => {
         const result = mockUtils.searchArticles(mockArticles, '');
         expect(result).toEqual(mockArticles);
       });
 
-      it('应该返回所有数据当搜索值只有空格', () => {
+      it('Should返回AllDataWhenSearchValue只有空格', () => {
         const result = mockUtils.searchArticles(mockArticles, '   ');
         expect(result).toEqual(mockArticles);
       });
 
-      it('应该根据标题搜索', () => {
+      it('Should根据标题Search', () => {
         const result = mockUtils.searchArticles(mockArticles, 'React');
         expect(result).toHaveLength(1);
         expect(result[0].title).toContain('React');
       });
 
-      it('应该根据内容搜索', () => {
-        const result = mockUtils.searchArticles(mockArticles, '组件设计');
+      it('Should根据ContentSearch', () => {
+        const result = mockUtils.searchArticles(mockArticles, 'Component设计');
         expect(result).toHaveLength(1);
-        expect(result[0].content).toContain('组件设计');
+        expect(result[0].content).toContain('Component设计');
       });
 
-      it('应该根据标签搜索', () => {
+      it('Should根据TagSearch', () => {
         const result = mockUtils.searchArticles(mockArticles, 'TypeScript');
         expect(result).toHaveLength(1);
         expect(result[0].tags).toContain('TypeScript');
       });
 
-      it('应该根据作者搜索', () => {
+      it('Should根据作者Search', () => {
         const result = mockUtils.searchArticles(mockArticles, '张三');
         expect(result).toHaveLength(1);
         expect(result[0].author).toBe('张三');
       });
 
-      it('应该不区分大小写', () => {
+      it('Should不区分Size写', () => {
         const result = mockUtils.searchArticles(mockArticles, 'react');
         expect(result).toHaveLength(1);
         expect(result[0].title).toContain('React');
       });
 
-      it('应该返回多个匹配结果', () => {
-        const result = mockUtils.searchArticles(mockArticles, '前端');
+      it('Should返回多个匹配Result', () => {
+        const result = mockUtils.searchArticles(mockArticles, 'Frontend');
         expect(result.length).toBeGreaterThan(1);
         result.forEach(item => {
           expect(
-            item.title.includes('前端') ||
-            item.content.includes('前端') ||
-            item.tags.some(tag => tag.includes('前端'))
+            item.title.includes('Frontend') ||
+            item.content.includes('Frontend') ||
+            item.tags.some(tag => tag.includes('Frontend'))
           ).toBe(true);
         });
       });
     });
 
     describe('filterArticles', () => {
-      it('应该返回所有数据当没有筛选条件', () => {
+      it('Should返回AllDataWhen没有筛选条件', () => {
         const result = mockUtils.filterArticles(mockArticles, {});
         expect(result).toEqual(mockArticles);
       });
 
-      it('应该根据分类筛选', () => {
+      it('Should根据Category筛选', () => {
         const result = mockUtils.filterArticles(mockArticles, { category: 'frontend' });
-        expect(result).toHaveLength(3); // 3个前端相关文章
+        expect(result).toHaveLength(3); // 3个Frontend相关文章
         result.forEach(item => {
           expect(item.category).toBe('frontend');
         });
       });
 
-      it('应该根据类型筛选', () => {
+      it('Should根据Type筛选', () => {
         const result = mockUtils.filterArticles(mockArticles, { type: 'article' });
         expect(result.length).toBeGreaterThan(0);
         result.forEach(item => {
@@ -494,7 +494,7 @@ describe('SearchFilter Component', () => {
         });
       });
 
-      it('应该根据状态筛选', () => {
+      it('Should根据Status筛选', () => {
         const result = mockUtils.filterArticles(mockArticles, { status: 'published' });
         expect(result.length).toBeGreaterThan(0);
         result.forEach(item => {
@@ -502,13 +502,13 @@ describe('SearchFilter Component', () => {
         });
       });
 
-      it('应该根据作者筛选', () => {
+      it('Should根据作者筛选', () => {
         const result = mockUtils.filterArticles(mockArticles, { author: '张三' });
         expect(result).toHaveLength(1);
         expect(result[0].author).toBe('张三');
       });
 
-      it('应该支持多个筛选条件', () => {
+      it('ShouldSupport多个筛选条件', () => {
         const result = mockUtils.filterArticles(mockArticles, {
           category: 'frontend',
           type: 'article'
@@ -520,7 +520,7 @@ describe('SearchFilter Component', () => {
         });
       });
 
-      it('应该忽略空值筛选条件', () => {
+      it('Should忽略空Value筛选条件', () => {
         const result = mockUtils.filterArticles(mockArticles, {
           category: 'frontend',
           type: null,
@@ -534,42 +534,42 @@ describe('SearchFilter Component', () => {
     });
 
     describe('addSearchHistory', () => {
-      it('应该添加新的搜索历史', () => {
+      it('ShouldAdd新的Search历史', () => {
         const history: MockHistoryItem[] = [];
-        const result = mockUtils.addSearchHistory(history, '新搜索');
+        const result = mockUtils.addSearchHistory(history, '新Search');
         
         expect(result).toHaveLength(1);
-        expect(result[0].text).toBe('新搜索');
+        expect(result[0].text).toBe('新Search');
         expect(result[0].type).toBe('recent');
       });
 
-      it('应该将重复的搜索移到顶部', () => {
+      it('Should将重复的Search移到Top', () => {
         const history: MockHistoryItem[] = [
-          { text: '旧搜索', timestamp: Date.now() - 1000, type: 'recent' }
+          { text: '旧Search', timestamp: Date.now() - 1000, type: 'recent' }
         ];
-        const result = mockUtils.addSearchHistory(history, '旧搜索');
+        const result = mockUtils.addSearchHistory(history, '旧Search');
         
         expect(result).toHaveLength(1);
-        expect(result[0].text).toBe('旧搜索');
+        expect(result[0].text).toBe('旧Search');
         expect(result[0].timestamp).toBeGreaterThan(history[0].timestamp);
       });
 
-      it('应该限制历史记录数量为10条', () => {
+      it('ShouldLimit历史记录Count为10条', () => {
         const history: MockHistoryItem[] = Array.from({ length: 10 }, (_, i) => ({
-          text: `搜索${i}`,
+          text: `Search${i}`,
           timestamp: Date.now() - i * 1000,
           type: 'recent' as const
         }));
         
-        const result = mockUtils.addSearchHistory(history, '新搜索');
+        const result = mockUtils.addSearchHistory(history, '新Search');
         
         expect(result).toHaveLength(10);
-        expect(result[0].text).toBe('新搜索');
+        expect(result[0].text).toBe('新Search');
       });
 
-      it('应该忽略空搜索文本', () => {
+      it('Should忽略空Search文本', () => {
         const history: MockHistoryItem[] = [
-          { text: '旧搜索', timestamp: Date.now(), type: 'recent' }
+          { text: '旧Search', timestamp: Date.now(), type: 'recent' }
         ];
         const result = mockUtils.addSearchHistory(history, '');
         
@@ -578,38 +578,38 @@ describe('SearchFilter Component', () => {
     });
 
     describe('removeSearchHistory', () => {
-      it('应该删除指定的搜索历史', () => {
+      it('ShouldDelete指定的Search历史', () => {
         const history: MockHistoryItem[] = [
-          { text: '搜索1', timestamp: Date.now(), type: 'recent' },
-          { text: '搜索2', timestamp: Date.now(), type: 'recent' }
+          { text: 'Search1', timestamp: Date.now(), type: 'recent' },
+          { text: 'Search2', timestamp: Date.now(), type: 'recent' }
         ];
         
-        const result = mockUtils.removeSearchHistory(history, '搜索1');
+        const result = mockUtils.removeSearchHistory(history, 'Search1');
         
         expect(result).toHaveLength(1);
-        expect(result[0].text).toBe('搜索2');
+        expect(result[0].text).toBe('Search2');
       });
 
-      it('应该处理不存在的搜索文本', () => {
+      it('ShouldProcess不存在的Search文本', () => {
         const history: MockHistoryItem[] = [
-          { text: '搜索1', timestamp: Date.now(), type: 'recent' }
+          { text: 'Search1', timestamp: Date.now(), type: 'recent' }
         ];
         
-        const result = mockUtils.removeSearchHistory(history, '不存在的搜索');
+        const result = mockUtils.removeSearchHistory(history, '不存在的Search');
         
         expect(result).toEqual(history);
       });
     });
 
     describe('clearSearchHistory', () => {
-      it('应该清空所有搜索历史', () => {
+      it('Should清空AllSearch历史', () => {
         const result = mockUtils.clearSearchHistory();
         expect(result).toEqual([]);
       });
     });
 
     describe('generateSearchStats', () => {
-      it('应该生成正确的搜索统计', () => {
+      it('Should生成正确的Search统计', () => {
         const stats = mockUtils.generateSearchStats(100, 50);
         
         expect(stats.total).toBe(100);

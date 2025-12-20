@@ -3,6 +3,7 @@ from __future__ import annotations
 from PySide6 import QtCore
 import concurrent.futures as cf
 from typing import Any, Callable, Optional
+from utils.logger_helper import logger_helper as logger
 
 
 class _Invoker(QtCore.QObject):
@@ -28,6 +29,7 @@ class _Invoker(QtCore.QObject):
             if fut is not None and not fut.done():
                 fut.set_result(res)
         except Exception as e:
+            logger.error(f"Error in dispatched function '{fn.__name__}': {e}", exc_info=True)
             if fut is not None and not fut.done():
                 fut.set_exception(e)
 
@@ -58,3 +60,8 @@ def post_to_main_thread(fn: Callable[[], Any]) -> None:
     """Schedule fn to run on the Qt main thread (fire-and-forget)."""
     _get_invoker()._call.emit(fn, None)
 
+
+
+def init_gui_dispatch() -> None:
+    """Initialize the invoker on the main thread."""
+    _get_invoker()

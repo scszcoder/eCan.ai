@@ -1,9 +1,13 @@
-from agent.ec_skills.ecbot_rpa.ecbot_rpa_skill import *
-from agent.ec_skills.ecbot_rpa.ecbot_rpa_chatter_skill import *
-from agent.ec_skills.search_1688.search_1688_skill import *
-from agent.ec_skills.search_1688.search_1688_chatter_skill import *
 
-from agent.ec_skills.my_twin.my_twin_chatter_skill import *
+
+from agent.ec_skills.build_agent_skills import build_agent_skills_from_files
+from agent.ec_skills.ecbot_rpa.ecbot_rpa_chatter_skill import create_rpa_helper_chatter_skill, create_rpa_operator_chatter_skill, create_rpa_supervisor_chatter_skill, create_rpa_supervisor_scheduling_chatter_skill
+from agent.ec_skills.ecbot_rpa.ecbot_rpa_skill import create_rpa_helper_skill, create_rpa_operator_skill, create_rpa_supervisor_scheduling_skill, create_rpa_supervisor_skill
+from agent.ec_skills.my_twin.my_twin_chatter_skill import create_my_twin_chatter_skill
+from agent.ec_skills.search_1688.search_1688_chatter_skill import create_search_1688_chatter_skill
+from agent.ec_skills.search_1688.search_1688_skill import create_search_1688_skill
+from agent.mcp.server.tool_schemas import tool_schemas
+
 
 async def save_agent_skills(mainwin, skills):
     for skill in skills:

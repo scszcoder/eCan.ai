@@ -2,23 +2,21 @@ from PySide6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QMessageBox, QA
 from PySide6.QtGui import QKeySequence, QShortcut, QAction, QIcon, QPixmap
 from PySide6.QtCore import Qt
 from typing import Optional
+from utils.time_util import TimeUtil
 import sys
 import os
-from gui.ipc.api import IPCAPI
 from gui.menu_manager import MenuManager
-from PySide6.QtGui import QPixmap  # Add this import
-from PySide6.QtGui import QIcon  # Add this import
-from PySide6.QtCore import Qt  # For high quality scaling
 
-from PySide6.QtWidgets import QApplication
+# Windows-specific imports for resize handling
+if sys.platform == 'win32':
+    import ctypes
+    from ctypes import wintypes
 
 from config.app_settings import app_settings
 from utils.logger_helper import logger_helper as logger
 from gui.core.web_engine_view import WebEngineView
-from gui.core.dev_tools_manager import DevToolsManager
+
 from app_context import AppContext
-from agent.chats.chat_service import ChatService
-import time
 
 
 # Configure logging to suppress macOS IMK warnings
@@ -26,26 +24,116 @@ if sys.platform == 'darwin':
     os.environ["QT_LOGGING_RULES"] = "qt.webengine* = false"
 
 
+# Internationalization for WebGUI
+class WebGUIMessages:
+    """Simple i18n support for WebGUI status and error messages."""
+
+    DEFAULT_LANG = 'zh-CN'
+
+    MESSAGES = {
+        'en-US': {
+            'initializing_webgui': 'Initializing WebGUI...',
+            'creating_layout': 'Creating interface layout...',
+            'init_web_engine': 'Initializing web engine...',
+            'setup_dev_tools': 'Setting up developer tools...',
+            'config_window_style': 'Configuring window style...',
+            'connecting_web_engine': 'Connecting web engine...',
+            'loading_progress': 'Loading {progress}%...',
+            'error_page_title': 'Failed to Load',
+            'error_page_subtitle': 'We encountered an error while loading the application',
+            'possible_reasons': 'Possible reasons:',
+            'reason_network': 'Network connection issue',
+            'reason_config': 'Configuration error',
+            'reason_resources': 'Missing required resources',
+            'retry_button': 'Retry',
+            'web_url_unavailable': 'Web URL not available',
+            'init_error': 'Initialization error: {error}',
+            'confirm_exit_title': 'Confirm Exit',
+            'confirm_exit_message': 'Are you sure you want to exit the program?',
+            'button_yes': 'Yes',
+            'button_no': 'No',
+        },
+        'zh-CN': {
+            'initializing_webgui': '初始化 WebGUI...',
+            'creating_layout': '创建界面布局...',
+            'init_web_engine': '初始化 Web 引擎...',
+            'setup_dev_tools': '设置开发者工具...',
+            'config_window_style': '配置窗口样式...',
+            'connecting_web_engine': '连接 Web 引擎...',
+            'loading_progress': '加载中 {progress}%...',
+            'error_page_title': '加载失败',
+            'error_page_subtitle': '在加载应用程序时遇到错误',
+            'possible_reasons': '可能的原因：',
+            'reason_network': '网络连接问题',
+            'reason_config': '配置错误',
+            'reason_resources': '缺少必需的资源',
+            'retry_button': '重试',
+            'web_url_unavailable': 'Web URL 不可用',
+            'init_error': '初始化错误：{error}',
+            'confirm_exit_title': '确认退出',
+            'confirm_exit_message': '确定要退出程序吗？',
+            'button_yes': '是',
+            'button_no': '否',
+        }
+    }
+
+    def __init__(self):
+        from utils.i18n_helper import detect_language
+        self.language = detect_language(
+            default_lang=self.DEFAULT_LANG,
+            supported_languages=list(self.MESSAGES.keys())
+        )
+        logger.info(f"[WebGUI] Language: {self.language}")
+
+    def get(self, key: str, **kwargs) -> str:
+        """Get localized message with optional formatting."""
+        lang = self.language if self.language in self.MESSAGES else self.DEFAULT_LANG
+        message = self.MESSAGES[lang].get(key, key)
+        if kwargs:
+            return message.format(**kwargs)
+        return message
+
+
+# Global instance - lazy initialization
+_webgui_messages = None
+
+def _get_webgui_messages():
+    """Get WebGUIMessages instance with lazy initialization."""
+    global _webgui_messages
+    if _webgui_messages is None:
+        _webgui_messages = WebGUIMessages()
+    return _webgui_messages
+
+
 class WebGUI(QMainWindow):
-    def __init__(self, parent=None, splash: Optional[object] = None, progress_callback=None):
+    def __init__(self, parent=None, splash=None, progress_callback=None):
         super().__init__()
         self.setWindowTitle("eCan.ai")
         self.parent = parent
         self._splash = splash
         self._progress_callback = progress_callback
+        self._centered_once = False
+        self._restoring_position = False  # prevent recursion during position restore
+        self._last_center_pos = None    # guard against unintended (0,0) jumps
+        self._taskbar_icon_set = False  # prevent repeated taskbar icon setup
 
         # Update progress if callback is available
         if self._progress_callback:
-            self._progress_callback(72, "Setting up main window...")
+            self._progress_callback(30, _get_webgui_messages().get('initializing_webgui'))
 
-        # Set window icon for taskbar display (required for taskbar icon)
-        self._set_window_icon()
+        # Windows-specific optimizations to reduce flicker
+        if sys.platform == 'win32':
+            # Hide window during setup to prevent flicker
+            self.setAttribute(Qt.WA_DontShowOnScreen, True)
+            # Disable updates during initialization
+            self.setUpdatesEnabled(False)
+
         # Set window size first, then center it
         self.resize(1200, 800)
-        self._center_on_screen()
+        # Defer centering until the window is actually shown to avoid (0,0) jumps
 
         if self._progress_callback:
-            self._progress_callback(74, "Creating interface layout...")
+            self._progress_callback(74, _get_webgui_messages().get('creating_layout'))
 
         # Create central widget and layout
         central_widget = QWidget()
@@ -54,28 +142,25 @@ class WebGUI(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
 
         if self._progress_callback:
-            self._progress_callback(76, "Initializing web engine...")
+            self._progress_callback(76, _get_webgui_messages().get('init_web_engine'))
 
         # Create web engine
         self.web_engine_view = WebEngineView(self)
 
         if self._progress_callback:
-            self._progress_callback(78, "Setting up developer tools...")
+            self._progress_callback(78, _get_webgui_messages().get('setup_dev_tools'))
 
-        # Create developer tools manager
-        self.dev_tools_manager = DevToolsManager(self)
+        # Developer tools manager will be created on-demand
+        self.dev_tools_manager = None
 
         if self._progress_callback:
-            self._progress_callback(80, "Configuring window style...")
+            self._progress_callback(80, _get_webgui_messages().get('config_window_style'))
 
         # Set Windows window style to match content theme
         self._setup_window_style()
 
-        # Initialize IPC API
-        self._ipc_api = None
-
         if self._progress_callback:
-            self._progress_callback(82, "Connecting web engine...")
+            self._progress_callback(82, _get_webgui_messages().get('connecting_web_engine'))
 
         # Wire splash updates to web load if provided
         if self._splash is not None:
@@ -101,21 +186,21 @@ class WebGUI(QMainWindow):
                     self.load_local_html()
             else:
                 logger.error("Failed to get web URL - will show error page")
-                self._show_error_page("Web URL not available")
+                self._show_error_page(_get_webgui_messages().get('web_url_unavailable'))
 
         except Exception as e:
             logger.error(f"Error during WebGUI initialization: {str(e)}")
             import traceback
             logger.error(traceback.format_exc())
-            self._show_error_page(f"Initialization error: {str(e)}")
-        
+            self._show_error_page(_get_webgui_messages().get('init_error', error=str(e)))
+
         # Add web engine to layout
         layout.addWidget(self.web_engine_view)
         layout.setSpacing(0)
 
         # Set up shortcuts (after all components initialized)
         self._setup_shortcuts()
-        
+
         # Create custom title bar menu on Windows and Linux
         if sys.platform in ['win32', 'linux']:
             self._setup_custom_titlebar_with_menu()
@@ -124,18 +209,245 @@ class WebGUI(QMainWindow):
             self.menu_manager = MenuManager(self)
             self.menu_manager.setup_menu()
 
+        # Windows-specific: Re-enable showing after setup is complete
+        if sys.platform == 'win32':
+            self.setAttribute(Qt.WA_DontShowOnScreen, False)
+            self.setUpdatesEnabled(True)
+
         # Show behavior: if no splash, show immediately; else splash will call show on finished
         if self._splash is None:
             try:
                 self.show()
+                # Set Windows taskbar icon using IconManager (centralized, no duplicates)
+                self._setup_taskbar_icon_via_manager()
             except Exception:
                 pass
+
+        # Start async preload in background after event loop is ready
+        # 100ms delay ensures Qt event loop is running before creating async task
+        # Preload will run during user login, making MainWindow startup instant
+        from PySide6.QtCore import QTimer
+        QTimer.singleShot(100, self._start_background_preload)
+
+    def showEvent(self, event):
+        """On first show: center+front immediately; always: reset cursors."""
+        # Center BEFORE calling super to ensure correct position from the start
+        try:
+            if not self._centered_once:
+                self._centered_once = True
+                if sys.platform == 'win32':
+                    try:
+                        self.setAttribute(Qt.WA_DontShowOnScreen, False)
+                    except Exception:
+                        pass
+                # Center immediately on first show
+                if not self.isMaximized():
+                    self._center_on_screen()
+                # Process events to ensure position is applied
+                QApplication.processEvents()
+                self._bring_to_front()
+        except Exception:
+            pass
+
+        super().showEvent(event)
+
+        # Always ensure cursors are sane
+        try:
+            self.setCursor(Qt.ArrowCursor)
+            if hasattr(self, 'centralWidget') and self.centralWidget():
+                self.centralWidget().setCursor(Qt.ArrowCursor)
+            if hasattr(self, 'web_engine_view'):
+                self.web_engine_view.setCursor(Qt.ArrowCursor)
+        except Exception:
+            pass
+
+    def _start_background_preload(self):
+        """
+        Start async preload in background after event loop is ready.
+        This preloads heavy modules (MainWindow dependencies, crypto, database, etc.)
+        while user is logging in, resulting in ~340x faster MainWindow startup.
+        """
+        try:
+            import asyncio
+            import threading
+            from gui.async_preloader import start_async_preload
+
+            logger.info(" [WebGUI] Starting async preload in background...")
+
+            # Run async preload in a separate thread with its own event loop
+            # This is necessary because Qt has its own event loop and doesn't run asyncio
+            def _run_async_preload():
+                loop = None
+                try:
+                    # Create new event loop for this thread
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+
+                    # Run the preload coroutine (wait for completion)
+                    loop.run_until_complete(start_async_preload(wait_for_completion=True))
+
+                    # Get preload summary
+                    from gui.async_preloader import get_preload_summary
+                    summary = get_preload_summary()
+                    success_count = summary.get('success_count', 0)
+                    total_tasks = summary.get('total_tasks', 0)
+                    total_time = summary.get('total_time', 0)
+
+                    logger.info(f"✅ [WebGUI] Async preload completed: {success_count}/{total_tasks} tasks in {total_time:.2f}s")
+                except Exception as e:
+                    logger.warning(f"⚠️ [WebGUI] Async preload thread error: {e}")
+                    import traceback
+                    logger.warning(f"⚠️ [WebGUI] Traceback: {traceback.format_exc()}")
+                finally:
+                    # Ensure loop is properly closed
+                    if loop is not None and not loop.is_closed():
+                        try:
+                            # Cancel any remaining tasks
+                            pending = asyncio.all_tasks(loop)
+                            for task in pending:
+                                task.cancel()
+                            # Wait for cancellations
+                            if pending:
+                                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+                        except Exception:
+                            pass
+                        finally:
+                            loop.close()
+
+            # Start preload in daemon thread (won't block app exit)
+            preload_thread = threading.Thread(target=_run_async_preload, daemon=True, name="AsyncPreloadThread")
+            preload_thread.start()
+            logger.info("✅ [WebGUI] Async preload thread started")
+
+        except Exception as e:
+            logger.warning(f"⚠️ [WebGUI] Failed to start preload: {e}")
+            import traceback
+            logger.warning(f"⚠️ [WebGUI] Traceback: {traceback.format_exc()}")
+
+    def move(self, *args):
+        """Override move to prevent moving to (0,0) at source"""
+        try:
+            # Parse position from args
+            if len(args) == 1:
+                # QPoint argument
+                pos = args[0]
+                x, y = pos.x(), pos.y()
+            elif len(args) == 2:
+                # x, y arguments
+                x, y = args[0], args[1]
+            else:
+                return super().move(*args)
+
+            # Skip guard while maximized or fullscreen
+            if self.isMaximized() or self.isFullScreen():
+                return super().move(*args)
+
+            # Block moves to (0,0) unless window is being initialized
+            if x < 5 and y < 5 and hasattr(self, '_centered_once') and self._centered_once:
+                # Debug log
+                logger.warning(f"[WebGUI] 🛡️ BLOCKED move to ({x},{y}), staying at current position")
+
+                # Ignore this move request - stay at current position
+                if self._last_center_pos is not None:
+                    return super().move(self._last_center_pos)
+                return  # Don't move at all
+
+            # Allow valid moves
+            return super().move(*args)
+        except Exception as e:
+            logger.debug(f"[WebGUI] move() exception: {e}")
+            return super().move(*args)
+
+    def moveEvent(self, event):
+        """Guard against unintended jumps to (0,0) by immediately restoring position."""
+        try:
+            # Skip guard while maximized or fullscreen so window can align to (0,0)
+            if self.isMaximized() or self.isFullScreen():
+                return super().moveEvent(event)
+
+            # Skip if we're currently restoring position (prevent recursion)
+            if self._restoring_position:
+                return super().moveEvent(event)
+
+            # Only guard if window is visible and initialized
+            if self.isVisible() and hasattr(self, '_centered_once') and self._centered_once:
+                pos = event.pos()
+
+                # If moved to (0,0), immediately restore to saved position
+                if pos.x() < 5 and pos.y() < 5 and self._last_center_pos is not None:
+                    logger.warning(f"[WebGUI] Detected move to ({pos.x()}, {pos.y()}), restoring immediately")
+                    # Set flag to prevent recursion
+                    self._restoring_position = True
+                    try:
+                        # Call super first to process the event
+                        super().moveEvent(event)
+                        # Immediately restore position synchronously
+                        super(WebGUI, self).move(self._last_center_pos)
+                    finally:
+                        # Clear flag
+                        self._restoring_position = False
+                    return
+        except Exception as e:
+            logger.debug(f"[WebGUI] moveEvent exception: {e}")
+            self._restoring_position = False
+        return super().moveEvent(event)
+
+    def _center_on_screen(self):
+        """Center the window on the PRIMARY screen with proper handling for frameless windows"""
+        try:
+            screen = QApplication.primaryScreen()
+            if not screen:
+                logger.debug("No primary screen found for centering")
+                return
+
+            sg = screen.availableGeometry()
+            window_width = self.width()
+            window_height = self.height()
+
+            x = sg.center().x() - window_width // 2
+            y = sg.center().y() - window_height // 2
+
+            # Keep within available area
+            x = max(sg.left(), min(x, sg.right() - window_width))
+            y = max(sg.top(), min(y, sg.bottom() - window_height))
+
+            logger.debug(f"Centering (primary) window: size=({window_width}, {window_height}), target=({x}, {y})")
+
+            if sys.platform == 'win32' and self.windowFlags() & Qt.FramelessWindowHint:
+                try:
+                    import ctypes
+                    hwnd = int(self.winId())
+                    if hwnd:
+                        user32 = ctypes.windll.user32
+                        SWP_NOSIZE = 0x0001
+                        SWP_NOZORDER = 0x0004
+                        SWP_SHOWWINDOW = 0x0040
+                        user32.SetWindowPos(hwnd, 0, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_SHOWWINDOW)
+                    else:
+                        self.move(x, y)
+                except Exception as api_e:
+                    logger.debug(f"Windows API positioning failed, fallback to Qt move: {api_e}")
+                    self.move(x, y)
+            else:
+                self.move(x, y)
+
+            # Record final position
+            QApplication.processEvents()
+            final_pos = self.pos()
+            try:
+                from PySide6.QtCore import QPoint
+                self._last_center_pos = QPoint(final_pos.x(), final_pos.y())
+            except Exception:
+                self._last_center_pos = final_pos
+            logger.info(f"[WebGUI] ✅ Centered at ({final_pos.x()}, {final_pos.y()}), saved as guard position")
+        except Exception as e:
+            logger.debug(f"Failed to center window: {e}")
 
     # --- Splash handlers ---
     def _on_load_progress(self, progress: int):
         try:
             if self._splash is not None:
-                self._splash.set_status(f"Loading {progress}%…")
+                self._splash.set_status(_get_webgui_messages().get('loading_progress', progress=progress))
                 self._splash.set_progress(progress)
         except Exception:
             pass
@@ -149,6 +461,10 @@ class WebGUI(QMainWindow):
             self.show()
             # Ensure window icon is set after showing for taskbar display
             self._set_window_icon()
+            # Set Windows taskbar icon using IconManager (centralized, no duplicates)
+            self._setup_taskbar_icon_via_manager()
+            # Bring to front once more after splash is gone
+            self._bring_to_front()
         except Exception:
             try:
                 self.show()
@@ -167,7 +483,7 @@ class WebGUI(QMainWindow):
                 <title>eCan.ai - Error</title>
                 <style>
                     body {{
-                        font-family: Arial, sans-serif;
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
                         background: #1a1a1a;
                         color: #ffffff;
                         display: flex;
@@ -206,16 +522,16 @@ class WebGUI(QMainWindow):
             </head>
             <body>
                 <div class="error-container">
-                    <h1>⚠️ Application Error</h1>
-                    <p>eCan.ai encountered an error during startup:</p>
+                    <h1>⚠️ {_get_webgui_messages().get('error_page_title')}</h1>
+                    <p>{_get_webgui_messages().get('error_page_subtitle')}</p>
                     <div class="error-message">{error_message}</div>
-                    <p>This usually happens when:</p>
+                    <p>{_get_webgui_messages().get('possible_reasons')}</p>
                     <ul style="text-align: left; display: inline-block;">
-                        <li>Frontend files are missing or corrupted</li>
-                        <li>PyInstaller packaging issue</li>
-                        <li>File permissions problem</li>
+                        <li>{_get_webgui_messages().get('reason_network')}</li>
+                        <li>{_get_webgui_messages().get('reason_config')}</li>
+                        <li>{_get_webgui_messages().get('reason_resources')}</li>
                     </ul>
-                    <button class="retry-button" onclick="location.reload()">Retry</button>
+                    <button class="retry-button" onclick="location.reload()">{_get_webgui_messages().get('retry_button')}</button>
                 </div>
             </body>
             </html>
@@ -290,7 +606,8 @@ class WebGUI(QMainWindow):
             logger.info(f"Current platform {sys.platform} does not support custom window styles; using system default")
 
     def _apply_messagebox_style(self, msg_box):
-        """Apply dark gray theme to QMessageBox (Windows only)"""
+        """Apply dark gray theme to QMessageBox with logo background support"""
+        # Apply style to all platforms for better logo visibility
         if sys.platform == 'win32':
             msg_box.setStyleSheet("""
                 QMessageBox {
@@ -307,6 +624,12 @@ class WebGUI(QMainWindow):
                     font-weight: 600;
                     font-size: 14px;
                     border-bottom: 1px solid #404040;  /* Bottom border of title bar */
+                }
+                /* Icon area background for better logo visibility */
+                QMessageBox QLabel[objectName="qt_msgbox_icon_label"] {
+                    background-color: #1a1a1a;  /* Dark background for icon area */
+                    border-radius: 4px;
+                    padding: 8px;
                 }
                 QMessageBox QLabel {
                     background-color: transparent;
@@ -340,8 +663,63 @@ class WebGUI(QMainWindow):
             """)
             logger.info("MessageBox Windows style applied")
         else:
-            # Non-Windows platform, keep system default style
-            logger.info(f"Current platform {sys.platform} does not support custom MessageBox style; using system default")
+            # macOS and Linux: Apply style with icon area background and header support
+            msg_box.setStyleSheet("""
+                QMessageBox {
+                    background-color: #2d2d2d;  /* Dark gray background */
+                    color: #e0e0e0;  /* Light gray text */
+                    border: 1px solid #404040;  /* Medium gray border */
+                    border-radius: 8px;  /* Rounded corners */
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                }
+                /* Top header area background for logo visibility (macOS system title area) */
+                QMessageBox::title {
+                    background-color: #1a1a1a;  /* Very dark background for title/logo area */
+                    color: #ffffff;  /* White text for better contrast */
+                    padding: 12px 16px;
+                    font-weight: 600;
+                    font-size: 16px;
+                    border-bottom: 1px solid #404040;
+                    border-top-left-radius: 8px;
+                    border-top-right-radius: 8px;
+                }
+                /* Icon area background for better logo visibility */
+                QMessageBox QLabel[objectName="qt_msgbox_icon_label"] {
+                    background-color: #1a1a1a;  /* Dark background for icon area */
+                    border-radius: 4px;
+                    padding: 8px;
+                }
+                QMessageBox QLabel {
+                    background-color: transparent;
+                    color: #e0e0e0;  /* Light gray text */
+                    font-size: 14px;
+                    padding: 10px;
+                }
+                QMessageBox QPushButton {
+                    background-color: #404040;  /* Medium gray button background */
+                    color: #e0e0e0;  /* Light gray button text */
+                    border: 1px solid #606060;  /* Slightly brighter border */
+                    border-radius: 6px;
+                    padding: 8px 16px;
+                    font-weight: 500;
+                    min-width: 80px;
+                }
+                QMessageBox QPushButton:hover {
+                    background-color: #505050;  /* Slightly brighter on hover */
+                    border-color: #707070;
+                }
+                QMessageBox QPushButton:pressed {
+                    background-color: #353535;  /* Slightly darker when pressed */
+                }
+                QMessageBox QPushButton:default {
+                    background-color: #5a5a5a;  /* Default button slightly brighter */
+                    border-color: #707070;
+                }
+                QMessageBox QPushButton:default:hover {
+                    background-color: #656565;
+                }
+            """)
+            logger.info(f"MessageBox style applied for {sys.platform}")
 
     def _apply_dark_titlebar_to_messagebox(self, msg_box):
         """Apply Windows dark title bar to MessageBox"""
@@ -374,20 +752,18 @@ class WebGUI(QMainWindow):
 
         except Exception as e:
             logger.warning(f"Failed to set MessageBox dark title bar: {e}")
-    def set_parent(self, parent):
-        self.parent = parent
 
     def load_local_html(self):
         """Load local HTML file"""
         index_path = app_settings.dist_dir / "index.html"
         logger.info(f"Looking for index.html at: {index_path}")
-        
+
         if index_path.exists():
             try:
                 # Load local file directly
                 self.web_engine_view.load_local_file(index_path)
                 logger.info(f"Production mode: Loading from {index_path}")
-                
+
             except Exception as e:
                 logger.error(f"Error loading HTML file: {str(e)}")
                 import traceback
@@ -401,27 +777,48 @@ class WebGUI(QMainWindow):
                     logger.info(f"  - {item.name}")
             else:
                 logger.error(f"Directory {app_settings.dist_dir} does not exist")
-    
+
+    def get_ipc_api(self):
+        return self.web_engine_view.get_ipc_api()
+
     def _setup_shortcuts(self):
         """Set up shortcuts"""
         # Developer tools shortcut
         self.dev_tools_shortcut = QShortcut(QKeySequence("F12"), self)
-        self.dev_tools_shortcut.activated.connect(self.dev_tools_manager.toggle)
-        
+        self.dev_tools_shortcut.activated.connect(self._toggle_dev_tools)
+
         # F5 reload
         reload_action = QAction(self)
         reload_action.setShortcut(QKeySequence('F5'))
         reload_action.triggered.connect(self.reload)
         self.addAction(reload_action)
-        
+
         # Ctrl+L clear logs
         clear_logs_action = QAction(self)
         clear_logs_action.setShortcut(QKeySequence('Ctrl+L'))
-        clear_logs_action.triggered.connect(self.dev_tools_manager.clear_all)
+        clear_logs_action.triggered.connect(self._clear_dev_tools_logs)
         self.addAction(clear_logs_action)
 
+    def _ensure_dev_tools_manager(self):
+        """Create DevToolsManager instance if it doesn't exist."""
+        if self.dev_tools_manager is None:
+            logger.info(f"[{TimeUtil.formatted_now_with_ms()}] Creating DevToolsManager on demand...")
+            from gui.core.dev_tools_manager import DevToolsManager
+            self.dev_tools_manager = DevToolsManager(self)
+            logger.info(f"[{TimeUtil.formatted_now_with_ms()}] DevToolsManager created.")
+
+    def _toggle_dev_tools(self):
+        """Toggle the developer tools panel."""
+        self._ensure_dev_tools_manager()
+        self.dev_tools_manager.toggle()
+
+    def _clear_dev_tools_logs(self):
+        """Clear logs in the developer tools panel."""
+        self._ensure_dev_tools_manager()
+        self.dev_tools_manager.clear_all()
+
     def self_confirm(self):
-        print("self confirming top web gui....")
+        logger.info("self confirming top web gui....")
 
     def reload(self):
         """Reload page"""
@@ -430,18 +827,53 @@ class WebGUI(QMainWindow):
             self.web_engine_view.reload_page()
         else:
             self.load_local_html()
-    
+
     def closeEvent(self, event):
         """Window close event - debug version"""
         logger.info("closeEvent triggered")
 
         try:
-            # Create custom dialog
+            # Check if OTA update is in progress - skip confirmation dialog
+            from ota.core.download_manager import download_manager
+            if hasattr(download_manager, '_ota_installing') and download_manager._ota_installing:
+                logger.info("OTA update in progress - skipping exit confirmation")
+                event.accept()
+                
+                # Stop LightragServer
+                try:
+                    mainwin = AppContext.get_main_window()
+                    if mainwin and hasattr(mainwin, 'lightrag_server') and mainwin.lightrag_server:
+                        mainwin.lightrag_server.stop()
+                except Exception as e:
+                    logger.warning(f"Error stopping LightragServer: {e}")
+                
+                # Force exit for OTA update
+                logger.info("Force exiting for OTA update with os._exit(0)")
+                os._exit(0)
+                return
+            
+            # Create custom dialog with i18n support
             msg_box = QMessageBox(self)
-            msg_box.setWindowTitle('Confirm Exit')
-            msg_box.setText('Are you sure you want to exit the program?')
+            msg_box.setWindowTitle(_get_webgui_messages().get('confirm_exit_title'))
+            msg_box.setText(_get_webgui_messages().get('confirm_exit_message'))
             msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             msg_box.setDefaultButton(QMessageBox.No)
+
+            # Set button text with i18n
+            yes_button = msg_box.button(QMessageBox.Yes)
+            no_button = msg_box.button(QMessageBox.No)
+            if yes_button:
+                yes_button.setText(_get_webgui_messages().get('button_yes'))
+            if no_button:
+                no_button.setText(_get_webgui_messages().get('button_no'))
+
+            # Set window flags to ensure proper rendering on macOS
+            if sys.platform == 'darwin':
+                # On macOS, ensure the dialog is opaque and has proper background
+                msg_box.setAttribute(Qt.WA_TranslucentBackground, False)
+                msg_box.setWindowFlags(msg_box.windowFlags() | Qt.FramelessWindowHint)
+                # Re-enable window frame for proper system integration
+                msg_box.setWindowFlags(msg_box.windowFlags() & ~Qt.FramelessWindowHint)
 
             # Apply dark gray theme to dialog
             self._apply_messagebox_style(msg_box)
@@ -514,14 +946,13 @@ class WebGUI(QMainWindow):
                 # Stop LightragServer
                 try:
                     logger.info("🔔 [DEBUG] Stopping LightragServer")
-                    from app_context import AppContext
-                    ctx = AppContext()
-                    if ctx.main_window and hasattr(ctx.main_window, 'lightrag_server'):
+                    mainwin = AppContext.get_main_window()
+                    if mainwin and hasattr(mainwin, 'lightrag_server') and mainwin.lightrag_server:
                         logger.info("🔔 [DEBUG] Found LightragServer, stopping...")
-                        ctx.main_window.lightrag_server.stop()
+                        mainwin.lightrag_server.stop()
                         logger.info("🔔 [DEBUG] LightragServer stopped")
                     else:
-                        logger.info("🔔 [DEBUG] LightragServer or MainWindow not found")
+                        logger.info("🔔 [DEBUG] LightragServer or MainWindow not found or not initialized")
                 except Exception as e:
                     logger.warning(f"Error stopping LightragServer: {e}")
 
@@ -538,136 +969,6 @@ class WebGUI(QMainWindow):
             import traceback
             traceback.print_exc()
             event.ignore()
-
-
- 
-    def get_ipc_api(self):
-        self._ipc_api = IPCAPI.get_instance()
-        return self._ipc_api
-
-    # Message
-    # {
-    #     role: 'user' | 'assistant' | 'system' | 'agent';
-    # id: string;
-    # createAt: number;
-    # content: string | Content | Content[]; // Supports string, single Content object, or Content array
-    # status: MessageStatus; // Enum type
-    # attachments?: Attachment[]; // Unified usage
-    # attachments
-    # Fields matching backend data structure
-    #
-    #      // The following fields are for internal app use, not Semi
-    # Required by Chat component
-    # chatId?: string;
-    # senderId?: string;
-    # senderName?: string;
-    # time?: number;
-    # isRead?: boolean; // New: whether the message has been read
-    # }
-    def push_message_to_chat(self, chatId, msg):
-        """Dispatch by type, call chat_service.add_xxx_message, push to frontend, and record DB write result"""
-        main_window = self.parent
-        logger.info(f"push_message echo_msg: {msg}")
-        chat_service: ChatService = main_window.chat_service
-        content = msg.get('content')
-        role = msg.get('role')
-        senderId = msg.get('senderId')[0]
-        createAt = msg.get('createAt')[0]
-        senderName = msg.get('senderName')[0]
-        status = msg.get('status')[0]
-        ext = msg.get('ext')
-        attachments = msg.get('attachments')
-        # Type dispatch
-        db_result = None
-        if isinstance(content, dict):
-            msg_type = content.get('type')
-            if msg_type == 'text' or "text" in content:
-                print("pushing text message", content)
-                db_result = chat_service.add_text_message(
-                    chatId=chatId, role=role, text=content.get('text', ''), senderId=senderId, createAt=createAt,
-                    senderName=senderName, status=status, ext=ext, attachments=attachments)
-
-            if msg_type == 'form':
-                form = content.get('form', {})
-                db_result = chat_service.add_form_message(
-                    chatId=chatId, role=role, form=form, senderId=senderId,
-                    createAt=createAt, senderName=senderName, status=status, ext=ext, attachments=attachments)
-            elif msg_type == 'code':
-                code = content.get('code', {})
-                db_result = chat_service.add_code_message(
-                    chatId=chatId, role=role, code=code.get('value', ''), language=code.get('lang', 'python'),
-                    senderId=senderId, createAt=createAt, senderName=senderName, status=status, ext=ext,
-                    attachments=attachments)
-            elif msg_type == 'system':
-                system = content.get('system', {})
-                db_result = chat_service.add_system_message(
-                    chatId=chatId, text=system.get('text', ''), level=system.get('level', 'info'),
-                    senderId=senderId, createAt=createAt, status=status, ext=ext, attachments=attachments)
-            elif msg_type == 'notification':
-                print("pushing notification message", content)
-                notification = content.get('notification', {})
-                db_result = chat_service.add_notification_message(
-                    chatId=chatId, title=notification.get('title', ''), content=notification,
-                    level=notification.get('level', 'info'), senderId=senderId, createAt=createAt, status=status,
-                    ext=ext, attachments=attachments)
-            elif msg_type == 'card':
-                card = content.get('card', {})
-                db_result = chat_service.add_card_message(
-                    chatId=chatId, role=role, title=card.get('title', ''), content=card.get('content', ''),
-                    actions=card.get('actions', []), senderId=senderId, createAt=createAt, senderName=senderName,
-                    status=status, ext=ext, attachments=attachments)
-            elif msg_type == 'markdown':
-                db_result = chat_service.add_markdown_message(
-                    chatId=chatId, role=role, markdown=content.get('markdown', ''), senderId=senderId,
-                    createAt=createAt,
-                    senderName=senderName, status=status, ext=ext, attachments=attachments)
-            elif msg_type == 'table':
-                table = content.get('table', {})
-                db_result = chat_service.add_table_message(
-                    chatId=chatId, role=role, headers=table.get('headers', []), rows=table.get('rows', []),
-                    senderId=senderId, createAt=createAt, senderName=senderName, status=status, ext=ext,
-                    attachments=attachments)
-            else:
-                db_result = chat_service.add_message(
-                    chatId=chatId, role=role, content=content, senderId=senderId, createAt=createAt,
-                    senderName=senderName, status=status, ext=ext, attachments=attachments)
-        else:
-            db_result = chat_service.add_text_message(
-                chatId=chatId, role=role, text=str(content), senderId=senderId, createAt=createAt,
-                senderName=senderName, status=status, ext=ext, attachments=attachments)
-        logger.info(f"push_message db_result: {db_result}")
-        print("push_message db_result:", db_result)
-        # Push to frontend
-        app_ctx = AppContext()
-        web_gui = app_ctx.web_gui
-        # Push actual data after database write
-        if db_result and isinstance(db_result, dict) and 'data' in db_result and msg_type != "notification":
-            print("push_message db_result['data']:", db_result['data'])
-            web_gui.get_ipc_api().push_chat_message(chatId, db_result['data'])
-        elif db_result and isinstance(db_result, dict) and 'data' in db_result and msg_type == "notification":
-            uid = msg.get('id')
-            web_gui.get_ipc_api().push_chat_notification(chatId, content.get('notification', {}), True, createAt, uid)
-        else:
-            logger.error(f"message insert db failed{chatId}, {msg.id}")
-            # web_gui.get_ipc_api().push_chat_message(chatId, msg)
-
-    def receive_new_chat_message(self, sender_agent, chatId, content, uid):
-        isRead = True
-        timestamp = int(time.time())
-
-        # chatId: str, content: dict, isRead: bool = False, timestamp: int = None, uid: str = None,
-        response = self._ipc_api.push_chat_message(chatId, content, isRead, timestamp, uid)
-        print("receive_new_chat_message response::", response)
-
-    def receive_new_chat_notification(self, sender_agent, chatId, content, uid):
-        isRead = True
-        timestamp = int(time.time())
-
-        # chatId: str, content: dict, isRead: bool = False, timestamp: int = None, uid: str = None,
-        response = self._ipc_api.push_chat_notification(chatId, content, isRead, timestamp, uid)
-        print("receive_new_chat_message response::", response)
-
-
 
     def _setup_custom_titlebar_with_menu(self):
         """Set a custom title bar and integrate the menu bar into it"""
@@ -696,13 +997,13 @@ class WebGUI(QMainWindow):
             self._set_titlebar_icon()
             self.app_icon.setStyleSheet("""
                 QLabel {
-                    padding: 2px 4px;  # Reduced padding to give more space for icon
+                    padding: 2px 4px;
                     background-color: transparent;
                 }
             """)
             titlebar_layout.addWidget(self.app_icon)
 
-            # Create menu bar and add to title bar
+            # Create menu bar and add to title bar (clean, single stylesheet)
             self.custom_menubar = QMenuBar()
             self.custom_menubar.setStyleSheet("""
                 QMenuBar {
@@ -723,7 +1024,6 @@ class WebGUI(QMainWindow):
                     padding: 6px 12px;
                     margin: 0px 1px;
                     border-radius: 4px;
-                    transition: all 0.2s ease;
                 }
 
                 QMenuBar::item:selected {
@@ -747,7 +1047,6 @@ class WebGUI(QMainWindow):
                     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
                     font-size: 13px;
                     font-weight: 400;
-                    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
                     margin-top: 2px;
                 }
 
@@ -758,7 +1057,6 @@ class WebGUI(QMainWindow):
                     margin: 1px 4px;
                     border-radius: 4px;
                     min-height: 16px;
-                    transition: all 0.15s ease;
                 }
 
                 QMenu::item:selected {
@@ -875,31 +1173,16 @@ class WebGUI(QMainWindow):
 
 
     def _set_window_icon(self):
-        """Set window icon using the same logic as application icon"""
+        """Set window icon using IconManager for proper platform-specific handling"""
         try:
-            from config.app_info import app_info
-            resource_path = app_info.app_resources_path
+            from utils.icon_manager import get_icon_manager
+            icon_manager = get_icon_manager()
+            icon_manager.set_logger(logger)
 
-            # Use the same icon candidates as the application
-            icon_candidates = [
-                os.path.join(os.path.dirname(resource_path), "eCan.ico"),
-                os.path.join(resource_path, "images", "logos", "icon_multi.ico"),
-                os.path.join(resource_path, "images", "logos", "desktop_256x256.png"),
-                os.path.join(resource_path, "images", "logos", "taskbar_32x32.png"),
-                os.path.join(resource_path, "images", "logos", "taskbar_16x16.png"),
-            ]
-
-            # Find first existing icon
-            icon_path = None
-            for candidate in icon_candidates:
-                if os.path.exists(candidate):
-                    icon_path = candidate
-                    break
-
-            if icon_path:
-                window_icon = QIcon(icon_path)
+            if icon_manager.icon_path:
+                window_icon = QIcon(icon_manager.icon_path)
                 self.setWindowIcon(window_icon)
-                logger.debug(f"WebGUI window icon set: {icon_path}")
+                logger.debug(f"WebGUI window icon set: {icon_manager.icon_path}")
             else:
                 logger.warning("No icon found for WebGUI window")
 
@@ -950,6 +1233,52 @@ class WebGUI(QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to set titlebar icon: {e}")
+
+
+    def _setup_taskbar_icon_via_manager(self):
+        """
+        Set Windows taskbar icon using IconManager (Windows-only, delayed setup).
+
+        Why delayed?
+        - Windows taskbar icon requires valid window handle (HWND)
+        - In frozen/packaged builds, icon extraction from EXE resources needs time
+        - Immediate setup may fail, causing default Python icon to show
+
+        Timing: 1-second delay ensures window is fully visible and stable.
+        """
+        if sys.platform != 'win32':
+            return
+
+        from PySide6.QtCore import QTimer
+
+        def setup_via_manager():
+            try:
+                from utils.icon_manager import get_icon_manager
+                icon_mgr = get_icon_manager()
+
+                # Check if already set (prevent duplicate operations)
+                if icon_mgr.is_taskbar_icon_set():
+                    logger.debug("[IconManager] Taskbar icon already set, skipping")
+                    return
+
+                # Ensure window is ready (has valid handle)
+                if not self.isVisible() or not self.winId():
+                    logger.warning("[IconManager] Window not ready for taskbar icon setup")
+                    return
+
+                # Set taskbar icon (will extract from EXE in frozen builds)
+                from PySide6.QtWidgets import QApplication
+                app = QApplication.instance()
+                success = icon_mgr.set_window_taskbar_icon(self, app)
+
+                if not success:
+                    logger.warning("[IconManager] ⚠️ Taskbar icon setup failed")
+
+            except Exception as e:
+                logger.error(f"[IconManager] ❌ Failed to set taskbar icon: {e}")
+
+        # Delay 1 second to ensure window is fully visible and stable
+        QTimer.singleShot(1000, setup_via_manager)
 
     def _add_window_controls(self, layout):
         """Add window control buttons (minimize, maximize, close)"""
@@ -1022,11 +1351,26 @@ class WebGUI(QMainWindow):
             logger.error(f"Failed to add window control buttons: {e}")
 
     def _make_titlebar_draggable(self):
-        """Make title bar draggable"""
+        """Make title bar draggable and enable window resizing"""
         self.custom_titlebar.mousePressEvent = self._titlebar_mouse_press
         self.custom_titlebar.mouseMoveEvent = self._titlebar_mouse_move
         self.custom_titlebar.mouseDoubleClickEvent = self._titlebar_double_click
         self._drag_position = None
+
+        # Disable custom resize cursor handling - rely on nativeEvent for Windows resize
+        # This prevents cursor getting stuck in resize mode
+        self._resize_margin = 8  # Larger margin for easier resizing
+        self._resizing = False
+        self._resize_direction = None
+
+        # DO NOT install event filter or enable mouse tracking
+        # The nativeEvent handler will take care of resize detection
+
+        # Force cursor to arrow on window
+        self.setCursor(Qt.ArrowCursor)
+        self.centralWidget().setCursor(Qt.ArrowCursor)
+        if hasattr(self, 'web_engine_view'):
+            self.web_engine_view.setCursor(Qt.ArrowCursor)
 
     def _titlebar_mouse_press(self, event):
         """Title bar mouse press event"""
@@ -1046,6 +1390,73 @@ class WebGUI(QMainWindow):
             self._toggle_maximize()
             event.accept()
 
+    # (Removed disabled custom mouse handlers for clarity)
+
+    def _get_resize_direction(self, pos):
+        """Determine resize direction based on mouse position"""
+        rect = self.rect()
+        margin = self._resize_margin
+
+        left = pos.x() <= margin
+        right = pos.x() >= rect.width() - margin
+        top = pos.y() <= margin
+        bottom = pos.y() >= rect.height() - margin
+
+        direction = None
+        if top and left:
+            direction = 'top-left'
+        elif top and right:
+            direction = 'top-right'
+        elif bottom and left:
+            direction = 'bottom-left'
+        elif bottom and right:
+            direction = 'bottom-right'
+        elif left:
+            direction = 'left'
+        elif right:
+            direction = 'right'
+        elif top:
+            direction = 'top'
+        elif bottom:
+            direction = 'bottom'
+
+        return direction
+
+    def _update_cursor(self, direction):
+        """Update cursor based on resize direction"""
+        if direction == 'top' or direction == 'bottom':
+            self.setCursor(Qt.SizeVerCursor)
+        elif direction == 'left' or direction == 'right':
+            self.setCursor(Qt.SizeHorCursor)
+        elif direction == 'top-left' or direction == 'bottom-right':
+            self.setCursor(Qt.SizeFDiagCursor)
+        elif direction == 'top-right' or direction == 'bottom-left':
+            self.setCursor(Qt.SizeBDiagCursor)
+        else:
+            self.setCursor(Qt.ArrowCursor)
+
+    def _perform_resize(self, global_pos):
+        """Perform window resize based on mouse movement"""
+        delta = global_pos - self._resize_start_pos
+        geo = self._resize_start_geometry
+
+        new_geo = geo
+
+        if 'left' in self._resize_direction:
+            new_geo.setLeft(geo.left() + delta.x())
+        if 'right' in self._resize_direction:
+            new_geo.setRight(geo.right() + delta.x())
+        if 'top' in self._resize_direction:
+            new_geo.setTop(geo.top() + delta.y())
+        if 'bottom' in self._resize_direction:
+            new_geo.setBottom(geo.bottom() + delta.y())
+
+        # Enforce minimum size
+        min_width = 400
+        min_height = 300
+        if new_geo.width() >= min_width and new_geo.height() >= min_height:
+            self.setGeometry(new_geo)
+
     def _toggle_maximize(self):
         """Toggle maximize/restore window"""
         if self.isMaximized():
@@ -1055,27 +1466,368 @@ class WebGUI(QMainWindow):
             self.showMaximized()
             self.maximize_btn.setText('❐')
 
+    def nativeEvent(self, eventType, message):
+        """Handle Windows native events for resize support"""
+        if sys.platform == 'win32' and eventType == b'windows_generic_MSG':
+            try:
+                from PySide6.QtGui import QCursor
+                msg = ctypes.wintypes.MSG.from_address(int(message))
+
+                # WM_NCLBUTTONDBLCLK = 0x00A3 - Handle double-click on non-client area (title bar)
+                if msg.message == 0x00A3:
+                    # wParam contains hit test code
+                    hit_test = msg.wParam
+                    # HTCAPTION = 2 (title bar area)
+                    if hit_test == 2:
+                        # Toggle maximize/restore on title bar double-click
+                        self._toggle_maximize()
+                        return True, 0  # Message handled
+
+                # WM_NCHITTEST = 0x0084
+                if msg.message == 0x0084:
+                    rect = self.rect()
+                    border_width = 8
+
+                    # Prefer Qt's global cursor position mapping; fallback to lParam if needed
+                    try:
+                        global_pos = QCursor.pos()
+                        local_pos = self.mapFromGlobal(global_pos)
+                        client_x = local_pos.x()
+                        client_y = local_pos.y()
+                    except Exception:
+                        win_x = msg.lParam & 0xFFFF
+                        win_y = (msg.lParam >> 16) & 0xFFFF
+                        if win_x >= 0x8000:
+                            win_x -= 0x10000
+                        if win_y >= 0x8000:
+                            win_y -= 0x10000
+                        client_x = win_x - self.x()
+                        client_y = win_y - self.y()
+
+                    # If pointer is outside our client rect, do not claim any hit
+                    if client_x < 0 or client_y < 0 or client_x > rect.width() or client_y > rect.height():
+                        return False, 0
+
+                    # Determine if the pointer is over interactive titlebar widgets that must receive clicks
+                    # Always treat these as client area so Qt widgets get events (menus, buttons, labels)
+                    from PySide6.QtCore import QPoint
+                    point_in_self = QPoint(client_x, client_y)
+
+                    def _contains(widget) -> bool:
+                        try:
+                            if widget is None:
+                                return False
+                            p = widget.mapFrom(self, point_in_self)
+                            return widget.rect().contains(p)
+                        except Exception:
+                            return False
+
+                    over_menubar = _contains(getattr(self, 'custom_menubar', None))
+                    over_icon = _contains(getattr(self, 'app_icon', None))
+                    over_title = _contains(getattr(self, 'title_label', None))
+
+                    # Window control buttons (min/max/close)
+                    over_max = _contains(getattr(self, 'maximize_btn', None))
+                    # minimize and close are created as local vars in _add_window_controls, not stored
+                    # so conservatively exclude rightmost zone (~150px) to cover them
+                    over_right_controls_zone = client_x >= rect.width() - 150 and 0 <= client_y < 32
+
+                    if over_menubar or over_icon or over_title or over_max or over_right_controls_zone:
+                        return True, 1  # HTCLIENT
+
+                    # Title bar drag zone: only the empty area within top band that is not occupied by widgets
+                    if border_width <= client_y < 32:
+                        return True, 2  # HTCAPTION
+
+                    if not self.isMaximized():
+                        # Corners
+                        if client_x < border_width and client_y < border_width:
+                            return True, 13  # HTTOPLEFT
+                        if client_x > rect.width() - border_width and client_y < border_width:
+                            return True, 14  # HTTOPRIGHT
+                        if client_x < border_width and client_y > rect.height() - border_width:
+                            return True, 16  # HTBOTTOMLEFT
+                        if client_x > rect.width() - border_width and client_y > rect.height() - border_width:
+                            return True, 17  # HTBOTTOMRIGHT
+                        # Edges
+                        if client_x < border_width:
+                            return True, 10  # HTLEFT
+                        if client_x > rect.width() - border_width:
+                            return True, 11  # HTRIGHT
+                        if client_y < border_width:
+                            return True, 12  # HTTOP
+                        if client_y > rect.height() - border_width:
+                            return True, 15  # HTBOTTOM
+            except Exception as e:
+                logger.error(f"Error in nativeEvent: {e}")
+
+        return super().nativeEvent(eventType, message)
+
     def _toggle_fullscreen(self):
-        """Toggle fullscreen mode"""
+        """Toggle fullscreen mode, preserving window state"""
         if self.isFullScreen():
-            self.showNormal()
+            # 退出全屏，恢复之前的状态
+            if hasattr(self, '_was_maximized_before_fullscreen') and self._was_maximized_before_fullscreen:
+                self.showMaximized()
+                delattr(self, '_was_maximized_before_fullscreen')
+            else:
+                self.showNormal()
         else:
+            # 进入全屏前，保存当前是否最大化
+            self._was_maximized_before_fullscreen = self.isMaximized()
             self.showFullScreen()
 
-    def _toggle_dev_tools(self):
-        """Toggle developer tools"""
-        if hasattr(self, 'dev_tools_manager'):
-            self.dev_tools_manager.toggle_dev_tools()
+    def handle_oauth_error(self, error: str):
+        """Handle OAuth authentication error"""
+        try:
+            logger.error(f"OAuth authentication error: {error}")
 
+            # Bring window to foreground
+            self.activateWindow()
+            self.raise_()
+            self.show()
 
+            # Show error notification
+            self._show_notification(f"Authentication failed: {error}", "error")
 
-    def _center_on_screen(self):
-        """Center the window on the screen"""
-        screen = QApplication.primaryScreen()
-        if not screen:
-            return
-        sg = screen.availableGeometry()
-        self.move(
-            sg.center().x() - self.width() // 2,
-            sg.center().y() - self.height() // 2,
-        )
+        except Exception as e:
+            logger.error(f"Error handling OAuth error: {e}")
+
+    def _remove_stay_on_top(self):
+        """Remove stay on top flag"""
+        try:
+            self.setWindowFlags(self.windowFlags() & ~Qt.WindowStaysOnTopHint)
+            self.show()
+        except Exception as e:
+            logger.error(f"Error removing stay on top: {e}")
+
+    def _show_notification(self, message: str, notification_type: str = "info"):
+        """Show notification to user"""
+        try:
+            # Show system notification if available
+            if hasattr(self, 'web_engine_view') and self.web_engine_view:
+                # Send notification to web interface
+                js_code = f"""
+                    if (window.showNotification) {{
+                        window.showNotification('{message}', '{notification_type}');
+                    }} else if (window.console) {{
+                        console.log('Notification: {message}');
+                    }}
+                """
+                self.web_engine_view.page().runJavaScript(js_code)
+
+            # Fallback: log the notification
+            if notification_type == "error":
+                logger.error(f"Notification: {message}")
+            else:
+                logger.info(f"Notification: {message}")
+
+        except Exception as e:
+            logger.error(f"Error showing notification: {e}")
+
+    def _set_update_badge(self, has_update: bool, version: str = ""):
+        """Update menu to show update availability indicator.
+        
+        This updates the menu item text to show an indicator when update is available.
+        No longer uses frontend badge - all OTA UI is in native menu.
+        
+        Args:
+            has_update: Whether an update is available
+            version: Version string of the available update
+        """
+        try:
+            # Update menu manager to show indicator
+            if hasattr(self, 'menu_manager') and self.menu_manager:
+                self.menu_manager.set_update_available(has_update, version)
+                logger.info(f"[OTA] Menu indicator updated: has_update={has_update}, version={version}")
+            else:
+                logger.warning("[OTA] menu_manager not available, cannot update menu indicator")
+                
+        except Exception as e:
+            logger.error(f"[OTA] Error updating menu indicator: {e}")
+    
+    def _show_update_confirmation(self, version: str, update_info: dict, is_manual: bool = False):
+        """Show update confirmation dialog with "Don't remind again" option.
+        
+        Args:
+            version: Available version string
+            update_info: Update information dictionary
+            is_manual: True if triggered by manual check, False if auto-check
+        """
+        try:
+            from PySide6.QtWidgets import QMessageBox, QCheckBox
+            from PySide6.QtCore import Qt
+            from ota.core.version_ignore import get_version_ignore_manager
+            from ota.gui.i18n import get_translator
+            
+            # Get translator
+            _tr = get_translator()
+            
+            # ✅ Prevent duplicate dialogs - check if dialog is already showing
+            if hasattr(self, '_update_dialog_showing') and self._update_dialog_showing:
+                logger.info(f"[OTA] Update confirmation dialog already showing, skipping duplicate")
+                return
+            
+            # Mark dialog as showing
+            self._update_dialog_showing = True
+            
+            try:
+                # Create custom dialog for better control
+                from PySide6.QtWidgets import QDialog, QTextEdit, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QCheckBox
+                from PySide6.QtCore import Qt
+                
+                dialog = QDialog(self)
+                dialog.setWindowTitle(_tr.tr("software_update"))
+                dialog.setMinimumWidth(500)
+                
+                layout = QVBoxLayout()
+                layout.setSpacing(15)
+                layout.setContentsMargins(20, 20, 20, 20)
+                
+                # Header
+                header_label = QLabel(f"<h3>{_tr.tr('new_version_available').format(version=version)}</h3>")
+                header_label.setTextFormat(Qt.RichText)
+                layout.addWidget(header_label)
+                
+                # Current version
+                current_version_label = QLabel(_tr.tr('current_version_label').format(version=self._get_current_version()))
+                layout.addWidget(current_version_label)
+                
+                # Scrollable description area
+                if update_info.get('description'):
+                    description_widget = QTextEdit()
+                    description_widget.setHtml(update_info['description'])
+                    description_widget.setReadOnly(True)
+                    description_widget.setMaximumHeight(300)
+                    description_widget.setMinimumHeight(150)
+                    layout.addWidget(description_widget)
+                
+                # Question
+                question_label = QLabel(_tr.tr('would_you_like_to_update'))
+                layout.addWidget(question_label)
+                
+                # "Don't remind again" checkbox (only for auto-check)
+                dont_remind_checkbox = None
+                if not is_manual:
+                    dont_remind_checkbox = QCheckBox(_tr.tr("dont_remind_this_version"))
+                    layout.addWidget(dont_remind_checkbox)
+                
+                # Buttons
+                button_layout = QHBoxLayout()
+                button_layout.addStretch()
+                
+                later_btn = QPushButton(_tr.tr("remind_later"))
+                later_btn.clicked.connect(dialog.reject)
+                button_layout.addWidget(later_btn)
+                
+                update_btn = QPushButton(_tr.tr("update_now"))
+                update_btn.clicked.connect(dialog.accept)
+                update_btn.setDefault(True)
+                button_layout.addWidget(update_btn)
+                
+                layout.addLayout(button_layout)
+                dialog.setLayout(layout)
+                
+                # Show dialog
+                result = dialog.exec()
+                
+                # Handle user choice
+                if result == QDialog.Accepted:
+                    # User chose to update
+                    logger.info(f"[OTA] User confirmed update to version {version}")
+                    self._start_ota_update(version, update_info)
+                else:
+                    # User chose "Remind Later"
+                    logger.info(f"[OTA] User postponed update to version {version}")
+                    
+                    # Check if "Don't remind again" was selected
+                    if dont_remind_checkbox and dont_remind_checkbox.isChecked():
+                        ignore_mgr = get_version_ignore_manager()
+                        ignore_mgr.ignore_version(version)
+                        logger.info(f"[OTA] Version {version} added to ignore list")
+            finally:
+                # ✅ Reset flag when dialog closes
+                self._update_dialog_showing = False
+                    
+        except Exception as e:
+            logger.error(f"[OTA] Error showing update confirmation: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # ✅ Reset flag on error
+            self._update_dialog_showing = False
+    
+    def _start_ota_update(self, version: str, update_info: dict):
+        """Start OTA update process and show progress dialog.
+        
+        Args:
+            version: Version to update to
+            update_info: Update information dictionary
+        """
+        try:
+            from ota.gui.dialog import UpdateDialog
+            from ota.core.updater import OTAUpdater
+            from app_context import AppContext
+            from PySide6.QtCore import QTimer
+            
+            # Get or create OTA updater
+            ctx = AppContext.get_instance()
+            ota_updater = getattr(ctx, "ota_updater", None)
+            if ota_updater is None:
+                ota_updater = OTAUpdater()
+                setattr(ctx, "ota_updater", ota_updater)
+            
+            # Show update dialog
+            dialog = UpdateDialog(parent=self, ota_updater=ota_updater)
+            dialog.show()  # Use show() instead of exec() to allow background operation
+            
+            # Auto-start download after dialog is shown
+            # Set update_info first so download can start
+            dialog.update_info = update_info
+            
+            # Use QTimer to start download after dialog is fully shown
+            QTimer.singleShot(500, lambda: self._auto_start_download(dialog, update_info))
+            
+            logger.info(f"[OTA] Update dialog shown for version {version}, auto-starting download")
+            
+        except Exception as e:
+            logger.error(f"[OTA] Error starting OTA update: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+    
+    def _auto_start_download(self, dialog, update_info: dict):
+        """Auto-start download in the update dialog"""
+        try:
+            if dialog and hasattr(dialog, 'download_update'):
+                # Update UI to show update is available
+                dialog.status_label.setText("发现新版本，准备下载..." if self._is_chinese() else "New version found, preparing download...")
+                dialog.info_group.setVisible(True)
+                
+                # Set update info and start download
+                if isinstance(update_info, dict):
+                    version = update_info.get('latest_version', 'Unknown')
+                    description = update_info.get('description', '')
+                    html_content = f"<p><b>{'最新版本' if self._is_chinese() else 'Latest Version'}: {version}</b></p>{description}"
+                    dialog.info_text.setHtml(html_content)
+                
+                # Start download
+                dialog.download_update()
+                logger.info("[OTA] Auto-started download")
+        except Exception as e:
+            logger.error(f"[OTA] Error auto-starting download: {e}")
+    
+    def _is_chinese(self) -> bool:
+        """Check if current language is Chinese."""
+        try:
+            from utils.i18n_helper import detect_language
+            lang = detect_language(default_lang='zh-CN', supported_languages=['zh-CN', 'en-US'])
+            return lang == 'zh-CN'
+        except:
+            return True  # Default to Chinese
+    
+    def _get_current_version(self) -> str:
+        """Get current application version."""
+        try:
+            from config.app_info import app_info
+            return app_info.version
+        except:
+            return "Unknown"

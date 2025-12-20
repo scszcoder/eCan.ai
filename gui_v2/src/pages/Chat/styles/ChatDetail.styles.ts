@@ -6,7 +6,6 @@ export const ChatDetailWrapper = styled.div`
     height: 100%;
     min-height: 0;
     overflow: hidden;
-    /* 保证撑满父容器 */
 
     /* Semi UI 深色主题变量覆盖 */
     --semi-color-bg-0: #0f172a;
@@ -22,7 +21,7 @@ export const ChatDetailWrapper = styled.div`
     --semi-color-disabled-text: #64748b;
     --semi-color-link: #8b5cf6;
 
-    /* 强制SemiChat宽度100% */
+    /* 强制SemiChatWidth100% */
     .semi-chat, .semi-chat-inner {
         max-width: 100% !important;
         width: 100% !important;
@@ -31,7 +30,7 @@ export const ChatDetailWrapper = styled.div`
         min-height: 0 !important;
     }
 
-    /* Semi UI 原生附件文件标题宽度调整 */
+    /* Semi UI 原生附件文件标题Width调整 */
     .semi-chat-attachment-file-title {
         max-width: 400px !important;
         overflow: hidden !important;
@@ -39,7 +38,7 @@ export const ChatDetailWrapper = styled.div`
         white-space: nowrap !important;
     }
 
-    /* 自定义附件样式 */
+    /* Custom附件样式 */
     .custom-attachment {
         display: inline-block;
         margin: 4px 8px 4px 0;
@@ -79,17 +78,17 @@ export const ChatDetailWrapper = styled.div`
         color: white;
     }
 
-    .custom-attachment-file:hover .attachment-icon {
-        color: white !important;
-    }
-
+    .custom-attachment-file:hover .attachment-icon,
     .custom-attachment-file:hover .attachment-name {
         color: white !important;
     }
 
-    /* 只针对自定义附件中的图标和名称 */
     .custom-attachment .attachment-icon {
         font-size: 16px;
+    }
+
+    .custom-attachment-file .attachment-icon {
+        font-size: 18px;
     }
 
     .custom-attachment .attachment-name {
@@ -97,9 +96,21 @@ export const ChatDetailWrapper = styled.div`
         word-break: break-all;
     }
 
-    /* 文件类型图标样式 */
-    .custom-attachment-file .attachment-icon {
-        font-size: 18px;
+    /* 聊天气泡MaximumWidthLimit为70% */
+    .semi-chat-chatBox-wrap {
+        max-width: 70% !important;
+    }
+
+    /* LeftMessage（Receive的Message）：Right留出30%空间 */
+    .semi-chat-chatBox-wrap[style*="justify-content: flex-start"],
+    .semi-chat-chatBox-wrap[style*="justify-content:flex-start"] {
+        margin-right: 30% !important;
+    }
+
+    /* RightMessage（Send的Message）：Left留出30%空间 */
+    .semi-chat-chatBox-wrap[style*="justify-content: flex-end"],
+    .semi-chat-chatBox-wrap[style*="justify-content:flex-end"] {
+        margin-left: 30% !important;
     }
 `;
 

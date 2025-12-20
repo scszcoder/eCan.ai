@@ -1,0 +1,207 @@
+name: 'Setup Playwright Browsers'
+description: 'Install and cache Playwright browsers for browser automation'
+inputs:
+  platform:
+    description: 'Platform (windows, macos, linux)'
+    required: true
+  arch:
+    description: 'Architecture (amd64, aarch64) - for cache key'
+    required: false
+    default: 'amd64'
+  browsers:
+    description: 'Browsers to install (comma-separated: chromium,firefox,webkit)'
+    required: false
+    default: 'chromium'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Cache Playwright browsers (Windows)
+      if: ${{ inputs.platform == 'windows' }}
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~\AppData\Local\ms-playwright
+          third_party\ms-playwright
+        key: ${{ runner.os }}-${{ runner.arch }}-playwright-${{ hashFiles('requirements-base.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ runner.arch }}-playwright-
+
+    - name: Cache Playwright browsers (macOS)
+      if: ${{ inputs.platform == 'macos' }}
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/Library/Caches/ms-playwright
+          third_party/ms-playwright
+        key: ${{ runner.os }}-${{ inputs.arch }}-playwright-${{ hashFiles('requirements-base.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ inputs.arch }}-playwright-
+
+    - name: Cache Playwright browsers (Linux)
+      if: ${{ inputs.platform == 'linux' }}
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/ms-playwright
+          third_party/ms-playwright
+        key: ${{ runner.os }}-${{ inputs.arch }}-playwright-${{ hashFiles('requirements-base.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ inputs.arch }}-playwright-
+
+    - name: Install Playwright browsers (Windows)
+      if: ${{ inputs.platform == 'windows' }}
+      shell: pwsh
+      run: |
+        Write-Host "=== Installing Playwright browsers ===" -ForegroundColor Cyan
+        
+        # Resolve Python executable (prefer virtualenv if available)
+        $PYTHON_EXE = "python"
+        if ($env:VIRTUAL_ENV -and (Test-Path "$env:VIRTUAL_ENV\Scripts\python.exe")) {
+          $PYTHON_EXE = "$env:VIRTUAL_ENV\Scripts\python.exe"
+          Write-Host "Using venv Python: $PYTHON_EXE"
+        } else {
+          Write-Host "VIRTUAL_ENV not set or python.exe not found in venv; falling back to runner python"
+        }
+        
+        # Check if already cached
+        $playwrightCache = "$env:USERPROFILE\AppData\Local\ms-playwright"
+        if (Test-Path $playwrightCache) {
+          Write-Host "Found cached Playwright browsers at: $playwrightCache"
+          $browserDirs = Get-ChildItem -Path $playwrightCache -Directory | Where-Object { 
+            $_.Name -like "chromium-*" -or $_.Name -like "firefox-*" -or $_.Name -like "webkit-*" 
+          }
+          if ($browserDirs) {
+            Write-Host "Cached browser versions:"
+            $browserDirs | ForEach-Object { Write-Host "  - $($_.Name)" }
+          }
+        }
+        
+        # Parse browsers input
+        $browsers = "${{ inputs.browsers }}" -split ','
+        
+        # Ensure playwright package is installed in the chosen interpreter
+        Write-Host "Verifying playwright installation..."
+        & $PYTHON_EXE -c "import importlib; importlib.import_module('playwright'); print('[OK] playwright installed')" 2>$null
+        if ($LASTEXITCODE -ne 0) {
+          Write-Host "[INFO] Installing playwright into current environment..."
+          & $PYTHON_EXE -m pip install -U playwright
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Failed to install playwright" -ForegroundColor Red
+            throw "playwright installation failed"
+          }
+        }
+
+        # Install each browser
+        foreach ($browser in $browsers) {
+          $browser = $browser.Trim()
+          if ($browser) {
+            Write-Host "Installing $browser browser..."
+            & $PYTHON_EXE -m playwright install $browser
+          }
+        }
+        
+        Write-Host "Playwright browsers installed successfully" -ForegroundColor Green
+
+    - name: Install Playwright browsers (Unix)
+      if: ${{ inputs.platform == 'macos' || inputs.platform == 'linux' }}
+      shell: bash
+      run: |
+        echo "=== Installing Playwright browsers ==="
+        echo "Platform: ${{ inputs.platform }}"
+        echo "Architecture: ${{ inputs.arch }}"
+        
+        # Resolve Python executable (prefer virtualenv if available)
+        PYTHON_EXE="python"
+        if [ -n "${VIRTUAL_ENV:-}" ] && [ -x "$VIRTUAL_ENV/bin/python" ]; then
+          PYTHON_EXE="$VIRTUAL_ENV/bin/python"
+          echo "Using venv Python: $PYTHON_EXE"
+        else
+          echo "VIRTUAL_ENV not set or python not found in venv; falling back to runner python"
+        fi
+        
+        # Verify Python architecture matches expected architecture
+        echo "Verifying Python architecture..."
+        PYTHON_ARCH=$("$PYTHON_EXE" -c "import platform; print(platform.machine())")
+        echo "Python architecture: $PYTHON_ARCH"
+        
+        # Map architecture names
+        EXPECTED_ARCH="${{ inputs.arch }}"
+        if [ "$EXPECTED_ARCH" = "amd64" ]; then
+          EXPECTED_ARCH_ALT="x86_64"
+        elif [ "$EXPECTED_ARCH" = "aarch64" ]; then
+          EXPECTED_ARCH_ALT="arm64"
+        else
+          EXPECTED_ARCH_ALT="$EXPECTED_ARCH"
+        fi
+        
+        if [ "$PYTHON_ARCH" != "$EXPECTED_ARCH" ] && [ "$PYTHON_ARCH" != "$EXPECTED_ARCH_ALT" ]; then
+          echo "[ERROR] Python architecture ($PYTHON_ARCH) does not match expected (${{ inputs.arch }}/$EXPECTED_ARCH_ALT)"
+          echo "[ERROR] This should not happen if setup-python-env is configured correctly"
+          echo "[ERROR] Please check that 'architecture' parameter is passed to setup-python-env"
+          echo ""
+          echo "Expected setup-python-env call:"
+          echo "  with:"
+          echo "    architecture: 'x64' or 'arm64' (explicitly set)"
+          echo ""
+          exit 1
+        else
+          echo "[OK] Python architecture matches expected ($PYTHON_ARCH)"
+        fi
+        
+        # Determine cache location
+        if [ "${{ inputs.platform }}" = "macos" ]; then
+          playwright_cache="$HOME/Library/Caches/ms-playwright"
+        else
+          playwright_cache="$HOME/.cache/ms-playwright"
+        fi
+        
+        # Check if already cached
+        if [ -d "$playwright_cache" ]; then
+          echo "Found cached Playwright browsers at: $playwright_cache"
+          browser_dirs=$(ls -d "$playwright_cache"/{chromium,firefox,webkit}-* 2>/dev/null || true)
+          if [ -n "$browser_dirs" ]; then
+            echo "Cached browser versions:"
+            echo "$browser_dirs" | while read dir; do
+              echo "  - $(basename "$dir")"
+            done
+          fi
+        fi
+        
+        # Parse browsers input
+        IFS=',' read -ra BROWSERS <<< "${{ inputs.browsers }}"
+        # Linux requires system deps; macOS does not
+        INSTALL_ARGS=""
+        if [ "${{ inputs.platform }}" = "linux" ]; then
+          INSTALL_ARGS="--with-deps"
+        fi
+        
+        # Ensure playwright package is installed in the chosen interpreter
+        echo "Verifying playwright installation..."
+        if ! "$PYTHON_EXE" -c "import playwright" 2>/dev/null; then
+          echo "[INFO] Installing playwright into current environment..."
+          "$PYTHON_EXE" -m pip install -U playwright
+          if [ $? -ne 0 ]; then
+            echo "Failed to install playwright"
+            exit 1
+          fi
+        else
+          echo "[OK] playwright already installed"
+        fi
+
+        # Install each browser
+        for browser in "${BROWSERS[@]}"; do
+          browser=$(echo "$browser" | xargs)  # Trim whitespace
+          if [ -n "$browser" ]; then
+            echo "Installing $browser browser..."
+            "$PYTHON_EXE" -m playwright install "$browser" $INSTALL_ARGS
+            if [ $? -ne 0 ]; then
+              echo "[ERROR] Failed to install $browser browser"
+              echo "This might be due to architecture mismatch"
+              exit 1
+            fi
+          fi
+        done
+        
+        echo "[OK] Playwright browsers installed successfully"
+

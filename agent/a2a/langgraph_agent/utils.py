@@ -16,15 +16,27 @@ def get_lan_ip():
         return "127.0.0.1"  # fallback
 
 def get_a2a_server_url(mainwin):
+    """
+    Get A2A server URL with port allocation.
+    Always returns a valid URL with format: http://host:port
+    
+    Returns:
+        str: Valid URL with allocated port, or fallback URL if allocation fails
+    """
     try:
         host = get_lan_ip()
         free_ports = mainwin.get_free_agent_ports(1)
-        logger.debug("getting a2a  serer ports:", host, free_ports)
+        logger.debug("getting a2a server ports:", host, free_ports)
+        
         if not free_ports:
-            return None
+            # No free ports available, use default port
+            logger.warning("No free ports available, using default port 3600")
+            return f"http://{host}:3600"
+        
         a2a_server_port = free_ports[0]
-        url=f"http://{host}:{a2a_server_port}"
+        url = f"http://{host}:{a2a_server_port}"
         logger.debug("a2a server url:", url)
+        return url
 
     except Exception as e:
         # Get the traceback information
@@ -34,79 +46,52 @@ def get_a2a_server_url(mainwin):
             ex_stat = "ErrorGetA2AServerURL:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorGetA2AServerURL: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
         logger.error(ex_stat)
-        return ""
-    return url
+        
+        # Always return a valid fallback URL
+        fallback_url = "http://127.0.0.1:3600"
+        logger.warning(f"Returning fallback URL: {fallback_url}")
+        return fallback_url
 
 
-from utils.logger_helper import get_agent_by_id, get_traceback
+from utils.logger_helper import get_traceback
+from agent.agent_service import get_agent_by_id
 from agent.ec_skill import *
+from agent.ec_skills.llm_utils.llm_utils import build_a2a_response_message
 
 
 def send_data_to_agent(recipient_id, dtype, data, state) -> NodeState:
     try:
         agent_id = state["messages"][0]
-        # _ensure_context(runtime.context)
         self_agent = get_agent_by_id(agent_id)
         recipient_agent = get_agent_by_id(recipient_id)
-        mainwin = self_agent.mainwin
-        twin_agent = next((ag for ag in mainwin.agents if "twin" in ag.card.name.lower()), None)
 
-        print("standard_post_llm_hook send_response_back:", state)
+        print("[send_data_to_agent] send_response_back:", state)
         chat_id = state["messages"][1]
-        msg_id = str(uuid.uuid4()),
-        # send self a message to trigger the real component search work-flow
-        if dtype == "form":
-            card = {}
-            code = {}
-            form = data
-            gp_data = {}
-            notification = {}
-        elif dtype == "notification":
-            card = {}
-            code = {}
-            form = {}
-            notification = data
-            gp_data = {}
-        else:
-            card = {}
-            code = {}
-            form = {}
-            notification = {}
-            gp_data = data
+        msg_id = str(uuid.uuid4())
+        llm_result = state["result"]["llm_result"]
+        
+        # Determine message type and data
+        form = data if dtype == "form" else None
+        notification = data if dtype == "notification" else None
+        msg_type = dtype if dtype in ("form", "notification") else "text"
 
-        agent_response_message = {
-            "id": str(uuid.uuid4()),
-            "chat": {
-                "input": state["result"]["llm_result"],
-                "attachments": [],
-                "messages": [self_agent.card.id, chat_id, msg_id, "", state["result"]["llm_result"]],
-            },
-            "params": {
-                "content": state["result"]["llm_result"],
-                "attachments": state["attachments"],
-                "metadata": {
-                    "msg_type": "send_task", # "text", "code", "form", "notification", "card
-                    "data_type": dtype,
-                    "card": card,
-                    "code": code,
-                    "form": form,
-                    "notification": notification,
-                    "general_purpose": gp_data
-                },
-                "role": "",
-                "senderId": f"{agent_id}",
-                "createAt": int(time.time() * 1000),
-                "senderName": f"{self_agent.card.name}",
-                "status": "success",
-                "ext": "",
-                "human": False
-            }
-        }
-        print("sending response msg back to twin:", agent_response_message)
-        send_result = self_agent.a2a_send_chat_message(recipient_agent, agent_response_message)
-        # state.result = result
+        # Use standardized message builder
+        agent_response_message = build_a2a_response_message(
+            agent_id=self_agent.card.id,
+            chat_id=chat_id,
+            msg_id=msg_id,
+            task_id="",
+            msg_text=llm_result,
+            sender_name=self_agent.card.name,
+            msg_type=msg_type,
+            attachments=state.get("attachments", []),
+            form=form,
+            notification=notification,
+        )
+        print("sending response msg back to recipient:", agent_response_message)
+        # Use non-blocking send to avoid deadlock
+        send_result = self_agent.a2a_send_chat_message_async(recipient_agent, agent_response_message)
         return send_result
     except Exception as e:
         err_trace = get_traceback(e, "ErrorSendResponseBack")

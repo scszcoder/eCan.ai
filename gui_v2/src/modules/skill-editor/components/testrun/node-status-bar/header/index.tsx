@@ -36,7 +36,7 @@ export const NodeStatusHeader: React.FC<React.PropsWithChildren<NodeStatusBarPro
   return (
     <div
       className={styles['node-status-header']}
-      // 必须要禁止 down 冒泡，防止判定圈选和 node hover（不支持多边形）
+      // Must要Forbid down 冒泡，防止判定圈选和 node hover（不Support多边形）
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div
@@ -44,9 +44,9 @@ export const NodeStatusHeader: React.FC<React.PropsWithChildren<NodeStatusBarPro
           styles['node-status-header-content'],
           showDetail && styles['node-status-header-content-opened']
         )}
-        // 必须要禁止 down 冒泡，防止判定圈选和 node hover（不支持多边形）
+        // Must要Forbid down 冒泡，防止判定圈选和 node hover（不Support多边形）
         onMouseDown={(e) => e.stopPropagation()}
-        // 其他事件统一走点击事件，且也需要阻止冒泡
+        // 其他Event统一走ClickEvent，且也Need阻止冒泡
         onClick={handleToggleShowDetail}
       >
         <div className={styles['status-title']}>

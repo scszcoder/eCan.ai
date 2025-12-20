@@ -3,44 +3,44 @@ import { pageRefreshManager, PageRefreshAction } from '../services/events/PageRe
 import { logger } from '../utils/logger';
 
 /**
- * 页面刷新管理器Hook
- * 用于在页面刷新后执行指定的操作
+ * PageRefresh管理器Hook
+ * Used for在PageRefresh后Execute指定的Operation
  */
 export const usePageRefreshManager = (
     action: PageRefreshAction,
     actionName: string = 'default'
 ) => {
-    // 注册页面刷新操作
+    // RegisterPageRefreshOperation
     const registerAction = useCallback((name: string, action: PageRefreshAction) => {
         pageRefreshManager.registerAction(name, action);
     }, []);
 
-    // 取消注册操作
+    // CancelRegisterOperation
     const unregisterAction = useCallback((name: string) => {
         return pageRefreshManager.unregisterAction(name);
     }, []);
 
-    // 手动执行操作
+    // 手动ExecuteOperation
     const executeAction = useCallback(async (name: string) => {
         await pageRefreshManager.executeAction(name);
     }, []);
 
-    // 执行所有操作
+    // ExecuteAllOperation
     const executeAllActions = useCallback(async () => {
         await pageRefreshManager.executeAllActions();
     }, []);
 
-    // 获取状态
+    // GetStatus
     const getStatus = useCallback(() => {
         return pageRefreshManager.getStatus();
     }, []);
 
-    // 自动注册操作
+    // 自动RegisterOperation
     useEffect(() => {
         if (action) {
             registerAction(actionName, action);
             
-            // 组件卸载时取消注册
+            // ComponentUnmount时CancelRegister
             return () => {
                 unregisterAction(actionName);
             };
@@ -53,7 +53,7 @@ export const usePageRefreshManager = (
         executeAction,
         executeAllActions,
         getStatus,
-        // 便捷方法
+        // 便捷Method
         register: registerAction,
         unregister: unregisterAction,
         execute: executeAction,
@@ -62,8 +62,8 @@ export const usePageRefreshManager = (
 };
 
 /**
- * 简化的页面刷新Hook
- * 只用于在页面刷新后执行操作
+ * 简化的PageRefreshHook
+ * 只Used for在PageRefresh后ExecuteOperation
  */
 export const usePageRefresh = (action: PageRefreshAction) => {
     return usePageRefreshManager(action, 'pageRefresh');

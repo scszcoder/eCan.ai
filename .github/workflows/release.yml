@@ -1,17 +1,113 @@
 name: Release Build eCan
+
+# ============================================================================
+# Workflow Overview
+# ============================================================================
+# This workflow builds and releases eCan application for multiple platforms.
 #
-# Build platform, CPU architecture and reference can be selected via workflow_dispatch parameters:
+# Architecture:
+#   - validate-tag: Validates git ref and computes version
+#   - build-windows: Builds Windows amd64 installer
+#   - build-macos: Matrix build for macOS (amd64 + aarch64)
+#   - upload-to-s3: Uploads artifacts to S3 and generates OTA feeds
+#
+# ============================================================================
+# Configuration Parameters
+# ============================================================================
+# Build platform, CPU architecture and reference can be selected via workflow_dispatch:
 #   - platform: windows, macos, all
-#   - arch: amd64, aarch64
-#   - ref: Can fill in tag (like v1.2.3) or branch name (default current branch), editable
+#   - arch: amd64, aarch64, all
+#   - ref: Branch name or tag (e.g., gui-v2, master, v0.0.4)
+#   - upload_artifacts: Upload to GitHub Artifacts (default: false to save costs)
 #
-# Notes:
-#   - Windows only supports amd64 architecture (GitHub Actions has no ARM64 runner)
-#   - macOS supports amd64/aarch64, but GitHub Actions x86_64 runner needs special handling for arm64 builds
+# Platform Support:
+#   - Windows: amd64 only (GitHub Actions has no ARM64 runner)
+#   - macOS: amd64 (Intel) + aarch64 (Apple Silicon)
 #
-# Examples:
-#   - When manually triggering workflow, you can select platform and architecture, and edit ref
-#   - When pushing tag or publishing release, automatically triggered, default build all + amd64
+# ============================================================================
+# Artifact Storage Strategy (Cost Optimization)
+# ============================================================================
+#   - S3 Upload: ALWAYS happens when build succeeds (primary storage)
+#   - GitHub Artifacts: OPTIONAL (default: disabled) - only for debugging
+#   - Cost Saving: GitHub Artifacts ~$0.008/GB/day, S3 is much cheaper
+#
+# AUTOMATIC CLEANUP (Cost Optimization):
+#   - S3 transfer artifacts: retention-days: 1 (auto-delete after 1 day)
+#   - User download artifacts: retention-days: 7 (only if enabled)
+#   - Compression: level 6 (balance between size and speed)
+#   - Estimated cost: ~$0.14/month (10 builds, S3 transfer only)
+#
+# See: docs/GITHUB_ARTIFACTS_COST_OPTIMIZATION.md for details
+#
+# ============================================================================
+# Tag and Release Format Guide
+# ============================================================================
+# 
+# VERSION TAG FORMAT:
+#   Production Release:  v1.0.0, v1.2.3, v2.0.0
+#   Release Candidate:   v1.0.0-rc.1, v1.0.0-rc.2
+#   Beta Release:        v1.0.0-beta.1, v1.0.0-beta.2
+#   Alpha Release:       v1.0.0-alpha.1
+#
+# ENVIRONMENT AUTO-DETECTION:
+#   v1.0.0           → production environment, stable channel
+#   v1.0.0-rc.1      → staging environment, stable channel
+#   v1.0.0-beta.1    → test environment, beta channel
+#   v1.0.0-alpha.1   → development environment, dev channel
+#   staging branch   → staging environment, stable channel
+#   main/master      → production environment, stable channel
+#   develop/dev      → development environment, dev channel
+#   other branches   → development environment, dev channel
+#
+# HOW TO CREATE A RELEASE:
+#
+# Method 1: Create Git Tag (Recommended for production)
+#   git tag -a v1.0.0 -m "Release version 1.0.0"
+#   git push origin v1.0.0
+#
+# Method 2: Create GitHub Release
+#   1. Go to: https://github.com/your-org/eCan.ai/releases/new
+#   2. Tag version: v1.0.0
+#   3. Release title: eCan.ai v1.0.0
+#   4. Description: Copy from CHANGELOG.md
+#   5. Click "Publish release"
+#
+# Method 3: Manual Trigger (for testing or branch builds)
+#   1. Go to: Actions → Release Build eCan → Run workflow
+#   2. Use workflow from: Select branch
+#   3. Enter ref: branch/tag (leave EMPTY to auto-sync with workflow branch)
+#   4. Select platform and architecture
+#   5. Click "Run workflow"
+#
+#   IMPORTANT: "Use workflow from" vs "ref"
+#   - Use workflow from: Which branch's workflow file to use
+#   - ref: Which branch/tag's code to build (EMPTY = auto-sync)
+#   
+#   AUTO-SYNC FEATURE:
+#   - If ref is empty, it automatically uses the workflow branch
+#   - Example: Use workflow from=main, ref=(empty) → builds main
+#   - Example: Use workflow from=gui-v2, ref=(empty) → builds gui-v2
+#   
+#   MANUAL OVERRIDE:
+#   - Example: Use workflow from=main, ref=v1.0.0 → builds v1.0.0 tag
+#   - Example: Use workflow from=feature/fix, ref=main → test new workflow
+#
+# EXAMPLES:
+#   Production:  git tag v1.0.0 && git push origin v1.0.0
+#   RC:          git tag v1.0.0-rc.1 && git push origin v1.0.0-rc.1
+#   Beta:        git tag v1.0.0-beta.1 && git push origin v1.0.0-beta.1
+#   Branch:      Manual trigger with ref=gui-v2
+#
+# VERSION CALCULATION:
+#   - Tag (v1.0.0):           → 1.0.0
+#   - Branch (gui-v2):        → 1.0.1-gui-v2-abc1234 (from VERSION file + branch + commit)
+#   - Branch (main):          → 1.0.1-main-abc1234
+#
+# ============================================================================
+# Trigger Examples
+# ============================================================================
+#   - Manual: Enter branch/tag name in workflow_dispatch
+#   - Auto: Push tag or publish release (default: all platforms + amd64)
 
 on:
   # Trigger conditions: create tag or release
@@ -42,13 +138,49 @@ on:
           - amd64
           - aarch64
       ref:
-        description: 'Git ref to build (tag like v1.2.3 or branch name)'
-        required: true
+        description: 'Git ref to build (leave empty to use same as workflow branch)'
+        required: false
         default: ''
         type: string
+      
+      environment:
+        description: 'Target environment'
+        required: false
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+          - test
+          - development
+      
+      channel:
+        description: 'Release channel'
+        required: false
+        default: 'stable'
+        type: choice
+        options:
+          - stable
+          - beta
+
+      upload_artifacts:
+        description: 'Upload build artifacts to GitHub Artifacts (for debugging only, costs extra storage). S3 upload always happens regardless of this setting.'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+concurrency:
+  group: ecan-release-${{ github.ref }}-${{ github.event.inputs.platform }}-${{ github.event.inputs.arch }}
+  cancel-in-progress: true
 
 jobs:
-  # Validate ref (tags produce semantic version; branches get fallback version)
+  # ============================================================================
+  # Validation Layer: Validate ref and compute version
+  # Tags produce semantic version; branches get fallback version
+  # ============================================================================
   validate-tag:
     runs-on: ubuntu-latest
     outputs:
@@ -56,25 +188,45 @@ jobs:
       version: ${{ steps.validate.outputs.version }}
       is-branch: ${{ steps.validate.outputs.is_branch }}
       ref-name: ${{ steps.validate.outputs.ref_name }}
+      environment: ${{ steps.detect-env.outputs.environment }}
+      channel: ${{ steps.detect-env.outputs.channel }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
         ref: ${{ github.event.inputs.ref || github.ref }}
+        fetch-depth: 0  # Fetch all history for tags and branches
 
-    - name: Validate ref and compute version
+    - name: Validate and extract version
       id: validate
       shell: bash
       run: |
         set -euo pipefail
         INPUT_REF="${{ github.event.inputs.ref }}"
         REF_FULL="${GITHUB_REF}"
+
+        # Determine the actual ref to use
+        # If ref is empty, use the workflow branch (auto-sync)
         if [ -n "$INPUT_REF" ]; then
           REF_NAME="$INPUT_REF"
+          echo "✅ Using manual ref: $REF_NAME"
         else
           REF_NAME="${REF_FULL#refs/*/}"
+          echo "✅ Auto-sync: Using workflow branch as ref: $REF_NAME"
         fi
+
         echo "ref_name=$REF_NAME" >> $GITHUB_OUTPUT
+        echo "Selected ref: $REF_NAME"
+
+        # Simple validation with helpful error message
+        if ! (git show-ref --verify --quiet "refs/heads/$REF_NAME" 2>/dev/null || \
+              git show-ref --verify --quiet "refs/tags/$REF_NAME" 2>/dev/null || \
+              git show-ref --verify --quiet "refs/remotes/origin/$REF_NAME" 2>/dev/null); then
+          echo "[ERROR] Ref '$REF_NAME' does not exist!"
+          echo "Available branches: $(git branch -r --format='%(refname:short)' | sed 's/origin\///' | grep -v '^HEAD' | sort | tr '\n' ' ')"
+          echo "Available tags: $(git tag --sort=-version:refname | head -5 | tr '\n' ' ')"
+          exit 1
+        fi
 
         if [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$ ]]; then
           echo "valid=true" >> $GITHUB_OUTPUT
@@ -82,28 +234,168 @@ jobs:
           echo "version=${REF_NAME#v}" >> $GITHUB_OUTPUT
           echo "Tag detected: $REF_NAME"
         else
-          # Treat as branch; create fallback version 0.0.0-<branch>-<shortsha>
+          # Treat as branch; read VERSION file as base version
+          if [ -f "VERSION" ]; then
+            BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
+            echo "Read base version from VERSION file: $BASE_VERSION"
+          else
+            BASE_VERSION="0.0.0"
+            echo "VERSION file not found, using default: $BASE_VERSION"
+          fi
+
           SHORT_SHA=$(git rev-parse --short HEAD)
           SAFE_BRANCH=$(echo "$REF_NAME" | tr '/' '-')
-          FALLBACK="0.0.0-${SAFE_BRANCH}-${SHORT_SHA}"
+          FALLBACK="${BASE_VERSION}-${SAFE_BRANCH}-${SHORT_SHA}"
           echo "valid=true" >> $GITHUB_OUTPUT
           echo "is_branch=true" >> $GITHUB_OUTPUT
           echo "version=$FALLBACK" >> $GITHUB_OUTPUT
           echo "Branch detected: $REF_NAME -> version=$FALLBACK"
         fi
+    
+    - name: Detect environment and channel
+      id: detect-env
+      shell: bash
+      run: |
+        REF_NAME="${{ steps.validate.outputs.ref_name }}"
+        VERSION="${{ steps.validate.outputs.version }}"
+        INPUT_ENV="${{ github.event.inputs.environment }}"
+        INPUT_CHANNEL="${{ github.event.inputs.channel }}"
+        
+        echo "=== Detecting Environment ==="
+        echo "Ref: $REF_NAME"
+        echo "Version: $VERSION"
+        echo "Input Environment: $INPUT_ENV"
+        echo "Input Channel: $INPUT_CHANNEL"
+        
+        # Determine if this is a production-eligible ref (for safety checks)
+        IS_PRODUCTION_ELIGIBLE=false
+        if [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+.*$ ]] || \
+           [[ "$REF_NAME" == "main" ]] || [[ "$REF_NAME" == "master" ]]; then
+          IS_PRODUCTION_ELIGIBLE=true
+        fi
+        
+        # Use manual selection if provided
+        if [[ -n "$INPUT_ENV" ]]; then
+          ENV="$INPUT_ENV"
+          
+          # Safety check: Prevent feature branches from using production/staging
+          if [[ "$IS_PRODUCTION_ELIGIBLE" == "false" ]] && [[ "$ENV" == "production" || "$ENV" == "staging" ]]; then
+            echo "======================================================"
+            echo "❌ ERROR: Branch '$REF_NAME' cannot use '$ENV' environment"
+            echo "======================================================"
+            echo "Only the following refs can use production/staging:"
+            echo "  - Version tags: v1.0.0, v1.0.0-rc.1, v1.0.0-beta.1"
+            echo "  - Main branches: main, master"
+            echo ""
+            echo "Current ref: $REF_NAME (feature branch)"
+            echo "Requested environment: $ENV"
+            echo ""
+            echo "Allowed environments for this branch:"
+            echo "  - development"
+            echo "  - test"
+            echo ""
+            echo "💡 Tip: Create a version tag to enable production/staging deployment"
+            echo "======================================================"
+            exit 1
+          fi
+          
+          echo "Using manual environment: $ENV"
+        else
+          # Auto-detect environment based on ref and version
+          if [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            # Production: Clean version tag (e.g., v1.0.0)
+            ENV="production"
+          elif [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\. ]]; then
+            # Staging: Release candidate (e.g., v1.0.0-rc.1)
+            ENV="staging"
+          elif [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta ]]; then
+            # Test: Beta version (e.g., v1.0.0-beta.1)
+            ENV="test"
+          elif [[ "$REF_NAME" == "develop" || "$REF_NAME" == "dev" ]]; then
+            # Development: develop branch
+            ENV="development"
+          elif [[ "$REF_NAME" == "staging" ]]; then
+            # Staging: staging branch
+            ENV="staging"
+          elif [[ "$REF_NAME" == "main" || "$REF_NAME" == "master" ]]; then
+            # Production: main/master branch
+            ENV="production"
+          else
+            # Other branches: default to development
+            ENV="development"
+          fi
+          echo "Auto-detected environment: $ENV"
+        fi
+        
+        # Use manual channel if provided
+        if [[ -n "$INPUT_CHANNEL" ]]; then
+          CHANNEL="$INPUT_CHANNEL"
+          echo "Using manual channel: $CHANNEL"
+        else
+          # Auto-detect channel based on environment
+          case "$ENV" in
+            production)
+              CHANNEL="stable"
+              ;;
+            staging)
+              CHANNEL="stable"
+              ;;
+            test)
+              CHANNEL="beta"
+              ;;
+            development)
+              CHANNEL="beta"
+              ;;
+            *)
+              CHANNEL="stable"
+              ;;
+          esac
+          echo "Auto-detected channel: $CHANNEL"
+        fi
+        
+        # Safety check: Prevent non-production-eligible branch builds in production/staging
+        # Note: main/master branches are production-eligible and allowed
+        IS_BRANCH="${{ steps.validate.outputs.is_branch }}"
+        if [[ "$IS_BRANCH" == "true" ]] && [[ "$IS_PRODUCTION_ELIGIBLE" == "false" ]] && [[ "$ENV" == "production" || "$ENV" == "staging" ]]; then
+          echo "======================================================"
+          echo "❌ ERROR: Branch builds cannot be deployed to $ENV"
+          echo "======================================================"
+          echo "Current ref: $REF_NAME (branch)"
+          echo "Target environment: $ENV"
+          echo ""
+          echo "Production and staging environments require version tags."
+          echo ""
+          echo "To fix:"
+          echo "  1. Create a version tag: git tag v1.0.1"
+          echo "  2. Push the tag: git push origin v1.0.1"
+          echo "  3. Use the tag as ref: v1.0.1"
+          echo ""
+          echo "Or change environment to 'development' or 'test' for branch builds."
+          echo "======================================================"
+          exit 1
+        fi
+        
+        echo "environment=$ENV" >> $GITHUB_OUTPUT
+        echo "channel=$CHANNEL" >> $GITHUB_OUTPUT
+        echo "Final environment: $ENV"
+        echo "Final channel: $CHANNEL"
 
-  # Windows build
-  # Note: Windows only supports amd64 architecture
+  # ============================================================================
+  # BUILD LAYER: Windows amd64
+  # ============================================================================
+  # Builds Windows installer with the following steps:
+  #   1. Environment Setup: Python, Node.js, Playwright, Inno Setup
+  #   2. Build Process: Frontend + Backend compilation
+  #   3. Code Signing: Optional Windows Authenticode signing
+  #   4. Artifact Upload: Short-term (S3 transfer) + Optional long-term
+  # ============================================================================
   build-windows:
+    name: Build Windows amd64
     needs: validate-tag
     if: |
       needs.validate-tag.outputs.tag-valid == 'true' &&
-      (github.event.inputs.platform == 'windows' ||
-       github.event.inputs.platform == 'all' ||
-       github.event.inputs.platform == null) &&
-      (github.event.inputs.arch == 'amd64' ||
-       github.event.inputs.arch == 'all' ||
-       github.event.inputs.arch == null)
+      (github.event.inputs.platform == 'windows' || github.event.inputs.platform == 'all') &&
+      (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all')
     runs-on: windows-latest
     env:
       # Expose secrets to env for conditional checks without referencing `secrets` in `if:`
@@ -111,11 +403,23 @@ jobs:
       WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD || 'NOT_SET' }}
       # Set build architecture for the build process (Windows only supports amd64)
       BUILD_ARCH: amd64
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
+    # ------------------------------------------------------------------------
+    # Step Group 1: Repository Setup
+    # ------------------------------------------------------------------------
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.inputs.ref || github.ref }}
+        fetch-depth: 1  # Shallow clone: build only needs current code
+
+    # ------------------------------------------------------------------------
+    # Step Group 2: Environment Setup
+    # ------------------------------------------------------------------------
+    # Note: pip caching is handled by setup-python-env action
+    # Frontend is always built (ECAN_SKIP_FRONTEND_BUILD=0)
 
     - name: Setup Python Environment
       uses: ./.github/actions/setup-python-env
@@ -123,18 +427,29 @@ jobs:
         platform: windows
         requirements-file: requirements-windows.txt
         extra-packages: pywin32-ctypes
+        architecture: x64
+
+    - name: Setup Playwright Browsers
+      uses: ./.github/actions/setup-playwright
+      with:
+        platform: windows
+        browsers: chromium
 
     - name: Cache Node.js dependencies
       uses: actions/cache@v4
       with:
         path: gui_v2/node_modules
-        key: ${{ runner.os }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
+        # Include architecture in cache key to avoid cross-arch contamination (rollup has native binaries)
+        key: ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
         restore-keys: |
-          ${{ runner.os }}-node-
+          ${{ runner.os }}-${{ env.BUILD_ARCH }}-node-
 
     - name: Setup Node.js Environment
       uses: ./.github/actions/setup-node-env
 
+    # ------------------------------------------------------------------------
+    # Step Group 3: Windows-Specific Dependencies
+    # ------------------------------------------------------------------------
     - name: Install Windows-specific packages
       run: |
         # Ensure pywin32 is present in the same interpreter
@@ -145,11 +460,14 @@ jobs:
         echo "=== Verifying pywin32 installation ==="
         python -c "import win32api; print('pywin32 installed successfully')"
 
+    # ------------------------------------------------------------------------
+    # Step Group 4: Inno Setup Installation (Windows Installer Builder)
+    # ------------------------------------------------------------------------
     - name: Install Inno Setup
       run: |
         echo "=== Installing Inno Setup ==="
-        $DownloadUrl = "https://files.jrsoftware.org/is/6/innosetup-6.2.2.exe"
-        $DownloadPath = "$env:TEMP\innosetup-6.2.2.exe"
+        $DownloadUrl = "https://files.jrsoftware.org/is/6/innosetup-6.6.0.exe"
+        $DownloadPath = "$env:TEMP\innosetup-6.6.0.exe"
 
         Write-Host "Downloading Inno Setup..."
         Invoke-WebRequest -Uri $DownloadUrl -OutFile $DownloadPath -UseBasicParsing
@@ -168,11 +486,126 @@ jobs:
             exit 1
         }
 
-    - name: Setup OTA Dependencies
-      uses: ./.github/actions/setup-ota-deps
-      with:
-        platform: windows
+    - name: Verify Inno Setup (Unicode) version
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Continue'
+        $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+        if (-not (Test-Path $innoPath)) { $innoPath = "${env:ProgramFiles}\Inno Setup 6\ISCC.exe" }
+        if (-not (Test-Path $innoPath)) {
+          Write-Host "ERROR: ISCC.exe not found" -ForegroundColor Red
+          exit 1
+        }
+        Write-Host "=== ISCC Version Output ===" -ForegroundColor Cyan
+        $help = & $innoPath '/?'
+        # Note: ISCC /? may return non-zero exit code even on success, so we don't check $LASTEXITCODE
+        $help | ForEach-Object { "  $_" }
+        # Join lines for reliable regex matching; avoids array -notmatch pitfalls
+        $helpText = $help -join "`n"
+        if (-not ($helpText -match 'Inno Setup\s+\d')) {
+          Write-Host "ERROR: Failed to get ISCC version" -ForegroundColor Red
+          exit 1
+        }
+        # Inno Setup 6 compiler is Unicode-only; log as info if not explicitly present
+        $unicodeHint = ($helpText -match 'Unicode') -or ((Get-Item $innoPath).VersionInfo.FileDescription -match 'Unicode')
+        if (-not $unicodeHint) {
+          Write-Host "INFO: Proceeding - Inno Setup 6 is Unicode-only; explicit 'Unicode' string not found in help." -ForegroundColor Yellow
+        } else {
+          Write-Host "OK: ISCC Unicode build detected" -ForegroundColor Green
+        }
+        Write-Host "OK: ISCC check passed" -ForegroundColor Green
+        exit 0
 
+    - name: Install Inno Setup Language Packs
+      run: |
+        Write-Host "=== Installing Inno Setup Language Packs ===" -ForegroundColor Cyan
+        
+        # Detect Inno Setup installation path
+        $innoPath = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+        if (-not (Test-Path $innoPath)) { $innoPath = "${env:ProgramFiles}\Inno Setup 6\ISCC.exe" }
+        if (-not (Test-Path $innoPath)) {
+            Write-Host "ERROR: ISCC.exe not found; cannot determine Languages directory" -ForegroundColor Red
+            exit 1
+        }
+
+        # Target Languages directory
+        $installDir = Split-Path -Parent $innoPath
+        $targetLangDir = Join-Path $installDir 'Languages'
+        $sourceLangDir = "${{ github.workspace }}\build_system\inno_setup_languages"
+        
+        Write-Host "Source: $sourceLangDir" -ForegroundColor Gray
+        Write-Host "Target: $targetLangDir" -ForegroundColor Gray
+        Write-Host ""
+
+        # Ensure target directory exists
+        if (-not (Test-Path $targetLangDir)) { 
+            New-Item -ItemType Directory -Path $targetLangDir -Force | Out-Null 
+        }
+
+        # AUTO-DOWNLOAD: Download required language packs from official repository if not present
+        Write-Host "=== Checking and downloading required language packs ===" -ForegroundColor Cyan
+        
+        # Define required language packs (can be extended)
+        $requiredLanguages = @{
+            "ChineseSimplified" = "https://raw.githubusercontent.com/jrsoftware/issrc/main/Files/Languages/Unofficial/ChineseSimplified.isl"
+        }
+        
+        $downloadedCount = 0
+        $skippedCount = 0
+        
+        foreach ($langName in $requiredLanguages.Keys) {
+            $langUrl = $requiredLanguages[$langName]
+            $targetFile = Join-Path $targetLangDir "$langName.isl"
+            
+            # Check if language pack already exists
+            if (Test-Path $targetFile) {
+                Write-Host "  ✓ $langName.isl already exists (skipped)" -ForegroundColor Gray
+                $skippedCount++
+                continue
+            }
+            
+            # Download from official repository
+            Write-Host "  Downloading $langName.isl from official repository..." -ForegroundColor Yellow
+            try {
+                Invoke-WebRequest -Uri $langUrl -OutFile $targetFile -UseBasicParsing -ErrorAction Stop
+                
+                # Verify download
+                if (Test-Path $targetFile) {
+                    $size = [math]::Round((Get-Item $targetFile).Length / 1KB, 2)
+                    Write-Host "  ✓ Downloaded: $langName.isl ($size KB)" -ForegroundColor Green
+                    $downloadedCount++
+                } else {
+                    Write-Host "  ✗ Failed to download: $langName.isl" -ForegroundColor Red
+                }
+            } catch {
+                Write-Host "  ✗ Error downloading $langName.isl: $_" -ForegroundColor Red
+                Write-Host "    Installer will use English for this language" -ForegroundColor Yellow
+            }
+        }
+        
+        Write-Host ""
+        Write-Host "=== Download Summary ===" -ForegroundColor Cyan
+        Write-Host "  Downloaded: $downloadedCount" -ForegroundColor Green
+        Write-Host "  Already present: $skippedCount" -ForegroundColor Gray
+        Write-Host "✓ Language pack preparation completed" -ForegroundColor Green
+        Write-Host ""
+        
+        # Verify final language files
+        Write-Host "=== Final Language Files Verification ===" -ForegroundColor Cyan
+        $finalLangFiles = Get-ChildItem -Path $targetLangDir -Include "*.isl","*.islu" -ErrorAction SilentlyContinue
+        $langCount = 0
+        foreach ($file in $finalLangFiles) {
+            $size = [math]::Round($file.Length / 1KB, 2)
+            $status = if ($file.Name -eq "Default.isl") { "[System]" } else { "[Available]" }
+            Write-Host "  $status $($file.Name) ($size KB)" -ForegroundColor $(if ($file.Name -eq "Default.isl") { "Cyan" } else { "Green" })
+            $langCount++
+        }
+        Write-Host ""
+        Write-Host "✓ Total $langCount language packs available" -ForegroundColor Green
+
+    # ------------------------------------------------------------------------
+    # Step Group 5: Build Environment Preparation
+    # ------------------------------------------------------------------------
     - name: Setup Build Directories
       uses: ./.github/actions/setup-build-dirs
       with:
@@ -182,6 +615,13 @@ jobs:
       uses: ./.github/actions/check-build-env
       with:
         platform: windows
+
+    - name: Setup Windows signtool Environment
+      uses: ./.github/actions/setup-signtool-env
+      with:
+        skip-if-available: true
+        sdk-version: '2004'
+        timeout: '600'
 
     - name: Check Windows Architecture Selection
       run: |
@@ -205,26 +645,159 @@ jobs:
           exit 1
         }
 
-    - name: Build Windows EXE
+    # ------------------------------------------------------------------------
+    # Step Group 6: Build Process
+    # ------------------------------------------------------------------------
+    - name: Clean build artifacts
+      uses: ./.github/actions/clean-build-artifacts
+      with:
+        platform: windows
+
+    - name: Inject Build Info
       run: |
-        echo "=== Starting Windows Build ==="
-        echo "Command: python build.py prod"
+        echo "=== Injecting Build Info ==="
+        python build_system/scripts/inject_build_info.py --version ${{ needs.validate-tag.outputs.version }} --environment ${{ needs.validate-tag.outputs.environment }}
+
+    # ------------------------------------------------------------------------
+    # Step: Setup OTA Signing Key from GitHub Secrets
+    # ------------------------------------------------------------------------
+    - name: Setup OTA signing key
+      if: |
+        needs.validate-tag.outputs.environment == 'production' || 
+        needs.validate-tag.outputs.environment == 'staging' ||
+        needs.validate-tag.outputs.environment == 'test'
+      env:
+        OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
+      shell: pwsh
+      run: |
+        Write-Host "=== Setting up OTA signing key ===" -ForegroundColor Cyan
+        Write-Host "Environment: ${{ needs.validate-tag.outputs.environment }}" -ForegroundColor Gray
+        Write-Host ""
+        
+        # Create certificates directory
+        $certDir = "build_system\certificates"
+        if (-not (Test-Path $certDir)) {
+          New-Item -ItemType Directory -Force -Path $certDir | Out-Null
+          Write-Host "[OK] Created directory: $certDir" -ForegroundColor Green
+        }
+        
+        # Check if secret is available
+        if ([string]::IsNullOrEmpty($env:OTA_PRIVATE_KEY)) {
+          Write-Host "[ERROR] ========================================" -ForegroundColor Red
+          Write-Host "[ERROR] OTA_ED25519_PRIVATE_KEY secret is NOT configured" -ForegroundColor Red
+          Write-Host "[ERROR] ========================================" -ForegroundColor Red
+          Write-Host ""
+          Write-Host "To fix this issue:" -ForegroundColor Yellow
+          Write-Host "1. Run: .\prepare_github_secret.ps1" -ForegroundColor Gray
+          Write-Host "2. Go to: GitHub repository -> Settings -> Secrets -> Actions" -ForegroundColor Gray
+          Write-Host "3. Add secret:" -ForegroundColor Gray
+          Write-Host "   Name:  OTA_ED25519_PRIVATE_KEY" -ForegroundColor Gray
+          Write-Host "   Value: [paste from clipboard]" -ForegroundColor Gray
+          Write-Host ""
+          Write-Host "See: OTA_SIGNING_COMPLETE_GUIDE.md for detailed instructions" -ForegroundColor Gray
+          Write-Host ""
+          exit 1
+        }
+        
+        # Decode base64 and write private key
+        $keyPath = "$certDir\ed25519_private_key.pem"
+        Write-Host "[1/3] Decoding base64 private key..." -ForegroundColor Yellow
+        try {
+          $keyBytes = [Convert]::FromBase64String($env:OTA_PRIVATE_KEY)
+          $keyContent = [System.Text.Encoding]::UTF8.GetString($keyBytes)
+          Set-Content -Path $keyPath -Value $keyContent -NoNewline
+          Write-Host "  ✓ Base64 decoded successfully" -ForegroundColor Green
+        } catch {
+          Write-Host "  ✗ Failed to decode base64: $_" -ForegroundColor Red
+          exit 1
+        }
+        
+        # Verify key format
+        Write-Host "[2/3] Verifying key format..." -ForegroundColor Yellow
+        $keyCheck = Get-Content $keyPath -Raw
+        if ($keyCheck -match "BEGIN PRIVATE KEY") {
+          Write-Host "  ✓ Key format verified (PEM)" -ForegroundColor Green
+        } else {
+          Write-Host "  ✗ Invalid key format (expected PEM)" -ForegroundColor Red
+          Write-Host "  Key should start with: -----BEGIN PRIVATE KEY-----" -ForegroundColor Gray
+          exit 1
+        }
+        
+        # Set file permissions
+        Write-Host "[3/3] Setting file permissions..." -ForegroundColor Yellow
+        try {
+          $acl = Get-Acl $keyPath
+          $acl.SetAccessRuleProtection($true, $false)
+          $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+            [System.Security.Principal.WindowsIdentity]::GetCurrent().Name,
+            "Read",
+            "Allow"
+          )
+          $acl.SetAccessRule($rule)
+          Set-Acl $keyPath $acl
+          Write-Host "  ✓ File permissions set (read-only)" -ForegroundColor Green
+        } catch {
+          Write-Host "  ⚠ Warning: Could not set file permissions: $_" -ForegroundColor Yellow
+        }
+        
+        Write-Host ""
+        Write-Host "============================================" -ForegroundColor Green
+        Write-Host "  ✓ OTA signing key configured successfully" -ForegroundColor Green
+        Write-Host "============================================" -ForegroundColor Green
+        Write-Host "Key path: $keyPath" -ForegroundColor Gray
+        Write-Host ""
+
+    # ------------------------------------------------------------------------
+    # Step Group 6: Build Application
+    # ------------------------------------------------------------------------
+    - name: Build Windows EXE
+      shell: pwsh
+      env:
+        ECAN_SKIP_FRONTEND_BUILD: '0'  # Always build frontend
+      run: |
+        Write-Host "=== Starting Windows Build ===" -ForegroundColor Cyan
+        Write-Host "Command: python build.py prod" -ForegroundColor Gray
 
         # Set environment variables
         $env:PYTHONPATH = "$PWD"
         $env:PYTHONUNBUFFERED = "1"
+        $env:VIRTUAL_ENV = "$PWD\.venv"
+        $env:PATH = "$PWD\.venv\Scripts;$env:PATH"
 
         # Verify build architecture environment variable
         Write-Host "BUILD_ARCH environment variable: $env:BUILD_ARCH"
 
-        # Run build with detailed output (including Sparkle support)
-        python build.py prod --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | Tee-Object -FilePath "build.log"
+        # Verify virtual environment and dependencies
+        Write-Host "=== Verifying Build Environment ==="
+        Write-Host "Python executable: $((Get-Command python).Source)"
+        Write-Host "Virtual environment: $env:VIRTUAL_ENV"
+
+        # Test key dependencies
+        python -c "
+        import sys
+        print(f'Python version: {sys.version}')
+        print(f'Python executable: {sys.executable}')
+        packages = ['PyInstaller', 'PySide6', 'requests', 'playwright', 'colorlog']
+        for pkg in packages:
+            try:
+                __import__(pkg)
+                print(f'[OK] {pkg} available')
+            except ImportError as e:
+                print(f'[ERROR] {pkg} not found: {e}')
+        "
+
+        # Set environment variable for OTA signing requirement check
+        $env:ECAN_ENVIRONMENT = "${{ needs.validate-tag.outputs.environment }}"
+        Write-Host "Build environment: $env:ECAN_ENVIRONMENT" -ForegroundColor Cyan
+
+        # Run build with detailed output (self-contained OTA system)
+        python build.py prod --version ${{ needs.validate-tag.outputs.version }} 2>&1 | Tee-Object -FilePath "build.log"
 
         # Check if build succeeded by verifying key files exist
         $buildSuccess = $true
         $srcExe = "dist/eCan/eCan.exe"
         if (!(Test-Path $srcExe)) {
-            echo "[ERROR] Build failed - main executable not found: $srcExe"
+            Write-Host "[ERROR] Build failed - main executable not found: $srcExe" -ForegroundColor Red
             $buildSuccess = $false
         }
 
@@ -244,41 +817,46 @@ jobs:
         }
 
         if (-not $buildSuccess) {
-            echo "=== Build Log ==="
+            Write-Host "=== Build Log ===" -ForegroundColor Yellow
             Get-Content "build.log"
             exit 1
         }
 
-        echo "[OK] Build completed successfully"
+        Write-Host "[OK] Build completed successfully" -ForegroundColor Green
 
-        echo "=== Validating Build Artifacts ==="
+        Write-Host "=== Validating Build Artifacts ===" -ForegroundColor Cyan
         python build_system/build_validator.py --artifacts --version ${{ needs.validate-tag.outputs.version }} --arch $env:BUILD_ARCH
         if ($LASTEXITCODE -ne 0) {
-            echo "[ERROR] Build artifact validation failed"
+            Write-Host "[ERROR] Build artifact validation failed" -ForegroundColor Red
             exit 1
         }
 
-        echo "=== Verifying OTA artifacts in dist ==="
-        $distWinSparkle = @(
-          "dist/eCan/third_party/winsparkle/winsparkle.dll",
-          "dist/third_party/winsparkle/winsparkle.dll"
-        )
-        $distFound = $false
-        foreach ($p in $distWinSparkle) {
-          if (Test-Path $p) {
-            Write-Host "[OK] winSparkle DLL packaged at: $p"
-            $dll = Get-Item $p
-            Write-Host "   Size: $([math]::Round($dll.Length / 1KB, 2)) KB"
-            $distFound = $true
-            break
-          }
-        }
-        if (-not $distFound) {
-          Write-Host "[WARN] winSparkle DLL not found in dist; OTA (Windows) may be disabled"
-        }
+        Write-Host "=== Build artifacts verification completed ===" -ForegroundColor Cyan
 
 
-    - name: Code sign Windows artifacts (optional)
+    # ------------------------------------------------------------------------
+    # Step Group 7: Code Signing (Optional)
+    # ------------------------------------------------------------------------
+    - name: Check Windows code signing requirements
+      if: |
+        (needs.validate-tag.outputs.environment == 'production' || 
+         needs.validate-tag.outputs.environment == 'staging') &&
+        (env.WIN_CERT_PFX == 'NOT_SET' || env.WIN_CERT_PASSWORD == 'NOT_SET')
+      run: |
+        echo "======================================================"
+        echo "WARNING: Code signing certificates not configured"
+        echo "======================================================"
+        echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+        echo "WIN_CERT_PFX: ${{ env.WIN_CERT_PFX != 'NOT_SET' && 'Configured' || 'MISSING' }}"
+        echo "WIN_CERT_PASSWORD: ${{ env.WIN_CERT_PASSWORD != 'NOT_SET' && 'Configured' || 'MISSING' }}"
+        echo ""
+        echo "Building unsigned Windows package (not recommended for production)."
+        echo "To enable code signing, configure the following GitHub Secrets:"
+        echo "  - WIN_CERT_PFX (base64-encoded certificate)"
+        echo "  - WIN_CERT_PASSWORD (certificate password)"
+        echo "======================================================"
+    
+    - name: Code sign Windows artifacts (execute)
       if: ${{ env.WIN_CERT_PFX != 'NOT_SET' && env.WIN_CERT_PASSWORD != 'NOT_SET' }}
       env:
         WIN_CERT_PFX: ${{ env.WIN_CERT_PFX }}
@@ -292,47 +870,75 @@ jobs:
         $signtool = "C:\Program Files (x86)\Windows Kits\10\bin\x64\signtool.exe"
         if (-not (Test-Path $signtool)) { $signtool = "signtool.exe" }
 
-        $files = @()
-        # Sign distribution executables in top-level dist (avoid signing internal app binaries)
-        $exeFiles = Get-ChildItem -Path "dist" -Filter "*.exe" -File -ErrorAction SilentlyContinue
-        foreach ($ef in $exeFiles) { $files += $ef.FullName }
-        # Optionally sign MSI installers if present
-        $msiFiles = Get-ChildItem -Path "dist" -Filter "*.msi" -File -ErrorAction SilentlyContinue
-        foreach ($mf in $msiFiles) { $files += $mf.FullName }
-
-        foreach ($f in $files) {
-          Write-Host "Signing $f"
-          & $signtool sign /fd SHA256 /f $pfxPath /p $env:WIN_CERT_PASSWORD /tr http://timestamp.digicert.com /td SHA256 $f
-          if ($LASTEXITCODE -ne 0) { Write-Host "Sign failed: $f"; exit 1 }
+        # Step 1: Sign internal application files first (before they are packaged into installer)
+        Write-Host "=== Step 1: Signing internal application files ==="
+        if (Test-Path "dist/eCan") {
+          $internalFiles = Get-ChildItem -Path "dist/eCan" -Recurse -Include "*.exe","*.dll" -File -ErrorAction SilentlyContinue
+          foreach ($f in $internalFiles) {
+            Write-Host "Signing internal file: $($f.FullName)"
+            & $signtool sign /fd SHA256 /f $pfxPath /p $env:WIN_CERT_PASSWORD /tr http://timestamp.digicert.com /td SHA256 $f.FullName
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "Sign failed: $($f.FullName)" -ForegroundColor Red
+              exit 1
+            }
+          }
+          Write-Host "Internal files signed: $($internalFiles.Count) files" -ForegroundColor Green
+        } else {
+          Write-Host "Warning: dist/eCan directory not found, skipping internal file signing" -ForegroundColor Yellow
         }
-        Write-Host "Windows code signing done"
+
+        # Step 2: Sign distribution installers (Setup.exe, MSI)
+        Write-Host ""
+        Write-Host "=== Step 2: Signing distribution installers ==="
+        $installers = @()
+        # Sign Setup.exe installers
+        $setupFiles = Get-ChildItem -Path "dist" -Filter "*-Setup.exe" -File -ErrorAction SilentlyContinue
+        foreach ($sf in $setupFiles) { $installers += $sf.FullName }
+        # Sign MSI installers if present
+        $msiFiles = Get-ChildItem -Path "dist" -Filter "*.msi" -File -ErrorAction SilentlyContinue
+        foreach ($mf in $msiFiles) { $installers += $mf.FullName }
+
+        foreach ($installer in $installers) {
+          Write-Host "Signing installer: $installer"
+          & $signtool sign /fd SHA256 /f $pfxPath /p $env:WIN_CERT_PASSWORD /tr http://timestamp.digicert.com /td SHA256 $installer
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Sign failed: $installer" -ForegroundColor Red
+            exit 1
+          }
+        }
+
+        Write-Host ""
+        Write-Host "✅ Windows code signing completed successfully" -ForegroundColor Green
+        Write-Host "   Internal files signed: $(if (Test-Path 'dist/eCan') { (Get-ChildItem -Path 'dist/eCan' -Recurse -Include '*.exe','*.dll' -File).Count } else { 0 })" -ForegroundColor Gray
+        Write-Host "   Installers signed: $($installers.Count)" -ForegroundColor Gray
 
     - name: Check build result
+      shell: pwsh
       run: |
-        echo "=== Build Result Check ==="
-        echo "=== Environment Variables Summary ==="
-        echo "Windows Code Signing:"
-        echo "  WIN_CERT_PFX: ${{ env.WIN_CERT_PFX != 'NOT_SET' && 'Available' || 'Not Available' }}"
-        echo "  WIN_CERT_PASSWORD: ${{ env.WIN_CERT_PASSWORD != 'NOT_SET' && 'Available' || 'Not Available' }}"
-        echo "  Status: ${{ env.WIN_CERT_PFX != 'NOT_SET' && env.WIN_CERT_PASSWORD != 'NOT_SET' && 'Ready for signing' || 'Skipping signing' }}"
-        
-        echo "Dist directory contents:"
-        Get-ChildItem -Path "dist" -Recurse | Format-Table -AutoSize
+        Write-Host "=== Build Result Check ===" -ForegroundColor Cyan
+        Write-Host "=== Environment Variables Summary ===" -ForegroundColor Cyan
+        Write-Host "Windows Code Signing:" -ForegroundColor Yellow
+        Write-Host "  WIN_CERT_PFX: ${{ env.WIN_CERT_PFX != 'NOT_SET' && 'Available' || 'Not Available' }}" -ForegroundColor Gray
+        Write-Host "  WIN_CERT_PASSWORD: ${{ env.WIN_CERT_PASSWORD != 'NOT_SET' && 'Available' || 'Not Available' }}" -ForegroundColor Gray
+        Write-Host "  Status: ${{ env.WIN_CERT_PFX != 'NOT_SET' && env.WIN_CERT_PASSWORD != 'NOT_SET' && 'Ready for signing' || 'Skipping signing' }}" -ForegroundColor Gray
+
+        Write-Host "Dist directory contents (top-level only):" -ForegroundColor Yellow
+        Get-ChildItem -Path "dist" | Format-Table -AutoSize
 
         $exeFound = $false
         $setupFound = $false
 
         if (Test-Path "dist/eCan/eCan.exe") {
             $exe = Get-Item "dist/eCan/eCan.exe"
-            echo "Windows EXE found: dist/eCan/eCan.exe"
-            echo "   Size: $([math]::Round($exe.Length / 1MB, 2)) MB"
-            echo "   Created: $($exe.CreationTime)"
+            Write-Host "Windows EXE found: dist/eCan/eCan.exe" -ForegroundColor Green
+            Write-Host "   Size: $([math]::Round($exe.Length / 1MB, 2)) MB" -ForegroundColor Gray
+            Write-Host "   Created: $($exe.CreationTime)" -ForegroundColor Gray
             $exeFound = $true
         } else {
-            echo "ERROR: Windows EXE not found"
-            echo "Searching for .exe files..."
+            Write-Host "ERROR: Windows EXE not found" -ForegroundColor Red
+            Write-Host "Searching for .exe files..." -ForegroundColor Yellow
             Get-ChildItem -Path "dist" -Recurse -Filter "*.exe" | ForEach-Object {
-                echo "   Found: $($_.FullName)"
+                Write-Host "   Found: $($_.FullName)" -ForegroundColor Gray
             }
         }
 
@@ -341,55 +947,224 @@ jobs:
 
         if (Test-Path $stdSetup) {
             $setup = Get-Item $stdSetup
-            echo "Installer found: $stdSetup"
-            echo "   Size: $([math]::Round($setup.Length / 1MB, 2)) MB"
-            echo "   Created: $($setup.CreationTime)"
+            Write-Host "Installer found: $stdSetup" -ForegroundColor Green
+            Write-Host "   Size: $([math]::Round($setup.Length / 1MB, 2)) MB" -ForegroundColor Gray
+            Write-Host "   Created: $($setup.CreationTime)" -ForegroundColor Gray
             $setupFound = $true
         } else {
-            echo "WARN: No installer found: $stdSetup"
+            Write-Host "WARN: No installer found: $stdSetup" -ForegroundColor Yellow
         }
 
         if (-not $exeFound) {
-            echo "ERROR: Build validation failed - no executable found"
+            Write-Host "ERROR: Build validation failed - no executable found" -ForegroundColor Red
             exit 1
         }
 
-        echo "Build validation passed"
+        Write-Host "Build validation passed" -ForegroundColor Green
 
-    - name: Upload Windows artifacts
+    - name: Dump dist tree on failure (Windows)
+      if: failure()
+      shell: pwsh
+      run: |
+        Write-Host "=== dist/ tree (failure only) ===" -ForegroundColor Cyan
+        if (Test-Path "dist") {
+          Get-ChildItem -Path "dist" -Recurse | Format-Table -AutoSize
+        } else {
+          Write-Host "dist directory not found" -ForegroundColor Yellow
+        }
+
+    # ------------------------------------------------------------------------
+    # Step: Generate Ed25519 Signatures for OTA Updates
+    # ------------------------------------------------------------------------
+    - name: Generate Ed25519 signatures
+      if: |
+        needs.validate-tag.outputs.environment == 'production' || 
+        needs.validate-tag.outputs.environment == 'staging' ||
+        needs.validate-tag.outputs.environment == 'test'
+      shell: pwsh
+      run: |
+        # Install cryptography library for Ed25519 signing
+        python -m pip install cryptography --quiet
+        
+        Write-Host "=== Generating Ed25519 Signatures ===" -ForegroundColor Cyan
+        $version = "${{ needs.validate-tag.outputs.version }}"
+        $arch = "$env:BUILD_ARCH"
+        
+        # Check if private key exists
+        $keyPath = "build_system\certificates\ed25519_private_key.pem"
+        if (-not (Test-Path $keyPath)) {
+          Write-Host "[ERROR] Private key not found: $keyPath" -ForegroundColor Red
+          Write-Host "[ERROR] OTA signatures cannot be generated" -ForegroundColor Red
+          exit 1
+        }
+        
+        Write-Host "[OK] Private key found: $keyPath" -ForegroundColor Green
+        
+        # Generate signature for main installer
+        $setupFile = "dist\eCan-${version}-windows-${arch}-Setup.exe"
+        if (Test-Path $setupFile) {
+          Write-Host "Generating signature for: $(Split-Path -Leaf $setupFile)" -ForegroundColor Yellow
+          
+          # Use signing_manager.py for Ed25519 signing (OpenSSL pkeyutl doesn't support Ed25519 in all versions)
+          $sigFile = "${setupFile}.sig"
+          python build_system/signing_manager.py $setupFile $keyPath $sigFile
+          
+          if (Test-Path $sigFile) {
+            $sigSize = (Get-Item $sigFile).Length
+            Write-Host "  ✓ Signature generated: $sigSize bytes" -ForegroundColor Green
+            
+            # Verify signature size (Ed25519 signatures are always 64 bytes)
+            if ($sigSize -ne 64) {
+              Write-Host "  ✗ Invalid signature size: expected 64 bytes, got $sigSize bytes" -ForegroundColor Red
+              exit 1
+            }
+          } else {
+            Write-Host "  ✗ Failed to generate signature" -ForegroundColor Red
+            exit 1
+          }
+        } else {
+          Write-Host "[WARN] Setup file not found: $setupFile" -ForegroundColor Yellow
+        }
+        
+        # Generate signatures for MSI files if they exist
+        Get-ChildItem "dist\*.msi" -ErrorAction SilentlyContinue | ForEach-Object {
+          Write-Host "Generating signature for: $($_.Name)" -ForegroundColor Yellow
+          $sigFile = "$($_.FullName).sig"
+          python build_system/signing_manager.py $_.FullName $keyPath $sigFile
+          
+          if (Test-Path $sigFile) {
+            $sigSize = (Get-Item $sigFile).Length
+            Write-Host "  ✓ Signature generated: $sigSize bytes" -ForegroundColor Green
+            
+            # Verify signature size (Ed25519 signatures are always 64 bytes)
+            if ($sigSize -ne 64) {
+              Write-Host "  ✗ Invalid signature size: expected 64 bytes, got $sigSize bytes" -ForegroundColor Red
+            }
+          } else {
+            Write-Host "  ✗ Failed to generate signature" -ForegroundColor Red
+          }
+        }
+        
+        Write-Host ""
+        Write-Host "============================================" -ForegroundColor Green
+        Write-Host "  ✓ All signatures generated successfully" -ForegroundColor Green
+        Write-Host "============================================" -ForegroundColor Green
+
+    # ------------------------------------------------------------------------
+    # Step Group 8: Artifact Preparation and Upload
+    # ------------------------------------------------------------------------
+    - name: Compress Windows artifacts for upload
+      shell: pwsh
+      run: |
+        Write-Host "=== Compressing Windows artifacts ===" -ForegroundColor Cyan
+        $version = "${{ needs.validate-tag.outputs.version }}"
+        $arch = "$env:BUILD_ARCH"
+
+        # Create artifacts directory
+        New-Item -ItemType Directory -Force -Path "artifacts" | Out-Null
+
+        $artifactCount = 0
+
+        # Copy main installer
+        $setupFile = "dist/eCan-${version}-windows-${arch}-Setup.exe"
+        if (Test-Path $setupFile) {
+          Copy-Item $setupFile "artifacts/" -Force
+          $size = [math]::Round((Get-Item $setupFile).Length / 1MB, 2)
+          Write-Host "Copied installer: ${size} MB"
+          $artifactCount++
+          
+          # Copy signature file if exists
+          $sigFile = "${setupFile}.sig"
+          if (Test-Path $sigFile) {
+            Copy-Item $sigFile "artifacts/" -Force
+            Write-Host "Copied signature: $(Split-Path -Leaf $sigFile)"
+          } else {
+            Write-Host "WARNING: Signature file not found: $sigFile" -ForegroundColor Yellow
+          }
+        } else {
+          Write-Host "WARNING: Setup file not found: $setupFile" -ForegroundColor Yellow
+        }
+
+        # Copy MSI files if exist
+        Get-ChildItem "dist/*.msi" -ErrorAction SilentlyContinue | ForEach-Object {
+          Copy-Item $_.FullName "artifacts/" -Force
+          Write-Host "Copied MSI: $($_.Name)"
+          $artifactCount++
+          
+          # Copy signature file if exists
+          $sigFile = "$($_.FullName).sig"
+          if (Test-Path $sigFile) {
+            Copy-Item $sigFile "artifacts/" -Force
+            Write-Host "Copied signature: $(Split-Path -Leaf $sigFile)"
+          }
+        }
+
+        # Verify artifacts were copied
+        if ($artifactCount -eq 0) {
+          Write-Host "ERROR: No artifacts were copied to artifacts/ directory" -ForegroundColor Red
+          Write-Host "Contents of dist/ directory:" -ForegroundColor Yellow
+          Get-ChildItem "dist" -Recurse | Select-Object FullName
+          exit 1
+        }
+
+        Write-Host "Artifacts prepared for upload ($artifactCount files)"
+        Get-ChildItem "artifacts" | ForEach-Object {
+          $sizeMB = [math]::Round($_.Length / 1MB, 2)
+          Write-Host "  $($_.Name): ${sizeMB} MB"
+        }
+
+    - name: Upload Windows artifacts for S3 transfer (always, short retention)
+      uses: actions/upload-artifact@v4
+      with:
+        name: eCan-windows-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+        path: artifacts/
+        retention-days: 1
+        compression-level: 6
+        if-no-files-found: error
+
+    - name: Upload Windows artifacts for users (optional, long retention)
+      if: github.event.inputs.upload_artifacts == 'true'
       uses: actions/upload-artifact@v4
       with:
         name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
-        path: |
-          dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-${{ env.BUILD_ARCH }}.exe
-          dist/eCan-${{ needs.validate-tag.outputs.version }}-windows-${{ env.BUILD_ARCH }}-Setup.exe
-          dist/*.msi
-          build.log
-        retention-days: 30
+        path: artifacts/
+        retention-days: 7
+        compression-level: 6
 
-  # macOS build - Matrix strategy for multiple architectures
+  # ============================================================================
+  # BUILD LAYER: macOS (Matrix: amd64 + aarch64)
+  # ============================================================================
+  # Builds macOS PKG installers for both Intel and Apple Silicon:
+  #   - Matrix Strategy: Parallel builds for amd64 (Intel) and aarch64 (ARM)
+  #   - Native Runners: macos-14-large (Intel), macos-latest (Apple Silicon)
+  #   - Architecture-specific: Each build uses native runner for target arch
+  #
+  # Build Steps:
+  #   1. Environment Setup: Python, Node.js, Playwright, Xcode
+  #   2. Build Process: Frontend + Backend + PKG creation
+  #   3. Code Signing: Optional Apple Developer ID signing
+  #   4. Notarization: Optional Apple notarization service
+  #   5. Artifact Upload: Short-term (S3 transfer) + Optional long-term
+  # ============================================================================
   build-macos:
+    name: Build macOS
     needs: validate-tag
-    if: |
-      needs.validate-tag.outputs.tag-valid == 'true' &&
-      (github.event.inputs.platform == 'macos' ||
-       github.event.inputs.platform == 'all' ||
-       github.event.inputs.platform == null)
-    runs-on: ${{ matrix.runner }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - arch: amd64
+            runner: macos-15-intel  # Intel x86_64 runner (free standard runner, newer than macos-13)
             target_arch: x86_64
-            build_name: "amd64"
-            pyinstaller_arch: "x86_64"
-            runner: "macos-13"  # Intel x86_64 runner
+            pyinstaller_arch: x86_64
           - arch: aarch64
+            runner: macos-latest  # Apple Silicon ARM64 runner
             target_arch: arm64
-            build_name: "aarch64"
-            pyinstaller_arch: "arm64"
-            runner: "macos-14"  # Apple Silicon ARM64 runner
-      fail-fast: false
+            pyinstaller_arch: arm64
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all')
+    runs-on: ${{ matrix.runner }}
     env:
       # Expose macOS signing/notarization secrets to env for conditional checks without referencing `secrets` in `if:`
       MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 || 'NOT_SET' }}
@@ -398,74 +1173,93 @@ jobs:
       APPLE_ID: ${{ secrets.APPLE_ID || 'NOT_SET' }}
       APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD || 'NOT_SET' }}
       TEAM_ID: ${{ secrets.TEAM_ID || 'NOT_SET' }}
-      # Set build architecture for the build process
+      # Set build architecture for the build process (per matrix)
       BUILD_ARCH: ${{ matrix.arch }}
       TARGET_ARCH: ${{ matrix.target_arch }}
       PYINSTALLER_TARGET_ARCH: ${{ matrix.pyinstaller_arch }}
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
+    # ------------------------------------------------------------------------
+    # Step 0: Architecture Filtering (MUST BE FIRST - No dependencies)
+    # ------------------------------------------------------------------------
+    # This step runs immediately without any setup to decide if this matrix
+    # combination should proceed. If not needed, the job exits early without
+    # wasting resources on environment setup.
     - name: Check if this architecture should be built
-      id: should_build
+      id: arch_check
       run: |
         ARCH="${{ matrix.arch }}"
-        INPUT_ARCH="${{ github.event.inputs.arch }}"
-        INPUT_PLATFORM="${{ github.event.inputs.platform }}"
-
-        echo "Matrix arch: $ARCH"
-        echo "Input arch: $INPUT_ARCH"
-        echo "Input platform: $INPUT_PLATFORM"
-
-        # Determine if this matrix job should run
-        SHOULD_BUILD="false"
-
-        # Logic for architecture selection
-        if [ "$INPUT_ARCH" = "all" ]; then
-          # Build all architectures when arch is 'all'
-          SHOULD_BUILD="true"
-          echo "Building $ARCH because arch=all"
-        elif [ "$INPUT_ARCH" = "$ARCH" ]; then
-          # Build only the specified architecture
-          SHOULD_BUILD="true"
-          echo "Building $ARCH because it matches input arch"
-        elif [ -z "$INPUT_ARCH" ] || [ "$INPUT_ARCH" = "null" ]; then
-          # Default to all architectures when no arch specified
-          SHOULD_BUILD="true"
-          echo "Building $ARCH because no arch specified (default to all)"
+        INPUT="${{ github.event.inputs.arch }}"
+        echo "Matrix architecture: $ARCH"
+        echo "Requested architecture: $INPUT"
+        
+        if [ "$INPUT" = "all" ] || [ -z "$INPUT" ] || [ "$INPUT" = "$ARCH" ]; then
+          echo "✅ This architecture will be built"
+          echo "should_build=true" >> $GITHUB_OUTPUT
         else
-          echo "Skipping $ARCH because it doesn't match input arch ($INPUT_ARCH)"
+          echo "⏭️  Skipping this architecture (not requested)"
+          echo "should_build=false" >> $GITHUB_OUTPUT
+          exit 0
         fi
 
-        echo "should_build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
-        echo "Final decision: Should build $ARCH = $SHOULD_BUILD"
+    # Early exit if architecture not needed - saves all setup time
+    - name: Exit early if architecture not needed
+      if: steps.arch_check.outputs.should_build != 'true'
+      run: |
+        echo "Architecture ${{ matrix.arch }} not needed for this build"
+        echo "Exiting early to save resources"
+        exit 0
 
+    # ------------------------------------------------------------------------
+    # Step Group 1: Repository Setup
+    # ------------------------------------------------------------------------
     - name: Checkout code
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.inputs.ref || github.ref }}
+        fetch-depth: 1  # Shallow clone: build only needs current code
+
+    # ------------------------------------------------------------------------
+    # Step Group 2: Environment Setup
+    # ------------------------------------------------------------------------
+    # Note: pip caching is handled by setup-python-env action
+    # Frontend is always built (ECAN_SKIP_FRONTEND_BUILD=0)
 
     - name: Setup Python Environment
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       uses: ./.github/actions/setup-python-env
       with:
         platform: macos
         requirements-file: requirements-macos.txt
-        python-version: ${{ matrix.arch == 'aarch64' && '3.11' || '3.11' }}
+        python-version: '3.11'
+        architecture: ${{ matrix.target_arch == 'arm64' && 'arm64' || 'x64' }}
+
+    - name: Setup Playwright Browsers
+      if: steps.arch_check.outputs.should_build == 'true'
+      uses: ./.github/actions/setup-playwright
+      with:
+        platform: macos
+        arch: ${{ matrix.arch }}
+        browsers: chromium
 
     - name: Cache Node.js dependencies
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       uses: actions/cache@v4
       with:
         path: gui_v2/node_modules
-        key: ${{ runner.os }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
+        # Include architecture in cache key to avoid cross-arch contamination (rollup has native binaries)
+        key: ${{ runner.os }}-${{ matrix.arch }}-node-${{ hashFiles('gui_v2/package-lock.json') }}
         restore-keys: |
-          ${{ runner.os }}-node-
+          ${{ runner.os }}-${{ matrix.arch }}-node-
 
     - name: Setup Node.js Environment
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       uses: ./.github/actions/setup-node-env
 
     - name: Check macOS package architectures
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       run: |
         echo "=== Checking installed package architectures ==="
         python -c "
@@ -486,20 +1280,23 @@ jobs:
             print('PySide6 not available')
         "
 
-    - name: Setup OTA Dependencies
-      if: steps.should_build.outputs.should_build == 'true'
-      uses: ./.github/actions/setup-ota-deps
-      with:
-        platform: macos
-
+    # ------------------------------------------------------------------------
+    # Step Group 3: Build Environment Preparation
+    # ------------------------------------------------------------------------
     - name: Setup Build Directories
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       uses: ./.github/actions/setup-build-dirs
       with:
         platform: macos
 
+    - name: Setup Xcode License
+      if: steps.arch_check.outputs.should_build == 'true'
+      uses: ./.github/actions/setup-xcode-license
+      with:
+        platform: macos
+
     - name: Check Build Environment
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       uses: ./.github/actions/check-build-env
       with:
         platform: macos
@@ -507,8 +1304,95 @@ jobs:
         matrix-target-arch: ${{ matrix.target_arch }}
         matrix-pyinstaller-arch: ${{ matrix.pyinstaller_arch }}
 
+    # ------------------------------------------------------------------------
+    # Step Group 4: Build Process
+    # ------------------------------------------------------------------------
+    - name: Clean build artifacts
+      if: steps.arch_check.outputs.should_build == 'true'
+      uses: ./.github/actions/clean-build-artifacts
+      with:
+        platform: macos
+
+    - name: Inject Build Info
+      if: steps.arch_check.outputs.should_build == 'true'
+      run: |
+        echo "=== Injecting Build Info ==="
+        python build_system/scripts/inject_build_info.py --version ${{ needs.validate-tag.outputs.version }} --environment ${{ needs.validate-tag.outputs.environment }}
+
+    # ------------------------------------------------------------------------
+    # Step: Setup OTA Signing Key from GitHub Secrets
+    # ------------------------------------------------------------------------
+    - name: Setup OTA signing key
+      if: |
+        steps.arch_check.outputs.should_build == 'true' && (
+          needs.validate-tag.outputs.environment == 'production' || 
+          needs.validate-tag.outputs.environment == 'staging' ||
+          needs.validate-tag.outputs.environment == 'test'
+        )
+      env:
+        OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
+      run: |
+        echo "=== Setting up OTA signing key ==="
+        echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+        echo ""
+        
+        # Create certificates directory
+        mkdir -p build_system/certificates
+        echo "[OK] Created directory: build_system/certificates"
+        
+        # Check if secret is available
+        if [ -z "$OTA_PRIVATE_KEY" ]; then
+          echo "[ERROR] ========================================"
+          echo "[ERROR] OTA_ED25519_PRIVATE_KEY secret is NOT configured"
+          echo "[ERROR] ========================================"
+          echo ""
+          echo "To fix this issue:"
+          echo "1. Run: ./prepare_github_secret.ps1 (on Windows)"
+          echo "2. Go to: GitHub repository → Settings → Secrets → Actions"
+          echo "3. Add secret:"
+          echo "   Name:  OTA_ED25519_PRIVATE_KEY"
+          echo "   Value: [paste from clipboard]"
+          echo ""
+          echo "See: OTA_SIGNING_COMPLETE_GUIDE.md for detailed instructions"
+          echo ""
+          exit 1
+        fi
+        
+        # Decode base64 and write private key
+        KEY_PATH="build_system/certificates/ed25519_private_key.pem"
+        echo "[1/3] Decoding base64 private key..."
+        echo "$OTA_PRIVATE_KEY" | base64 -d > "$KEY_PATH"
+        echo "  ✓ Base64 decoded successfully"
+        
+        # Verify key format
+        echo "[2/3] Verifying key format..."
+        if grep -q "BEGIN PRIVATE KEY" "$KEY_PATH"; then
+          echo "  ✓ Key format verified (PEM)"
+        else
+          echo "  ✗ Invalid key format (expected PEM)"
+          echo "  Key should start with: -----BEGIN PRIVATE KEY-----"
+          exit 1
+        fi
+        
+        # Set file permissions
+        echo "[3/3] Setting file permissions..."
+        chmod 600 "$KEY_PATH"
+        echo "  ✓ File permissions set (600)"
+        
+        echo ""
+        echo "============================================"
+        echo "  ✓ OTA signing key configured successfully"
+        echo "============================================"
+        echo "Key path: $KEY_PATH"
+        echo ""
+
+    # ------------------------------------------------------------------------
+    # Step: Build Application
+    # ------------------------------------------------------------------------
     - name: Build macOS App
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
+      env:
+        ECAN_SKIP_FRONTEND_BUILD: '0'  # Always build frontend
       run: |
         echo "=== Starting macOS Build ==="
         echo "Command: python build.py prod"
@@ -552,8 +1436,12 @@ jobs:
         echo "[INFO] Python architecture check:"
         python -c "import platform; print(f'Python platform: {platform.platform()}'); print(f'Python machine: {platform.machine()}'); print(f'Python architecture: {platform.architecture()}')"
 
-        # Run build with detailed output (including Sparkle support)
-        python build.py prod --version ${{ needs.validate-tag.outputs.version }} --enable-sparkle --verify-sparkle 2>&1 | tee build.log
+        # Set environment variable for OTA signing requirement check
+        export ECAN_ENVIRONMENT="${{ needs.validate-tag.outputs.environment }}"
+        echo "Build environment: $ECAN_ENVIRONMENT"
+
+        # Run build with detailed output (self-contained OTA system)
+        python build.py prod --version ${{ needs.validate-tag.outputs.version }} 2>&1 | tee build.log
 
         # Check if build succeeded by verifying key files exist
         BUILD_SUCCESS=true
@@ -572,7 +1460,11 @@ jobs:
             if [ -f "$STD_PKG" ]; then
                 echo "[OK] Standardized PKG found: $STD_PKG"
             else
-                echo "[INFO] Standardized PKG will be created in next step"
+                echo "[ERROR] Standardized PKG not found: $STD_PKG"
+                echo "[ERROR] PKG installer creation failed during build"
+                echo "[INFO] Contents of dist/ directory:"
+                ls -la dist/ || true
+                BUILD_SUCCESS=false
             fi
         fi
 
@@ -585,7 +1477,7 @@ jobs:
         echo "[OK] Build completed successfully"
 
     - name: Validate build artifacts
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       run: |
         echo "=== Validating Build Artifacts ==="
         python build_system/build_validator.py --artifacts --version ${{ needs.validate-tag.outputs.version }} --arch $BUILD_ARCH
@@ -595,11 +1487,11 @@ jobs:
         fi
 
     - name: Verify architecture
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       env:
-        BUILD_ARCH: ${{ env.BUILD_ARCH }}
-        TARGET_ARCH: ${{ env.TARGET_ARCH }}
-        PYINSTALLER_TARGET_ARCH: ${{ env.PYINSTALLER_TARGET_ARCH }}
+        BUILD_ARCH: ${{ matrix.arch }}
+        TARGET_ARCH: ${{ matrix.target_arch }}
+        PYINSTALLER_TARGET_ARCH: ${{ matrix.pyinstaller_arch }}
         VERSION: ${{ needs.validate-tag.outputs.version }}
       run: |
         echo "=== Verifying Build Architecture ==="
@@ -609,14 +1501,39 @@ jobs:
             exit 1
         fi
 
-
-
-
-
-
-
-    - name: Code sign macOS app (optional)
-      if: ${{ steps.should_build.outputs.should_build == 'true' && env.MAC_CERT_P12 != 'NOT_SET' && env.MAC_CERT_PASSWORD != 'NOT_SET' && env.MAC_CODESIGN_IDENTITY != 'NOT_SET' }}
+    # ------------------------------------------------------------------------
+    # Step Group 6: Code Signing and Notarization (Optional)
+    # ------------------------------------------------------------------------
+    - name: Check macOS code signing requirements
+      if: |
+        steps.arch_check.outputs.should_build == 'true' &&
+        (needs.validate-tag.outputs.environment == 'production' || 
+         needs.validate-tag.outputs.environment == 'staging') &&
+        (env.MAC_CERT_P12 == 'NOT_SET' || 
+         env.MAC_CERT_PASSWORD == 'NOT_SET' || 
+         env.MAC_CODESIGN_IDENTITY == 'NOT_SET')
+      run: |
+        echo "======================================================"
+        echo "WARNING: Code signing certificates not configured"
+        echo "======================================================"
+        echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+        echo "MAC_CERT_P12: ${{ env.MAC_CERT_P12 != 'NOT_SET' && 'Configured' || 'MISSING' }}"
+        echo "MAC_CERT_PASSWORD: ${{ env.MAC_CERT_PASSWORD != 'NOT_SET' && 'Configured' || 'MISSING' }}"
+        echo "MAC_CODESIGN_IDENTITY: ${{ env.MAC_CODESIGN_IDENTITY != 'NOT_SET' && 'Configured' || 'MISSING' }}"
+        echo ""
+        echo "Building unsigned macOS package (not recommended for production)."
+        echo "To enable code signing, configure the following GitHub Secrets:"
+        echo "  - MAC_CERT_P12 (base64-encoded certificate)"
+        echo "  - MAC_CERT_PASSWORD (certificate password)"
+        echo "  - MAC_CODESIGN_IDENTITY (Developer ID)"
+        echo "======================================================"
+    
+    - name: Code sign macOS app (execute)
+      if: |
+        steps.arch_check.outputs.should_build == 'true' &&
+        env.MAC_CERT_P12 != 'NOT_SET' &&
+        env.MAC_CERT_PASSWORD != 'NOT_SET' &&
+        env.MAC_CODESIGN_IDENTITY != 'NOT_SET'
       env:
         MAC_CERT_P12: ${{ env.MAC_CERT_P12 }}
         MAC_CERT_PASSWORD: ${{ env.MAC_CERT_PASSWORD }}
@@ -647,8 +1564,36 @@ jobs:
           echo "dist/eCan.app not found; skip codesign"
         fi
 
-    - name: Notarize macOS PKG (optional)
-      if: ${{ steps.should_build.outputs.should_build == 'true' && env.APPLE_ID != 'NOT_SET' && env.APPLE_APP_SPECIFIC_PASSWORD != 'NOT_SET' && env.TEAM_ID != 'NOT_SET' }}
+    - name: Check macOS notarization requirements
+      if: |
+        steps.arch_check.outputs.should_build == 'true' &&
+        (needs.validate-tag.outputs.environment == 'production' || 
+         needs.validate-tag.outputs.environment == 'staging') &&
+        (env.APPLE_ID == 'NOT_SET' || 
+         env.APPLE_APP_SPECIFIC_PASSWORD == 'NOT_SET' || 
+         env.TEAM_ID == 'NOT_SET')
+      run: |
+        echo "======================================================"
+        echo "WARNING: Notarization credentials not configured"
+        echo "======================================================"
+        echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+        echo "APPLE_ID: ${{ env.APPLE_ID != 'NOT_SET' && 'Configured' || 'MISSING' }}"
+        echo "APPLE_APP_SPECIFIC_PASSWORD: ${{ env.APPLE_APP_SPECIFIC_PASSWORD != 'NOT_SET' && 'Configured' || 'MISSING' }}"
+        echo "TEAM_ID: ${{ env.TEAM_ID != 'NOT_SET' && 'Configured' || 'MISSING' }}"
+        echo ""
+        echo "Building without notarization (not recommended for production)."
+        echo "To enable notarization, configure the following GitHub Secrets:"
+        echo "  - APPLE_ID (Apple Developer account email)"
+        echo "  - APPLE_APP_SPECIFIC_PASSWORD (app-specific password)"
+        echo "  - TEAM_ID (Apple Developer Team ID)"
+        echo "======================================================"
+    
+    - name: Notarize macOS PKG (execute)
+      if: |
+        steps.arch_check.outputs.should_build == 'true' &&
+        env.APPLE_ID != 'NOT_SET' &&
+        env.APPLE_APP_SPECIFIC_PASSWORD != 'NOT_SET' &&
+        env.TEAM_ID != 'NOT_SET'
       env:
         APPLE_ID: ${{ env.APPLE_ID }}
         APPLE_APP_SPECIFIC_PASSWORD: ${{ env.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -665,19 +1610,42 @@ jobs:
         if [ -f "$PKG_PATH" ]; then
           echo "Submitting $PKG_PATH for notarization..."
           xcrun notarytool submit "$PKG_PATH" --apple-id "$APPLE_ID" --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$TEAM_ID" --wait
-          if [ $? -eq 0 ]; then
+          
+          NOTARIZE_EXIT_CODE=$?
+          if [ $NOTARIZE_EXIT_CODE -eq 0 ]; then
             echo "Stapling notarization to PKG..."
             xcrun stapler staple "$PKG_PATH"
-            echo "[OK] Notarization and stapling completed"
+            STAPLE_EXIT_CODE=$?
+            
+            if [ $STAPLE_EXIT_CODE -eq 0 ]; then
+              echo "[OK] Notarization and stapling completed successfully"
+            else
+              echo "[ERROR] Stapling failed with exit code: $STAPLE_EXIT_CODE"
+              # In production/staging, stapling failure should block release
+              if [ "${{ needs.validate-tag.outputs.environment }}" = "production" ] || [ "${{ needs.validate-tag.outputs.environment }}" = "staging" ]; then
+                exit 1
+              fi
+            fi
           else
-            echo "[WARN] Notarization failed"
+            echo "[ERROR] Notarization failed with exit code: $NOTARIZE_EXIT_CODE"
+            # In production/staging, notarization failure should block release
+            if [ "${{ needs.validate-tag.outputs.environment }}" = "production" ] || [ "${{ needs.validate-tag.outputs.environment }}" = "staging" ]; then
+              echo "======================================================"
+              echo "Notarization FAILED - blocking release"
+              echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+              echo "======================================================"
+              exit 1
+            fi
           fi
         else
-          echo "PKG not found, skip notarization"
+          echo "[ERROR] PKG not found at: $PKG_PATH"
+          if [ "${{ needs.validate-tag.outputs.environment }}" = "production" ] || [ "${{ needs.validate-tag.outputs.environment }}" = "staging" ]; then
+            exit 1
+          fi
         fi
 
     - name: Check build result
-      if: steps.should_build.outputs.should_build == 'true'
+      if: steps.arch_check.outputs.should_build == 'true'
       run: |
         echo "=== Build Result Check ==="
         echo "=== Environment Variables Summary ==="
@@ -686,13 +1654,13 @@ jobs:
         echo "  MAC_CERT_PASSWORD: ${{ env.MAC_CERT_PASSWORD != 'NOT_SET' && 'Available' || 'Not Available' }}"
         echo "  MAC_CODESIGN_IDENTITY: ${{ env.MAC_CODESIGN_IDENTITY != 'NOT_SET' && 'Available' || 'Not Available' }}"
         echo "  Status: ${{ env.MAC_CERT_P12 != 'NOT_SET' && env.MAC_CERT_PASSWORD != 'NOT_SET' && env.MAC_CODESIGN_IDENTITY != 'NOT_SET' && 'Ready for signing' || 'Skipping signing' }}"
-        
+
         echo "macOS Notarization:"
         echo "  APPLE_ID: ${{ env.APPLE_ID != 'NOT_SET' && 'Available' || 'Not Available' }}"
         echo "  APPLE_APP_SPECIFIC_PASSWORD: ${{ env.APPLE_APP_SPECIFIC_PASSWORD != 'NOT_SET' && 'Available' || 'Not Available' }}"
         echo "  TEAM_ID: ${{ env.TEAM_ID != 'NOT_SET' && 'Available' || 'Not Available' }}"
         echo "  Status: ${{ env.APPLE_ID != 'NOT_SET' && env.APPLE_APP_SPECIFIC_PASSWORD != 'NOT_SET' && env.TEAM_ID != 'NOT_SET' && 'Ready for notarization' || 'Skipping notarization' }}"
-        
+
         echo "Dist directory contents:"
         ls -la dist/
 
@@ -737,382 +1705,333 @@ jobs:
 
         echo "[OK] Build validation passed"
 
-    - name: Upload macOS artifacts
-      if: steps.should_build.outputs.should_build == 'true'
+    # ------------------------------------------------------------------------
+    # Step: Generate Ed25519 Signatures for OTA Updates
+    # ------------------------------------------------------------------------
+    - name: Generate Ed25519 signatures
+      if: |
+        steps.arch_check.outputs.should_build == 'true' && (
+          needs.validate-tag.outputs.environment == 'production' || 
+          needs.validate-tag.outputs.environment == 'staging' ||
+          needs.validate-tag.outputs.environment == 'test'
+        )
+      run: |
+        # Install cryptography library for Ed25519 signing
+        python -m pip install cryptography --quiet
+        
+        echo "=== Generating Ed25519 Signatures ==="
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        ARCH="${{ matrix.arch }}"
+        
+        # Check if private key exists
+        KEY_PATH="build_system/certificates/ed25519_private_key.pem"
+        if [ ! -f "$KEY_PATH" ]; then
+          echo "[ERROR] Private key not found: $KEY_PATH"
+          echo "[ERROR] OTA signatures cannot be generated"
+          exit 1
+        fi
+        
+        echo "[OK] Private key found: $KEY_PATH"
+        
+        # Install OpenSSL if needed
+        if ! command -v openssl &> /dev/null; then
+          echo "Installing OpenSSL..."
+          brew install openssl
+        fi
+        
+        # Generate signature for main PKG file
+        PKG_FILE="dist/eCan-${VERSION}-macos-${ARCH}.pkg"
+        if [ -f "$PKG_FILE" ]; then
+          echo "Generating signature for: $(basename $PKG_FILE)"
+          
+          # Use signing_manager.py for Ed25519 signing (OpenSSL pkeyutl doesn't support Ed25519 in all versions)
+          SIG_FILE="${PKG_FILE}.sig"
+          python build_system/signing_manager.py "$PKG_FILE" "$KEY_PATH" "$SIG_FILE"
+          
+          if [ -f "$SIG_FILE" ]; then
+            SIG_SIZE=$(wc -c < "$SIG_FILE" | tr -d ' ')
+            echo "  ✓ Signature generated: $SIG_SIZE bytes"
+            
+            # Verify signature size (Ed25519 signatures are always 64 bytes)
+            if [ "$SIG_SIZE" -ne 64 ]; then
+              echo "  ✗ Invalid signature size: expected 64 bytes, got $SIG_SIZE bytes"
+              exit 1
+            fi
+          else
+            echo "  ✗ Failed to generate signature"
+            exit 1
+          fi
+        else
+          echo "[WARN] PKG file not found: $PKG_FILE"
+        fi
+        
+        echo ""
+        echo "============================================"
+        echo "  ✓ All signatures generated successfully"
+        echo "============================================"
+
+    # ------------------------------------------------------------------------
+    # Step Group 7: Artifact Preparation and Upload
+    # ------------------------------------------------------------------------
+    - name: Compress macOS artifacts for upload
+      if: steps.arch_check.outputs.should_build == 'true'
+      id: compress_artifacts
+      run: |
+        echo "=== Compressing macOS artifacts ==="
+        VERSION="${{ needs.validate-tag.outputs.version }}"
+        ARCH="${{ matrix.arch }}"
+
+        # Create artifacts directory
+        mkdir -p artifacts
+
+        # Copy main PKG file
+        PKG_FILE="dist/eCan-${VERSION}-macos-${ARCH}.pkg"
+        if [ -f "$PKG_FILE" ]; then
+          cp "$PKG_FILE" artifacts/
+          SIZE=$(du -sh "$PKG_FILE" | cut -f1)
+          echo "Copied PKG: ${SIZE}"
+          echo "has_artifacts=true" >> $GITHUB_OUTPUT
+          
+          # Copy signature file if exists
+          SIG_FILE="${PKG_FILE}.sig"
+          if [ -f "$SIG_FILE" ]; then
+            cp "$SIG_FILE" artifacts/
+            echo "Copied signature: $(basename $SIG_FILE)"
+          else
+            echo "WARNING: Signature file not found: $SIG_FILE"
+          fi
+        else
+          echo "[ERROR] PKG file not found: $PKG_FILE"
+          echo "[ERROR] Build may have failed or PKG was not created"
+          echo "Contents of dist/ directory:"
+          ls -la dist/ || true
+          echo "has_artifacts=false" >> $GITHUB_OUTPUT
+          exit 1
+        fi
+
+        echo "Artifacts prepared for upload:"
+        ls -lh artifacts/
+
+    - name: Upload macOS artifacts for S3 transfer (always, short retention)
+      if: steps.arch_check.outputs.should_build == 'true'
       uses: actions/upload-artifact@v4
       with:
-        name: eCan-macOS-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}
-        path: |
-          dist/eCan-${{ needs.validate-tag.outputs.version }}-macos-${{ matrix.arch }}.pkg
-          build.log
-        retention-days: 30
+        name: eCan-macos-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}-s3-transfer
+        path: artifacts/
+        retention-days: 1
+        compression-level: 6
+        if-no-files-found: error
 
+    - name: Upload macOS artifacts for users (optional, long retention)
+      if: steps.arch_check.outputs.should_build == 'true' && github.event.inputs.upload_artifacts == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: eCan-macos-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}
+        path: artifacts/
+        retention-days: 7
+        compression-level: 6
+        if-no-files-found: error
 
+    # Note: Matrix job outputs removed - using input parameters directly
+    # for architecture detection in downstream jobs
 
+  # ============================================================================
+  # DISTRIBUTION LAYER: S3 Upload and OTA Feed Generation
+  # ============================================================================
+  # This layer uses reusable workflows to handle distribution tasks:
+  #   1. upload-to-s3: Upload installers to AWS S3 (shared-s3-upload.yml)
+  #   2. generate-appcast: Create OTA update feeds (shared-appcast-generation.yml)
+  #   3. generate-download-links: Generate download URLs (shared-download-links.yml)
+  #
+  # Benefits of reusable workflows:
+  #   - Reduces code duplication between release.yml and release-simulate.yml
+  #   - Easier to maintain and update
+  #   - Consistent behavior across workflows
+  # ============================================================================
 
-
-
-  # Create Release
-  create-release:
+  # ----------------------------------------------------------------------------
+  # Step 1: Upload artifacts to S3
+  # ----------------------------------------------------------------------------
+  upload-to-s3:
+    name: Upload to S3
     needs: [validate-tag, build-windows, build-macos]
     if: |
+      always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
-      startsWith(github.ref, 'refs/tags/v') &&
-      (
-        (github.event.inputs.platform == 'windows' && needs.build-windows.result == 'success') ||
-        (github.event.inputs.platform == 'macos' && needs.build-macos.result == 'success') ||
-        (github.event.inputs.platform == 'all' && needs.build-windows.result == 'success' && needs.build-macos.result == 'success') ||
-        (github.event.inputs.platform == null && needs.build-windows.result == 'success' && needs.build-macos.result == 'success')
-      )
+      (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped') &&
+      (needs.build-macos.result == 'success' || needs.build-macos.result == 'skipped')
+    uses: ./.github/workflows/shared-s3-upload.yml
+    with:
+      version: ${{ needs.validate-tag.outputs.version }}
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      windows-build-result: ${{ needs.build-windows.result }}
+      macos-build-result: ${{ needs.build-macos.result }}
+    secrets: inherit
+
+  # ----------------------------------------------------------------------------
+  # Step 2: Generate OTA update feeds (Appcast)
+  # ----------------------------------------------------------------------------
+  # Generate Appcast for Windows (if built)
+  generate-appcast-windows:
+    name: Generate Appcast (Windows)
+    needs: [validate-tag, upload-to-s3, build-windows]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.upload-to-s3.result == 'success' &&
+      needs.build-windows.result == 'success'
+    uses: ./.github/workflows/shared-appcast-generation.yml
+    with:
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel: ${{ needs.validate-tag.outputs.channel }}
+      version: ${{ needs.validate-tag.outputs.version }}
+      platform: 'windows'
+      arch: 'amd64'
+    secrets: inherit
+
+  # Generate Appcast for macOS amd64 (if built)
+  generate-appcast-macos-amd64:
+    name: Generate Appcast (macOS Intel)
+    needs: [validate-tag, upload-to-s3, build-macos]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.upload-to-s3.result == 'success' &&
+      needs.build-macos.result == 'success' &&
+      (github.event.inputs.arch == 'all' || github.event.inputs.arch == '' || github.event.inputs.arch == 'amd64')
+    uses: ./.github/workflows/shared-appcast-generation.yml
+    with:
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel: ${{ needs.validate-tag.outputs.channel }}
+      version: ${{ needs.validate-tag.outputs.version }}
+      platform: 'macos'
+      arch: 'amd64'
+    secrets: inherit
+
+  # Generate Appcast for macOS aarch64 (if built)
+  generate-appcast-macos-aarch64:
+    name: Generate Appcast (macOS ARM)
+    needs: [validate-tag, upload-to-s3, build-macos]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.upload-to-s3.result == 'success' &&
+      needs.build-macos.result == 'success' &&
+      (github.event.inputs.arch == 'all' || github.event.inputs.arch == '' || github.event.inputs.arch == 'aarch64')
+    uses: ./.github/workflows/shared-appcast-generation.yml
+    with:
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel: ${{ needs.validate-tag.outputs.channel }}
+      version: ${{ needs.validate-tag.outputs.version }}
+      platform: 'macos'
+      arch: 'aarch64'
+    secrets: inherit
+
+  # ----------------------------------------------------------------------------
+  # Step 2.5: Generate latest.json (after all Appcasts)
+  # ----------------------------------------------------------------------------
+  generate-latest-json:
+    name: Generate latest.json
+    needs: [
+      validate-tag,
+      upload-to-s3,
+      generate-appcast-windows,
+      generate-appcast-macos-amd64,
+      generate-appcast-macos-aarch64
+    ]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.upload-to-s3.result == 'success' &&
+      (needs.generate-appcast-windows.result == 'success' ||
+       needs.generate-appcast-macos-amd64.result == 'success' ||
+       needs.generate-appcast-macos-aarch64.result == 'success')
     runs-on: ubuntu-latest
-
     steps:
-    - name: Download Windows artifacts
-      if: |
-        github.event.inputs.platform == 'windows' ||
-        github.event.inputs.platform == 'all' ||
-        github.event.inputs.platform == null
-      uses: actions/download-artifact@v4
-      with:
-        name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
-        path: windows-artifacts
-
-    - name: Download macOS amd64 artifacts
-      if: |
-        (github.event.inputs.platform == 'macos' ||
-         github.event.inputs.platform == 'all' ||
-         github.event.inputs.platform == null) &&
-        (github.event.inputs.arch == 'amd64' ||
-         github.event.inputs.arch == 'all' ||
-         github.event.inputs.arch == null)
-      uses: actions/download-artifact@v4
-      with:
-        name: eCan-macOS-amd64-${{ needs.validate-tag.outputs.version }}
-        path: macos-artifacts
-      continue-on-error: true
-
-    - name: Download macOS aarch64 artifacts
-      if: |
-        (github.event.inputs.platform == 'macos' ||
-         github.event.inputs.platform == 'all' ||
-         github.event.inputs.platform == null) &&
-        (github.event.inputs.arch == 'aarch64' ||
-         github.event.inputs.arch == 'all' ||
-         github.event.inputs.arch == null)
-      uses: actions/download-artifact@v4
-      with:
-        name: eCan-macOS-aarch64-${{ needs.validate-tag.outputs.version }}
-        path: macos-artifacts
-      continue-on-error: true
-
-    - name: Prepare release files list
-      id: prep_files
-      run: |
-        echo "Listing downloaded artifacts..."
-        ls -la windows-artifacts || true
-        ls -la macos-artifacts || true
-        echo "files<<EOF" >> $GITHUB_OUTPUT
-        if ls windows-artifacts/*.exe 1> /dev/null 2>&1; then
-          for f in windows-artifacts/*.exe; do echo "$f" >> $GITHUB_OUTPUT; done
-        fi
-        if ls macos-artifacts/*.pkg 1> /dev/null 2>&1; then
-          for f in macos-artifacts/*.pkg; do echo "$f" >> $GITHUB_OUTPUT; done
-        fi
-        if ls macos-artifacts/*.zip 1> /dev/null 2>&1; then
-          for f in macos-artifacts/*.zip; do echo "$f" >> $GITHUB_OUTPUT; done
-        fi
-        echo "EOF" >> $GITHUB_OUTPUT
-
-    - name: Create Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: ${{ steps.prep_files.outputs.files }}
-        name: "eCan AI Assistant v${{ needs.validate-tag.outputs.version }}"
-        body: |
-          # eCan AI Assistant v${{ needs.validate-tag.outputs.version }}
-          
-          ## 🚀 New Release
-          
-          This is the latest version of eCan AI Assistant with new features and improvements.
-          
-          ## 📦 Download Links
-          
-          ### Windows Users
-          - **Installer**: `eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64-Setup.exe` (Recommended)
-          - **Portable**: `eCan-${{ needs.validate-tag.outputs.version }}-windows-amd64.exe`
-          
-          ### macOS Users
-          - **PKG Installer**: `eCan-${{ needs.validate-tag.outputs.version }}-macos-*.pkg` (Recommended)
-          - **ZIP Archive**: `eCan-${{ needs.validate-tag.outputs.version }}-macos-*.zip`
-          
-          ## 🔧 Installation Instructions
-          
-          ### Windows
-          1. Download the `eCan-*-Setup.exe` installer
-          2. Run the installer and follow the prompts to complete installation
-          3. Launch the application from Start Menu or desktop shortcut
-          
-          ### macOS
-          1. Download the `.pkg` installer package
-          2. Double-click the package and follow the prompts to complete installation
-          3. Launch eCan from the Applications folder
-          
-          ## ⚠️ System Requirements
-          - **Windows**: Windows 10 or later
-          - **macOS**: macOS 11.0 or later
-          
-          ## 📝 Changelog
-          Please see [CHANGELOG.md](CHANGELOG.md) for detailed update information.
-          
-          ## 🐛 Issue Reporting
-          If you encounter any issues, please submit feedback on the [Issues](https://github.com/scszcoder/ecbot/issues) page.
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # Generate and publish appcast after Release is created (ensures final URLs and sizes)
-  publish-appcast:
-    needs: [validate-tag, create-release]
-    runs-on: ubuntu-latest
-    env:
-      ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY || 'NOT_SET' }}
-    steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Check environment variables
-        run: |
-          echo "=== Checking Appcast Generation Environment ==="
-          if [ "${ED25519_PRIVATE_KEY}" != "NOT_SET" ]; then
-            echo "ED25519_PRIVATE_KEY: Available - Appcast generation enabled"
-          else
-            echo "ED25519_PRIVATE_KEY: Not available - Appcast generation disabled"
-          fi
-
-      - name: Download Windows artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
-          path: windows-artifacts
-
-      - name: Download macOS amd64 artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: eCan-macOS-amd64-${{ needs.validate-tag.outputs.version }}
-          path: macos-artifacts
-        continue-on-error: true
-
-      - name: Download macOS aarch64 artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: eCan-macOS-aarch64-${{ needs.validate-tag.outputs.version }}
-          path: macos-artifacts
-        continue-on-error: true
-
-      - name: Download Linux artifacts (optional)
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: eCan-Linux-${{ needs.validate-tag.outputs.version }}
-          path: linux-artifacts
-
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install requests cryptography
+          pip install boto3 pyyaml packaging
 
-      - name: Generate macOS appcast (amd64)
-        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
+      - name: Generate latest.json
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
         run: |
-          python - <<'PY'
-          import os, glob
-          from scripts.generate_appcast import main
-          assets = []
-          for pat in ('macos-artifacts/*amd64*.pkg','macos-artifacts/*amd64*.zip','macos-artifacts/*x86_64*.pkg','macos-artifacts/*x86_64*.zip','macos-artifacts/*x64*.pkg','macos-artifacts/*x64*.zip'):
-              for p in glob.glob(pat):
-                  name = os.path.basename(p)
-                  url = f"https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate-tag.outputs.version }}/{name}"
-                  size = os.path.getsize(p)
-                  assets.append({'name': name, 'browser_download_url': url, 'size': size})
-          release = {'tag_name': f"v${{ needs.validate-tag.outputs.version }}", 'assets': assets}
-          main(release, platform_filter='macos', arch_filter='amd64', output_path='dist/appcast/appcast-macos-amd64.xml')
-          PY
+          python3 << 'PYTHON_SCRIPT'
+          import sys
+          sys.path.insert(0, 'build_system/scripts')
+          from generate_appcast import AppcastGenerator
+          
+          generator = AppcastGenerator(
+              environment='${{ needs.validate-tag.outputs.environment }}',
+              channel='${{ needs.validate-tag.outputs.channel }}'
+          )
+          
+          print('[INFO] Generating latest.json only...')
+          success = generator.generate_latest_json()
+          
+          if success:
+              print('[OK] latest.json generated successfully')
+              sys.exit(0)
+          else:
+              print('[ERROR] Failed to generate latest.json')
+              sys.exit(1)
+          PYTHON_SCRIPT
 
-      - name: Generate macOS appcast (aarch64)
-        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
-        run: |
-          python - <<'PY'
-          import os, glob
-          from scripts.generate_appcast import main
-          assets = []
-          for pat in ('macos-artifacts/*aarch64*.pkg','macos-artifacts/*aarch64*.zip','macos-artifacts/*arm64*.pkg','macos-artifacts/*arm64*.zip'):
-              for p in glob.glob(pat):
-                  name = os.path.basename(p)
-                  url = f"https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate-tag.outputs.version }}/{name}"
-                  size = os.path.getsize(p)
-                  assets.append({'name': name, 'browser_download_url': url, 'size': size})
-          release = {'tag_name': f"v${{ needs.validate-tag.outputs.version }}", 'assets': assets}
-          main(release, platform_filter='macos', arch_filter='aarch64', output_path='dist/appcast/appcast-macos-aarch64.xml')
-          PY
+  # ----------------------------------------------------------------------------
+  # Step 3: Generate download links
+  # ----------------------------------------------------------------------------
+  generate-download-links:
+    name: Generate Download Links
+    needs: [validate-tag, build-windows, build-macos, upload-to-s3]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.upload-to-s3.result == 'success'
+    uses: ./.github/workflows/shared-download-links.yml
+    with:
+      version: ${{ needs.validate-tag.outputs.version }}
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel: ${{ needs.validate-tag.outputs.channel }}
+      windows-build-result: ${{ needs.build-windows.result }}
+      macos-build-result: ${{ needs.build-macos.result }}
+      macos-built-amd64: ${{ (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') && (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all') }}
+      macos-built-aarch64: ${{ (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') && (github.event.inputs.arch == 'aarch64' || github.event.inputs.arch == 'all') }}
+    secrets: inherit
 
-      - name: Generate Windows appcast (amd64)
-        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
-        run: |
-          python - <<'PY'
-          import os, glob
-          from scripts.generate_appcast import main
-          assets = []
-          for pat in (
-              'windows-artifacts/*amd64*.exe',
-              'windows-artifacts/*x86_64*.exe',
-              'windows-artifacts/*x64*.exe',
-              'windows-artifacts/*amd64*.msi',
-              'windows-artifacts/*x86_64*.msi',
-              'windows-artifacts/*x64*.msi',
-          ):
-              for p in glob.glob(pat):
-                  name = os.path.basename(p)
-                  url = f"https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate-tag.outputs.version }}/{name}"
-                  size = os.path.getsize(p)
-                  assets.append({'name': name, 'browser_download_url': url, 'size': size})
-          release = {'tag_name': f"v${{ needs.validate-tag.outputs.version }}", 'assets': assets}
-          main(release, platform_filter='windows', arch_filter='amd64', output_path='dist/appcast/appcast-windows-amd64.xml')
-          PY
-
-
-
-
-      - name: Generate macOS aggregate appcast (all arches)
-        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
-        run: |
-          python - <<'PY'
-          import os, glob
-          from scripts.generate_appcast import main
-          assets = []
-          for pat in (
-              'macos-artifacts/*.pkg',
-              'macos-artifacts/*.zip',
-          ):
-              for p in glob.glob(pat):
-                  name = os.path.basename(p)
-                  url = f"https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate-tag.outputs.version }}/{name}"
-                  size = os.path.getsize(p)
-                  assets.append({'name': name, 'browser_download_url': url, 'size': size})
-          release = {
-              'tag_name': f"v${{ needs.validate-tag.outputs.version }}",
-              'assets': assets,
-              'body': os.environ.get('RELEASE_BODY', ''),
-          }
-          # No arch_filter -> aggregate all macOS entries
-          main(release, platform_filter='macos', output_path='dist/appcast/appcast-macos.xml')
-          PY
-
-      - name: Generate Windows aggregate appcast (all arches)
-        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ED25519_PRIVATE_KEY: ${{ secrets.ED25519_PRIVATE_KEY }}
-        run: |
-          python - <<'PY'
-          import os, glob
-          from scripts.generate_appcast import main
-          assets = []
-          for pat in (
-              'windows-artifacts/*.exe',
-              'windows-artifacts/*.msi',
-          ):
-              for p in glob.glob(pat):
-                  name = os.path.basename(p)
-                  url = f"https://github.com/${{ github.repository }}/releases/download/v${{ needs.validate-tag.outputs.version }}/{name}"
-                  size = os.path.getsize(p)
-                  assets.append({'name': name, 'browser_download_url': url, 'size': size})
-          release = {
-              'tag_name': f"v${{ needs.validate-tag.outputs.version }}",
-              'assets': assets,
-              'body': os.environ.get('RELEASE_BODY', ''),
-          }
-          # No arch_filter -> aggregate all Windows entries
-          main(release, platform_filter='windows', output_path='dist/appcast/appcast-windows.xml')
-          PY
-
-      - name: Remove empty appcast files (if any)
-        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
-        run: |
-          shopt -s nullglob || true
-          for f in dist/appcast/*.xml; do
-            if [ ! -s "$f" ]; then echo "Removing empty feed: $f"; rm -f "$f"; fi
-          done
-
-      - name: Publish appcasts to gh-pages
-        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && hashFiles('dist/appcast/*.xml') != '' }}
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_branch: gh-pages
-          publish_dir: dist/appcast
-          keep_files: true
-          enable_jekyll: false
-          user_name: github-actions[bot]
-          user_email: 41898282+github-actions[bot]@users.noreply.github.com
-
-      - name: Print appcast enclosure summary
-        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
-        run: |
-          set -e
-          for f in dist/appcast/*.xml; do
-            echo "--- $f ---"
-            # Print lines containing 'enclosure' with key attributes
-            awk 'BEGIN{FS="[<> ]"} /enclosure/ {for(i=1;i<=NF;i++){if($i ~ /url=|sparkle:version=|sparkle:os=|sparkle:arch=|length=|sparkle:edSignature=/) printf("%s ", $i)} print ""}' $f || true
-          done
-
-      - name: List generated appcasts
-        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
-        run: |
-          echo "=== Appcast outputs ==="
-          ls -la dist/appcast || true
-
-      - name: Show appcast URLs
-        if: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' }}
-        run: |
-          echo "Appcast (macOS aggregate):  https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos.xml"
-          echo "Appcast (Windows aggregate): https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-windows.xml"
-          echo "Appcast (macOS amd64):      https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos-amd64.xml"
-          echo "Appcast (macOS aarch64):    https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-macos-aarch64.xml"
-          echo "Appcast (Windows amd64):    https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/appcast-windows-amd64.xml"
-          echo "Note: Windows only supports amd64 architecture"
-
-      - name: Final status summary
-        run: |
-          echo "=== Final Build Status Summary ==="
-          echo "Build completed successfully!"
-          echo ""
-          echo "Environment Variables Status:"
-          echo "  ED25519_PRIVATE_KEY: ${{ env.ED25519_PRIVATE_KEY != 'NOT_SET' && 'Available' || 'Not Available' }}"
-          echo ""
-          if [ "${ED25519_PRIVATE_KEY}" != "NOT_SET" ]; then
-            echo "Appcast generation: Enabled"
-            echo "OTA updates: Available"
-          else
-            echo "Appcast generation: Disabled (ED25519_PRIVATE_KEY not set)"
-            echo "OTA updates: Not available"
-            echo ""
-            echo "To enable OTA updates, set the ED25519_PRIVATE_KEY secret in your repository settings."
-          fi
+  # ----------------------------------------------------------------------------
+  # Step 4: Final status summary
+  # ----------------------------------------------------------------------------
+  final-status:
+    name: Final Status Summary
+    needs: [
+      validate-tag, 
+      build-windows, 
+      build-macos, 
+      upload-to-s3, 
+      generate-appcast-windows,
+      generate-appcast-macos-amd64,
+      generate-appcast-macos-aarch64,
+      generate-latest-json,
+      generate-download-links
+    ]
+    if: always()
+    uses: ./.github/workflows/shared-final-status.yml
+    with:
+      version: ${{ needs.validate-tag.outputs.version }}
+      windows-result: ${{ needs.build-windows.result }}
+      macos-result: ${{ needs.build-macos.result }}
+      upload-result: ${{ needs.upload-to-s3.result }}
+      appcast-result: ${{ (needs.generate-appcast-windows.result == 'success' || needs.generate-appcast-macos-amd64.result == 'success' || needs.generate-appcast-macos-aarch64.result == 'success') && 'success' || 'failure' }}
+      links-result: ${{ needs.generate-download-links.result }}
+      is-simulation: false
+    secrets: inherit

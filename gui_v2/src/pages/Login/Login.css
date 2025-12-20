@@ -7,13 +7,6 @@
   align-items: center;
   position: relative;
   overflow: hidden;
-  transform: translateZ(0);
-  -webkit-transform: translateZ(0);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  perspective: 1000;
-  -webkit-perspective: 1000;
-  will-change: transform, opacity, background-position;
 }
 
 /* 登录页面装饰 */
@@ -25,13 +18,6 @@
   bottom: 0;
   background: radial-gradient(circle at 50% 50%, rgba(24, 144, 255, 0.1) 0%, transparent 70%);
   z-index: 1;
-  transform: translateZ(0);
-  -webkit-transform: translateZ(0);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  perspective: 1000;
-  -webkit-perspective: 1000;
-  will-change: opacity, transform;
 }
 
 /* 背景动画元素 */
@@ -44,13 +30,6 @@
   animation: gradientMove 15s ease infinite;
   animation-delay: 0.15s;
   z-index: 1;
-  transform: translateZ(0);
-  -webkit-transform: translateZ(0);
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  perspective: 1000;
-  -webkit-perspective: 1000;
-  will-change: background-position, opacity, transform;
 }
 
 /* 语言选择器容器 */
@@ -72,8 +51,6 @@
   z-index: 2;
   border-radius: 16px;
   overflow: hidden;
-  transform: translateZ(0);
-  -webkit-transform: translateZ(0);
 }
 
 /* 加载状态容器 */
@@ -94,13 +71,6 @@
   width: 160px;
   height: 160px;
   margin: 0 auto 16px;
-  transform: translateZ(0);
-  -webkit-transform: translateZ(0);
-  will-change: transform, opacity;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  perspective: 1000;
-  -webkit-perspective: 1000;
 }
 
 /* Logo 图片 */
@@ -121,13 +91,6 @@
   bottom: -4px;
   border: 2px solid rgba(24, 144, 255, 0.3);
   border-radius: 16px;
-  transform: translateZ(0);
-  -webkit-transform: translateZ(0);
-  will-change: transform, opacity;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  perspective: 1000;
-  -webkit-perspective: 1000;
 }
 
 /* 表单输入框 */
@@ -145,6 +108,36 @@
   background: linear-gradient(90deg, #1890ff 0%, #096dd9 100%);
   border: none;
   box-shadow: 0 4px 12px rgba(24, 144, 255, 0.3);
+  transition: all 0.3s ease;
+}
+
+.login-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(24, 144, 255, 0.4);
+}
+
+.login-button:disabled {
+  opacity: 0.8;
+}
+
+/* Google登录按钮 */
+.google-login-button {
+  height: 45px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #333;
+  transition: all 0.3s ease;
+}
+
+.google-login-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  background: #f8f9fa;
+}
+
+.google-login-button:disabled {
+  opacity: 0.8;
 }
 
 /* 链接按钮 */
@@ -155,19 +148,19 @@
 /* 动画 */
 @keyframes float {
   0%, 100% {
-    transform: translateY(0) translateZ(0);
+    transform: translateY(0);
   }
   50% {
-    transform: translateY(-5px) translateZ(0);
+    transform: translateY(-5px);
   }
 }
 
 @keyframes rotate {
   from {
-    transform: rotate(0deg) translateZ(0);
+    transform: rotate(0deg);
   }
   to {
-    transform: rotate(360deg) translateZ(0);
+    transform: rotate(360deg);
   }
 }
 

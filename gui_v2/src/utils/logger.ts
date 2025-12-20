@@ -1,9 +1,9 @@
 /**
- * 日志工具
- * 提供统一的日志记录功能，支持日志等级控制
+ * LogTool
+ * 提供统一的Log记录功能，SupportLog等级控制
  */
 
-// 日志等级枚举
+// Log等级枚举
 enum LogLevel {
   DEBUG = 0,
   INFO = 1,
@@ -12,7 +12,7 @@ enum LogLevel {
   NONE = 4
 }
 
-// 日志配置接口
+// LogConfigurationInterface
 interface LoggerConfig {
   level: LogLevel;
   enableConsole: boolean;
@@ -21,7 +21,7 @@ interface LoggerConfig {
   format?: (level: string, message: string, ...args: unknown[]) => string;
 }
 
-// 默认配置
+// DefaultConfiguration
 const defaultConfig: LoggerConfig = {
   level: LogLevel.INFO,
   enableConsole: true,
@@ -42,7 +42,7 @@ class Logger {
 
   private constructor(config: Partial<LoggerConfig> = {}) {
     this.config = { ...defaultConfig, ...config };
-    // 打印初始配置
+    // Print初始Configuration
     console.log('Logger initialized with config:', {
       level: LogLevel[this.config.level],
       enableConsole: this.config.enableConsole
@@ -50,7 +50,7 @@ class Logger {
   }
 
   /**
-   * 获取日志实例
+   * GetLog实例
    */
   public static getInstance(config?: Partial<LoggerConfig>): Logger {
     if (!Logger.instance) {
@@ -60,7 +60,7 @@ class Logger {
   }
 
   /**
-   * 更新日志配置
+   * UpdateLogConfiguration
    */
   public updateConfig(config: Partial<LoggerConfig>): void {
     this.config = { ...this.config, ...config };
@@ -71,14 +71,14 @@ class Logger {
   }
 
   /**
-   * 获取当前日志等级
+   * GetWhen前Log等级
    */
   public getLevel(): LogLevel {
     return this.config.level;
   }
 
   /**
-   * 设置日志等级
+   * SettingsLog等级
    */
   public setLevel(level: LogLevel): void {
     this.config.level = level;
@@ -86,10 +86,10 @@ class Logger {
   }
 
   /**
-   * 写入日志
+   * 写入Log
    */
   private log(level: LogLevel, levelName: string, message: string, ...args: unknown[]): void {
-    // 检查日志等级：只有当当前日志等级小于等于配置的等级时才显示
+    // CheckLog等级：只有WhenWhen前Log等级小于等于Configuration的等级时才Display
     if (this.config.level > level) {
       return;
     }
@@ -98,10 +98,10 @@ class Logger {
       `[${levelName}] ${message} ${args.join(' ')}`;
 
     if (this.config.enableConsole) {
-      // 使用 console.log 替代 console.debug，因为某些浏览器可能不支持 console.debug
+      // 使用 console.log 替代 console.debug，因为某些Browser可能不Support console.debug
       switch (level) {
         case LogLevel.DEBUG:
-          console.log(`%c${formattedMessage}`, 'color: #6c757d'); // 使用灰色显示 debug 日志
+          console.log(`%c${formattedMessage}`, 'color: #6c757d'); // 使用灰色Display debug Log
           break;
         case LogLevel.INFO:
           console.info(formattedMessage);
@@ -116,42 +116,42 @@ class Logger {
     }
 
     if (this.config.enableFile && this.config.filePath) {
-      // TODO: 实现文件日志写入
-      // 这里可以添加将日志写入文件的逻辑
+      // TODO: Implementation文件Log写入
+      // 这里CanAdd将Log写入文件的逻辑
     }
   }
 
   /**
-   * 记录调试级别日志
+   * 记录DebugLevelLog
    */
   public debug(message: string, ...args: unknown[]): void {
     this.log(LogLevel.DEBUG, 'DEBUG', message, ...args);
   }
 
   /**
-   * 记录信息级别日志
+   * 记录InformationLevelLog
    */
   public info(message: string, ...args: unknown[]): void {
     this.log(LogLevel.INFO, 'INFO', message, ...args);
   }
 
   /**
-   * 记录警告级别日志
+   * 记录WarningLevelLog
    */
   public warn(message: string, ...args: unknown[]): void {
     this.log(LogLevel.WARN, 'WARN', message, ...args);
   }
 
   /**
-   * 记录错误级别日志
+   * 记录ErrorLevelLog
    */
   public error(message: string, ...args: unknown[]): void {
     this.log(LogLevel.ERROR, 'ERROR', message, ...args);
   }
 }
 
-// 导出单例实例
+// Export单例实例
 export const logger = Logger.getInstance();
 
-// 导出日志等级枚举
+// ExportLog等级枚举
 export { LogLevel }; 

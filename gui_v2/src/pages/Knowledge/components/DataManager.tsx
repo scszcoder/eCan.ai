@@ -11,10 +11,10 @@ import {
   message,
   Upload,
   Alert,
-  Divider,
   Statistic,
   Row,
-  Col
+  Col,
+  theme
 } from 'antd';
 import { 
   UploadOutlined,
@@ -22,13 +22,13 @@ import {
   DatabaseOutlined,
   FileTextOutlined,
   CheckCircleOutlined,
-  ExclamationCircleOutlined,
   ClockCircleOutlined,
   DeleteOutlined
 } from '@ant-design/icons';
 import { DataManager as StorageDataManager } from '../services/storage';
+import { useTranslation } from 'react-i18next';
 
-const { Title, Text, Paragraph } = Typography;
+const { Text } = Typography;
 const { Dragger } = Upload;
 
 interface DataManagerProps {
@@ -53,32 +53,34 @@ const DataManager: React.FC<DataManagerProps> = ({
   visible,
   onClose
 }) => {
+  const { t } = useTranslation();
+  const { token } = theme.useToken();
   const [backups, setBackups] = useState<BackupInfo[]>([]);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [backupProgress, setBackupProgress] = useState(0);
   const [restoreProgress, setRestoreProgress] = useState(0);
 
-  // 创建备份
+  // CreateBackup
   const handleCreateBackup = async () => {
     setIsBackingUp(true);
     setBackupProgress(0);
 
     try {
-      // 模拟备份过程
+      // 模拟Backup过程
       for (let i = 0; i <= 100; i += 10) {
         setBackupProgress(i);
         await new Promise(resolve => setTimeout(resolve, 100));
       }
 
-      // 执行实际备份
+      // Execute实际Backup
       StorageDataManager.backup();
 
-      // 添加到备份列表
+      // Add到BackupList
       const newBackup: BackupInfo = {
         id: Date.now().toString(),
-        name: `备份_${new Date().toLocaleString()}`,
-        size: Math.floor(Math.random() * 1000000) + 100000, // 模拟文件大小
+        name: `Backup_${new Date().toLocaleString()}`,
+        size: Math.floor(Math.random() * 1000000) + 100000, // 模拟文件Size
         createdAt: new Date().toISOString(),
         itemCount: {
           documents: StorageDataManager.getKnowledgeEntries().length,
@@ -89,62 +91,62 @@ const DataManager: React.FC<DataManagerProps> = ({
       };
 
       setBackups(prev => [newBackup, ...prev]);
-      message.success('备份创建成功');
+      message.success('BackupCreateSuccess');
     } catch (error) {
-      message.error('备份创建失败');
+      message.error('BackupCreateFailed');
     } finally {
       setIsBackingUp(false);
       setBackupProgress(0);
     }
   };
 
-  // 恢复备份
+  // RestoreBackup
   const handleRestore = async (file: File) => {
     setIsRestoring(true);
     setRestoreProgress(0);
 
     try {
-      // 模拟恢复过程
+      // 模拟Restore过程
       for (let i = 0; i <= 100; i += 20) {
         setRestoreProgress(i);
         await new Promise(resolve => setTimeout(resolve, 200));
       }
 
-      // 执行实际恢复
+      // Execute实际Restore
       const success = await StorageDataManager.restore(file);
       
       if (success) {
-        message.success('数据恢复成功');
-        // 刷新页面以应用恢复的数据
+        message.success('DataRestoreSuccess');
+        // RefreshPage以应用Restore的Data
         window.location.reload();
       } else {
-        message.error('数据恢复失败');
+        message.error('DataRestoreFailed');
       }
     } catch (error) {
-      message.error('数据恢复失败');
+      message.error('DataRestoreFailed');
     } finally {
       setIsRestoring(false);
       setRestoreProgress(0);
     }
   };
 
-  // 删除备份
+  // DeleteBackup
   const handleDeleteBackup = (backupId: string) => {
     setBackups(prev => prev.filter(backup => backup.id !== backupId));
-    message.success('备份已删除');
+    message.success('Backup已Delete');
   };
 
-  // 导出数据
+  // ExportData
   const handleExportData = () => {
     try {
       StorageDataManager.backup();
-      message.success('数据导出成功');
+      message.success('DataExportSuccess');
     } catch (error) {
-      message.error('数据导出失败');
+      message.error('DataExportFailed');
     }
   };
 
-  // 获取存储统计信息
+  // GetStorage统计Information
   const getStorageStats = () => {
     const documents = StorageDataManager.getKnowledgeEntries();
     const qa = StorageDataManager.getQAPairs();
@@ -172,39 +174,42 @@ const DataManager: React.FC<DataManagerProps> = ({
 
   return (
     <Modal
-      title="数据管理"
+      title={t('pages.knowledge.dataManagement')}
       open={visible}
       onCancel={onClose}
       width={800}
       footer={null}
+      styles={{
+        body: { backgroundColor: token.colorBgContainer }
+      }}
     >
-      {/* 存储统计 */}
-      <Card title="存储统计" style={{ marginBottom: 16 }}>
+      {/* Storage统计 */}
+      <Card title="Storage统计" style={{ marginBottom: 16, backgroundColor: token.colorBgElevated }}>
         <Row gutter={16}>
           <Col span={6}>
             <Statistic
-              title="文档数量"
+              title="DocumentationCount"
               value={stats.documents}
               prefix={<FileTextOutlined />}
             />
           </Col>
           <Col span={6}>
             <Statistic
-              title="问答数量"
+              title="问答Count"
               value={stats.qa}
               prefix={<DatabaseOutlined />}
             />
           </Col>
           <Col span={6}>
             <Statistic
-              title="分类数量"
+              title="CategoryCount"
               value={stats.categories}
               prefix={<FileTextOutlined />}
             />
           </Col>
           <Col span={6}>
             <Statistic
-              title="评论数量"
+              title="评论Count"
               value={stats.comments}
               prefix={<DatabaseOutlined />}
             />
@@ -212,13 +217,13 @@ const DataManager: React.FC<DataManagerProps> = ({
         </Row>
         <div style={{ marginTop: 16 }}>
           <Text type="secondary">
-            总数据大小: {(stats.totalSize / 1024).toFixed(2)} KB
+            总DataSize: {(stats.totalSize / 1024).toFixed(2)} KB
           </Text>
         </div>
       </Card>
 
-      {/* 备份操作 */}
-      <Card title="数据备份" style={{ marginBottom: 16 }}>
+      {/* BackupOperation */}
+      <Card title="DataBackup" style={{ marginBottom: 16, backgroundColor: token.colorBgElevated }}>
         <Space direction="vertical" style={{ width: '100%' }}>
           <div>
             <Button
@@ -228,31 +233,31 @@ const DataManager: React.FC<DataManagerProps> = ({
               loading={isBackingUp}
               style={{ marginRight: 8 }}
             >
-              创建备份
+              CreateBackup
             </Button>
             <Button
               icon={<UploadOutlined />}
               onClick={handleExportData}
             >
-              导出数据
+              ExportData
             </Button>
           </div>
 
           {isBackingUp && (
             <div>
-              <Text>正在创建备份...</Text>
+              <Text>正在CreateBackup...</Text>
               <Progress percent={backupProgress} size="small" />
             </div>
           )}
         </Space>
       </Card>
 
-      {/* 数据恢复 */}
-      <Card title="数据恢复" style={{ marginBottom: 16 }}>
+      {/* DataRestore */}
+      <Card title="DataRestore" style={{ marginBottom: 16, backgroundColor: token.colorBgElevated }}>
         <Space direction="vertical" style={{ width: '100%' }}>
           <Alert
-            message="数据恢复警告"
-            description="恢复数据将覆盖当前所有数据，请确保已备份重要数据。"
+            message="DataRestoreWarning"
+            description="RestoreData将覆盖When前AllData，请确保已Backup重要Data。"
             type="warning"
             showIcon
             style={{ marginBottom: 16 }}
@@ -269,23 +274,23 @@ const DataManager: React.FC<DataManagerProps> = ({
             <p className="ant-upload-drag-icon">
               <UploadOutlined />
             </p>
-            <p className="ant-upload-text">点击或拖拽文件到此区域上传</p>
+            <p className="ant-upload-text">Click或Drag文件到此区域上传</p>
             <p className="ant-upload-hint">
-              支持 .json 格式的备份文件
+              Support .json 格式的Backup文件
             </p>
           </Dragger>
 
           {isRestoring && (
             <div>
-              <Text>正在恢复数据...</Text>
+              <Text>正在RestoreData...</Text>
               <Progress percent={restoreProgress} size="small" />
             </div>
           )}
         </Space>
       </Card>
 
-      {/* 备份历史 */}
-      <Card title="备份历史">
+      {/* Backup历史 */}
+      <Card title="Backup历史" style={{ backgroundColor: token.colorBgElevated }}>
         <List
           dataSource={backups}
           renderItem={(backup) => (
@@ -306,7 +311,7 @@ const DataManager: React.FC<DataManagerProps> = ({
                   icon={<DeleteOutlined />}
                   onClick={() => handleDeleteBackup(backup.id)}
                 >
-                  删除
+                  Delete
                 </Button>,
               ]}
             >
@@ -315,7 +320,7 @@ const DataManager: React.FC<DataManagerProps> = ({
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span>{backup.name}</span>
                     <Tag color="green" icon={<CheckCircleOutlined />}>
-                      成功
+                      Success
                     </Tag>
                   </div>
                 }
@@ -325,14 +330,14 @@ const DataManager: React.FC<DataManagerProps> = ({
                       <ClockCircleOutlined style={{ marginRight: 4 }} />
                       {new Date(backup.createdAt).toLocaleString()}
                     </div>
-                    <div style={{ fontSize: 12, color: '#666' }}>
-                      文档: {backup.itemCount.documents} | 
+                    <div style={{ fontSize: 12, color: token.colorTextSecondary }}>
+                      Documentation: {backup.itemCount.documents} | 
                       问答: {backup.itemCount.qa} | 
-                      分类: {backup.itemCount.categories} | 
+                      Category: {backup.itemCount.categories} | 
                       评论: {backup.itemCount.comments}
                     </div>
-                    <div style={{ fontSize: 12, color: '#666' }}>
-                      文件大小: {(backup.size / 1024).toFixed(2)} KB
+                    <div style={{ fontSize: 12, color: token.colorTextSecondary }}>
+                      文件Size: {(backup.size / 1024).toFixed(2)} KB
                     </div>
                   </div>
                 }

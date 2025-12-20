@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Input, Button, Avatar, Space, Card, Typography, Divider } from 'antd';
 import { SendOutlined, RobotOutlined, UserOutlined, LikeOutlined, DislikeOutlined, MessageOutlined, ShareAltOutlined } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 
 const { TextArea } = Input;
 const { Text, Paragraph } = Typography;
@@ -17,11 +18,12 @@ interface Message {
 }
 
 const ChatInterface: React.FC = () => {
+  const { t } = useTranslation();
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
       type: 'assistant',
-      content: '你好！我是你的智能助手，基于企业知识库为你提供帮助。你可以问我任何关于产品、技术、流程的问题。',
+      content: 'Hello! I am your intelligent assistant, providing help based on the enterprise knowledge base. You can ask me any questions about products, technology, or processes.',
       timestamp: new Date(),
     }
   ]);
@@ -29,7 +31,7 @@ const ChatInterface: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // 自动滚动到底部
+  // 自动Scroll到Bottom
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -38,7 +40,7 @@ const ChatInterface: React.FC = () => {
     scrollToBottom();
   }, [messages]);
 
-  // 发送消息
+  // SendMessage
   const handleSend = async () => {
     if (!inputValue.trim() || isLoading) return;
 
@@ -53,16 +55,16 @@ const ChatInterface: React.FC = () => {
     setInputValue('');
     setIsLoading(true);
 
-    // 模拟AI回复
+    // Simulate AI response
     setTimeout(() => {
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         type: 'assistant',
-        content: `根据知识库内容，关于"${inputValue}"的回答：\n\n这是一个示例回答，实际应该从知识库中检索相关内容。`,
+        content: `Based on the knowledge base, the answer to "${inputValue}":\n\nThis is an example response. In production, relevant content should be retrieved from the knowledge base.`,
         timestamp: new Date(),
         relatedDocs: [
-          { title: '相关文档1', url: '#' },
-          { title: '相关文档2', url: '#' },
+          { title: 'Related Document 1', url: '#' },
+          { title: 'Related Document 2', url: '#' },
         ],
       };
       setMessages(prev => [...prev, assistantMessage]);
@@ -70,7 +72,7 @@ const ChatInterface: React.FC = () => {
     }, 1000);
   };
 
-  // 处理回车发送
+  // Process回车Send
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -78,7 +80,7 @@ const ChatInterface: React.FC = () => {
     }
   };
 
-  // 渲染消息气泡
+  // RenderMessage气泡
   const renderMessage = (message: Message) => {
     const isUser = message.type === 'user';
     
@@ -120,16 +122,16 @@ const ChatInterface: React.FC = () => {
               </Paragraph>
             </Card>
 
-            {/* 相关文档 */}
+            {/* Related Documents */}
             {message.relatedDocs && message.relatedDocs.length > 0 && (
               <Card size="small" style={{ marginTop: 8, backgroundColor: '#f8f9fa' }}>
-                <Text strong style={{ fontSize: 12 }}>📚 相关文档：</Text>
+                <Text strong style={{ fontSize: 12 }}>📚 Related Documents:</Text>
                 <div style={{ marginTop: 4 }}>
                   {message.relatedDocs.map((doc, index) => (
                     <div key={doc.title + '-' + index}>
                       <Text 
                         style={{ fontSize: 12, cursor: 'pointer', color: '#1890ff' }}
-                        onClick={() => console.log('打开文档:', doc.title)}
+                        onClick={() => console.log('Open document:', doc.title)}
                       >
                         • {doc.title}
                       </Text>
@@ -139,24 +141,24 @@ const ChatInterface: React.FC = () => {
               </Card>
             )}
 
-            {/* 操作按钮 */}
+            {/* OperationButton */}
             {!isUser && (
               <Space style={{ marginTop: 8 }}>
                 <Button 
                   type="text" 
                   size="small" 
                   icon={<LikeOutlined />}
-                  onClick={() => console.log('有帮助')}
+                  onClick={() => console.log('有Help')}
                 >
-                  有帮助
+                  有Help
                 </Button>
                 <Button 
                   type="text" 
                   size="small" 
                   icon={<DislikeOutlined />}
-                  onClick={() => console.log('没帮助')}
+                  onClick={() => console.log('没Help')}
                 >
-                  没帮助
+                  没Help
                 </Button>
                 <Button 
                   type="text" 
@@ -202,7 +204,7 @@ const ChatInterface: React.FC = () => {
       >
         {messages.map(renderMessage)}
         
-        {/* 加载状态 */}
+        {/* LoadStatus */}
         {isLoading && (
           <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 16 }}>
             <Avatar 
@@ -218,14 +220,14 @@ const ChatInterface: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* 输入区域 */}
+      {/* Input区域 */}
       <div style={{ padding: '16px 0' }}>
         <div style={{ display: 'flex', gap: 8 }}>
           <TextArea
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="输入你的问题..."
+            placeholder="Input你的问题..."
             autoSize={{ minRows: 1, maxRows: 4 }}
             style={{ flex: 1 }}
             disabled={isLoading}
@@ -237,12 +239,12 @@ const ChatInterface: React.FC = () => {
             disabled={!inputValue.trim() || isLoading}
             style={{ height: 'auto' }}
           >
-            发送
+            Send
           </Button>
         </div>
         <div style={{ marginTop: 8 }}>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            按 Enter 发送，Shift + Enter 换行
+            按 Enter Send，Shift + Enter 换行
           </Text>
         </div>
       </div>

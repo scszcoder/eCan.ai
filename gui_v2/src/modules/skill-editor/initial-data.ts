@@ -206,7 +206,7 @@ export const initialData: FlowDocumentJSON = {
               },
               apiHost: {
                 type: 'constant',
-                content: 'https://mock-ai-url/api/v3',
+                content: '',
               },
               temperature: {
                 type: 'constant',
@@ -283,7 +283,7 @@ export const initialData: FlowDocumentJSON = {
               },
               apiHost: {
                 type: 'constant',
-                content: 'https://mock-ai-url/api/v3',
+                content: '',
               },
               temperature: {
                 type: 'constant',
@@ -412,7 +412,7 @@ export const initialData: FlowDocumentJSON = {
           },
           apiHost: {
             type: 'constant',
-            content: 'https://mock-ai-url/api/v3',
+            content: '',
           },
           temperature: {
             type: 'constant',
@@ -489,7 +489,7 @@ export const initialData: FlowDocumentJSON = {
           },
           apiHost: {
             type: 'constant',
-            content: 'https://mock-ai-url/api/v3',
+            content: '',
           },
           temperature: {
             type: 'constant',

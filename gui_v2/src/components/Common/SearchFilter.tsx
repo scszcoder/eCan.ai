@@ -17,18 +17,18 @@ import { useTranslation } from 'react-i18next';
 
 const { Text } = Typography;
 
-// 主容器 - 与现有设计系统协调
+// 主Container - 简化Version，去掉边框和内边距
 const SearchContainer = styled.div`
-  margin-bottom: 12px;
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  padding: 12px;
-  box-shadow: var(--shadow-sm);
+  margin-bottom: 0;
+  background-color: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
   transition: var(--transition-normal);
 `;
 
-// 搜索输入框包装器
+// SearchInput框包装器
 const SearchInputWrapper = styled.div`
   position: relative;
   margin-bottom: 0;
@@ -36,65 +36,87 @@ const SearchInputWrapper = styled.div`
   min-width: 0;
 `;
 
-// 搜索输入框 - 与现有输入框风格一致
+// SearchInput框 - 与现有Input框风格一致
 const StyledInput = styled(Input)`
-  height: 36px;
-  border-radius: 6px;
-  background-color: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  color: var(--text-primary);
-  font-size: 14px;
-  transition: var(--transition-fast);
-  padding: 0 12px 0 36px;
-  width: 100%;
-
-  &::placeholder {
-    color: var(--text-muted);
-  }
-
-  .ant-input-prefix {
-    position: absolute;
-    left: 12px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: var(--text-secondary);
+  &.ant-input-affix-wrapper {
+    height: 36px;
+    border-radius: 8px;
+    background: rgba(51, 65, 85, 0.3);
+    border: none;
+    color: var(--text-primary);
     font-size: 14px;
-    z-index: 2;
-  }
+    transition: var(--transition-fast);
+    padding: 0 12px;
+    width: 100%;
+    line-height: 36px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 
-  .ant-input-suffix {
-    margin-left: 8px;
-  }
+    &:hover {
+      background: rgba(51, 65, 85, 0.4);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    }
 
-  /* 确保外层包装器在所有状态下都保持一致的边框 */
-  .ant-input-affix-wrapper,
-  .ant-input-affix-wrapper:hover,
-  .ant-input-affix-wrapper:focus,
-  .ant-input-affix-wrapper-focused {
-    border-color: var(--border-color) !important;
-    box-shadow: none !important;
-    outline: none !important;
-  }
+    &:focus,
+    &.ant-input-affix-wrapper-focused {
+      background: rgba(51, 65, 85, 0.5);
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
 
-  /* 确保内部输入框完全没有边框和效果 */
-  .ant-input {
-    border: none !important;
-    box-shadow: none !important;
-    outline: none !important;
-    background: transparent !important;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-    
-    &:hover,
-    &:focus {
+    > input.ant-input {
+      background: transparent !important;
       border: none !important;
+      height: 34px !important;
+      line-height: 34px !important;
+      padding: 0 !important;
       box-shadow: none !important;
-      outline: none !important;
+      color: var(--text-primary);
+      
+      &::placeholder {
+        color: var(--text-muted);
+      }
+
+      &:hover,
+      &:focus {
+        border: none !important;
+        box-shadow: none !important;
+        outline: none !important;
+      }
+    }
+
+    .ant-input-prefix {
+      color: rgba(148, 163, 184, 0.7);
+      font-size: 14px;
+      margin-right: 8px;
+    }
+
+    .ant-input-suffix {
+      color: rgba(148, 163, 184, 0.7);
+      font-size: 12px;
+      margin-left: 8px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+
+      .anticon {
+        transition: all 0.3s ease;
+      }
+
+      &:hover .anticon {
+        color: rgba(248, 250, 252, 0.95);
+      }
+    }
+
+    .ant-input-clear-icon {
+      color: rgba(148, 163, 184, 0.7);
+      font-size: 12px;
+      
+      &:hover {
+        color: rgba(248, 250, 252, 0.95);
+      }
     }
   }
 `;
 
-// 操作按钮组
+// OperationButton组
 const ActionButtons = styled.div`
   display: flex;
   gap: 6px;
@@ -102,46 +124,65 @@ const ActionButtons = styled.div`
   flex-shrink: 0;
 `;
 
-// 操作按钮 - 与现有按钮风格一致
+// OperationButton - 与TaskFilters一致的样式（只Display图标）
 const ActionButton = styled(Button)`
-  height: 32px;
-  border-radius: 6px;
-  background-color: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  font-weight: 500;
-  transition: var(--transition-fast);
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 8px;
-  font-size: 13px;
+  height: 36px !important;
+  width: 36px !important;
+  border-radius: 8px !important;
+  background: rgba(51, 65, 85, 0.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 !important;
 
   &:hover {
-    background-color: var(--bg-secondary);
-    border-color: var(--primary-color);
-    color: var(--text-primary);
+    background: rgba(51, 65, 85, 0.7) !important;
+    border-color: rgba(59, 130, 246, 0.3) !important;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15) !important;
+  }
+
+  &:active {
+    opacity: 0.8 !important;
   }
 
   &.active {
-    background: linear-gradient(90deg, var(--primary-color), var(--accent-color));
-    border-color: var(--primary-color);
-    color: white;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.9) 0%, rgba(99, 102, 241, 0.9) 100%) !important;
+    border-color: rgba(59, 130, 246, 0.5) !important;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
+
+    &:hover {
+      background: linear-gradient(135deg, rgba(59, 130, 246, 1) 0%, rgba(99, 102, 241, 1) 100%) !important;
+      border-color: rgba(59, 130, 246, 0.7) !important;
+      box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4) !important;
+    }
   }
 
   .anticon {
-    font-size: 13px;
+    color: rgba(59, 130, 246, 0.9) !important;
+    font-size: 16px !important;
+    transition: all 0.3s ease !important;
+  }
+
+  &:hover .anticon {
+    color: rgba(96, 165, 250, 1) !important;
+  }
+
+  &.active .anticon {
+    color: white !important;
   }
 `;
 
-// 搜索区域布局
+// Search区域Layout
 const SearchLayout = styled.div`
   display: flex;
   gap: 8px;
   align-items: flex-start;
 `;
 
-// 筛选标签
+// 筛选Tag
 const FilterTags = styled.div`
   display: flex;
   flex-wrap: wrap;
@@ -149,7 +190,7 @@ const FilterTags = styled.div`
   margin-top: 8px;
 `;
 
-// 标签 - 与现有标签风格一致
+// Tag - 与现有Tag风格一致
 const FilterTag = styled(Tag)`
   margin: 0;
   padding: 3px 8px;
@@ -180,7 +221,7 @@ const FilterTag = styled(Tag)`
   }
 `;
 
-// 搜索统计
+// Search统计
 const SearchStats = styled.div`
   display: flex;
   align-items: center;
@@ -200,7 +241,7 @@ const StatsItem = styled.div`
   font-size: 12px;
 `;
 
-// 历史记录下拉菜单
+// 历史记录下拉Menu
 const HistoryDropdown = styled.div`
   max-width: 400px;
   max-height: 300px;
@@ -275,7 +316,7 @@ const HistoryItem = styled.div`
   }
 `;
 
-// 筛选下拉菜单
+// 筛选下拉Menu
 const FilterDropdown = styled.div`
   min-width: 200px;
   max-width: 300px;
@@ -297,7 +338,7 @@ const FilterSectionTitle = styled.div`
   background-color: var(--bg-secondary);
 `;
 
-// 接口定义
+// InterfaceDefinition
 interface SearchFilterProps {
   value?: string;
   onSearch: (value: string) => void;
@@ -336,7 +377,7 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
   const [showFilters, setShowFilters] = useState(false);
   const inputRef = useRef<any>(null);
 
-  // 防抖搜索
+  // 防抖Search
   const debouncedSearch = useCallback(
     debounce((value: string) => {
       onSearch(value);
@@ -344,14 +385,14 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
     [onSearch]
   );
 
-  // 处理搜索输入
+  // ProcessSearchInput
   const handleSearchInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setSearchValue(value);
     debouncedSearch(value);
   };
 
-  // 处理历史记录点击
+  // Process历史记录Click
   const handleHistoryItemClick = (item: { text: string; timestamp: number; type?: 'recent' | 'popular' }) => {
     setSearchValue(item.text);
     onSearch(item.text);
@@ -359,13 +400,13 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
     onHistoryClick?.(item);
   };
 
-  // 处理历史记录删除
+  // Process历史记录Delete
   const handleHistoryItemDelete = (e: React.MouseEvent, item: { text: string; timestamp: number; type?: 'recent' | 'popular' }) => {
     e.stopPropagation();
     onHistoryDelete?.(item);
   };
 
-  // 处理筛选变化
+  // Process筛选变化
   const handleFilterChange = (key: string, value: any) => {
     const newFilters = { ...activeFilters };
     if (value) {
@@ -377,7 +418,7 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
     onFilter?.(newFilters);
   };
 
-  // 处理移除筛选
+  // ProcessRemove筛选
   const handleRemoveFilter = (key: string) => {
     const newFilters = { ...activeFilters };
     delete newFilters[key];
@@ -385,13 +426,13 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
     onFilter?.(newFilters);
   };
 
-  // 处理重置
+  // ProcessReset
   const handleReset = () => {
     setActiveFilters({});
     onFilterReset?.();
   };
 
-  // 格式化时间
+  // FormatTime
   const formatTime = (timestamp: number) => {
     const now = Date.now();
     const diff = now - timestamp;
@@ -405,7 +446,7 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
     return t('search.daysAgo', { count: days });
   };
 
-  // 历史记录菜单
+  // 历史记录Menu
   const historyMenu = {
     items: [
       ...searchHistory.slice(0, 5).map((item, index) => ({
@@ -424,7 +465,7 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
                 <CloseOutlined 
                   className="action-btn"
                   onClick={(e) => handleHistoryItemDelete(e, item)}
-                  aria-label="删除历史"
+                  aria-label="Delete历史"
                 />
               </Tooltip>
             </div>
@@ -461,7 +502,7 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
     ]
   };
 
-  // 筛选菜单
+  // 筛选Menu
   const filterMenu = {
     items: [
       ...filterOptions.map((option, index) => ({
@@ -471,6 +512,7 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
             <FilterSectionTitle>{option.label}</FilterSectionTitle>
             <div style={{ padding: '8px 12px' }}>
               <Select
+                id={`filter-select-${option.key}`}
                 style={{ width: '100%' }}
                 placeholder={t('search.selectFilter', { filter: option.label })}
                 value={activeFilters[option.key]}
@@ -510,11 +552,19 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
         <SearchInputWrapper>
           <StyledInput
             ref={inputRef}
+            id="chat-search-input"
             value={searchValue}
             onChange={handleSearchInput}
             placeholder={placeholder || t('search.placeholder')}
             prefix={<SearchOutlined />}
-            suffix={value && <CloseOutlined onClick={() => onSearch('')} />}
+            suffix={value && <CloseOutlined onClick={() => {
+              setSearchValue('');
+              onSearch('');
+              // Delay重新聚焦，确保在StatusUpdate后
+              setTimeout(() => {
+                inputRef.current?.focus();
+              }, 0);
+            }} />}
             aria-label={t('search.ariaSearch')}
           />
         </SearchInputWrapper>
@@ -528,14 +578,14 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
               placement="bottomRight"
               trigger={['click']}
             >
-              <ActionButton
-                icon={<HistoryOutlined />}
-                onClick={() => setShowHistory(!showHistory)}
-                aria-label={t('search.ariaHistory')}
-                tabIndex={0}
-              >
-                {t('search.history')}
-              </ActionButton>
+              <Tooltip title={t('search.history')}>
+                <ActionButton
+                  icon={<HistoryOutlined />}
+                  onClick={() => setShowHistory(!showHistory)}
+                  aria-label={t('search.ariaHistory')}
+                  tabIndex={0}
+                />
+              </Tooltip>
             </Dropdown>
           )}
 
@@ -547,21 +597,21 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
               placement="bottomRight"
               trigger={['click']}
             >
-              <ActionButton
-                icon={<FilterOutlined />}
-                onClick={() => setShowFilters(!showFilters)}
-                className={Object.keys(activeFilters).length > 0 ? 'active' : ''}
-                aria-label={t('search.ariaFilter')}
-                tabIndex={0}
-              >
-                {t('search.filters')}
-              </ActionButton>
+              <Tooltip title={t('search.filters')}>
+                <ActionButton
+                  icon={<FilterOutlined />}
+                  onClick={() => setShowFilters(!showFilters)}
+                  className={Object.keys(activeFilters).length > 0 ? 'active' : ''}
+                  aria-label={t('search.ariaFilter')}
+                  tabIndex={0}
+                />
+              </Tooltip>
             </Dropdown>
           )}
         </ActionButtons>
       </SearchLayout>
 
-      {/* 筛选标签 */}
+      {/* 筛选Tag */}
       {Object.keys(activeFilters).length > 0 && (
         <FilterTags>
           {Object.entries(activeFilters).map(([key, value]) => {
@@ -577,7 +627,7 @@ const SearchFilter: React.FC<SearchFilterProps> = ({
         </FilterTags>
       )}
 
-      {/* 搜索统计 */}
+      {/* Search统计 */}
       {searchStats && (
         <SearchStats>
           <StatsItem>

@@ -8,20 +8,20 @@ export const useMessages = (chatId?: string) => {
   const [unreadCounts, setUnreadCounts] = useState<Map<string, number>>(new Map());
 
   useEffect(() => {
-    // 订阅消息更新
+    // 订阅MessageUpdate
     const unsubscribe = messageManager.subscribe((newMessages) => {
       setAllMessages(newMessages);
       
-      // 如果指定了 chatId，更新对应的消息
+      // If指定了 chatId，Update对应的Message
       if (chatId) {
         setMessages(newMessages.get(chatId) || []);
       }
       
-      // 更新未读计数
+      // Update未读计数
       setUnreadCounts(messageManager.getAllUnreadCounts());
     });
 
-    // 清理订阅
+    // Cleanup订阅
     return unsubscribe;
   }, [chatId]);
 

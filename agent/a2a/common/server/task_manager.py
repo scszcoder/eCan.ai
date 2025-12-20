@@ -86,14 +86,18 @@ class InMemoryTaskManager(TaskManager):
         logger.info(f"Getting task {request.params.id}")
         task_query_params: TaskQueryParams = request.params
 
+        # Get task reference quickly (minimize lock time)
         async with self.lock:
             task = self.tasks.get(task_query_params.id)
             if task is None:
                 return GetTaskResponse(id=request.id, error=TaskNotFoundError())
+            # Create a reference copy while holding lock (task object itself won't change)
+            task_ref = task
 
-            task_result = self.append_task_history(
-                task, task_query_params.historyLength
-            )
+        # Process history outside lock to avoid blocking other operations
+        task_result = self.append_task_history(
+            task_ref, task_query_params.historyLength
+        )
 
         return GetTaskResponse(id=request.id, result=task_result)
 

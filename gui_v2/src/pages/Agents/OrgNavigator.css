@@ -1,0 +1,399 @@
+.org-navigator {
+  position: relative;
+  background: linear-gradient(135deg, var(--ant-bg-color-inverse, #181c2a) 0%, var(--ant-primary-1, #1e293b) 60%, var(--ant-primary-2, #1677ff22) 100%);
+  overflow-y: auto;
+  overflow-x: hidden;
+  font-family: var(--ant-font-family, inherit);
+  width: 100%;
+  height: 100%;
+  opacity: 1;
+  transition: opacity 0.3s ease-in-out;
+}
+
+
+.navigator-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  z-index: 2;
+}
+
+.loading-text {
+  color: var(--ant-color-text-secondary, rgba(226, 232, 240, 0.75));
+  font-size: 16px;
+}
+
+.navigator-bg-svg {
+  position: absolute;
+  left: 0; top: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.navigator-bg-blur {
+  position: absolute;
+  width: 400px;
+  height: 400px;
+  border-radius: 50%;
+  filter: blur(100px);
+  opacity: 0.12;
+  z-index: 1;
+}
+
+.navigator-bg-blur1 {
+  background: var(--ant-primary-2, #91caff);
+  left: 10vw;
+  top: 10vh;
+}
+
+.navigator-bg-blur2 {
+  background: var(--ant-primary-3, #bae0ff);
+  right: 10vw;
+  bottom: 10vh;
+}
+
+.navigator-bg-blur3 {
+  background: #6366f1;
+  left: 55vw;
+  top: 65vh;
+  width: 380px;
+  height: 380px;
+  filter: blur(80px);
+  opacity: 0.12;
+}
+
+.navigator-space-lights {
+  position: absolute;
+  left: 0; right: 0; top: 0; bottom: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.navigator-space-light {
+  position: absolute;
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0%, #a5b4fc 80%, transparent 100%);
+  opacity: 0.08;
+}
+
+.navigator-space-light1 { 
+  left: 18vw; top: 28vh;
+}
+.navigator-space-light2 { 
+  left: 62vw; top: 18vh;
+}
+.navigator-space-light3 { 
+  left: 42vw; top: 72vh;
+}
+
+.navigator-header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px 32px 16px;
+  background: rgba(0, 0, 0, 0.1);
+  border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.navigator-header .ant-breadcrumb {
+  font-size: 18px;
+  font-weight: 600;
+  color: rgba(226, 232, 240, 0.9);
+}
+
+.navigator-header .ant-breadcrumb a {
+  color: rgba(96, 165, 250, 0.95);
+}
+
+.navigator-header .ant-breadcrumb a:hover {
+  color: rgba(37, 99, 235, 1);
+}
+
+.navigator-menu-trigger {
+  border-radius: 10px !important;
+  border: 1px solid rgba(59, 130, 246, 0.45) !important;
+  background: rgba(13, 24, 42, 0.55) !important;
+  color: rgba(148, 163, 184, 0.95) !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  box-shadow: 0 8px 24px rgba(59, 130, 246, 0.35);
+}
+
+.navigator-menu-trigger:hover {
+  background: rgba(59, 130, 246, 0.85) !important;
+  color: #fff !important;
+}
+
+
+/* 统一网格布局 - 同时显示doors和agents，自动换行 */
+.unified-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
+  position: relative;
+  z-index: 2;
+  padding: 100px 48px 48px; /* 增加顶部内边距到100px，确保第一行hover不超出 */
+  gap: 100px 48px; /* 增加上下间距到100px，左右48px，确保视觉舒适且hover不重叠 */
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+  min-height: calc(100vh - 80px);
+  box-sizing: border-box;
+}
+
+/* 组织门卡片固定宽度 - 增大尺寸 */
+.unified-grid > div:not(.agent-card-wrapper) {
+  flex: 0 0 260px;
+  width: 260px;
+  pointer-events: none; /* 禁用外层容器的点击事件 */
+}
+
+/* 门卡片本身可以点击 */
+.unified-grid > div:not(.agent-card-wrapper) > * {
+  pointer-events: auto; /* 恢复内部元素的点击事件 */
+}
+
+/* agent卡片包装器，自适应宽度，自动换行 */
+.agent-card-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 100%;
+}
+
+/* 空状态样式 */
+.empty-state {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  z-index: 2;
+  padding: 48px;
+  background: rgba(30, 41, 59, 0.95);
+  border-radius: 24px;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  min-width: 400px;
+}
+
+/* 保留原有的doors-grid样式以防回退 */
+.doors-grid {
+  display: grid;
+  place-items: center;
+  justify-content: center;
+  align-content: flex-start;
+  gap: 24px 32px;
+  width: 100%;
+  height: 100%;
+  min-height: 500px;
+  max-height: 100vh;
+  max-width: 100vw;
+  overflow: auto;
+  padding: 40px 32px 40px 32px;
+  z-index: 2;
+  position: relative;
+}
+
+/* 根据门的数量调整网格列数 - 更紧凑的布局 */
+.doors-grid[data-door-count="1"] {
+  grid-template-columns: repeat(1, 1fr);
+}
+
+.doors-grid[data-door-count="2"] {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.doors-grid[data-door-count="3"],
+.doors-grid[data-door-count="4"],
+.doors-grid[data-door-count="5"],
+.doors-grid[data-door-count="6"] {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.doors-grid[data-door-count="7"],
+.doors-grid[data-door-count="8"],
+.doors-grid[data-door-count="9"],
+.doors-grid[data-door-count="10"],
+.doors-grid[data-door-count="11"],
+.doors-grid[data-door-count="12"] {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+/* 13个或更多门使用5列 */
+.doors-grid:not([data-door-count]),
+.doors-grid[data-door-count]:not([data-door-count="1"]):not([data-door-count="2"]):not([data-door-count="3"]):not([data-door-count="4"]):not([data-door-count="5"]):not([data-door-count="6"]):not([data-door-count="7"]):not([data-door-count="8"]):not([data-door-count="9"]):not([data-door-count="10"]):not([data-door-count="11"]):not([data-door-count="12"]) {
+  grid-template-columns: repeat(5, 1fr);
+}
+
+.org-door.custom-door {
+  position: static !important;
+  width: min(18vw, 180px);
+  height: min(26vw, 260px);
+  max-width: 180px;
+  max-height: 240px;
+}
+
+/* 确保 OrgDoor 的动画不被覆盖 */
+.org-door.custom-door.opening .org-door-img {
+  animation: doorOpenImgAnim 0.4s ease-out forwards !important;
+  transform-origin: left center !important;
+}
+
+.org-door.custom-door:not(.opening) .org-door-img {
+  animation: doorCloseImgAnim 0.3s ease-in forwards !important;
+  transform-origin: left center !important;
+}
+
+.org-door.custom-door:hover {
+  transform: scale(1.12) !important;
+  box-shadow: 0 0 32px #6366f1cc, 0 8px 32px 0 rgba(80,80,120,0.18) !important;
+}
+
+/* 确保动画关键帧存在 */
+@keyframes doorOpenImgAnim {
+  0% { transform: perspective(400px) rotateY(0deg); }
+  100% { transform: perspective(400px) rotateY(25deg); }
+}
+
+@keyframes doorCloseImgAnim {
+  0% { transform: perspective(400px) rotateY(25deg); }
+  100% { transform: perspective(400px) rotateY(0deg); }
+}
+
+.doors-empty-state {
+  position: relative;
+  z-index: 2;
+  min-height: 280px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: rgba(226, 232, 240, 0.75);
+  padding: 120px 32px 48px;
+}
+
+.agent-roster {
+  position: relative;
+  z-index: 2;
+  padding: 0;
+  margin-top: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 500px;
+  max-height: 100vh;
+  overflow: auto;
+}
+
+.agent-roster-grid {
+  display: grid;
+  place-items: center;
+  justify-content: center;
+  align-content: flex-start;
+  width: 100%;
+  padding: 32px 0 40px 0;
+  grid-template-columns: repeat(auto-fit, minmax(360px, max-content));
+}
+
+/* AgentCard 网格布局与门网格保持一致的风格 */
+
+@media (max-width: 1024px) {
+  .unified-grid {
+    padding: 32px 32px 40px;
+    gap: 24px 32px;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  }
+
+  .empty-state {
+    min-width: 300px;
+    padding: 32px;
+  }
+
+  .doors-grid {
+    padding: 40px 32px 40px 32px;
+    gap: 24px 32px;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  }
+
+  .agent-roster {
+    padding: 0;
+  }
+
+  .agent-roster-grid {
+    padding: 32px 24px 40px;
+    gap: 24px 32px;
+    grid-template-columns: repeat(auto-fit, minmax(300px, max-content));
+    max-width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 768px) {
+  .unified-grid {
+    padding: 24px 16px 40px;
+    gap: 20px 24px;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+
+  .empty-state {
+    min-width: 280px;
+    padding: 24px;
+  }
+
+  .doors-grid {
+    padding: 40px 16px 40px 16px;
+    gap: 20px 24px;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+
+  .navigator-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .agent-roster {
+    padding: 0;
+  }
+
+  .agent-roster-grid {
+    padding: 24px 16px 40px;
+    gap: 20px 24px;
+    grid-template-columns: repeat(auto-fit, minmax(280px, max-content));
+  }
+
+  .doors-empty-state {
+    padding: 140px 16px 32px;
+  }
+}
+
+@media (max-width: 480px) {
+  .navigator-menu-trigger {
+    width: 34px;
+    height: 34px;
+  }
+}

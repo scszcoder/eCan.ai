@@ -1,5 +1,6 @@
 from typing import TypedDict
 import uuid
+from datetime import datetime
 
 from langgraph.constants import START, END
 from langgraph.graph import StateGraph
@@ -24,17 +25,30 @@ import io
 import os
 import base64
 
-from agent.chats.chat_utils import a2a_send_chat
+from agent.chats.chat_utils import gui_a2a_send_chat
 from agent.ec_skills.file_utils.file_utils import extract_file_text
-from bot.Logger import *
-from agent.ec_skill import *
-from utils.logger_helper import get_agent_by_id, get_traceback
+from agent.ec_skill import NodeState, WorkFlowContext, EC_Skill, node_builder
+from agent.ec_skills.dev_defs import BreakpointManager
+
+from utils.logger_helper import get_traceback
 from utils.logger_helper import logger_helper as logger
+from agent.agent_service import get_agent_by_id
 from agent.mcp.local_client import mcp_call_tool
-from agent.chats.tests.test_notifications import sample_metrics_0
 from agent.mcp.server.api.ecan_ai.ecan_ai_api import api_ecan_ai_get_nodes_prompts
+from agent.ec_skills.common_nodes import (
+    DEFAULT_CHATTER_MAPPING_RULES,
+    PUBLIC_OWNER,
+    llm_node_with_raw_files,
+    pend_for_human_input_node,
+    chat_or_work
+)
 
 
+THIS_SKILL_NAME = "self_test_chatter"
+DESCRIPTION = (
+    "Chat assistant to self test. "
+    "talk to human or other agents, mostly respond to their requests to do self test or query current status or available tests."
+)
 
 
 def _ensure_context(ctx: WorkFlowContext) -> WorkFlowContext:
@@ -47,373 +61,271 @@ def _ensure_context(ctx: WorkFlowContext) -> WorkFlowContext:
 
 
 
-def pend_for_human_input_node(state: NodeState, *, runtime: Runtime, store: BaseStore):
-    # highlight-next-line
-    print("pend_for_human_input_node:", state)
-    if state.get("tool_result", None):
-        qa_form = state.get("tool_result").get("qa_form", None)
-        notification = state.get("tool_result").get("notification", None)
-    else:
-        qa_form = None
-        notification = None
-
-    interrupted = interrupt( # (1)!
-        {
-            "prompt_to_human": state["result"], # (2)!
-            "qa_form_to_human": qa_form,
-            "notification_to_human": notification
-        }
-    )
-    print("node running:", runtime.context.current_node)
-    print("interrupted:", interrupted)
-    return {
-        "pended": interrupted # (3)!
-    }
-
-
-def any_attachment(state: NodeState) -> str:
-    print("go to digi-key site:", state)
-    return state
-
-
-def chat_or_work(state: NodeState, *, runtime: Runtime) -> str:
-    print("chat_or_test input:", state)
-    if isinstance(state['result'], dict):
-        state_output = state['result']
-        if state_output.get("job_related", False):
-            return "do_test"
-        else:
-            return "chat_back"
-    else:
-        return "chat_back"
-
-
-def read_attachments_node(state: NodeState) -> str:
-    print("read attachments:", state)
-    return {}
-
-
-# for now, the raw files can only be pdf, PNG(.png) JPEG (.jpeg and .jpg) WEBP (.webp) Non-animated GIF (.gif),
-# .wav (.mp3) and .mp4
-def llm_node_with_raw_files(state:NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
-    print("in llm_node_with_raw_files....")
-    user_input = state.get("input", "")
-    agent_id = state["messages"][0]
-    agent = get_agent_by_id(agent_id)
-    mainwin = agent.mainwin
-    print("run time:", runtime)
-    current_node = runtime.context["this_node"].get("name")
-    # print("current node:", current_node)
-    nodes = [{"askid": "skid0", "name": current_node}]
-    nodes_prompts = api_ecan_ai_get_nodes_prompts(mainwin, nodes)
-    print("networked prompts:", nodes_prompts)
-    node_prompt = nodes_prompts[0]
-
-    attachments = state.get("attachments", [])
-    user_content = []
-    print("node running:", runtime)
-    print("LLM input text:", user_input)
-    # Add user text
-    user_content.append({"type": "text", "text": user_input})
-
-    # Add all attachments in supported format
-    for att in attachments:
-        fname = att["filename"].lower()
-
-        mime_type = att.get("mime_type", "").lower()
-        print(f"Processing file: {fname} (MIME: {mime_type})")
-
-        # Skip if no file data
-        if not att.get("file_data"):
-            print(f"Skipping empty file: {fname}")
-            continue
-
-        data = att["file_data"]
-
-        # Handle image files (PNG, JPG, etc.)
-        if mime_type.startswith('image/'):
-            print(f"Processing image file: {fname}")
-            file_data = data if isinstance(data, str) else base64.b64encode(data).decode('utf-8')
-            user_content.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:{mime_type};base64,{file_data}"
-                    # "detail": "auto"
-                }
-            })
-
-        # Handle PDF files
-        elif mime_type == 'application/pdf':
-            print(f"Processing PDF file: {fname}")
-            # For PDFs, we'll just note its existence since we can't process it directly
-            user_content.append({
-                "type": "text",
-                "text": f"[PDF file: {fname} - PDF content cannot be processed directly]"
-            })
-
-        # Handle audio files
-        elif mime_type.startswith('audio/'):
-            print(f"Processing audio file: {fname}")
-            # For audio files, we'll just note its existence
-            user_content.append({
-                "type": "text",
-                "text": f"[Audio file: {fname} - Audio content cannot be processed directly]"
-            })
-
-        # Handle other file types
-        else:
-            print(f"Unsupported file type: {fname} ({mime_type})")
-            # user_content.append({
-            #     "type": "text",
-            #     "text": f"[File: {fname} - This file type is not supported for direct analysis]"
-            # })
-
-
-
-    llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
-
-    prompt_messages = [
-        {
-            "role": "system",
-            "content": """
-                You are an expert assistant. given human prompt, please try understand and reply in json format {"request_test": True/False, "which_test": "test name"}
-                """
-        },
-        {
-            "role": "user",
-            "content": user_content
-        }
-    ]
-
-    print("chat node: llm prompt ready:", node_prompt)
-    response = llm.invoke(node_prompt)
-    print("chat node: LLM response:", response)
-    # Parse the response
-    try:
-        import json
-        import ast  # Add this import at the top of your file
-
-        # Extract content from AIMessage if needed
-        raw_content = response.content if hasattr(response, 'content') else str(response)
-        print("Raw content:", raw_content)  # Debug log
-
-        # Clean up the response
-        if is_json_parsable(raw_content):
-            result = json.loads(raw_content)
-        else:
-            content = raw_content.strip('`').strip()
-            if content.startswith('json'):
-                content = content[4:].strip()
-            # Parse the JSON
-            # Convert to proper JSON string if it's a Python dict string
-            if content.startswith('{') and content.endswith('}'):
-                # Replace single quotes with double quotes for JSON
-                content = content.replace("'", '"')
-                # Convert Python's True/False to JSON's true/false
-                content = content.replace("True", "true").replace("False", "false")
-                if is_json_parsable(content):
-                    # Return the full state with the analysis
-                    result = json.loads(content)
-                else:
-                    result = raw_content
-            else:
-                result = raw_content
-
-        return {**state, "result": result}
-    except Exception as e:
-        print(f"Error parsing LLM response: {e}")
-        print(f"Raw response: {response}")
-        return {**state, "analysis": {"job_related": False}}
-
-
-def pre_model_hook(state):
-    trimmed_messages = trim_messages(
-        state["messages"],
-        strategy="last",
-        token_counter=count_tokens_approximately,
-        max_tokens=384,
-        start_on="human",
-        end_on=("human", "tool"),
-    )
-    # highlight-next-line
-    return {"llm_input_messages": trimmed_messages}
-
-
 def run_test_node(state: NodeState, *, runtime: Runtime, store: BaseStore) -> NodeState:
     agent_id = state["messages"][0]
     # _ensure_context(runtime.context)
     self_agent = get_agent_by_id(agent_id)
     mainwin = self_agent.mainwin
-    print("run_search_node:", state)
+    logger.debug("run_test_node:", state)
 
-    # send self a message to trigger the real component search work-flow
-    result = self_agent.a2a_send_chat_message(self_agent, {"message": "self_test_request", "params": state.attributes})
-    state.result = result
+    # obtain the raw message from state
+    raw_message = state["messages"][-1]
+    logger.debug("[run_test_node] raw_message:", raw_message)
+
+    # assume raw message is formated like this: "t <test_name> {<test_params>}" or "e <event_name> {<event_params>}"
+    # where test_params and event_params would be in json format, but they are optional if {...} is not supplied we'll
+    # just assume default parameters. so the raw message can be "t <test_name>" or "e <event_name>"
+    # for test, simply call a function run_test(test_name, test_params=None),
+    # for event, simply call a function simulate_event(event_name, event_params=None)
+
+    try:
+        import re
+        import json
+        
+        # Extract the message content
+        if hasattr(raw_message, 'content'):
+            message_text = raw_message.content
+        elif isinstance(raw_message, str):
+            message_text = raw_message
+        else:
+            message_text = str(raw_message)
+        
+        logger.debug(f"Parsing message: {message_text}")
+        
+        # First, extract the command after "execute" keyword
+        # Pattern: anything followed by "execute" followed by the actual command
+        execute_pattern = r'.*\bexecute\b\s+(.+)$'
+        execute_match = re.search(execute_pattern, message_text.strip(), re.IGNORECASE)
+        
+        if execute_match:
+            # Extract the command after "execute"
+            command_string = execute_match.group(1).strip()
+            logger.debug(f"Extracted command after 'execute': {command_string}")
+        else:
+            # No "execute" keyword found, use the whole message
+            command_string = message_text.strip()
+            logger.debug(f"No 'execute' keyword found, using full message: {command_string}")
+        
+        # Parse the command format: "t <name> {params}" or "e <name> {params}"
+        # Pattern: (t|e) followed by name, optionally followed by JSON params
+        pattern = r'^([te])\s+(\w+)(?:\s+(\{.*\}))?$'
+        match = re.match(pattern, command_string)
+        
+        if not match:
+            result = {
+                "error": f"Invalid command format. Expected 't <test_name> {{params}}' or 'e <event_name> {{params}}', got: {command_string}"
+            }
+            state["result"] = result
+            return state
+        
+        command_type = match.group(1)  # 't' or 'e'
+        name = match.group(2)
+        params_str = match.group(3)
+        
+        # Parse params if provided
+        params = None
+        if params_str:
+            try:
+                params = json.loads(params_str)
+            except json.JSONDecodeError as e:
+                result = {
+                    "error": f"Invalid JSON parameters: {params_str}. Error: {str(e)}"
+                }
+                state["result"] = result
+                return state
+        
+        # Execute based on command type
+        if command_type == 't':
+            # Run test
+            logger.debug(f"Running test: {name} with params: {params}")
+            result = run_test(mainwin, name, params)
+        elif command_type == 'e':
+            # Simulate event
+            logger.debug(f"Simulating event: {name} with params: {params}")
+            result = simulate_event(self_agent, mainwin, name, params)
+        else:
+            result = {"error": f"Unknown command type: {command_type}"}
+        
+        state["result"] = result
+        
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorRunTestNode")
+        logger.error(err_trace)
+        state["result"] = {"error": err_trace}
+    
     return state
 
 
-
-async def create_self_test_chatter_skill(mainwin):
+def run_test(mainwin, test_name: str, test_params: dict = None) -> dict:
+    """
+    Execute a specific test by name.
+    
+    Args:
+        mainwin: Main window instance
+        test_name: Name of the test to run
+        test_params: Optional parameters for the test
+        
+    Returns:
+        dict: Test execution result
+    """
     try:
-        llm = mainwin.llm
+        logger.debug(f"Executing test: {test_name} with params: {test_params}")
+        
+        # Import test functions
+        from tests.unittests import run_default_tests
+        
+        # Map test names to test functions
+        if test_name == "default" or test_name == "all":
+            result = run_default_tests(mainwin, test_params)
+        else:
+            # For specific tests, you can add more mappings here
+            result = {
+                "status": "error",
+                "message": f"Unknown test: {test_name}. Available tests: default, all"
+            }
+        
+        return {
+            "status": "success",
+            "test_name": test_name,
+            "result": result
+        }
+        
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorRunTest")
+        logger.error(err_trace)
+        return {
+            "status": "error",
+            "test_name": test_name,
+            "error": err_trace
+        }
+
+
+def simulate_event(agent, mainwin, event_name: str, event_params: dict = None) -> dict:
+    """
+    Simulate a specific event by name.
+    
+    Args:
+        agent: The agent running this skill
+        mainwin: Main window instance
+        event_name: Name of the event to simulate
+        event_params: Optional parameters for the event
+        
+    Returns:
+        dict: Event simulation result
+    """
+    try:
+        logger.debug(f"Simulating event: {event_name} with params: {event_params}")
+        
+        # 1) Find the skill development task of this agent
+        agent_tasks = mainwin.agent_tasks
+        skill_dev_task = next(
+            (task for task in agent_tasks if task.name == "dev:run task for skill under development"),
+            None
+        )
+        
+        if not skill_dev_task:
+            return {
+                "status": "error",
+                "event_name": event_name,
+                "error": "Skill development task not found"
+            }
+        
+        # 2) Create a normalized event object
+        from agent.ec_tasks.resume import normalize_event
+        
+        # Build the event message data
+        event_data = {
+            "method": f"{event_name}",
+            "params": event_params or {},
+            "metadata": {
+                "source": "self_test",
+                "agent_id": agent.card.id if hasattr(agent, 'card') else None,
+                "timestamp": str(datetime.now())
+            }
+        }
+        
+        normalized_event = normalize_event(
+            event_type=event_name,
+            msg=event_data,
+            src="self_test",
+            tag=f"simulated_{event_name}",
+            ctx={"simulated": True}
+        )
+        
+        logger.debug(f"Normalized event created: {normalized_event}")
+        
+        # 3) Put this event object onto skill dev task's queue
+        if skill_dev_task.queue:
+            skill_dev_task.queue.put_nowait(normalized_event)
+            logger.debug(f"Event '{event_name}' queued to skill dev task: {skill_dev_task.name}")
+            
+            result = {
+                "status": "success",
+                "event_name": event_name,
+                "message": f"Event '{event_name}' simulated and queued successfully",
+                "params": event_params,
+                "task": skill_dev_task.name
+            }
+        else:
+            result = {
+                "status": "error",
+                "event_name": event_name,
+                "error": "Skill dev task has no queue"
+            }
+        
+        return result
+        
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorSimulateEvent")
+        logger.error(err_trace)
+        return {
+            "status": "error",
+            "event_name": event_name,
+            "error": err_trace
+        }
+
+
+async def create_self_test_chatter_skill(mainwin=None, run_context: dict | None = None):
+    try:
+        # Inject dependencies on first call
+        print("building self_test_chatter_skill..................")
+        self_test_chatter_skill = EC_Skill(
+            name=THIS_SKILL_NAME,
+            description=DESCRIPTION,
+            source="code"  # Mark as code-generated skill
+        )
+        self_test_chatter_skill.mapping_rules["developing"]["mappings"] = DEFAULT_CHATTER_MAPPING_RULES
+        self_test_chatter_skill.mapping_rules["released"]["mappings"] = DEFAULT_CHATTER_MAPPING_RULES
         mcp_client = mainwin.mcp_client
-        local_server_port = mainwin.get_local_server_port()
-        self_test_chatter_skill = EC_Skill(name="chatter for ecan.ai self test",
-                             description="chat with human or other agents to run self test.")
+        # Build workflow graph
+        wf = StateGraph(NodeState, WorkFlowContext)
 
-        # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
-        # print("connecting...........sse")
+        # Breakpoint manager for debug toggles
+        bp_manager = BreakpointManager()
 
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14", temperature=0.5)
-        print("llm loaded:", llm)
-        prompt0 = ChatPromptTemplate.from_messages([
-            ("system", """
-                You're an test engineer helping test this software.
-                your human boss will tell you what to test, if he/she ask you to run test, then do so, otherwise, you can just chat with him/her like a normal chat.
-            """),
-            ("human", "{input}")
-        ])
+        # Chat lane
+        wf.add_node("tester_chat", node_builder(llm_node_with_raw_files, "tester_chat", THIS_SKILL_NAME, PUBLIC_OWNER, bp_manager))
+        wf.add_node("pend_for_next_human_msg",
+                    node_builder(pend_for_human_input_node, "pend_for_next_human_msg", THIS_SKILL_NAME, PUBLIC_OWNER,
+                                 bp_manager))
+        wf.add_node("do_work",
+                    node_builder(run_test_node, "do_work", THIS_SKILL_NAME, PUBLIC_OWNER, bp_manager))
+        wf.add_conditional_edges("tester_chat", chat_or_work, ["pend_for_next_human_msg", "do_work"])
+        wf.add_edge("pend_for_next_human_msg", "tester_chat")
 
-        def process_chat(state: NodeState) -> NodeState:
-            # Get the last message (the actual user input)
-            last_message = state["messages"][-1]
+        # Collect specs -> query components (prep -> MCP -> post)
+        wf.add_edge("do_work", END)
+        wf.set_entry_point("tester_chat")
 
-            # Format the prompt with just the message content
-            last_message = "how are you"
-            messages = prompt0.invoke({"input": last_message})
-            print("LLM prompt:", messages)
-            # Call the LLM
-            response = llm.invoke(messages)
-
-            print("LLM response:", response)
-            # Parse the response
-            try:
-                import json
-                import ast  # Add this import at the top of your file
-
-                # Extract content from AIMessage if needed
-                content = response.content if hasattr(response, 'content') else str(response)
-                print("Raw content:", content)  # Debug log
-
-                # Clean up the response
-                content = content.strip('`').strip()
-                if content.startswith('json'):
-                    content = content[4:].strip()
-                # Parse the JSON
-                # Convert to proper JSON string if it's a Python dict string
-                if content.startswith('{') and content.endswith('}'):
-                    # Replace single quotes with double quotes for JSON
-                    content = content.replace("'", '"')
-                    # Convert Python's True/False to JSON's true/false
-                    content = content.replace("True", "true").replace("False", "false")
-
-                # Return the full state with the analysis
-                result = json.loads(content)
-                return {**state, "result": result}
-            except Exception as e:
-                print(f"Error parsing LLM response: {e}")
-                print(f"Raw response: {response}")
-                return {**state, "analysis": {"job_related": False}}
-
-        # initial classification node
-
-        prompt_random_chat = ChatPromptTemplate.from_messages([
-            ("system", """
-                You're a personal assistant, given a chat message sequence, please respond to the latest chat message to your best effort.
-            """),
-            ("human", "{input}")
-        ])
-
-        def chat_back_node(state: NodeState, *, runtime: Runtime[WorkFlowContext], store: BaseStore) -> NodeState:
-            # Get the last message (the actual user input)
-            last_message = state["messages"][-1]
-            print("gen_chat_back runtime:", runtime)
-
-            # Format the prompt with just the message content
-            messages = prompt_random_chat.invoke({"input": last_message})
-            print("chat back LLM prompt:", messages)
-            # Call the LLM
-            response = llm.invoke(messages)
-
-            print("chat back LLM response:", response)
-            # Parse the response
-            try:
-                import json
-                import ast  # Add this import at the top of your file
-
-                # Extract content from AIMessage if needed
-                content = response.content if hasattr(response, 'content') else str(response)
-                print("Raw content:", content)  # Debug log
-
-                state["messages"].append(content)
-                # Return the full state with the analysis
-                return {**state, "result": content}
-            except Exception as e:
-                print(f"Error parsing LLM response: {e}")
-                print(f"Raw response: {response}")
-                return {**state, "analysis": {"job_related": False}}
-
-
-
-        prompt2 = ChatPromptTemplate.from_messages([
-            ("system", """
-                You're a component procurement expert helping your human boss sourcing components for making a product, you job is to chat with your human boss to collect all the requirements for sourcing the component(s) and distill all requirement information in a JSON format. 
-                Given the latest human boss message,  did the human boss provided an attached document? please answer in json format: {'with_attachment': true/false, 'attachment_files': [list of file names] }.
-            """),
-            ("human", "{input}")
-        ])
-
-        # initial classification node
-        check_attachment_node = prompt2 | llm
-
-
-
-        prompt_check_bom_components = ChatPromptTemplate.from_messages([
-            ("system", """
-                You're a component procurement expert helping your human boss sourcing components for making a product, you job is to chat with your human boss to collect all the requirements for sourcing the component(s) and distill all requirement information in a JSON format. 
-                Given the latest human boss message,  try to understand it and let me know in json format that whether the human boss provided a pasted BOM text or simply a list of component names of which the human boss want to source. please answer in json format {'with_attachment': true/false, 'bom': true/false, 'num_components': int, 'components': [list of component names]}.
-            """),
-            ("human", "{input}")
-        ])
-
-        # initial classification node
-        check_bom_components_node = prompt_check_bom_components | llm
-
-
-
-        # Graph construction
-        # graph = StateGraph(State, config_schema=ConfigSchema)
-        workflow = StateGraph(NodeState, WorkFlowContext)
-        workflow.add_node("chat", llm_node_with_raw_files)
-        workflow.set_entry_point("chat")
-        # workflow.add_node("goto_site", goto_site)
-        workflow.add_conditional_edges("chat", chat_or_work, ["chat_back", "do_test"])
-
-
-        workflow.add_node("chat_back", chat_back_node)
-        workflow.add_node("pend_for_human_input_chat", pend_for_human_input_node)
-        workflow.add_edge("chat_back", "pend_for_human_input_chat")
-        workflow.add_edge("pend_for_human_input_chat", "chat")      # chat infinite loop
-
-
-        workflow.add_node("do_test", check_attachment_node)
-        workflow.add_edge("do_test", END)
-
-
-        self_test_chatter_skill.set_work_flow(workflow)
+        self_test_chatter_skill.set_work_flow(wf)
         # Store manager so caller can close it after using the skill
         self_test_chatter_skill.mcp_client = mcp_client  # type: ignore[attr-defined]
         print("self_test_chatter_skill build is done!")
 
     except Exception as e:
         # Get the traceback information
-        traceback_info = traceback.extract_tb(e.__traceback__)
-        # Extract the file name and line number from the last entry in the traceback
-        if traceback_info:
-            ex_stat = "ErrorCreateSelfTestChatterSkill:" + traceback.format_exc() + " " + str(e)
-        else:
-            ex_stat = "ErrorCreateSelfTestChatterSkill: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        err_msg = get_traceback(e, "ErrorCreateSelfTestChatterSkill")
+        logger.debug(err_msg)
         return None
 
     return self_test_chatter_skill

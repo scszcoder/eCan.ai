@@ -9,15 +9,15 @@ from .registry import IPCHandlerRegistry
 import traceback
 
 
-# 1. 为工作线程创建一个信号通信器
+# 1. Create a signal communicator for worker threads
 class WorkerSignals(QObject):
-    """定义了从工作线程发出的信号"""
+    """Defines signals emitted from worker threads"""
     result = Signal(object, object)  # request, ipc_response
     error = Signal(object, object)  # request, ipc_response
 
-# 2. 创建一个通用的 QRunnable 工作任务
+# 2. Create a generic QRunnable worker task
 class Worker(QRunnable):
-    """可运行的工作线程，执行耗时任务"""
+    """Runnable worker thread that executes time-consuming tasks"""
     def __init__(self, handler: Callable, request: IPCRequest):
         super().__init__()
         self.handler = handler
@@ -26,11 +26,34 @@ class Worker(QRunnable):
 
     @Slot()
     def run(self):
-        """在后台线程中执行任务"""
+        """Execute task in background thread"""
+        import asyncio
+        import inspect
+
         request_id = self.request.get('id', '')
         try:
             params = self.request.get('params')
-            response: IPCResponse = self.handler(self.request, params)
+            result = self.handler(self.request, params)
+
+            # Check if a coroutine object was returned
+            if inspect.iscoroutine(result):
+                # If it's a coroutine, need to run it in an event loop
+                try:
+                    # Try to get current event loop
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        # If loop is running, create a new loop
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                except RuntimeError:
+                    # If no event loop exists, create a new one
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+
+                response: IPCResponse = loop.run_until_complete(result)
+            else:
+                response: IPCResponse = result
+
             self.signals.result.emit(self.request, response)
         except Exception as e:
             logger.error(f"Error in background worker for request {request_id}: {e}", exc_info=True)
@@ -43,54 +66,54 @@ class IPCWCService(QObject):
     IPC(Inter-Process Communication) WebChannel Service
     """
     
-    # 定义信号
-    python_to_web = Signal(str)  # 发送消息到 Web 的信号
-    
+    # Define signals
+    python_to_web = Signal(str)  # Signal to send messages to Web
+
     def __init__(self):
         super().__init__()
-        logger.info("IPC WebChannel service initialized")
-        # 存储请求ID和对应的回调函数的映射
+        logger.info("[IPCWCService] IPC WebChannel service initialized")
+        # Store mapping of request IDs to corresponding callback functions
         self._request_callbacks: Dict[str, Callable[[IPCResponse], None]] = {}
         self.threadpool = QThreadPool()
-        logger.info(f"QThreadPool max thread count: {self.threadpool.maxThreadCount()}")
-    
+        logger.info(f"[IPCWCService] QThreadPool max thread count: {self.threadpool.maxThreadCount()}")
+
     @Slot(str, result=str)
     def web_to_python(self, message: str) -> str:
-        """处理来自 Web 的消息
-        
+        """Handle messages from Web
+
         Args:
-            message: JSON 格式的消息字符串
-            
+            message: JSON formatted message string
+
         Returns:
-            str: JSON 格式的响应消息
+            str: JSON formatted response message
         """
         try:
-            # 解析消息
+            # Parse message
             data = json.loads(message)
             data_str = str(data)
             truncated_data = data_str[:800] + "..." if len(data_str) > 500 else data_str
-            logger.debug(f"web_to_python: Received message: {truncated_data}")
+            logger.trace(f"[IPCWCService] web_to_python: Received message: {truncated_data}")
 
-            # 检查消息类型
+            # Check message type
             if 'type' not in data:
-                logger.warning("Message missing type field")
+                logger.warning("[IPCWCService] Message missing type field")
                 return json.dumps(create_error_response(
                     {'id': 'missing_type', 'method': 'unknown'},
                     'MISSING_TYPE',
                     "Message missing type field"
                 ))
-            
-            # 处理响应消息
+
+            # Handle response message
             if data['type'] == 'response':
                 self._handle_response(IPCResponse(**data))
                 return json.dumps({"status": "success"})
-            
-            # 处理请求消息
+
+            # Handle request message
             if data['type'] == 'request':
                 return self._handle_request(IPCRequest(**data))
-            
-            # 未知消息类型
-            logger.warning(f"Unknown message type: {data['type']}")
+
+            # Unknown message type
+            logger.warning(f"[IPCWCService] Unknown message type: {data['type']}")
             return json.dumps(create_error_response(
                 {'id': 'unknown_type', 'method': 'unknown'},
                 'UNKNOWN_TYPE',
@@ -113,7 +136,7 @@ class IPCWCService(QObject):
             ))
 
     def _handle_request(self, request: IPCRequest) -> str:
-        """处理 IPC 请求，并根据处理器类型分发"""
+        """Handle IPC request and dispatch based on handler type"""
         method = request.get('method')
         if not method:
             return json.dumps(create_error_response(
@@ -133,14 +156,14 @@ class IPCWCService(QObject):
         handler, handler_type = handler_info
 
         if handler_type == 'sync':
-            # 直接在主线程调用同步处理器
-            logger.debug(f"Executing sync handler for method: {method}")
+            # Call sync handler directly in main thread
+            logger.trace(f"[IPCWCService] Executing sync handler for method: {method}")
             try:
                 params = request.get('params')
                 sync_response = handler(request, params)
                 return json.dumps(sync_response)
             except KeyboardInterrupt:
-                logger.warning(f"KeyboardInterrupt during sync handler execution for method: {method}")
+                logger.warning(f"[IPCWCService] KeyboardInterrupt during sync handler execution for method: {method}")
                 return json.dumps(create_error_response(
                     request,
                     'INTERRUPTED',
@@ -155,16 +178,16 @@ class IPCWCService(QObject):
                 ))
         
         elif handler_type == 'background':
-            # 为后台任务创建一个 Worker 并提交到线程池
-            logger.debug(f"Submitting background handler for method: {method} to threadpool")
+            # Create a Worker for background task and submit to thread pool
+            logger.debug(f"[IPCWCService] Submitting background handler for method: {method} to threadpool")
             worker = Worker(handler, request)
             worker.signals.result.connect(self._on_background_task_result)
             worker.signals.error.connect(self._on_background_task_error)
             self.threadpool.start(worker)
-            
-            # 立即返回一个 "pending" 响应
+
+            # Immediately return a "pending" response
             pending_response = create_pending_response(
-                request, 
+                request,
                 f"Task '{method}' is being processed in the background",
                 meta=request.get('meta', {})
             )
@@ -172,42 +195,42 @@ class IPCWCService(QObject):
 
     @Slot(object, object)
     def _on_background_task_result(self, request: IPCRequest, result_reponse: IPCResponse):
-        """后台任务成功完成时，此槽在主线程中执行"""
+        """This slot executes in main thread when background task completes successfully"""
         request_id = request['id']
-        logger.info(f"Background task for request {request_id} completed successfully.")
-        
-        # 封装成一个标准的 response 格式发回给前端
+        logger.info(f"[IPCWCService] Background task for request {request_id} completed successfully.")
+
+        # Wrap as standard response format and send back to frontend
         # final_response = create_success_response(request, result_data)
-        logger.info(f"Final response: {result_reponse}")
+        logger.trace(f"[IPCWCService] Final response: {result_reponse}")
         self.python_to_web.emit(json.dumps(result_reponse))
 
     @Slot(object, object)
     def _on_background_task_error(self, request: IPCRequest, error_response: IPCResponse):
-        """后台任务失败时，此槽在主线程中执行"""
+        """This slot executes in main thread when background task fails"""
         request_id = request['id']
-        logger.error(f"Background task for request {request_id} failed: {error_response.get('error', {}).get('message', '') }")
+        logger.error(f"[IPCWCService] Background task for request {request_id} failed: {error_response.get('error', {}).get('message', '') }")
         self.python_to_web.emit(json.dumps(error_response))
-    
+
     def _handle_response(self, response: IPCResponse) -> None:
-        """处理响应
-        
+        """Handle response
+
         Args:
-            response: 响应对象
+            response: Response object
         """
         try:
-            # 获取对应的回调函数
+            # Get corresponding callback function
             callback = self._request_callbacks.get(response['id'])
             if callback:
-                # 调用回调函数处理响应
+                # Call callback function to handle response
                 callback(response)
-                # 处理完成后删除回调
+                # Delete callback after processing
                 del self._request_callbacks[response['id']]
-                logger.info(f"Response handled for request: {response['id']} handle finished")
+                logger.trace(f"[IPCWCService] Response handled for request: {response['id']} handle finished")
             else:
-                logger.warning(f"No callback found for response: {response['id']}")
+                logger.warning(f"[IPCWCService] No callback found for response: {response['id']}")
         except Exception as e:
             logger.error(f"Error handling response: {e}")
-    
+
     def send_request(
         self,
         method: str,
@@ -215,28 +238,28 @@ class IPCWCService(QObject):
         meta: Optional[Dict[str, Any]] = None,
         callback: Optional[Callable[[IPCResponse], None]] = None
     ) -> None:
-        """发送请求到 Web
-        
+        """Send request to Web
+
         Args:
-            method: 方法名
-            params: 请求参数
-            meta: 元数据
-            callback: 响应回调函数
+            method: Method name
+            params: Request parameters
+            meta: Metadata
+            callback: Response callback function
         """
         try:
-            # 创建请求
+            # Create request
             request = create_request(method, params, meta)
-            
-            # 如果有回调函数，注册回调
+
+            # Register callback if provided
             if callback:
                 self._request_callbacks[request['id']] = callback
-                logger.debug(f"Callback registered for request: {request['id']}")
-            
-            # 发送请求
+                logger.trace(f"[IPCWCService] Callback registered for request: {request['id']}")
+
+            # Send request
             self.python_to_web.emit(json.dumps(request))
             request_str = json.dumps(request)
             truncated_request = request_str[:800] + "..." if len(request_str) > 500 else request_str
-            logger.debug(f"Request sent: {truncated_request}")
+            logger.trace(f"[IPCWCService] Request sent: {truncated_request}")
         except Exception as e:
             logger.error(f"Error sending request: {e}")
             if callback:

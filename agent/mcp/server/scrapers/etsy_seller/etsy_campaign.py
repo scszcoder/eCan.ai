@@ -1,0 +1,97 @@
+from datetime import datetime
+import base64
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
+from utils.logger_helper import logger_helper as logger
+from utils.logger_helper import get_traceback
+from mcp.types import CallToolResult, TextContent
+
+
+async def etsy_adjust_campaigns(mainwin, args):  # type: ignore
+    try:
+        logger.debug("etsy_adjust_campaigns started....")
+        executed = []
+        messages_todos = args["input"]["messages_todos"]
+        web_driver = mainwin.getWebDriver()
+
+        msg = f"completed in adjusting etsy campaign settings: {len(executed)} messages answered."
+        tool_result = TextContent(type="text", text=msg)
+        tool_result.meta = {"executed": executed}
+        return [tool_result]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorETSYAdjustCampaigns")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
+async def etsy_collect_campaigns_stats(mainwin, args):  # type: ignore
+    try:
+        logger.debug("etsy_collect_campaigns_stats started....")
+        executed = []
+        messages_todos = args["input"]["messages_todos"]
+        web_driver = mainwin.getWebDriver()
+
+        msg = f"completed in collecting etsy campaign stats: {len(executed)} messages answered."
+        tool_result = TextContent(type="text", text=msg)
+        tool_result.meta = {"executed": executed}
+        return [tool_result]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorETSYCollectCampaignsStats")
+        logger.debug(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
+def add_etsy_adjust_campaigns_tool_schema(tool_schemas):
+    import mcp.types as types
+
+    tool_schema = types.Tool(
+        name="etsy_adjust_campaigns",
+        description="create after work summary for easy viewing by both human and agent.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {
+                "input": {
+                    "type": "object",
+                    "required": ["options"],
+                    "properties": {
+                        "options": {
+                            "type": "object",
+                            "description": "some options in json format",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    tool_schemas.append(tool_schema)
+
+
+def add_etsy_collect_campaigns_stats_tool_schema(tool_schemas):
+    import mcp.types as types
+
+    tool_schema = types.Tool(
+        name="etsy_collect_campaigns_stats",
+        description="create after work summary for easy viewing by both human and agent.",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {
+                "input": {
+                    "type": "object",
+                    "required": ["options"],
+                    "properties": {
+                        "options": {
+                            "type": "object",
+                            "description": "some options in json format",
+                        }
+                    },
+                }
+            }
+        },
+    )
+
+    tool_schemas.append(tool_schema)

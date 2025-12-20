@@ -1,6 +1,7 @@
 import React from 'react';
 import { HashRouter, Routes, Route } from 'react-router-dom';
 import { ConfigProvider, theme, App as AntdApp } from 'antd';
+import { registerOnboardingModalApi } from './services/onboarding/onboardingService';
 import { routes, RouteConfig } from './routes';
 import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import { LanguageProvider } from './contexts/LanguageContext';
@@ -13,37 +14,17 @@ import './index.css';
 import { set_ipc_api } from './services/ipc_api';
 import { createIPCAPI } from './services/ipc';
 import { protocolHandler } from './pages/Chat/utils/protocolHandler';
+import { useUserStore } from './stores/userStore';
+import { useAgentStore } from './stores/agentStore';
+import { logoutManager } from './services/LogoutManager';
+import { initializePlatform } from './config/platform';
+import { initializeStoreSync, cleanupStoreSync } from './services/storeSync';
+import { orgDataSyncService } from './services/OrgDataSyncService';
+import './utils/videoSupport'; // Initialize video support check on page load
 
-// 初始化应用
-const initializeApp = () => {
-  // 根据环境设置日志等级
-  const isDevelopment = process.env.NODE_ENV === 'development';
 
-  // 打印当前环境信息
-  console.log('Current NODE_ENV:', process.env.NODE_ENV);
-  console.log('Is development:', isDevelopment);
 
-  if (isDevelopment) {
-    // 开发环境：显示所有日志
-    logger.setLevel(LogLevel.DEBUG);
-    console.log('Set log level to:', LogLevel[logger.getLevel()]);
-  } else {
-    // 生产环境：只显示信息、警告和错误
-    logger.setLevel(LogLevel.INFO);
-    logger.info('Running in production mode, debug logs disabled');
-  }
-
-  // 初始化 IPC 服务
-  set_ipc_api(createIPCAPI());
-
-  // 初始化页面刷新管理器
-  pageRefreshManager.initialize();
-
-  // 初始化协议处理器
-  protocolHandler.init();
-};
-
-// 配置 React Router future flags
+// Configure React Router future flags
 // const router = {
 //     future: {
 //         v7_startTransition: true,
@@ -51,9 +32,10 @@ const initializeApp = () => {
 //     }
 // };
 
-// 自定义主题配置
+// Custom theme configuration - Standard Ant Design Architecture
 const getThemeConfig = (isDark: boolean) => ({
     token: {
+        // Brand colors
         colorPrimary: '#3b82f6',
         colorSuccess: '#22c55e',
         colorWarning: '#eab308',
@@ -61,10 +43,21 @@ const getThemeConfig = (isDark: boolean) => ({
         colorInfo: '#0ea5e9',
         borderRadius: 8,
         wireframe: false,
+        // Explicitly set background colors using original color scheme
+        ...(isDark ? {
+            colorBgLayout: '#0f172a',      // Deep blue-black page background (original color)
+            colorBgContainer: '#1e293b',   // Deep blue-gray container background (original color)
+            colorBgElevated: '#1e293b',    // Deep blue-gray elevated background
+        } : {
+            colorBgLayout: '#f0f2f5',      // Light gray page background
+            colorBgContainer: '#ffffff',   // White container background
+            colorBgElevated: '#ffffff',    // White elevated background
+        }),
     },
     algorithm: isDark ? theme.darkAlgorithm : theme.defaultAlgorithm,
     components: {
         Layout: {
+            // Layout component background colors using original color scheme
             bodyBg: isDark ? '#0f172a' : '#f0f2f5',
             headerBg: isDark ? '#1e293b' : '#ffffff',
             siderBg: isDark ? '#1e293b' : '#ffffff',
@@ -95,7 +88,7 @@ const getThemeConfig = (isDark: boolean) => ({
     },
 });
 
-// 递归渲染路由
+// Recursively render routes
 const renderRoutes = (routes: RouteConfig[]) => {
     return routes.map((route) => (
         <Route key={route.path} path={route.path} element={route.element}>
@@ -105,8 +98,99 @@ const renderRoutes = (routes: RouteConfig[]) => {
 };
 
 const AppContent = () => {
+    const ModalRegistrar: React.FC = () => {
+        const api = AntdApp.useApp();
+        React.useEffect(() => {
+            try {
+                if (api && (api as any).modal) {
+                    registerOnboardingModalApi((api as any).modal);
+                }
+            } catch {}
+            return () => registerOnboardingModalApi(null);
+        }, [api]);
+        return null;
+    };
+    // Initialize platform at app mount so IPC gating flags are correct
+    React.useEffect(() => {
+        try {
+            initializePlatform();
+        } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn('[App] Failed to initialize platform, defaulting to env-based config:', e);
+        }
+    }, []);
+
     const { theme: currentTheme } = useTheme();
     const isDark = currentTheme === 'dark' || (currentTheme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+    // Apply global background color to body and #root
+    React.useEffect(() => {
+        const bgColor = isDark ? '#0f172a' : '#f0f2f5';  // Restore original deep blue-black color
+        const textColor = isDark ? '#f8fafc' : '#000000';
+        
+        document.body.style.backgroundColor = bgColor;
+        document.body.style.color = textColor;
+        
+        const root = document.getElementById('root');
+        if (root) {
+            root.style.backgroundColor = bgColor;
+        }
+    }, [isDark]);
+
+    // Note: avoid immediate fetch on username to prevent racing backend init; we poll readiness below
+
+    // Initialize organization data sync service (background listeners)
+    React.useEffect(() => {
+        orgDataSyncService.initialize();
+        
+        return () => {
+            orgDataSyncService.cleanup();
+        };
+    }, []);
+
+    // Register App-level cleanup for logout
+    React.useEffect(() => {
+        logoutManager.registerCleanup({
+            name: 'App',
+            cleanup: () => {
+                try {
+                    logger.info('[App] Cleaning up for logout...');
+
+                    // Clean up user state
+                    const userStore = useUserStore.getState();
+                    if (userStore && typeof userStore.setUsername === 'function') {
+                        userStore.setUsername(null);
+                        logger.debug('[App] User state cleared');
+                    }
+
+                    // Clean up agents state
+                    const agentStore = useAgentStore.getState();
+                    if (agentStore && typeof agentStore.setAgents === 'function') {
+                        agentStore.setAgents([]);
+                        logger.debug('[App] Agent state cleared');
+                    }
+
+                    // Tool state cleanup has been moved to Tools page for on-demand processing
+                    
+                    // Clean up store sync listeners
+                    cleanupStoreSync();
+                    logger.debug('[App] Store sync listeners cleaned up');
+
+                    // Clean up organization data sync service
+                    orgDataSyncService.cleanup();
+                    logger.debug('[App] Org data sync service cleaned up');
+
+                    logger.info('[App] App cleanup completed');
+                } catch (error) {
+                    logger.error('[App] Error during cleanup:', error);
+                }
+            },
+            priority: 30 // Lower priority, execute after other services cleanup
+        });
+    }, []);
+
+    // Tools are now loaded on-demand when accessing Tools page or skill editor
+    // This improves startup performance by removing unnecessary preloading
 
     return (
         <ConfigProvider
@@ -114,6 +198,7 @@ const AppContent = () => {
             theme={getThemeConfig(isDark)}
         >
             <AntdApp>
+                <ModalRegistrar />
                 <HashRouter>
                     <Routes>
                         {renderRoutes(routes)}
@@ -125,10 +210,65 @@ const AppContent = () => {
 };
 
 function App() {
-    // 异步初始化应用，不阻塞首次渲染
+    const [isInitialized, setIsInitialized] = React.useState(false);
+
     React.useEffect(() => {
-        initializeApp();
+        // Synchronously initialize critical services, asynchronously initialize other services
+        try {
+            // Initialize IPC service (synchronous) - must be before platform detection
+            set_ipc_api(createIPCAPI());
+
+            // Initialize platform configuration (synchronous) - depends on IPC API for platform detection
+            initializePlatform();
+
+            // Asynchronously initialize other services
+            const initOtherServices = async () => {
+                try {
+                    // Initialize page refresh manager
+                    pageRefreshManager.initialize();
+
+                    // Initialize protocol handler
+                    protocolHandler.init();
+                    
+                    // Initialize store sync listeners
+                    initializeStoreSync();
+
+                    // Set log level based on environment
+                    const isDevelopment = process.env.NODE_ENV === 'development';
+
+                    if (isDevelopment) {
+                        logger.setLevel(LogLevel.DEBUG);
+                    } else {
+                        logger.setLevel(LogLevel.INFO);
+                        logger.info('Running in production mode, debug logs disabled');
+                    }
+                } catch (error) {
+                    console.error('Failed to initialize other services:', error);
+                }
+            };
+
+            initOtherServices();
+            setIsInitialized(true);
+        } catch (error) {
+            console.error('Failed to initialize core services:', error);
+            setIsInitialized(true); // Still allow app to start, but functionality may be limited
+        }
     }, []);
+
+    if (!isInitialized) {
+        return (
+            <div style={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                height: '100vh',
+                backgroundColor: '#0f172a',
+                color: '#f8fafc'
+            }}>
+                <div>Initializing...</div>
+            </div>
+        );
+    }
 
     return (
         <ThemeProvider>

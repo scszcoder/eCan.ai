@@ -8,7 +8,296 @@ import os
 import platform
 import shutil
 import time
+from datetime import datetime
 from pathlib import Path
+from typing import Optional, Dict, Any
+from enum import Enum
+
+
+class PlatformHandler:
+    """Minimal platform/arch helper consolidated into build_utils."""
+    WINDOWS = "windows"
+    MACOS = "macos"
+    LINUX = "linux"
+
+    AMD64 = "amd64"
+    ARM64 = "arm64"
+
+    def __init__(self):
+        self._platform = self._detect_platform()
+        self._architecture = self._detect_architecture()
+
+    @property
+    def platform(self) -> str:
+        return self._platform
+
+    @property
+    def architecture(self) -> str:
+        return self._architecture
+
+    @property
+    def is_windows(self) -> bool:
+        return self._platform == self.WINDOWS
+
+    @property
+    def is_macos(self) -> bool:
+        return self._platform == self.MACOS
+
+    @property
+    def is_linux(self) -> bool:
+        return self._platform == self.LINUX
+
+    @property
+    def is_arm64(self) -> bool:
+        return self._architecture == self.ARM64
+
+    @property
+    def is_amd64(self) -> bool:
+        return self._architecture == self.AMD64
+
+    def get_platform_identifier(self) -> str:
+        return f"{self._platform}-{self._architecture}"
+
+    def _detect_platform(self) -> str:
+        system = platform.system().lower()
+        if system == "darwin":
+            return self.MACOS
+        if system == "windows":
+            return self.WINDOWS
+        if system == "linux":
+            return self.LINUX
+        return system
+
+    def _detect_architecture(self) -> str:
+        machine = platform.machine().lower()
+        if machine in ("x86_64", "amd64"):
+            return self.AMD64
+        if machine in ("arm64", "aarch64"):
+            return self.ARM64
+        return machine
+
+
+# Expose a singleton for existing call sites
+platform_handler = PlatformHandler()
+
+
+class LogLevel(Enum):
+    """Log levels"""
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+    SUCCESS = "SUCCESS"
+
+
+class BuildLogger:
+    """Unified build logger with component tracking"""
+    
+    def __init__(self, verbose: bool = False, log_file: Optional[Path] = None):
+        self.verbose = verbose
+        self.log_file = log_file
+        self.start_time = time.time()
+        self.component_times = {}
+        self.error_count = 0
+        self.warning_count = 0
+        
+        if self.log_file:
+            self.log_file.parent.mkdir(parents=True, exist_ok=True)
+            
+    def _format_message(self, level: LogLevel, component: str, message: str) -> str:
+        """Format log message with timestamp and component"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        return f"[{timestamp}] [{level.value}] [{component}] {message}"
+        
+    def _write_log(self, formatted_message: str) -> None:
+        """Write to console and file if configured"""
+        print(formatted_message)
+        
+        if self.log_file:
+            try:
+                with open(self.log_file, 'a', encoding='utf-8') as f:
+                    f.write(formatted_message + '\n')
+            except Exception:
+                pass  # Don't fail build due to logging issues
+                
+    def debug(self, message: str, component: str = "BUILD") -> None:
+        """Log debug message (only in verbose mode)"""
+        if self.verbose:
+            formatted = self._format_message(LogLevel.DEBUG, component, message)
+            self._write_log(formatted)
+            
+    def info(self, message: str, component: str = "BUILD") -> None:
+        """Log info message"""
+        formatted = self._format_message(LogLevel.INFO, component, message)
+        self._write_log(formatted)
+        
+    def warning(self, message: str, component: str = "BUILD") -> None:
+        """Log warning message"""
+        self.warning_count += 1
+        formatted = self._format_message(LogLevel.WARNING, component, message)
+        self._write_log(formatted)
+        
+    def error(self, message: str, component: str = "BUILD") -> None:
+        """Log error message"""
+        self.error_count += 1
+        formatted = self._format_message(LogLevel.ERROR, component, message)
+        self._write_log(formatted)
+        
+    def success(self, message: str, component: str = "BUILD") -> None:
+        """Log success message"""
+        formatted = self._format_message(LogLevel.SUCCESS, component, message)
+        self._write_log(formatted)
+        
+    def start_component(self, component: str, description: str = "") -> None:
+        """Start timing a build component"""
+        self.component_times[component] = time.time()
+        msg = f"Starting {component}"
+        if description:
+            msg += f": {description}"
+        self.info(msg, component)
+        
+    def end_component(self, component: str, success: bool = True) -> float:
+        """End timing a build component and return duration"""
+        if component not in self.component_times:
+            self.warning(f"Component {component} was not started", component)
+            return 0.0
+            
+        duration = time.time() - self.component_times[component]
+        status = "completed" if success else "failed"
+        self.info(f"Component {component} {status} in {duration:.2f}s", component)
+        
+        if not success:
+            self.error_count += 1
+            
+        return duration
+        
+    def get_stats(self) -> Dict[str, Any]:
+        """Get build statistics"""
+        return {
+            "total_time": time.time() - self.start_time,
+            "error_count": self.error_count,
+            "warning_count": self.warning_count,
+            "component_count": len(self.component_times),
+            "success": self.error_count == 0
+        }
+
+
+# Global logger instance
+build_logger = None
+
+def get_build_logger(verbose: bool = False, log_file: Optional[Path] = None) -> BuildLogger:
+    """Get or create the global build logger"""
+    global build_logger
+    if build_logger is None:
+        build_logger = BuildLogger(verbose=verbose, log_file=log_file)
+    return build_logger
+
+
+class URLSchemeBuildConfig:
+    """Handle URL scheme configuration during build process"""
+    
+    @staticmethod
+    def setup_url_scheme_for_build():
+        """Setup URL scheme configuration for current platform"""
+        system = platform.system().lower()
+        
+        if system == "darwin":
+            return URLSchemeBuildConfig._setup_macos_build()
+        elif system == "windows":
+            return URLSchemeBuildConfig._setup_windows_build()
+        elif system == "linux":
+            return URLSchemeBuildConfig._setup_linux_build()
+        else:
+            print(f"[WARNING] [URL_SCHEME] URL scheme build setup not supported for platform: {system}")
+            return False
+    
+    @staticmethod
+    def _setup_macos_build():
+        """Setup macOS build configuration"""
+        try:
+            # Ensure Info.plist exists in resource directory
+            info_plist_path = Path("resource/Info.plist")
+            if not info_plist_path.exists():
+                print("[ERROR] [URL_SCHEME] Info.plist not found in resource directory")
+                return False
+            
+            print("[URL_SCHEME] macOS URL scheme build configuration ready")
+            print("[URL_SCHEME] Info.plist with ecan:// scheme configuration found")
+            return True
+            
+        except Exception as e:
+            print(f"[ERROR] [URL_SCHEME] Failed to setup macOS build configuration: {e}")
+            return False
+    
+    @staticmethod
+    def _setup_windows_build():
+        """Setup Windows build configuration"""
+        try:
+            # Create Windows-specific build configuration
+            build_config = {
+                "url_scheme": "ecan",
+                "protocol_name": "eCan Protocol",
+                "executable_name": "eCan.exe",
+                "icon_file": "eCan.ico"
+            }
+            
+            print("[URL_SCHEME] Windows URL scheme build configuration created")
+            return True
+            
+        except Exception as e:
+            print(f"[ERROR] [URL_SCHEME] Failed to setup Windows build configuration: {e}")
+            return False
+    
+    @staticmethod
+    def _setup_linux_build():
+        """Setup Linux build configuration"""
+        try:
+            # Create desktop entry template
+            desktop_entry = """[Desktop Entry]
+Name=eCan
+Exec={executable_path} %u
+Icon=ecan
+Type=Application
+MimeType=x-scheme-handler/ecan
+Categories=Utility;Development;
+Comment=eCan Automation Platform
+"""
+            
+            # Save desktop entry template
+            template_path = Path("build_system/ecan.desktop.template")
+            with open(template_path, 'w') as f:
+                f.write(desktop_entry)
+            
+            print("[URL_SCHEME] Linux URL scheme build configuration created")
+            return True
+            
+        except Exception as e:
+            print(f"[ERROR] [URL_SCHEME] Failed to setup Linux build configuration: {e}")
+            return False
+    
+    @staticmethod
+    def get_pyinstaller_options():
+        """Get PyInstaller options for URL scheme support"""
+        system = platform.system().lower()
+        options = []
+        
+        if system == "darwin":
+            # macOS specific options
+            info_plist_path = Path("resource/Info.plist")
+            if info_plist_path.exists():
+                options.extend([
+                    f"--osx-bundle-identifier=com.ecan.app",
+                    f"--info-plist={info_plist_path.absolute()}"
+                ])
+        
+        elif system == "windows":
+            # Windows specific options
+            options.extend([
+                # "--uac-admin",  # Request admin privileges for registry access - commented out to avoid elevation requirement
+                "--version-file=build_system/version_info.txt"
+            ])
+        
+        return options
 
 
 
@@ -202,7 +491,7 @@ def clean_macos_build_artifacts(build_path: Path) -> None:
 
 
 def prepare_third_party_assets() -> None:
-    """Prepare third-party assets (Playwright, Sparkle, winSparkle)"""
+    """Prepare third-party assets (Playwright browsers)"""
     print("[THIRD-PARTY] Preparing third-party assets...")
 
     try:
@@ -213,16 +502,6 @@ def prepare_third_party_assets() -> None:
     except Exception as e:
         print(f"[THIRD-PARTY] Playwright preparation failed: {e}")
         print("[THIRD-PARTY] This may cause issues with browser automation features")
-        # Don't fail the build, just warn
-
-    try:
-        # Prepare OTA dependencies (Sparkle/winSparkle)
-        _prepare_ota_dependencies()
-        print("[THIRD-PARTY] OTA dependencies prepared successfully")
-
-    except Exception as e:
-        print(f"[THIRD-PARTY] OTA dependencies preparation failed: {e}")
-        print("[THIRD-PARTY] This may cause issues with OTA update features")
         # Don't fail the build, just warn
 
 
@@ -259,115 +538,12 @@ def _prepare_playwright_simple() -> None:
     if target_path.exists():
         shutil.rmtree(target_path, ignore_errors=True)
 
-    # Use symlink manager if available for safe copying
+    # Simple copy using standard library
     try:
-        from build_system.symlink_manager import symlink_manager
-        success = symlink_manager.safe_copytree(cache_path, target_path, "PLAYWRIGHT")
-        if not success:
-            raise Exception("Symlink manager copy failed")
-    except Exception:
-        # Fallback to standard copy
-        shutil.copytree(cache_path, target_path, symlinks=False)
-
-
-def _prepare_ota_dependencies() -> None:
-    """Prepare OTA dependencies (Sparkle/winSparkle)"""
-    import platform
-    import subprocess
-    import sys
-    import urllib.request
-    import tarfile
-    import zipfile
-    from pathlib import Path
-
-    current_platform = platform.system()
-    third_party_dir = Path.cwd() / "third_party"
-
-    if current_platform == "Darwin":
-        # Prepare Sparkle for macOS
-        sparkle_dir = third_party_dir / "sparkle"
-        sparkle_framework = sparkle_dir / "Sparkle.framework"
-
-        if not sparkle_framework.exists():
-            print("[BUILD] Downloading Sparkle framework...")
-            sparkle_dir.mkdir(parents=True, exist_ok=True)
-
-            # Download Sparkle
-            sparkle_url = "https://github.com/sparkle-project/Sparkle/releases/download/2.6.4/Sparkle-2.6.4.tar.xz"
-            sparkle_archive = sparkle_dir / "Sparkle-2.6.4.tar.xz"
-
-            urllib.request.urlretrieve(sparkle_url, sparkle_archive)
-
-            # Extract Sparkle
-            with tarfile.open(sparkle_archive, 'r:xz') as tar:
-                tar.extractall(sparkle_dir)
-
-            # Fix framework symlinks
-            from build_system.symlink_manager import SymlinkManager
-            symlink_manager = SymlinkManager(verbose=False)
-            symlink_manager.fix_pyinstaller_conflicts()
-
-            # Create install info
-            install_info = {
-                "platform": "darwin",
-                "install_method": "build_system",
-                "installed_dependencies": {
-                    "sparkle": {
-                        "version": "2.6.4",
-                        "url": sparkle_url,
-                        "target_path": str(sparkle_framework),
-                        "installed": True
-                    }
-                },
-                "install_timestamp": str(time.time()),
-                "installer_version": "1.0.0"
-            }
-
-            import json
-            with open(sparkle_dir / "install_info.json", 'w') as f:
-                json.dump(install_info, f, indent=2)
-
-            print(f"[BUILD] Sparkle framework prepared at: {sparkle_framework}")
-        else:
-            print(f"[BUILD] Sparkle framework already exists at: {sparkle_framework}")
-
-    elif current_platform == "Windows":
-        # Prepare winSparkle for Windows
-        winsparkle_dir = third_party_dir / "winsparkle"
-        winsparkle_dll = winsparkle_dir / "winsparkle.dll"
-
-        if not winsparkle_dll.exists():
-            print("[BUILD] Downloading winSparkle...")
-            winsparkle_dir.mkdir(parents=True, exist_ok=True)
-
-            # Download winSparkle
-            winsparkle_url = "https://github.com/vslavik/winsparkle/releases/download/v0.8.0/winsparkle-0.8.0.zip"
-            winsparkle_archive = winsparkle_dir / "winsparkle-0.8.0.zip"
-
-            urllib.request.urlretrieve(winsparkle_url, winsparkle_archive)
-
-            # Extract winSparkle
-            with zipfile.ZipFile(winsparkle_archive, 'r') as zip_ref:
-                zip_ref.extractall(winsparkle_dir / "temp")
-
-            # Find and copy DLL
-            temp_dir = winsparkle_dir / "temp"
-            dll_files = list(temp_dir.glob("**/winsparkle.dll"))
-
-            if dll_files:
-                shutil.copy2(dll_files[0], winsparkle_dll)
-                print(f"[BUILD] winSparkle DLL prepared at: {winsparkle_dll}")
-            else:
-                raise RuntimeError("winSparkle DLL not found in downloaded archive")
-
-            # Cleanup
-            shutil.rmtree(temp_dir)
-            winsparkle_archive.unlink()
-        else:
-            print(f"[BUILD] winSparkle DLL already exists at: {winsparkle_dll}")
-
-    else:
-        print(f"[BUILD] OTA dependencies not needed for platform: {current_platform}")
+        shutil.copytree(cache_path, target_path, symlinks=False, dirs_exist_ok=True)
+    except Exception as e:
+        print(f"[PLAYWRIGHT] Copy failed: {e}")
+        raise
 
 
 def _find_playwright_cache() -> Path:
@@ -377,11 +553,19 @@ def _find_playwright_cache() -> Path:
     from pathlib import Path
 
     # Check environment variable first
-    env_path = os.getenv("PLAYWRIGHT_BROWSERS_PATH")
+    from agent.playwright.core.utils import PlaywrightCoreUtils
+    env_path = os.getenv(PlaywrightCoreUtils.ENV_BROWSERS_PATH)
     if env_path:
         env_path_obj = Path(env_path)
-        if env_path_obj.exists() and (env_path_obj / "browsers.json").exists():
-            return env_path_obj
+        if env_path_obj.exists():
+            # Check for browser directories in the environment path
+            browser_dirs = [d for d in env_path_obj.iterdir()
+                           if d.is_dir() and any(browser in d.name.lower()
+                           for browser in ['chromium', 'firefox', 'webkit'])]
+
+            if browser_dirs:
+                print(f"[BUILD] Found Playwright browsers in env path: {[d.name for d in browser_dirs]}")
+                return env_path_obj
 
     # Platform-specific default paths
     if platform.system() == "Windows":
@@ -393,6 +577,7 @@ def _find_playwright_cache() -> Path:
         possible_paths = [
             Path.home() / ".cache" / "ms-playwright",
             Path.home() / "Library" / "Caches" / "ms-playwright",
+            Path.home() / "Library" / "Application Support" / "eCan" / "ms-playwright",  # Custom application-specific path
         ]
     else:  # Linux
         possible_paths = [
@@ -400,10 +585,17 @@ def _find_playwright_cache() -> Path:
             Path.home() / ".local" / "share" / "ms-playwright",
         ]
 
-    # Find first valid path
+    # Find the first valid path by checking for browser directories
     for path in possible_paths:
-        if path.exists() and (path / "browsers.json").exists():
-            return path
+        if path.exists():
+            # Check for browser directories in each candidate path
+            browser_dirs = [d for d in path.iterdir()
+                           if d.is_dir() and any(browser in d.name.lower()
+                           for browser in ['chromium', 'firefox', 'webkit'])]
+
+            if browser_dirs:
+                print(f"[BUILD] Found Playwright browsers: {[d.name for d in browser_dirs]}")
+                return path
 
     return None
 

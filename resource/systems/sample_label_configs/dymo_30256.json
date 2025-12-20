@@ -1,0 +1,15 @@
+{
+  "name": "DYMO 30256 Large Shipping",
+  "id": "dymo_30256",
+  "unit": "in",
+  "sheet_width": 4.0,
+  "sheet_height": 2.3125,
+  "label_width": 4.0,
+  "label_height": 2.3125,
+  "top_margin": 0.0,
+  "left_margin": 0.0,
+  "rows": 1,
+  "cols": 1,
+  "row_pitch": 0.0,
+  "col_pitch": 0.0
+}

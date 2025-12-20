@@ -6,29 +6,29 @@
 
 /**
  * Interface for defining a callable function
- * 定义可调用函数的接口
+ * Definition可调用Function的Interface
  */
 export interface CallableFunction {
   /**
    * Function ID
-   * 函数标识符
+   * Function标识符
    */
   id?: string;
   /**
    * Function name
-   * 函数名称
+   * FunctionName
    */
   name: string;
   
   /**
    * Function description
-   * 函数描述
+   * FunctionDescription
    */
   desc: string;
   
   /**
    * Function parameters
-   * 函数参数
+   * FunctionParameter
    */
   params: {
     type: string;
@@ -37,7 +37,7 @@ export interface CallableFunction {
   
   /**
    * Function return type
-   * 函数返回类型
+   * Function返回Type
    */
   returns: {
     type: string;
@@ -46,39 +46,39 @@ export interface CallableFunction {
   
   /**
    * Function type: system or custom
-   * 函数类型：系统或自定义
+   * FunctionType：System或Custom
    */
   type: 'system' | 'custom';
   
   /**
    * System function identifier (only for system functions)
-   * 系统函数标识符（仅用于系统函数）
+   * SystemFunction标识符（仅Used forSystemFunction）
    */
   sysId?: string;
   
   /**
    * Custom implementation code (only for custom functions)
-   * 自定义实现代码（仅用于自定义函数）
+   * CustomImplementationCode（仅Used forCustomFunction）
    */
   code?: string;
   
   /**
    * Function implementation (deprecated, use sysId or code instead)
-   * 函数实现（已废弃，请使用 sysId 或 code）
+   * FunctionImplementation（已Deprecated，请使用 sysId 或 code）
    * @deprecated
    */
   impl?: string;
   
   /**
    * User ID (only for custom functions)
-   * 用户 ID（仅用于自定义函数）
+   * User ID（仅Used forCustomFunction）
    */
   userId?: string;
 }
 
 /**
  * Callable editor props
- * 可调用函数编辑器属性
+ * 可调用FunctionEdit器Property
  */
 export interface CallableEditorProps {
   value?: CallableFunction;
@@ -91,7 +91,7 @@ export interface CallableEditorProps {
 
 /**
  * Callable selector props
- * 可调用函数选择器属性
+ * 可调用FunctionSelect器Property
  */
 export interface CallableSelectorProps {
   value?: CallableFunction;
@@ -103,7 +103,7 @@ export interface CallableSelectorProps {
 
 /**
  * Callable form field props
- * 可调用函数表单项属性
+ * 可调用FunctionForm项Property
  */
 export interface CallableFormFieldProps {
   value?: CallableFunction;
@@ -123,7 +123,7 @@ export interface CallableFilter {
 
 /**
  * Create a default callable function object.
- * 统一的新建函数默认值
+ * 统一的新建FunctionDefaultValue
  */
 export function createDefaultCallableFunction(): CallableFunction {
   return {

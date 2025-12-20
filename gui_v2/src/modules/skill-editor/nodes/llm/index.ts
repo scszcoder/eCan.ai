@@ -9,6 +9,7 @@ import { WorkflowNodeType } from '../constants';
 import { FlowNodeRegistry } from '../../typings';
 import iconLLM from '../../assets/icon-llm.jpg';
 import { DEFAULT_NODE_OUTPUTS } from '../../typings/node-outputs';
+import { formMeta } from './form-meta';
 
 let index = 0;
 export const LLMNodeRegistry: FlowNodeRegistry = {
@@ -31,9 +32,17 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
       data: {
         title: `LLM_${++index}`,
         inputsValues: {
+          modelProvider: {
+            type: 'constant',
+            content: 'OpenAI',
+          },
           modelName: {
             type: 'constant',
-            content: 'gpt-3.5-turbo',
+            content: 'gpt-4o-mini',
+          },
+          attachments: {
+            type: 'constant',
+            content: [],
           },
           apiKey: {
             type: 'constant',
@@ -41,7 +50,7 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
           },
           apiHost: {
             type: 'constant',
-            content: 'https://mock-ai-url/api/v3',
+            content: 'https://api.openai.com/v1',
           },
           temperature: {
             type: 'constant',
@@ -51,23 +60,46 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
             type: 'template',
             content: '# Role\nYou are an AI assistant.\n',
           },
+          systemPromptId: {
+            type: 'constant',
+            content: 'in-line',
+          },
           prompt: {
             type: 'template',
             content: '',
           },
+          promptId: {
+            type: 'constant',
+            content: 'in-line',
+          },
+          promptSelection: {
+            type: 'constant',
+            content: 'inline',
+          },
         },
         inputs: {
           type: 'object',
-          required: ['modelName', 'apiKey', 'apiHost', 'temperature', 'prompt'],
+          required: ['modelProvider', 'modelName', 'apiKey', 'apiHost', 'temperature', 'prompt'],
           properties: {
+            modelProvider: {
+              type: 'string',
+              extra: { formComponent: 'input' },
+            },
             modelName: {
               type: 'string',
+              extra: { formComponent: 'input' },
+            },
+            attachments: {
+              type: 'array',
+              extra: { formComponent: 'custom-attachments', skipDefault: true },
             },
             apiKey: {
               type: 'string',
+              extra: { formComponent: 'input' },
             },
             apiHost: {
               type: 'string',
+              extra: { formComponent: 'input' },
             },
             temperature: {
               type: 'number',
@@ -78,10 +110,24 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
                 formComponent: 'prompt-editor',
               },
             },
+            systemPromptId: {
+              type: 'string',
+              extra: { skipDefault: true },
+            },
             prompt: {
               type: 'string',
               extra: {
                 formComponent: 'prompt-editor',
+              },
+            },
+            promptId: {
+              type: 'string',
+              extra: { skipDefault: true },
+            },
+            promptSelection: {
+              type: 'string',
+              extra: {
+                skipDefault: true,
               },
             },
           },
@@ -90,4 +136,5 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
       },
     };
   },
+  formMeta: formMeta,
 };

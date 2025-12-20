@@ -1,0 +1,113 @@
+{
+
+  "parametric_filters": {
+    "id": "mcu_config_form",
+    "type": "normal",
+    "title": "MCU 配置",
+    "parametric_filters": [
+      {
+        "id": "core",
+        "type": "select",
+        "label": "MCU Core",
+        "tooltip": "MCU Core Types",
+        "options": [
+          { "label": "ATmega328P", "value": "ATmega328P" },
+          { "label": "ESP32", "value": "ESP32" },
+          { "label": "STM32F103", "value": "STM32F103" },
+          { "label": "PIC16F84A", "value": "PIC16F84A" },
+          { "label": "Arduino Nano", "value": "Arduino Nano" }
+        ],
+        "defaultValue": "ESP32"
+      },
+      {
+        "id": "factory",
+        "type": "text",
+        "label": "Factory",
+        "tooltip": "Test field type text",
+        "defaultValue": "ESP——32"
+      },
+      {
+        "id": "clock_speed",
+        "type": "checkbox",
+        "label": "Clock Speed",
+        "tooltip": "Clock Speed Options",
+        "options": [
+          { "label": "8", "value": "8" },
+          { "label": "16", "value": "16" },
+          { "label": "32", "value": "32" },
+          { "label": "64", "value": "64" },
+          { "label": "128", "value": "128" }
+        ],
+        "defaultValue": ["16", "64"]
+      },
+      {
+        "id": "voltage",
+        "type": "select",
+        "label": "Operating Voltage",
+        "tooltip": "Operation Voltage Options",
+        "options": [
+          { "label": "3.3V", "value": "3.3V" },
+          { "label": "5V", "value": "5V" },
+          { "label": "12V", "value": "12V" }
+        ],
+        "defaultValue": "3.3V"
+      },
+      {
+        "id": "watchdog_timer",
+        "type": "switch",
+        "label": "Watchdog Timer",
+        "tooltip": "Watchdog timer Switch",
+        "defaultValue": true
+      },
+      {
+        "id": "debug_interface",
+        "type": "radio",
+        "label": "Debug Interface",
+        "tooltip": "Debug Radio Interface",
+        "options": [
+          { "label": "UART", "value": "UART" },
+          { "label": "SPI", "value": "SPI" },
+          { "label": "I2C", "value": "I2C" },
+          { "label": "USB", "value": "USB" }
+        ],
+        "defaultValue": "UART"
+      },
+      {
+        "id": "temperature",
+        "type": "slider",
+        "label": "温度设置",
+        "tooltip": "template Settings",
+        "min": 0,
+        "max": 100,
+        "step": 1,
+        "unit": "°C",
+        "defaultValue": 25,
+        "required": true
+      },
+      {
+        "id": "volume",
+        "type": "slider",
+        "label": "音量控制",
+        "tooltip": "Volumn Slider Compontent",
+        "min": 0,
+        "max": 10,
+        "step": 0.5,
+        "unit": "",
+        "defaultValue": 5
+      }, {
+        "id": "brand",
+        "type": "select",
+        "label": "Brand",
+        "tooltip": "Brand And Cusotm Options",
+        "custom": true,
+        "options": [
+          { "label": "Intel", "value": "Intel-1" },
+          { "label": "AMD", "value": "AMD-2" },
+          { "label": "HiSi", "value": "HiSi-3" }
+        ],
+        "defaultValue": "Intel"
+      }
+    ],
+    "submit_text": "保存"
+  }
+}

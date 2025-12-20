@@ -1,24 +1,24 @@
 /**
- * 通知测试数据文件
+ * NotificationTestData文件
  * 
- * 本文件包含各种类型的通知测试数据，用于开发和测试通知功能。
+ * 本文件Include各种Type的NotificationTestData，Used forDevelopment和TestNotification功能。
  * 
- * 测试数据类型：
- * - 'mcuConfig': MCU 配置数据
- * - 'sensorConfig': 传感器配置数据
- * - 'networkConfig': 网络配置数据
- * - 'motorConfig': 电机配置数据
- * - 'displayConfig': 显示配置数据
- * - 'robotConfig': 机器人配置数据
- * - 'iotConfig': IoT 配置数据
- * - 'errorData': 错误数据（无效 JSON）
- * - 'emptyData': 空数据
- * - 'complexConfig': 复杂嵌套配置
+ * TestDataType：
+ * - 'mcuConfig': MCU ConfigurationData
+ * - 'sensorConfig': 传感器ConfigurationData
+ * - 'networkConfig': NetworkConfigurationData
+ * - 'motorConfig': 电机ConfigurationData
+ * - 'displayConfig': DisplayConfigurationData
+ * - 'robotConfig': 机器人ConfigurationData
+ * - 'iotConfig': IoT ConfigurationData
+ * - 'errorData': ErrorData（无效 JSON）
+ * - 'emptyData': 空Data
+ * - 'complexConfig': Complex嵌套Configuration
  */
 
-// 通知测试数据集合
+// NotificationTestData集合
 export const notificationTestData = {
-  // MCU 配置数据
+  // MCU ConfigurationData
   mcuConfig: {
     "core": {
       "name": "MCU Core",
@@ -57,7 +57,7 @@ export const notificationTestData = {
     }
   },
 
-  // 传感器配置数据
+  // 传感器ConfigurationData
   sensorConfig: {
     "sensor_type": {
       "name": "Sensor Type",
@@ -89,7 +89,7 @@ export const notificationTestData = {
     }
   },
 
-  // 网络配置数据
+  // NetworkConfigurationData
   networkConfig: {
     "connection_type": {
       "name": "Connection Type",
@@ -121,7 +121,7 @@ export const notificationTestData = {
     }
   },
 
-  // 电机控制配置
+  // 电机控制Configuration
   motorConfig: {
     "motor_type": {
       "name": "Motor Type",
@@ -153,7 +153,7 @@ export const notificationTestData = {
     }
   },
 
-  // 显示配置
+  // DisplayConfiguration
   displayConfig: {
     "display_type": {
       "name": "Display Type",
@@ -185,7 +185,7 @@ export const notificationTestData = {
     }
   },
 
-  // 机器人配置
+  // 机器人Configuration
   robotConfig: {
     "robot_type": {
       "name": "Robot Type",
@@ -217,7 +217,7 @@ export const notificationTestData = {
     }
   },
 
-  // IoT 设备配置
+  // IoT 设备Configuration
   iotConfig: {
     "device_type": {
       "name": "Device Type",
@@ -249,7 +249,7 @@ export const notificationTestData = {
     }
   },
 
-  // 错误数据（无效 JSON）
+  // ErrorData（无效 JSON）
   errorData: {
     "invalid_field": {
       "name": "Invalid Field",
@@ -260,10 +260,10 @@ export const notificationTestData = {
     }
   },
 
-  // 空数据
+  // 空Data
   emptyData: {},
 
-  // 复杂嵌套配置
+  // Complex嵌套Configuration
   complexConfig: {
     "system": {
       "name": "System Configuration",
@@ -289,13 +289,13 @@ export const notificationTestData = {
   }
 };
 
-// 获取随机测试数据
+// Get随机TestData
 export const getRandomNotificationData = () => {
   const dataTypes = Object.keys(notificationTestData);
   const randomType = dataTypes[Math.floor(Math.random() * dataTypes.length)] as keyof typeof notificationTestData;
   
   return {
-    text: `随机测试数据 - ${randomType}`,
+    text: `随机TestData - ${randomType}`,
     type: 'custom',
     code: {
       value: JSON.stringify(notificationTestData[randomType], null, 2)
@@ -303,7 +303,7 @@ export const getRandomNotificationData = () => {
   };
 };
 
-// 获取指定类型的测试数据
+// Get指定Type的TestData
 export const getNotificationTestData = (type: keyof typeof notificationTestData) => {
   if (!notificationTestData[type]) {
     console.warn(`Unknown test data type: ${type}`);
@@ -311,7 +311,7 @@ export const getNotificationTestData = (type: keyof typeof notificationTestData)
   }
 
   return {
-    text: `${type} 配置数据`,
+    text: `${type} ConfigurationData`,
     type: 'custom',
     code: {
       value: JSON.stringify(notificationTestData[type], null, 2)

@@ -1,0 +1,95 @@
+{
+  "developing": {
+    "mappings": [
+      {
+        "from": ["event.data.qa_form_to_agent", "event.data.qa_form"],
+        "to": [
+          {"target": "state.attributes.forms.qa_form"},
+          {"target": "resume.qa_form_to_agent"}
+        ],
+        "on_conflict": "merge_deep"
+      },
+      {
+        "from": ["event.data.notification_to_agent", "event.data.notification"],
+        "to": [
+          {"target": "state.attributes.notifications.latest"},
+          {"target": "resume.notification_to_agent"}
+        ],
+        "on_conflict": "merge_deep"
+      },
+      {
+        "from": ["event.data.human_text"],
+        "to": [
+          {"target": "state.attributes.human.last_message"},
+          {"target": "resume.human_text"}
+        ],
+        "transform": "to_string",
+        "on_conflict": "overwrite"
+      },
+      {
+        "from": ["event.tag"],
+        "to": [
+          {"target": "state.attributes.cloud_task_id"}
+        ],
+        "on_conflict": "overwrite"
+      },
+      {
+        "from": ["event.data.metadata"],
+        "to": [
+          {"target": "state.attributes.debug.last_event_metadata"}
+        ],
+        "on_conflict": "overwrite"
+      }
+    ],
+    "options": {
+      "strict": false,
+      "default_on_missing": null,
+      "apply_order": "top_down"
+    }
+  },
+  "released": {
+    "mappings": [
+      {
+        "from": ["event.data.qa_form_to_agent", "event.data.qa_form"],
+        "to": [
+          {"target": "state.attributes.forms.qa_form"},
+          {"target": "resume.qa_form_to_agent"}
+        ],
+        "on_conflict": "merge_deep"
+      },
+      {
+        "from": ["event.data.notification_to_agent", "event.data.notification"],
+        "to": [
+          {"target": "state.attributes.notifications.latest"},
+          {"target": "resume.notification_to_agent"}
+        ],
+        "on_conflict": "merge_deep"
+      },
+      {
+        "from": ["event.data.human_text"],
+        "to": [
+          {"target": "state.attributes.human.last_message"},
+          {"target": "resume.human_text"}
+        ],
+        "transform": "to_string",
+        "on_conflict": "overwrite"
+      },
+      {
+        "from": ["event.tag"],
+        "to": [
+          {"target": "state.attributes.cloud_task_id"}
+        ],
+        "on_conflict": "overwrite"
+      }
+    ],
+    "options": {
+      "strict": true,
+      "default_on_missing": null,
+      "apply_order": "top_down"
+    }
+  },
+  "node_transfers": {},
+  "event_routing": {
+    "human_chat": {"task_selector": "name_contains:chatter", "queue": "chat_queue"}
+  }
+}

@@ -6,7 +6,7 @@ import ImageViewer from '../components/ImageViewer';
 import { get_ipc_api } from '@/services/ipc_api';
 
 /**
- * 文件类型常量
+ * 文件Type常量
  */
 export const FILE_TYPES = {
     IMAGE: ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'image/svg+xml'],
@@ -18,18 +18,24 @@ export const FILE_TYPES = {
 };
 
 /**
- * 文件处理工具类
- * 提供文件信息获取、内容读取、预览等功能
+ * 文件ProcessTool类
+ * 提供文件InformationGet、Content读取、预览等功能
  */
 export class FileUtils {
     private static _api: any = null;
 
     /**
-     * 获取 API 实例（懒加载）
+     * Get API 实例（懒Load）
      */
     private static get api() {
         if (!this._api) {
             this._api = get_ipc_api();
+            if (!this._api) {
+                throw new Error('IPC API not initialized. Please ensure the application is properly started.');
+            }
+            if (!this._api.chatApi) {
+                throw new Error('Chat API not available. Please check the IPC initialization.');
+            }
         }
         return this._api;
     }
@@ -42,14 +48,14 @@ export class FileUtils {
     }
 
     /**
-     * 判断文件是否为文档
+     * 判断文件是否为Documentation
      */
     static isDocumentFile(mimeType: string): boolean {
         return FILE_TYPES.DOCUMENT.includes(mimeType);
     }
 
     /**
-     * 获取文件图标
+     * Get文件图标
      */
     static getFileIcon(mimeType: string): string {
         if (this.isImageFile(mimeType)) return '📷';
@@ -62,7 +68,7 @@ export class FileUtils {
     }
 
     /**
-     * 格式化文件大小
+     * Format文件Size
      */
     static formatFileSize(bytes: number): string {
         if (bytes === 0) return '0 B';
@@ -73,7 +79,7 @@ export class FileUtils {
     }
 
     /**
-     * 从 pyqtfile:// URL 中提取文件路径
+     * 从 pyqtfile:// URL 中提取文件Path
      */
     static extractFilePathFromUrl(url: string): string | null {
         if (!url || !url.startsWith('pyqtfile://')) {
@@ -83,22 +89,22 @@ export class FileUtils {
     }
 
     /**
-     * 获取文件信息
-     * @param filePath 文件路径
+     * Get文件Information
+     * @param filePath 文件Path
      * @returns Promise<FileInfo | null>
      */
     static async getFileInfo(filePath: string): Promise<FileInfo | null> {
         try {
-            // 标准化路径：移除 pyqtfile:// 前缀，因为后端期望接收不带前缀的路径
+            // Standard化Path：Remove pyqtfile:// 前缀，因为Backend期望Receive不带前缀的Path
             let normalizedPath = filePath;
             if (filePath.startsWith('pyqtfile://')) {
                 normalizedPath = filePath.replace('pyqtfile://', '');
             } else if (!filePath.startsWith('pyqtfile:')) {
-                // 如果不是 pyqtfile 协议，保持原样
+                // Ifnot pyqtfile 协议，保持原样
                 normalizedPath = filePath;
             }
             
-            const response = await this.api.chat.getFileInfo(normalizedPath);
+            const response = await this.api.chatApi.getFileInfo(normalizedPath);
             if (response.success && response.data) {
                 return response.data;
             } else {
@@ -112,26 +118,26 @@ export class FileUtils {
     }
 
     /**
-     * 获取文件内容
-     * @param filePath 文件路径
+     * Get文件Content
+     * @param filePath 文件Path
      * @returns Promise<FileContent | null>
      */
     static async getFileContent(filePath: string): Promise<FileContent | null> {
         try {
             //logger.debug(`[getFileContent] Input filePath: ${filePath}`);
             
-            // 标准化路径：移除 pyqtfile:// 前缀，因为后端期望接收不带前缀的路径
+            // Standard化Path：Remove pyqtfile:// 前缀，因为Backend期望Receive不带前缀的Path
             let normalizedPath = filePath;
             if (filePath.startsWith('pyqtfile://')) {
                 normalizedPath = filePath.replace('pyqtfile://', '');
             } else if (!filePath.startsWith('pyqtfile:')) {
-                // 如果不是 pyqtfile 协议，保持原样
+                // Ifnot pyqtfile 协议，保持原样
                 normalizedPath = filePath;
             }
             
             //logger.debug(`[getFileContent] Normalized path: ${normalizedPath}`);
             
-            const response = await this.api.chat.getFileContent(normalizedPath);
+            const response = await this.api.chatApi.getFileContent(normalizedPath);
             
             if (response.success && response.data) {
                 //logger.debug(`[getFileContent] Success, data received`);
@@ -166,10 +172,10 @@ export class FileUtils {
             const fileContent = await this.getFileContent(filePath);
             
             if (!fileContent || !fileContent.dataUrl) {
-                throw new Error('文件内容为空');
+                throw new Error('文件Content为空');
             }
             
-            // 从 data URL 创建 Blob
+            // 从 data URL Create Blob
             const base64Data = fileContent.dataUrl.split(',')[1];
             const binaryData = atob(base64Data);
             const bytes = new Uint8Array(binaryData.length);
@@ -179,7 +185,7 @@ export class FileUtils {
             
             const blob = new Blob([bytes], { type: fileContent.mimeType });
             
-            // 创建下载链接
+            // Create下载Link
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.style.display = 'none';
@@ -188,7 +194,7 @@ export class FileUtils {
             document.body.appendChild(a);
             a.click();
             
-            // 清理
+            // Cleanup
             setTimeout(() => {
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
@@ -202,7 +208,7 @@ export class FileUtils {
     }
 
     /**
-     * 获取文件缩略图（仅用于图片）
+     * Get文件缩略图（仅Used for图片）
      */
     static async getFileThumbnail(filePath: string): Promise<string | null> {
         try {
@@ -220,13 +226,13 @@ export class FileUtils {
     }
 
     /**
-     * 预览文件（图片显示，其他文件下载）
-     * @param filePath 文件路径
-     * @returns Promise<boolean> 是否成功处理
+     * 预览文件（图片Display，其他文件下载）
+     * @param filePath 文件Path
+     * @returns Promise<boolean> 是否SuccessProcess
      */
     static async previewFile(filePath: string): Promise<boolean> {
         try {
-            // 首先获取文件信息
+            // 首先Get文件Information
             const fileInfo = await this.getFileInfo(filePath);
             
             if (!fileInfo) {
@@ -234,7 +240,7 @@ export class FileUtils {
                 return false;
             }
 
-            // 如果是图片文件，直接获取内容并显示预览
+            // If是图片文件，直接GetContent并Display预览
             if (fileInfo.isImage) {
                 const fileContent = await this.getFileContent(filePath);
                 
@@ -261,20 +267,20 @@ export class FileUtils {
     }
 
     /**
-     * 显示图片预览
+     * Display图片预览
      * @param dataUrl 图片的 data URL
      * @param fileName 文件名
      */
     private static showImagePreview(dataUrl: string, fileName: string): void {
-        // 创建容器元素
+        // CreateContainer元素
         const container = document.createElement('div');
         container.id = 'image-viewer-container';
         document.body.appendChild(container);
 
-        // 创建 React 18 root
+        // Create React 18 root
         const root = createRoot(container);
 
-        // 关闭函数
+        // CloseFunction
         const closeModal = () => {
             if (container && container.parentNode) {
                 root.unmount();
@@ -282,7 +288,7 @@ export class FileUtils {
             }
         };
 
-        // 渲染ImageViewer组件
+        // RenderImageViewerComponent
         root.render(
             React.createElement(ImageViewer, {
                 imageUrl: dataUrl,
@@ -295,25 +301,25 @@ export class FileUtils {
     }
 
     /**
-     * 检查是否为本地文件路径
-     * @param url 文件 URL 或路径
+     * Check是否为Local文件Path
+     * @param url 文件 URL 或Path
      * @returns boolean
      */
     static isLocalFile(url: string): boolean {
-        // 检查是否为本地文件路径（不是 http/https 协议）
-        // 支持 pyqtfile: 协议和绝对路径格式
+        // Check是否为Local文件Path（not http/https 协议）
+        // Support pyqtfile: 协议和绝对Path格式
         return !url.startsWith('http://') && 
                !url.startsWith('https://') && 
                !url.startsWith('data:') &&
                (url.startsWith('pyqtfile:') || 
                 url.startsWith('/') || 
-                /^[A-Za-z]:\\/.test(url)); // Windows 路径
+                /^[A-Za-z]:\\/.test(url)); // Windows Path
     }
 
     /**
-     * 处理附件点击事件
+     * Process附件ClickEvent
      * @param attachment 附件对象
-     * @returns Promise<boolean> 是否成功处理
+     * @returns Promise<boolean> 是否SuccessProcess
      */
     static async handleAttachmentClick(attachment: { url?: string; name?: string }): Promise<boolean> {
         if (!attachment.url) {
@@ -321,12 +327,12 @@ export class FileUtils {
             return false;
         }
 
-        // 如果是本地文件，使用我们的 API 处理
+        // If是Local文件，使用我们的 API Process
         if (this.isLocalFile(attachment.url)) {
-            // 直接使用原始路径，让 previewFile 方法处理路径转换
+            // 直接使用原始Path，让 previewFile MethodProcessPathConvert
             return await this.previewFile(attachment.url);
         } else {
-            // 如果是网络文件，直接打开
+            // If是Network文件，直接Open
             window.open(attachment.url, '_blank');
             return true;
         }

@@ -1,0 +1,59 @@
+{
+  "data_type": "task",
+  "version": "1.0.0",
+  "description": "Task entity field mapping",
+  "last_updated": "2025-10-15",
+  
+  "field_mapping": {
+    "id": "ataskid"
+  },
+  
+  "cloud_required_fields": {
+    "ataskid": "",
+    "owner": "",
+    "name": "",
+    "description": "",
+    "objectives": [],
+    "schedule": {},
+    "metadata": {},
+    "start": "",
+    "priority": "medium",
+    "trigger": "manual",
+    "progress": 0.0,
+    "result": {},
+    "error_message": "",
+    "settings": {}
+  },
+  
+  "excluded_fields": [
+    "agid",
+    "task_id",
+    "status",
+    "task_type"
+  ],
+  
+  "json_serialize_fields": [
+    "objectives",
+    "schedule",
+    "metadata",
+    "result",
+    "settings"
+  ],
+  
+  "aws_datetime_fields": [
+    "created_at",
+    "updated_at"
+  ],
+  
+  "notes": [
+    "✨ This is for AgentTask (entity), not AgentTaskRelation (relationship)",
+    "Contains all task data including progress, result, org_id, etc.",
+    "Excluded fields:",
+    "  - agid, task_id: Belong in AgentTaskRelation (relationship table)",
+    "  - status, task_type: Cloud schema validation error - rejected by AWS AppSync",
+    "⚠️ IMPORTANT: Although appsync_schema.graphql shows 'status' and 'task_type' fields,",
+    "   the actual cloud API rejects them with 'field not in AgentTask' error.",
+    "   This indicates the cloud schema was updated but local schema file is outdated.",
+    "Schema fields: ataskid, owner, name, description, org_id, schedule, objectives, metadata, start, priority, trigger, progress, result, error_message, settings, created_at, updated_at"
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "data_type": "skill",
+  "version": "1.0.0",
+  "description": "Skill entity field mapping",
+  "last_updated": "2025-10-15",
+  
+  "field_mapping": {
+    "id": "askid"
+  },
+  
+  "cloud_required_fields": {
+    "askid": "",
+    "owner": "",
+    "name": "",
+    "description": "",
+    "flowgram": {},
+    "langgraph": {},
+    "path": "",
+    "status": "active",
+    "price": 0.0
+  },
+  
+  "excluded_fields": [
+    "agid",
+    "skid"
+  ],
+  
+  "json_serialize_fields": [
+    "config",
+    "diagram",
+    "flowgram",
+    "langgraph",
+    "tags",
+    "examples",
+    "inputModes",
+    "outputModes",
+    "apps",
+    "limitations"
+  ],
+  
+  "aws_datetime_fields": [
+    "created_at",
+    "updated_at"
+  ],
+  
+  "notes": [
+    "✨ This is for AgentSkill (entity), not AgentSkillRelation (relationship)",
+    "Contains complete skill data including metadata, configuration, and business fields",
+    "Excluded fields:",
+    "  - agid, skid: Belong in AgentSkillRelation (relationship table)",
+    "Schema fields: askid, owner, name, description, version, level, config, diagram, flowgram, langgraph, tags, examples, inputModes, outputModes, apps, limitations, path, status, price, price_model, public, rentable, created_at, updated_at"
+  ]
+}

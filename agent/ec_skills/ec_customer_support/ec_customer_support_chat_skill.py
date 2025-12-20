@@ -17,11 +17,13 @@ from langchain_core.messages.utils import (
 )
 from langgraph.prebuilt import create_react_agent
 from langmem.short_term import SummarizationNode
+from langchain_core.prompts import ChatPromptTemplate
 
+from prompt_toolkit import prompt
 from scipy.stats import chatterjeexi
 import base64
-from bot.Logger import *
 from agent.ec_skill import *
+from agent.agent_service import get_agent_by_id
 
 
 def human_approval(state: NodeState) -> Command[Literal["some_node", "another_node"]]:
@@ -143,6 +145,14 @@ def llm_node_with_files(state: dict) -> dict:
     if not attachments:
         raise ValueError("No files attached!")
 
+    # Get mainwin's llm object from agent
+    agent_id = state.get("messages", [None])[0]
+    agent = get_agent_by_id(agent_id) if agent_id else None
+    mainwin = agent.mainwin if agent else None
+    llm = mainwin.llm if mainwin and mainwin.llm else None
+    if not llm:
+        raise ValueError("LLM not available in mainwin")
+
     file_list = "\n".join(f"- {att['filename']}" for att in attachments)
     contents_list = []
     for att in attachments:
@@ -161,8 +171,6 @@ def llm_node_with_files(state: dict) -> dict:
         "file_list": file_list,
         "file_contents": file_contents
     }
-
-    llm = ChatOpenAI(model="gpt-4", temperature=0.2)
     prompt_str = prompt.format(**prompt_vars)
     result = llm.invoke(prompt_str)
     return {"llm_response": result.content}
@@ -197,13 +205,15 @@ async def create_ec_customer_support_chat_skill(mainwin):
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        searcher_chatter_skill = EC_Skill(name="chatter for meca search 1688 web site",
-                             description="chat with human or other agents to help search a part/component or a product on 1688 website.")
-
+        searcher_chatter_skill = EC_Skill(
+            name="chatter for meca search 1688 web site",
+            description="chat with human or other agents to help search a part/component or a product on 1688 website.",
+            source="code"  # Mark as code-generated skill
+        )        
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
 
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14", temperature=0.5)
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
         print("llm loaded:", llm)
         prompt0 = ChatPromptTemplate.from_messages([
             ("system", """
@@ -471,7 +481,7 @@ async def create_ec_customer_support_chat_skill(mainwin):
             ex_stat = "ErrorCreateSearch1688ChatterSkill:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCreateSearch1688ChatterSkill: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return None
 
     return searcher_chatter_skill

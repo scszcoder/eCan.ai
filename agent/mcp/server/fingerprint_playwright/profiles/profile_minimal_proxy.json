@@ -1,0 +1,19 @@
+{
+  "id": "proxy_quick_01",
+  "description": "Minimal profile that demonstrates proxy + storage",
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36",
+  "viewport": { "width": 1280, "height": 720 },
+  "isMobile": false,
+  "timezone": "America/Chicago",
+  "locale": "en-US",
+  "platform": "Win32",
+  "canvasNoiseSeed": "proxy_seed_100",
+  "webgl": { "vendor": "Intel Inc.", "renderer": "Intel Iris" },
+  "proxy": {
+    "server": "http://us1.proxyprovider.com:8000",
+    "username": "user123",
+    "password": "p@ssw0rd"
+  },
+  "cookies_file": "cookies/proxy_quick_01.json",
+  "notes": "Useful for quick proxy + cookie tests"
+}

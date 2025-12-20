@@ -95,6 +95,30 @@
     platform: windows
 ```
 
+### 6. setup-signtool-env
+
+安装和配置Windows SDK signtool用于代码签名。
+
+**输入参数:**
+- `skip-if-available`: 如果signtool已可用则跳过安装 (默认: 'true')
+- `sdk-version`: Windows SDK版本 (默认: '2004')
+- `timeout`: 安装超时时间(秒) (默认: '600')
+
+**输出参数:**
+- `signtool-available`: signtool是否可用 ('true'/'false')
+- `signtool-path`: signtool.exe的路径
+- `installation-method`: 安装方式 ('existing', 'found-existing', 'chocolatey', 'failed')
+
+**使用示例:**
+```yaml
+- name: Setup Windows signtool Environment
+  uses: ./.github/actions/setup-signtool-env
+  with:
+    skip-if-available: true
+    sdk-version: '2004'
+    timeout: '600'
+```
+
 ## 优势
 
 ### 代码去重

@@ -1,0 +1,962 @@
+# ============================================
+# eCan.ai AppSync GraphQL Schema
+# Version: 2.1.0
+# Last Updated: 2025-10-15
+# ============================================
+#
+# Architecture:
+# 1. Entity Types: Agent, AgentSkill, AgentTask, AgentTool, Knowledge
+# 2. First-level Relationships: AgentSkillRelation, AgentTaskRelation, AgentToolRelation
+# 3. Second-level Relationships: SkillToolRelation, SkillKnowledgeRelation, TaskSkillRelation
+# 4. Agent contains basic info only, all relationships managed separately
+#
+# ============================================
+
+# ============================================
+# Input Types for Existing Entities
+# ============================================
+
+input Account {
+	actid: ID!
+	user_name: String
+	subid: String
+	dob: String
+	email: String
+	phone: String
+	addr: String
+	ssn4: String
+	sign_on_date: String
+	pay_method1: String
+	pay1_details: String
+	pay_method2: String
+	pay2_details: String
+	pay_method3: String
+	pay3_details: String
+	subs: String
+	fund: Int
+	quota: Int
+	states: String
+}
+
+input AcctOp {
+	actid: ID!
+	op: String!
+	options: String!
+}
+
+input Agent {
+	agid: ID!
+	owner: String
+	name: String
+	title: String
+	org_id: String
+	supervisor_id: String
+	subordinates: String
+	birthday: AWSDate
+	gender: String
+	personalities: String
+	status: String
+	rank: String
+	vehicle: String
+	metadata: AWSJSON
+	vehicle_id: String
+	avatar_resource_id: String
+	description: String
+	url: String
+	version: String
+	extra_data: AWSJSON
+	capabilities: AWSJSON
+	ext: String
+	created_at: AWSDateTime
+	updated_at: AWSDateTime
+}
+
+input AgentSkill {
+	askid: ID!
+	owner: String
+	name: String
+	description: String
+	version: String
+	level: String
+	config: AWSJSON
+	diagram: AWSJSON
+	flowgram: AWSJSON
+	langgraph: AWSJSON
+	tags: AWSJSON
+	examples: AWSJSON
+	inputModes: AWSJSON
+	outputModes: AWSJSON
+	apps: AWSJSON
+	limitations: AWSJSON
+	path: String
+	status: String
+	price: Float
+	price_model: String
+	public: Boolean
+	rentable: Boolean
+	created_at: AWSDateTime
+	updated_at: AWSDateTime
+}
+
+input AgentTask {
+	ataskid: ID!
+	owner: String
+	name: String
+	description: String
+	org_id: String
+	schedule: AWSJSON
+	objectives: AWSJSON
+	metadata: AWSJSON
+	start: String
+	priority: String
+	status: String
+	task_type: String
+	trigger: String
+	progress: Float
+	result: AWSJSON
+	error_message: String
+	settings: AWSJSON
+	created_at: AWSDateTime
+	updated_at: AWSDateTime
+}
+
+input AgentTool {
+	toolid: ID!
+	owner: String
+	name: String
+	description: String
+	protocol: String
+	metadata: AWSJSON
+	link: String
+	status: String
+	price: Float
+	created_at: AWSDateTime
+	updated_at: AWSDateTime
+}
+
+input Bot {
+	bid: ID!
+	owner: String
+	roles: String
+	org: String
+	birthday: String
+	gender: String
+	interests: String
+	status: String
+	levels: String
+	vehicle: String
+	location: String!
+}
+
+type BotInfo {
+	bid: ID!
+	owner: String
+	level: String
+	roles: String
+	org: String
+	birthday: AWSDate
+	levelStart: AWSDate
+	delDate: AWSDateTime!
+	habbits: String
+	interests: String
+	location: String!
+}
+
+input ChatReq {
+	msgID: String
+	user: String
+	goals: String
+	products: String
+	options: String
+	timeStamp: AWSDateTime
+	background: String
+	msg: String
+}
+
+type Clickable {
+	type: String
+	text: String!
+	number: String!
+	unit: String!
+	function: String
+	location: [Int]
+	area: [Int]
+	section: String
+	level: Int
+}
+
+input Client {
+	cid: ID!
+	email: AWSEmail
+	phone: AWSPhone!
+	country: String!
+	city: String!
+	state: String!
+	name: String!
+	snid: String!
+}
+
+input Component {
+	component_id: ID!
+	name: String
+	proj_id: ID!
+	description: String!
+	category: String!
+	application: String!
+	metadata: AWSJSON!
+}
+
+input CustomerMsg {
+	msg_dt: AWSDateTime!
+	cusomter: String!
+	msg_title: String!
+	msg_body: String!
+}
+
+input CustomerMsgs {
+	site: String!
+	msgs: [CustomerMsg]!
+}
+
+input FbReq {
+	number: Int
+	product: String
+	instructions: String
+	orderID: String
+	payType: String
+	total: Int
+	transactionID: String
+	customerMail: AWSEmail
+	customerPhone: String
+	origin: String
+}
+
+input FileOp {
+	op: String
+	names: String
+	options: String
+}
+
+input KeyInfo {
+	aws_api_key: String
+	option: String
+}
+
+input KeyOp {
+	op: String
+	keys: String
+	options: String
+}
+
+input Knowledge {
+	knid: ID!
+	name: String
+	owner: String
+	description: String
+	path: String
+	status: String
+	rag: String
+	metadata: AWSJSON
+}
+
+input AvatarResource {
+	id: ID!
+	owner: String
+	resource_type: String
+	name: String
+	description: String
+	image_path: String
+	video_path: String
+	image_hash: String
+	video_hash: String
+	cloud_image_url: String
+	cloud_video_url: String
+	cloud_image_key: String
+	cloud_video_key: String
+	cloud_synced: Boolean
+	avatar_metadata: AWSJSON
+	usage_count: Int
+	last_used_at: AWSDateTime
+	is_public: Boolean
+	created_at: AWSDateTime
+	updated_at: AWSDateTime
+}
+
+type LongLLMTaskResult @aws_api_key @aws_cognito_user_pools {
+	id: ID!
+	acctSiteID: String
+	agentID: String
+	workType: String
+	taskID: String
+	status: String
+	results: String
+	timestamp: String
+}
+
+input LongLLMTaskResultInput @aws_api_key @aws_cognito_user_pools {
+	acctSiteID: String
+	agentID: String
+	workType: String
+	taskID: String
+	status: String
+	results: String
+}
+
+input Mission {
+	mid: ID!
+	ticket: ID!
+	owner: String
+	botid: ID!
+	cuspas: String
+	search_kw: String
+	search_cat: String
+	status: String!
+	trepeat: ID!
+	store: String!
+	asin: String!
+	brand: String!
+	mtype: String!
+	esd: String!
+	as_server: Int!
+	skills: String!
+	config: String!
+}
+
+input MissionIdentifiers {
+	byowneruser: Boolean
+	mid: ID
+	ticket: ID
+	botid: ID
+	owner: String
+	requester: String
+	type: String
+	config: String
+	phrase: String
+	pseudo_store: String
+	skills: String
+	esd_range: String
+	status: String
+	created_date_range: String
+	test_mode: Boolean
+}
+
+input MissionStatus {
+	mid: ID!
+	bid: ID
+	status: String
+	starttime: AWSDateTime
+	usage: String
+	endtime: AWSDateTime
+	nthretry: Int
+}
+
+input Node {
+	askid: String!
+	name: String!
+	situation: String!
+}
+
+input Order {
+	oid: ID!
+	actid: ID!
+	orderID: String
+	products: [String]!
+	description: String
+	yek: String
+	number: Int
+	discount: Int
+	discountType: String
+	dealType: String
+	unitPrice: Int
+	total: Int
+	payMethod: String
+	beginDate: AWSDateTime
+	endDate: AWSDateTime
+	status: String
+	transactions: String
+}
+
+input OrderOp {
+	oid: ID!
+	op: String
+	options: String
+}
+
+input PARAM {
+	name: String
+	ptype: String
+	value: String
+}
+
+input Parameters {
+	component_name: String
+	product_app: [String!]
+	max_product_metrics: Int
+	max_component_metrics: Int
+	params: [PARAM!]
+}
+
+type Puzzle {
+	pzid: ID!
+	request_id: String
+	type: String
+	puzzle_file: String
+	question: String
+	url: String
+	url_key: String
+	prize: Int
+	time_limit: Int
+	module: String
+	options: String
+}
+
+input PuzzleInput {
+	pzid: ID!
+	request_id: String
+	type: String
+	puzzle_file: String
+	question: String
+	url: String
+	url_key: String
+	prize: Int
+	time_limit: Int
+	module: String
+	options: String
+}
+
+type PuzzleResult {
+	pzid: ID!
+	request_id: String
+	type: String
+	solver: String
+	result: String
+}
+
+input PuzzleResultInput {
+	pzid: ID!
+	request_id: String
+	type: String
+	solver: String
+	result: String
+}
+
+input RAGIN {
+	fid: ID!
+	pid: ID!
+	file: String!
+	type: String!
+	format: String!
+	options: AWSJSON!
+	version: String!
+}
+
+input RankData {
+	fom_form: AWSJSON!
+	rows: [AWSJSON!]
+	component_info: AWSJSON!
+}
+
+input RemoveBusinessOrder {
+	oid: ID!
+	owner: String!
+	reason: String!
+	products: [String]!
+	productTypes: [String]!
+}
+
+input RemoveOrder {
+	oid: ID!
+	owner: String!
+	reason: String!
+}
+
+input SchSettings {
+	ignoreInterest: Boolean
+}
+
+type Schedule {
+	sid: String
+	bid: String
+	start: AWSDateTime!
+	tasks: [Task!]!
+}
+
+input ScreenImg {
+	mid: Int
+	bid: Int
+	os: String
+	app: String
+	domain: String
+	page: String
+	layout: String
+	skill: String
+	psk: String
+	csk: String
+	lastMove: String
+	options: String
+	theme: String
+	imageFile: String
+	factor: String
+}
+
+type ScreenInfo {
+	id: ID!
+	clickables: [Clickable]!
+}
+
+input SimpleMissionStatus {
+	mid: ID!
+	status: String
+}
+
+input Skill {
+	skid: ID!
+	owner: String
+	createdOn: AWSDate!
+	platform: String
+	app: String
+	site: String
+	site_name: String
+	page: String
+	name: String
+	path: String
+	main: String
+	description: String!
+	runtime: Int!
+	price_model: String!
+	price: Int!
+	privacy: String
+}
+
+input SkillRun {
+	skid: ID!
+	requester_mid: ID!
+	owner: String
+	name: String
+	start: AWSDateTime
+	in_data: String
+	verbose: Boolean
+}
+
+input SkillRunConfig {
+	run_id: ID!
+	skid: ID!
+	runner_mid: ID!
+	runner_bid: ID!
+	requester: String
+}
+
+input SkillRunStatus {
+	run_id: ID!
+	skid: ID!
+	runner_mid: ID!
+	runner_bid: ID!
+	requester: String
+	request_method: String
+	status: String
+	start_time: AWSDateTime
+	end_time: AWSDateTime
+	result_data: String!
+}
+
+type Status {
+	result: String
+}
+
+input Step {
+	type: String!
+	data: String
+	start_time: String
+	end_time: String
+	result: String
+}
+
+type Task {
+	action: String
+	duration: Int
+}
+
+input TaskOrder {
+	vehicles: String!
+}
+
+input VehicleInfo {
+	vid: ID
+	vname: String!
+	owner: String
+	status: String
+	lastseen: String
+	functions: String
+	bids: String
+	hardware: String
+	software: String
+	ip: String
+	created_at: String
+}
+
+type WanChatMessage @aws_api_key @aws_cognito_user_pools {
+	id: ID
+	chatID: String
+	sender: String
+	receiver: String
+	type: String
+	contents: String
+	parameters: String
+	timestamp: String
+}
+
+input WanChatMessageInput @aws_api_key @aws_cognito_user_pools {
+	chatID: String
+	sender: String
+	receiver: String
+	type: String
+	contents: String
+	parameters: String
+}
+
+# ============================================
+# New Relationship Types (First-Level)
+# ============================================
+
+input AgentSkillRelation {
+	agid: ID!
+	skid: ID!
+	owner: String!
+	status: String
+	langgraph: AWSJSON
+	proficiency: Int
+	acquired_at: AWSDateTime
+	created_at: AWSDateTime
+	updated_at: AWSDateTime
+}
+
+input AgentTaskRelation {
+	agid: ID!
+	task_id: ID!
+	owner: String!
+	status: String
+	vehicle_id: String
+	assigned_at: AWSDateTime
+	started_at: AWSDateTime
+	completed_at: AWSDateTime
+	created_at: AWSDateTime
+	updated_at: AWSDateTime
+}
+
+input AgentToolRelation {
+	agid: ID!
+	tool_id: ID!
+	owner: String!
+	permission: String
+	granted_at: AWSDateTime
+	created_at: AWSDateTime
+	updated_at: AWSDateTime
+}
+
+# ============================================
+# New Relationship Types (Second-Level / Nested)
+# ============================================
+
+input SkillToolRelation {
+	skill_id: ID!
+	tool_id: ID!
+	owner: String!
+	usage_type: String
+	required: Boolean
+	created_at: AWSDateTime
+	updated_at: AWSDateTime
+}
+
+input SkillKnowledgeRelation {
+	skill_id: ID!
+	knowledge_id: ID!
+	owner: String!
+	dependency_type: String
+	usage_frequency: String
+	importance: Int
+	access_pattern: String
+	knowledge_scope: AWSJSON
+	created_at: AWSDateTime
+	updated_at: AWSDateTime
+}
+
+input TaskSkillRelation {
+	task_id: ID!
+	skill_id: ID!
+	owner: String!
+	required: Boolean
+	proficiency_required: Int
+	created_at: AWSDateTime
+	updated_at: AWSDateTime
+}
+
+# ============================================
+# Mutation Definitions
+# ============================================
+
+type Mutation {
+  # -------------------- Account Operations --------------------
+  addAccts(input: [Account]!): AWSJSON!
+  removeAccts(input: [RemoveOrder]!): AWSJSON!
+  updateAccts(input: [Account]!): AWSJSON!
+  makeOrder(input: [Order]!): AWSJSON!
+  
+  # -------------------- Bot Operations --------------------
+  addBots(input: [Bot]!): AWSJSON!
+  removeBots(input: [RemoveOrder]!): AWSJSON!
+  updateBots(input: [Bot]!): AWSJSON!
+  
+  # -------------------- Agent Operations --------------------
+  addAgents(input: [Agent]!): AWSJSON
+  updateAgents(input: [Agent]!): AWSJSON
+  removeAgents(input: [RemoveOrder]!): AWSJSON
+  
+  # -------------------- AgentSkill Entity Operations --------------------
+  addAgentSkills(input: [AgentSkill]!): AWSJSON
+  updateAgentSkills(input: [AgentSkill]!): AWSJSON
+  removeAgentSkills(input: [RemoveOrder]!): AWSJSON
+  
+  # -------------------- AgentTask Entity Operations --------------------
+  addAgentTasks(input: [AgentTask]!): AWSJSON
+  updateAgentTasks(input: [AgentTask]!): AWSJSON
+  removeAgentTasks(input: [RemoveOrder]!): AWSJSON
+  
+  # -------------------- AgentTool Entity Operations --------------------
+  addAgentTools(input: [AgentTool]!): AWSJSON
+  updateAgentTools(input: [AgentTool]!): AWSJSON
+  removeAgentTools(input: [RemoveOrder]!): AWSJSON
+  
+  # -------------------- Knowledge Operations --------------------
+  addKnowledges(input: [Knowledge]!): AWSJSON
+  updateKnowledges(input: [Knowledge]!): AWSJSON
+  removeKnowledges(input: [RemoveOrder]!): AWSJSON
+  
+  # -------------------- Avatar Resource Operations --------------------
+  addAvatarResources(input: [AvatarResource]!): AWSJSON
+  updateAvatarResources(input: [AvatarResource]!): AWSJSON
+  removeAvatarResources(input: [RemoveOrder]!): AWSJSON
+  
+  # -------------------- Agent-Skill Relationship Operations --------------------
+  addAgentSkillRelations(input: [AgentSkillRelation]!): AWSJSON
+  updateAgentSkillRelations(input: [AgentSkillRelation]!): AWSJSON
+  removeAgentSkillRelations(input: [RemoveOrder]!): AWSJSON
+  
+  # -------------------- Agent-Task Relationship Operations --------------------
+  addAgentTaskRelations(input: [AgentTaskRelation]!): AWSJSON
+  updateAgentTaskRelations(input: [AgentTaskRelation]!): AWSJSON
+  removeAgentTaskRelations(input: [RemoveOrder]!): AWSJSON
+  
+  # -------------------- Agent-Tool Relationship Operations --------------------
+  addAgentToolRelations(input: [AgentToolRelation]!): AWSJSON
+  updateAgentToolRelations(input: [AgentToolRelation]!): AWSJSON
+  removeAgentToolRelations(input: [RemoveOrder]!): AWSJSON
+  
+  # -------------------- Nested Relationship Operations --------------------
+  # Skill-Tool relationship operations
+  addSkillToolRelations(input: [SkillToolRelation]!): AWSJSON
+  updateSkillToolRelations(input: [SkillToolRelation]!): AWSJSON
+  removeSkillToolRelations(input: [RemoveOrder]!): AWSJSON
+  
+  # Skill-Knowledge relationship operations
+  addSkillKnowledgeRelations(input: [SkillKnowledgeRelation]!): AWSJSON
+  updateSkillKnowledgeRelations(input: [SkillKnowledgeRelation]!): AWSJSON
+  removeSkillKnowledgeRelations(input: [RemoveOrder]!): AWSJSON
+  
+  # Task-Skill relationship operations
+  addTaskSkillRelations(input: [TaskSkillRelation]!): AWSJSON
+  updateTaskSkillRelations(input: [TaskSkillRelation]!): AWSJSON
+  removeTaskSkillRelations(input: [RemoveOrder]!): AWSJSON
+  
+  # -------------------- Mission Operations --------------------
+  addMissions(input: [Mission]!, settings: AWSJSON!): AWSJSON!
+  removeMissions(input: [RemoveOrder]!): AWSJSON!
+  updateMissions(input: [Mission]!): AWSJSON!
+  updateMissionsExStatus(input: [SimpleMissionStatus]!): AWSJSON!
+  reportStatus(input: [MissionStatus]!): AWSJSON!
+  
+  # -------------------- Skill Operations --------------------
+  addSkills(input: [Skill]!): AWSJSON!
+  removeSkills(input: [RemoveOrder]!): AWSJSON!
+  updateSkills(input: [Skill]!): AWSJSON!
+  
+  # -------------------- Business Order Operations --------------------
+  makeBusinessOrders(input: [Order]!): AWSJSON!
+  updateBusinessOrders(input: [Order]!): AWSJSON!
+  removeBusinessOrders(input: [RemoveBusinessOrder]!): AWSJSON!
+  
+  # -------------------- Task Operations --------------------
+  dequeueTasks(input: [TaskOrder]!): AWSJSON!
+  
+  # -------------------- Vehicle Operations --------------------
+  reportVehicles(input: [VehicleInfo]!): AWSJSON
+  updateVehicles(input: [VehicleInfo]!): AWSJSON
+  
+  # -------------------- External Skill Operations --------------------
+  requestRunExtSkill(input: [SkillRun]): AWSJSON!
+    @aws_lambda @aws_api_key @aws_cognito_user_pools
+  reportRunExtSkillStatus(input: [SkillRunStatus]): AWSJSON!
+    @aws_lambda @aws_api_key @aws_cognito_user_pools
+  
+  # -------------------- Chat Operations --------------------
+  sendWanMessage(input: WanChatMessageInput): WanChatMessage
+    @aws_lambda @aws_api_key @aws_cognito_user_pools
+  
+  # -------------------- Puzzle Operations --------------------
+  reqPuzzleSolver(input: [PuzzleInput]!): Puzzle!
+  confirmPuzzleSolver(input: [PuzzleResultInput]!): PuzzleResult!
+  
+  # -------------------- Training & RAG Operations --------------------
+  reqTrain(input: [Skill]!): AWSJSON!
+  reqRAGStore(input: [RAGIN]!): AWSJSON!
+  
+  # -------------------- API Key Operations --------------------
+  reqApiKey(ops: [KeyOp]!): AWSJSON!
+    @aws_cognito_user_pools
+  
+  # -------------------- Long LLM Task Operations --------------------
+  startLongLLMTask(task_input: AWSJSON!): AWSJSON!
+    @aws_cognito_user_pools
+  endLongLLMTask(input: LongLLMTaskResultInput!): LongLLMTaskResult!
+    @aws_api_key @aws_cognito_user_pools
+}
+
+# ============================================
+# Query Definitions
+# ============================================
+
+type Query {
+  # -------------------- Agent Queries --------------------
+  queryAgents(qb: String): AWSJSON
+  getAgents(ids: String): AWSJSON
+  
+  # -------------------- AgentSkill Entity Queries --------------------
+  queryAgentSkills(qb: String): AWSJSON
+  getAgentSkills(ids: String): AWSJSON
+  
+  # -------------------- AgentTask Entity Queries --------------------
+  queryAgentTasks(qb: String): AWSJSON
+  getAgentTasks(ids: String): AWSJSON
+  
+  # -------------------- AgentTool Entity Queries --------------------
+  queryAgentTools(qb: String): AWSJSON
+  getAgentTools(ids: String): AWSJSON
+  
+  # -------------------- Agent-Skill Relationship Queries --------------------
+  queryAgentSkillRelations(qb: String): AWSJSON
+  getAgentSkillRelations(ids: String): AWSJSON
+  
+  # -------------------- Agent-Task Relationship Queries --------------------
+  queryAgentTaskRelations(qb: String): AWSJSON
+  getAgentTaskRelations(ids: String): AWSJSON
+  
+  # -------------------- Agent-Tool Relationship Queries --------------------
+  queryAgentToolRelations(qb: String): AWSJSON
+  getAgentToolRelations(ids: String): AWSJSON
+  
+  # -------------------- Knowledge Queries --------------------
+  queryKnowledges(qb: String): AWSJSON
+  getKnowledges(ids: String): AWSJSON
+  
+  # -------------------- Avatar Resource Queries --------------------
+  queryAvatarResources(qb: String): AWSJSON
+  getAvatarResources(ids: String): AWSJSON
+  
+  # -------------------- Organization Queries --------------------
+  queryOrganizations(qb: String): AWSJSON
+  getOrganizations(ids: String): AWSJSON
+  
+  # -------------------- Nested Relationship Queries --------------------
+  # Skill-Tool relationship queries
+  querySkillToolRelations(qb: String): AWSJSON
+  getSkillToolRelations(ids: String): AWSJSON
+  
+  # Skill-Knowledge relationship queries
+  querySkillKnowledgeRelations(qb: String): AWSJSON
+  getSkillKnowledgeRelations(ids: String): AWSJSON
+  
+  # Task-Skill relationship queries
+  queryTaskSkillRelations(qb: String): AWSJSON
+  getTaskSkillRelations(ids: String): AWSJSON
+  
+  # -------------------- Other Queries (from original schema) --------------------
+  getLongLLMTask(id: ID!): AWSJSON!
+  reqScreenTxtRead(inScrn: [ScreenImg]!): AWSJSON!
+    @aws_lambda @aws_api_key @aws_cognito_user_pools
+  reqScreenIconRead(inScrn: [ScreenImg]!): [ScreenInfo]
+  regSteps(inSteps: [Step]!): AWSJSON!
+  getBots(ids: [ID!]): AWSJSON!
+  getNodesPrompts(nodes: [Node!]): AWSJSON!
+  queryBots(qb: AWSJSON!): AWSJSON!
+  getManagerMissions(qm: AWSJSON!): AWSJSON!
+  queryMissions(qm: [MissionIdentifiers]!): AWSJSON!
+    @aws_lambda @aws_api_key @aws_cognito_user_pools
+  querySkills(qs: AWSJSON!): AWSJSON!
+  queryComponents(components: [Component!]): AWSJSON!
+  queryFOM(params: Parameters!): AWSJSON!
+  queryRankResults(rank_data: RankData!): AWSJSON!
+  queryExtBotSkillRun(qbsr: [SkillRunConfig!]): AWSJSON!
+    @aws_lambda @aws_api_key @aws_cognito_user_pools
+  reqAccountInfo(ops: [AcctOp!]): AWSJSON!
+  reqOrderInfo(ops: [OrderOp!]): AWSJSON!
+  getFB(fb_reqs: [FbReq]!): AWSJSON
+    @aws_lambda @aws_api_key @aws_cognito_user_pools
+  queryChats(msgs: [ChatReq]!): AWSJSON
+  queryAPIKeys(keys: [KeyInfo]!): AWSJSON
+  genSchedules(settings: AWSJSON!): AWSJSON!
+  getWanMessage(ids: [ID!]): [WanChatMessage]!
+    @aws_lambda @aws_api_key @aws_cognito_user_pools
+  reqFileOp(fo: [FileOp!]): AWSJSON!
+    @aws_lambda @aws_api_key @aws_cognito_user_pools
+}
+
+# ============================================
+# Subscription Definitions (Optional)
+# ============================================
+
+type Subscription {
+  # Agent change subscription
+  onAgentChanged(owner: String!): AWSJSON
+    @aws_subscribe(mutations: ["addAgents", "updateAgents", "removeAgents"])
+  
+  # Agent-Skill relationship change subscription
+  onAgentSkillRelationChanged(agid: String!): AWSJSON
+    @aws_subscribe(mutations: ["addAgentSkillRelations", "removeAgentSkillRelations"])
+  
+  # Agent-Task relationship change subscription
+  onAgentTaskRelationChanged(agid: String!): AWSJSON
+    @aws_subscribe(mutations: ["addAgentTaskRelations", "removeAgentTaskRelations"])
+  
+  # Other subscriptions (from original schema)
+  onMessageReceived(chatID: String!): WanChatMessage
+    @aws_subscribe(mutations: ["sendWanMessage"])
+  onPuzzleReceived: Puzzle
+    @aws_subscribe(mutations: ["reqPuzzleSolver"])
+  onPuzzleResultReceived: PuzzleResult
+    @aws_subscribe(mutations: ["confirmPuzzleSolver"])
+  onLongLLMTaskComplete(acctSiteID: String!): LongLLMTaskResult
+    @aws_subscribe(mutations: ["endLongLLMTask"])
+}
+
+schema {
+  query: Query
+  mutation: Mutation
+  subscription: Subscription
+}
+
+# ============================================
+# Schema Notes
+# ============================================
+#
+# 1. All mutations return AWSJSON (nullable) to handle null responses
+# 2. Agent type does NOT include skills/tasks/tools fields
+# 3. Relationships are managed through separate Relation types
+# 4. Entity types (AgentSkill/AgentTask/AgentTool) define the entities themselves
+# 5. Relation types (AgentSkillRelation/etc) define which entities belong to which agents
+#
+# Data Flow Example:
+# - Create Agent → addAgents
+# - Create Skill → addAgentSkills
+# - Link Agent to Skill → addAgentSkillRelations
+# - Query Agent's Skills → queryAgentSkillRelations(qb: "{\"agid\": \"agent_123\"}")
+#
+# ============================================

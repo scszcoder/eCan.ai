@@ -1,7 +1,6 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { List, Tag, Typography, Space, Button, Progress, Row, Col, Statistic, Card, Badge } from 'antd';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
+import { List, Tag, Typography, Space, Button, Progress, Row, Col, Statistic, Card, Badge, Empty } from 'antd';
 import { 
-    CarOutlined,
     ClusterOutlined, 
     CheckCircleOutlined,
     ClockCircleOutlined,
@@ -10,13 +9,11 @@ import {
     ToolOutlined,
     PlusOutlined,
     HistoryOutlined,
-    EditOutlined
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import DetailLayout from '../../components/Layout/DetailLayout';
 import { useDetailView } from '../../hooks/useDetailView';
-import SearchFilter from '../../components/Common/SearchFilter';
-import ActionButtons from '../../components/Common/ActionButtons';
+import { ConsoleFilters, ConsoleFilterOptions } from './components/ConsoleFilters';
 import StatusTag from '../../components/Common/StatusTag';
 import DetailCard from '../../components/Common/DetailCard';
 import { useTranslation } from 'react-i18next';
@@ -112,9 +109,47 @@ const Console: React.FC = () => {
         updateItem,
     } = useDetailView<LogMessage>(initialLogs);
 
-    const [filters, setFilters] = useState<Record<string, any>>({});
+    const [filters, setFilters] = useState<ConsoleFilterOptions>({
+        search: '',
+        status: undefined,
+        type: undefined,
+    });
 
-    const handleStatusChange = (id: number, newStatus: Vehicle['status']) => {
+    // 筛选后的LogList
+    const filteredLogs = useMemo(() => {
+        let result = [...agentLogs];
+
+        // 按Status筛选
+        if (filters.status) {
+            result = result.filter(log => log.status === filters.status);
+        }
+
+        // 按Type筛选
+        if (filters.type) {
+            const typeMap: Record<string, string> = {
+                ground: t('pages.console.groundVehicle'),
+                aerial: t('pages.console.aerialVehicle'),
+            };
+            const typeName = typeMap[filters.type];
+            if (typeName) {
+                result = result.filter(log => log.type === typeName);
+            }
+        }
+
+        // 按Search关键字筛选
+        if (filters.search) {
+            const searchLower = filters.search.toLowerCase();
+            result = result.filter(log =>
+                log.name?.toLowerCase().includes(searchLower) ||
+                log.location?.toLowerCase().includes(searchLower) ||
+                log.currentTask?.toLowerCase().includes(searchLower)
+            );
+        }
+
+        return result;
+    }, [agentLogs, filters, t]);
+
+    const handleStatusChange = (id: number, newStatus: LogMessage['status']) => {
         updateItem(id, {
             status: newStatus,
             location: newStatus === 'maintenance' ? t('pages.console.maintenanceBay') : 
@@ -146,64 +181,22 @@ const Console: React.FC = () => {
         }
     };
 
-    const handleSearch = (value: string) => {
-        // Implement search logic
-    };
-
-    const handleFilterChange = (newFilters: Record<string, any>) => {
-        setFilters(prev => ({ ...prev, ...newFilters }));
-    };
-
-    const handleReset = () => {
-        setFilters({});
-    };
-
     const renderListContent = () => (
         <>
-            <SearchFilter
-                onSearch={handleSearch}
-                onFilterChange={handleFilterChange}
-                onReset={handleReset}
-                filterOptions={[
-                    {
-                        key: 'status',
-                        label: t('pages.console.status'),
-                        options: [
-                            { label: t('pages.console.status.active'), value: 'active' },
-                            { label: t('pages.console.status.maintenance'), value: 'maintenance' },
-                            { label: t('pages.console.status.offline'), value: 'offline' },
-                        ],
-                    },
-                    {
-                        key: 'type',
-                        label: t('pages.console.type'),
-                        options: [
-                            { label: t('pages.console.groundVehicle'), value: t('pages.console.groundVehicle') },
-                            { label: t('pages.console.aerialVehicle'), value: t('pages.console.aerialVehicle') },
-                        ],
-                    },
-                ]}
-                placeholder={t('pages.console.searchPlaceholder')}
+            <ConsoleFilters 
+                filters={filters} 
+                onChange={setFilters} 
             />
-            <ActionButtons
-                onAdd={() => {}}
-                onEdit={() => {}}
-                onDelete={() => {}}
-                onRefresh={() => {}}
-                onExport={() => {}}
-                onImport={() => {}}
-                onSettings={() => {}}
-                addText={t('pages.console.addVehicle')}
-                editText={t('pages.console.editVehicle')}
-                deleteText={t('pages.console.deleteVehicle')}
-                refreshText={t('pages.console.refreshVehicles')}
-                exportText={t('pages.console.exportVehicles')}
-                importText={t('pages.console.importVehicles')}
-                settingsText={t('pages.console.vehicleSettings')}
-            />
-            <List
-                dataSource={agentLogs}
-                renderItem={agentLog => (
+            {filteredLogs.length === 0 ? (
+                <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description={t('pages.console.noData', '没有找到匹配的Data')}
+                    style={{ marginTop: 40 }}
+                />
+            ) : (
+                <List
+                    dataSource={filteredLogs}
+                    renderItem={agentLog => (
                     <ConsoleLogItem onClick={() => selectItem(agentLog)}>
                         <Space direction="vertical" style={{ width: '100%' }}>
                             <Space>
@@ -229,7 +222,8 @@ const Console: React.FC = () => {
                         </Space>
                     </ConsoleLogItem>
                 )}
-            />
+                />
+            )}
         </>
     );
 
@@ -242,6 +236,7 @@ const Console: React.FC = () => {
             <Space direction="vertical" style={{ width: '100%' }}>
                 <DetailCard
                     title={t('pages.console.vehicleInformation')}
+                    columns={2}
                     items={[
                         {
                             label: t('pages.console.name'),
@@ -267,6 +262,7 @@ const Console: React.FC = () => {
                 />
                 <DetailCard
                     title={t('pages.console.performanceMetrics')}
+                    columns={2}
                     items={[
                         {
                             label: t('pages.console.batteryLevel'),

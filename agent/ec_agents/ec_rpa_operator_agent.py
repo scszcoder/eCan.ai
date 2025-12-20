@@ -1,21 +1,12 @@
-from agent.a2a.common.client import A2AClient
 from agent.ec_agent import EC_Agent
-from agent.a2a.common.server import A2AServer
-from agent.a2a.common.types import AgentCard, AgentCapabilities, AgentSkill, MissingAPIKeyError
-from agent.a2a.common.utils.push_notification_auth import PushNotificationSenderAuth
-from agent.a2a.langgraph_agent.task_manager import AgentTaskManager
+from agent.a2a.common.types import AgentCard, AgentCapabilities
 from agent.a2a.langgraph_agent.agent import ECRPAHelperAgent
-from agent.a2a.common.types import TaskStatus, TaskState
-from agent.tasks import TaskRunner, ManagedTask, TaskSchedule
 from agent.a2a.langgraph_agent.utils import get_a2a_server_url
 from agent.ec_agents.create_agent_tasks import create_ec_rpa_operator_chat_task, create_ec_rpa_operator_work_task
-from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
 from utils.logger_helper import logger_helper as logger
+from agent.playwright import create_browser_use_llm
 
-from agent.tasks import Repeat_Types
 import traceback
-import socket
-import uuid
 
 def set_up_ec_rpa_operator_agent(mainwin):
     try:
@@ -56,16 +47,13 @@ def set_up_ec_rpa_operator_agent(mainwin):
         chatter_task = create_ec_rpa_operator_chat_task(mainwin)
         worker_task = create_ec_rpa_operator_work_task(mainwin)
 
-        # 在打包环境中安全初始化browser_use_llm
-        try:
-            browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
-        except Exception as e:
-            logger.warning(f"Failed to initialize BrowserUseChatOpenAI in packaged environment: {e}")
+        # Use mainwin's unified browser_use_llm instance (shared across all agents)
+        browser_use_llm = mainwin.browser_use_llm
 
         # 过滤掉 None 值的任务列表
         valid_tasks = [task for task in [worker_task, chatter_task] if task is not None]
 
-        operator = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skill_set=valid_skills, tasks=valid_tasks)
+        operator = EC_Agent(mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="", card=agent_card, skills=valid_skills, tasks=valid_tasks)
 
     except Exception as e:
         # Get the traceback information
@@ -75,7 +63,6 @@ def set_up_ec_rpa_operator_agent(mainwin):
             ex_stat = "ErrorSetUpECRPAOperatorAgent:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorSetUpECRPAOperatorAgent: traceback information not available:" + str(e)
-        # mainwin.showMsg(ex_stat)
         logger.error(ex_stat)
         return None
     return operator

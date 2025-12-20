@@ -7,11 +7,37 @@ import sys
 import os
 from PySide6.QtWidgets import (QMessageBox, QDialog, QLabel, QCheckBox,
                                QPushButton, QHBoxLayout, QVBoxLayout,
-                               QComboBox, QTextEdit, QApplication)
+                               QComboBox, QTextEdit, QApplication, QGroupBox,
+                               QRadioButton, QLineEdit)
 from PySide6.QtGui import QAction
 from PySide6.QtCore import Qt
 from utils.logger_helper import logger_helper as logger
+from urllib.parse import quote
+import traceback
+from utils.logger_helper import logger_helper as logger
+from utils.logger_helper import get_traceback
+from app_context import AppContext
+from gui.dialogs.about_dialog import AboutDialog
+from gui.dialogs.user_manual_dialog import UserManualDialog
+from gui.dialogs.version_check_dialog import VersionCheckDialog
 
+
+from gui.messages import get_message, get_current_language
+
+class MenuMessagesProxy:
+    """Proxy for backward compatibility with existing MenuMessages usages"""
+    def get(self, key, **kwargs):
+        return get_message(key, **kwargs)
+    
+    @property
+    def current_lang(self):
+        return get_current_language()
+
+_message_proxy = MenuMessagesProxy()
+
+def _get_menu_messages():
+    """Get MenuMessages proxy instance."""
+    return _message_proxy
 
 class MenuManager:
     """Menu Manager Class"""
@@ -24,6 +50,266 @@ class MenuManager:
             main_window: Main window instance
         """
         self.main_window = main_window
+        self.check_update_action = None  # Store reference to update menu item
+        self.has_update = False  # Track if update is available
+        self.update_version = None  # Store available version
+        self.app_menu = None  # Store reference to app menu (for macOS)
+        self.help_menu = None  # Store reference to help menu (for Windows/Linux)
+        self.update_notice_action = None  # Store reference to update notice item (macOS only)
+        
+        # Connect to global download manager
+        self._connect_download_manager()
+    
+    def set_update_available(self, has_update: bool, version: str = None):
+        """Set update available status and update menu text with prominent visual indicators
+        
+        Args:
+            has_update: Whether update is available
+            version: Version string if available
+        """
+        self.has_update = has_update
+        self.update_version = version
+        
+        # Update menu item text
+        if self.check_update_action:
+            if has_update:
+                # Add prominent visual indicators for update availability
+                base_text = _get_menu_messages().get('check_updates')
+                
+                # Use a small, elegant indicator
+                # • (U+2022 BULLET) is small and elegant, used by macOS Mail and Messages
+                indicator = "● "  # U+25CF Medium Black Circle - smaller than 🔴
+                
+                if version:
+                    # Show version with indicator
+                    if _get_menu_messages().current_lang == 'zh-CN':
+                        text = f"{indicator}{base_text} (v{version} 可用)"
+                    else:
+                        text = f"{indicator}{base_text} (v{version} available)"
+                else:
+                    # Just indicate update available
+                    if _get_menu_messages().current_lang == 'zh-CN':
+                        text = f"{indicator}{base_text} (有新版本)"
+                    else:
+                        text = f"{indicator}{base_text} (update available)"
+                
+                self.check_update_action.setText(text)
+                
+                # Add update icon to make it more prominent
+                try:
+                    from PySide6.QtGui import QIcon, QFont
+                    from PySide6.QtWidgets import QStyle
+                    
+                    # Use system icon for download/update
+                    # On macOS, use a download arrow icon
+                    style = self.main_window.style()
+                    if style:
+                        # Try to use a download or sync icon
+                        icon = style.standardIcon(QStyle.StandardPixmap.SP_ArrowDown)
+                        if icon and not icon.isNull():
+                            self.check_update_action.setIcon(icon)
+                            logger.info("[OTA] Update icon set successfully")
+                except Exception as e:
+                    logger.warning(f"[OTA] Failed to set update icon: {e}")
+                
+                # Make the menu item more prominent with font styling
+                # Use bold font like macOS system apps do for important items
+                try:
+                    from PySide6.QtGui import QFont
+                    font = self.check_update_action.font()
+                    font.setBold(True)
+                    self.check_update_action.setFont(font)
+                except Exception as e:
+                    logger.warning(f"[OTA] Failed to set bold font: {e}")
+                
+                logger.info(f"[OTA] Menu updated with indicator: {text}")
+            else:
+                # Reset to original text and font
+                self.check_update_action.setText(_get_menu_messages().get('check_updates'))
+                
+                # Remove icon
+                try:
+                    from PySide6.QtGui import QIcon
+                    self.check_update_action.setIcon(QIcon())  # Empty icon
+                except Exception as e:
+                    logger.warning(f"[OTA] Failed to remove icon: {e}")
+                
+                # Reset font
+                try:
+                    from PySide6.QtGui import QFont
+                    font = self.check_update_action.font()
+                    font.setBold(False)
+                    self.check_update_action.setFont(font)
+                except Exception as e:
+                    logger.warning(f"[OTA] Failed to reset font: {e}")
+        
+        # Update menu title to make it more prominent
+        self._update_menu_title(has_update)
+        
+        # For macOS: Add/remove update notice at top of menu
+        self._update_menu_notice(has_update, version)
+    
+    def _update_menu_notice(self, has_update: bool, version: str = None):
+        """Add/remove update notice at top of menu (macOS only)
+        
+        Args:
+            has_update: Whether update is available
+            version: Version string if available
+        """
+        try:
+            # Only for macOS where menu title can't be changed
+            if sys.platform != 'darwin' or not self.app_menu:
+                return
+            
+            if has_update and version:
+                # Add or update notice at top of menu
+                if self.update_notice_action is None:
+                    # Create new notice action
+                    from PySide6.QtGui import QAction, QFont
+                    
+                    # Use smaller indicator for elegance
+                    indicator = "● "  # U+25CF Medium Black Circle
+                    
+                    if _get_menu_messages().current_lang == 'zh-CN':
+                        notice_text = f"{indicator}新版本 v{version} 可用"
+                    else:
+                        notice_text = f"{indicator}New Version v{version} Available"
+                    
+                    self.update_notice_action = QAction(notice_text, self.main_window)
+                    self.update_notice_action.setEnabled(False)  # Make it non-clickable (just a notice)
+                    
+                    # Make it bold and prominent
+                    font = self.update_notice_action.font()
+                    font.setBold(True)
+                    font.setPointSize(font.pointSize() + 1)  # Slightly larger
+                    self.update_notice_action.setFont(font)
+                    
+                    # Insert at the top of the menu (position 0)
+                    actions = self.app_menu.actions()
+                    if actions:
+                        self.app_menu.insertAction(actions[0], self.update_notice_action)
+                        self.app_menu.insertSeparator(actions[0])  # Add separator after notice
+                    else:
+                        self.app_menu.addAction(self.update_notice_action)
+                        self.app_menu.addSeparator()
+                    
+                    logger.info(f"[OTA] Added update notice to menu: {notice_text}")
+                else:
+                    # Update existing notice
+                    indicator = "● "  # U+25CF Medium Black Circle
+                    
+                    if _get_menu_messages().current_lang == 'zh-CN':
+                        notice_text = f"{indicator}新版本 v{version} 可用"
+                    else:
+                        notice_text = f"{indicator}New Version v{version} Available"
+                    self.update_notice_action.setText(notice_text)
+                    logger.info(f"[OTA] Updated menu notice: {notice_text}")
+            else:
+                # Remove notice if it exists
+                if self.update_notice_action is not None:
+                    self.app_menu.removeAction(self.update_notice_action)
+                    self.update_notice_action = None
+                    logger.info("[OTA] Removed update notice from menu")
+        except Exception as e:
+            logger.warning(f"[OTA] Failed to update menu notice: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+    
+    def _update_menu_title(self, has_update: bool):
+        """Update menu title to show update indicator
+        
+        Args:
+            has_update: Whether update is available
+        """
+        try:
+            # For macOS: Try to update app menu title
+            # Note: macOS usually manages this, but we can try to set it
+            if sys.platform == 'darwin' and self.app_menu:
+                indicator = "● "  # U+25CF Medium Black Circle
+                if has_update:
+                    # Try to set app menu title with indicator
+                    app_text = _get_menu_messages().get('menu_ecan')
+                    self.app_menu.setTitle(f"{indicator}{app_text}")
+                    logger.info(f"[OTA] macOS app menu title set to: {indicator}{app_text}")
+                else:
+                    self.app_menu.setTitle(_get_menu_messages().get('menu_ecan'))
+                    logger.info("[OTA] macOS app menu title restored to normal")
+            
+            # For Windows/Linux: Update Help menu title with small indicator
+            elif self.help_menu and sys.platform != 'darwin':
+                # Use the same small indicator for consistency
+                indicator = "● "  # U+25CF Medium Black Circle
+                if has_update:
+                    help_text = _get_menu_messages().get('menu_help')
+                    self.help_menu.setTitle(f"{indicator}{help_text}")
+                    logger.info(f"[OTA] Help menu title updated: {indicator}{help_text}")
+                else:
+                    self.help_menu.setTitle(_get_menu_messages().get('menu_help'))
+                    logger.info("[OTA] Help menu title restored to normal")
+            
+            logger.debug(f"[OTA] Menu title update completed: has_update={has_update}")
+        except Exception as e:
+            logger.warning(f"[OTA] Failed to update menu title: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+    
+    def _connect_download_manager(self):
+        """Connect to global download manager for real-time updates"""
+        try:
+            from ota.core.download_manager import get_download_manager
+            dm = get_download_manager()
+            
+            # Connect to download manager signals
+            dm.state_changed.connect(self._on_download_state_changed)
+            dm.progress_updated.connect(self._on_download_progress)
+            
+            logger.info("[MenuManager] Connected to global download manager")
+        except Exception as e:
+            logger.debug(f"[MenuManager] Download manager not available yet: {e}")
+    
+    def _on_download_state_changed(self, state):
+        """Handle download state changes"""
+        try:
+            from ota.core.download_manager import get_download_manager, DownloadState
+            download_manager = get_download_manager()
+            
+            if not self.check_update_action:
+                return
+            
+            # Get current language
+            lang = _get_menu_messages().current_lang
+            
+            # Update menu text based on download state
+            status_text = download_manager.get_status_text(lang)
+            self.check_update_action.setText(status_text)
+            
+            logger.debug(f"[MenuManager] Download state changed: {state}, menu text: {status_text}")
+        except Exception as e:
+            logger.warning(f"[MenuManager] Failed to handle download state change: {e}")
+    
+    def _on_download_progress(self, progress, speed, remaining):
+        """Handle download progress updates"""
+        try:
+            if not self.check_update_action:
+                logger.warning("[MenuManager] check_update_action is None, cannot update progress")
+                return
+            
+            # Get current language
+            lang = _get_menu_messages().current_lang
+            
+            # Update menu text with progress
+            if progress > 0:
+                if lang == 'zh-CN':
+                    text = f"● 下载中... {progress}%"
+                else:
+                    text = f"● Downloading... {progress}%"
+                
+                self.check_update_action.setText(text)
+                logger.info(f"[MenuManager] Updated menu progress: {text}")
+            else:
+                logger.debug(f"[MenuManager] Progress is 0, not updating menu")
+        except Exception as e:
+            logger.warning(f"[MenuManager] Failed to update download progress: {e}")
         
     def setup_menu(self):
         """Set up eCan menu bar - cross-platform support"""
@@ -41,14 +327,23 @@ class MenuManager:
 
     def setup_custom_menu(self, custom_menubar):
         """Set up eCan menu bar for custom title bar (Windows/Linux)"""
-        # Set up simplified menus for custom title bar
-        app_menu = custom_menubar.addMenu('eCan')
-        self._setup_app_menu(app_menu)
+        try:
+            logger.info("Setting up custom title bar menu for Windows/Linux...")
+            
+            # Set up simplified menus for custom title bar
+            app_menu = custom_menubar.addMenu(_get_menu_messages().get('menu_ecan'))
+            logger.debug("Added 'eCan' menu to custom menubar")
+            self._setup_app_menu(app_menu)
 
-        help_menu = custom_menubar.addMenu('Help')
-        self._setup_help_menu(help_menu)
+            help_menu = custom_menubar.addMenu(_get_menu_messages().get('menu_help'))
+            logger.debug("Added 'Help' menu to custom menubar")
+            self._setup_help_menu(help_menu)
 
-        logger.info("Custom title bar menu setup complete (eCan + Help only)")
+            logger.info("✅ Custom title bar menu setup complete (eCan + Help only)")
+        except Exception as e:
+            logger.error(f"❌ Failed to setup custom menu: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
     
     def _setup_macos_menus(self, menubar):
         """Set up simplified macOS menu (eCan + Help only)"""
@@ -63,26 +358,54 @@ class MenuManager:
                 logger.info(f"Found {len(existing_menus)} existing menus, skipping duplicate setup")
                 return
 
-            # On macOS, the first menu automatically becomes the application menu
-            # Use empty string to let system auto-set application menu name
-            app_menu = menubar.addMenu('')  # Empty string lets system auto-set application menu
-            self._setup_macos_app_menu(app_menu)  # Use specialized macOS app menu setup
-
-            logger.info("macOS application menu setup complete")
+            # CRITICAL: On macOS, we must add actions BEFORE the menu is shown
+            # The application menu (first menu) is special and managed by macOS
+            # We need to add our custom items to it explicitly
+            
+            # Create application menu (empty string makes it the app menu)
+            self.app_menu = menubar.addMenu('')
+            
+            # Add About action at the very top
+            about_action = QAction(_get_menu_messages().get('about_ecan'), self.main_window)
+            about_action.triggered.connect(self.show_about_dialog)
+            about_action.setMenuRole(QAction.MenuRole.AboutRole)  # Tell macOS this is About
+            self.app_menu.addAction(about_action)
+            
+            self.app_menu.addSeparator()
+            
+            # Add Check for Updates action
+            self.check_update_action = QAction(_get_menu_messages().get('check_updates'), self.main_window)
+            self.check_update_action.triggered.connect(lambda: self.show_update_dialog(manual=True))
+            self.check_update_action.setMenuRole(QAction.MenuRole.ApplicationSpecificRole)  # Custom action
+            self.app_menu.addAction(self.check_update_action)
+            
+            # Add a separator before Check for Updates to make it more prominent
+            # This will be removed later, just marking the position
+            self.update_separator = None
+            
+            self.app_menu.addSeparator()
+            
+            # Add Preferences action
+            preferences_action = QAction(_get_menu_messages().get('preferences'), self.main_window)
+            preferences_action.setShortcut('Cmd+,')
+            preferences_action.triggered.connect(self.show_settings)
+            preferences_action.setMenuRole(QAction.MenuRole.PreferencesRole)  # Tell macOS this is Preferences
+            self.app_menu.addAction(preferences_action)
+            
+            # Note: macOS will automatically add Services, Hide, Show All, Quit
+            # We don't need to add them manually
+            
+            logger.info("macOS application menu setup complete with custom actions")
 
         except Exception as e:
-            logger.warning(f"macOS menu setup failed, using default method: {e}")
-            # If failed, try to add basic menu
-            try:
-                app_menu = menubar.addMenu('')  # Use empty string even if failed
-                self._setup_app_menu(app_menu)
-            except Exception as e2:
-                logger.error(f"Fallback menu setup also failed: {e2}")
-                return
+            logger.error(f"macOS menu setup failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return
 
-        # Only keep Help menu in addition to application menu
-        help_menu = menubar.addMenu('Help')
-        self._setup_help_menu(help_menu)
+        # Add Help menu
+        self.help_menu = menubar.addMenu(_get_menu_messages().get('menu_help'))
+        self._setup_help_menu(self.help_menu)
 
         logger.info("macOS menu bar setup complete (eCan + Help only)")
     
@@ -101,12 +424,12 @@ class MenuManager:
             logger.warning(f"Windows menu setup failed: {e}")
 
         # Application menu
-        app_menu = menubar.addMenu('eCan')
+        app_menu = menubar.addMenu(_get_menu_messages().get('menu_ecan'))
         self._setup_app_menu(app_menu)
 
         # Only keep Help menu
-        help_menu = menubar.addMenu('Help')
-        self._setup_help_menu(help_menu)
+        self.help_menu = menubar.addMenu(_get_menu_messages().get('menu_help'))
+        self._setup_help_menu(self.help_menu)
     
     def _setup_linux_menus(self, menubar):
         """Set up simplified Linux menu (eCan + Help only)"""
@@ -123,11 +446,11 @@ class MenuManager:
             logger.warning(f"Linux menu setup failed: {e}")
 
         # Standard menu layout on Linux - keep only eCan and Help
-        app_menu = menubar.addMenu('eCan')
+        app_menu = menubar.addMenu(_get_menu_messages().get('menu_ecan'))
         self._setup_app_menu(app_menu)
 
-        help_menu = menubar.addMenu('Help')
-        self._setup_help_menu(help_menu)
+        self.help_menu = menubar.addMenu(_get_menu_messages().get('menu_help'))
+        self._setup_help_menu(self.help_menu)
 
     def _setup_titlebar_menu_style(self, menubar):
         """Set menu bar style to integrate with title bar"""
@@ -233,19 +556,14 @@ class MenuManager:
     def _setup_app_menu(self, app_menu):
         """Set up application menu"""
         # About eCan
-        about_action = QAction('About eCan', self.main_window)
+        about_action = QAction(_get_menu_messages().get('about_ecan'), self.main_window)
         about_action.triggered.connect(self.show_about_dialog)
         app_menu.addAction(about_action)
-        
-        # Check for updates
-        check_update_action = QAction('Check for Updates...', self.main_window)
-        check_update_action.triggered.connect(self.show_update_dialog)
-        app_menu.addAction(check_update_action)
         
         app_menu.addSeparator()
         
         # Preferences/Settings
-        preferences_action = QAction('Preferences...', self.main_window)
+        preferences_action = QAction(_get_menu_messages().get('preferences'), self.main_window)
         preferences_action.setShortcut('Ctrl+,')
         preferences_action.triggered.connect(self.show_settings)
         app_menu.addAction(preferences_action)
@@ -253,98 +571,125 @@ class MenuManager:
         app_menu.addSeparator()
         
         # Services menu (macOS standard)
-        services_menu = app_menu.addMenu('Services')
+        services_menu = app_menu.addMenu(_get_menu_messages().get('services'))
         # Services menu is usually managed by system, just placeholder here
         
         app_menu.addSeparator()
         
         # Hide eCan
-        hide_action = QAction('Hide eCan', self.main_window)
+        hide_action = QAction(_get_menu_messages().get('hide_ecan'), self.main_window)
         hide_action.setShortcut('Ctrl+H')
         hide_action.triggered.connect(self.hide_app)
         app_menu.addAction(hide_action)
         
         # Hide others
-        hide_others_action = QAction('Hide Others', self.main_window)
+        hide_others_action = QAction(_get_menu_messages().get('hide_others'), self.main_window)
         hide_others_action.setShortcut('Ctrl+Alt+H')
         hide_others_action.triggered.connect(self.hide_others)
         app_menu.addAction(hide_others_action)
         
         # Show all
-        show_all_action = QAction('Show All', self.main_window)
+        show_all_action = QAction(_get_menu_messages().get('show_all'), self.main_window)
         show_all_action.triggered.connect(self.show_all)
         app_menu.addAction(show_all_action)
         
         app_menu.addSeparator()
         
         # Quit eCan
-        quit_action = QAction('Quit eCan', self.main_window)
+        quit_action = QAction(_get_menu_messages().get('quit_ecan'), self.main_window)
         quit_action.setShortcut('Ctrl+Q')
         quit_action.triggered.connect(self.main_window.close)
         app_menu.addAction(quit_action)
     
 
     
-
-    
-
-    
     def _setup_help_menu(self, help_menu):
         """Set up Help menu"""
-        # User manual
-        user_manual_action = QAction('eCan Help', self.main_window)
-        user_manual_action.setShortcut('F1')
-        user_manual_action.triggered.connect(self.show_user_manual)
-        help_menu.addAction(user_manual_action)
-        
-        # Quick start guide
-        quick_start_action = QAction('Quick Start Guide', self.main_window)
-        quick_start_action.triggered.connect(self.show_quick_start)
-        help_menu.addAction(quick_start_action)
-        
-        # Keyboard shortcuts
-        shortcuts_action = QAction('Keyboard Shortcuts', self.main_window)
-        shortcuts_action.triggered.connect(self.show_shortcuts)
-        help_menu.addAction(shortcuts_action)
+        try:
+            # Check for updates (for Windows/Linux only)
+            if sys.platform != 'darwin':
+                self.check_update_action = QAction(_get_menu_messages().get('check_updates'), self.main_window)
+                self.check_update_action.triggered.connect(lambda: self.show_update_dialog(manual=True))
+                help_menu.addAction(self.check_update_action)
 
-        help_menu.addSeparator()
+                about_action = QAction(_get_menu_messages().get('about_ecan'), self.main_window)
+                about_action.triggered.connect(self.show_about_dialog)
+                help_menu.addAction(about_action)
 
-        # Log Viewer
-        log_viewer_action = QAction('View Logs...', self.main_window)
-        log_viewer_action.setShortcut('Ctrl+Shift+L')
-        log_viewer_action.triggered.connect(self.show_log_viewer)
-        help_menu.addAction(log_viewer_action)
+                help_menu.addSeparator()
 
-        help_menu.addSeparator()
+            # User manual
+            user_manual_action = QAction(_get_menu_messages().get('ecan_help'), self.main_window)
+            user_manual_action.setShortcut('F1')
+            user_manual_action.triggered.connect(self.show_user_manual)
+            help_menu.addAction(user_manual_action)
+            logger.debug("Added 'eCan Help' menu item")
+            
+            # Quick start guide
+            quick_start_action = QAction(_get_menu_messages().get('quick_start'), self.main_window)
+            quick_start_action.triggered.connect(self.show_quick_start)
+            help_menu.addAction(quick_start_action)
+            logger.debug("Added 'Quick Start Guide' menu item")
+            
+            # Keyboard shortcuts
+            shortcuts_action = QAction(_get_menu_messages().get('keyboard_shortcuts'), self.main_window)
+            shortcuts_action.triggered.connect(self.show_shortcuts)
+            help_menu.addAction(shortcuts_action)
+            logger.debug("Added 'Keyboard Shortcuts' menu item")
 
-        # Report issue
-        feedback_action = QAction('Report Issue...', self.main_window)
-        feedback_action.triggered.connect(self.report_issue)
-        help_menu.addAction(feedback_action)
-        
-        # Send feedback
-        send_feedback_action = QAction('Send Feedback...', self.main_window)
-        send_feedback_action.triggered.connect(self.send_feedback)
-        help_menu.addAction(send_feedback_action)
+            help_menu.addSeparator()
+
+            # Log Viewer - use platform-specific shortcut
+            log_viewer_action = QAction(_get_menu_messages().get('view_logs'), self.main_window)
+            # Only set shortcut on macOS to avoid conflicts on Windows
+            if sys.platform == 'darwin':
+                log_viewer_action.setShortcut('Cmd+Shift+L')
+            # On Windows, avoid Ctrl+Shift+L as it may conflict with system shortcuts
+            log_viewer_action.triggered.connect(self.show_log_viewer)
+            help_menu.addAction(log_viewer_action)
+            logger.debug("Added 'View Logs' menu item")
+
+            # Test (for eCan.ai app) - simple harness entry below 'View Logs'
+            test_action = QAction(_get_menu_messages().get('test'), self.main_window)
+            test_action.triggered.connect(self.quick_test)
+            help_menu.addAction(test_action)
+            logger.debug("Added 'Test' menu item under Help")
+            
+            logger.info("Help menu setup completed successfully")
+        except Exception as e:
+            logger.error(f"Error setting up help menu: {e}")
+
+        # Hidden menu items (kept for potential future use)
+        # help_menu.addSeparator()
+        # 
+        # # Report issue
+        # feedback_action = QAction('Report Issue...', self.main_window)
+        # feedback_action.triggered.connect(self.report_issue)
+        # help_menu.addAction(feedback_action)
+        # 
+        # # Send feedback
+        # send_feedback_action = QAction('Send Feedback...', self.main_window)
+        # send_feedback_action.triggered.connect(self.send_feedback)
+        # help_menu.addAction(send_feedback_action)
     
     def _setup_macos_app_menu(self, app_menu):
         """Set up macOS-specific application menu (ensure all functionality included)"""
         # About eCan
-        about_action = QAction('About eCan', self.main_window)
+        about_action = QAction(_get_menu_messages().get('about_ecan'), self.main_window)
         about_action.triggered.connect(self.show_about_dialog)
         app_menu.addAction(about_action)
         
         app_menu.addSeparator()
         
-        # Check for updates (OTA functionality)
-        check_update_action = QAction('Check for Updates...', self.main_window)
-        check_update_action.triggered.connect(self.show_update_dialog)
-        app_menu.addAction(check_update_action)
+        # Check for updates (OTA functionality) - macOS only
+        self.check_update_action = QAction(_get_menu_messages().get('check_updates'), self.main_window)
+        self.check_update_action.triggered.connect(lambda: self.show_update_dialog(manual=True))
+        app_menu.addAction(self.check_update_action)
         
         app_menu.addSeparator()
         
         # Preferences/Settings
-        preferences_action = QAction('Preferences...', self.main_window)
+        preferences_action = QAction(_get_menu_messages().get('preferences'), self.main_window)
         preferences_action.setShortcut('Cmd+,')  # macOS uses Cmd instead of Ctrl
         preferences_action.triggered.connect(self.show_settings)
         app_menu.addAction(preferences_action)
@@ -352,32 +697,32 @@ class MenuManager:
         app_menu.addSeparator()
         
         # Services menu (macOS standard)
-        services_menu = app_menu.addMenu('Services')
+        services_menu = app_menu.addMenu(_get_menu_messages().get('services'))
         # Services menu is usually managed by system, just placeholder here
         
         app_menu.addSeparator()
         
         # Hide eCan
-        hide_action = QAction('Hide eCan', self.main_window)
+        hide_action = QAction(_get_menu_messages().get('hide_ecan'), self.main_window)
         hide_action.setShortcut('Cmd+H')  # macOS uses Cmd
         hide_action.triggered.connect(self.hide_app)
         app_menu.addAction(hide_action)
         
         # Hide others
-        hide_others_action = QAction('Hide Others', self.main_window)
+        hide_others_action = QAction(_get_menu_messages().get('hide_others'), self.main_window)
         hide_others_action.setShortcut('Cmd+Alt+H')  # macOS uses Cmd
         hide_others_action.triggered.connect(self.hide_others)
         app_menu.addAction(hide_others_action)
         
         # Show all
-        show_all_action = QAction('Show All', self.main_window)
+        show_all_action = QAction(_get_menu_messages().get('show_all'), self.main_window)
         show_all_action.triggered.connect(self.show_all)
         app_menu.addAction(show_all_action)
         
         app_menu.addSeparator()
         
         # Quit eCan
-        quit_action = QAction('Quit eCan', self.main_window)
+        quit_action = QAction(_get_menu_messages().get('quit_ecan'), self.main_window)
         quit_action.setShortcut('Cmd+Q')  # macOS uses Cmd
         quit_action.triggered.connect(self.main_window.close)
         app_menu.addAction(quit_action)
@@ -425,75 +770,258 @@ class MenuManager:
                         "VERSION",  # Current directory
                     ]
 
-                # 使用统一的版本读取函数
+                # Use unified version reading function
                 from utils.app_setup_helper import read_version_file
                 version = read_version_file(version_paths)
             except Exception:
                 pass
             
-            about_text = f"""
-            <h2>eCan</h2>
-            <p>Version: {version}</p>
-            <p>An intelligent automation platform for e-commerce operations.</p>
-            <p>© 2024 eCan Team</p>
-            """
+            # Use custom dialog
+            dialog = AboutDialog(self.main_window, version=version)
+            dialog.exec()
             
-            msg = QMessageBox(self.main_window)
-            msg.setWindowTitle("About eCan")
-            msg.setText(about_text)
-            msg.setTextFormat(Qt.RichText)
-            self._apply_messagebox_style(msg)
-            msg.exec()
         except Exception as e:
             logger.error(f"Failed to show about dialog: {e}")
     
-    def show_update_dialog(self):
-        """Show update dialog"""
+    def show_update_dialog(self, manual=False):
+        """Show update dialog
+        
+        Args:
+            manual: True if triggered by user manually, False if auto-check
+        """
         try:
+            # Check if download is in progress
+            from ota.core.download_manager import download_manager, DownloadState
+            
+            # If download is in progress, show current download status
+            if download_manager.is_downloading():
+                logger.info("[MenuManager] Download in progress, showing download status")
+                from ota.gui.dialog import UpdateDialog
+                
+                # Get OTA updater
+                ctx = AppContext.get_instance()
+                ota_updater = getattr(ctx, "ota_updater", None)
+                
+                # Show dialog with current download state
+                dialog = UpdateDialog(parent=self.main_window, ota_updater=ota_updater, show_current_download=True)
+                dialog.show()  # Use show() instead of exec() for non-modal
+                return
+            
             # Import and initialize OTA components on demand
-            from ota import OTAUpdater, UpdateDialog
+            from ota.core.updater import OTAUpdater
             
-            # Create OTA updater instance (only when needed)
-            ota_updater = OTAUpdater()
-            
-            # Create and show update dialog, pass OTA updater instance
-            dialog = UpdateDialog(ota_updater, self.main_window)
-            dialog.exec()
+            # Prefer reusing global OTA updater instance from AppContext
+            ota_updater = None
+            try:
+                ctx = AppContext.get_instance()
+                ota_updater = getattr(ctx, "ota_updater", None)
+                if ota_updater is not None:
+                    logger.info("[OTA] Reusing global ota_updater for update dialog")
+            except Exception:
+                logger.debug("[OTA] Failed to get ota_updater from AppContext", exc_info=True)
+
+            # Fallback: create OTA updater instance (only when needed)
+            if ota_updater is None:
+                logger.info("[OTA] Creating new OTAUpdater instance for update dialog")
+                ota_updater = OTAUpdater()
+
+            # Manual check: Always check for updates and show result
+            if manual:
+                logger.info("[OTA] Manual update check initiated")
+                
+                # ✅ Show progress dialog immediately
+                from PySide6.QtWidgets import QProgressDialog
+                progress = QProgressDialog(
+                    "Checking for updates..." if _get_menu_messages().current_lang != 'zh-CN' else "正在检查更新...",
+                    "Cancel" if _get_menu_messages().current_lang != 'zh-CN' else "取消",
+                    0, 0,
+                    self.main_window
+                )
+                progress.setWindowTitle(_get_menu_messages().get('check_updates'))
+                progress.setWindowModality(Qt.WindowModality.WindowModal)
+                progress.setCancelButton(None)  # No cancel button for now
+                progress.setMinimumDuration(0)  # Show immediately
+                progress.show()
+                
+                # ✅ Perform check in background thread
+                from PySide6.QtCore import QThread, Signal
+                
+                class CheckUpdateThread(QThread):
+                    check_completed = Signal(bool, object)  # has_update, update_info
+                    check_failed = Signal(str)  # error_message
+                    
+                    def __init__(self, updater):
+                        super().__init__()
+                        self.updater = updater
+                    
+                    def run(self):
+                        try:
+                            # Temporarily disable callback
+                            original_callback = self.updater.update_callback
+                            self.updater.update_callback = None
+                            
+                            try:
+                                has_update, update_info = self.updater.check_for_updates(return_info=True)
+                                self.check_completed.emit(has_update, update_info)
+                            finally:
+                                self.updater.update_callback = original_callback
+                        except Exception as e:
+                            self.check_failed.emit(str(e))
+                
+                def on_check_completed(has_update, update_info):
+                    progress.close()
+                    
+                    if has_update and update_info:
+                        version = update_info.get('latest_version') or update_info.get('version')
+                        logger.info(f"[OTA] Manual check found update: {version}")
+                        
+                        # Show confirmation dialog
+                        try:
+                            web_gui = getattr(ctx, "web_gui", None) if 'ctx' in locals() else None
+                            if web_gui and hasattr(web_gui, '_show_update_confirmation'):
+                                web_gui._show_update_confirmation(version, update_info, is_manual=True)
+                            else:
+                                # Fallback: show update dialog directly
+                                from ota.gui.dialog import UpdateDialog
+                                dialog = UpdateDialog(parent=self.main_window, ota_updater=ota_updater)
+                                dialog.exec()
+                        except Exception as e:
+                            logger.error(f"[OTA] Failed to show update confirmation: {e}")
+                    else:
+                        # No update available - Show beautiful custom dialog
+                        current_version = "Unknown"
+                        try:
+                            # Try to get current version
+                            from utils.app_setup_helper import read_version_file
+                            # Simplified logic since we are inside the class method
+                            # We can try to read it again or pass it if available
+                            # But let's just try to read it simply
+                            import os, sys
+                            base_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                            if hasattr(sys, '_MEIPASS'):
+                                base_path = sys._MEIPASS
+                            version_paths = [os.path.join(base_path, "VERSION")]
+                            current_version = read_version_file(version_paths)
+                        except:
+                            pass
+
+                        dialog = VersionCheckDialog(self.main_window, is_latest=True, version=current_version)
+                        dialog.exec()
+                
+                def on_check_failed(error_msg):
+                    progress.close()
+                    logger.error(f"[OTA] Manual check failed: {error_msg}")
+                    
+                    # Show beautiful error dialog
+                    dialog = VersionCheckDialog(self.main_window, is_latest=False, error_msg=f"Check failed: {error_msg}")
+                    dialog.exec()
+                
+                # Create and start check thread
+                check_thread = CheckUpdateThread(ota_updater)
+                check_thread.check_completed.connect(on_check_completed)
+                check_thread.check_failed.connect(on_check_failed)
+                check_thread.start()
+                
+                # Store thread reference to prevent garbage collection
+                self._check_thread = check_thread
+                
+                return  # ✅ Return immediately, don't block
         except Exception as e:
             logger.error(f"Failed to show update dialog: {e}")
-            QMessageBox.warning(self.main_window, "Error", "Failed to open update dialog")
-    
+            QMessageBox.warning(self.main_window, _get_menu_messages().get('error_title'),
+                              _get_menu_messages().get('update_error', error=str(e)))
+
     def show_settings(self):
         """Show settings dialog"""
         try:
             settings_dialog = QDialog(self.main_window)
-            settings_dialog.setWindowTitle("eCan Settings")
+            settings_dialog.setWindowTitle(_get_menu_messages().get('settings_title'))
             settings_dialog.setModal(True)
-            settings_dialog.setFixedSize(500, 400)
+            settings_dialog.setFixedSize(600, 500)
             
             layout = QVBoxLayout()
             
             # Settings label
-            title_label = QLabel("Application Settings")
+            title_label = QLabel(_get_menu_messages().get('app_settings'))
             title_label.setStyleSheet("font-size: 16px; font-weight: bold; margin: 10px;")
             layout.addWidget(title_label)
             
-            # Settings items (examples)
-            auto_save_checkbox = QCheckBox("Auto-save projects")
-            auto_save_checkbox.setChecked(True)
-            layout.addWidget(auto_save_checkbox)
+            # OTA Update Settings Group
+            ota_group = QGroupBox(_get_menu_messages().get('ota_update_settings'))
+            ota_layout = QVBoxLayout()
             
-            dark_mode_checkbox = QCheckBox("Dark mode")
-            layout.addWidget(dark_mode_checkbox)
+            # Server selection
+            server_layout = QHBoxLayout()
+            server_label = QLabel(_get_menu_messages().get('update_server'))
+            server_layout.addWidget(server_label)
+            
+            # Radio buttons for server selection
+            self.remote_server_radio = QRadioButton(_get_menu_messages().get('remote_server'))
+            self.local_server_radio = QRadioButton(_get_menu_messages().get('local_server'))
+            
+            # Load current configuration
+            try:
+                from ota.config.loader import ota_config
+                if ota_config.is_using_local_server():
+                    self.local_server_radio.setChecked(True)
+                else:
+                    self.remote_server_radio.setChecked(True)
+            except Exception as e:
+                logger.warning(f"Failed to load OTA config: {e}")
+                self.remote_server_radio.setChecked(True)
+            
+            ota_layout.addWidget(self.remote_server_radio)
+            ota_layout.addWidget(self.local_server_radio)
+            
+            # Local server URL input
+            local_url_layout = QHBoxLayout()
+            local_url_label = QLabel(_get_menu_messages().get('local_server_url'))
+
+            # Get default URL from config
+            try:
+                from ota.config.loader import ota_config
+                default_url = ota_config.config.get("local_server_url", "http://127.0.0.1:8080")
+            except:
+                default_url = "http://127.0.0.1:8080"
+            
+            self.local_url_input = QLineEdit(default_url)
+            local_url_layout.addWidget(local_url_label)
+            local_url_layout.addWidget(self.local_url_input)
+            ota_layout.addLayout(local_url_layout)
+            
+            # Start local server button
+            start_server_button = QPushButton(_get_menu_messages().get('start_local_server'))
+            start_server_button.clicked.connect(self.start_local_ota_server)
+            ota_layout.addWidget(start_server_button)
+            
+            ota_group.setLayout(ota_layout)
+            layout.addWidget(ota_group)
+            
+            # Other settings
+            other_group = QGroupBox(_get_menu_messages().get('general_settings'))
+            other_layout = QVBoxLayout()
+            
+            auto_save_checkbox = QCheckBox(_get_menu_messages().get('auto_save_projects'))
+            auto_save_checkbox.setChecked(True)
+            other_layout.addWidget(auto_save_checkbox)
+            
+            dark_mode_checkbox = QCheckBox(_get_menu_messages().get('dark_mode'))
+            other_layout.addWidget(dark_mode_checkbox)
+            
+            other_group.setLayout(other_layout)
+            layout.addWidget(other_group)
             
             # Buttons
             button_layout = QHBoxLayout()
-            ok_button = QPushButton("OK")
-            cancel_button = QPushButton("Cancel")
+            ok_button = QPushButton(_get_menu_messages().get('ok'))
+            cancel_button = QPushButton(_get_menu_messages().get('cancel'))
+            apply_button = QPushButton(_get_menu_messages().get('apply'))
             
-            ok_button.clicked.connect(settings_dialog.accept)
+            ok_button.clicked.connect(lambda: self.save_ota_settings(settings_dialog))
             cancel_button.clicked.connect(settings_dialog.reject)
+            apply_button.clicked.connect(lambda: self.save_ota_settings())
             
+            button_layout.addWidget(apply_button)
             button_layout.addWidget(ok_button)
             button_layout.addWidget(cancel_button)
             layout.addLayout(button_layout)
@@ -503,7 +1031,82 @@ class MenuManager:
             
         except Exception as e:
             logger.error(f"Failed to show settings: {e}")
-            QMessageBox.warning(self.main_window, "Error", "Failed to open settings")
+            QMessageBox.warning(self.main_window, _get_menu_messages().get('error_title'), 
+                              _get_menu_messages().get('settings_open_error'))
+    
+    def save_ota_settings(self, dialog=None):
+        """Save OTA settings"""
+        try:
+            from ota.config.loader import ota_config
+
+            # Save server selection
+            use_local = self.local_server_radio.isChecked()
+            ota_config.set_use_local_server(use_local)
+
+            # Save local server URL
+            local_url = self.local_url_input.text().strip()
+            if local_url:
+                ota_config.set_local_server_url(local_url)
+            
+            logger.info(f"OTA settings saved: use_local={use_local}, local_url={local_url}")
+            QMessageBox.information(self.main_window, _get_menu_messages().get('settings_title'), 
+                                  _get_menu_messages().get('settings_saved'))
+            
+            if dialog:
+                dialog.accept()
+                
+        except Exception as e:
+            logger.error(f"Failed to save OTA settings: {e}")
+            QMessageBox.warning(self.main_window, _get_menu_messages().get('error_title'), 
+                              _get_menu_messages().get('settings_error', error=str(e)))
+    
+    def start_local_ota_server(self):
+        """Start local OTA test server"""
+        try:
+            import subprocess
+            import sys
+            from pathlib import Path
+
+            # Get startup script path
+            project_root = Path(__file__).parent.parent
+            start_script = project_root / "ota" / "start_local_server.py"
+
+            if not start_script.exists():
+                QMessageBox.warning(self.main_window, _get_menu_messages().get('error_title'), 
+                                  f"Local server script not found: {start_script}")
+                return
+
+            # Start server in new command line window
+            from utils.subprocess_helper import popen_no_window
+            if sys.platform == "win32":
+                # Windows
+                popen_no_window([
+                    "cmd", "/c", "start", "cmd", "/k",
+                    f"python \"{start_script}\""
+                ], shell=True)
+            else:
+                # macOS/Linux
+                popen_no_window([
+                    "gnome-terminal", "--", "python", str(start_script)
+                ])
+
+            # Get local server URL for display
+            try:
+                from ota.config.loader import ota_config
+                server_url = ota_config.config.get("local_server_url", "http://127.0.0.1:8080")
+            except:
+                server_url = "http://127.0.0.1:8080"
+            
+            QMessageBox.information(
+                self.main_window, 
+                _get_menu_messages().get('server_starting'), 
+                _get_menu_messages().get('server_starting_message', url=server_url)
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to start local OTA server: {e}")
+            QMessageBox.warning(self.main_window, _get_menu_messages().get('error_title'), 
+                              _get_menu_messages().get('server_error', error=str(e)))
     
     def hide_app(self):
         """Hide application"""
@@ -544,62 +1147,22 @@ class MenuManager:
     def show_user_manual(self):
         """Show user manual"""
         try:
-            manual_text = """
-            <h2>eCan User Manual</h2>
-            <h3>Getting Started</h3>
-            <p>Welcome to eCan! This is your comprehensive automation platform.</p>
-            
-            <h3>Main Features</h3>
-            <ul>
-                <li><b>Project Management:</b> Create and manage automation projects</li>
-                <li><b>Data Import/Export:</b> Handle various data formats</li>
-                <li><b>Task Automation:</b> Set up automated workflows</li>
-                <li><b>Real-time Monitoring:</b> Track your automation progress</li>
-            </ul>
-            
-            <h3>Quick Tips</h3>
-            <ul>
-                <li>Use Ctrl+N to create a new project</li>
-                <li>Use Ctrl+S to save your current work</li>
-                <li>Press F1 anytime to access this help</li>
-            </ul>
-            """
-            
-            msg = QMessageBox(self.main_window)
-            msg.setWindowTitle("eCan User Manual")
-            msg.setText(manual_text)
-            msg.setTextFormat(Qt.RichText)
-            self._apply_messagebox_style(msg)
-            msg.exec()
+            # Use custom dialog
+            dialog = UserManualDialog(self.main_window)
+            dialog.exec()
             
         except Exception as e:
             logger.error(f"Failed to show user manual: {e}")
-            QMessageBox.warning(self.main_window, "Error", "Failed to open user manual")
+            QMessageBox.warning(self.main_window, _get_menu_messages().get('error_title'), 
+                              _get_menu_messages().get('user_manual_error'))
     
     def show_quick_start(self):
         """Show quick start guide"""
         try:
-            quick_start_text = """
-            <h2>Quick Start Guide</h2>
-            
-            <h3>Step 1: Create Your First Project</h3>
-            <p>Go to <b>File → New Project</b> or press <b>Ctrl+N</b></p>
-            
-            <h3>Step 2: Import Your Data</h3>
-            <p>Use <b>File → Import Data</b> to load your source data</p>
-            
-            <h3>Step 3: Configure Automation</h3>
-            <p>Set up your automation rules and workflows</p>
-            
-            <h3>Step 4: Run and Monitor</h3>
-            <p>Start your automation and monitor progress in real-time</p>
-            
-            <h3>Step 5: Export Results</h3>
-            <p>Use <b>File → Export Data</b> to save your results</p>
-            """
+            quick_start_text = _get_menu_messages().get('quick_start_text')
             
             msg = QMessageBox(self.main_window)
-            msg.setWindowTitle("Quick Start Guide")
+            msg.setWindowTitle(_get_menu_messages().get('quick_start_title'))
             msg.setText(quick_start_text)
             msg.setTextFormat(Qt.RichText)
             self._apply_messagebox_style(msg)
@@ -607,46 +1170,102 @@ class MenuManager:
             
         except Exception as e:
             logger.error(f"Failed to show quick start guide: {e}")
-            QMessageBox.warning(self.main_window, "Error", "Failed to open quick start guide")
-    
+            QMessageBox.warning(self.main_window, _get_menu_messages().get('error_title'), 
+                              _get_menu_messages().get('quick_start_error'))
+
+    def show_test_item(self):
+        """Handler for Help > Test: simple test dialog"""
+        try:
+            logger.info("[Menu] Help > Test clicked")
+            QMessageBox.information(
+                self.main_window,
+                "Test",
+                "This is a test action from Help > Test."
+            )
+        except Exception as e:
+            logger.error(f"Failed to execute Help > Test: {e}")
+            QMessageBox.warning(self.main_window, "Error", f"Failed to run test action: {e}")
+
+    def quick_test(self):
+        """Handler for Help > Test: simple test dialog"""
+        try:
+            # Lazy imports to avoid heavy deps
+            from PySide6.QtWidgets import QInputDialog
+            from agent.ec_skills.story.scene_utils import update_scene
+
+            # Ask for agent id (prefilled)
+            # agent_id, ok = QInputDialog.getText(self.main_window, "Update Scene Test", "Agent ID:", text="a1")
+            # if not ok or not agent_id.strip():
+            #     return
+            # agent_id = agent_id.strip()
+            agent_id = "6d5ea546c995bbdf679ca88dbe83371c"
+
+            # Demo scenes (use natural media length; no duration field)
+            # Use public asset path served by gui_v2
+            abs_path = r"C:\Users\songc\PycharmProjects\eCan.ai\resource\avatars\system\agent3_celebrate0.webm"
+            clip_url = f"http://localhost:4668/api/avatar?path={quote(abs_path)}"
+
+            demo_scenes = [
+                {
+                    "label": "celebrate",
+                    "clip": clip_url,
+                    "n_repeat": 1,
+                    "priority": 5,
+                    "captions": ["Local celebrate clip"]
+                }
+            ]
+
+            sent = update_scene(agent_id=agent_id, scenes=demo_scenes, play_label="celebrate")
+            if sent:
+                print(f"update_scene sent for agent '{agent_id}'.")
+            else:
+                print(f"Failed to send update_scene for agent '{agent_id}'. See logs.")
+
+        except Exception as e:
+            logger.error(f"ErrorQuickTest: {e}")
+            logger.error(traceback.format_exc())
+
+
     def show_shortcuts(self):
         """Show keyboard shortcuts"""
         try:
-            shortcuts_text = """
-            <h2>Keyboard Shortcuts</h2>
+            # Determine platform-specific modifier key
+            if sys.platform == 'darwin':
+                modifier = 'Cmd'
+            else:
+                modifier = 'Ctrl'
             
-            <h3>File Operations</h3>
-            <table>
-                <tr><td><b>Ctrl+N</b></td><td>New Project</td></tr>
-                <tr><td><b>Ctrl+O</b></td><td>Open Project</td></tr>
-                <tr><td><b>Ctrl+S</b></td><td>Save Project</td></tr>
-                <tr><td><b>Ctrl+Shift+S</b></td><td>Save Project As</td></tr>
-                <tr><td><b>Ctrl+I</b></td><td>Import Data</td></tr>
-                <tr><td><b>Ctrl+E</b></td><td>Export Data</td></tr>
+            shortcuts_text = f"""
+            <h2>{_get_menu_messages().get('shortcuts_title')}</h2>
+            
+            <h3>{_get_menu_messages().get('shortcuts_app_control')}</h3>
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 4px;"><b>{modifier}+,</b></td><td style="padding: 4px;">{_get_menu_messages().get('shortcuts_open_prefs')}</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+H</b></td><td style="padding: 4px;">{_get_menu_messages().get('shortcuts_hide_app')}</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+Q</b></td><td style="padding: 4px;">{_get_menu_messages().get('shortcuts_quit_app')}</td></tr>
+                <tr><td style="padding: 4px;"><b>F1</b></td><td style="padding: 4px;">{_get_menu_messages().get('shortcuts_open_help')}</td></tr>
             </table>
             
-            <h3>Edit Operations</h3>
-            <table>
-                <tr><td><b>Ctrl+Z</b></td><td>Undo</td></tr>
-                <tr><td><b>Ctrl+Shift+Z</b></td><td>Redo</td></tr>
-                <tr><td><b>Ctrl+X</b></td><td>Cut</td></tr>
-                <tr><td><b>Ctrl+C</b></td><td>Copy</td></tr>
-                <tr><td><b>Ctrl+V</b></td><td>Paste</td></tr>
-                <tr><td><b>Ctrl+A</b></td><td>Select All</td></tr>
-                <tr><td><b>Ctrl+F</b></td><td>Find</td></tr>
+            <h3>{_get_menu_messages().get('shortcuts_system')}</h3>
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 4px;"><b>{modifier}+Shift+L</b></td><td style="padding: 4px;">{_get_menu_messages().get('shortcuts_view_logs')}</td></tr>
             </table>
             
-            <h3>Application</h3>
-            <table>
-                <tr><td><b>Ctrl+,</b></td><td>Preferences</td></tr>
-                <tr><td><b>Ctrl+H</b></td><td>Hide eCan</td></tr>
-                <tr><td><b>Ctrl+Q</b></td><td>Quit eCan</td></tr>
-                <tr><td><b>F1</b></td><td>Help</td></tr>
+            <h3>{_get_menu_messages().get('shortcuts_navigation')}</h3>
+            <table style="width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 4px;"><b>{modifier}+1</b></td><td style="padding: 4px;">{_get_menu_messages().get('shortcuts_nav_chat')}</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+2</b></td><td style="padding: 4px;">{_get_menu_messages().get('shortcuts_nav_agents')}</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+3</b></td><td style="padding: 4px;">{_get_menu_messages().get('shortcuts_nav_skills')}</td></tr>
+                <tr><td style="padding: 4px;"><b>{modifier}+4</b></td><td style="padding: 4px;">{_get_menu_messages().get('shortcuts_nav_schedule')}</td></tr>
             </table>
+            
+            <p style="margin-top: 16px; color: #666; font-size: 12px;">
+            {_get_menu_messages().get('shortcuts_note')}
+            </p>
             """
             
             msg = QMessageBox(self.main_window)
-            msg.setWindowTitle("Keyboard Shortcuts")
+            msg.setWindowTitle(_get_menu_messages().get('shortcuts_title'))
             msg.setText(shortcuts_text)
             msg.setTextFormat(Qt.RichText)
             self._apply_messagebox_style(msg)
@@ -654,7 +1273,8 @@ class MenuManager:
             
         except Exception as e:
             logger.error(f"Failed to show shortcuts: {e}")
-            QMessageBox.warning(self.main_window, "Error", "Failed to open shortcuts")
+            QMessageBox.warning(self.main_window, _get_menu_messages().get('error_title'), 
+                              _get_menu_messages().get('shortcuts_error'))
     
     def report_issue(self):
         """Report issue"""
@@ -843,6 +1463,7 @@ class MenuManager:
         try:
             # Import here to avoid circular imports
             from gui.log_viewer import LogViewer
+            from PySide6.QtCore import Qt
 
             # Check if log viewer is already open
             if hasattr(self, 'log_viewer_window') and self.log_viewer_window and not self.log_viewer_window.isHidden():
@@ -851,8 +1472,12 @@ class MenuManager:
                 self.log_viewer_window.activateWindow()
                 logger.info("Brought existing log viewer window to front")
             else:
-                # Create new log viewer window
-                self.log_viewer_window = LogViewer(self.main_window)
+                # Create new log viewer window WITHOUT parent to avoid staying on top of main window
+                self.log_viewer_window = LogViewer(None)
+                # Ensure it's a normal top-level, non-modal window
+                self.log_viewer_window.setWindowModality(Qt.NonModal)
+                self.log_viewer_window.setWindowFlag(Qt.Window, True)
+                self.log_viewer_window.setWindowFlag(Qt.WindowStaysOnTopHint, False)
                 self.log_viewer_window.show()
                 logger.info("Opened new log viewer window")
 
