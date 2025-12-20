@@ -37,7 +37,7 @@ export const ResizeArea: FC<IResizeArea> = (props) => {
     const { resizing, resizeEnd } = onResize();
     model.setFocus(false);
     selectNode(startResizeEvent as React.MouseEvent);
-    playground.node.focus(); // 防止节点无法被删除
+    playground.node.focus(); // 防止节点无法被Delete
 
     const { clientX: startX, clientY: startY } = MouseTouchEvent.getEventCoord(
       startResizeEvent as MouseEvent

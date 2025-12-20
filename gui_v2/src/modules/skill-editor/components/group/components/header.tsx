@@ -25,8 +25,15 @@ export const GroupHeader: FC<GroupHeaderProps> = ({ onDrag, onFocus, onBlur, chi
     <div
       className="workflow-group-header"
       data-flow-editor-selectable="false"
-      onMouseDown={onDrag}
-      onTouchStart={onDrag}
+      onMouseDown={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        onDrag(e);
+      }}
+      onTouchStart={(e) => {
+        e.stopPropagation();
+        onDrag(e);
+      }}
       onFocus={onFocus}
       onBlur={onBlur}
       style={{

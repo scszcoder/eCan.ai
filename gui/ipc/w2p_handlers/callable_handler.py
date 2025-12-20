@@ -68,7 +68,7 @@ def handle_manage_callable(request: IPCRequest, params: Optional[Dict[str, Any]]
             - error: Optional[Dict], error information if failed
     """
     try:
-        # 直接使用 params 参数
+        # Use params parameter directly
         result, message = callable_manager.manage_callable(params)
         return create_success_response(request, {
             'data': result,

@@ -31,12 +31,12 @@ const VirtualList = <T extends any>({
   // 计算偏移量
   const offsetY = startIndex * itemHeight;
 
-  // 处理滚动事件
+  // ProcessScrollEvent
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     setScrollTop(e.currentTarget.scrollTop);
   }, []);
 
-  // 监听容器大小变化
+  // ListenContainerSize变化
   useEffect(() => {
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
@@ -53,7 +53,7 @@ const VirtualList = <T extends any>({
     };
   }, []);
 
-  // 滚动到指定项目
+  // Scroll到指定项目
   const scrollToItem = useCallback((index: number) => {
     if (containerRef.current) {
       const scrollTop = index * itemHeight;
@@ -61,14 +61,14 @@ const VirtualList = <T extends any>({
     }
   }, [itemHeight]);
 
-  // 滚动到顶部
+  // Scroll到Top
   const scrollToTop = useCallback(() => {
     if (containerRef.current) {
       containerRef.current.scrollTop = 0;
     }
   }, []);
 
-  // 滚动到底部
+  // Scroll到Bottom
   const scrollToBottom = useCallback(() => {
     if (containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
@@ -80,14 +80,15 @@ const VirtualList = <T extends any>({
       ref={containerRef}
       style={{
         height: containerHeight,
-        overflow: 'auto',
+        overflowX: 'hidden',
+        overflowY: 'auto',
         position: 'relative',
       }}
       onScroll={handleScroll}
     >
-      {/* 占位符，用于保持正确的滚动高度 */}
+      {/* 占位符，Used for保持正确的ScrollHeight */}
       <div style={{ height: data.length * itemHeight }}>
-        {/* 可见项目容器 */}
+        {/* 可见项目Container */}
         <div
           style={{
             position: 'absolute',
@@ -97,14 +98,14 @@ const VirtualList = <T extends any>({
           }}
         >
           {loading ? (
-            // 加载状态
+            // LoadStatus
             Array.from({ length: visibleCount }).map((_, index) => (
               <div key={`skeleton-${index}`} style={{ height: itemHeight, padding: 8 }}>
                 <Skeleton active paragraph={{ rows: 2 }} />
               </div>
             ))
           ) : (
-            // 实际内容
+            // 实际Content
             visibleItems.map((item, index) => (
               <div key={`item-${startIndex + index}`} style={{ height: itemHeight }}>
                 {renderItem(item, startIndex + index)}

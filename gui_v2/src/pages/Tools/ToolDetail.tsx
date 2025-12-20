@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useRef } from 'react';
+import { useEffectOnActive } from 'keepalive-for-react';
 import { Descriptions, Empty } from 'antd';
 import { Tool } from './types';
 import styled from '@emotion/styled';
@@ -17,9 +18,34 @@ const DetailContent = styled.div`
 
 const ToolDetail: React.FC<ToolDetailProps> = ({ tool }) => {
   const { t } = useTranslation();
+  
+  // ScrollPositionSave
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const savedScrollPositionRef = useRef<number>(0);
+  
+  // 使用 useEffectOnActive 在ComponentActive时RestoreScrollPosition
+  useEffectOnActive(
+    () => {
+      const container = scrollContainerRef.current;
+      if (container && savedScrollPositionRef.current > 0) {
+        requestAnimationFrame(() => {
+          container.scrollTop = savedScrollPositionRef.current;
+        });
+      }
+      
+      return () => {
+        const container = scrollContainerRef.current;
+        if (container) {
+          savedScrollPositionRef.current = container.scrollTop;
+        }
+      };
+    },
+    []
+  );
+  
   if (!tool) return <Empty description={t('pages.tools.selectTool')} />;
   return (
-    <DetailContent>
+    <DetailContent ref={scrollContainerRef}>
       <Descriptions title={tool.name} bordered column={1}>
         <Descriptions.Item label={t('pages.tools.description')}>{tool.description}</Descriptions.Item>
         <Descriptions.Item label={t('pages.tools.inputSchema')}>

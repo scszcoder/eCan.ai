@@ -4,8 +4,8 @@ import { TransformData, WorkflowNodeEntity } from '@flowgram.ai/free-layout-edit
 
 const style: React.CSSProperties = {
   position: 'absolute',
-  top: 10,
-  left: 10,
+  bottom: 10,
+  right: 10,
   zIndex: 1000,
   background: 'rgba(255,255,255,0.9)',
   border: '1px solid #eee',

@@ -5,30 +5,30 @@ import { traverse, TraverseContext } from './traverse';
 
 namespace UniqueWorkflowUtils {
   /** generate unique id - 生成唯一ID */
-  const generateUniqueId = customAlphabet('1234567890', 6); // create a function to generate 6-digit number - 创建一个生成6位数字的函数
+  const generateUniqueId = customAlphabet('1234567890', 6); // create a function to generate 6-digit number - Create一个生成6位数字的Function
 
-  /** get all node ids from workflow json - 从工作流JSON中获取所有节点ID */
+  /** get all node ids from workflow json - 从工作流JSON中GetAll节点ID */
   export const getAllNodeIds = (json: WorkflowJSON): string[] => {
-    const nodeIds = new Set<string>(); // use set to store unique ids - 使用Set存储唯一ID
+    const nodeIds = new Set<string>(); // use set to store unique ids - 使用SetStorage唯一ID
     const addNodeId = (node: WorkflowNodeJSON) => {
       nodeIds.add(node.id);
       if (node.blocks?.length) {
-        node.blocks.forEach((child) => addNodeId(child)); // recursively add child node ids - 递归添加子节点ID
+        node.blocks.forEach((child) => addNodeId(child)); // recursively add child node ids - RecursiveAdd子节点ID
       }
     };
     json.nodes.forEach((node) => addNodeId(node));
     return Array.from(nodeIds);
   };
 
-  /** generate node replacement mapping - 生成节点替换映射 */
+  /** generate node replacement mapping - 生成节点替换Map */
   export const generateNodeReplaceMap = (
     nodeIds: string[],
     isUniqueId: (id: string) => boolean
   ): Map<string, string> => {
-    const nodeReplaceMap = new Map<string, string>(); // create map for id replacement - 创建ID替换映射
+    const nodeReplaceMap = new Map<string, string>(); // create map for id replacement - CreateID替换Map
     nodeIds.forEach((id) => {
       if (isUniqueId(id)) {
-        nodeReplaceMap.set(id, id); // keep original id if unique - 如果ID唯一则保持不变
+        nodeReplaceMap.set(id, id); // keep original id if unique - IfID唯一则保持不变
       } else {
         let newId: string;
         do {
@@ -40,13 +40,13 @@ namespace UniqueWorkflowUtils {
     return nodeReplaceMap;
   };
 
-  /** check if value exists - 检查值是否存在 */
+  /** check if value exists - CheckValue是否存在 */
   const isExist = (value: unknown): boolean => value !== null && value !== undefined;
 
-  /** check if node should be handled - 检查节点是否需要处理 */
+  /** check if node should be handled - Check节点是否NeedProcess */
   const shouldHandle = (context: TraverseContext): boolean => {
     const { node } = context;
-    // check edge data - 检查边数据
+    // check edge data - Check边Data
     if (
       node?.key &&
       ['sourceNodeID', 'targetNodeID'].includes(node.key) &&
@@ -54,7 +54,7 @@ namespace UniqueWorkflowUtils {
     ) {
       return true;
     }
-    // check node data - 检查节点数据
+    // check node data - Check节点Data
     if (
       node?.key === 'id' &&
       isExist(node.container?.type) &&
@@ -63,7 +63,7 @@ namespace UniqueWorkflowUtils {
     ) {
       return true;
     }
-    // check variable data - 检查变量数据
+    // check variable data - Check变量Data
     if (
       node?.key === 'blockID' &&
       isExist(node.container?.name) &&
@@ -77,7 +77,7 @@ namespace UniqueWorkflowUtils {
   /**
    * replace node ids in workflow json - 替换工作流JSON中的节点ID
    * notice: this method has side effects, it will modify the input json to avoid deep copy overhead
-   * - 注意：此方法有副作用，会修改输入的json以避免深拷贝开销
+   * - Note：此Method有副作用，会修改Input的json以避免深拷贝开销
    */
   export const replaceNodeId = (
     json: WorkflowJSON,
@@ -102,7 +102,7 @@ export const generateUniqueWorkflow = (params: {
   isUniqueId: (id: string) => boolean;
 }): WorkflowJSON => {
   const { json, isUniqueId } = params;
-  const nodeIds = UniqueWorkflowUtils.getAllNodeIds(json); // get all existing node ids - 获取所有现有节点ID
-  const nodeReplaceMap = UniqueWorkflowUtils.generateNodeReplaceMap(nodeIds, isUniqueId); // generate id replacement map - 生成ID替换映射
-  return UniqueWorkflowUtils.replaceNodeId(json, nodeReplaceMap); // replace all node ids - 替换所有节点ID
+  const nodeIds = UniqueWorkflowUtils.getAllNodeIds(json); // get all existing node ids - GetAll现有节点ID
+  const nodeReplaceMap = UniqueWorkflowUtils.generateNodeReplaceMap(nodeIds, isUniqueId); // generate id replacement map - 生成ID替换Map
+  return UniqueWorkflowUtils.replaceNodeId(json, nodeReplaceMap); // replace all node ids - 替换All节点ID
 };

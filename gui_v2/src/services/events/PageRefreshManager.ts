@@ -1,23 +1,68 @@
 import { logger } from '../../utils/logger';
-import { APIResponse } from '../ipc';
-import { get_ipc_api } from '../../services/ipc_api';
-import { useUserStore } from '../../stores/userStore';
-import { AppDataStoreHandler } from '../../stores/AppDataStoreHandler';
+import { userStorageManager } from '../storage/UserStorageManager';
+import { logoutManager } from '../LogoutManager';
 
-// 页面刷新后的操作类型
+// Operation type to execute after page refresh
 export type PageRefreshAction = () => void | Promise<void>;
 
-// 页面刷新管理器
+// Page refresh manager
 export class PageRefreshManager {
     private static instance: PageRefreshManager;
     private isInitialized = false;
     private actions: Map<string, PageRefreshAction> = new Map();
     private cleanupFunctions: (() => void)[] = [];
-    private isEnabled = false; // 默认禁用，只有在登录成功后才启用
+    private isEnabled = false; // Disabled by default, only enabled after login success
+
+    private static readonly STORAGE_PAGE_LOAD_HASH = 'page_load_hash';
+    private static readonly STORAGE_PAGE_WAS_REFRESH = 'page_was_refresh';
+    private static readonly STORAGE_SKILL_EDITOR_RELOAD_CONSUMED = 'skill_editor_reload_consumed';
 
     private constructor() {}
 
-    // 单例模式
+    private static safeGet(key: string): string {
+        try {
+            return sessionStorage.getItem(key) || '';
+        } catch {
+            return '';
+        }
+    }
+
+    private static safeSet(key: string, value: string): void {
+        try {
+            sessionStorage.setItem(key, value);
+        } catch {
+            // ignore
+        }
+    }
+
+    public static getPageLoadHash(): string {
+        return PageRefreshManager.safeGet(PageRefreshManager.STORAGE_PAGE_LOAD_HASH);
+    }
+
+    public static wasPageRefresh(): boolean {
+        return PageRefreshManager.safeGet(PageRefreshManager.STORAGE_PAGE_WAS_REFRESH) === 'true';
+    }
+
+    public static isSkillEditorReloadConsumed(): boolean {
+        return PageRefreshManager.safeGet(PageRefreshManager.STORAGE_SKILL_EDITOR_RELOAD_CONSUMED) === 'true';
+    }
+
+    public static resetSkillEditorReloadConsumed(): void {
+        PageRefreshManager.safeSet(PageRefreshManager.STORAGE_SKILL_EDITOR_RELOAD_CONSUMED, 'false');
+    }
+
+    public static consumeSkillEditorReload(): void {
+        PageRefreshManager.safeSet(PageRefreshManager.STORAGE_SKILL_EDITOR_RELOAD_CONSUMED, 'true');
+    }
+
+    public static isReloadSkillEditor(): boolean {
+        const pageLoadHash = PageRefreshManager.getPageLoadHash();
+        const pageWasRefresh = PageRefreshManager.wasPageRefresh();
+        const reloadConsumed = PageRefreshManager.isSkillEditorReloadConsumed();
+        return pageWasRefresh && pageLoadHash.includes('skill_editor') && !reloadConsumed;
+    }
+
+    // Singleton pattern
     public static getInstance(): PageRefreshManager {
         if (!PageRefreshManager.instance) {
             PageRefreshManager.instance = new PageRefreshManager();
@@ -25,215 +70,239 @@ export class PageRefreshManager {
         return PageRefreshManager.instance;
     }
 
-    // 检查用户是否已登录
-    private checkUserLoginStatus(): boolean {
-        const isAuthenticated = localStorage.getItem('isAuthenticated') === 'true';
-        const token = localStorage.getItem('token');
-        return isAuthenticated && !!token;
-    }
 
-    // 初始化管理器
+
+    // Initialize the manager
     public initialize(): void {
         if (this.isInitialized) {
-            logger.warn('PageRefreshManager 已经初始化过了');
+            logger.warn('PageRefreshManager has already been initialized');
             return;
         }
 
-        logger.info('初始化 PageRefreshManager...');
+        PageRefreshManager.safeSet(PageRefreshManager.STORAGE_PAGE_LOAD_HASH, window.location.hash || '');
+        PageRefreshManager.resetSkillEditorReloadConsumed();
+
+        logger.info('Initialize PageRefreshManager...');
         this.setupEventListeners();
         this.registerDefaultActions();
+        this.registerLogoutCleanup();
         this.isInitialized = true;
         
-        // 检查用户登录状态，如果已登录则自动启用
-        if (this.checkUserLoginStatus()) {
-            this.isEnabled = true;
-            logger.info('PageRefreshManager 初始化完成（用户已登录，自动启用）');
-        } else {
+        // 禁用应用启动时的自动登录，但保留页面刷新后的会话恢复
+        // 通过检查 sessionStorage 来判断是否是应用首次启动
+        const isAppRestart = !sessionStorage.getItem('app_session_active');
+
+        // Persist a reliable refresh marker for this page load.
+        // In some desktop runtimes (Qt WebEngine), performance.navigation.type may not be reliable.
+        PageRefreshManager.safeSet(PageRefreshManager.STORAGE_PAGE_WAS_REFRESH, isAppRestart ? 'false' : 'true');
+        
+        if (isAppRestart) {
+            // 应用首次启动：清除 localStorage，强制显示登录界面
+            logger.info('App first launch detected, clearing user session data');
+            userStorageManager.clearAllUserData();
             this.isEnabled = false;
-            logger.info('PageRefreshManager 初始化完成（用户未登录，默认禁用）');
+            // 标记会话已激活
+            sessionStorage.setItem('app_session_active', 'true');
+        } else {
+            // 页面刷新：保留会话恢复功能
+            logger.info('Page refresh detected, session restoration enabled');
+            this.isEnabled = true;
         }
+        
+        logger.info('PageRefreshManager initialization completed');
     }
 
-    // 启用页面刷新操作（登录成功后调用）
+    // Enable page refresh operations (called after login success)
     public enable(): void {
         this.isEnabled = true;
-        logger.info('页面刷新操作已启用（用户已登录）');
+        logger.info('Page refresh operations enabled (user logged in)');
     }
 
-    // 禁用页面刷新操作（logout时调用）
+    // Disable page refresh operations (called on logout)
     public disable(): void {
         this.isEnabled = false;
-        logger.info('页面刷新操作已禁用（用户已登出）');
+        logger.info('Page refresh operations disabled (user logged out)');
     }
 
-    // 检查是否启用
+    // Check if enabled
     public isPageRefreshEnabled(): boolean {
         return this.isEnabled;
     }
 
-    // 注册默认操作
+    // Register default operations
     private registerDefaultActions(): void {
-        // 注册获取登录信息的操作
+        // Register operation to get login information
         this.registerAction('getLastLoginInfo', async () => {
             try {
-                logger.info('页面刷新后获取登录信息');
-                // 这里调用您的API
-                const response: APIResponse<any> = await get_ipc_api().getLastLoginInfo();
-				if (response?.data?.last_login) {
-					const { username, password, machine_role } = response.data.last_login;
-					logger.info('last_login', response.data.last_login);
-                    localStorage.setItem('username', username);
-			
-                    useUserStore.getState().setUsername(username);
-                    // 获取系统数据
-					const appData = await get_ipc_api().getAll(username);
-					console.log('appData', appData);
-                    
-					// 将API返回的数据保存到store中
-					if (appData?.data) {
-                        logger.info('PageRefreshManager: Get all system data successful');
-                        // 更新 store
-                        AppDataStoreHandler.updateStore(appData.data as any);
-                        logger.info('PageRefreshManager: System data restored in store.');
-					} else {
-                        logger.error('PageRefreshManager: Get all system data failed');
-                    }
-				} else {
-					logger.error('获取登录信息失败');
-				}
+                logger.info('Attempting to restore user status after page refresh');
+
+                // Use unified storage manager to check and restore user status
+                const restored = userStorageManager.restoreUserState();
+                if (!restored) {
+                    logger.info('No valid user session found, skipping auto login restoration');
+                    return;
+                }
+
+                const userInfo = userStorageManager.getUserInfo();
+                if (!userInfo) {
+                    logger.error('User information restoration failed');
+                    return;
+                }
+
+                logger.info('✅ User status restored:', userInfo.username);
+
+                // // Validate session validity by attempting to get system data
+                // const appData = await get_ipc_api().getAll(userInfo.username);
+                // console.log('appData', appData);
+
+                // // Save API response data to store
+                // if (appData?.data) {
+                //     logger.info('PageRefreshManager: Get all system data successful');
+                //     // Update store
+                //     AppDataStoreHandler.updateStore(appData.data as any);
+                //     logger.info('PageRefreshManager: System data restored in store.');
+                // } else {
+                //     logger.error('PageRefreshManager: Get all system data failed');
+                //     // If getting system data failed, session may be expired, cleanup user data
+                //     if (appData?.error?.code === 'TOKEN_REQUIRED' || appData?.error?.code === 'UNAUTHORIZED') {
+                //         logger.warn('Session may have expired, cleaning up user data');
+                //         userStorageManager.clearAllUserData();
+                //     }
+                // }
                 
-                logger.info('页面刷新后执行动作完成');
+                logger.info('Action execution completed after page refresh');
             } catch (error) {
-                logger.error('获取登录信息失败:', error);
+                logger.error('Failed to get login information:', error);
             }
         });
 
-        logger.info('默认操作注册完成');
+        logger.info('Default operations registration completed');
     }
 
-    // 设置事件监听器
+    // Setup event listeners
     private setupEventListeners(): void {
-        // 监听页面重新加载完成事件
-        const handleLoad = () => {
-            logger.info('页面重新加载完成，检查是否执行操作');
-            
-            // 检查是否启用页面刷新操作
-            if (!this.isEnabled) {
-                logger.info('页面刷新操作已禁用（用户未登录），跳过执行');
-                return;
+        // Listen for page reload completed event
+        const handleLoad = async () => {
+            logger.info('🔄 Page reload completed, executing page refresh operations');
+            try {
+                await this.executeAllActions();
+                logger.info('✅ Page refresh operations finished');
+            } catch (e) {
+                logger.warn('Some page refresh operations failed (continuing to onboarding):', e);
             }
-            
-            this.executeAllActions();
         };
 
-        // 添加事件监听器
+        // Add event listeners
         window.addEventListener('load', handleLoad);
+        window.addEventListener('DOMContentLoaded', handleLoad);
 
-        // 保存清理函数引用
+        // If the document is already loaded (SPA scenario), trigger immediately once
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+            // schedule to next tick to ensure services are ready
+            logger.info('[PageRefreshManager] Document already loaded, invoking handleLoad immediately');
+            setTimeout(() => { void handleLoad(); }, 0);
+        }
+
+        // Save cleanup function reference
         this.cleanupFunctions = [
-            () => window.removeEventListener('load', handleLoad)
+            () => window.removeEventListener('load', handleLoad),
+            () => window.removeEventListener('DOMContentLoaded', handleLoad)
         ];
 
-        logger.info('页面刷新事件监听器设置完成');
+        logger.info('Page refresh event listener setup completed');
     }
 
-    // 清理事件监听器
+    // Cleanup event listeners
     public cleanup(): void {
         if (!this.isInitialized) {
             return;
         }
 
-        logger.info('清理 PageRefreshManager...');
+        logger.info('Cleanup PageRefreshManager...');
         this.cleanupFunctions.forEach(cleanup => cleanup());
         this.cleanupFunctions = [];
         this.isInitialized = false;
-        this.isEnabled = false; // 清理时禁用
-        logger.info('PageRefreshManager 清理完成');
+        this.isEnabled = false; // Disable during cleanup
+        logger.info('PageRefreshManager cleanup completed');
     }
 
-    // 注册页面刷新后的操作
+    // Register operation to execute after page refresh
     public registerAction(name: string, action: PageRefreshAction): void {
         this.actions.set(name, action);
-        logger.info(`注册页面刷新操作: ${name}`);
+        logger.info(`Register page refresh operation: ${name}`);
     }
 
-    // 取消注册操作
+    // Unregister operation
     public unregisterAction(name: string): boolean {
         const removed = this.actions.delete(name);
         if (removed) {
-            logger.info(`取消注册页面刷新操作: ${name}`);
+            logger.info(`Unregister page refresh operation: ${name}`);
         }
         return removed;
     }
 
-    // 执行所有注册的操作
+    // Execute all registered operations
     public async executeAllActions(): Promise<void> {
-        // 检查是否启用
-        if (!this.isEnabled) {
-            logger.info('页面刷新操作已禁用（用户未登录），跳过执行');
-            return;
-        }
-
-        logger.info(`执行 ${this.actions.size} 个页面刷新操作`);
+        logger.info(`🔄 Executing ${this.actions.size} page refresh operations`);
         
         const promises: Promise<void>[] = [];
         
         for (const [name, action] of this.actions) {
             try {
-                logger.info(`执行操作: ${name}`);
+                logger.info(`Execute operation: ${name}`);
                 const result = action();
                 if (result instanceof Promise) {
                     promises.push(result);
                 }
             } catch (error) {
-                logger.error(`执行操作 ${name} 失败:`, error);
+                logger.error(`Execute operation ${name} failed:`, error);
             }
         }
 
-        // 等待所有异步操作完成
+        // Wait for all async operations to complete
         if (promises.length > 0) {
             try {
                 await Promise.all(promises);
-                logger.info('所有页面刷新操作执行完成');
+                logger.info('All page refresh operations executed successfully');
             } catch (error) {
-                logger.error('部分页面刷新操作执行失败:', error);
+                logger.error('Some page refresh operations failed:', error);
             }
         }
     }
 
-    // 执行指定的操作
+    // Execute specific operation
     public async executeAction(name: string): Promise<void> {
-        // 检查是否启用
+        // Check if enabled
         if (!this.isEnabled) {
-            logger.info('页面刷新操作已禁用（用户未登录），跳过执行');
+            logger.info('Page refresh operations disabled (user not logged in), skipping execution');
             return;
         }
 
         const action = this.actions.get(name);
         if (!action) {
-            logger.warn(`操作 ${name} 不存在`);
+            logger.warn(`Operation ${name} does not exist`);
             return;
         }
 
         try {
-            logger.info(`执行操作: ${name}`);
+            logger.info(`Execute operation: ${name}`);
             const result = action();
             if (result instanceof Promise) {
                 await result;
             }
-            logger.info(`操作 ${name} 执行完成`);
+            logger.info(`Operation ${name} execution completed`);
         } catch (error) {
-            logger.error(`执行操作 ${name} 失败:`, error);
+            logger.error(`Execute operation ${name} failed:`, error);
             throw error;
         }
     }
 
-    // 获取注册的操作列表
+    // Get registered operations list
     public getRegisteredActions(): string[] {
         return Array.from(this.actions.keys());
     }
 
-    // 获取管理器状态
+    // Get manager status
     public getStatus(): { isInitialized: boolean; actionCount: number; isEnabled: boolean } {
         return {
             isInitialized: this.isInitialized,
@@ -241,7 +310,26 @@ export class PageRefreshManager {
             isEnabled: this.isEnabled
         };
     }
+
+    /**
+     * Register logout cleanup function
+     */
+    private registerLogoutCleanup(): void {
+        logoutManager.registerCleanup({
+            name: 'PageRefreshManager',
+            cleanup: () => {
+                logger.info('[PageRefreshManager] Cleaning up for logout...');
+                this.disable(); // Disable page refresh operations
+                this.cleanup(); // Cleanup event listeners
+                this.actions.clear(); // Clear all registered operations
+                // 清除 sessionStorage 标记，确保下次启动显示登录界面
+                sessionStorage.removeItem('app_session_active');
+                logger.info('[PageRefreshManager] Cleanup completed (session marker cleared)');
+            },
+            priority: 20 // Medium priority
+        });
+    }
 }
 
-// 导出单例实例
+// Export singleton instance
 export const pageRefreshManager = PageRefreshManager.getInstance(); 

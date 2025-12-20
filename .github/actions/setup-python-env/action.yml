@@ -24,6 +24,10 @@ inputs:
     description: 'Extra packages to install (comma-separated)'
     required: false
     default: ''
+  architecture:
+    description: 'Python architecture (x64, arm64, auto)'
+    required: false
+    default: 'auto'
 
 runs:
   using: 'composite'
@@ -32,60 +36,102 @@ runs:
       uses: actions/setup-python@v4
       with:
         python-version: ${{ inputs.python-version }}
+        architecture: ${{ inputs.architecture }}
+
+    - name: Cache virtual environment
+      id: cache-venv
+      uses: actions/cache@v4
+      with:
+        path: .venv
+        # Use runner.arch (actual runner architecture) to prevent cross-arch cache pollution
+        # runner.arch returns X64, ARM64, etc.
+        key: ${{ inputs.platform }}-${{ runner.arch }}-venv-py${{ inputs.python-version }}-${{ hashFiles(inputs.requirements-file) }}-${{ inputs.extra-packages }}
 
     - name: Cache pip dependencies
       uses: actions/cache@v3
       with:
         path: ~/.cache/pip
-        key: ${{ inputs.platform }}-pip-${{ inputs.python-version }}-${{ hashFiles('requirements*.txt') }}
+        # Use runner.arch to prevent cross-arch cache pollution
+        key: ${{ inputs.platform }}-${{ runner.arch }}-pip-${{ inputs.python-version }}-${{ hashFiles('requirements*.txt') }}
         restore-keys: |
-          ${{ inputs.platform }}-pip-${{ inputs.python-version }}-
+          ${{ inputs.platform }}-${{ runner.arch }}-pip-${{ inputs.python-version }}-
 
     - name: Create and activate virtual environment
       shell: bash
       run: |
         echo "=== Creating Virtual Environment ==="
-        python -m venv .venv
-        
+        if [ -d ".venv" ]; then
+          echo "Existing virtual environment detected (possibly from cache); reusing .venv"
+        else
+          python -m venv .venv
+        fi
+
         if [ "${{ inputs.platform }}" = "windows" ]; then
           echo "$PWD/.venv/Scripts" >> $GITHUB_PATH
+          echo "VIRTUAL_ENV=$PWD/.venv" >> $GITHUB_ENV
         else
           echo "$PWD/.venv/bin" >> $GITHUB_PATH
+          echo "VIRTUAL_ENV=$PWD/.venv" >> $GITHUB_ENV
         fi
         echo "Virtual environment created and added to PATH"
 
     - name: Install Python dependencies
       shell: bash
       run: |
+        # Ensure we're using the virtual environment
+        if [ "${{ inputs.platform }}" = "windows" ]; then
+          export PATH="$PWD/.venv/Scripts:$PATH"
+          PYTHON_EXE="$PWD/.venv/Scripts/python.exe"
+        else
+          export PATH="$PWD/.venv/bin:$PATH"
+          PYTHON_EXE="$PWD/.venv/bin/python"
+        fi
+
         echo "=== Python/Pip Info ==="
-        python -c "import sys; print(sys.version); print(sys.executable)"
-        python -m pip -V
+        "$PYTHON_EXE" -c "import sys; print('Python version:', sys.version); print('Python executable:', sys.executable)"
+        "$PYTHON_EXE" -m pip -V
 
         echo "=== Installing Python Dependencies ==="
-        python -m pip install --upgrade pip
-        
+        "$PYTHON_EXE" -m pip install --upgrade pip
+
         # Install base requirements
         if [ -f "${{ inputs.requirements-file }}" ]; then
-          python -m pip install -r "${{ inputs.requirements-file }}"
+          echo "Installing requirements from: ${{ inputs.requirements-file }}"
+          "$PYTHON_EXE" -m pip install -r "${{ inputs.requirements-file }}"
         fi
-        
+
         # Install PyInstaller if requested
         if [ "${{ inputs.install-pyinstaller }}" = "true" ]; then
-          python -m pip install "pyinstaller==${{ inputs.pyinstaller-version }}"
+          "$PYTHON_EXE" -m pip install "pyinstaller==${{ inputs.pyinstaller-version }}"
           echo "=== Verifying PyInstaller installation ==="
-          python -c "import PyInstaller; print('PyInstaller installed successfully')"
+          "$PYTHON_EXE" -c "import PyInstaller; print('PyInstaller installed successfully')"
         fi
-        
+
         # Install extra packages if specified
         if [ -n "${{ inputs.extra-packages }}" ]; then
           IFS=',' read -ra PACKAGES <<< "${{ inputs.extra-packages }}"
           for package in "${PACKAGES[@]}"; do
             if [ -n "$package" ]; then
               echo "Installing extra package: $package"
-              python -m pip install "$package"
+              "$PYTHON_EXE" -m pip install "$package"
             fi
           done
         fi
+
+        echo "=== Verifying key dependencies ==="
+        "$PYTHON_EXE" -c "
+        import sys
+        # Only verify packages that should be installed at this stage
+        # playwright is installed separately by setup-playwright action
+        packages = ['PyInstaller', 'PySide6', 'requests', 'colorlog']
+        for pkg in packages:
+            try:
+                __import__(pkg)
+                print(f'[OK] {pkg} installed successfully')
+            except ImportError as e:
+                print(f'[WARNING] {pkg} not found: {e}')
+        print('Core dependencies verification completed')
+        "
 
     - name: Uninstall pathlib if present
       shell: bash

@@ -1,31 +1,32 @@
 import traceback
-from typing import Any, Optional, Dict
-import uuid
+from typing import TYPE_CHECKING, Any, Optional, Dict
 from app_context import AppContext
-from gui.MainGUI import MainWindow
+if TYPE_CHECKING:
+    from gui.MainGUI import MainWindow
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 
 from utils.logger_helper import logger_helper as logger
+from agent.mcp.server import tool_schemas as mcp_tool_schemas
 
 @IPCHandlerRegistry.handler('get_tools')
 def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """处理登录请求
+    """Handle login request
 
-    验证用户凭据并返回访问令牌。
+    Validate user credentials and return access token.
 
     Args:
-        request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        request: IPC request object
+        params: Request parameters, must contain 'username' and 'password' fields
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Get tools handler called with request: {request}")
 
-        # 验证参数
+        # Validate parameters
         is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
             logger.warning(f"Invalid parameters for get tools: {error}")
@@ -35,15 +36,12 @@ def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
                 error
             )
 
-        # 获取用户名和密码
+        # Get username and password
         username = data['username']
-        token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"get tools successful for user: {username}")
 
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.get_main_window()
         resultJS = {
-            'token': token,
             'tools': [tool.model_dump() for tool in main_window.mcp_tools_schemas],
             'message': 'Get all successful'
         }
@@ -61,24 +59,23 @@ def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
         )
 
 
-
 @IPCHandlerRegistry.handler('new_tools')
 def handle_new_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """处理登录请求
+    """Handle login request
 
-    验证用户凭据并返回访问令牌。
+    Validate user credentials and return access token.
 
     Args:
-        request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        request: IPC request object
+        params: Request parameters, must contain 'username' and 'password' fields
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Create tools handler called with request: {request}")
 
-        # 验证参数
+        # Validate parameters
         is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
             logger.warning(f"Invalid parameters for create tools: {error}")
@@ -88,15 +85,12 @@ def handle_new_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
                 error
             )
 
-        # 获取用户名和密码
+        # Get username and password
         username = data['username']
-        token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"create tools successful for user: {username}")
 
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.get_main_window()
         resultJS = {
-            'token': token,
             'tools': [tool.model_dump() for tool in main_window.mcp_tools_schemas],
             'message': 'Create all successful'
         }
@@ -118,21 +112,21 @@ def handle_new_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
 
 @IPCHandlerRegistry.handler('delete_tools')
 def handle_delete_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """处理登录请求
+    """Handle login request
 
-    验证用户凭据并返回访问令牌。
+    Validate user credentials and return access token.
 
     Args:
-        request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        request: IPC request object
+        params: Request parameters, must contain 'username' and 'password' fields
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Delete tools handler called with request: {request}")
 
-        # 验证参数
+        # Validate parameters
         is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
             logger.warning(f"Invalid parameters for delete tools: {error}")
@@ -142,15 +136,12 @@ def handle_delete_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                 error
             )
 
-        # 获取用户名和密码
+        # Get username and password
         username = data['username']
-        token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"delete tools successful for user: {username}")
 
-        app_ctx = AppContext()
-        main_window: MainWindow = app_ctx.main_window
+        main_window: MainWindow = AppContext.get_main_window()
         resultJS = {
-            'token': token,
             'tools': [tool.model_dump() for tool in main_window.mcp_tools_schemas],
             'message': 'Delete all successful'
         }
@@ -166,3 +157,36 @@ def handle_delete_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -
             'LOGIN_ERROR',
             f"Error during delete tools: {str(e)}"
         )
+
+
+# ============================================================================
+# Cloud Synchronization Functions
+# ============================================================================
+
+
+def _trigger_cloud_sync(tool_data: Dict[str, Any], operation: 'Operation') -> None:
+    """Trigger cloud synchronization (async, non-blocking)
+    
+    Async background execution, doesn't block UI operations, ensures eventual consistency.
+    
+    Args:
+        tool_data: Tool data to sync
+        operation: Operation type (Operation enum)
+    """
+    from agent.cloud_api.offline_sync_manager import get_sync_manager
+    from agent.cloud_api.constants import DataType, Operation
+    
+    def _log_result(result: Dict[str, Any]):
+        """Log sync result"""
+        if result.get('synced'):
+            logger.info(f"[tool_handler] ✅ Tool synced to cloud: {operation} - {tool_data.get('name')}")
+        elif result.get('cached'):
+            logger.info(f"[tool_handler] 💾 Tool cached for later sync: {operation} - {tool_data.get('name')}")
+        elif not result.get('success'):
+            logger.error(f"[tool_handler] ❌ Failed to sync tool: {result.get('error')}")
+    
+    # Use SyncManager's thread pool for async execution
+    # Note: Use TOOL for Tool entity data (name, description, etc.)
+    #       Use AGENT_TOOL for Agent-Tool relationship data (agid, tool_id, owner)
+    manager = get_sync_manager()
+    manager.sync_to_cloud_async(DataType.TOOL, tool_data, operation, callback=_log_result)

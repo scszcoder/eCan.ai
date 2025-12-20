@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+    <channel>
+        <title>eCan.ai Updates</title>
+        <link>{{ base_url }}/appcast.xml</link>
+        <description>Most recent updates for eCan.ai</description>
+        <language>en</language>
+        <pubDate>{{ build_date }}</pubDate>
+        {% for item in items %}
+        <item>
+            <title>{{ item.title }}</title>
+            <description><![CDATA[{{ item.description | safe }}]]></description>
+            <pubDate>{{ item.pub_date }}</pubDate>
+            <enclosure url="{{ item.download_url }}"
+                       sparkle:version="{{ item.version }}"
+                       sparkle:os="{{ item.os }}"
+                       length="{{ item.file_size }}"
+                       type="application/octet-stream"
+                       sparkle:edSignature="{{ item.signature }}" />
+        </item>
+        {% endfor %}
+    </channel>
+</rss>

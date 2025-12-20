@@ -45,27 +45,39 @@ class A2AServer:
         self.app.add_route(
             "/.well-known/agent.json", self._get_agent_card, methods=["GET"]
         )
-        # 🔽 Add this route
         self.app.add_route("/ping", self._health_check, methods=["GET"])
 
     def start(self):
+        """Start A2A server in daemon thread"""
         if self.agent_card is None:
             raise ValueError("agent_card is not defined")
-
         if self.task_manager is None:
             raise ValueError("request_handler is not defined")
-
-        import uvicorn, traceback
-
+        
+        import uvicorn
+        import asyncio
+        
         try:
-            config = uvicorn.Config(self.app, host=self.host or '127.0.0.1', port=self.port, log_level="info", log_config=None)
+            config = uvicorn.Config(
+                self.app,
+                host=self.host or '127.0.0.1',
+                port=self.port,
+                log_level="warning",
+                log_config=None
+            )
             server = uvicorn.Server(config)
+            
+            # Disable signal handlers for daemon threads
             if hasattr(server, "install_signal_handlers"):
                 server.install_signal_handlers = False
-            server.run()
-        except Exception:
-            # Force-write startup exception for diagnosis in frozen envs
-            logger.error(traceback.format_exc())
+            
+            # Run server with dedicated event loop
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(server.serve())
+            
+        except Exception as e:
+            logger.error(f"A2A server failed on port {self.port}: {e}")
             raise
 
     def _health_check(self, request: Request) -> JSONResponse:
@@ -100,10 +112,7 @@ class A2AServer:
             else:
                 logger.warning(f"Unexpected request type: {type(json_rpc_request)}")
                 raise ValueError(f"Unexpected request type: {type(request)}")
-            logger.info("result available")
-            returnable = self._create_response(result)
-            logger.info("done processing request:", type(returnable), returnable)
-            return returnable
+            return self._create_response(result)
 
         except Exception as e:
             return self._handle_exception(e)

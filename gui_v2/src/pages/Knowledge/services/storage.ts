@@ -1,4 +1,4 @@
-// 数据存储键名常量
+// DataStorage键名常量
 export const STORAGE_KEYS = {
   KNOWLEDGE_ENTRIES: 'knowledge_entries',
   QA_PAIRS: 'qa_pairs',
@@ -11,7 +11,7 @@ export const STORAGE_KEYS = {
   ROLES: 'roles',
 } as const;
 
-// 数据类型定义
+// DataTypeDefinition
 export interface StorageData {
   [STORAGE_KEYS.KNOWLEDGE_ENTRIES]: any[];
   [STORAGE_KEYS.QA_PAIRS]: any[];
@@ -24,7 +24,7 @@ export interface StorageData {
   [STORAGE_KEYS.ROLES]: any[];
 }
 
-// 存储服务类
+// StorageService类
 class StorageService {
   private storage: Storage;
 
@@ -32,7 +32,7 @@ class StorageService {
     this.storage = localStorage;
   }
 
-  // 获取数据
+  // GetData
   get<T>(key: string, defaultValue?: T): T | null {
     try {
       const item = this.storage.getItem(key);
@@ -43,7 +43,7 @@ class StorageService {
     }
   }
 
-  // 设置数据
+  // SettingsData
   set<T>(key: string, value: T): void {
     try {
       this.storage.setItem(key, JSON.stringify(value));
@@ -52,7 +52,7 @@ class StorageService {
     }
   }
 
-  // 删除数据
+  // DeleteData
   remove(key: string): void {
     try {
       this.storage.removeItem(key);
@@ -61,7 +61,7 @@ class StorageService {
     }
   }
 
-  // 清空所有数据
+  // 清空AllData
   clear(): void {
     try {
       this.storage.clear();
@@ -70,28 +70,28 @@ class StorageService {
     }
   }
 
-  // 检查键是否存在
+  // Check键是否存在
   has(key: string): boolean {
     return this.storage.getItem(key) !== null;
   }
 
-  // 获取所有键
+  // GetAll键
   keys(): string[] {
     return Object.keys(this.storage);
   }
 
-  // 获取存储大小
+  // GetStorageSize
   size(): number {
     return this.storage.length;
   }
 }
 
-// 创建存储服务实例
+// CreateStorageService实例
 export const storageService = new StorageService();
 
-// 数据管理服务
+// Data Management Service
 export class DataManager {
-  // 知识条目管理
+  // Knowledge entry management
   static getKnowledgeEntries() {
     return storageService.get(STORAGE_KEYS.KNOWLEDGE_ENTRIES, []);
   }
@@ -124,7 +124,7 @@ export class DataManager {
     this.setKnowledgeEntries(filteredEntries);
   }
 
-  // 问答对管理
+  // Q&A pair management
   static getQAPairs() {
     return storageService.get(STORAGE_KEYS.QA_PAIRS, []);
   }
@@ -151,7 +151,7 @@ export class DataManager {
     return null;
   }
 
-  // 分类管理
+  // Category management
   static getCategories() {
     return storageService.get(STORAGE_KEYS.CATEGORIES, []);
   }
@@ -160,7 +160,7 @@ export class DataManager {
     storageService.set(STORAGE_KEYS.CATEGORIES, categories);
   }
 
-  // 评论管理
+  // Comment management
   static getComments() {
     return storageService.get(STORAGE_KEYS.COMMENTS, []);
   }
@@ -176,7 +176,7 @@ export class DataManager {
     return comment;
   }
 
-  // 版本管理
+  // Version management
   static getVersions() {
     return storageService.get(STORAGE_KEYS.VERSIONS, []);
   }
@@ -192,7 +192,7 @@ export class DataManager {
     return version;
   }
 
-  // 用户设置管理
+  // User settings management
   static getUserSettings() {
     return storageService.get(STORAGE_KEYS.USER_SETTINGS, {});
   }
@@ -208,7 +208,7 @@ export class DataManager {
     return newSettings;
   }
 
-  // 系统设置管理
+  // System settings management
   static getSystemSettings() {
     return storageService.get(STORAGE_KEYS.SYSTEM_SETTINGS, {});
   }
@@ -217,7 +217,7 @@ export class DataManager {
     storageService.set(STORAGE_KEYS.SYSTEM_SETTINGS, settings);
   }
 
-  // 用户权限管理
+  // User permission management
   static getUserPermissions() {
     return storageService.get(STORAGE_KEYS.USER_PERMISSIONS, []);
   }
@@ -226,7 +226,7 @@ export class DataManager {
     storageService.set(STORAGE_KEYS.USER_PERMISSIONS, permissions);
   }
 
-  // 角色管理
+  // Role management
   static getRoles() {
     return storageService.get(STORAGE_KEYS.ROLES, []);
   }
@@ -235,7 +235,7 @@ export class DataManager {
     storageService.set(STORAGE_KEYS.ROLES, roles);
   }
 
-  // 数据导出
+  // DataExport
   static exportData() {
     const data: StorageData = {
       [STORAGE_KEYS.KNOWLEDGE_ENTRIES]: this.getKnowledgeEntries(),
@@ -251,7 +251,7 @@ export class DataManager {
     return data;
   }
 
-  // 数据导入
+  // DataImport
   static importData(data: Partial<StorageData>) {
     Object.entries(data).forEach(([key, value]) => {
       if (value !== undefined) {
@@ -260,7 +260,7 @@ export class DataManager {
     });
   }
 
-  // 数据备份
+  // DataBackup
   static backup() {
     const data = this.exportData();
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -278,7 +278,7 @@ export class DataManager {
     URL.revokeObjectURL(url);
   }
 
-  // 数据恢复
+  // DataRestore
   static async restore(file: File): Promise<boolean> {
     try {
       const text = await file.text();
@@ -292,26 +292,26 @@ export class DataManager {
   }
 }
 
-// 初始化默认数据
+// InitializeDefaultData
 export const initializeDefaultData = () => {
-  // 初始化默认知识条目
+  // InitializeDefault知识条目
   if (!storageService.has(STORAGE_KEYS.KNOWLEDGE_ENTRIES)) {
     const defaultEntries = [
       {
         id: 1,
-        title: '快速开始指南',
-        content: '本文档介绍如何快速上手使用系统...',
-        category: '技术文档',
-        tags: ['入门', '指南', '快速'],
+        title: 'Fast开始指南',
+        content: '本Documentation介绍如何Fast上手使用System...',
+        category: '技术Documentation',
+        tags: ['入门', '指南', 'Fast'],
         createdAt: '2024-01-15',
         updatedAt: '2024-01-15',
       },
       {
         id: 2,
-        title: 'API 参考文档',
-        content: '详细的 API 接口说明和使用示例...',
-        category: '技术文档',
-        tags: ['API', '开发', '接口'],
+        title: 'API 参考Documentation',
+        content: 'Detailed的 API Interface说明和使用Example...',
+        category: '技术Documentation',
+        tags: ['API', 'Development', 'Interface'],
         createdAt: '2024-01-14',
         updatedAt: '2024-01-14',
       },
@@ -319,34 +319,34 @@ export const initializeDefaultData = () => {
     DataManager.setKnowledgeEntries(defaultEntries);
   }
 
-  // 初始化默认问答对
+  // InitializeDefault问答对
   if (!storageService.has(STORAGE_KEYS.QA_PAIRS)) {
     const defaultQAPairs = [
       {
         id: 1,
-        question: '如何创建新文档？',
-        answer: '点击"新建文档"按钮，填写标题和内容即可创建新文档。',
-        asker: '用户A',
+        question: '如何Create新Documentation？',
+        answer: 'Click"新建Documentation"Button，填写标题和Content即可Create新Documentation。',
+        asker: 'UserA',
         createdAt: '2024-01-15',
-        category: '技术文档',
+        category: '技术Documentation',
         status: 'approved',
       },
     ];
     DataManager.setQAPairs(defaultQAPairs);
   }
 
-  // 初始化默认分类
+  // InitializeDefaultCategory
   if (!storageService.has(STORAGE_KEYS.CATEGORIES)) {
     const defaultCategories = [
       {
         id: 'tech',
-        title: '技术文档',
+        title: '技术Documentation',
         level: 0,
         documentCount: 15,
         children: [
           {
             id: 'tech-user',
-            title: '用户指南',
+            title: 'User指南',
             level: 1,
             parentKey: 'tech',
             documentCount: 8,
@@ -357,7 +357,7 @@ export const initializeDefaultData = () => {
     DataManager.setCategories(defaultCategories);
   }
 
-  // 初始化默认系统设置
+  // InitializeDefaultSystemSettings
   if (!storageService.has(STORAGE_KEYS.SYSTEM_SETTINGS)) {
     const defaultSystemSettings = {
       theme: 'light',

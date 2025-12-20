@@ -1,0 +1,266 @@
+/* Skills Page Styles */
+
+.skills-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.skills-header {
+  padding: 16px 24px;
+  background: linear-gradient(135deg, rgba(24, 144, 255, 0.1) 0%, rgba(24, 144, 255, 0.05) 100%);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.skills-header-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.skills-header-actions {
+  display: flex;
+  gap: 12px;
+}
+
+/* Skill List Enhancements */
+.skill-list-container {
+  padding: 12px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.skill-list-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.skill-list-container::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+  border-radius: 4px;
+}
+
+.skill-list-container::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+.skill-list-container::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* Skill Details Enhancements */
+.skill-details-container {
+  padding: 16px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.skill-details-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.skill-details-container::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+  border-radius: 4px;
+}
+
+.skill-details-container::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+.skill-details-container::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* Card Animations */
+.ant-card {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ant-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Form Enhancements */
+.ant-form-item-label > label {
+  color: var(--text-primary) !important;
+  font-weight: 500;
+}
+
+.ant-input,
+.ant-input-number,
+.ant-select-selector,
+.ant-input-textarea {
+  background-color: var(--bg-secondary) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+.ant-input:hover,
+.ant-input-number:hover,
+.ant-select-selector:hover,
+.ant-input-textarea:hover {
+  border-color: var(--primary-color) !important;
+}
+
+.ant-input:focus,
+.ant-input-number:focus,
+.ant-select-selector:focus,
+.ant-input-textarea:focus {
+  border-color: var(--primary-color) !important;
+  box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2) !important;
+}
+
+/* Tab Enhancements */
+.ant-tabs-tab {
+  color: var(--text-secondary) !important;
+  transition: all 0.3s ease;
+}
+
+.ant-tabs-tab:hover {
+  color: var(--primary-color) !important;
+}
+
+.ant-tabs-tab-active {
+  color: var(--primary-color) !important;
+}
+
+.ant-tabs-ink-bar {
+  background: var(--primary-color) !important;
+}
+
+/* Button Enhancements */
+.ant-btn {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ant-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.ant-btn-primary {
+  background: linear-gradient(135deg, #1890ff 0%, #40a9ff 100%);
+  border: none;
+}
+
+.ant-btn-primary:hover {
+  background: linear-gradient(135deg, #40a9ff 0%, #69c0ff 100%);
+}
+
+/* Progress Bar Enhancements */
+.ant-progress-bg {
+  transition: all 0.3s ease;
+}
+
+/* Tag Enhancements */
+.ant-tag {
+  transition: all 0.3s ease;
+  font-weight: 500;
+}
+
+.ant-tag:hover {
+  transform: scale(1.05);
+}
+
+/* Empty State */
+.ant-empty-description {
+  color: var(--text-secondary) !important;
+}
+
+/* Loading State */
+.ant-spin {
+  color: var(--primary-color) !important;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .skills-header {
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-start;
+  }
+
+  .skills-header-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .skill-details-container {
+    padding: 12px;
+  }
+}
+
+/* Dark Mode Specific */
+@media (prefers-color-scheme: dark) {
+  .ant-card {
+    background-color: var(--bg-secondary);
+    border-color: var(--border-color);
+  }
+
+  .ant-card-head {
+    border-bottom-color: var(--border-color);
+  }
+
+  .ant-card-head-title {
+    color: var(--text-primary);
+  }
+}
+
+/* Animation Keyframes */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.slide-in {
+  animation: slideIn 0.3s ease-out;
+}
+
+/* Skill Card Hover Effects */
+.skill-card-hover {
+  position: relative;
+  overflow: hidden;
+}
+
+.skill-card-hover::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  transition: left 0.5s ease;
+}
+
+.skill-card-hover:hover::before {
+  left: 100%;
+}
+

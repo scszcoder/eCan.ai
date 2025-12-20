@@ -3,8 +3,4 @@
 
 # macOS specific packages
 pyobjc~=9.2; platform_system == "Darwin"
-pyobjc-framework-Quartz~=9.2; platform_system == "Darwin"
-
-# Note: Sparkle is a macOS framework, not a Python package
-# It needs to be installed separately or bundled with the application
-# See: https://sparkle-project.org/ 
+pyobjc-framework-Quartz~=9.2; platform_system == "Darwin" 

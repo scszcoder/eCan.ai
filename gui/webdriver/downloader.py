@@ -7,239 +7,222 @@ WebDriver downloader module
 import os
 import tempfile
 import zipfile
+import time
+from typing import Optional
+import asyncio
+import ssl
 import aiohttp
 import aiofiles
-import threading
-import time
-from typing import Optional, Callable
-from concurrent.futures import ThreadPoolExecutor
-import asyncio
+import zipfile
 
 from utils.logger_helper import logger_helper as logger
-from .config import CHROME_FOR_TESTING_DOWNLOAD_URL, ALTERNATIVE_DOWNLOAD_URLS, get_current_platform, SSL_VERIFY, SSL_CHECK_HOSTNAME
+from .config import (get_current_platform, KNOWN_GOOD_VERSIONS_URL,
+                    KNOWN_GOOD_VERSIONS_URL_FALLBACK)
 from .utils import get_chrome_major_version
 
 class WebDriverDownloader:
     """WebDriver downloader with async support and background download capability"""
     
     def __init__(self):
-        self._download_base_url = CHROME_FOR_TESTING_DOWNLOAD_URL
-        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="WebDriverDownloader")
-        self._download_threads = {}
-        self._download_status = {}
+        pass
+
         
+    async def _get_download_url_from_official_json(self, chrome_version: str) -> Optional[str]:
+        """
+        Fetches the official JSON data to find the best matching ChromeDriver download URL.
+        """
+        try:
+            logger.info("Fetching official ChromeDriver versions...")
+            platform_key = get_current_platform()
+            target_major_version = get_chrome_major_version(chrome_version)
+
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+            async with aiohttp.ClientSession(connector=connector, headers=headers) as session:
+                async with session.get(KNOWN_GOOD_VERSIONS_URL) as response:
+                    if response.status != 200:
+                        logger.error(f"Failed to fetch version data, status: {response.status}")
+                        return None
+                    data = await response.json()
+
+            # Find the best compatible version
+            from packaging.version import parse as parse_version
+            target_version = parse_version(chrome_version)
+
+            best_match_url = None
+            latest_compatible_version = None
+            nearest_match_url = None
+            nearest_version = None
+            min_version_diff = float('inf')
+
+            # Find the latest version <= user's version
+            for version_info in reversed(data.get("versions", [])):
+                available_version_str = version_info.get("version")
+                if not available_version_str: continue
+
+                available_major = available_version_str.split('.')[0]
+                
+                if available_major == target_major_version:
+                    available_version = parse_version(available_version_str)
+                    if available_version <= target_version:
+                        downloads = version_info.get("downloads", {}).get("chromedriver", [])
+                        for download in downloads:
+                            if download.get("platform") == platform_key:
+                                best_match_url = download.get("url")
+                                latest_compatible_version = available_version_str
+                                logger.info(f"Found compatible version: {latest_compatible_version}")
+                                break # Found the best one, no need to check older versions
+                if best_match_url:
+                    break
+                
+                # Track nearest version as fallback
+                try:
+                    version_diff = abs(int(available_major) - int(target_major_version))
+                    if version_diff < min_version_diff:
+                        downloads = version_info.get("downloads", {}).get("chromedriver", [])
+                        for download in downloads:
+                            if download.get("platform") == platform_key:
+                                min_version_diff = version_diff
+                                nearest_match_url = download.get("url")
+                                nearest_version = available_version_str
+                                break
+                except (ValueError, TypeError):
+                    continue
+
+            if best_match_url:
+                logger.info(f"Selected best match URL: {best_match_url}")
+                return best_match_url
+            elif nearest_match_url:
+                logger.warning(f"Exact version {target_major_version} not found, using nearest available version {nearest_version}")
+                return nearest_match_url
+            else:
+                logger.warning(f"Could not find a matching ChromeDriver for version {target_major_version} on platform {platform_key}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error finding download URL from official source: {e}")
+            return None
+
+    async def _get_download_url_from_npm_mirror(self, chrome_version: str) -> Optional[str]:
+        """
+        Fetches data from the NPM mirror to find the best matching ChromeDriver download URL.
+        """
+        try:
+            logger.info("Fetching ChromeDriver versions from NPM mirror...")
+            platform_key = get_current_platform()
+            target_major_version = get_chrome_major_version(chrome_version)
+
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+
+            async with aiohttp.ClientSession(connector=connector, headers=headers) as session:
+                async with session.get(KNOWN_GOOD_VERSIONS_URL_FALLBACK) as response:
+                    if response.status != 200:
+                        logger.error(f"Failed to fetch version data from NPM mirror, status: {response.status}")
+                        return None
+                    data = await response.json()
+
+            from packaging.version import parse as parse_version
+            target_version = parse_version(chrome_version)
+
+            best_match_version = None
+            nearest_match_version = None
+            min_version_diff = float('inf')
+
+            for item in reversed(data):
+                version_str = item.get("name", "").strip('/')
+                if not version_str: continue
+
+                try:
+                    version_major = version_str.split('.')[0]
+                    
+                    if version_major == target_major_version:
+                        available_version = parse_version(version_str)
+                        if available_version <= target_version:
+                            best_match_version = version_str
+                            break
+                    
+                    # Track nearest version as fallback
+                    version_diff = abs(int(version_major) - int(target_major_version))
+                    if version_diff < min_version_diff:
+                        min_version_diff = version_diff
+                        nearest_match_version = version_str
+                except (ValueError, TypeError, IndexError):
+                    continue
+
+            if best_match_version:
+                url = f"{KNOWN_GOOD_VERSIONS_URL_FALLBACK}{best_match_version}/{platform_key}/chromedriver-{platform_key}.zip"
+                logger.info(f"Found best match URL from NPM mirror: {url}")
+                return url
+            elif nearest_match_version:
+                url = f"{KNOWN_GOOD_VERSIONS_URL_FALLBACK}{nearest_match_version}/{platform_key}/chromedriver-{platform_key}.zip"
+                logger.warning(f"Exact version {target_major_version} not found on NPM mirror, using nearest available version {nearest_match_version}")
+                return url
+            else:
+                logger.warning(f"Could not find a matching ChromeDriver for version {target_major_version} on NPM mirror")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error finding download URL from NPM mirror: {e}")
+            return None
+
     async def download_webdriver(self, chrome_version: str, target_dir: str) -> Optional[str]:
         """Download matching webdriver for the given Chrome version"""
         try:
             if not chrome_version:
                 logger.error("Chrome version not provided, cannot download WebDriver")
                 return None
-            
-            # Get major version number
-            major_version = get_chrome_major_version(chrome_version)
-            platform_key = get_current_platform()
-            
-            # Try multiple download sources with retry mechanism
-            for base_url in ALTERNATIVE_DOWNLOAD_URLS:
-                try:
-                    # Use dynamic version discovery for better URL matching
-                    download_url = self._build_download_url_with_discovery(base_url, major_version, platform_key)
-                    logger.info(f"Trying download from: {base_url}")
-                    logger.info(f"Built download URL (with discovery): {download_url}")
-                    logger.info(f"Chrome major version: {major_version}, Platform: {platform_key}")
-                    
-                    # Use configured temp directory instead of system temp
-                    from .config import get_temp_dir
-                    temp_dir = get_temp_dir()
-                    zip_path = os.path.join(temp_dir, f"chromedriver_{int(time.time())}.zip")
-                    
-                    # Download file with retry
-                    if await self._download_file_with_retry(download_url, zip_path):
-                        # Extract file
-                        extract_dir = os.path.join(target_dir, f"chromedriver-{platform_key}")
-                        os.makedirs(extract_dir, exist_ok=True)
-                        
-                        if self._extract_zip(zip_path, extract_dir):
-                            # Get driver path and set permissions
-                            driver_path = self._setup_driver(extract_dir)
-                            if driver_path:
-                                logger.info(f"WebDriver download completed from {base_url}: {driver_path}")
-                                return driver_path
-                
-                except Exception as e:
-                    logger.warning(f"Download from {base_url} failed: {e}")
-                    continue
-            
-            logger.error("All download sources failed")
-            return None
-                
-        except Exception as e:
-            logger.error(f"WebDriver download failed: {e}")
-            return None
-    
-    def start_background_download(self, chrome_version: str, target_dir: str, 
-                                progress_callback: Optional[Callable] = None) -> str:
-        """Start WebDriver download in background thread"""
-        download_id = f"download_{int(time.time())}"
-        
-        def download_worker():
-            try:
-                logger.info(f"Starting background download {download_id}")
-                self._download_status[download_id] = {
-                    "status": "running",
-                    "progress": 0,
-                    "message": "Initializing download..."
-                }
-                
-                # Run async download in thread
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                
-                try:
-                    result = loop.run_until_complete(
-                        self._download_webdriver_sync(chrome_version, target_dir, progress_callback)
-                    )
-                    
-                    if result:
-                        self._download_status[download_id] = {
-                            "status": "completed",
-                            "progress": 100,
-                            "message": "Download completed successfully",
-                            "result": result
-                        }
-                        logger.info(f"Background download {download_id} completed: {result}")
-                    else:
-                        self._download_status[download_id] = {
-                            "status": "failed",
-                            "progress": 0,
-                            "message": "Download failed"
-                        }
-                        logger.error(f"Background download {download_id} failed")
-                        
-                finally:
-                    loop.close()
-                    
-            except Exception as e:
-                logger.error(f"Background download {download_id} error: {e}")
-                self._download_status[download_id] = {
-                    "status": "error",
-                    "progress": 0,
-                    "message": f"Download error: {str(e)}"
-                }
-        
-        # Start download in background thread
-        thread = threading.Thread(target=download_worker, name=f"WebDriverDownload_{download_id}")
-        thread.daemon = True
-        thread.start()
-        
-        self._download_threads[download_id] = thread
-        
-        logger.info(f"Background download {download_id} started")
-        return download_id
-    
-    def get_download_status(self, download_id: str) -> Optional[dict]:
-        """Get status of background download"""
-        return self._download_status.get(download_id)
-    
-    def wait_for_download(self, download_id: str, timeout: float = None) -> Optional[str]:
-        """Wait for background download to complete"""
-        if download_id not in self._download_threads:
-            return None
-            
-        thread = self._download_threads[download_id]
-        thread.join(timeout=timeout)
-        
-        if thread.is_alive():
-            return None
-            
-        status = self._download_status.get(download_id, {})
-        return status.get("result") if status.get("status") == "completed" else None
-    
-    async def _download_webdriver_sync(self, chrome_version: str, target_dir: str, 
-                                     progress_callback: Optional[Callable] = None) -> Optional[str]:
-        """Internal method for sync download (runs in thread)"""
-        try:
-            if not chrome_version:
-                logger.error("Chrome version not provided, cannot download WebDriver")
+
+            # Get the download URL from the official JSON endpoint
+            download_url = await self._get_download_url_from_official_json(chrome_version)
+
+            if not download_url:
+                logger.warning("Official source failed. Trying fallback...")
+                download_url = await self._get_download_url_from_npm_mirror(chrome_version)
+
+            if not download_url:
+                logger.error("Could not determine a valid download URL from any source.")
                 return None
-            
-            # Get major version number
-            major_version = get_chrome_major_version(chrome_version)
-            platform_key = get_current_platform()
-            
-            # Try multiple download sources
-            for base_url in ALTERNATIVE_DOWNLOAD_URLS:
-                try:
-                    # Use dynamic version discovery for better URL matching
-                    download_url = self._build_download_url_with_discovery(base_url, major_version, platform_key)
-                    logger.info(f"Trying download from: {base_url}")
-                    logger.info(f"Built download URL (with discovery): {download_url}")
-                    logger.info(f"Chrome major version: {major_version}, Platform: {platform_key}")
-                    
-                    if progress_callback:
-                        progress_callback(25, f"Trying download from: {base_url}")
-                    
-                    # Use configured temp directory instead of system temp
-                    from .config import get_temp_dir
-                    temp_dir = get_temp_dir()
-                    zip_path = os.path.join(temp_dir, f"chromedriver_{int(time.time())}.zip")
-                    
-                    # Download file
-                    if await self._download_file_with_retry_sync(download_url, zip_path, progress_callback):
-                        if progress_callback:
-                            progress_callback(75, "Extracting downloaded file...")
-                        
-                        # Extract file
-                        extract_dir = os.path.join(target_dir, f"chromedriver-{platform_key}")
-                        os.makedirs(extract_dir, exist_ok=True)
-                        
-                        if self._extract_zip(zip_path, extract_dir):
-                            if progress_callback:
-                                progress_callback(90, "Setting up WebDriver...")
-                            
-                            # Get driver path and set permissions
-                            driver_path = self._setup_driver(extract_dir)
-                            if driver_path:
-                                if progress_callback:
-                                    progress_callback(100, "Download completed successfully")
-                                
-                                logger.info(f"WebDriver download completed from {base_url}: {driver_path}")
-                                return driver_path
-                
-                except Exception as e:
-                    logger.warning(f"Download from {base_url} failed: {e}")
-                    if progress_callback:
-                        progress_callback(0, f"Download failed from {base_url}: {str(e)}")
-                    continue
-            
-            logger.error("All download sources failed")
+
+            logger.info(f"Attempting to download from official URL: {download_url}")
+
+            # Use configured temp directory instead of system temp
+            from .config import get_temp_dir
+            temp_dir = get_temp_dir()
+            zip_path = os.path.join(temp_dir, f"chromedriver_{int(time.time())}.zip")
+
+            # Download file with retry
+            if await self._download_file_with_retry(download_url, zip_path):
+                # Extract file
+                platform_key = get_current_platform()
+                extract_dir = os.path.join(target_dir, f"chromedriver-{platform_key}")
+                os.makedirs(extract_dir, exist_ok=True)
+
+                if self._extract_zip(zip_path, extract_dir):
+                    # Get driver path and set permissions
+                    driver_path = self._setup_driver(extract_dir)
+                    if driver_path:
+                        logger.info(f"WebDriver download completed: {driver_path}")
+                        return driver_path
+
+            logger.error("All download attempts failed")
             return None
-                
+
         except Exception as e:
             logger.error(f"WebDriver download failed: {e}")
             return None
     
-    async def _download_file_with_retry_sync(self, url: str, file_path: str, 
-                                           progress_callback: Optional[Callable] = None,
-                                           max_retries: int = 3) -> bool:
-        """Download file with retry mechanism (sync version)"""
-        for attempt in range(max_retries):
-            try:
-                logger.info(f"Download attempt {attempt + 1}/{max_retries}")
-                if progress_callback:
-                    progress_callback(25 + (attempt * 15), f"Download attempt {attempt + 1}/{max_retries}")
-                
-                if await self._download_file(url, file_path):
-                    return True
-            except Exception as e:
-                logger.warning(f"Download attempt {attempt + 1} failed: {e}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(1)  # Wait before retry
-                    continue
-                else:
-                    logger.error(f"All download attempts failed for {url}")
-                    return False
-        return False
+
     
     async def _download_file_with_retry(self, url: str, file_path: str, max_retries: int = 3) -> bool:
         """Download file with retry mechanism"""
@@ -261,18 +244,18 @@ class WebDriverDownloader:
     async def _download_file(self, url: str, file_path: str) -> bool:
         """Download file from URL"""
         try:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
             # Try aiohttp first
             try:
-                # Create SSL context based on configuration
-                import ssl
+                # Create SSL context that disables certificate verification
                 ssl_context = ssl.create_default_context()
-                ssl_context.check_hostname = SSL_CHECK_HOSTNAME
-                ssl_context.verify_mode = ssl.CERT_NONE if not SSL_VERIFY else ssl.CERT_REQUIRED
-                
-                # Create connector with SSL context
+                ssl_context.check_hostname = False
+                ssl_context.verify_mode = ssl.CERT_NONE
                 connector = aiohttp.TCPConnector(ssl=ssl_context)
-                
-                async with aiohttp.ClientSession(connector=connector) as session:
+
+                async with aiohttp.ClientSession(connector=connector, headers=headers) as session:
                     async with session.get(url) as response:
                         if response.status != 200:
                             logger.error(f"Download failed, status code: {response.status}")
@@ -293,7 +276,7 @@ class WebDriverDownloader:
                     from urllib3.exceptions import InsecureRequestWarning
                     requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
                     
-                    response = requests.get(url, verify=False, stream=True, timeout=60)
+                    response = requests.get(url, verify=False, stream=True, timeout=60, headers=headers)
                     if response.status_code != 200:
                         logger.error(f"Requests download failed, status code: {response.status_code}")
                         return False
@@ -341,7 +324,7 @@ class WebDriverDownloader:
                 logger.info(f"Driver not found at {driver_path}, searching in subdirectories...")
                 
                 # Search recursively for chromedriver file
-                for root, dirs, files in os.walk(extract_dir):
+                for root, _, files in os.walk(extract_dir):
                     if driver_name in files:
                         driver_path = os.path.join(root, driver_name)
                         logger.info(f"Found driver at: {driver_path}")
@@ -404,94 +387,4 @@ class WebDriverDownloader:
         # Default pattern if no source matches
         return f"{base_url}{major_version}/{platform_key}/chromedriver-{major_version}-{platform_key}.zip"
     
-    def get_download_url(self, chrome_version: str) -> str:
-        """Get download URL for the given Chrome version"""
-        major_version = get_chrome_major_version(chrome_version)
-        platform_key = get_current_platform()
-        return self._build_download_url(self._download_base_url, major_version, platform_key)
-    
-    async def discover_available_versions(self, base_url: str, platform_key: str) -> list:
-        """Discover available ChromeDriver versions for a given source"""
-        try:
-            import requests
-            from urllib3.exceptions import InsecureRequestWarning
-            requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
-            
-            available_versions = []
-            
-            # Try different version patterns to discover available versions
-            version_patterns = [
-                "139.0.7258.128",  # Current Chrome version
-                "139.0.7258.68",   # Known working version
-                "141.0.7360.0",    # Known working npmmirror version
-                "139.0.0.0",       # Major version with zeros
-                "139.0.0",         # Major version with zeros
-                "139",             # Just major version
-            ]
-            
-            for version in version_patterns:
-                if "npmmirror.com" in base_url:
-                    test_url = f"https://registry.npmmirror.com/-/binary/chrome-for-testing/{version}/{platform_key}/chromedriver-{platform_key}.zip"
-                elif "storage.googleapis.com" in base_url:
-                    test_url = f"{base_url}{version}/{platform_key}/chromedriver-{platform_key}.zip"
-                else:
-                    test_url = f"{base_url}{version}/chromedriver_{platform_key}.zip"
-                
-                try:
-                    response = requests.head(test_url, verify=False, timeout=10)
-                    if response.status_code in [200, 302]:  # 200 OK or 302 Redirect
-                        available_versions.append(version)
-                        logger.info(f"✅ found avaiable version: {version} at {test_url}")
-                except:
-                    continue
-            
-            return available_versions
-            
-        except Exception as e:
-            logger.warning(f"found version failed: {e}")
-            return []
-    
-    def _build_download_url_with_discovery(self, base_url: str, major_version: str, platform_key: str) -> str:
-        """Build download URL with dynamic version discovery"""
-        # First try the current Chrome version
-        current_url = self._build_download_url(base_url, major_version, platform_key)
-        
-        # Try to discover available versions
-        try:
-            # Run discovery in a thread to avoid event loop issues
-            import concurrent.futures
-            import asyncio
-            
-            def run_discovery():
-                try:
-                    # Create new event loop for this thread
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        available_versions = loop.run_until_complete(self.discover_available_versions(base_url, platform_key))
-                        return available_versions
-                    finally:
-                        loop.close()
-                except Exception as e:
-                    print(f"版本发现在线程中失败: {e}")
-                    return []
-            
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(run_discovery)
-                available_versions = future.result()
-            
-            if available_versions:
-                # Use the first available version
-                best_version = available_versions[0]
-                if "npmmirror.com" in base_url:
-                    return f"https://registry.npmmirror.com/-/binary/chrome-for-testing/{best_version}/{platform_key}/chromedriver-{platform_key}.zip"
-                elif "storage.googleapis.com" in base_url:
-                    return f"{base_url}{best_version}/{platform_key}/chromedriver-{platform_key}.zip"
-                else:
-                    return f"{base_url}{best_version}/chromedriver_{platform_key}.zip"
-        
-        except Exception as e:
-            logger.warning(f"daymic found version failed, use default version: {e}")
-        
-        # Fallback to current version
-        return current_url
+

@@ -23,7 +23,7 @@ import {
 
 /**
  * click port to trigger node select panel
- * 点击端口后唤起节点选择面板
+ * Click端口后唤起节点Select面板
  */
 export const usePortClick = () => {
   const playground = usePlayground();
@@ -35,7 +35,7 @@ export const usePortClick = () => {
   const onPortClick = useCallback(async (e: React.MouseEvent, port: WorkflowPortEntity) => {
     const mousePos = playground.config.getPosFromMouseEvent(e);
     const containerNode = port.node.parent;
-    // open node selection panel - 打开节点选择面板
+    // open node selection panel - Open节点Select面板
     const result = await nodePanelService.singleSelectNodePanel({
       position: mousePos,
       containerNode,
@@ -44,15 +44,15 @@ export const usePortClick = () => {
       },
     });
 
-    // return if no node selected - 如果没有选择节点则返回
+    // return if no node selected - If没有Select节点则返回
     if (!result) {
       return;
     }
 
-    // get selected node type and data - 获取选择的节点类型和数据
+    // get selected node type and data - GetSelect的节点Type和Data
     const { nodeType, nodeJSON } = result;
 
-    // calculate position for the new node - 计算新节点的位置
+    // calculate position for the new node - 计算新节点的Position
     const nodePosition = WorkflowNodePanelUtils.adjustNodePosition({
       nodeType,
       position: {
@@ -65,7 +65,7 @@ export const usePortClick = () => {
       dragService,
     });
 
-    // create new workflow node - 创建新的工作流节点
+    // create new workflow node - Create新的工作流节点
     const node: WorkflowNodeEntity = document.createWorkflowNodeByType(
       nodeType,
       nodePosition,
@@ -73,10 +73,10 @@ export const usePortClick = () => {
       containerNode?.id
     );
 
-    // wait for node render - 等待节点渲染
+    // wait for node render - 等待节点Render
     await delay(20);
 
-    // build connection line - 构建连接线
+    // build connection line - 构建Connection线
     WorkflowNodePanelUtils.buildLine({
       fromPort: port,
       node,

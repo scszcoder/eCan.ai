@@ -31,47 +31,48 @@ import {
   CloseOutlined
 } from '@ant-design/icons';
 import { QAPair } from './types';
+import { useTranslation } from 'react-i18next';
 
 const { Search } = Input;
 const { Option } = Select;
 const { Title } = Typography;
 
-// 示例数据
+// Example Data
 const qaData: QAPair[] = [
   {
     id: 1,
-    question: '如何重置密码？',
-    answer: '根据知识库内容，重置密码的步骤如下：\n1. 点击登录页面的"忘记密码"按钮\n2. 输入你的邮箱地址\n3. 检查邮箱并点击重置链接\n4. 设置新密码',
-    asker: '张三',
+    question: 'How to reset password?',
+    answer: 'Based on the knowledge base, the steps to reset password are:\n1. Click "Forgot Password" button on login page\n2. Enter your email address\n3. Check email and click reset link\n4. Set new password',
+    asker: 'User A',
     createdAt: '2024-01-15 10:30',
-    category: '账号管理',
+    category: 'Account Management',
     relatedKnowledgeIds: [1],
   },
   {
     id: 2,
-    question: '系统登录失败怎么办？',
-    answer: '如果系统登录失败，请尝试以下解决方案：\n1. 检查网络连接\n2. 确认用户名和密码正确\n3. 清除浏览器缓存\n4. 联系技术支持',
-    asker: '李四',
+    question: 'What to do if system login fails?',
+    answer: 'If system login fails, please try the following solutions:\n1. Check network connection\n2. Verify username and password are correct\n3. Clear browser cache\n4. Contact technical support',
+    asker: 'User B',
     createdAt: '2024-01-15 09:15',
-    category: '系统问题',
+    category: 'System Issues',
     relatedKnowledgeIds: [2],
   },
   {
     id: 3,
-    question: '如何申请权限？',
-    answer: '申请权限的流程如下：\n1. 登录系统\n2. 进入权限申请页面\n3. 选择需要的权限类型\n4. 填写申请理由\n5. 提交申请等待审核',
-    asker: '王五',
+    question: 'How to apply for permissions?',
+    answer: 'The process to apply for permissions:\n1. Login to system\n2. Go to permission application page\n3. Select the required permission type\n4. Fill in application reason\n5. Submit application and wait for approval',
+    asker: 'User C',
     createdAt: '2024-01-14 16:45',
-    category: '权限管理',
+    category: 'Permission Management',
     relatedKnowledgeIds: [3],
   },
 ];
 
-// 状态配置
+// Status Configuration
 const statusConfig = {
-  pending: { text: '待审核', color: 'processing', icon: <ClockCircleOutlined /> },
-  approved: { text: '已审核', color: 'success', icon: <CheckCircleOutlined /> },
-  rejected: { text: '已拒绝', color: 'error', icon: <CloseCircleOutlined /> },
+  pending: { text: 'Pending', color: 'processing', icon: <ClockCircleOutlined /> },
+  approved: { text: 'Approved', color: 'success', icon: <CheckCircleOutlined /> },
+  rejected: { text: 'Rejected', color: 'error', icon: <CloseCircleOutlined /> },
 };
 
 const QAPlatform: React.FC = () => {
@@ -82,10 +83,10 @@ const QAPlatform: React.FC = () => {
   const [editingQA, setEditingQA] = useState<QAPair | null>(null);
   const [form] = Form.useForm();
 
-  // 表格列配置
+  // Table column configuration
   const columns: ColumnsType<QAPair> = [
     {
-      title: '问题',
+      title: 'Question',
       dataIndex: 'question',
       key: 'question',
       width: 300,
@@ -95,13 +96,13 @@ const QAPlatform: React.FC = () => {
             {text}
           </div>
           <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-            提问人: {record.asker} • {record.createdAt}
+            Asked by: {record.asker} • {record.createdAt}
           </div>
         </div>
       ),
     },
     {
-      title: '答案',
+      title: 'Answer',
       dataIndex: 'answer',
       key: 'answer',
       width: 400,
@@ -117,39 +118,39 @@ const QAPlatform: React.FC = () => {
       ),
     },
     {
-      title: '分类',
+      title: 'Category',
       dataIndex: 'category',
       key: 'category',
       width: 120,
     },
     {
-      title: '状态',
+      title: 'Status',
       key: 'status',
       width: 100,
       render: (_, record) => {
-        const status = 'pending'; // 这里应该从数据中获取
+        const status = 'pending'; // 这里Should从Data中Get
         const config = statusConfig[status as keyof typeof statusConfig];
         return (
           <Badge 
             status={config.color as any} 
             text={config.text}
-            // icon={config.icon} // Badge 没有 icon 属性，移除
+            // icon={config.icon} // Badge 没有 icon Property，Remove
           />
         );
       },
     },
     {
-      title: '操作',
+      title: 'Operation',
       key: 'action',
       width: 120,
       render: (_, record) => (
         <Dropdown
           menu={{ items: getMenuItems(record), onClick: ({ key }) => {
-            if (key === 'view') { /* 查看详情逻辑 */ }
+            if (key === 'view') { /* View details logic */ }
             else if (key === 'edit') { handleEditAnswer(record); }
-            else if (key === 'approve') { /* 审核通过逻辑 */ }
-            else if (key === 'reject') { /* 拒绝逻辑 */ }
-            else if (key === 'delete') { /* 删除逻辑 */ }
+            else if (key === 'approve') { /* Approve logic */ }
+            else if (key === 'reject') { /* Reject logic */ }
+            else if (key === 'delete') { /* Delete逻辑 */ }
           }}}
         >
           <Button type="text" icon={<MoreOutlined />} />
@@ -158,23 +159,23 @@ const QAPlatform: React.FC = () => {
     },
   ];
 
-  // 处理批量审核
+  // Process批量审核
   const handleBatchApprove = () => {
     if (selectedRowKeys.length === 0) {
-      message.warning('请选择要审核的问答');
+      message.warning('请Select要审核的问答');
       return;
     }
     Modal.confirm({
       title: '批量审核',
-      content: `确定要审核通过选中的 ${selectedRowKeys.length} 个问答吗？`,
+      content: `Are you sure you want to approve the selected ${selectedRowKeys.length} Q&A items?`,
       onOk: () => {
-        message.success('批量审核成功');
+        message.success('批量审核Success');
         setSelectedRowKeys([]);
       },
     });
   };
 
-  // 处理编辑答案
+  // ProcessEdit答案
   const handleEditAnswer = (record: QAPair) => {
     setEditingQA(record);
     form.setFieldsValue({
@@ -185,21 +186,21 @@ const QAPlatform: React.FC = () => {
     setIsEditModalVisible(true);
   };
 
-  // 处理表单提交
+  // ProcessFormSubmit
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      console.log('更新问答:', values);
-      message.success('问答更新成功');
+      console.log('Update问答:', values);
+      message.success('问答UpdateSuccess');
       setIsEditModalVisible(false);
       setEditingQA(null);
       form.resetFields();
     } catch (error) {
-      console.error('表单验证失败:', error);
+      console.error('FormValidateFailed:', error);
     }
   };
 
-  // 行选择配置
+  // 行SelectConfiguration
   const rowSelection = {
     selectedRowKeys,
     onChange: (newSelectedRowKeys: React.Key[]) => {
@@ -207,22 +208,22 @@ const QAPlatform: React.FC = () => {
     },
   };
 
-  // 在组件内部定义菜单项
+  // Menu items for each QA record
   const getMenuItems = (record: QAPair) => ([
-    { key: 'view', label: '查看详情', icon: <EyeOutlined /> },
-    { key: 'edit', label: '编辑答案', icon: <EditOutlined /> },
-    { key: 'approve', label: '审核通过', icon: <CheckOutlined /> },
-    { key: 'reject', label: '拒绝', icon: <CloseOutlined /> },
+    { key: 'view', label: 'View Details', icon: <EyeOutlined /> },
+    { key: 'edit', label: 'Edit Answer', icon: <EditOutlined /> },
+    { key: 'approve', label: 'Approve', icon: <CheckOutlined /> },
+    { key: 'reject', label: 'Reject', icon: <CloseOutlined /> },
     { type: 'divider' as const },
-    { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true },
+    { key: 'delete', label: 'Delete', icon: <DeleteOutlined />, danger: true },
   ]);
 
   return (
     <div>
-      {/* 页面标题和工具栏 */}
+      {/* Page标题和Tool栏 */}
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <Title level={4} style={{ margin: 0 }}>问答管理</Title>
+          <Title level={4} style={{ margin: 0 }}>{t('pages.knowledge.qaManagement')}</Title>
           <Space>
             <Button 
               type="primary" 
@@ -232,7 +233,7 @@ const QAPlatform: React.FC = () => {
             >
               批量审核 ({selectedRowKeys.length})
             </Button>
-            <Button icon={<ExportOutlined />}>导出</Button>
+            <Button icon={<ExportOutlined />}>Export</Button>
           </Space>
         </div>
 
@@ -242,27 +243,27 @@ const QAPlatform: React.FC = () => {
               value={selectedStatus}
               onChange={setSelectedStatus}
               style={{ width: 120 }}
-              placeholder="状态筛选"
+              placeholder="Filter by status"
             >
-              <Option value="all">全部状态</Option>
-              <Option value="pending">待审核</Option>
-              <Option value="approved">已审核</Option>
-              <Option value="rejected">已拒绝</Option>
+              <Option value="all">All Status</Option>
+              <Option value="pending">Pending</Option>
+              <Option value="approved">Approved</Option>
+              <Option value="rejected">Rejected</Option>
             </Select>
             
             <Select
-              placeholder="分类筛选"
+              placeholder="Filter by category"
               style={{ width: 150 }}
               allowClear
             >
-              <Option value="account">账号管理</Option>
-              <Option value="system">系统问题</Option>
-              <Option value="permission">权限管理</Option>
+              <Option value="account">{t('pages.knowledge.accountManagement')}</Option>
+              <Option value="system">System Issues</Option>
+              <Option value="permission">{t('pages.knowledge.permissionManagement')}</Option>
             </Select>
           </Space>
           
           <Search
-            placeholder="搜索问题或答案..."
+            placeholder="Search questions or answers..."
             style={{ width: 300 }}
             allowClear
             value={searchText}
@@ -287,7 +288,7 @@ const QAPlatform: React.FC = () => {
               <div style={{ fontSize: 24, fontWeight: 'bold', color: '#faad14' }}>
                 {qaData.filter(qa => qa.id === 1).length}
               </div>
-              <div style={{ fontSize: 12, color: '#666' }}>待审核</div>
+              <div style={{ fontSize: 12, color: '#666' }}>Pending</div>
             </div>
           </Card>
           <Card size="small" style={{ width: 200 }}>
@@ -295,7 +296,7 @@ const QAPlatform: React.FC = () => {
               <div style={{ fontSize: 24, fontWeight: 'bold', color: '#52c41a' }}>
                 {qaData.filter(qa => qa.id === 2).length}
               </div>
-              <div style={{ fontSize: 12, color: '#666' }}>已审核</div>
+              <div style={{ fontSize: 12, color: '#666' }}>Approved</div>
             </div>
           </Card>
           <Card size="small" style={{ width: 200 }}>
@@ -303,13 +304,13 @@ const QAPlatform: React.FC = () => {
               <div style={{ fontSize: 24, fontWeight: 'bold', color: '#ff4d4f' }}>
                 {qaData.filter(qa => qa.id === 3).length}
               </div>
-              <div style={{ fontSize: 12, color: '#666' }}>已拒绝</div>
+              <div style={{ fontSize: 12, color: '#666' }}>Rejected</div>
             </div>
           </Card>
         </Space>
       </div>
 
-      {/* 问答表格 */}
+      {/* 问答Table */}
       <Table
         rowKey="id"
         columns={columns}
@@ -325,9 +326,9 @@ const QAPlatform: React.FC = () => {
         })}
       />
 
-      {/* 编辑答案弹窗 */}
+      {/* Edit Answer Modal */}
       <Modal
-        title="编辑答案"
+        title="Edit Answer"
         open={isEditModalVisible}
         onOk={handleSubmit}
         onCancel={() => {
@@ -340,27 +341,27 @@ const QAPlatform: React.FC = () => {
         <Form form={form} layout="vertical">
           <Form.Item
             name="question"
-            label="问题"
+            label="Question"
           >
             <Input.TextArea rows={2} disabled />
           </Form.Item>
           
           <Form.Item
             name="answer"
-            label="答案"
-            rules={[{ required: true, message: '请输入答案' }]}
+            label="Answer"
+            rules={[{ required: true, message: 'Please enter answer' }]}
           >
-            <Input.TextArea rows={8} placeholder="请输入答案内容" />
+            <Input.TextArea rows={8} placeholder="Please enter answer content" />
           </Form.Item>
           
           <Form.Item
             name="category"
-            label="分类"
+            label="Category"
           >
-            <Select placeholder="请选择分类">
-              <Option value="account">账号管理</Option>
-              <Option value="system">系统问题</Option>
-              <Option value="permission">权限管理</Option>
+            <Select placeholder={t('pages.knowledge.selectCategory')}>
+              <Option value="account">{t('pages.knowledge.accountManagement')}</Option>
+              <Option value="system">System Issues</Option>
+              <Option value="permission">{t('pages.knowledge.permissionManagement')}</Option>
             </Select>
           </Form.Item>
         </Form>

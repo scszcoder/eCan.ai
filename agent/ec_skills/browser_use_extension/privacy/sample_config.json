@@ -1,0 +1,112 @@
+{
+  "global_patterns": [
+    {
+      "name": "email",
+      "pattern": "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Z|a-z]{2,}\\b",
+      "replacement": "[EMAIL_REDACTED]",
+      "description": "Email addresses",
+      "enabled": true,
+      "case_sensitive": false
+    },
+    {
+      "name": "phone_us",
+      "pattern": "\\b(?:\\+?1[-\\.\\s]?)?\\(?[0-9]{3}\\)?[-\\.\\s]?[0-9]{3}[-\\.\\s]?[0-9]{4}\\b",
+      "replacement": "[PHONE_REDACTED]",
+      "description": "US phone numbers",
+      "enabled": true,
+      "case_sensitive": false
+    },
+    {
+      "name": "ssn",
+      "pattern": "\\b[0-9]{3}[-\\s]?[0-9]{2}[-\\s]?[0-9]{4}\\b",
+      "replacement": "[SSN_REDACTED]",
+      "description": "Social Security Numbers",
+      "enabled": true,
+      "case_sensitive": false
+    },
+    {
+      "name": "credit_card",
+      "pattern": "\\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|6(?:011|5[0-9]{2})[0-9]{12})\\b",
+      "replacement": "[CC_REDACTED]",
+      "description": "Credit card numbers (Visa, MC, Amex, Discover)",
+      "enabled": true,
+      "case_sensitive": false
+    },
+    {
+      "name": "credit_card_formatted",
+      "pattern": "\\b(?:[0-9]{4}[-\\s]){3}[0-9]{4}\\b",
+      "replacement": "[CC_REDACTED]",
+      "description": "Credit card numbers with separators",
+      "enabled": true,
+      "case_sensitive": false
+    },
+    {
+      "name": "api_key",
+      "pattern": "\\b(?:sk|pk|api|key|token|secret|password|auth)[_-]?[A-Za-z0-9]{20,}\\b",
+      "replacement": "[API_KEY_REDACTED]",
+      "description": "API keys and tokens",
+      "enabled": true,
+      "case_sensitive": false
+    },
+    {
+      "name": "aws_key",
+      "pattern": "\\b(?:AKIA|ABIA|ACCA|ASIA)[A-Z0-9]{16}\\b",
+      "replacement": "[AWS_KEY_REDACTED]",
+      "description": "AWS access key IDs",
+      "enabled": true,
+      "case_sensitive": true
+    }
+  ],
+  "domain_rules": [
+    {
+      "domain_pattern": "*.bank.com",
+      "enabled": true,
+      "description": "Banking sites - extra protection",
+      "additional_patterns": [
+        {
+          "name": "account_number",
+          "pattern": "\\b\\d{10,12}\\b",
+          "replacement": "[ACCOUNT_REDACTED]",
+          "description": "Bank account numbers",
+          "enabled": true,
+          "case_sensitive": false
+        }
+      ],
+      "disabled_patterns": [],
+      "field_masks": {
+        "input[name='account']": "[ACCOUNT_FIELD]",
+        "input[name='routing']": "[ROUTING_FIELD]"
+      }
+    },
+    {
+      "domain_pattern": "mail.google.com",
+      "enabled": true,
+      "description": "Gmail - protect email content",
+      "additional_patterns": [],
+      "disabled_patterns": [],
+      "field_masks": {}
+    },
+    {
+      "domain_pattern": "*.healthcare.gov",
+      "enabled": true,
+      "description": "Healthcare sites - HIPAA protection",
+      "additional_patterns": [
+        {
+          "name": "medical_record",
+          "pattern": "\\bMRN[:\\s]?[0-9]{6,10}\\b",
+          "replacement": "[MRN_REDACTED]",
+          "description": "Medical record numbers",
+          "enabled": true,
+          "case_sensitive": false
+        }
+      ],
+      "disabled_patterns": [],
+      "field_masks": {}
+    }
+  ],
+  "keep_original": true,
+  "log_stats": true,
+  "filter_screenshots": false,
+  "use_llm_filter": false,
+  "llm_filter_endpoint": ""
+}

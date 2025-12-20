@@ -1,6 +1,6 @@
 """
-OTA GUI组件
-包含更新对话框、通知等用户界面组件
+OTA GUI Components
+Contains update dialogs, notifications and other UI components
 """
 
 from .dialog import UpdateDialog, UpdateNotificationDialog

@@ -1,0 +1,917 @@
+name: Release Flow Simulation (Current Architecture)
+
+# ============================================================================
+# Workflow Overview
+# ============================================================================
+# This workflow simulates the release.yml flow for quick validation.
+# Fully synced with release.yml architecture for testing workflow logic.
+#
+# Architecture:
+#   - validate-tag: Validates git ref and computes version
+#   - build-windows: Simulates Windows amd64 build + code signing check
+#   - build-macos: Matrix simulation for macOS (amd64 + aarch64) + signing/notarization checks
+#   - upload-to-s3: Simulates S3 upload and OTA feed generation
+#
+# ============================================================================
+# Purpose
+# ============================================================================
+#   - Quickly validate workflow flow logic (< 5 minutes)
+#   - Test conditional logic correctness
+#   - Verify artifact naming and passing
+#   - Simulate code signing and notarization requirements
+#   - No actual build execution, only creates simulated artifacts
+#
+# Note: This simulation does not include:
+#   - Inno Setup installation or language pack processing
+#   - Actual code signing (certificates not required)
+#   - Actual Apple notarization (credentials not required)
+#   - External OTA frameworks (using self-contained OTA system)
+#
+# The actual release.yml uses .islu (Unicode) language files exclusively
+# and ENFORCES code signing and notarization for production/staging builds.
+#
+# ============================================================================
+# Supported Test Scenarios
+# ============================================================================
+#   1. platform=windows, arch=amd64      - Build Windows only
+#   2. platform=macos, arch=amd64        - Build macOS Intel only
+#   3. platform=macos, arch=aarch64      - Build macOS ARM only
+#   4. platform=macos, arch=all          - Build all macOS
+#   5. platform=all, arch=amd64          - Build all Intel
+#   6. platform=all, arch=aarch64        - Build macOS ARM only (Windows doesn't support ARM)
+#   7. platform=all, arch=all            - Complete build
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Build platform (windows, macos, all)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - windows
+          - macos
+      arch:
+        description: 'CPU architecture (all, amd64, aarch64)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - amd64
+          - aarch64
+      ref:
+        description: 'Git ref to build (not used in simulation)'
+        required: true
+        default: 'master'
+        type: string
+      
+      # Note: Environment is LOCKED to 'simulation' for safety
+      # This prevents accidental uploads to production/staging/test environments
+      environment:
+        description: 'Target environment (LOCKED to simulation for safety)'
+        required: false
+        default: 'simulation'
+        type: choice
+        options:
+          - simulation
+      
+      # Note: Channel is LOCKED to 'simulation' for safety
+      channel:
+        description: 'Release channel (LOCKED to simulation for safety)'
+        required: false
+        default: 'simulation'
+        type: choice
+        options:
+          - simulation
+      
+      upload_artifacts:
+        description: 'Upload artifacts to GitHub Artifacts (debug only)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+concurrency:
+  group: ecan-release-sim-${{ github.ref }}-${{ github.event.inputs.platform }}-${{ github.event.inputs.arch }}
+  cancel-in-progress: true
+
+jobs:
+  # ============================================================================
+  # VALIDATION LAYER: Tag and Version Validation
+  # ============================================================================
+  validate-tag:
+    runs-on: ubuntu-latest
+    outputs:
+      tag-valid: ${{ steps.out.outputs.valid }}
+      version: ${{ steps.out.outputs.version }}
+      is-branch: ${{ steps.out.outputs.is_branch }}
+      ref-name: ${{ steps.out.outputs.ref_name }}
+      environment: ${{ steps.detect-env.outputs.environment }}
+      channel: ${{ steps.detect-env.outputs.channel }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - id: out
+        shell: bash
+        run: |
+          set -euo pipefail
+          INPUT_REF="${{ github.event.inputs.ref }}"
+          REF_FULL="${GITHUB_REF}"
+
+          # Determine the actual ref to use
+          if [ -n "$INPUT_REF" ]; then
+            REF_NAME="$INPUT_REF"
+          else
+            REF_NAME="${REF_FULL#refs/*/}"
+          fi
+
+          echo "ref_name=$REF_NAME" >> $GITHUB_OUTPUT
+          echo "Selected ref: $REF_NAME"
+
+          # Check if it's a tag (semantic version format)
+          if [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?(\+[A-Za-z0-9.-]+)?$ ]]; then
+            echo "valid=true" >> $GITHUB_OUTPUT
+            echo "is_branch=false" >> $GITHUB_OUTPUT
+            # Tag: use tag version + -sim suffix
+            VERSION="${REF_NAME#v}"
+            echo "version=${VERSION}-sim" >> $GITHUB_OUTPUT
+            echo "Tag detected: $REF_NAME -> ${VERSION}-sim"
+          else
+            # Branch: read VERSION file as base version
+            if [ -f "VERSION" ]; then
+              BASE_VERSION=$(cat VERSION | tr -d '[:space:]')
+              echo "Read base version from VERSION file: $BASE_VERSION"
+            else
+              BASE_VERSION="0.0.0"
+              echo "VERSION file not found, using default: $BASE_VERSION"
+            fi
+
+            SHORT_SHA=$(git rev-parse --short HEAD)
+            SAFE_BRANCH=$(echo "$REF_NAME" | tr '/' '-')
+            # Branch: use VERSION-branch-commit-sim format
+            FALLBACK="${BASE_VERSION}-${SAFE_BRANCH}-${SHORT_SHA}-sim"
+            echo "valid=true" >> $GITHUB_OUTPUT
+            echo "is_branch=true" >> $GITHUB_OUTPUT
+            echo "version=$FALLBACK" >> $GITHUB_OUTPUT
+            echo "Branch detected: $REF_NAME -> version=$FALLBACK"
+          fi
+      
+      - name: Detect environment and channel
+        id: detect-env
+        shell: bash
+        run: |
+          REF_NAME="${{ steps.out.outputs.ref_name }}"
+          VERSION="${{ steps.out.outputs.version }}"
+          
+          echo "=== Environment Configuration (Simulation Workflow) ==="
+          echo "Ref: $REF_NAME"
+          echo "Version: $VERSION"
+          
+          # SAFETY: Force simulation environment and channel
+          # This prevents accidental uploads to production/staging/test
+          ENV="simulation"
+          CHANNEL="simulation"
+          
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+          echo "channel=$CHANNEL" >> $GITHUB_OUTPUT
+          
+          echo "=== Final Configuration (LOCKED for Safety) ==="
+          echo "Environment: $ENV (LOCKED)"
+          echo "Channel: $CHANNEL (LOCKED)"
+          echo "S3 Path: s3://ecan-releases/simulation/"
+          echo ""
+          echo "[WARNING] This workflow is ISOLATED from production environments"
+          echo "[WARNING] All uploads go to: simulation/ prefix only"
+
+  # ============================================================================
+  # BUILD LAYER: Windows amd64 (Simulation)
+  # ============================================================================
+  build-windows:
+    name: Build Windows amd64
+    needs: validate-tag
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (github.event.inputs.platform == 'windows' ||
+       github.event.inputs.platform == 'all') &&
+      (github.event.inputs.arch == 'amd64' ||
+       github.event.inputs.arch == 'all')
+    runs-on: ubuntu-latest  # Use ubuntu for faster simulation
+    env:
+      BUILD_ARCH: amd64
+    steps:
+      # Note: Frontend is always built in real workflow (no change detection)
+      # Simulation doesn't need frontend build steps
+      - name: Checkout code for signing
+        uses: actions/checkout@v4
+      
+      # ------------------------------------------------------------------------
+      # Lightweight: Only validate architecture configuration (no real installation)
+      # ------------------------------------------------------------------------
+      - name: Validate Python Architecture Configuration
+        run: |
+          echo "=== Validating Python Architecture Configuration ==="
+          echo "Platform: linux (simulating windows)"
+          echo "Expected architecture: x64"
+          echo ""
+          echo "Checking if architecture parameter would be passed correctly:"
+          ARCH_PARAM="x64"
+          if [ "$ARCH_PARAM" = "x64" ] || [ "$ARCH_PARAM" = "arm64" ]; then
+            echo "[OK] Architecture parameter is valid: $ARCH_PARAM"
+          else
+            echo "[ERROR] Invalid architecture parameter: $ARCH_PARAM"
+            exit 1
+          fi
+          echo ""
+          echo "Note: In real workflow, this would call:"
+          echo "  uses: ./.github/actions/setup-python-env"
+          echo "  with:"
+          echo "    platform: windows"
+          echo "    architecture: x64"
+      
+      - name: Simulate Windows build (with real build flow)
+        run: |
+          echo "=== Simulating Windows amd64 Build (Real Flow) ==="
+          echo "Platform: Windows"
+          echo "Architecture: $BUILD_ARCH"
+          echo "Note: This simulates the ACTUAL build.py execution order"
+          VERSION="${{ needs.validate-tag.outputs.version }}"
+          mkdir -p dist artifacts
+          
+          echo ""
+          echo "Build Flow Simulation (matching build.py):"
+          echo "  1. PyInstaller packaging"
+          echo "  2. Code signing"
+          echo "  3. Inno Setup (create installer)"
+          echo "  4. OTA signing"
+          echo "  5. Standardize artifacts"
+          echo ""
+          
+          # Step 1: Simulate PyInstaller output
+          echo "[1/5] Simulating PyInstaller packaging..."
+          mkdir -p dist/eCan
+          echo "fake exe" > dist/eCan/eCan.exe
+          echo "fake dll" > dist/eCan/library.dll
+          echo "  [OK] Created dist/eCan/ directory"
+          
+          # Step 2: Simulate code signing
+          echo "[2/5] Simulating code signing..."
+          echo "  [OK] Signed dist/eCan/eCan.exe"
+          echo "  [OK] Signed dist/eCan/library.dll"
+          
+          # Step 3: Simulate Inno Setup (create installer)
+          echo "[3/5] Simulating Inno Setup (creating installer)..."
+          echo "fake windows installer" > "dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe"
+          echo "  [OK] Created: dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe"
+          
+          # Step 4: OTA signing will be done in next step
+          echo "[4/5] OTA signing (next step)..."
+          
+          # Step 5: Copy to artifacts
+          echo "[5/5] Preparing artifacts..."
+          cp "dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe" artifacts/
+          
+          echo ""
+          echo "[OK] Windows build simulated (following real build.py flow)"
+      
+      # ------------------------------------------------------------------------
+      # Step: Setup OTA Signing Key from GitHub Secrets
+      # ------------------------------------------------------------------------
+      - name: Setup OTA signing key
+        if: |
+          needs.validate-tag.outputs.environment == 'production' || 
+          needs.validate-tag.outputs.environment == 'staging' ||
+          needs.validate-tag.outputs.environment == 'test' ||
+          needs.validate-tag.outputs.environment == 'simulation'
+        env:
+          OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
+        run: |
+          echo "=== Setting up OTA signing key ==="
+          echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+          
+          # Create certificates directory
+          mkdir -p build_system/certificates
+          
+          # Check if secret is available
+          if [ -z "$OTA_PRIVATE_KEY" ]; then
+            echo "[WARNING] OTA_ED25519_PRIVATE_KEY secret is NOT configured"
+            echo "Signature generation will be skipped"
+          else
+            # Decode base64 and write private key
+            KEY_PATH="build_system/certificates/ed25519_private_key.pem"
+            echo "$OTA_PRIVATE_KEY" | base64 -d > "$KEY_PATH"
+            chmod 600 "$KEY_PATH"
+            echo "✓ OTA signing key configured successfully"
+          fi
+      
+      - name: Simulate OTA signing (Step 4 - After Installer Creation)
+        run: |
+          echo "[4/5] 🔐 Simulating OTA signing (after installer creation)..."
+          VERSION="${{ needs.validate-tag.outputs.version }}"
+          INSTALLER="dist/eCan-${VERSION}-windows-${BUILD_ARCH}-Setup.exe"
+          
+          # Verify installer exists (this is the key check!)
+          if [ ! -f "$INSTALLER" ]; then
+            echo "❌ ERROR: Installer not found at: $INSTALLER"
+            echo "❌ This indicates OTA signing is happening BEFORE installer creation!"
+            echo "❌ This is the bug we're trying to catch!"
+            exit 1
+          fi
+          
+          echo "  ✓ Installer found: $INSTALLER"
+          
+          # Install OpenSSL if needed
+          if ! command -v openssl &> /dev/null; then
+            echo "  Installing OpenSSL..."
+            sudo apt-get update && sudo apt-get install -y openssl
+          fi
+          
+          # Generate real Ed25519 signature
+          if [ -f "build_system/certificates/ed25519_private_key.pem" ]; then
+            echo "  Generating real Ed25519 signature..."
+            # Use signing_manager.py for Ed25519 signing (OpenSSL pkeyutl doesn't support Ed25519 in all versions)
+            python build_system/signing_manager.py \
+              "$INSTALLER" \
+              "build_system/certificates/ed25519_private_key.pem" \
+              "${INSTALLER}.sig"
+            
+            # Check if signature was generated successfully
+            if [ -f "${INSTALLER}.sig" ]; then
+              SIG_SIZE=$(wc -c < "${INSTALLER}.sig" | tr -d ' ')
+              if [ "$SIG_SIZE" -eq 64 ]; then
+                cp "${INSTALLER}.sig" artifacts/
+                echo "  [OK] Real signature generated (64 bytes)"
+              else
+                echo "  [WARNING] Invalid signature size: $SIG_SIZE bytes (expected 64), creating placeholder"
+                echo "simulation_signature" > "${INSTALLER}.sig"
+                cp "${INSTALLER}.sig" artifacts/
+              fi
+            else
+              echo "  [WARNING] Signature generation failed, creating placeholder"
+              echo "simulation_signature" > "${INSTALLER}.sig"
+              cp "${INSTALLER}.sig" artifacts/
+            fi
+          else
+            echo "  [WARNING] Private key not found, creating placeholder signature"
+            echo "simulation_signature" > "${INSTALLER}.sig"
+            cp "${INSTALLER}.sig" artifacts/
+          fi
+          
+          echo ""
+          echo "[OK] OTA signing completed (Step 4/5)"
+      
+      # ------------------------------------------------------------------------
+      # OTA Signing Simulation
+      # In real workflow, OTA signing is REQUIRED for test/staging/production
+      # ------------------------------------------------------------------------
+      # Note: OTA signing is now done in the build step above with real signatures
+
+      # ------------------------------------------------------------------------
+      # Code Signing Simulation
+      # In real workflow, Authenticode signing is REQUIRED for production/staging
+      # ------------------------------------------------------------------------
+      - name: Simulate code signing check (production/staging requirement)
+        if: |
+          needs.validate-tag.outputs.environment == 'production' || 
+          needs.validate-tag.outputs.environment == 'staging'
+        run: |
+          echo "=== Simulating Code Signing Requirement Check ==="
+          echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+          echo "In real workflow: Authenticode certificate REQUIRED"
+          echo "  - WIN_CERT_PFX"
+          echo "  - WIN_CERT_PASSWORD"
+          echo "✅ Simulation: Skipping actual certificate check"
+      
+      - name: Simulate code signing execution
+        run: |
+          echo "=== Simulating Code Signing ==="
+          echo "In real workflow: signtool sign /f certificate.pfx /fd SHA256"
+          echo "✅ Simulation: Code signing skipped"
+
+      - name: Upload Windows artifacts for S3 transfer (always, short retention)
+        uses: actions/upload-artifact@v4
+        with:
+          name: eCan-windows-amd64-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          path: artifacts/
+          retention-days: 1
+          compression-level: 6
+          if-no-files-found: error
+
+      - name: Upload Windows artifacts for users (optional, long retention)
+        if: github.event.inputs.upload_artifacts == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eCan-Windows-${{ needs.validate-tag.outputs.version }}
+          path: artifacts/
+          retention-days: 7
+          compression-level: 6
+
+  # ============================================================================
+  # BUILD LAYER: macOS (Matrix: amd64 + aarch64) (Simulation)
+  # ============================================================================
+  build-macos:
+    name: Build macOS
+    needs: validate-tag
+    if: |
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (github.event.inputs.platform == 'macos' ||
+       github.event.inputs.platform == 'all')
+    runs-on: ubuntu-latest  # Use ubuntu for faster simulation
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: macos-15-intel  # Intel x86_64 runner (newer than macos-13)
+            target_arch: x86_64
+            pyinstaller_arch: x86_64
+          - arch: aarch64
+            runner: macos-latest  # Would use Apple Silicon runner in real workflow
+            target_arch: arm64
+            pyinstaller_arch: arm64
+    env:
+      BUILD_ARCH: ${{ matrix.arch }}
+      TARGET_ARCH: ${{ matrix.target_arch }}
+      PYINSTALLER_TARGET_ARCH: ${{ matrix.pyinstaller_arch }}
+    steps:
+      # ------------------------------------------------------------------------
+      # Step 0: Architecture Filtering (MUST BE FIRST - No dependencies)
+      # ------------------------------------------------------------------------
+      - name: Check if this architecture should be built
+        id: arch_check
+        run: |
+          ARCH="${{ matrix.arch }}"
+          INPUT="${{ github.event.inputs.arch }}"
+          echo "Matrix architecture: $ARCH"
+          echo "Requested architecture: $INPUT"
+          
+          if [ "$INPUT" = "all" ] || [ -z "$INPUT" ] || [ "$INPUT" = "$ARCH" ]; then
+            echo "[OK] This architecture will be built"
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          else
+            echo "[SKIP] Skipping this architecture (not requested)"
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+      # Early exit if architecture not needed - saves all setup time
+      - name: Exit early if architecture not needed
+        if: steps.arch_check.outputs.should_build != 'true'
+        run: |
+          echo "Architecture ${{ matrix.arch }} not needed for this build"
+          echo "Exiting early to save resources"
+          exit 0
+
+      # Note: Frontend is always built in real workflow (no change detection)
+      # Simulation doesn't need frontend build steps
+      - name: Checkout code for signing
+        if: steps.arch_check.outputs.should_build == 'true'
+        uses: actions/checkout@v4
+      
+      # ------------------------------------------------------------------------
+      # Lightweight: Only validate architecture configuration (no real installation)
+      # ------------------------------------------------------------------------
+      - name: Validate Python Architecture Configuration
+        if: steps.arch_check.outputs.should_build == 'true'
+        run: |
+          echo "=== Validating Python Architecture Configuration ==="
+          echo "Platform: linux (simulating macos)"
+          echo "Matrix arch: ${{ matrix.arch }}"
+          echo "Matrix target_arch: ${{ matrix.target_arch }}"
+          echo ""
+          echo "Checking architecture parameter expression:"
+          ARCH_PARAM="${{ matrix.target_arch == 'arm64' && 'arm64' || 'x64' }}"
+          echo "Computed architecture: $ARCH_PARAM"
+          
+          if [ "$ARCH_PARAM" = "x64" ] || [ "$ARCH_PARAM" = "arm64" ]; then
+            echo "[OK] Architecture parameter is valid: $ARCH_PARAM"
+          else
+            echo "[ERROR] Invalid architecture parameter: $ARCH_PARAM"
+            exit 1
+          fi
+          
+          # Verify matrix mapping
+          if [ "${{ matrix.target_arch }}" = "arm64" ]; then
+            if [ "$ARCH_PARAM" != "arm64" ]; then
+              echo "[ERROR] Architecture mapping failed for arm64"
+              exit 1
+            fi
+          elif [ "${{ matrix.target_arch }}" = "x86_64" ]; then
+            if [ "$ARCH_PARAM" != "x64" ]; then
+              echo "[ERROR] Architecture mapping failed for x86_64"
+              exit 1
+            fi
+          fi
+          
+          echo ""
+          echo "Note: In real workflow, this would call:"
+          echo "  uses: ./.github/actions/setup-python-env"
+          echo "  with:"
+          echo "    platform: macos"
+          echo "    architecture: $ARCH_PARAM"
+      
+      - name: Simulate macOS build (with real build flow)
+        if: steps.arch_check.outputs.should_build == 'true'
+        run: |
+          echo "=== Simulating macOS ${{ matrix.arch }} Build (Real Flow) ==="
+          echo "Platform: macOS"
+          echo "Architecture: ${{ matrix.arch }} (${{ matrix.target_arch }})"
+          echo "Note: This simulates the ACTUAL build.py execution order"
+          VERSION="${{ needs.validate-tag.outputs.version }}"
+          ARCH="${{ matrix.arch }}"
+          mkdir -p dist artifacts
+          
+          echo ""
+          echo "Build Flow Simulation (matching build.py):"
+          echo "  1. PyInstaller packaging"
+          echo "  2. Code signing"
+          echo "  3. PKG installer creation"
+          echo "  4. OTA signing"
+          echo "  5. Standardize artifacts"
+          echo ""
+          
+          # Step 1: Simulate PyInstaller output
+          echo "[1/5] Simulating PyInstaller packaging..."
+          mkdir -p dist/eCan.app/Contents/MacOS
+          echo "fake app" > dist/eCan.app/Contents/MacOS/eCan
+          echo "  [OK] Created dist/eCan.app"
+          
+          # Step 2: Simulate code signing
+          echo "[2/5] Simulating code signing..."
+          echo "  [OK] Signed dist/eCan.app"
+          
+          # Step 3: Simulate PKG creation
+          echo "[3/5] Simulating PKG installer creation..."
+          echo "fake macos installer" > "dist/eCan-${VERSION}-macos-${ARCH}.pkg"
+          echo "  [OK] Created: dist/eCan-${VERSION}-macos-${ARCH}.pkg"
+          
+          # Step 4: OTA signing will be done in next step
+          echo "[4/5] OTA signing (next step)..."
+          
+          # Step 5: Copy to artifacts
+          echo "[5/5] Preparing artifacts..."
+          cp "dist/eCan-${VERSION}-macos-${ARCH}.pkg" artifacts/
+          
+          echo ""
+          echo "[OK] macOS ${{ matrix.arch }} build simulated (following real build.py flow)"
+      
+      # ------------------------------------------------------------------------
+      # Step: Setup OTA Signing Key from GitHub Secrets
+      # ------------------------------------------------------------------------
+      - name: Setup OTA signing key
+        if: |
+          steps.arch_check.outputs.should_build == 'true' && (
+            needs.validate-tag.outputs.environment == 'production' || 
+            needs.validate-tag.outputs.environment == 'staging' ||
+            needs.validate-tag.outputs.environment == 'test' ||
+            needs.validate-tag.outputs.environment == 'simulation'
+          )
+        env:
+          OTA_PRIVATE_KEY: ${{ secrets.OTA_ED25519_PRIVATE_KEY }}
+        run: |
+          echo "=== Setting up OTA signing key ==="
+          echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+          
+          # Create certificates directory
+          mkdir -p build_system/certificates
+          
+          # Check if secret is available
+          if [ -z "$OTA_PRIVATE_KEY" ]; then
+            echo "[WARNING] OTA_ED25519_PRIVATE_KEY secret is NOT configured"
+            echo "Signature generation will be skipped"
+          else
+            # Decode base64 and write private key
+            KEY_PATH="build_system/certificates/ed25519_private_key.pem"
+            echo "$OTA_PRIVATE_KEY" | base64 -d > "$KEY_PATH"
+            chmod 600 "$KEY_PATH"
+            echo "✓ OTA signing key configured successfully"
+          fi
+      
+      - name: Simulate OTA signing (Step 4 - After Installer Creation)
+        if: steps.arch_check.outputs.should_build == 'true'
+        run: |
+          echo "[4/5] 🔐 Simulating OTA signing (after installer creation)..."
+          VERSION="${{ needs.validate-tag.outputs.version }}"
+          ARCH="${{ matrix.arch }}"
+          INSTALLER="dist/eCan-${VERSION}-macos-${ARCH}.pkg"
+          
+          # Verify installer exists (this is the key check!)
+          if [ ! -f "$INSTALLER" ]; then
+            echo "❌ ERROR: Installer not found at: $INSTALLER"
+            echo "❌ This indicates OTA signing is happening BEFORE installer creation!"
+            echo "❌ This is the bug we're trying to catch!"
+            exit 1
+          fi
+          
+          echo "  ✓ Installer found: $INSTALLER"
+          
+          # Install OpenSSL if needed
+          if ! command -v openssl &> /dev/null; then
+            echo "  Installing OpenSSL..."
+            sudo apt-get update && sudo apt-get install -y openssl
+          fi
+          
+          # Generate real Ed25519 signature
+          if [ -f "build_system/certificates/ed25519_private_key.pem" ]; then
+            echo "  Generating real Ed25519 signature..."
+            # Use signing_manager.py for Ed25519 signing (OpenSSL pkeyutl doesn't support Ed25519 in all versions)
+            python build_system/signing_manager.py \
+              "$INSTALLER" \
+              "build_system/certificates/ed25519_private_key.pem" \
+              "${INSTALLER}.sig"
+            
+            # Check if signature was generated successfully
+            if [ -f "${INSTALLER}.sig" ]; then
+              SIG_SIZE=$(wc -c < "${INSTALLER}.sig" | tr -d ' ')
+              if [ "$SIG_SIZE" -eq 64 ]; then
+                cp "${INSTALLER}.sig" artifacts/
+                echo "  [OK] Real signature generated for macOS ${{ matrix.arch }} (64 bytes)"
+              else
+                echo "  [WARNING] Invalid signature size: $SIG_SIZE bytes (expected 64), creating placeholder"
+                echo "simulation_signature" > "${INSTALLER}.sig"
+                cp "${INSTALLER}.sig" artifacts/
+              fi
+            else
+              echo "  [WARNING] Signature generation failed, creating placeholder"
+              echo "simulation_signature" > "${INSTALLER}.sig"
+              cp "${INSTALLER}.sig" artifacts/
+            fi
+          else
+            echo "  [WARNING] Private key not found, creating placeholder signature"
+            echo "simulation_signature" > "${INSTALLER}.sig"
+            cp "${INSTALLER}.sig" artifacts/
+          fi
+          
+          echo ""
+          echo "[OK] OTA signing completed (Step 4/5)"
+      
+      # ------------------------------------------------------------------------
+      # OTA Signing Simulation
+      # In real workflow, OTA signing is REQUIRED for test/staging/production
+      # ------------------------------------------------------------------------
+      # Note: OTA signing is now done in the build step above with real signatures
+
+      # ------------------------------------------------------------------------
+      # Code Signing and Notarization Simulation
+      # In real workflow, these are REQUIRED for production/staging
+      # ------------------------------------------------------------------------
+      - name: Simulate code signing check (production/staging requirement)
+        if: |
+          steps.arch_check.outputs.should_build == 'true' &&
+          (needs.validate-tag.outputs.environment == 'production' || 
+           needs.validate-tag.outputs.environment == 'staging')
+        run: |
+          echo "=== Simulating Code Signing Requirement Check ==="
+          echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+          echo "In real workflow: Code signing certificates REQUIRED"
+          echo "  - MAC_CERT_P12"
+          echo "  - MAC_CERT_PASSWORD"
+          echo "  - MAC_CODESIGN_IDENTITY"
+          echo "✅ Simulation: Skipping actual certificate check"
+      
+      - name: Simulate code signing execution
+        if: steps.arch_check.outputs.should_build == 'true'
+        run: |
+          echo "=== Simulating Code Signing ==="
+          echo "In real workflow: codesign --deep --force --options runtime"
+          echo "✅ Simulation: Code signing skipped"
+      
+      - name: Simulate notarization check (production/staging requirement)
+        if: |
+          steps.arch_check.outputs.should_build == 'true' &&
+          (needs.validate-tag.outputs.environment == 'production' || 
+           needs.validate-tag.outputs.environment == 'staging')
+        run: |
+          echo "=== Simulating Notarization Requirement Check ==="
+          echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
+          echo "In real workflow: Notarization REQUIRED"
+          echo "  - APPLE_ID"
+          echo "  - APPLE_APP_SPECIFIC_PASSWORD"
+          echo "  - TEAM_ID"
+          echo "✅ Simulation: Skipping actual notarization check"
+      
+      - name: Simulate notarization execution
+        if: steps.arch_check.outputs.should_build == 'true'
+        run: |
+          echo "=== Simulating Notarization ==="
+          echo "In real workflow: xcrun notarytool submit --wait"
+          echo "In real workflow: xcrun stapler staple"
+          echo "✅ Simulation: Notarization skipped"
+      - name: Upload macOS artifacts for S3 transfer (always, short retention)
+        if: steps.arch_check.outputs.should_build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eCan-macos-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}-s3-transfer
+          path: artifacts/
+          retention-days: 1
+          compression-level: 6
+          if-no-files-found: error
+      - name: Upload macOS artifacts for users (optional, long retention)
+        if: steps.arch_check.outputs.should_build == 'true' && github.event.inputs.upload_artifacts == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: eCan-macos-${{ matrix.arch }}-${{ needs.validate-tag.outputs.version }}
+          path: artifacts/
+          retention-days: 7
+          compression-level: 6
+
+  # ============================================================================
+  # DISTRIBUTION LAYER: S3 Upload and OTA Feed Generation (Simulation)
+  # ============================================================================
+  # This layer uses reusable workflows (same as release.yml) in simulation mode:
+  #   1. upload-to-s3: Simulates S3 upload (shared-s3-upload.yml)
+  #   2. generate-appcast: Simulates appcast generation (shared-appcast-generation.yml)
+  #   3. generate-download-links: Simulates download links (shared-download-links.yml)
+  # ============================================================================
+
+  # ----------------------------------------------------------------------------
+  # Step 1: Upload artifacts to S3 (Simulation)
+  # ----------------------------------------------------------------------------
+  upload-to-s3:
+    name: Upload to S3 (Simulation)
+    needs: [validate-tag, build-windows, build-macos]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped') &&
+      (needs.build-macos.result == 'success' || needs.build-macos.result == 'skipped')
+    uses: ./.github/workflows/shared-s3-upload.yml
+    with:
+      version: ${{ needs.validate-tag.outputs.version }}
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      windows-build-result: ${{ needs.build-windows.result }}
+      macos-build-result: ${{ needs.build-macos.result }}
+    secrets: inherit
+
+  # ----------------------------------------------------------------------------
+  # Step 2: Generate OTA update feeds (Simulation)
+  # ----------------------------------------------------------------------------
+  # Generate Appcast for Windows (if built)
+  generate-appcast-windows:
+    name: Generate Appcast (Windows Simulation)
+    needs: [validate-tag, upload-to-s3, build-windows]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.upload-to-s3.result == 'success' &&
+      needs.build-windows.result == 'success'
+    uses: ./.github/workflows/shared-appcast-generation.yml
+    with:
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel: ${{ needs.validate-tag.outputs.channel }}
+      version: ${{ needs.validate-tag.outputs.version }}
+      platform: 'windows'
+      arch: 'amd64'
+    secrets: inherit
+
+  # Generate Appcast for macOS amd64 (if built)
+  generate-appcast-macos-amd64:
+    name: Generate Appcast (macOS Intel Simulation)
+    needs: [validate-tag, upload-to-s3, build-macos]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.upload-to-s3.result == 'success' &&
+      needs.build-macos.result == 'success' &&
+      (github.event.inputs.arch == 'all' || github.event.inputs.arch == '' || github.event.inputs.arch == 'amd64')
+    uses: ./.github/workflows/shared-appcast-generation.yml
+    with:
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel: ${{ needs.validate-tag.outputs.channel }}
+      version: ${{ needs.validate-tag.outputs.version }}
+      platform: 'macos'
+      arch: 'amd64'
+    secrets: inherit
+
+  # Generate Appcast for macOS aarch64 (if built)
+  generate-appcast-macos-aarch64:
+    name: Generate Appcast (macOS ARM Simulation)
+    needs: [validate-tag, upload-to-s3, build-macos]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.upload-to-s3.result == 'success' &&
+      needs.build-macos.result == 'success' &&
+      (github.event.inputs.arch == 'all' || github.event.inputs.arch == '' || github.event.inputs.arch == 'aarch64')
+    uses: ./.github/workflows/shared-appcast-generation.yml
+    with:
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel: ${{ needs.validate-tag.outputs.channel }}
+      version: ${{ needs.validate-tag.outputs.version }}
+      platform: 'macos'
+      arch: 'aarch64'
+    secrets: inherit
+
+  # ----------------------------------------------------------------------------
+  # Step 2.5: Generate latest.json (after all Appcasts)
+  # ----------------------------------------------------------------------------
+  generate-latest-json:
+    name: Generate latest.json (Simulation)
+    needs: [
+      validate-tag,
+      upload-to-s3,
+      generate-appcast-windows,
+      generate-appcast-macos-amd64,
+      generate-appcast-macos-aarch64
+    ]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.upload-to-s3.result == 'success' &&
+      (needs.generate-appcast-windows.result == 'success' ||
+       needs.generate-appcast-macos-amd64.result == 'success' ||
+       needs.generate-appcast-macos-aarch64.result == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install boto3 pyyaml packaging
+
+      - name: Generate latest.json
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+        run: |
+          python3 << 'PYTHON_SCRIPT'
+          import sys
+          sys.path.insert(0, 'build_system/scripts')
+          from generate_appcast import AppcastGenerator
+          
+          generator = AppcastGenerator(
+              environment='${{ needs.validate-tag.outputs.environment }}',
+              channel='${{ needs.validate-tag.outputs.channel }}'
+          )
+          
+          print('[INFO] Generating latest.json only (Simulation)...')
+          success = generator.generate_latest_json()
+          
+          if success:
+              print('[OK] latest.json generated successfully')
+              sys.exit(0)
+          else:
+              print('[ERROR] Failed to generate latest.json')
+              sys.exit(1)
+          PYTHON_SCRIPT
+
+  # ----------------------------------------------------------------------------
+  # Step 3: Generate download links (Simulation)
+  # ----------------------------------------------------------------------------
+  generate-download-links:
+    name: Generate Download Links (Simulation)
+    needs: [validate-tag, build-windows, build-macos, upload-to-s3]
+    if: |
+      always() &&
+      needs.validate-tag.outputs.tag-valid == 'true' &&
+      needs.upload-to-s3.result == 'success'
+    uses: ./.github/workflows/shared-download-links.yml
+    with:
+      version: ${{ needs.validate-tag.outputs.version }}
+      environment: ${{ needs.validate-tag.outputs.environment }}
+      channel: ${{ needs.validate-tag.outputs.channel }}
+      windows-build-result: ${{ needs.build-windows.result }}
+      macos-build-result: ${{ needs.build-macos.result }}
+      macos-built-amd64: ${{ (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') && (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all') }}
+      macos-built-aarch64: ${{ (github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all') && (github.event.inputs.arch == 'aarch64' || github.event.inputs.arch == 'all') }}
+    secrets: inherit
+
+  # ----------------------------------------------------------------------------
+  # Step 4: Final status summary (Simulation)
+  # ----------------------------------------------------------------------------
+  final-status:
+    name: Final Status Summary (Simulation)
+    needs: [
+      validate-tag,
+      build-windows,
+      build-macos,
+      upload-to-s3,
+      generate-appcast-windows,
+      generate-appcast-macos-amd64,
+      generate-appcast-macos-aarch64,
+      generate-latest-json,
+      generate-download-links
+    ]
+    if: always()
+    uses: ./.github/workflows/shared-final-status.yml
+    with:
+      version: ${{ needs.validate-tag.outputs.version }}
+      windows-result: ${{ needs.build-windows.result }}
+      macos-result: ${{ needs.build-macos.result }}
+      upload-result: ${{ needs.upload-to-s3.result }}
+      appcast-result: ${{ (needs.generate-appcast-windows.result == 'success' || needs.generate-appcast-macos-amd64.result == 'success' || needs.generate-appcast-macos-aarch64.result == 'success') && 'success' || 'failure' }}
+      links-result: ${{ needs.generate-download-links.result }}
+      is-simulation: true
+    secrets: inherit

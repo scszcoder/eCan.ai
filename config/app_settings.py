@@ -4,15 +4,15 @@ import shutil
 from config.constants import RESOURCE, FOLDER_SKILLS, FOLDER_SETTINGS, FOLDER_RUNLOGS, FOLDER_DATA, APP_NAME
 from config.app_info import app_info
 from pathlib import Path
-from bot.envi import getECBotDataHome
+from config.envi import getECBotDataHome
 
 # Define the data home path at the module level so it can be imported by other modules.
 ecb_data_homepath = getECBotDataHome()
 
 def copy_skills_file():
     """
-        if release version should copy some resource skills files from running unzip temp file to appdata files,
-        only copy public files
+        If release version should copy some resource skills files from running unzip temp file to appdata files,
+        only copy public files. This ensures skills can be modified without permission issues.
     """
     ecbot_home_path = app_info.app_home_path
     app_skills_public_dir = ecbot_home_path + "/" + RESOURCE + "/" + FOLDER_SKILLS + "/public"
@@ -93,35 +93,35 @@ def is_frozen():
 
 class AppSettings:
     def __init__(self):
-        # 处理 PyInstaller 打包后的路径问题
+        # Handle PyInstaller packaged path issues
         if getattr(sys, 'frozen', False):
-            # PyInstaller 打包环境：使用 _MEIPASS 作为根目录
+            # PyInstaller packaged environment: use _MEIPASS as root directory
             if hasattr(sys, '_MEIPASS'):
                 self.root_dir = Path(sys._MEIPASS)
             else:
                 self.root_dir = Path(sys.executable).parent
             print(f"[PyInstaller] Using root_dir: {self.root_dir}")
         else:
-            # 开发环境：使用相对路径
+            # Development environment: use relative path
             self.root_dir = Path(__file__).parent.parent
             print(f"[Development] Using root_dir: {self.root_dir}")
 
         self.gui_v2_dir = self.root_dir / "gui_v2"
         self.dist_dir = self.gui_v2_dir / "dist"
 
-        # 调试信息
+        # Debug information
         print(f"[AppSettings] gui_v2_dir: {self.gui_v2_dir}")
         print(f"[AppSettings] dist_dir: {self.dist_dir}")
         print(f"[AppSettings] dist_dir exists: {self.dist_dir.exists()}")
         if self.dist_dir.exists():
             print(f"[AppSettings] dist_dir contents: {list(self.dist_dir.iterdir())}")
-        
-        # Web 模式配置
-        # 如果是打包产物，强制 prod，否则用环境变量
+
+        # Web mode configuration
+        # If packaged, force prod, otherwise use environment variable
         if is_frozen():
             self.web_mode = 'prod'
         else:
-            self.web_mode = os.getenv('ECBOT_WEB_MODE', 'dev')  # 默认开发模式
+            self.web_mode = os.getenv('ECBOT_WEB_MODE', 'dev')  # Default development mode
         self.vite_dev_server = "http://localhost:3000"
         
         print("init app settings")
@@ -129,12 +129,12 @@ class AppSettings:
         # logger_helper.setup(APP_NAME, app_info.app_home_path + "/runlogs/" + APP_NAME + ".log", logging.DEBUG)
         # logger_helper.setup(APP_NAME, ecb_data_homepath + "/runlogs/" + APP_NAME + ".log", logging.DEBUG)
 
-        if getattr(sys, 'frozen', False):
-            create_appdata_dirs()
-            init_settings_files()
-            copy_skills_file()
-        else:
-            print('debug mode version so not need init some appdata config files')
+        # if getattr(sys, 'frozen', False):
+        #     create_appdata_dirs()
+        #     init_settings_files()
+        #     copy_skills_file()
+        # else:
+        #     print('debug mode version so not need init some appdata config files')
 
     @property
     def is_dev_mode(self):
@@ -145,7 +145,7 @@ class AppSettings:
         return self.web_mode.lower() == 'prod'
     
     def get_web_url(self):
-        """获取 Web 页面的 URL"""
+        """Get Web page URL"""
         if self.is_dev_mode:
             print(f"[AppSettings] Development mode: using {self.vite_dev_server}")
             return self.vite_dev_server

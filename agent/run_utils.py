@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import os
 import platform
 import signal
@@ -8,7 +7,7 @@ from functools import wraps
 from sys import stderr
 from typing import Any, Callable, Coroutine, List, Optional, ParamSpec, TypeVar
 
-logger = logging.getLogger(__name__)
+from utils.logger_helper import logger_helper as logger
 
 # Global flag to prevent duplicate exit messages
 _exiting = False
@@ -78,7 +77,7 @@ class SignalHandler:
 			if self.is_windows:
 				# On Windows, use simple signal handling with immediate exit on Ctrl+C
 				def windows_handler(sig, frame):
-					print('\n\n🛑 Got Ctrl+C. Exiting immediately on Windows...\n', file=stderr)
+					logger.debug('\n\n🛑 Got Ctrl+C. Exiting immediately on Windows...\n', file=stderr)
 					# Run the custom exit callback if provided
 					if self.custom_exit_callback:
 						self.custom_exit_callback()
@@ -135,7 +134,7 @@ class SignalHandler:
 					logger.error(f'Error in exit callback: {e}')
 
 		# Force immediate exit - more reliable than sys.exit()
-		print('\n\n🛑  Got second Ctrl+C. Exiting immediately...\n', file=stderr)
+		logger.debug('\n\n🛑  Got second Ctrl+C. Exiting immediately...\n', file=stderr)
 		os._exit(0)
 
 	def sigint_handler(self) -> None:
@@ -174,7 +173,7 @@ class SignalHandler:
 				logger.error(f'Error in pause callback: {e}')
 
 		# Log pause message after pause_callback is called (not before)
-		print('----------------------------------------------------------------------', file=stderr)
+		logger.debug('----------------------------------------------------------------------', file=stderr)
 
 	def sigterm_handler(self) -> None:
 		"""
@@ -185,7 +184,7 @@ class SignalHandler:
 		global _exiting
 		if not _exiting:
 			_exiting = True
-			print('\n\n🛑 SIGTERM received. Exiting immediately...\n\n', file=stderr)
+			logger.debug('\n\n🛑 SIGTERM received. Exiting immediately...\n\n', file=stderr)
 
 			# Call custom exit callback if provided
 			if self.custom_exit_callback:
@@ -243,7 +242,7 @@ class SignalHandler:
 		try:  # escape code is to blink the ...
 			# Check if stdin is available (PyInstaller windowed mode compatibility)
 			if sys.stdin is not None:
-				print(
+				logger.debug(
 					f'➡️  Press {green}[Enter]{reset} to resume or {red}[Ctrl+C]{reset} again to exit{blink}...{unblink} ',
 					end='',
 					flush=True,
@@ -324,4 +323,4 @@ def singleton(cls):
 
 def check_env_variables(keys: list[str], any_or_all=all) -> bool:
 	"""Check if all required environment variables are set"""
-	return any_or_all(os.getenv(key).strip() for key in keys)
+	return any_or_all(bool(os.getenv(key, '').strip()) for key in keys)

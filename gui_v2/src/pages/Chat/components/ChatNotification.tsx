@@ -1,19 +1,22 @@
-import React, { useRef, useEffect } from 'react';
-import { Empty, Divider } from 'antd';
+import React, { useRef, useEffect, useState } from 'react';
+import { Empty, Divider, Button, Collapse } from 'antd';
+import { ClearOutlined, DownOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { useChatNotifications, NOTIF_PAGE_SIZE } from '../hooks/useChatNotifications';
 import ProductSearchNotification from './ProductSearchNotification';
 import i18n from '../../../i18n';
+import { notificationManager } from '../managers/NotificationManager';
 
-// 日期格式化函数
-const formatDate = (timestamp: string | number, t: (key: string) => string) => {
+const { Panel } = Collapse;
+
+// DateFormatFunction
+const formatDate = (timestamp: string | number) => {
   if (!timestamp) return '';
   
   const date = new Date(timestamp);
-  const format = t('pages.chat.chatNotification.dateFormat');
   
-  // 简单的日期格式化实现
+  // Simple的DateFormatImplementation
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
@@ -33,6 +36,7 @@ const formatDate = (timestamp: string | number, t: (key: string) => string) => {
 
 const NotifyContainer = styled.div`
   padding: 32px 40px;
+  padding-top: 60px;
   overflow-y: auto;
   height: 100%;
   width: 100%;
@@ -40,13 +44,64 @@ const NotifyContainer = styled.div`
   position: relative;
 `;
 
+const HeaderContainer = styled.div`
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  padding: 12px 40px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  background: rgba(26, 26, 46, 0.95);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  z-index: 10;
+`;
+
+const TimestampText = styled.div`
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 8px;
+  text-align: right;
+`;
+
+const StyledCollapse = styled(Collapse)`
+  background: transparent;
+  border: none;
+  
+  .ant-collapse-item {
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    margin-bottom: 16px;
+    background: rgba(255, 255, 255, 0.05);
+    overflow: hidden;
+  }
+  
+  .ant-collapse-header {
+    color: rgba(255, 255, 255, 0.85) !important;
+    padding: 12px 16px !important;
+    background: rgba(255, 255, 255, 0.03);
+    
+    &:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+  }
+  
+  .ant-collapse-content {
+    background: transparent;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  .ant-collapse-content-box {
+    padding: 16px;
+  }
+`;
+
 const EmptyContainer = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100%;
-  width: 100%;
-  position: relative;
   z-index: 1;
 `;
 
@@ -57,7 +112,28 @@ const NotificationTemplateRenderer: React.FC<{ content: any }> = ({ content }) =
   switch (template) {
     case defaultTemplate:
     default:
-      return <ProductSearchNotification content={content} />;
+      // Support multiple shapes:
+      // 1) content is already the notification body { title, Items, ... }
+      // 2) content.content or content.content.content is the body
+      // 3) body.notification may be an object or a JSON string
+      const body = (content && typeof content === 'object')
+        ? (content?.content?.content ?? content?.content ?? content)
+        : content;
+      let normalized: any = body?.notification ?? body;
+      if (normalized && typeof normalized === 'string') {
+        try { normalized = JSON.parse(normalized); }
+        catch {
+          try { normalized = JSON.parse(normalized.replace(/'/g, '"')); } catch {}
+        }
+      }
+      try {
+        // eslint-disable-next-line no-console
+        console.log('[ChatNotification] normalized keys', Object.keys(normalized || {}), {
+          hasItems: Array.isArray((normalized as any)?.Items),
+          itemsLen: Array.isArray((normalized as any)?.Items) ? (normalized as any).Items.length : 'n/a',
+        });
+      } catch {}
+      return <ProductSearchNotification content={normalized} />;
   }
 };
 
@@ -65,10 +141,10 @@ interface ChatNotificationProps {
   chatId: string;
   isInitialLoading?: boolean;
 }
-
 const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLoading }) => {
   const { t } = useTranslation();
   const { chatNotificationItems, hasMore, loadMore, loadingMore } = useChatNotifications(chatId, NOTIF_PAGE_SIZE, true);
+  const [activeKeys, setActiveKeys] = useState<string[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
   const prevScrollHeightRef = useRef(0);
   const prevScrollTopRef = useRef(0);
@@ -76,9 +152,12 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
   const bottomRef = useRef<HTMLDivElement>(null);
   const loadMoreLock = useRef(false);
   const autoFillActiveRef = useRef(true);
+  const autoLoadCooldownRef = useRef(0); // 自动Load冷却Time戳
+  const recursiveLoadCount = useRef(0); // RecursiveLoad计数器
+  const maxRecursiveLoads = 5; // MaximumRecursiveLoad次数
 
-  // 平滑分页：加载更多前记录 scrollHeight 和 scrollTop，加载后补偿 scrollTop，保持用户当前视图不跳动（新数据加载在底部）
-  const handleLoadMore = async () => {
+  // 平滑分页：Load更多前记录 scrollHeight 和 scrollTop，Load后补偿 scrollTop，保持UserWhen前视图不跳动（新DataLoad在Bottom）
+  const handleLoadMore = React.useCallback(async () => {
     if (loadMoreLock.current) {
       return;
     }
@@ -90,9 +169,9 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
     }
     await loadMore();
     loadMoreLock.current = false;
-  };
+  }, [loadMore]);
 
-  // 只在首次加载时自动滚到顶部
+  // 只在首次Load时自动滚到Top
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -102,13 +181,14 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
     }
   }, [isInitialLoading, chatNotificationItems.length]);
 
-  // 切换 chatId 时重置自动补齐标志和滚动状态
+  // Toggle chatId 时Reset自动补齐标志和ScrollStatus
   useEffect(() => {
     autoFillActiveRef.current = true;
     hasInitLoadedRef.current = false;
+    recursiveLoadCount.current = 0; // ResetRecursive计数器
   }, [chatId]);
 
-  // 监听 scroll 事件，用户向下滚动到底部时自动加载更多
+  // Listen scroll Event，User向下Scroll到Bottom时自动Load更多
   useEffect(() => {
     if (isInitialLoading) return;
     const container = containerRef.current;
@@ -129,36 +209,71 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
     return () => container.removeEventListener('scroll', handleScroll);
   }, [isInitialLoading, chatNotificationItems.length, hasMore, loadingMore]);
 
-  // 分页后补偿 scrollTop，保持用户当前视图不跳动（新数据加载在底部）
+  // 分页后补偿 scrollTop，保持UserWhen前视图不跳动（新DataLoad在Bottom）
   useEffect(() => {
     if (loadingMore) return;
     const container = containerRef.current;
     if (!container) return;
     if (prevScrollHeightRef.current > 0) {
-      const newScrollHeight = container.scrollHeight;
       container.scrollTop = prevScrollTopRef.current;
       prevScrollHeightRef.current = 0;
       prevScrollTopRef.current = 0;
       if (autoFillActiveRef.current && container.scrollHeight <= container.clientHeight && hasMore) {
-        handleLoadMore();
+        const now = Date.now();
+        if (now - autoLoadCooldownRef.current > 250) {
+          autoLoadCooldownRef.current = now;
+          handleLoadMore();
+        }
       } else {
         autoFillActiveRef.current = false;
       }
     }
-  }, [chatNotificationItems, loadingMore]);
+  }, [chatNotificationItems, loadingMore, hasMore, handleLoadMore]);
 
-  // 数据和界面更新后再检查 bottomRef 是否可见，递归触发 handleLoadMore
+  // Data和界面Update后再Check bottomRef 是否可见，RecursiveTrigger handleLoadMore（带保护机制）
   useEffect(() => {
     const container = containerRef.current;
     if (!container || !bottomRef.current || loadingMore || !hasMore) return;
+    
+    // CheckRecursiveLoad次数Limit
+    if (recursiveLoadCount.current >= maxRecursiveLoads) {
+      console.warn('[ChatNotification] Recursive load limit reached, stopping auto-load');
+      return;
+    }
+    
     const containerRect = container.getBoundingClientRect();
     const bottomRect = bottomRef.current.getBoundingClientRect();
     if (bottomRect.top < containerRect.bottom && bottomRect.bottom > containerRect.top) {
-      setTimeout(handleLoadMore, 0);
+      const now = Date.now();
+      if (now - autoLoadCooldownRef.current <= 250) {
+        return;
+      }
+      autoLoadCooldownRef.current = now;
+      recursiveLoadCount.current += 1;
+      console.debug(`[ChatNotification] Auto-loading more (${recursiveLoadCount.current}/${maxRecursiveLoads})`);
+      handleLoadMore().then(() => {
+        // LoadCompleted后，If还有更多Data且未达到Limit，Allow继续
+        if (!hasMore) {
+          recursiveLoadCount.current = 0; // 没有更多Data时Reset计数器
+        }
+      });
     }
-  }, [chatNotificationItems, loadingMore, hasMore]);
+  }, [chatNotificationItems, loadingMore, hasMore, handleLoadMore]);
 
   const displayChatNotifications = chatNotificationItems.filter((n: any) => !!n);
+
+  const handleClearAll = () => {
+    if (chatId) {
+      notificationManager.clear(chatId);
+    }
+  };
+
+  // Auto-expand first notification on load
+  useEffect(() => {
+    if (displayChatNotifications.length > 0 && activeKeys.length === 0) {
+      setActiveKeys([`${displayChatNotifications[0].uid}_0`]);
+    }
+  }, [displayChatNotifications.length]);
 
   if (isInitialLoading) {
     return (
@@ -177,22 +292,52 @@ const ChatNotification: React.FC<ChatNotificationProps> = ({ chatId, isInitialLo
   }
 
   return (
-    <NotifyContainer ref={containerRef}>
-      {displayChatNotifications.map((n, i) => (
-        <React.Fragment key={`${n.uid}_${i}`}>
-          <div style={{ marginBottom: 16 }}>
-            <NotificationTemplateRenderer content={n.content} />
+    <>
+      <HeaderContainer>
+        <Button
+          type="text"
+          icon={<ClearOutlined />}
+          onClick={handleClearAll}
+          style={{ color: 'rgba(255, 255, 255, 0.65)' }}
+        >
+          Clear All
+        </Button>
+      </HeaderContainer>
+      <NotifyContainer ref={containerRef}>
+        <StyledCollapse
+          activeKey={activeKeys}
+          onChange={(keys) => setActiveKeys(keys as string[])}
+          expandIcon={({ isActive }) => <DownOutlined rotate={isActive ? 180 : 0} />}
+          ghost
+        >
+          {[...displayChatNotifications].reverse().map((n, i) => {
+            const key = `${n.uid}_${i}`;
+            const timestamp = n.timestamp ? formatDate(n.timestamp) : '';
+            return (
+              <Panel
+                header={
+                  <div>
+                    <div style={{ fontWeight: 500 }}>
+                      {t('pages.chat.chatNotification.notification')} #{i + 1}
+                    </div>
+                    <TimestampText>{timestamp}</TimestampText>
+                  </div>
+                }
+                key={key}
+              >
+                <NotificationTemplateRenderer content={n.content} />
+              </Panel>
+            );
+          })}
+        </StyledCollapse>
+        <div ref={bottomRef} style={{ height: 20 }} />
+        {!hasMore && displayChatNotifications.length > 0 && (
+          <div style={{ textAlign: 'center', color: 'rgba(255, 255, 255, 0.5)', marginTop: 16 }}>
+            {t('pages.chat.chatNotification.noMore')}
           </div>
-          {i < displayChatNotifications.length - 1 && (
-            <Divider orientation="center" style={{ color: '#aaa', fontSize: 12 }}>
-              {n.timestamp ? formatDate(n.timestamp, t) : ''}
-            </Divider>
-          )}
-        </React.Fragment>
-      ))}
-      <div ref={bottomRef} style={{ height: 20 }} />
-      {!hasMore && <div style={{textAlign: 'center'}}>{t('pages.chat.chatNotification.noMore')}</div>}
-    </NotifyContainer>
+        )}
+      </NotifyContainer>
+    </>
   );
 };
 

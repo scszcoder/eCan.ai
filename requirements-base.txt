@@ -1,271 +1,401 @@
-acres==0.3.0
-aioconsole==0.7.1
-aiofiles>=23.0.0
-aiohappyeyeballs==2.4.4
-aiohttp>=3.11.11
-aiolimiter==1.2.1
-aiosignal==1.3.1
-altgraph==0.17.4
-annotated-types==0.7.0
-anyio==4.9.0
-asgiref==3.8.1
-asttokens==3.0.0
-attrs==23.2.0
-backcall==0.2.0
-backoff==2.2.1
-bcrypt==4.3.0
-beautifulsoup4==4.13.3
-bleach>=6.2.0
-blinker==1.9.0
-boto3==1.34.139
-botocore==1.34.139
-build==1.2.2.post1
-cachetools==5.5.0
-certifi==2024.8.30
-cffi==1.16.0
-chardet==5.2.0
-charset-normalizer==3.3.2
-chroma-hnswlib==0.7.6
-ci-info==0.3.0
-click==8.1.7
-colorama==0.4.6
-coloredlogs==15.0.1
-colorlog==6.8.2
-configobj==5.0.9
-configparser==7.2.0
-crontab==1.0.1
-cryptography==42.0.7
-decorator==5.2.1
-deepdiff==8.0.1
-defusedxml==0.7.1
-Deprecated==1.2.18
-distro==1.9.0
-docopt==0.6.2
-durationpy==0.9
-EasyProcess==1.1
-entrypoint2==1.1
-envs==1.4
-esprima==4.0.1
-et-xmlfile==1.1.0
-etelemetry==0.3.1
-executing==2.2.0
+# ============================================================================
+# WEB FRAMEWORKS & API
+# ============================================================================
 fastapi==0.115.11
-fastjsonschema==2.21.1
-filelock==3.18.0
-flask>=3.1.1
-flatbuffers==25.2.10
-frozenlist==1.4.1
-fsspec==2025.3.0
-future==1.0.0
-fuzzywuzzy==0.18.0
-gevent==24.2.1
-google-api-core>=2.25.1
-google-auth>=2.40.1
-google-auth-httplib2>=0.2.0
-google-auth-oauthlib>=1.2.2
-googleapis-common-protos>=1.70.0
-greenlet>=3.2.3
-grpcio>=1.74.0
-h11==0.14.0
-httpcore==1.0.7
-httplib2==0.22.0
-httptools==0.6.4
+flask==3.1.2
+starlette==0.46.1
+uvicorn==0.34.0
+sse-starlette==2.2.1
+
+# ============================================================================
+# AI & MACHINE LEARNING - LANGCHAIN ECOSYSTEM
+# ============================================================================
+langchain==0.3.27
+langchain-core==0.3.75
+langchain-text-splitters==0.3.11
+langchain-openai==0.3.32
+langchain-community==0.3.29
+langchain-anthropic==0.3.19
+langchain-deepseek==0.1.4
+langchain-qwq==0.2.1
+langchain-google-genai==2.1.10
+langchain-mcp-adapters==0.1.9
+langsmith==0.4.25
+langgraph==0.6.5
+
+# ============================================================================
+# AI & MACHINE LEARNING - EMBEDDING PROVIDERS (Optional Dependencies)
+# ============================================================================
+# DashScope (Alibaba Qwen) embeddings support
+dashscope==1.25.0
+
+# ============================================================================
+# AI & MACHINE LEARNING - MEMORY & RETRIEVAL
+# ============================================================================
+mem0ai==0.1.117
+langmem==0.0.29
+chroma-hnswlib==0.7.6
+
+# ============================================================================
+# AI & MACHINE LEARNING - LLM PROVIDERS & MODELS
+# ============================================================================
+openai==1.99.9
+ollama>=0.1.0,<1.0.0        # Required by mem0, browser_use, langchain
+anthropic>=0.18.0,<1.0.0    # Anthropic Claude (optional LLM provider)
+voyageai>=0.2.0,<1.0.0      # Voyage AI embeddings (optional)
+tokenizers==0.21.1
+safetensors==0.5.3
+
+# ============================================================================
+# DATA SCIENCE & COMPUTATION
+# ============================================================================
+numpy==1.26.4
+pandas==2.2.3
+scipy==1.15.2
+joblib==1.4.2
+threadpoolctl==3.6.0
+
+# ============================================================================
+# COMPUTER VISION & IMAGE PROCESSING
+# ============================================================================
+opencv-python==4.11.0.86
+pillow==11.2.1
+pdf2image==1.17.0
+imutils==0.5.4
+pytesseract==0.3.13
+
+# ============================================================================
+# WEB SCRAPING & AUTOMATION
+# ============================================================================
+selenium==4.32.0
+playwright==1.54.0
+browser-use==0.9.5
+crawl4ai==0.7.1
+webdriver-manager==4.0.2
+fake-useragent==2.2.0
+beautifulsoup4==4.13.3
+soupsieve==2.5
+
+# ============================================================================
+# GUI & DESKTOP AUTOMATION
+# ============================================================================
+PySide6==6.9.1
+shiboken6==6.9.1
+PyAutoGUI==0.9.54
+pynput==1.7.7
+keyboard==0.13.5
+MouseInfo==0.1.3
+PyGetWindow==0.0.9
+PyRect==0.2.0
+PyScreeze==1.0.1
+pyscreenshot==3.1
+mss==9.0.1
+pytweening==1.2.0
+
+# ============================================================================
+# HTTP & NETWORKING
+# ============================================================================
+aiohttp==3.12.15
 httpx==0.28.1
 httpx-sse==0.4.0
-idna==3.7
-importlib_metadata==8.0.0
-importlib_resources==6.5.2
-ipython==8.12.3
-isodate==0.6.1
-itsdangerous==2.2.0
-jedi==0.19.1
-Jinja2==3.1.4
-jiter==0.9.0
-jmespath==1.0.1
-joblib==1.4.2
+httpcore==1.0.7
+httptools==0.6.4
+httplib2==0.22.0
+requests==2.32.5
+requests-aws4auth==1.3.1
+requests-oauthlib==2.0.0
+requests-toolbelt==1.0.0
+websocket-client==1.8.0
+websockets==15.0.1
+h11==0.14.0
+trio-websocket==0.11.1
+wsproto==1.2.0
+ping3==4.0.8
+
+# ============================================================================
+# ASYNC & CONCURRENCY
+# ============================================================================
+aiofiles==24.1.0
+aioconsole==0.7.1
+aiohappyeyeballs==2.6.1
+aiolimiter==1.2.1
+aiosignal==1.4.0
+anyio==4.9.0
+asgiref==3.8.1
+gevent==24.2.1
+greenlet==3.2.4
+trio==0.26.0
+qasync==0.27.1
+
+# ============================================================================
+# CLOUD & AWS
+# ============================================================================
+boto3==1.39.11
+botocore==1.39.11
+aiobotocore==2.24.1
+s3transfer==0.13.1
+
+# ============================================================================
+# GOOGLE CLOUD & APIS
+# ============================================================================
+
+# ============================================================================
+# AUTHENTICATION & SECURITY
+# ============================================================================
+bcrypt==4.3.0
+cryptography==43.0.1
+PyJWT==2.10.1
+python-jose==3.5.0
+jwcrypto==1.5.6
+keyring==25.2.1
+oauthlib==3.2.2
+pyasn1==0.6.1
+pyasn1_modules==0.4.1
+rsa==4.9
+
+# ============================================================================
+# DATABASE & STORAGE
+# ============================================================================
+SQLAlchemy==2.0.41
+PyPika==0.48.9
+
+# ============================================================================
+# MONITORING & TELEMETRY
+# ============================================================================
+posthog==3.20.0
+
+# ============================================================================
+# TESTING
+# ============================================================================
+
+# ============================================================================
+# DEVELOPMENT & BUILD TOOLS
+# ============================================================================
+pyinstaller==6.15.0
+pyproject_hooks==1.2.0
+setuptools>=80.9.0
+wheel==0.45.1
+
+# ============================================================================
+# JUPYTER & NOTEBOOKS
+# ============================================================================
+
+# ============================================================================
+# DATA FORMATS & SERIALIZATION
+# ============================================================================
+PyYAML==6.0.2
+orjson==3.10.15
+simplejson==3.20.1
 jsonpatch==1.33
 jsonpointer==3.0.0
 jsonschema==4.23.0
 jsonschema-specifications==2024.10.1
-keyboard==0.13.5
-langchain==0.3.27
-langchain-core==0.3.74
-langchain-text-splitters==0.3.9
-langchain-openai==0.3.30
-langchain_mcp_adapters==0.1.9
-langchain_community==0.3.27
-langchain_deepseek==0.1.4
-langchain_qwq==0.2.1
-langsmith==0.4.14
-looseversion==1.3.0
-MarkupSafe==3.0.2
-matplotlib-inline==0.1.7
-mdurl==0.1.2
-mistune==3.1.3
-mmh3==5.1.0
-monotonic==1.6
-MouseInfo==0.1.3
-mpmath==1.3.0
-mss==9.0.1
-multidict==6.0.5
-nbclient==0.10.2
-nbconvert==7.16.6
-nbformat==5.10.4
-networkx==3.4.2
-nibabel==5.3.2
-numpy==1.26.4
-oauthlib==3.2.2
-openai==1.99.9
-opencv-python==4.11.0.86
-openpyxl==3.1.2
-opentelemetry-api==1.31.0
-opentelemetry-exporter-otlp-proto-common==1.31.0
-opentelemetry-exporter-otlp-proto-grpc==1.31.0
-opentelemetry-instrumentation==0.52b0
-opentelemetry-instrumentation-asgi==0.52b0
-opentelemetry-instrumentation-fastapi==0.52b0
-opentelemetry-proto==1.31.0
-opentelemetry-sdk==1.31.0
-opentelemetry-semantic-conventions==0.52b0
-opentelemetry-util-http==0.52b0
-orderly-set==5.2.2
-orjson==3.10.15
-outcome==1.3.0.post0
-overrides==7.7.0
-packaging==24.1
-pandas==2.2.3
-pandocfilters==1.5.1
-parso==0.8.4
-pdf2image>=1.17.0
-pefile==2023.2.7
-pickleshare==0.7.5
-pillow==11.2.1
-ping3==4.0.8
-pipreqs==0.5.0
-platformdirs==4.3.7
-posthog==3.20.0
-prompt_toolkit==3.0.51
-propcache==0.2.1
+protobuf>=5.29.0,<6.0.0
 proto-plus==1.25.0
-protobuf==5.29.4
-prov==2.0.1
-psutil>=6.1.0
-pure_eval==0.2.3
-puremagic==1.28
-py-cpuinfo==9.0.0
-pyasn1==0.6.1
-pyasn1_modules==0.4.1
-PyAutoGUI==0.9.54
-pycognito==2024.5.1
-pycparser==2.22
-pydantic>=2.11.7
-PyGetWindow==0.0.9
-pyinstaller==6.15.0
-pynput==1.7.7
-pyparsing==3.2.0
+flatbuffers==25.2.10
+
+# ============================================================================
+# FILE PROCESSING & COMPRESSION
+# ============================================================================
+openpyxl==3.1.2
 PyPDF2==3.0.1
-pyperclip==1.9.0
-PyPika==0.48.9
-pyproject_hooks==1.2.0
-pyreadline3==3.5.4
-PyRect==0.2.0
-pyscreenshot==3.1
-PyScreeze==1.0.1
-PySide6==6.9.1
-PySocks==1.7.1
-python-crontab==3.1.0
-python-dateutil==2.9.0.post0
-python-dotenv>=1.0.1
-python-Levenshtein==0.25.1
-pytweening==1.2.0
-pytz==2025.2
-pyxnat==1.6.3
-PyYAML==6.0.2
-pyzmq==26.3.0
-qasync==0.27.1
-rapidfuzz==3.9.4
-rarfile==4.2
-rdflib==6.3.2
-referencing==0.36.2
-regex==2024.11.6
-requests==2.32.3
-requests-aws4auth==1.2.3
-requests-oauthlib==2.0.0
-requests-toolbelt==1.0.0
-rich==13.9.4
-rpds-py==0.24.0
-rsa==4.9
-s3transfer==0.10.2
-safetensors==0.5.3
-schedule==1.2.2
-scipy==1.15.2
-selenium>=4.30.0
-setproctitle==1.3.3
-setuptools>=80.9.0
-shellingham==1.5.4
-shiboken6==6.9.1
-simplejson==3.20.1
-six==1.16.0
-sniffio==1.3.1
-sortedcontainers==2.4.0
-soupsieve==2.5
-SQLAlchemy==2.0.41
-sse-starlette==2.2.1
-stack-data==0.6.3
-starlette==0.46.1
-tenacity==8.5.0
-threadpoolctl==3.6.0
-tinycss2>=1.4.0
-tokenizers==0.21.1
-tornado==6.4.2
-tqdm==4.67.1
-traitlets==5.14.3
-traits==7.0.2
-transitions==0.9.1
-trio==0.26.0
-trio-websocket==0.11.1
-TwoCaptcha==0.0.1
+lzstring==1.0.4
+
+# ============================================================================
+# DOCUMENT PROCESSING
+# ============================================================================
+python-docx==1.1.2          # Word (.docx) processing
+python-pptx==1.0.2          # PowerPoint (.pptx) processing
+pycryptodome==3.21.0        # Encrypted document support
+PyMuPDF==1.24.14
+
+# ============================================================================
+# TEXT PROCESSING & NLP
+# ============================================================================
+
+# ============================================================================
+# UTILITIES & HELPERS
+# ============================================================================
+click==8.3.0
 typer==0.15.2
-typing_extensions>=4.14.0
-tzdata==2024.1
-tzlocal==5.2
-uritemplate==4.1.1
-urllib3>=2.0.0
-uvicorn==0.34.0
+rich==14.2.0
+tqdm==4.67.1
+tenacity==8.5.0
+backoff==2.2.1
+
+# ============================================================================
+# SYSTEM & PROCESS MANAGEMENT
+# ============================================================================
+psutil==7.0.0
+setproctitle==1.3.3
 watchdog==4.0.1
 watchfiles==1.1.0
-wcwidth==0.2.13
-webdriver-manager>=4.0.2
-webencodings==0.5.1
-websocket-client==1.8.0
-websockets>=15.0.1
-Werkzeug==3.1.3
-wheel==0.45.1
+py-cpuinfo==9.0.0
+distro==1.9.0
+
+# ============================================================================
+# CONFIGURATION & ENVIRONMENT
+# ============================================================================
+python-dotenv==1.2.1
+
+# ============================================================================
+# LOGGING & OUTPUT
+# ============================================================================
+colorlog==6.8.2
+
+# ============================================================================
+# CORE PYTHON UTILITIES
+# ============================================================================
+typing_extensions==4.15.0
+annotated-types==0.7.0
+attrs==23.2.0
+decorator==5.2.1
+six==1.16.0
 wrapt==1.17.2
-wsproto==1.2.0
-xlrd==2.0.1
-yarg==0.1.9
-yarl==1.18.3
+overrides==7.7.0
+Deprecated==1.2.18
+
+# ============================================================================
+# PACKAGING & METADATA
+# ============================================================================
+packaging==25.0
+importlib_metadata==8.0.0
+importlib_resources==6.5.2
 zipp==3.19.2
+platformdirs==4.3.7
+
+# ============================================================================
+# DATETIME & TIMEZONE
+# ============================================================================
+python-dateutil==2.9.0.post0
+pytz==2025.2
+tzdata==2024.1
+tzlocal==5.2
+isodate==0.6.1
+
+# ============================================================================
+# NETWORK & URL HANDLING
+# ============================================================================
+urllib3==2.5.0
+idna==3.7
+certifi==2024.8.30
+charset-normalizer==3.3.2
+chardet==5.2.0
+uritemplate==4.1.1
+PySocks==1.7.1
+
+# ============================================================================
+# CACHING & PERFORMANCE
+# ============================================================================
+cachetools==5.5.0
+filelock==3.18.0
+fsspec==2025.3.0
+
+# ============================================================================
+# VALIDATION & SCHEMAS
+# ============================================================================
+pydantic==2.12.3
+fastjsonschema==2.21.1
+referencing==0.36.2
+
+# ============================================================================
+# TEMPLATE & MARKUP
+# ============================================================================
+Jinja2==3.1.4
+MarkupSafe==3.0.2
+
+# ============================================================================
+# SCIENTIFIC & SPECIALIZED
+# ============================================================================
+networkx==3.4.2
+
+# ============================================================================
+# MISCELLANEOUS & LEGACY
+# ============================================================================
+acres==0.3.0
+altgraph==0.17.4
+asttokens==3.0.0
+backcall==0.2.0
+cffi==1.16.0
+deepdiff==8.0.1
+defusedxml==0.7.1
+docopt==0.6.2
+EasyProcess==1.1
+entrypoint2==1.1
+esprima==4.0.1
+et-xmlfile==1.1.0
+executing==2.2.0
+frozenlist==1.4.1
+itsdangerous==2.2.0
+jiter==0.9.0
+jmespath==1.0.1
+looseversion==1.3.0
+mmh3==5.1.0
+mpmath==1.3.0
+multidict==6.0.5
+orderly-set==5.2.2
+outcome==1.3.0.post0
+pandocfilters==1.5.1
+parso==0.8.4
+pefile==2023.2.7
+pickleshare==0.7.5
+propcache==0.2.1
+pure_eval==0.2.3
+puremagic==1.28
+pycparser==2.22
+pyperclip==1.9.0
+pyreadline3==3.5.4
+pyzmq==26.3.0
+rpds-py==0.24.0
+shellingham==1.5.4
+sniffio==1.3.1
+sortedcontainers==2.4.0
+stack-data==0.6.3
+tornado==6.4.2
+traitlets==5.14.3
+wcwidth==0.2.13
+Werkzeug==3.1.3
+yarl==1.18.3
 zope.event==5.0
 zope.interface==6.4.post2
-zstandard==0.23.0
-pytesseract==0.3.13
-jwcrypto==1.5.6
-langgraph==0.6.5
-mcp==1.13.0
-lzstring==1.0.4
-mem0ai==0.1.116
-pytest-cov>=4.1.0
-pytest==8.2.2
-pytest-asyncio==1.0.0
-langmem==0.0.29
-lightrag-hku>=1.4.6
-faiss-cpu>=1.11.0.post1
-browser-use==0.5.5
-playwright==1.54.0
-crawl4ai==0.7.1
-fake-useragent==2.2.0
+TwoCaptcha==0.0.1
+mcp==1.20.0
 asteval==1.0.6
-PyJWT>=2.8.0
-keyring>=24.3.1
+markdown==3.5.1
+
+# ============================================================================
+# LIGHTRAG CORE DEPENDENCIES
+# ============================================================================
+lightrag-hku==1.4.9.8
+ascii_colors==0.11.4        # Terminal color output (LightRAG internal)
+configparser==7.2.0         # Configuration file parsing
+future==1.0.0               # Python 2/3 compatibility
+google-genai>=1.0.0,<2.0.0  # Google Gemini support
+json_repair==0.40.0         # JSON repair utility
+nano-vectordb==0.0.4.3      # Lightweight vector database
+pipmaster==1.0.10           # Package management utility
+pypinyin==0.55.0            # Chinese pinyin conversion
+tiktoken==0.12.0            # Token counting for LLM
+xlsxwriter==3.2.9           # Excel file writing
+python-multipart==0.0.20    # Multipart form data parsing (FastAPI)
+passlib==1.7.4              # Password hashing (WebUI authentication)
+
+# ============================================================================
+# LIGHTRAG OPTIONAL BACKENDS - Vector Storage
+# All backends included in build for runtime flexibility
+# ============================================================================
+faiss-cpu==1.12.0           # FAISS vector storage (default, recommended)
+pymilvus>=2.6.2,<3.0.0      # Milvus vector database
+qdrant-client>=1.7.0,<2.0.0 # Qdrant vector database
+pgvector>=0.3.0,<1.0.0      # PostgreSQL pgvector extension
+asyncpg>=0.29.0,<1.0.0      # PostgreSQL async client (required for pgvector)
+psycopg2-binary             # PostgreSQL sync client (required for pgvector)
+
+# ============================================================================
+# LIGHTRAG OPTIONAL BACKENDS - Graph Storage
+# All backends included in build for runtime flexibility
+# ============================================================================
+neo4j>=5.0.0,<7.0.0         # Neo4j graph database (recommended)
+# gqlalchemy>=1.4.0,<2.0.0    # Memgraph graph database
+redis>=5.0.0,<8.0.0         # Redis storage backend
+pymongo>=4.0.0,<5.0.0       # MongoDB storage backend

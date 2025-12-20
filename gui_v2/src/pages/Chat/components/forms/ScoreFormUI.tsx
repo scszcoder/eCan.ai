@@ -1,7 +1,31 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { Card, Tooltip, Input, Button, Typography, Table, Slider } from '@douyinfe/semi-ui';
 import { IconInfoCircle, IconFolder, IconFile, IconChevronDown, IconChevronRight } from '@douyinfe/semi-icons';
 import { useTranslation } from 'react-i18next';
+
+// Text content component for displaying chat-like text above form
+const TextContent: React.FC<{ text?: string }> = ({ text }) => {
+  if (!text?.trim()) return null;
+  return (
+    <div style={{ 
+      marginBottom: 20, 
+      padding: 16, 
+      backgroundColor: 'var(--semi-color-bg-1)',
+      borderRadius: 8,
+      border: '1px solid var(--semi-color-border)'
+    }}>
+      <Typography.Paragraph style={{ 
+        whiteSpace: 'pre-wrap', 
+        wordBreak: 'break-word',
+        margin: 0,
+        lineHeight: 1.6,
+        color: 'var(--semi-color-text-0)'
+      }}>
+        {text}
+      </Typography.Paragraph>
+    </div>
+  );
+};
 
 interface ScoreComponent {
   name: string;
@@ -28,7 +52,7 @@ interface ScoreFormData {
 }
 
 interface ScoreFormUIProps {
-  form: ScoreFormData;
+  form: ScoreFormData & { text?: string };
   onSubmit?: (form: ScoreFormData, chatId?: string, messageId?: string) => void;
   chatId?: string;
   messageId?: string;
@@ -40,11 +64,11 @@ function checkWeightSum(components: ScoreComponent[]): boolean {
   return Math.abs(sum - 1) < 1e-6;
 }
 
-// 1. 工具函数：生成唯一ID
+// 1. ToolFunction：生成唯一ID
 function genRowId() {
   return Math.random().toString(36).slice(2) + Date.now();
 }
-// 初始化时为每个 score_lut 生成 _lutRowIds
+// Initialize时为每个 score_lut 生成 _lutRowIds
 function addLutRowIds(obj: any) {
   if (obj && typeof obj === 'object') {
     if (obj.score_lut && !obj._lutRowIds) {
@@ -67,21 +91,21 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
   });
   const [collapsedStates, setCollapsedStates] = useState<Record<string, boolean>>({});
 
-  // 工具函数：递归定位到path的对象
+  // ToolFunction：RecursivePositioning到path的对象
   const getNodeByPath = (obj: any, path: string[]) => {
     let node = obj;
     for (const p of path) node = node[p];
     return node;
   };
 
-  // score_lut 操作
+  // score_lut Operation
   const updateLutKey = (path: string[], idx: number, newKey: string) => {
     setFormState(prev => {
       const newState = JSON.parse(JSON.stringify(prev));
       const node = getNodeByPath(newState, path);
       const entries = Object.entries(node.score_lut || {});
       const [oldKey, value] = entries[idx];
-      // 更新 _lutRowIds
+      // Update _lutRowIds
       if (!node._lutRowIds) node._lutRowIds = {};
       const rowId = node._lutRowIds[oldKey] || genRowId();
       delete node._lutRowIds[oldKey];
@@ -131,7 +155,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
     });
   };
 
-  // 切换折叠状态
+  // Toggle折叠Status
   const toggleCollapse = (path: string[]) => {
     const pathKey = path.join('.');
     setCollapsedStates(prev => ({
@@ -140,12 +164,12 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
     }));
   };
 
-  // 递归渲染评分项/分组
+  // RecursiveRender评分项/分组
   const renderComponent = (comp: ScoreComponent, path: string[] = [], parentComponents?: ScoreComponent[]) => {
     const pathKey = path.join('.');
     const isCollapsed = collapsedStates[pathKey] || false;
 
-    // 分组组件
+    // 分组Component
     if (comp.components && Array.isArray(comp.components)) {
       // 校验同级weight
       const weightOk = checkWeightSum(comp.components);
@@ -175,7 +199,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
               {comp.tooltip && <Tooltip content={comp.tooltip}><IconInfoCircle style={{ marginLeft: 6, verticalAlign: 'middle', cursor: 'pointer' }} /></Tooltip>}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <label style={{ color: 'var(--semi-color-text-2)', fontSize: 14 }}>{t('pages.chat.scoreForm.weight')}</label>
+              <span style={{ color: 'var(--semi-color-text-2)', fontSize: 14 }}>{t('pages.chat.scoreForm.weight')}</span>
               <Input
                 value={comp.weight ?? ''}
                 onChange={v => {
@@ -219,7 +243,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
       }
       return (
         <div key={pathKey} style={{ marginBottom: 20 }}>
-          {/* 父组件 */}
+          {/* 父Component */}
           <Card
             style={{
               marginBottom: 16,
@@ -250,7 +274,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
                 )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <label style={{ color: 'var(--semi-color-text-2)', fontSize: 14 }}>{t('pages.chat.scoreForm.weight')}</label>
+                <span style={{ color: 'var(--semi-color-text-2)', fontSize: 14 }}>{t('pages.chat.scoreForm.weight')}</span>
                 <Input
                   value={comp.weight ?? ''}
                   onChange={v => {
@@ -271,10 +295,10 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
             
             {!isCollapsed && (
               <>
-                {/* 父组件字段 */}
+                {/* 父ComponentField */}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <label style={{ minWidth: 64, color: 'var(--semi-color-text-2)', textAlign: 'left' }}>{t('pages.chat.scoreForm.scoreFormula')}</label>
+                    <span style={{ minWidth: 64, color: 'var(--semi-color-text-2)', textAlign: 'left' }}>{t('pages.chat.scoreForm.scoreFormula')}</span>
                     <Input
                       value={comp.score_formula ?? ''}
                       onChange={v => {
@@ -349,7 +373,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
           </Card>
           
           {!isCollapsed && (
-            /* 子组件容器 */
+            /* 子ComponentContainer */
             <div style={{ 
               marginLeft: path.length > 1 ? 32 : 8, 
               paddingLeft: 16, 
@@ -374,14 +398,14 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
                 <IconFile style={{ fontSize: 10 }} />
               </div>
               
-              {/* 渲染子组件 */}
+              {/* Render子Component */}
               <div style={{ paddingTop: 16 }}>
                 {Object.entries(comp.raw_value).map(([k, v]) => {
-                  // 为子组件添加名称显示
+                  // 为子ComponentAddNameDisplay
                   const childComponent = v as ScoreComponent;
                   const childWithName = {
                     ...childComponent,
-                    name: k // 使用key作为名称
+                    name: k // 使用key作为Name
                   };
                   return renderComponent(childWithName, [...path, 'raw_value', k], Object.values(comp.raw_value) as ScoreComponent[]);
                 })}
@@ -417,7 +441,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
             {comp.tooltip && <Tooltip content={comp.tooltip}><IconInfoCircle style={{ marginLeft: 6, verticalAlign: 'middle', cursor: 'pointer' }} /></Tooltip>}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <label style={{ color: 'var(--semi-color-text-2)', fontSize: 14 }}>{t('pages.chat.scoreForm.weight')}</label>
+            <span style={{ color: 'var(--semi-color-text-2)', fontSize: 14 }}>{t('pages.chat.scoreForm.weight')}</span>
             <Input
               value={comp.weight ?? ''}
               onChange={v => {
@@ -439,7 +463,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
         {!isCollapsed && (
           <>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                <label style={{ minWidth: 64, color: '#888', textAlign: 'left' }}>{t('pages.chat.scoreForm.rawValue')}</label>
+                <span style={{ minWidth: 64, color: '#888', textAlign: 'left' }}>{t('pages.chat.scoreForm.rawValue')}</span>
               <span style={{ color: '#fff' }}>
                 {(typeof comp.raw_value === 'string' || typeof comp.raw_value === 'number')
                   ? `${comp.raw_value} ${comp.unit || ''}`
@@ -447,7 +471,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
               </span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <label style={{ minWidth: 64, color: '#888', textAlign: 'left' }}>{t('pages.chat.scoreForm.targetValue')}</label>
+              <span style={{ minWidth: 64, color: '#888', textAlign: 'left' }}>{t('pages.chat.scoreForm.targetValue')}</span>
               <Input
                 value={comp.target_value ?? comp.raw_value ?? ''}
                 onChange={v => {
@@ -479,7 +503,7 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
               )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-              <label style={{ minWidth: 64, color: '#888', textAlign: 'left' }}>{t('pages.chat.scoreForm.scoreFormula')}</label>
+              <span style={{ minWidth: 64, color: '#888', textAlign: 'left' }}>{t('pages.chat.scoreForm.scoreFormula')}</span>
               <Input
                 value={comp.score_formula ?? ''}
                 onChange={v => {
@@ -555,21 +579,26 @@ const ScoreFormUI: React.FC<ScoreFormUIProps> = ({ form, onSubmit, chatId, messa
   };
 
   return (
-    <Card bodyStyle={{ padding: 28 }}>
-      {form.title && (
-        <>
-          <Typography.Title heading={4} style={{ textAlign: 'center', marginBottom: 8 }}>{form.title}</Typography.Title>
-          <div style={{ borderBottom: '1px solid var(--semi-color-border)', margin: '0 auto 16px auto', width: '60%' }} />
-        </>
-      )}
+    <div>
+      {/* Display text content above the form if it exists */}
+      <TextContent text={form.text} />
       
-      {/* 渲染所有第一层组件 */}
-      {Array.isArray(formState.components) && formState.components.map((comp, idx) => renderComponent(comp, ['components', String(idx)], formState.components))}
-      
-      <div style={{ display: 'flex', justifyContent: 'center', marginTop: 24 }}>
-        <Button type="primary" size="large" theme="solid" style={{ minWidth: 120, fontWeight: 600, borderRadius: 8 }} onClick={handleSubmit}>{t('pages.chat.scoreForm.save')}</Button>
-      </div>
-    </Card>
+      <Card bodyStyle={{ padding: 28 }}>
+        {form.title && (
+          <>
+            <Typography.Title heading={4} style={{ textAlign: 'center', marginBottom: 8 }}>{form.title}</Typography.Title>
+            <div style={{ borderBottom: '1px solid var(--semi-color-border)', margin: '0 auto 16px auto', width: '60%' }} />
+          </>
+        )}
+        
+        {/* RenderAll第一层Component */}
+        {Array.isArray(formState.components) && formState.components.map((comp, idx) => renderComponent(comp, ['components', String(idx)], formState.components))}
+        
+        <div style={{ display: 'flex', justifyContent: 'center', marginTop: 24 }}>
+          <Button type="primary" size="large" theme="solid" style={{ minWidth: 120, fontWeight: 600, borderRadius: 8 }} onClick={handleSubmit}>{t('pages.chat.scoreForm.save')}</Button>
+        </div>
+      </Card>
+    </div>
   );
 };
 

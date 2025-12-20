@@ -1,16 +1,16 @@
 from agent.ec_skill import NodeState
 
-def prep_search_parts_skill(agent, msg=None, current_state=None):
-    print("init_search_parts_skill", type(msg), msg)  # msg.params.message[0].text
+def prep_search_parts_skill(agent, task_id, msg=None, current_state=None):
+    logger.debug("init_search_parts_skill", type(msg), msg)  # msg.params.message[0].text
 
     attachments = []
     msg_txt = ""
     init_state = NodeState(
-        messages=[agent.card.id, msg_txt],
+        messages=[agent.card.id, "", "", task_id, msg_txt],
         input=msg_txt,
         attachments=attachments,
         prompts=[],
-        formatted_prompts=[],
+        history=[],
         attributes={},
         result={},
         tool_input={

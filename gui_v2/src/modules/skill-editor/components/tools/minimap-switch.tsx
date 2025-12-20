@@ -1,6 +1,6 @@
 import { Tooltip, IconButton } from '@douyinfe/semi-ui';
 
-import { UIIconMinimap } from './styles';
+import { IconMinimapColored } from './colored-icons';
 
 export const MinimapSwitch = (props: {
   minimapVisible: boolean;
@@ -13,7 +13,7 @@ export const MinimapSwitch = (props: {
       <IconButton
         type="tertiary"
         theme="borderless"
-        icon={<UIIconMinimap visible={minimapVisible} />}
+        icon={<IconMinimapColored size={18} visible={minimapVisible} />}
         onClick={() => setMinimapVisible(!minimapVisible)}
       />
     </Tooltip>

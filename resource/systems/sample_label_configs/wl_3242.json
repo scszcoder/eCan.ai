@@ -1,0 +1,15 @@
+{
+  "name": "White Label 3242 Shipping Labels",
+  "id": "wl_3242",
+  "unit": "in",
+  "sheet_width": 8.5,
+  "sheet_height": 11.0,
+  "label_width": 3.38,
+  "label_height": 2.33,
+  "top_margin": 0.5,
+  "left_margin": 0.625,
+  "rows": 4,
+  "cols": 2,
+  "row_pitch": 0.33,
+  "col_pitch": 0.5
+}

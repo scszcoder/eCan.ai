@@ -1,32 +1,32 @@
-// traverse value type - 遍历值类型
+// traverse value type - TraverseValueType
 export type TraverseValue = any;
 
-// traverse node interface - 遍历节点接口
+// traverse node interface - Traverse节点Interface
 export interface TraverseNode {
-  value: TraverseValue; // node value - 节点值
-  container?: TraverseValue; // parent container - 父容器
+  value: TraverseValue; // node value - 节点Value
+  container?: TraverseValue; // parent container - 父Container
   parent?: TraverseNode; // parent node - 父节点
   key?: string; // object key - 对象键名
   index?: number; // array index - 数组索引
 }
 
-// traverse context interface - 遍历上下文接口
+// traverse context interface - Traverse上下文Interface
 export interface TraverseContext {
-  node: TraverseNode; // current node - 当前节点
-  setValue: (value: TraverseValue) => void; // set value function - 设置值函数
-  getParents: () => TraverseNode[]; // get parents function - 获取父节点函数
-  getPath: () => Array<string | number>; // get path function - 获取路径函数
-  getStringifyPath: () => string; // get string path function - 获取字符串路径函数
-  deleteSelf: () => void; // delete self function - 删除自身函数
+  node: TraverseNode; // current node - When前节点
+  setValue: (value: TraverseValue) => void; // set value function - SettingsValueFunction
+  getParents: () => TraverseNode[]; // get parents function - Get父节点Function
+  getPath: () => Array<string | number>; // get path function - GetPathFunction
+  getStringifyPath: () => string; // get string path function - Get字符串PathFunction
+  deleteSelf: () => void; // delete self function - Delete自身Function
 }
 
-// traverse handler type - 遍历处理器类型
+// traverse handler type - TraverseProcess器Type
 export type TraverseHandler = (context: TraverseContext) => void;
 
 /**
- * traverse object deeply and handle each value - 深度遍历对象并处理每个值
- * @param value traverse target - 遍历目标
- * @param handle handler function - 处理函数
+ * traverse object deeply and handle each value - DepthTraverse对象并Process每个Value
+ * @param value traverse target - Traverse目标
+ * @param handle handler function - ProcessFunction
  */
 export const traverse = <T extends TraverseValue = TraverseValue>(
   value: T,
@@ -43,18 +43,18 @@ export const traverse = <T extends TraverseValue = TraverseValue>(
 
 namespace TraverseUtils {
   /**
-   * traverse nodes deeply and handle each value - 深度遍历节点并处理每个值
-   * @param node traverse node - 遍历节点
-   * @param handle handler function - 处理函数
+   * traverse nodes deeply and handle each value - DepthTraverse节点并Process每个Value
+   * @param node traverse node - Traverse节点
+   * @param handle handler function - ProcessFunction
    */
   export const traverseNodes = (node: TraverseNode, handle: TraverseHandler): void => {
     const { value } = node;
     if (!value) {
-      // handle null value - 处理空值
+      // handle null value - Process空Value
       return;
     }
     if (Object.prototype.toString.call(value) === '[object Object]') {
-      // traverse object properties - 遍历对象属性
+      // traverse object properties - Traverse对象Property
       Object.entries(value).forEach(([key, item]) =>
         traverseNodes(
           {
@@ -67,7 +67,7 @@ namespace TraverseUtils {
         )
       );
     } else if (Array.isArray(value)) {
-      // traverse array elements from end to start - 从末尾开始遍历数组元素
+      // traverse array elements from end to start - 从末尾开始Traverse数组元素
       for (let index = value.length - 1; index >= 0; index--) {
         const item: string = value[index];
         traverseNodes(
@@ -86,8 +86,8 @@ namespace TraverseUtils {
   };
 
   /**
-   * create traverse context - 创建遍历上下文
-   * @param node traverse node - 遍历节点
+   * create traverse context - CreateTraverse上下文
+   * @param node traverse node - Traverse节点
    */
   const createContext = ({ node }: { node: TraverseNode }): TraverseContext => ({
     node,
@@ -99,17 +99,17 @@ namespace TraverseUtils {
   });
 
   /**
-   * set node value - 设置节点值
-   * @param node traverse node - 遍历节点
-   * @param value new value - 新值
+   * set node value - Settings节点Value
+   * @param node traverse node - Traverse节点
+   * @param value new value - 新Value
    */
   const setValue = (node: TraverseNode, value: unknown) => {
-    // handle empty value - 处理空值
+    // handle empty value - Process空Value
     if (!value || !node) {
       return;
     }
     node.value = value;
-    // get container info from parent scope - 从父作用域获取容器信息
+    // get container info from parent scope - 从父作用域GetContainerInformation
     const { container, key, index } = node;
     if (key && container) {
       container[key] = value;
@@ -119,8 +119,8 @@ namespace TraverseUtils {
   };
 
   /**
-   * get parent nodes - 获取父节点列表
-   * @param node traverse node - 遍历节点
+   * get parent nodes - Get父节点List
+   * @param node traverse node - Traverse节点
    */
   const getParents = (node: TraverseNode): TraverseNode[] => {
     const parents: TraverseNode[] = [];
@@ -133,8 +133,8 @@ namespace TraverseUtils {
   };
 
   /**
-   * get node path - 获取节点路径
-   * @param node traverse node - 遍历节点
+   * get node path - Get节点Path
+   * @param node traverse node - Traverse节点
    */
   const getPath = (node: TraverseNode): Array<string | number> => {
     const path: Array<string | number> = [];
@@ -150,8 +150,8 @@ namespace TraverseUtils {
   };
 
   /**
-   * get stringify path - 获取字符串路径
-   * @param node traverse node - 遍历节点
+   * get stringify path - Get字符串Path
+   * @param node traverse node - Traverse节点
    */
   const getStringifyPath = (node: TraverseNode): string => {
     const path = getPath(node);
@@ -159,7 +159,7 @@ namespace TraverseUtils {
       if (typeof pathItem === 'string') {
         const re = /\W/g;
         if (re.test(pathItem)) {
-          // handle special characters - 处理特殊字符
+          // handle special characters - Process特殊字符
           return `${stringifyPath}["${pathItem}"]`;
         }
         return `${stringifyPath}.${pathItem}`;
@@ -170,8 +170,8 @@ namespace TraverseUtils {
   };
 
   /**
-   * delete current node - 删除当前节点
-   * @param node traverse node - 遍历节点
+   * delete current node - DeleteWhen前节点
+   * @param node traverse node - Traverse节点
    */
   const deleteSelf = (node: TraverseNode): void => {
     const { container, key, index } = node;

@@ -26,10 +26,21 @@ logger = logging.getLogger(__name__)
 @click.option("--host", "host", default="localhost")
 @click.option("--port", "port", default=10000)
 def main(host, port):
-    """Starts the Currency Agent server."""
+    """Starts the Currency Agent server.
+    
+    Note: This standalone server requires an LLM instance from MainWindow.
+    For production use, use the agent through MainWindow instead.
+    """
     try:
         if not os.getenv("GOOGLE_API_KEY"):
             raise MissingAPIKeyError("GOOGLE_API_KEY environment variable not set.")
+
+        # This standalone server cannot work without mainwin.llm
+        # In production, agents should be created through MainWindow which provides mainwin.llm
+        raise ValueError(
+            "This standalone server requires mainwin.llm from MainWindow. "
+            "Please use the agent through MainWindow instead, or modify this script to accept an LLM instance."
+        )
 
         capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
         skill = AgentSkill(
@@ -52,9 +63,11 @@ def main(host, port):
 
         notification_sender_auth = PushNotificationSenderAuth()
         notification_sender_auth.generate_jwk()
+        # ECRPAHelperAgent now requires llm parameter from mainwin
+        # This standalone server cannot provide it, so it will fail
         server = A2AServer(
             agent_card=agent_card,
-            task_manager=AgentTaskManager(agent=ECRPAHelperAgent(), notification_sender_auth=notification_sender_auth),
+            task_manager=AgentTaskManager(agent=ECRPAHelperAgent(llm=None), notification_sender_auth=notification_sender_auth),
             host=host,
             port=port,
         )

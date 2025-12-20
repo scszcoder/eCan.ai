@@ -3,12 +3,13 @@ import { Content } from 'antd/es/layout/layout';
 import styled from '@emotion/styled';
 
 const StyledContent = styled(Content)`
-    margin: 24px 16px;
-    padding: 24px;
-    background: #fff;
+    margin: 20px;
+    padding: 0;
+    background: transparent;
     min-height: 0;
     height: 100%;
-    border-radius: 8px;
+    border-radius: 0;
+    position: relative;
 `;
 
 const AppContent: React.FC<{ children: React.ReactNode }> = ({ children }) => (

@@ -1,0 +1,21 @@
+{
+  "id": "android_mobile_01",
+  "description": "Android mobile Chrome profile",
+  "userAgent": "Mozilla/5.0 (Linux; Android 13; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.117 Mobile Safari/537.36",
+  "viewport": { "width": 412, "height": 915 },
+  "deviceScaleFactor": 2.625,
+  "isMobile": true,
+  "timezone": "Asia/Shanghai",
+  "locale": "zh-CN",
+  "platform": "Linux armv8l",
+  "hardwareConcurrency": 8,
+  "deviceMemory": 6,
+  "canvasNoiseSeed": "android_seed_09",
+  "webgl": {
+    "vendor": "ARM",
+    "renderer": "Mali-G78"
+  },
+  "proxy": null,
+  "cookies_file": null,
+  "notes": "Mobile fingerprint; use mobile viewport and isMobile=true"
+}

@@ -13,8 +13,12 @@ import { ExpandShortcut } from './expand';
 import { DeleteShortcut } from './delete';
 import { CopyShortcut } from './copy';
 import { CollapseShortcut } from './collapse';
+import { setWorkflowDocumentRef } from '../workflow-document-binding';
 
 export function shortcuts(shortcutsRegistry: ShortcutsRegistry, ctx: FreeLayoutPluginContext) {
+  // Ensure dependent bindings can resolve the current document when shortcuts are constructed
+  setWorkflowDocumentRef(ctx.document);
+
   shortcutsRegistry.addHandlers(
     new CopyShortcut(ctx),
     new PasteShortcut(ctx),

@@ -1,21 +1,12 @@
-from agent.a2a.common.client import A2AClient
 from agent.ec_agent import EC_Agent
-from agent.a2a.common.server import A2AServer
-from agent.a2a.common.types import AgentCard, AgentCapabilities, AgentSkill, MissingAPIKeyError
-from agent.a2a.common.utils.push_notification_auth import PushNotificationSenderAuth
-from agent.a2a.langgraph_agent.task_manager import AgentTaskManager
+from agent.a2a.common.types import AgentCard, AgentCapabilities
 from agent.a2a.langgraph_agent.agent import ECRPAHelperAgent
-from agent.a2a.common.types import TaskStatus, TaskState
-from agent.tasks import TaskRunner, ManagedTask, TaskSchedule
-from agent.tasks import Repeat_Types
 from agent.a2a.langgraph_agent.utils import get_a2a_server_url
 from agent.ec_agents.create_agent_tasks import create_ec_helper_chat_task, create_ec_helper_work_task
-from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
 from utils.logger_helper import logger_helper as logger
+from agent.playwright import create_browser_use_llm
 
 import traceback
-import socket
-import uuid
 
 def set_up_ec_helper_agent(mainwin):
     try:
@@ -28,21 +19,12 @@ def set_up_ec_helper_agent(mainwin):
         logger.info("worker_skill", getattr(worker_skill, 'name', None))
         logger.info("chatter_skill", getattr(chatter_skill, 'name', None))
         
-        # 确保只有有效的技能被添加到skills列表中
-        valid_skills = []
-        if worker_skill:
-            valid_skills.append(worker_skill)
-        else:
-            logger.error("No worker skill found for ec_helper agent!")
-        if chatter_skill:
-            valid_skills.append(chatter_skill)
-        else:
-            logger.error("No chatter skill found for ec_helper agent!")
-
-        # 如果没有有效技能，记录错误并返回None
+        # 收集有效的技能
+        valid_skills = [sk for sk in [worker_skill, chatter_skill] if sk is not None]
         if not valid_skills:
-            logger.error("No valid skills found for ec_helper agent!")
-        
+            logger.error("No valid skills found for ec_helper agent! Aborting setup.")
+            return None
+
         agent_card = AgentCard(
             name="ECBot Helper Agent",
             description="Helps with ECBot RPA works",
@@ -54,16 +36,24 @@ def set_up_ec_helper_agent(mainwin):
             skills=valid_skills,
         )
 
-        logger.info("agent card created:", agent_card.name, agent_card.url)
+        logger.info("ec_helper agent card created:", agent_card.name, agent_card.url)
         chatter_task = create_ec_helper_chat_task(mainwin)
         worker_task = create_ec_helper_work_task(mainwin)
-        browser_use_llm = BrowserUseChatOpenAI(model='gpt-4.1-mini')
+        
+        # 收集有效的任务
+        valid_tasks = [t for t in [worker_task, chatter_task] if t is not None]
+        if not valid_tasks:
+            logger.error("No valid tasks created for ec_helper agent! Aborting setup.")
+            return None
+            
+        # Use mainwin's unified browser_use_llm instance (shared across all agents)
+        browser_use_llm = mainwin.browser_use_llm
 
         # 尝试创建 EC_Agent，如果失败则使用备用方案
         try:
             helper = EC_Agent(
                 mainwin=mainwin, skill_llm=llm, llm=browser_use_llm, task="",
-                card=agent_card, skill_set=valid_skills, tasks=[worker_task, chatter_task]
+                card=agent_card, skills=valid_skills, tasks=valid_tasks
             )
         except RuntimeError as re:
             logger.error(f"Warning: browser_use resource loading failed in PyInstaller environment: {re}")

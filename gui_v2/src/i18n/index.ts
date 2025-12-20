@@ -4,11 +4,11 @@ import LanguageDetector from 'i18next-browser-languagedetector';
 import zhCN from 'antd/locale/zh_CN';
 import enUS from 'antd/locale/en_US';
 
-// 导入翻译文件
+// Import翻译文件
 import enTranslations from './locales/en-US.json';
 import zhTranslations from './locales/zh-CN.json';
 
-// 获取保存的语言设置或浏览器语言
+// GetSave的语言Settings或Browser语言
 const getInitialLanguage = () => {
     const savedLanguage = localStorage.getItem('i18nextLng');
     if (savedLanguage) {
@@ -50,13 +50,13 @@ i18n
     }
   });
 
-// 监听语言变化
+// Listen语言变化
 i18n.on('languageChanged', (lng) => {
   localStorage.setItem('i18nextLng', lng);
   document.documentElement.lang = lng;
 });
 
-// 导出 i18n 实例和 antd 语言配置
+// Export i18n 实例和 antd 语言Configuration
 export const getAntdLocale = () => {
   const currentLang = i18n.language;
   return currentLang === 'zh-CN' ? zhCN : enUS;

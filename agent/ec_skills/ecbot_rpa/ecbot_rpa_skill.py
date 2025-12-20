@@ -1,28 +1,21 @@
-from typing import Any, Dict, List, Literal, Optional, Type, Callable, Annotated
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
-import uuid
-from langgraph.checkpoint.memory import MemorySaver
-from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, StateGraph, START
-from langchain_core.runnables import RunnableLambda
 from langchain_core.messages import AIMessage, HumanMessage
-from langchain.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
-from typing import TypedDict, List, Any
-import subprocess
-from langgraph.graph.message import AnyMessage, add_messages, MessagesState, BaseMessage
-from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_core.prompts import ChatPromptTemplate
 from langgraph.prebuilt import create_react_agent
 # from sqlalchemy.testing.suite.test_reflection import metadata
 from browser_use.agent.message_manager.utils import save_conversation
-from agent.prompts import AgentMessagePrompt, PlannerPrompt
 from browser_use.agent.views import (
 	ActionResult,
 	StepMetadata,
 )
+from mcp.client.session import ClientSession
 
 from agent.ec_skill import *
-from utils.logger_helper import get_agent_by_id
+from agent.agent_service import get_agent_by_id
+from agent.a2a.common.types import Message, TextPart
+from telemetry.views import AgentStepTelemetryEvent
+import traceback
+import asyncio
 
 
 async def create_rpa_helper_skill(mainwin):
@@ -30,8 +23,11 @@ async def create_rpa_helper_skill(mainwin):
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        helper_skill = EC_Skill(name="ecbot rpa helper",
-                             description="help fix failures during ecbot RPA runs.")
+        helper_skill = EC_Skill(
+            name="ecbot rpa helper",
+            description="help fix failures during ecbot RPA runs.",
+            source="code"  # Mark as code-generated skill
+        )
 
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
@@ -40,7 +36,7 @@ async def create_rpa_helper_skill(mainwin):
         # help_tool_names = ['reconnect_wifi', 'mouse_click', 'screen_capture', 'screen_analyze']
         # helper_tools = [t for t in all_tools if t.name in help_tool_names]
         # print("helper # tools ", len(all_tools), type(all_tools[-1]), all_tools[-1])
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
         helper_tools = []
         helper_agent = create_react_agent(llm, helper_tools)
         # Prompt Template
@@ -104,12 +100,13 @@ async def create_rpa_helper_skill(mainwin):
             if "resolved" in last_msg:
                 state["resolved"] = True
             else:
-                state["retries"] += 1
+                state["resolved"] = False
+                state["retries"] = int(state.get("retries") or 0) + 1
             return state
 
         # Router logic
-        async def route_logic(state: NodeState) -> str:
-            if state["resolved"] or state["retries"] >= 5:
+        def route_logic(state: NodeState) -> str:
+            if bool(state.get("resolved")) or int(state.get("retries") or 0) >= 5:
                 return END
             return "llm_loop"
 
@@ -139,7 +136,7 @@ async def create_rpa_helper_skill(mainwin):
             ex_stat = "ErrorCreateRPAHelperSkill:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCreateRPAHelperSkill: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return None
 
     return helper_skill
@@ -171,7 +168,7 @@ async def operator_message_handler(state: NodeState) -> NodeState:
             ex_stat = "ErrorCallTool:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCallTool: traceback information not available:" + str(e)
-        print(ex_stat)
+        logger.error(ex_stat)
         end_state["messages"][0] = f"Task Error: {ex_stat}"
 
     print("operator_message_handler task end state:", end_state)
@@ -183,8 +180,11 @@ async def create_rpa_operator_skill(mainwin):
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        operator_skill = EC_Skill(name="ecbot rpa operator run RPA",
-                                description="drive a bunch of bots to run their ecbot RPA works.")
+        operator_skill = EC_Skill(
+            name="ecbot rpa operator run RPA",
+            description="drive a bunch of bots to run their ecbot RPA works.",
+            source="code"  # Mark as code-generated skill
+        )
 
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
@@ -217,7 +217,7 @@ async def create_rpa_operator_skill(mainwin):
             ex_stat = "ErrorCreateRPASupervisorSkill:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCreateRPASupervisorSkill: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return None
 
     return operator_skill
@@ -280,8 +280,11 @@ async def create_rpa_supervisor_scheduling_skill(mainwin):
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        supervisor_skill = EC_Skill(name="ecbot rpa supervisor task scheduling",
-                                description="help fix failures during ecbot RPA runs.")
+        supervisor_skill = EC_Skill(
+            name="ecbot rpa supervisor task scheduling",
+            description="help fix failures during ecbot RPA runs.",
+            source="code"  # Mark as code-generated skill
+        )
 
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
@@ -296,7 +299,7 @@ async def create_rpa_supervisor_scheduling_skill(mainwin):
         supervisor_skill.set_work_flow(workflow)
         # Store manager so caller can close it after using the skill
         supervisor_skill.mcp_client = mcp_client  # type: ignore[attr-defined]
-        print("supervisor_skill build is done!")
+        print("supervisor_scheduling_skill build is done!")
 
     except Exception as e:
         # Get the traceback information
@@ -306,7 +309,7 @@ async def create_rpa_supervisor_scheduling_skill(mainwin):
             ex_stat = "ErrorCreateRPASupervisorSkill:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCreateRPASupervisorSkill: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return None
 
     return supervisor_skill
@@ -314,13 +317,14 @@ async def create_rpa_supervisor_scheduling_skill(mainwin):
 
 
 async def reconnect_wifi(params):
+    from utils.subprocess_helper import run_no_window
     # Disconnect current Wi-Fi
-    subprocess.run(["netsh", "wlan", "disconnect"])
+    run_no_window(["netsh", "wlan", "disconnect"])
     time.sleep(2)
 
     # Reconnect to a specific network
     cmd = ["netsh", "wlan", "connect", f"name={params['network_name']}"]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = run_no_window(cmd, capture_output=True, text=True)
     print(result.stdout)
 
 
@@ -418,6 +422,7 @@ async def supervisor_message_handler(state: NodeState) -> NodeState:
         else:
             ex_stat = "ErrorCallTool: traceback information not available:" + str(e)
         end_state["messages"][0] = f"Task Error: {ex_stat}"
+        logger.error(ex_stat)
 
     return end_state  # must return the new state
 
@@ -428,8 +433,11 @@ async def create_rpa_supervisor_skill(mainwin):
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        supervisor_skill = EC_Skill(name="ecbot rpa supervisor serve requests",
-                                description="help fix failures during ecbot RPA runs.")
+        supervisor_skill = EC_Skill(
+            name="ecbot rpa supervisor serve requests",
+            description="help fix failures during ecbot RPA runs.",
+            source="code"  # Mark as code-generated skill
+        )
 
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
@@ -450,7 +458,7 @@ async def create_rpa_supervisor_skill(mainwin):
         supervisor_skill.set_work_flow(workflow)
         # Store manager so caller can close it after using the skill
         supervisor_skill.mcp_client = mcp_client  # type: ignore[attr-defined]
-        print("supervisor_skill build is done!")
+        print("rpa_supervisor_skill build is done!")
 
     except Exception as e:
         # Get the traceback information
@@ -460,7 +468,7 @@ async def create_rpa_supervisor_skill(mainwin):
             ex_stat = "ErrorCreateRPASupervisorSkill:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCreateRPASupervisorSkill: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return None
 
     return supervisor_skill
@@ -576,7 +584,7 @@ async def in_browser_scrape_content(state: NodeState) -> NodeState:
         if traceback_info:
             ex_stat = "ErrorFetchSchedule:" + traceback.format_exc() + " " + str(e)
             # logger.error(f'❌  Failed to step: {ex_stat}')
-            print(f'❌  Failed to step: {ex_stat}')
+            print(f'[ERROR] Failed to step: {ex_stat}')
 
         result = await agent._handle_step_error(e)
         agent.state.last_result = result
@@ -589,7 +597,7 @@ async def in_browser_scrape_content(state: NodeState) -> NodeState:
             ex_stat = "ErrorCreateRPASupervisorSkill:" + traceback.format_exc() + " " + str(e)
         else:
             ex_stat = "ErrorCreateRPASupervisorSkill: traceback information not available:" + str(e)
-        mainwin.showMsg(ex_stat)
+        logger.error(ex_stat)
         return None
 
     finally:
@@ -609,7 +617,7 @@ async def in_browser_scrape_content(state: NodeState) -> NodeState:
 
         if state:
             metadata = StepMetadata(
-                step_number=self.state.n_steps,
+                step_number=state.n_steps,
                 step_start_time=step_start_time,
                 step_end_time=step_end_time,
                 input_tokens=tokens,

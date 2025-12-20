@@ -19,17 +19,20 @@ export const ConditionNodeRegistry: FlowNodeRegistry = {
       'Connect multiple downstream branches. Only the corresponding branch will be executed if the set conditions are met.',
   },
   meta: {
-    defaultPorts: [{ type: 'input' }],
-    // Condition Outputs use dynamic port
+    defaultPorts: [
+      { type: 'input', key: 'in' },
+    ],
     useDynamicPort: true,
-    expandable: false, // disable expanded
+    expandable: true,
     size: {
       width: 360,
-      height: 210,
+      height: 240,
     },
   },
   formMeta,
   onAdd() {
+    const ifKey = `if_${nanoid(5)}`;
+    const elseKey = `else_${nanoid(5)}`;
     return {
       id: `condition_${nanoid(5)}`,
       type: 'condition',
@@ -37,11 +40,11 @@ export const ConditionNodeRegistry: FlowNodeRegistry = {
         title: 'Condition',
         conditions: [
           {
-            key: `if_${nanoid(5)}`,
+            key: ifKey,
             value: {},
           },
           {
-            key: `else_${nanoid(5)}`,
+            key: elseKey,
             value: {},
           },
         ],

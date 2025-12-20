@@ -40,13 +40,15 @@ SA_TYPE_TABLE = {"TEXT": TEXT, "REAL": REAL, "INTEGER": INTEGER}
 
 
 class BotService:
-    def __init__(self, main_win, session):
+    def __init__(self, main_win, session, engine=None):
         self.main_win = main_win
         self.session = session
-        sync_table_columns(BotModel, "bots")
+        self.engine = engine
+        # Pass engine parameter to sync_table_columns
+        sync_table_columns(BotModel, "bots", engine)
 
     def delete_bots_by_botid(self, botid):
-        # 构建删除表达式
+        # Build delete statement
         delete_stmt = delete(BotModel).where(BotModel.botid == botid)
         # 执行删除
         result = self.session.execute(delete_stmt)
@@ -158,9 +160,9 @@ class BotService:
             self.session.commit()
             self.main_win.showMsg("Mission fetchall" + json.dumps(local_bot.to_dict()))
 
-    def sync_cloud_bot_data(self, session, tokens, mwin):
+    def sync_cloud_bot_data(self, session, auth_token, mwin):
         try:
-            jresp = send_query_bots_request_to_cloud(session, tokens['AuthenticationResult']['IdToken'],
+            jresp = send_query_bots_request_to_cloud(session, auth_token,
                                                      {"byowneruser": True}, mwin.getWanApiEndpoint())
             # print("what's happening....", type(jresp['body']))
             # all_bots = json.loads(jresp['body'])
@@ -196,7 +198,7 @@ class BotService:
 
     def describe_table(self):
         inspector = inspect(BotModel)
-        # 打印表结构信息
+        # Print table structure information
         print(f"{BotModel.__tablename__} Table column definitions:")
         for column in inspector.columns:
             logger_helper.debug(

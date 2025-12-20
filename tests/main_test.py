@@ -2,8 +2,11 @@ import os
 import threading
 import time
 
+from scipy.stats import weibull_min
+
 import main
 from envi import getECBotDataHome
+from tests.unittests import *
 
 
 def thread_func(callback):
@@ -17,6 +20,15 @@ def callback_func():
     current_thread = threading.current_thread()
     print("callback_func Current Thread:", current_thread)
     main.login.handleLogin()
+
+
+def run_default_tests(mwin, test_setup=None):
+    print("run_default_tests with setup:", test_setup)
+    results = None
+    # results = testLongLLMTask(mwin, test_setup)
+    results = testLightRAG(mwin)
+    return results
+
 
 
 # 运行测试

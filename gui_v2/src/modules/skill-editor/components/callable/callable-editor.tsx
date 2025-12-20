@@ -208,7 +208,7 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
   };
 
   const handleCodeSave = (content: string) => {
-    // 解析函数名和描述
+    // ParseFunction名和Description
     const functionNameMatch = content.match(/def\s+(\w+)/);
     const docstringMatch = content.match(/"""(.*?)"""/s);
     
@@ -219,10 +219,10 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
       form.setFieldValue('desc', docstringMatch[1].trim());
     }
 
-    // 更新代码值
+    // UpdateCodeValue
     setCodeValue(content);
     
-    // 强制更新预览编辑器
+    // 强制Update预览Edit器
     if (previewEditorRef.current) {
       previewEditorRef.current.setValue(content);
       previewEditorRef.current.layout();
@@ -231,15 +231,15 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
     return true;
   };
 
-  // 预览编辑器挂载回调
+  // 预览Edit器MountCallback
   const handlePreviewEditorDidMount = (editor: editor.IStandaloneCodeEditor) => {
     previewEditorRef.current = editor;
-    // 设置初始值
+    // Settings初始Value
     editor.setValue(codeValue);
     editor.layout();
   };
 
-  // 监听代码值变化
+  // ListenCodeValue变化
   useEffect(() => {
     if (previewEditorRef.current) {
       previewEditorRef.current.setValue(codeValue);
@@ -247,7 +247,7 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
     }
   }, [codeValue]);
 
-  // 代码编辑器配置
+  // CodeEdit器Configuration
   const { openEditor, closeEditor, editor } = useCodeEditor({
     initialContent: codeValue,
     language: DEFAULT_LANGUAGE,
@@ -272,7 +272,7 @@ export const CallableEditor: React.FC<CallableEditorProps> = ({
     }
   });
 
-  // 预览编辑器配置
+  // 预览Edit器Configuration
   const { editor: previewEditor } = useCodeEditor({
     initialContent: codeValue || '// No implementation code yet',
     language: DEFAULT_LANGUAGE,

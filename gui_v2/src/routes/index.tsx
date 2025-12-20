@@ -1,9 +1,12 @@
 import React, { Suspense } from 'react';
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate } from 'react-router-dom';
 import MainLayout from '../components/Layout/MainLayout';
 import { Spin } from 'antd';
+import { userStorageManager } from '../services/storage/UserStorageManager';
+import AgentsRouteWrapper from './AgentsRouteWrapper';
+import MainRouteWrapper from './MainRouteWrapper';
 
-// 页面组件懒加载
+// PageComponent懒Load
 const Login = React.lazy(() => import('../pages/Login/index'));
 const Dashboard = React.lazy(() => import('../pages/Dashboard/Dashboard'));
 const Vehicles = React.lazy(() => import('../pages/Vehicles/Vehicles'));
@@ -11,24 +14,23 @@ const Schedule = React.lazy(() => import('../pages/Schedule/Schedule'));
 const Chat = React.lazy(() => import('../pages/Chat/index'));
 const Skills = React.lazy(() => import('../pages/Skills/Skills'));
 const SkillEditor = React.lazy(() => import('../pages/SkillEditor/SkillEditor'));
-const Agents = React.lazy(() => import('../pages/Agents/Agents'));
 const Analytics = React.lazy(() => import('../pages/Analytics/Analytics'));
 const Tasks = React.lazy(() => import('../pages/Tasks/Tasks'));
 const Tools = React.lazy(() => import('../pages/Tools/Tools'));
 const Settings = React.lazy(() => import('../pages/Settings/Settings'));
 const Console = React.lazy(() => import('../pages/Console/Console'));
-const KnowledgePlatform = React.lazy(() => import('../pages/Knowledge/index'));
+const KnowledgePorted = React.lazy(() => import('../pages/Knowledge/LightRAGPorted'));
 const Tests = React.lazy(() => import('../pages/Tests/Tests'));
-const VirtualPlatform = React.lazy(() => import('../pages/Agents/VirtualPlatform'));
-const DepartmentRoom = React.lazy(() => import('../pages/Agents/DepartmentRoom'));
+const OrgNavigator = React.lazy(() => import('../pages/Agents/OrgNavigator'));
 const AgentDetails = React.lazy(() => import('../pages/Agents/components/AgentDetails'));
+const Orgs = React.lazy(() => import('../pages/Orgs/Orgs'));
+const Warehouses = React.lazy(() => import('../pages/Warehouses/Warehouses'));
+const Products = React.lazy(() => import('../pages/Products/Products'));
+const Prompts = React.lazy(() => import('../pages/Prompts/Prompts'));
+const Account = React.lazy(() => import('../pages/Account/Account'));
+const ShippingLabel = React.lazy(() => import('../pages/ShippingLabel/ShippingLabel'));
 
-// Agents 路由包装器，用于防止不必要的重新渲染
-const AgentsRouteWrapper: React.FC = () => {
-    return React.useMemo(() => <LazyWrapper><Agents /></LazyWrapper>, []);
-};
-
-// 加载组件包装器
+// LoadComponent包装器
 const LazyWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
     <Suspense fallback={
         <div style={{
@@ -45,20 +47,21 @@ const LazyWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
     </Suspense>
 );
 
-// 路由配置类型
+// 路由ConfigurationType
 export interface RouteConfig {
     path: string;
     element: React.ReactNode;
     children?: RouteConfig[];
     auth?: boolean;
+    keepAlive?: boolean; // 是否EnabledPage持久化
 }
 
-// 检查认证状态
+// Check认证Status
 export const isAuthenticated = () => {
-    return localStorage.getItem('isAuthenticated') === 'true';
+    return userStorageManager.isAuthenticated();
 };
 
-// 受保护的路由组件
+// 受保护的路由Component
 export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     if (!isAuthenticated()) {
         return <Navigate to="/login" replace />;
@@ -66,11 +69,19 @@ export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ childr
     return <MainLayout>{children}</MainLayout>;
 };
 
-// 公共路由
+// 登录路由组件 - 如果已登录则重定向
+const LoginRoute: React.FC = () => {
+    if (isAuthenticated()) {
+        return <Navigate to="/" replace />;
+    }
+    return <LazyWrapper><Login /></LazyWrapper>;
+};
+
+// Public路由
 export const publicRoutes: RouteConfig[] = [
     {
         path: '/login',
-        element: isAuthenticated() ? <Navigate to="/" replace /> : <LazyWrapper><Login /></LazyWrapper>,
+        element: <LoginRoute />,
     },
 ];
 
@@ -78,7 +89,7 @@ export const publicRoutes: RouteConfig[] = [
 export const protectedRoutes: RouteConfig[] = [
     {
         path: '/',
-        element: <ProtectedRoute><Outlet /></ProtectedRoute>,
+        element: <ProtectedRoute><MainRouteWrapper /></ProtectedRoute>,
         children: [
             {
                 path: '',
@@ -87,26 +98,32 @@ export const protectedRoutes: RouteConfig[] = [
             {
                 path: 'dashboard',
                 element: <LazyWrapper><Dashboard /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'vehicles',
                 element: <LazyWrapper><Vehicles /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'schedule',
                 element: <LazyWrapper><Schedule /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'chat',
                 element: <LazyWrapper><Chat /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'skills',
                 element: <LazyWrapper><Skills /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'skill_editor',
                 element: <LazyWrapper><SkillEditor /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'agents',
@@ -114,45 +131,92 @@ export const protectedRoutes: RouteConfig[] = [
                 children: [
                     {
                         path: '',
-                        element: <LazyWrapper><VirtualPlatform /></LazyWrapper>,
+                        element: <LazyWrapper><OrgNavigator /></LazyWrapper>,
+                        keepAlive: true,
                     },
                     {
                         path: 'details/:id',
                         element: <LazyWrapper><AgentDetails /></LazyWrapper>,
+                        keepAlive: false, // Details页不Need保活，每次都重新Load
                     },
                     {
-                        path: 'room/:departmentId',
-                        element: <LazyWrapper><DepartmentRoom /></LazyWrapper>,
+                        path: 'add',
+                        element: <LazyWrapper><AgentDetails /></LazyWrapper>,
+                        keepAlive: false, // Add页不Need保活
+                    },
+                    {
+                        path: 'organization/:orgId/*',
+                        element: <LazyWrapper><OrgNavigator /></LazyWrapper>,
+                        keepAlive: true,
+                        // Note：All organization Path共享同一个Cache实例（通过 AgentsRouteWrapper Implementation）
+                        // 这样在不同组织间Toggle时，OrgNavigator 会保持Status
                     },
                 ],
             },
             {
                 path: 'analytics',
                 element: <LazyWrapper><Analytics /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'tasks',
                 element: <LazyWrapper><Tasks /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'tools',
                 element: <LazyWrapper><Tools /></LazyWrapper>,
+                keepAlive: true,
+            },
+            {
+                path: 'warehouses',
+                element: <LazyWrapper><Warehouses /></LazyWrapper>,
+                keepAlive: true,
+            },
+            {
+                path: 'products',
+                element: <LazyWrapper><Products /></LazyWrapper>,
+                keepAlive: true,
+            },
+            {
+                path: 'prompts',
+                element: <LazyWrapper><Prompts /></LazyWrapper>,
+                keepAlive: true,
+            },
+            {
+                path: 'account',
+                element: <LazyWrapper><Account /></LazyWrapper>,
+                keepAlive: false,
             },
             {
                 path: 'settings',
                 element: <LazyWrapper><Settings /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'console',
                 element: <LazyWrapper><Console /></LazyWrapper>,
+                keepAlive: true,
             },
             {
-                path: 'knowledge',
-                element: <LazyWrapper><KnowledgePlatform /></LazyWrapper>,
+                path: 'knowledge-ported',
+                element: <LazyWrapper><KnowledgePorted /></LazyWrapper>,
+                keepAlive: true,
             },
             {
                 path: 'tests',
                 element: <LazyWrapper><Tests /></LazyWrapper>,
+                keepAlive: true,
+            },
+            {
+                path: 'orgs',
+                element: <LazyWrapper><Orgs /></LazyWrapper>,
+                keepAlive: true,
+            },
+            {
+                path: 'shipping-label',
+                element: <LazyWrapper><ShippingLabel /></LazyWrapper>,
+                keepAlive: true,
             },
         ],
     },
@@ -164,14 +228,14 @@ export const notFoundRoute: RouteConfig = {
     element: <Navigate to="/" replace />,
 };
 
-// 所有路由
+// All路由
 export const routes: RouteConfig[] = [
     ...publicRoutes,
     ...protectedRoutes,
     notFoundRoute,
 ];
 
-// 菜单配置
+// MenuConfiguration
 export const menuItems = [
     {
         key: '/dashboard',
@@ -234,13 +298,13 @@ export const menuItems = [
         label: 'menu.console',
     },
     {
-        key: '/knowledge',
-        icon: 'ReadOutlined',
-        label: 'menu.knowledge',
-    },
-    {
         key: '/tests',
         icon: 'ExperimentOutlined',
         label: 'menu.tests',
+    },
+    {
+        key: '/shipping-label',
+        icon: 'PrinterOutlined',
+        label: 'menu.shipping_label',
     },
 ]; 

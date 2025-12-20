@@ -27,8 +27,44 @@ runs:
       shell: bash
       run: |
         echo "=== Installing Frontend Dependencies ==="
+        
+        # Check if we need to clean install (fix for rollup optional dependencies issue)
+        NEEDS_CLEAN_INSTALL=false
+        
+        # Always clean install if node_modules doesn't exist
         if [ ! -d "node_modules" ] || [ -z "$(ls -A node_modules)" ]; then
-          ${{ inputs.install-command }}
+          echo "node_modules not found, performing clean install..."
+          NEEDS_CLEAN_INSTALL=true
         else
-          echo "node_modules already exists and is not empty, skipping install."
+          # Check if critical rollup native binaries are missing
+          ROLLUP_NATIVE="node_modules/rollup/dist/native.js"
+          if [ -f "$ROLLUP_NATIVE" ]; then
+            # Try to verify rollup can load its native module
+            if ! node -e "require('rollup')" 2>/dev/null; then
+              echo "Rollup native module check failed, performing clean install..."
+              NEEDS_CLEAN_INSTALL=true
+            else
+              echo "node_modules exists and rollup check passed, skipping install."
+            fi
+          else
+            echo "Rollup native module not found, performing clean install..."
+            NEEDS_CLEAN_INSTALL=true
+          fi
+        fi
+        
+        # Perform clean install if needed (preserve package-lock.json so cache key remains stable)
+        if [ "$NEEDS_CLEAN_INSTALL" = true ]; then
+          echo "Cleaning node_modules (preserving package-lock.json)..."
+          rm -rf node_modules
+          echo "Installing dependencies with optional dependencies support..."
+          ${{ inputs.install-command }}
+          
+          # Verify rollup installation
+          echo "=== Verifying Rollup Installation ==="
+          if node -e "require('rollup')" 2>/dev/null; then
+            echo "✅ Rollup verification passed"
+          else
+            echo "⚠️  Rollup verification failed, attempting reinstall..."
+            npm install rollup --force --legacy-peer-deps
+          fi
         fi

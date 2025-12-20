@@ -1,0 +1,338 @@
+{
+  "providers": {
+    "OpenAI": {
+      "name": "OpenAI",
+      "display_name": "OpenAI",
+      "provider": "openai",
+      "class_name": "OpenAIEmbeddings",
+      "api_key_env_vars": [
+        "OPENAI_API_KEY"
+      ],
+      "base_url": "https://api.openai.com/v1",
+      "default_model": "text-embedding-3-small",
+      "description": "OpenAI embedding models",
+      "documentation_url": "https://platform.openai.com/docs/guides/embeddings",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "text-embedding-3-large",
+          "display_name": "text-embedding-3-large",
+          "model_id": "text-embedding-3-large",
+          "dimensions": 3072,
+          "max_tokens": 8191,
+          "description": "Most capable embedding model"
+        },
+        {
+          "name": "text-embedding-3-small",
+          "display_name": "text-embedding-3-small",
+          "model_id": "text-embedding-3-small",
+          "dimensions": 1536,
+          "max_tokens": 8191,
+          "description": "Efficient embedding model"
+        }
+      ]
+    },
+    "Azure OpenAI": {
+      "name": "Azure OpenAI",
+      "display_name": "Azure OpenAI",
+      "provider": "azure_openai",
+      "class_name": "AzureOpenAIEmbeddings",
+      "api_key_env_vars": [
+        "AZURE_ENDPOINT",
+        "AZURE_OPENAI_API_KEY"
+      ],
+      "base_url": "https://your-resource.openai.azure.com",
+      "default_model": "text-embedding-3-small",
+      "description": "Azure OpenAI embedding models",
+      "documentation_url": "https://learn.microsoft.com/en-us/azure/ai-services/openai/",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "text-embedding-3-large",
+          "display_name": "text-embedding-3-large (Azure)",
+          "model_id": "text-embedding-3-large",
+          "dimensions": 3072,
+          "max_tokens": 8191,
+          "description": "Most capable embedding model"
+        },
+        {
+          "name": "text-embedding-3-small",
+          "display_name": "text-embedding-3-small (Azure)",
+          "model_id": "text-embedding-3-small",
+          "dimensions": 1536,
+          "max_tokens": 8191,
+          "description": "Efficient embedding model"
+        }
+      ]
+    },
+    "Voyage AI": {
+      "name": "Voyage AI",
+      "display_name": "Voyage AI",
+      "provider": "voyageai",
+      "class_name": "VoyageEmbeddings",
+      "api_key_env_vars": [
+        "VOYAGE_API_KEY"
+      ],
+      "base_url": "https://api.voyageai.com/v1",
+      "default_model": "voyage-3",
+      "description": "Voyage AI embedding models",
+      "documentation_url": "https://docs.voyageai.com/",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "voyage-3",
+          "display_name": "voyage-3",
+          "model_id": "voyage-3",
+          "dimensions": 1024,
+          "max_tokens": 32000,
+          "description": "Latest general-purpose model"
+        },
+        {
+          "name": "voyage-3-lite",
+          "display_name": "voyage-3-lite",
+          "model_id": "voyage-3-lite",
+          "dimensions": 512,
+          "max_tokens": 32000,
+          "description": "Fast and efficient"
+        },
+        {
+          "name": "voyage-large-2",
+          "display_name": "voyage-large-2",
+          "model_id": "voyage-large-2",
+          "dimensions": 1536,
+          "max_tokens": 16000,
+          "description": "High accuracy large model"
+        }
+      ]
+    },
+    "Jina": {
+      "name": "Jina",
+      "display_name": "Jina",
+      "provider": "jina",
+      "class_name": "JinaEmbeddings",
+      "api_key_env_vars": [
+        "JINA_API_KEY"
+      ],
+      "base_url": "https://api.jina.ai/v1",
+      "default_model": "jina-embeddings-v3",
+      "description": "Jina AI embeddings",
+      "documentation_url": "https://jina.ai/embeddings/",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "jina-embeddings-v3",
+          "display_name": "jina-embeddings-v3",
+          "model_id": "jina-embeddings-v3",
+          "dimensions": 1024,
+          "max_tokens": 8192,
+          "description": "Jina V3"
+        },
+        {
+          "name": "jina-embeddings-v2-base-en",
+          "display_name": "jina-embeddings-v2-base-en",
+          "model_id": "jina-embeddings-v2-base-en",
+          "dimensions": 768,
+          "max_tokens": 8192,
+          "description": "Jina V2 English"
+        }
+      ]
+    },
+    "Google Gemini": {
+      "name": "Google Gemini",
+      "display_name": "Google Gemini",
+      "provider": "google",
+      "class_name": "VertexAIEmbeddings",
+      "api_key_env_vars": [
+        "GOOGLE_API_KEY"
+      ],
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/",
+      "default_model": "text-embedding-004",
+      "description": "Google Vertex AI embedding models",
+      "documentation_url": "https://cloud.google.com/vertex-ai/docs/generative-ai/embeddings/get-text-embeddings",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "text-embedding-004",
+          "display_name": "text-embedding-004",
+          "model_id": "text-embedding-004",
+          "dimensions": 768,
+          "max_tokens": 2048,
+          "description": "Latest Google embedding model"
+        }
+      ]
+    },
+    "Qwen (DashScope)": {
+      "name": "Qwen (DashScope)",
+      "display_name": "Qwen (DashScope)",
+      "provider": "alibaba_qwen",
+      "class_name": "QwenEmbeddings",
+      "api_key_env_vars": [
+        "DASHSCOPE_API_KEY"
+      ],
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "default_model": "text-embedding-v3",
+      "description": "Alibaba Qwen embeddings",
+      "documentation_url": "https://help.aliyun.com/zh/model-studio/developer-reference/text-embedding-api",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "text-embedding-v3",
+          "display_name": "text-embedding-v3",
+          "model_id": "text-embedding-v3",
+          "dimensions": 1024,
+          "max_tokens": 2048,
+          "description": "Qwen embedding model"
+        }
+      ]
+    },
+    "Baidu Qianfan": {
+      "name": "Baidu Qianfan",
+      "display_name": "Baidu Qianfan",
+      "provider": "baidu_qianfan",
+      "class_name": "BaiduQianfanEmbeddings",
+      "api_key_env_vars": [
+        "BAIDU_API_KEY"
+      ],
+      "base_url": "https://qianfan.baidubce.com/v2",
+      "default_model": "tao-8k",
+      "description": "Baidu Qianfan embeddings - OpenAI compatible API v2",
+      "documentation_url": "https://cloud.baidu.com/doc/WENXINWORKSHOP/s/Hlwerupz6",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "tao-8k",
+          "display_name": "tao-8k",
+          "model_id": "tao-8k",
+          "dimensions": 1024,
+          "max_tokens": 8192,
+          "description": "Best Chinese long text embedding model (8k context)"
+        },
+        {
+          "name": "bge-large-zh",
+          "display_name": "bge-large-zh",
+          "model_id": "bge-large-zh",
+          "dimensions": 1024,
+          "max_tokens": 512,
+          "description": "Chinese optimized"
+        },
+        {
+          "name": "bge-large-en",
+          "display_name": "bge-large-en",
+          "model_id": "bge-large-en",
+          "dimensions": 1024,
+          "max_tokens": 512,
+          "description": "English optimized"
+        }
+      ]
+    },
+    "Cohere": {
+      "name": "Cohere",
+      "display_name": "Cohere",
+      "provider": "cohere",
+      "class_name": "CohereEmbeddings",
+      "api_key_env_vars": [
+        "COHERE_API_KEY"
+      ],
+      "base_url": "https://api.cohere.ai/v1",
+      "default_model": "embed-english-v3.0",
+      "description": "Cohere embedding models",
+      "documentation_url": "https://docs.cohere.com/docs/embeddings",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "embed-english-v3.0",
+          "display_name": "embed-english-v3.0",
+          "model_id": "embed-english-v3.0",
+          "dimensions": 1024,
+          "max_tokens": 512,
+          "description": "High performance English embeddings"
+        },
+        {
+          "name": "embed-multilingual-v3.0",
+          "display_name": "embed-multilingual-v3.0",
+          "model_id": "embed-multilingual-v3.0",
+          "dimensions": 1024,
+          "max_tokens": 512,
+          "description": "Multilingual embeddings"
+        }
+      ]
+    },
+    "HuggingFace": {
+      "name": "HuggingFace",
+      "display_name": "HuggingFace",
+      "provider": "huggingface",
+      "class_name": "HuggingFaceEmbeddings",
+      "api_key_env_vars": [
+        "HUGGINGFACE_API_KEY"
+      ],
+      "base_url": "https://api-inference.huggingface.co",
+      "default_model": "sentence-transformers/all-MiniLM-L6-v2",
+      "description": "HuggingFace embedding models",
+      "documentation_url": "https://huggingface.co/docs/api-inference/index",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "sentence-transformers/all-MiniLM-L6-v2",
+          "display_name": "all-MiniLM-L6-v2",
+          "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+          "dimensions": 384,
+          "max_tokens": 512,
+          "description": "Lightweight and fast"
+        },
+        {
+          "name": "sentence-transformers/all-mpnet-base-v2",
+          "display_name": "all-mpnet-base-v2",
+          "model_id": "sentence-transformers/all-mpnet-base-v2",
+          "dimensions": 768,
+          "max_tokens": 512,
+          "description": "High quality"
+        }
+      ]
+    },
+    "Bytedance": {
+      "name": "Bytedance",
+      "display_name": "Bytedance",
+      "provider": "doubao",
+      "class_name": "DoubaoEmbeddings",
+      "api_key_env_vars": [
+        "ARK_API_KEY"
+      ],
+      "base_url": "https://ark.cn-beijing.volces.com/api/v3/embeddings",
+      "default_model": "doubao-embedding",
+      "description": "Bytedance embeddings",
+      "documentation_url": "https://www.volcengine.com/docs/82379/1099475",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "doubao-embedding",
+          "display_name": "doubao-embedding",
+          "model_id": "doubao-embedding",
+          "dimensions": 1024,
+          "max_tokens": 4096,
+          "description": "Doubao embedding"
+        }
+      ]
+    },
+    "Ollama (Local)": {
+      "name": "Ollama (Local)",
+      "display_name": "Ollama (Local)",
+      "provider": "ollama",
+      "class_name": "OpenAIEmbeddings",
+      "api_key_env_vars": [
+        "OLLAMA_EMBEDDING_API_KEY"
+      ],
+      "base_url": "http://localhost:11434",
+      "default_model": "",
+      "description": "Local Ollama embeddings (native API for LightRAG, auto-converts to OpenAI-compatible /v1 for OpenAIEmbeddings)",
+      "documentation_url": "https://ollama.com/library",
+      "is_local": true,
+      "supported_models": []
+    }
+  },
+  "metadata": {
+    "version": "1.1.1",
+    "last_updated": "2025-11-26",
+    "description": "Embedding provider configurations for eCan.ai - Updated for Nov 2025",
+    "schema_version": "1.0"
+  }
+}

@@ -35,7 +35,7 @@ const ImagePreview: React.FC<ImagePreviewProps> = ({
                 setHasError(false);
                 
                 console.log('[ImagePreview] Calling FileUtils.getFileThumbnail with:', filePath);
-                // 直接使用完整的文件路径，让 FileUtils 内部处理路径转换
+                // 直接使用完整的文件Path，让 FileUtils InternalProcessPathConvert
                 const dataUrl = await FileUtils.getFileThumbnail(filePath);
                 
                 if (dataUrl) {
@@ -56,7 +56,7 @@ const ImagePreview: React.FC<ImagePreviewProps> = ({
     }, [filePath]);
 
     const handleClick = () => {
-        // 直接使用完整的文件路径（包含协议）
+        // 直接使用完整的文件Path（Include协议）
         protocolHandler.handleFile(filePath, fileName, mimeType);
     };
 

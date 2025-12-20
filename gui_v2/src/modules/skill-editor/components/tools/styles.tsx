@@ -28,12 +28,15 @@ export const ToolSection = styled.div`
 `;
 
 export const SelectZoom = styled.span`
-  padding: 4px;
+  padding: 4px 8px;
   border-radius: 8px;
   border: 1px solid rgba(68, 83, 130, 0.25);
   font-size: 12px;
-  width: 50px;
+  min-width: 60px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 `;
 
 export const MinimapContainer = styled.div`

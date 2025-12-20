@@ -17,6 +17,7 @@ export const getPreferInteractiveType = () => {
   if (data && [InteractiveType.Mouse, InteractiveType.Pad].includes(data as InteractiveType)) {
     return data;
   }
+  // Original behavior: default based on OS (Pad on macOS/iPad, Mouse otherwise)
   return IS_MAC_OS ? InteractiveType.Pad : InteractiveType.Mouse;
 };
 
@@ -53,6 +54,8 @@ export const Interactive = () => {
   const handleClose = () => {
     setVisible(false);
   };
+
+  // No additional key/pointer handlers in original behavior
 
   return (
     <Popover trigger="custom" position="top" visible={visible} onClickOutSide={handleClose}>

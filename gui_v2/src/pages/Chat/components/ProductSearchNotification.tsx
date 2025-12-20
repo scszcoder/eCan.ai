@@ -8,24 +8,31 @@ import { Button } from 'antd';
 const { Title } = Typography;
 
 
-// 注入链接点击监听器的 hook
+// 注入LinkClickListen器的 hook
 const useLinkClickHandler = () => {
   React.useEffect(() => {
-    // 注入 JavaScript 来确保链接点击能够被正确捕获
+    // 注入 JavaScript 来确保LinkClickAble to被正确捕获
     const script = `
       document.addEventListener('click', function(e) {
+        // 忽略下拉MenuRelated toClickEvent
+        if (e.target.closest('.ant-dropdown') ||
+            e.target.closest('.user-profile-dropdown') ||
+            e.target.closest('.ant-dropdown-menu')) {
+          return;
+        }
+
         if (e.target.tagName === 'A' && e.target.href) {
           var url = e.target.href;
           if (url.startsWith('http://') || url.startsWith('https://')) {
             console.log('External link clicked:', url);
-            // 不阻止默认行为，让 Qt WebEngine 处理
+            // 不阻止Default行为，让 Qt WebEngine Process
           }
         }
       });
       //console.log('Link click handler injected');
     `;
     
-    // 延迟执行，确保 DOM 已经加载
+    // DelayExecute，确保 DOM 已经Load
     setTimeout(() => {
       try {
         const scriptElement = document.createElement('script');
@@ -201,7 +208,7 @@ const renderCell = (value: any, key: string, t: (s: string) => string, onImageCl
         onClick={(e) => {
           e.preventDefault();
           console.log('URL link clicked:', value);
-          // 直接调用系统浏览器
+          // 直接调用SystemBrowser
           try {
             const newWindow = window.open(value, '_blank');
             if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
@@ -239,7 +246,7 @@ const renderCell = (value: any, key: string, t: (s: string) => string, onImageCl
         onClick={(e) => {
           e.preventDefault();
           console.log('Generic link clicked:', value);
-          // 直接调用系统浏览器
+          // 直接调用SystemBrowser
           try {
             const newWindow = window.open(value, '_blank');
             if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
@@ -263,7 +270,7 @@ const getAllKeys = (items: any[]) => {
   items.forEach(item => {
     Object.keys(item || {}).forEach(k => keys.add(k));
   });
-  // 主字段优先
+  // 主Field优先
   const main = ['main_image', 'product_name', 'brand', 'model', 'score', 'url', 'highlights', 'app_specific'];
   const rest = Array.from(keys).filter(k => !main.includes(k));
   return [...main.filter(k => keys.has(k)), ...rest];
@@ -294,14 +301,14 @@ const ProductTable: React.FC<{ items: any[], onImageClick?: (url: string) => voi
   );
 };
 
-// 新增 ProductList 组件
+// 新增 ProductList Component
 const ProductList: React.FC<{ items: any[], onImageClick?: (url: string) => void }> = ({ items, onImageClick }) => {
   const { t } = useTranslation();
   if (!Array.isArray(items) || items.length === 0) return null;
   const keys = getAllKeys(items);
-  // 主字段
+  // 主Field
   const mainFields = ['product_name', 'brand', 'model', 'score'];
-  // 其他字段
+  // 其他Field
   const otherFields = keys.filter(k => !['main_image', ...mainFields, 'highlights', 'app_specific', 'url'].includes(k));
 
   return (
@@ -314,7 +321,7 @@ const ProductList: React.FC<{ items: any[], onImageClick?: (url: string) => void
             styles={{ body: { padding: 24 } }}
           >
                       <div style={{ display: 'flex', gap: 28, alignItems: 'flex-start' }}>
-                          {/* 左侧主图 */}
+                          {/* Left主图 */}
               {item.main_image && (
                 <div style={{ minWidth: 100, maxWidth: 140, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <div 
@@ -341,16 +348,16 @@ const ProductList: React.FC<{ items: any[], onImageClick?: (url: string) => void
                 </div>
               </div>
             )}
-            {/* 右侧内容 */}
+            {/* RightContent */}
             <div style={{ flex: 1, minWidth: 0 }}>
-              {/* 主字段 */}
+              {/* 主Field */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 8 }}>
                 <span style={{ fontWeight: 700, fontSize: 20, color: '#fff' }}>{item.product_name}</span>
                 {item.brand && <Tag color="blue" style={{ fontWeight: 500, fontSize: '14px' }}>{item.brand}</Tag>}
                 {item.model && <Tag color="geekblue" style={{ fontWeight: 500, fontSize: '14px' }}>{item.model}</Tag>}
                 {item.score !== undefined && <Tag color="gold" style={{ fontWeight: 600, fontSize: '14px' }}>{t('agentnotify.score')}: {item.score}</Tag>}
               </div>
-              {/* 其他字段 */}
+              {/* 其他Field */}
               {otherFields.length > 0 && (
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 10 }}>
                   {otherFields.map((key) => (
@@ -363,7 +370,7 @@ const ProductList: React.FC<{ items: any[], onImageClick?: (url: string) => void
                   ))}
                 </div>
               )}
-              {/* 高亮/标签/应用特定/详情链接 */}
+              {/* 高亮/Tag/应用特定/DetailsLink */}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center', marginTop: 10 }}>
                 {item.highlights && renderHighlights(item.highlights, t)}
                 {item.app_specific && renderAppSpecific(item.app_specific, t)}
@@ -373,7 +380,7 @@ const ProductList: React.FC<{ items: any[], onImageClick?: (url: string) => void
                     onClick={(e) => {
                       e.preventDefault();
                       console.log('List view link clicked:', item.url);
-                      // 直接调用系统浏览器
+                      // 直接调用SystemBrowser
                       try {
                         const newWindow = window.open(item.url, '_blank');
                         if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
@@ -403,11 +410,11 @@ const ProductSearchNotification: React.FC<{ content: any }> = ({ content }) => {
   const [imageModalVisible, setImageModalVisible] = React.useState(false);
   const [selectedImageUrl, setSelectedImageUrl] = React.useState('');
   
-  // 使用链接点击处理器
+  // 使用LinkClickProcess器
   useLinkClickHandler();
   
   if (!content) return null;
-  // 只处理业务内容部分，不解构 isRead、time、uid
+  // 只Process业务Content部分，不解构 isRead、time、uid
   const {
     title,
     Items = [],
@@ -432,7 +439,7 @@ const ProductSearchNotification: React.FC<{ content: any }> = ({ content }) => {
   return (
     <>
       <NotificationCard>
-        {/* 标题和切换视图按钮 */}
+        {/* 标题和Toggle视图Button */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
           <Title level={4} style={{ color: '#fff', margin: 0, fontSize: '22px' }}>{safeTitle}</Title>
           {Array.isArray(Items) && Items.length > 0 && (
@@ -444,7 +451,7 @@ const ProductSearchNotification: React.FC<{ content: any }> = ({ content }) => {
             />
           )}
         </div>
-        {/* 统计信息独立一行 */}
+        {/* 统计Information独立一行 */}
         {safeStatistics && (
           <div style={{ marginBottom: 12 }}>
             <Space wrap>
@@ -456,7 +463,7 @@ const ProductSearchNotification: React.FC<{ content: any }> = ({ content }) => {
         )}
         <Divider style={{ margin: '16px 0', borderColor: 'rgba(255,255,255,0.13)' }} />
 
-        {/* 产品表格/列表分区 */}
+        {/* 产品Table/List分区 */}
         {Array.isArray(Items) && Items.length > 0 && (
           <>
             <SectionTitle>{t('agentnotify.result')}</SectionTitle>
@@ -493,7 +500,7 @@ const ProductSearchNotification: React.FC<{ content: any }> = ({ content }) => {
           <div style={{ marginTop: 24, display: 'flex', alignItems: 'center', gap: 32, flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.10)', paddingTop: 18 }}>
             {safeBehindTheScene && <a href={safeBehindTheScene} onClick={(e) => { e.preventDefault(); console.log('Behind the scene link clicked:', safeBehindTheScene); try { window.open(safeBehindTheScene, '_blank'); } catch (error) { console.error('Failed to open link:', error); } }} style={{ color: '#aaa', fontSize: 15, cursor: 'pointer' }}>{t('agentnotify.behind_the_scene')}</a>}
                           {safeShowFeedback && <Tag color="red" style={{ fontSize: '14px' }}>{t('agentnotify.feedback')}</Tag>}
-            {/* 测试链接 */}
+            {/* TestLink */}
             <a href="https://www.google.com" onClick={(e) => { e.preventDefault(); console.log('Test link clicked: https://www.google.com'); try { window.open('https://www.google.com', '_blank'); } catch (error) { console.error('Failed to open link:', error); } }} style={{ color: '#1890ff', fontSize: 15, cursor: 'pointer' }}>Test Link (Google)</a>
           </div>
         )}

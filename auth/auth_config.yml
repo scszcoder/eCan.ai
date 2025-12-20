@@ -2,18 +2,16 @@
 # Centralized configuration for all authentication providers
 
 COGNITO:
-  USER_POOL_ID: "us-east-1_uUmKJUfB3"
-  CLIENT_ID: "5400r8q5p9gfdhln2feqcpljsh"
+  USER_POOL_ID: "us-east-1_uUmKJUfB3"  # Set via environment variable AWS_COGNITO_USER_POOL_ID
+  CLIENT_ID: "5400r8q5p9gfdhln2feqcpljsh"  # Set via environment variable AWS_COGNITO_CLIENT_ID
   CLIENT_SECRET: ""
-  REGION: "us-east-1"
-  DEFAULT_USERNAME: "249511118@qq.com"  # 更新为实际使用的用户名
-  DEFAULT_PASSWORD: "your-actual-password-here"  # ⚠️ 需要填入对应的密码
+  IDENTITY_POOL_ID: "us-east-1:ccfa987f-2eee-45c9-ac59-b698f6cbda8e"  # Set via environment variable AWS_COGNITO_IDENTITY_POOL_ID
+  REGION: "us-east-1"  # Set via environment variable AWS_REGION
+  DOMAIN: "https://maipps.auth.us-east-1.amazoncognito.com" # Example: https://your-domain.auth.region.amazoncognito.com
 
-# Future authentication providers (reserved for expansion)
+# Local OAuth Server Configuration
 GOOGLE:
-  # CLIENT_ID: "your-google-client-id"
-  # CLIENT_SECRET: "your-google-client-secret"
-  # REDIRECT_URI: "your-redirect-uri"
+  CALLBACK_URL: "http://localhost:9382/callback" # Full callback URL for the local server.
 
 APPLE:
   # CLIENT_ID: "your-apple-client-id"

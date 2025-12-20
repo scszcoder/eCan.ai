@@ -6,101 +6,45 @@ import { editorStyles } from './styles';
 import { DEFAULT_EDITOR_HEIGHT, DEFAULT_EDITOR_OPTIONS, getPreviewModeOptions } from './config';
 import ReactDOM from 'react-dom';
 
-// 配置Monaco Editor使用本地路径
+// Configure Monaco to use local files
+// Note: This is a backup configuration. The main configuration is in monaco-config.ts
+// which is imported in main.tsx to ensure it runs before any Monaco component mounts.
+const getMonacoBasePath = () => {
+  if (typeof window === 'undefined') return './monaco-editor/vs';
+  
+  const isFileProtocol = window.location.protocol === 'file:';
+  const isProduction = import.meta.env.PROD;
+  
+  if (isFileProtocol || isProduction) {
+    return './monaco-editor/vs';
+  } else {
+    return '/monaco-editor/vs';
+  }
+};
+
 loader.config({
   paths: {
-    vs: './monaco-editor/vs'
+    vs: getMonacoBasePath()
   }
 });
 
-// 配置Monaco Editor的worker
+// Configure Monaco worker
 if (typeof window !== 'undefined') {
   (window as any).MonacoEnvironment = {
-    getWorkerUrl: function (moduleId: string, label: string) {
-      // 使用Monaco Editor内置的worker配置
-      return './monaco-editor/vs/base/worker/workerMain.js';
+    getWorkerUrl: function (_moduleId: string, _label: string) {
+      const isFileProtocol = window.location.protocol === 'file:';
+      const isProduction = import.meta.env.PROD;
+      
+      if (isFileProtocol || isProduction) {
+        return './monaco-editor/vs/base/worker/workerMain.js';
+      } else {
+        return '/monaco-editor/vs/base/worker/workerMain.js';
+      }
     }
   };
 }
 
-// Preload Monaco Editor
-loader.init().then(monaco => {
-  // Register languages
-  const languages = ['javascript', 'typescript', 'json', 'html', 'css', 'python'];
-  languages.forEach(lang => {
-    monaco.languages.register({ id: lang });
-  });
-
-  // Configure Python language features
-  monaco.languages.registerCompletionItemProvider('python', {
-    provideCompletionItems: (model, position) => {
-      const word = model.getWordUntilPosition(position);
-      const range = {
-        startLineNumber: position.lineNumber,
-        endLineNumber: position.lineNumber,
-        startColumn: word.startColumn,
-        endColumn: word.endColumn
-      };
-
-      return {
-        suggestions: [
-          {
-            label: 'def',
-            kind: monaco.languages.CompletionItemKind.Snippet,
-            insertText: 'def ${1:function_name}(${2:parameters}):\n\t${0:pass}',
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-            documentation: 'Function definition',
-            range: range
-          },
-          {
-            label: 'class',
-            kind: monaco.languages.CompletionItemKind.Snippet,
-            insertText: 'class ${1:ClassName}:\n\tdef __init__(self):\n\t\t${0:pass}',
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-            documentation: 'Class definition',
-            range: range
-          },
-          {
-            label: 'if',
-            kind: monaco.languages.CompletionItemKind.Snippet,
-            insertText: 'if ${1:condition}:\n\t${0:pass}',
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-            documentation: 'If statement',
-            range: range
-          },
-          {
-            label: 'for',
-            kind: monaco.languages.CompletionItemKind.Snippet,
-            insertText: 'for ${1:item} in ${2:items}:\n\t${0:pass}',
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-            documentation: 'For loop',
-            range: range
-          },
-          {
-            label: 'while',
-            kind: monaco.languages.CompletionItemKind.Snippet,
-            insertText: 'while ${1:condition}:\n\t${0:pass}',
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-            documentation: 'While loop',
-            range: range
-          },
-          {
-            label: 'try',
-            kind: monaco.languages.CompletionItemKind.Snippet,
-            insertText: 'try:\n\t${1:pass}\nexcept ${2:Exception} as ${3:e}:\n\t${0:pass}',
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-            documentation: 'Try-except block',
-            range: range
-          }
-        ]
-      };
-    }
-  });
-}).catch(error => {
-  console.error('Failed to initialize Monaco Editor:', error);
-});
-
-// 添加语言切换函数
+// Add语言ToggleFunction
 export const setMonacoLanguage = (language: 'en' | 'zh-cn') => {
   loader.config({
     'vs/nls': {
@@ -113,7 +57,7 @@ export const setMonacoLanguage = (language: 'en' | 'zh-cn') => {
 
 /**
  * CodeEditor component for displaying and editing code
- * 
+ *
  * Features:
  * - Monaco Editor integration
  * - Preview/Edit modes
@@ -230,9 +174,9 @@ export const CodeEditor: React.FC<CodeEditorComponentProps> = ({
           <div className="custom-editor-title" style={editorStyles.title}>
             Code Editor
           </div>
-          <div 
-            className="custom-editor-close" 
-            onClick={handleCurrentCancel} 
+          <div
+            className="custom-editor-close"
+            onClick={handleCurrentCancel}
             style={editorStyles.closeButton}
           >
             ×
@@ -242,13 +186,13 @@ export const CodeEditor: React.FC<CodeEditorComponentProps> = ({
           {editorContent}
         </div>
         <div className="custom-editor-footer" style={editorStyles.footer}>
-          <button 
+          <button
             onClick={handleCurrentCancel}
             style={{ ...editorStyles.button, ...editorStyles.cancelButton }}
           >
             Cancel
           </button>
-          <button 
+          <button
             onClick={handleCurrentOk}
             style={{ ...editorStyles.button, ...editorStyles.okButton }}
           >
@@ -259,4 +203,4 @@ export const CodeEditor: React.FC<CodeEditorComponentProps> = ({
     </div>,
     document.body
   );
-}; 
+};

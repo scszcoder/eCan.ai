@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { FormField } from '../types/chat';
 
-// 校验器工具函数
+// 校验器ToolFunction
 export const getValidators = (t: any) => ({
   required: (value: any, fieldName: string): string | true => {
     if (!value && value !== 0 && value !== false) {
@@ -35,7 +35,7 @@ export const getValidators = (t: any) => ({
 
 type ValidatorFn = (...args: any[]) => string | true;
 
-// 单字段校验函数
+// 单Field校验Function
 export const validateField = (field: FormField, value: any, t: any): string | true => {
   const validators = getValidators(t) as Record<string, ValidatorFn>;
   if (field.required && validators.required(value, field.label) !== true) {

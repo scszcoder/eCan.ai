@@ -1,12 +1,11 @@
 from langgraph.constants import START, END
-from bot.Logger import *
+
 from agent.ec_skill import *
-from bot.adsAPISkill import startADSWebDriver, queryAdspowerProfile
-from bot.seleniumSkill import execute_js_script
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from utils.logger_helper import logger_helper as logger
-from utils.logger_helper import get_agent_by_id, get_traceback
+from utils.logger_helper import get_traceback
+from agent.agent_service import get_agent_by_id
 from agent.mcp.local_client import mcp_call_tool
 from agent.ec_skills.search_parts.search_parts_testdata import SEARCH_PARTS_RESULTS
 import re
@@ -89,7 +88,21 @@ def test1_node(state: NodeState) -> NodeState:
     mainwin = agent.mainwin
     try:
         print("about to run playwright:", type(state), state)
+        
+        # Check if unified_browser_manager is available
+        if not hasattr(mainwin, 'unified_browser_manager') or mainwin.unified_browser_manager is None:
+            state["error"] = "Unified browser manager not available (system shutting down?)"
+            logger.warning(f"[test1_node] {state['error']}")
+            return state
+            
         bs = mainwin.unified_browser_manager.get_browser_session()
+        if bs is None:
+            # BrowserSession is lazily created and not available on GUI thread
+            # This is expected behavior - browser operations should use run_basic_agent_task()
+            logger.warning("[test1_node] Browser session not available (lazy creation, use run_basic_agent_task for browser ops)")
+            state["result"] = {"status": "skipped", "reason": "Browser session lazy creation"}
+            return state
+            
         try:
             loop = asyncio.get_event_loop()
         except RuntimeError:
@@ -130,13 +143,10 @@ def test2_node(state: NodeState) -> NodeState:
     twin_agent = next((ag for ag in mainwin.agents if "twin" in ag.card.name.lower()), None)
 
     try:
-        # use A2A to send results to chatter process, and chatter will send
-        # results to supervisor via chat.
+        # Set test result - no longer sending to twin agent as it causes errors
+        # (the message lacks chatId which is required by the twin chatter skill)
         state["result"] = {"status": "success"}
-        print("about to send this result: ", state["result"])
-        # adapt results to GUI notification format.
-        agent.a2a_send_chat_message(twin_agent, {"type": "test results", "content": state["result"]})
-        # send result notification to GUI
+        print("[test2_node] Test completed with result:", state["result"])
 
         return state
     except Exception as e:
@@ -150,8 +160,11 @@ async def create_self_test_skill(mainwin):
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        self_test_skill = EC_Skill(name="eCan.ai self test", description="run eCan.ai self test.")
-
+        self_test_skill = EC_Skill(
+            name="eCan.ai self test",
+            description="run eCan.ai self test.",
+            source="code"  # Mark as code-generated skill
+        )        
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
 

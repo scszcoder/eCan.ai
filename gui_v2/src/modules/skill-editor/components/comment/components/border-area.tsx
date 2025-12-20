@@ -36,7 +36,7 @@ export const BorderArea: FC<IBorderArea> = (props) => {
           right: -10,
           top: 10,
           height: 'calc(100% - 20px)',
-          width: overflow ? 10 : 20, // 防止遮挡滚动条
+          width: overflow ? 10 : 20, // 防止遮挡Scroll条
         }}
         model={model}
       />

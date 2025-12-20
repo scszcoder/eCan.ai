@@ -1,50 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
     <channel>
-        <title>ECBot Updates</title>
-        <description>Most recent updates to ECBot</description>
+        <title>eCan.ai Updates</title>
+        <link>http://localhost:8080/appcast.xml</link>
+        <description>Most recent updates for eCan.ai</description>
         <language>en</language>
+        <pubDate>Wed, 19 Nov 2025 16:34:49 +0000</pubDate>
         
         <item>
-            <title>ECBot 1.1.0</title>
-            <description>
-                <![CDATA[
-                <h2>What's New in ECBot 1.1.0</h2>
-                <ul>
-                    <li>Added OTA update functionality</li>
-                    <li>Improved performance and stability</li>
-                    <li>Bug fixes and enhancements</li>
-                </ul>
-                ]]>
-            </description>
-            <pubDate>Mon, 01 Jan 2024 12:00:00 +0000</pubDate>
-            <enclosure url="https://updates.ecbot.com/downloads/ECBot-1.1.0.dmg"
-                       sparkle:version="1.1.0"
+            <title>Version 1.0.0-macos</title>
+            <description><![CDATA[<h2>What's New in eCan 1.0.0-macos</h2><ul><li>Bug fixes and performance improvements.</li></ul>]]></description>
+            <pubDate>Wed, 19 Nov 2025 16:34:49 +0000</pubDate>
+            <enclosure url="http://localhost:8080/downloads/eCan-1.0.0-macos-aarch64.pkg"
+                       sparkle:version="1.0.0-macos"
                        sparkle:os="macos"
-                       length="52428800"
+                       length="789035353"
                        type="application/octet-stream"
-                       sparkle:edSignature="ABC123..." />
+                       sparkle:edSignature="51e1cfd23197d4ab79140a91a3c439abce0cb094a3e3a88dc617bf7b558ec106" />
         </item>
         
-        <item>
-            <title>ECBot 1.1.0</title>
-            <description>
-                <![CDATA[
-                <h2>What's New in ECBot 1.1.0</h2>
-                <ul>
-                    <li>Added OTA update functionality</li>
-                    <li>Improved performance and stability</li>
-                    <li>Bug fixes and enhancements</li>
-                </ul>
-                ]]>
-            </description>
-            <pubDate>Mon, 01 Jan 2024 12:00:00 +0000</pubDate>
-            <enclosure url="https://updates.ecbot.com/downloads/ECBot-1.1.0.exe"
-                       sparkle:version="1.1.0"
-                       sparkle:os="windows"
-                       length="41943040"
-                       type="application/octet-stream"
-                       sparkle:edSignature="DEF456..." />
-        </item>
     </channel>
-</rss> 
+</rss>

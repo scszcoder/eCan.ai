@@ -252,13 +252,13 @@ class CallableStorage:
         self._callables: Dict[str, CallableFunction] = {}
         self._init_system_callables()
         self._init_custom_callables()
-        logger.info(f"Initialized {len(self._callables)} callable functions")
+        # logger.info(f"Initialized {len(self._callables)} callable functions")
         
     def _init_system_callables(self):
         """Initialize system functions"""
         for func in self.SYSTEM_FUNCTIONS.values():
             self._callables[func.id] = func
-            logger.debug(f"Initialized system function: {func.name}")
+            # logger.debug(f"Initialized system function: {func.name}")
             
     def _init_custom_callables(self):
         """Initialize custom functions"""
@@ -528,12 +528,12 @@ class CallableStorage:
             
             # Apply filters if provided
             if params is not None:
-                # 确保 params 是字典类型
+                # Ensure params is dict type
                 if not isinstance(params, dict):
                     logger.warning(f"Invalid params type: {type(params)}, expected dict")
                     return [func.to_dict() for func in functions]
-                
-                # 安全地获取和转换搜索文本
+
+                # Safely get and convert search text
                 search_text = str(params.get('text', '')).lower()
                 func_type = params.get('type')
                 

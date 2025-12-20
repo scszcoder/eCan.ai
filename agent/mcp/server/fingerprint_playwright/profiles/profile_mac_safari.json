@@ -1,0 +1,21 @@
+{
+  "id": "mac_safari_01",
+  "description": "macOS Safari-like desktop profile",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.4 Safari/605.1.15",
+  "viewport": { "width": 1440, "height": 900 },
+  "deviceScaleFactor": 2,
+  "isMobile": false,
+  "timezone": "America/Los_Angeles",
+  "locale": "en-US",
+  "platform": "MacIntel",
+  "hardwareConcurrency": 4,
+  "deviceMemory": 8,
+  "canvasNoiseSeed": "mac_seed_007",
+  "webgl": {
+    "vendor": "Apple Inc.",
+    "renderer": "Apple M1 GPU"
+  },
+  "proxy": null,
+  "cookies_file": null,
+  "notes": "Mac Safari-ish profile; use with WebKit"
+}

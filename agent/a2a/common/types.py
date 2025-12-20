@@ -330,7 +330,7 @@ class AgentSkill(BaseModel):
 
 class AgentCard(BaseModel):
     name: str
-    id:  str = Field(default_factory=lambda: uuid4().hex)
+    id:  str = Field(default="")
     description: str | None = None
     url: str
     provider: AgentProvider | None = None
@@ -341,6 +341,15 @@ class AgentCard(BaseModel):
     defaultInputModes: List[str] = ["text"]
     defaultOutputModes: List[str] = ["text"]
     skills: List[AgentSkill]
+    
+    @model_validator(mode='after')
+    def generate_id_from_name(self) -> Self:
+        """Generate deterministic ID from name if not provided"""
+        if not self.id:
+            import hashlib
+            # Generate deterministic ID from name using MD5 hash
+            self.id = hashlib.md5(self.name.encode()).hexdigest()
+        return self
 
 
 class A2AClientError(Exception):

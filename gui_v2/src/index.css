@@ -16,3 +16,20 @@ body {
   height: 100vh;
   width: 100vw;
 }
+
+/* Logout confirmation modal styles */
+.logout-confirm-modal .ant-modal-content {
+  color: #ffffff !important;
+}
+
+.logout-confirm-modal .ant-modal-confirm-title {
+  color: #ffffff !important;
+}
+
+.logout-confirm-modal .ant-modal-confirm-content {
+  color: #ffffff !important;
+}
+
+.logout-confirm-modal .ant-modal-body {
+  color: #ffffff !important;
+}

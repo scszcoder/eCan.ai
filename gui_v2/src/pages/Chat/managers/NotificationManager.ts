@@ -1,7 +1,7 @@
 import { eventBus } from '@/utils/eventBus';
 import { logger } from '@/utils/logger';
 
-// 允许存储任意 notification 结构
+// AllowStorage任意 notification 结构
 export type Notification = any;
 
 export type ChatNotificationItem = {
@@ -33,6 +33,33 @@ class NotificationManager {
         logger.warn('NotificationManager: chatId is required for newNotification');
         return;
       }
+
+      // DEBUG: Inspect payload paths and types before storing
+      try { console.log('[NotificationManager] newNotification params', { chatId, isRead, timestamp, uid }); } catch {}
+      const body: any = (content && typeof content === 'object') ? content : {};
+      try { console.log('[NotificationManager] content (top-level) keys', Object.keys(body || {})); } catch {}
+      try {
+        const nested = body?.content;
+        console.log('[NotificationManager] path checks', {
+          has_content: !!nested,
+          typeof_content: typeof nested,
+          has_notification_top: !!body?.notification,
+          typeof_notification_top: typeof body?.notification,
+          has_notification_nested: !!nested?.notification,
+          typeof_notification_nested: typeof nested?.notification,
+          items_len: Array.isArray(nested?.notification?.Items) ? nested.notification.Items.length : 'n/a'
+        });
+      } catch {}
+      try {
+        const nested = body?.content;
+        console.log('[NotificationManager] subfield types', {
+          card: typeof nested?.card,
+          code: typeof nested?.code,
+          form: Array.isArray(nested?.form) ? 'array' : typeof nested?.form,
+          notification: typeof nested?.notification,
+        });
+      } catch {}
+
       const chatNotificationItem: ChatNotificationItem = {
         isRead: isRead,
         timestamp: timestamp,
@@ -64,49 +91,49 @@ class NotificationManager {
     });
   }
 
-  // 订阅指定 chatId 的通知更新
+  // 订阅指定 chatId 的NotificationUpdate
   subscribe(chatId: string, listener: NotificationListener): () => void {
     if (!this.listeners.has(chatId)) {
       this.listeners.set(chatId, new Set());
     }
     this.listeners.get(chatId)!.add(listener);
-    // 立即通知当前状态
+    // 立即NotificationWhen前Status
     listener([...(this.chatNotificationItems.get(chatId) || [])]);
-    // 返回取消订阅函数
+    // 返回Cancel订阅Function
     return () => {
       this.listeners.get(chatId)?.delete(listener);
     };
   }
 
-  // 获取指定 chatId 的所有通知
+  // Get指定 chatId 的AllNotification
   getNotifications(chatId: string): ChatNotificationItem[] {
     return [...(this.chatNotificationItems.get(chatId) || [])];
   }
 
-  // 获取指定 chatId 的分页通知
+  // Get指定 chatId 的分页Notification
   getNotificationsPaged(chatId: string, offset: number, limit: number): ChatNotificationItem[] {
     const all = this.chatNotificationItems.get(chatId) || [];
     return all.slice(offset, offset + limit);
   }
 
-  // 检查指定 chatId 是否有新通知
+  // Check指定 chatId 是否有新Notification
   hasNew(chatId: string): boolean {
     return !!this.hasNewNotificationItems.get(chatId);
   }
 
-  // 标记指定 chatId 的通知为已读
+  // 标记指定 chatId 的Notification为已读
   markAsRead(chatId: string): void {
     this.hasNewNotificationItems.set(chatId, false);
   }
 
-  // 清空指定 chatId 的所有通知
+  // 清空指定 chatId 的AllNotification
   clear(chatId: string): void {
     this.chatNotificationItems.set(chatId, []);
     this.hasNewNotificationItems.set(chatId, false);
     this.notifyListeners(chatId);
   }
 
-  // 移除指定 chatId 的特定通知
+  // Remove指定 chatId 的特定Notification
   removeNotification(chatId: string, uid: string): void {
     const list = this.chatNotificationItems.get(chatId) || [];
     this.chatNotificationItems.set(chatId, list.filter((n: ChatNotificationItem) => n.uid !== uid));

@@ -5,7 +5,7 @@ import { FileUtils } from '../utils/fileUtils';
 import { getFileTypeIcon } from '../utils/attachmentHandler';
 import ImagePreview from './ImagePreview';
 
-// 简单的后缀转MIME类型兜底
+// Simple的后缀转MIMEType兜底
 const getMimeType = (att: Attachment) => {
   if (att.mimeType && att.mimeType !== 'application/octet-stream') return att.mimeType;
   if (att.type && att.type !== 'application/octet-stream') return att.type;
@@ -17,7 +17,7 @@ const getMimeType = (att: Attachment) => {
     if (ext === 'pdf') return 'application/pdf';
     if (ext === 'zip') return 'application/zip';
     if (ext === 'txt') return 'text/plain';
-    // ...可扩展更多类型
+    // ...可Extended更多Type
   }
   return 'application/octet-stream';
 };
@@ -58,7 +58,7 @@ const AttachmentList: React.FC<{ attachments?: Attachment[] }> = ({ attachments 
               opacity: filePath ? 1 : 0.5
             }}
             onClick={() => filePath && att.name && FileUtils.downloadFile(filePath, att.name)}
-            title={filePath ? '点击下载' : '无效文件'}
+            title={filePath ? 'Click下载' : '无效文件'}
           >
             <span style={{ fontSize: 20 }}>{getFileTypeIcon(att.name || '', mimeType)}</span>
             <div style={{ flex: 1, overflow: 'hidden' }}>

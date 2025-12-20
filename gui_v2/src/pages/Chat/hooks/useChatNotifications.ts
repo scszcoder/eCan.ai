@@ -11,24 +11,24 @@ export const useChatNotifications = (chatId: string, pageSize = NOTIF_PAGE_SIZE,
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  // 初始化加载第一页
+  // InitializeLoad第一页
   useEffect(() => {
     console.log('[useChatNotifications] useEffect', { chatId, pageSize, skipInit });
     if (!chatId || skipInit) return;
   }, [chatId, pageSize, skipInit]);
 
-  // 订阅 NotificationManager，推送时自动刷新
+  // 订阅 NotificationManager，推送时自动Refresh
   useEffect(() => {
     if (!chatId) return;
     const unsubscribe = notificationManager.subscribe(chatId, (all) => {
       setChatNotificationItems(all);
       setOffset(all.length);
-      setHasMore(true); // 只要有新数据就允许继续分页
+      setHasMore(true); // 只要有新Data就Allow继续分页
     });
     return unsubscribe;
   }, [chatId]);
 
-  // 加载更多（从后端 API 拉取）
+  // Load更多（从Backend API 拉取）
   const loadMore = useCallback(async (isInit = false) => {
     if (loadingMore || !hasMore) {
       console.log('[useChatNotifications] loadMore exit: loadingMore or !hasMore', { loadingMore, hasMore });
@@ -57,14 +57,14 @@ export const useChatNotifications = (chatId: string, pageSize = NOTIF_PAGE_SIZE,
     console.log('[useChatNotifications] loadMore end', { newListLen: newList.length, hasMore: newList.length === pageSize });
   }, [chatId, pageSize, offset, hasMore, loadingMore]);
 
-  // 标记为已读（兼容外部调用）
+  // 标记为已读（CompatibleExternal调用）
   const markAsRead = () => {
-    // 这里可以根据需要实现后端已读逻辑
-    // 目前只做前端无操作，防止外部调用报错
+    // 这里Can根据NeedImplementationBackend已读逻辑
+    // 目前只做Frontend无Operation，防止External调用报错
     // console.log('[useChatNotifications] markAsRead called');
   };
 
-  // 清空所有通知（兼容外部调用）
+  // 清空AllNotification（CompatibleExternal调用）
   const clearAll = () => {
     setChatNotificationItems([]);
     setOffset(0);
@@ -72,7 +72,7 @@ export const useChatNotifications = (chatId: string, pageSize = NOTIF_PAGE_SIZE,
     console.log('[useChatNotifications] clearAll called');
   };
 
-  // 移除单条通知（兼容外部调用）
+  // Remove单条Notification（CompatibleExternal调用）
   const removeChatNotification = (uid: string) => {
     setChatNotificationItems(prev => prev.filter(n => n.uid !== uid));
     console.log('[useChatNotifications] removeChatNotification called', uid);
@@ -86,6 +86,6 @@ export const useChatNotifications = (chatId: string, pageSize = NOTIF_PAGE_SIZE,
     markAsRead,
     clearAll,
     removeChatNotification,
-    hasNew: notificationManager.hasNew(chatId), // 新增字段
+    hasNew: notificationManager.hasNew(chatId), // 新增Field
   };
 }; 

@@ -12,11 +12,11 @@ from watchdog.observers import Observer
 from utils.logger_helper import logger_helper as logger
 
 def _is_module_loaded(module_name):
-    """检查模块是否已经被加载"""
+    """Check if module is already loaded"""
     return module_name in sys.modules
 
 def _reload_module(module_name):
-    """重新加载指定的模块"""
+    """Reload specified module"""
     if not _is_module_loaded(module_name):
         logger.info(f"Module {module_name} is not loaded, skipping reload.")
         return
@@ -30,7 +30,7 @@ def _reload_module(module_name):
         logger.error(f"Error reloading module {module_name}: {e}")
 
 class PythonFileEventHandler(FileSystemEventHandler):
-    """处理 .py 文件修改事件"""
+    """Handle .py file modification events"""
 
     def __init__(self, base_path):
         super().__init__()
@@ -43,14 +43,14 @@ class PythonFileEventHandler(FileSystemEventHandler):
         file_path = Path(event.src_path).resolve()
         logger.debug(f"File modified: {file_path}")
 
-        # 将文件路径转换为模块名
-        # 例如 /path/to/project/utils/hot_reload.py -> utils.hot_reload
+        # Convert file path to module name
+        # Example: /path/to/project/utils/hot_reload.py -> utils.hot_reload
         try:
-            # 获取相对于项目根目录的路径
+            # Get path relative to project root directory
             relative_path = file_path.relative_to(self.base_path)
-            # 移除 .py 后缀
+            # Remove .py suffix
             module_path = relative_path.with_suffix('')
-            # 将路径分隔符替换为 .
+            # Replace path separator with .
             module_name = str(module_path).replace(os.path.sep, '.')
             _reload_module(module_name)
         except ValueError:
@@ -61,13 +61,13 @@ class PythonFileEventHandler(FileSystemEventHandler):
 
 def start_watching(watch_paths, loop):
     """
-    在单独的线程中启动文件监控。
+    Start file monitoring in a separate thread.
 
-    :param watch_paths: 要监控的目录列表。
-    :param loop: asyncio 事件循环，用于在循环中调度重载任务（如果需要）。
-                   当前实现是直接重载，未使用 loop。
+    :param watch_paths: List of directories to monitor.
+    :param loop: asyncio event loop, used to schedule reload tasks in the loop (if needed).
+                   Current implementation reloads directly, loop is not used.
     """
-    project_root = Path(__file__).resolve().parent.parent  # 项目根目录 (ecbot)
+    project_root = Path(__file__).resolve().parent.parent  # Project root directory (ecan.ai)
 
     event_handler = PythonFileEventHandler(base_path=project_root)
     observer = Observer()

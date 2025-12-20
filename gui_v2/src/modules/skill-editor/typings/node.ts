@@ -18,7 +18,7 @@ import { WorkflowNodeType } from '../nodes';
 
 /**
  * You can customize the data of the node, and here you can use JsonSchema to define the input and output of the node
- * 你可以自定义节点的 data 业务数据, 这里演示 通过 JsonSchema 来定义节点的输入/输出
+ * 你CanCustom节点的 data 业务Data, 这里演示 通过 JsonSchema 来Definition节点的Input/Output
  */
 export interface FlowNodeJSON extends FlowNodeJSONDefault {
   data: {
@@ -47,7 +47,7 @@ export interface FlowNodeJSON extends FlowNodeJSONDefault {
 
 /**
  * You can customize your own node meta
- * 你可以自定义节点的meta
+ * 你CanCustom节点的meta
  */
 export interface FlowNodeMeta extends WorkflowNodeMeta {
   sidebarDisabled?: boolean;
@@ -58,7 +58,7 @@ export interface FlowNodeMeta extends WorkflowNodeMeta {
 
 /**
  * You can customize your own node registry
- * 你可以自定义节点的注册器
+ * 你CanCustom节点的Register器
  */
 export interface FlowNodeRegistry extends FlowNodeRegistryDefault {
   meta: FlowNodeMeta;

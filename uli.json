@@ -1,1 +1,5 @@
-{"mem_cb": true, "user": "songc@yahoo.com", "pw": "SCECBOTPW", "lan": "EN"}
+{
+  "user": "songc@yahoo.com",
+  "machine_role": "Commander",
+  "language": "en-US"
+}

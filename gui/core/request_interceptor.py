@@ -1,5 +1,5 @@
 """
-请求拦截器模块，用于拦截和处理 Web 请求
+Request Interceptor module for intercepting and handling Web requests
 """
 
 from PySide6.QtWebEngineCore import QWebEngineUrlRequestInterceptor
@@ -8,7 +8,7 @@ from utils.logger_helper import logger_helper as logger
 from typing import Optional, Dict, Any
 
 class RequestInterceptor(QWebEngineUrlRequestInterceptor):
-    """请求拦截器类，用于拦截和处理 Web 请求"""
+    """Request Interceptor class for intercepting and handling Web requests"""
     
     def __init__(self):
         super().__init__()
@@ -19,47 +19,47 @@ class RequestInterceptor(QWebEngineUrlRequestInterceptor):
         self._custom_headers: Dict[str, str] = {}
     
     def interceptRequest(self, info):
-        """拦截请求"""
+        """Intercept requests"""
         try:
             self._request_count += 1
-            
-            # 获取请求信息
+
+            # Get request information
             url = info.requestUrl().toString()
             method = info.requestMethod().data().decode()
             resource_type = info.resourceType().name
-            
-            # 记录请求信息
+
+            # Log request information
             # logger_helper.debug(
             #     f"Intercepted request: {method} {url} ({resource_type})"
             # )
-            
-            # 检查是否需要拦截
+
+            # Check if request should be intercepted
             if self._should_intercept(url, resource_type):
                 self._blocked_count += 1
                 logger.info(f"Blocked request: {url}")
                 info.block(True)
                 return
-            
-            # 添加自定义请求头
+
+            # Add custom headers
             self._add_custom_headers(info)
             
         except Exception as e:
             logger.error(f"Error in request interceptor: {str(e)}")
     
     def _should_intercept(self, url: str, resource_type: str) -> bool:
-        """检查是否需要拦截请求"""
-        # 检查域名
+        """Check if request should be intercepted"""
+        # Check domain
         domain = QUrl(url).host()
-        
-        # 检查是否在允许列表中
+
+        # Check if domain is in allowed list
         if self._allowed_domains and domain not in self._allowed_domains:
             return True
-        
-        # 检查是否在阻止列表中
+
+        # Check if domain is in blocked list
         if domain in self._blocked_domains:
             return True
-        
-        # 检查资源类型
+
+        # Check resource type
         blocked_types = {
             'IMAGE',
             'MEDIA',
@@ -69,36 +69,36 @@ class RequestInterceptor(QWebEngineUrlRequestInterceptor):
             'PREFETCH',
             'FAVICON'
         }
-        
+
         return resource_type in blocked_types
     
     def _add_custom_headers(self, info):
-        """添加自定义请求头"""
+        """Add custom headers"""
         for key, value in self._custom_headers.items():
             info.setHttpHeader(key.encode(), value.encode())
-    
+
     def add_allowed_domain(self, domain: str):
-        """添加允许的域名"""
+        """Add allowed domain"""
         self._allowed_domains.add(domain)
         logger.info(f"Added allowed domain: {domain}")
-    
+
     def add_blocked_domain(self, domain: str):
-        """添加阻止的域名"""
+        """Add blocked domain"""
         self._blocked_domains.add(domain)
         logger.info(f"Added blocked domain: {domain}")
-    
+
     def set_custom_header(self, key: str, value: str):
-        """设置自定义请求头"""
+        """Set custom header"""
         self._custom_headers[key] = value
         logger.info(f"Set custom header: {key}: {value}")
-    
+
     def clear_custom_headers(self):
-        """清除所有自定义请求头"""
+        """Clear all custom headers"""
         self._custom_headers.clear()
         logger.info("Cleared all custom headers")
-    
+
     def get_statistics(self) -> Dict[str, Any]:
-        """获取统计信息"""
+        """Get statistics information"""
         return {
             'total_requests': self._request_count,
             'blocked_requests': self._blocked_count,
@@ -106,9 +106,9 @@ class RequestInterceptor(QWebEngineUrlRequestInterceptor):
             'blocked_domains': list(self._blocked_domains),
             'custom_headers': self._custom_headers.copy()
         }
-    
+
     def reset_statistics(self):
-        """重置统计信息"""
+        """Reset statistics information"""
         self._request_count = 0
         self._blocked_count = 0
-        logger.info("Reset request statistics") 
+        logger.info("Reset request statistics")

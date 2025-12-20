@@ -1,8 +1,6 @@
-import time
-from selenium import webdriver
-from bot.seleniumSkill import *
+
 from agent.ec_skills.dom.dom_utils import *
-from agent.mcp.server.server import page_scroll
+
 
 def load_build_dom_tree_script():
     script = ""

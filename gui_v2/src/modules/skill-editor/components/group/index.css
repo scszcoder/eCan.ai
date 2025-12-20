@@ -5,12 +5,12 @@
 
 .workflow-group-render {
     border-radius: 8px;
-    pointer-events: none;
+    pointer-events: auto;
 }
 
 .workflow-group-header {
     height: 30px;
-    width: fit-content;
+    width: 100%;
     background-color: #fefce8;
     border: 1px solid #facc15;
     border-radius: 8px;
@@ -42,7 +42,7 @@
 
 .workflow-group-background {
     position: absolute;
-    pointer-events: none;
+    pointer-events: auto;
     top: 0;
     background-color: #fddf4729;
     border: 1px solid #fde047;
@@ -54,15 +54,40 @@
     border: 1px solid #facc15;
 }
 
+/* Top-left drag handle (Alt+Drag to move group) */
+.workflow-group-drag-handle {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 16px;
+    height: 16px;
+    border-top-left-radius: 8px;
+    pointer-events: auto;
+    cursor: move;
+    z-index: 2;
+    /* Subtle grip texture: dotted pattern */
+    background: radial-gradient(circle at 3px 3px, rgba(0, 0, 0, 0.25) 1px, transparent 1px) 0 0 / 6px 6px,
+                linear-gradient(135deg, rgba(0,0,0,0.08), rgba(255,255,255,0));
+}
+.workflow-group-drag-handle:hover {
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.15) inset;
+}
+
 .workflow-group-tools {
     display: flex;
     justify-content: flex-start;
     align-items: center;
     gap: 4px;
     height: 100%;
+    width: 100%;
     cursor: move;
     color: oklch(44.6% 0.043 257.281);
     font-size: 14px;
+}
+
+/* Push the last item (NodeMenu) to the far right */
+.workflow-group-tools > :last-child {
+    margin-left: auto;
 }
 .workflow-group-title {
     margin: 0;
@@ -111,4 +136,96 @@
     background-color: #fde047;
     cursor: pointer;
     border: 3px solid;
+}
+
+/* Resize handles for Group nodes */
+.workflow-group-resize-handle {
+    position: absolute;
+    background-color: #3b82f6;
+    border: 1px solid #1d4ed8;
+    border-radius: 2px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    pointer-events: auto !important;
+    z-index: 100;
+    user-select: none;
+}
+
+.workflow-group-render.selected .workflow-group-resize-handle {
+    opacity: 1;
+}
+
+.workflow-group-resize-handle:hover {
+    background-color: #1d4ed8;
+}
+
+/* Corner resize handles */
+.workflow-group-resize-handle.corner {
+    width: 8px;
+    height: 8px;
+}
+
+.workflow-group-resize-handle.corner.nw {
+    top: -4px;
+    left: -4px;
+    cursor: nw-resize !important;
+}
+
+.workflow-group-resize-handle.corner.ne {
+    top: -4px;
+    right: -4px;
+    cursor: ne-resize !important;
+}
+
+.workflow-group-resize-handle.corner.sw {
+    bottom: -4px;
+    left: -4px;
+    cursor: sw-resize !important;
+}
+
+.workflow-group-resize-handle.corner.se {
+    bottom: -4px;
+    right: -4px;
+    cursor: se-resize !important;
+}
+
+/* Edge resize handles */
+.workflow-group-resize-handle.edge {
+    background-color: #3b82f6;
+}
+
+.workflow-group-resize-handle.edge.n {
+    top: -4px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 20px;
+    height: 8px;
+    cursor: n-resize !important;
+}
+
+.workflow-group-resize-handle.edge.s {
+    bottom: -4px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 20px;
+    height: 8px;
+    cursor: s-resize !important;
+}
+
+.workflow-group-resize-handle.edge.w {
+    top: 50%;
+    left: -4px;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 20px;
+    cursor: w-resize !important;
+}
+
+.workflow-group-resize-handle.edge.e {
+    top: 50%;
+    right: -4px;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 20px;
+    cursor: e-resize !important;
 }

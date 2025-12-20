@@ -18,31 +18,18 @@ export interface AgentCard {
 
 export interface Agent {
     card: AgentCard;
-    supervisors: string[];
-    subordinates: string[];
-    peers: string[];
+    supervisor_id: string;  // Single supervisor ID (unified naming)
     rank: string;
-    organizations: string[];
+    org_id: string;  // Single organization ID (unified naming)
     job_description: string;
     personalities: string[];
+    avatar_resource_id?: string;  // Avatar resource ID
+    avatar?: {
+        id: string;
+        imageUrl: string;  // Base64 data URL
+        videoPath?: string;  // Video file path (WebM or MP4)
+        videoExists: boolean;
+    };
+    // Note: subordinates can be queried via supervisor_id reverse lookup, no need to store
+    // Note: peers relationship not yet implemented, no need to store
 }
-
-// 创建事件总线
-const agentsEventBus = {
-    listeners: new Set<(data: Agent[]) => void>(),
-    subscribe(listener: (data: Agent[]) => void) {
-        this.listeners.add(listener);
-        return () => this.listeners.delete(listener);
-    },
-    emit(data: Agent[]) {
-        this.listeners.forEach(listener => listener(data));
-    }
-};
-
-// 导出更新数据的函数
-export const updateAgentsGUI = (data: Agent[]) => {
-    agentsEventBus.emit(data);
-};
-
-// 导出事件总线供组件使用
-export { agentsEventBus }; 

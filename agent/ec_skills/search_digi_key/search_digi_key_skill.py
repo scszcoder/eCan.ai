@@ -1,17 +1,12 @@
 from langgraph.constants import START, END
-from bot.Logger import *
+from prompt_toolkit import prompt
+from langchain_core.prompts import ChatPromptTemplate
 from agent.ec_skill import *
-from bot.adsAPISkill import startADSWebDriver, queryAdspowerProfile
-from bot.seleniumSkill import execute_js_script
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
 from utils.logger_helper import logger_helper as logger
-from utils.logger_helper import get_agent_by_id, get_traceback
+from utils.logger_helper import get_traceback
+from agent.agent_service import get_agent_by_id
 from agent.mcp.local_client import mcp_call_tool
-import re
-
-
-
+from langgraph.prebuilt import create_react_agent
 
 
 def go_to_site_node(state: NodeState) -> NodeState:
@@ -19,7 +14,7 @@ def go_to_site_node(state: NodeState) -> NodeState:
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
-        print("about to connect to ads power:", type(state), state)
+        logger.debug("about to connect to ads power:", type(state), state)
 
         # 安全地获取或创建事件循环
         try:
@@ -33,7 +28,7 @@ def go_to_site_node(state: NodeState) -> NodeState:
             mcp_call_tool("os_connect_to_adspower", {"input": state["tool_input"]})
         )
 
-        print("go_to_site_node tool completed:", type(tool_result), tool_result)
+        logger.debug("go_to_site_node tool completed:", type(tool_result), tool_result)
 
         # 安全地处理结果
         if isinstance(tool_result, dict):
@@ -62,7 +57,7 @@ def go_to_site_node(state: NodeState) -> NodeState:
 
     except Exception as e:
         state["error"] = get_traceback(e, "ErrorGoToSiteNode")
-        logger.debug(state["error"])
+        logger.error(state["error"])
         return state
 
 
@@ -75,7 +70,10 @@ def check_captcha_node(state: NodeState) -> NodeState:
         #     state.result["selected_tool"], arguments={"input": state.tool_input}
         # )
 
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
+        llm = mainwin.llm if mainwin and mainwin.llm else None
+        if not llm:
+            raise ValueError("LLM not available in mainwin")
         user_content = """ 
                         Given the json formated partial dom tree elements, and I want to extract available top categories that all products
                         on digi-key are grouped into. please help figure out:
@@ -118,9 +116,9 @@ def check_captcha_node(state: NodeState) -> NodeState:
             }
         ]
 
-        print("llm prompt ready:", prompt_messages)
+        logger.debug("llm prompt ready:", prompt_messages)
         response = llm.invoke(prompt_messages)
-        print("LLM response:", response)
+        logger.debug("LLM response:", response)
         # Parse the response
 
         import json
@@ -128,7 +126,7 @@ def check_captcha_node(state: NodeState) -> NodeState:
 
         # Extract content from AIMessage if needed
         raw_content = response.content if hasattr(response, 'content') else str(response)
-        print("Raw content:", raw_content)  # Debug log
+        logger.debug("Raw content:", raw_content)  # Debug log
 
         # Clean up the response
         if is_json_parsable(raw_content):
@@ -170,7 +168,10 @@ def solve_captcha_node(state: NodeState) -> NodeState:
         #     state.result["selected_tool"], arguments={"input": state.tool_input}
         # )
 
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
+        llm = mainwin.llm if mainwin and mainwin.llm else None
+        if not llm:
+            raise ValueError("LLM not available in mainwin")
         user_content = """ 
                         Given the json formated partial dom tree elements, and I want to extract available top categories that all products
                         on digi-key are grouped into. please help figure out:
@@ -213,9 +214,9 @@ def solve_captcha_node(state: NodeState) -> NodeState:
             }
         ]
 
-        print("llm prompt ready:", prompt_messages)
+        logger.debug("llm prompt ready:", prompt_messages)
         response = llm.invoke(prompt_messages)
-        print("LLM response:", response)
+        logger.debug("LLM response:", response)
         # Parse the response
 
         import json
@@ -223,7 +224,7 @@ def solve_captcha_node(state: NodeState) -> NodeState:
 
         # Extract content from AIMessage if needed
         raw_content = response.content if hasattr(response, 'content') else str(response)
-        print("Raw content:", raw_content)  # Debug log
+        logger.debug("Raw content:", raw_content)  # Debug log
 
         # Clean up the response
         if is_json_parsable(raw_content):
@@ -251,7 +252,7 @@ def solve_captcha_node(state: NodeState) -> NodeState:
 
     except Exception as e:
         state['error'] = get_traceback(e, "ErrorSolveCaptchaNode")
-        logger.debug(state['error'])
+        logger.error(state['error'])
         return state
 
 
@@ -261,7 +262,10 @@ def check_top_categories_node(state: NodeState) -> NodeState:
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
+        llm = mainwin.llm if mainwin and mainwin.llm else None
+        if not llm:
+            raise ValueError("LLM not available in mainwin")
         user_content = """ 
                                 Given the json formated partial dom tree elements, and I want to extract available top categories that all products
                                 on digi-key are grouped into. please help figure out:
@@ -308,7 +312,7 @@ def check_top_categories_node(state: NodeState) -> NodeState:
 
     except Exception as e:
         state['error'] = get_traceback(e, "ErrorCheckTopCategoriesNode")
-        logger.debug(state['error'])
+        logger.error(state['error'])
         return state
 
 
@@ -317,7 +321,10 @@ def check_sub_categories_node(state: NodeState) -> NodeState:
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
+        llm = mainwin.llm if mainwin and mainwin.llm else None
+        if not llm:
+            raise ValueError("LLM not available in mainwin")
         user_content = """ 
                                 Given the json formated partial dom tree elements, and I want to extract available top categories that all products
                                 on digi-key are grouped into. please help figure out:
@@ -364,7 +371,7 @@ def check_sub_categories_node(state: NodeState) -> NodeState:
 
     except Exception as e:
         state['error'] = get_traceback(e, "ErrorCheckSubCategoriesNode")
-        logger.debug(state['error'])
+        logger.error(state['error'])
         return state
 
 
@@ -374,7 +381,10 @@ def check_is_parametric_filter_node(state: NodeState) -> NodeState:
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
+        llm = mainwin.llm if mainwin and mainwin.llm else None
+        if not llm:
+            raise ValueError("LLM not available in mainwin")
         user_content = """ 
                                         Given the json formated partial dom tree elements, and I want to extract available top categories that all products
                                         on digi-key are grouped into. please help figure out:
@@ -421,7 +431,7 @@ def check_is_parametric_filter_node(state: NodeState) -> NodeState:
 
     except Exception as e:
         state['error'] = get_traceback(e, "ErrorCheckIsParametricFilterNode")
-        logger.debug(state['error'])
+        logger.error(state['error'])
         return state
 
 
@@ -442,14 +452,14 @@ def get_user_parametric_node(state: NodeState) -> NodeState:
         # Navigate to the new URL in the new tab
         if url:
             webdriver.get(url)  # Replace with the new URL
-            print("open URL: " + url)
+            logger.debug("open URL: " + url)
 
         result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
 
         return result_state
     except Exception as e:
         state['error'] = get_traceback(e, "ErrorGetUserParametricNode")
-        logger.debug(state['error'])
+        logger.error(state['error'])
         return state
 
 
@@ -470,14 +480,14 @@ def fill_user_parametric_node(state: NodeState) -> NodeState:
         # Navigate to the new URL in the new tab
         if url:
             webdriver.get(url)  # Replace with the new URL
-            print("open URL: " + url)
+            logger.debug("open URL: " + url)
 
         result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
 
         return result_state
     except Exception as e:
         state['error'] = get_traceback(e, "ErrorFillUserParametricNode")
-        logger.debug(state['error'])
+        logger.error(state['error'])
         return state
 
 
@@ -498,14 +508,14 @@ def obtain_search_results_node(state: NodeState) -> NodeState:
         # Navigate to the new URL in the new tab
         if url:
             webdriver.get(url)  # Replace with the new URL
-            print("open URL: " + url)
+            logger.debug("open URL: " + url)
 
         result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
 
         return result_state
     except Exception as e:
         state['error'] = get_traceback(e, "ErrorObtainSearchResultsNode")
-        logger.debug(state['error'])
+        logger.error(state['error'])
         return state
 
 
@@ -527,14 +537,14 @@ def final_select_node(state: NodeState) -> NodeState:
         # Navigate to the new URL in the new tab
         if url:
             webdriver.get(url)  # Replace with the new URL
-            print("open URL: " + url)
+            logger.debug("open URL: " + url)
 
         result_state = NodeState(messages=state["messages"], retries=0, goals=[], condition=False)
 
         return result_state
     except Exception as e:
         state['error'] = get_traceback(e, "ErrorFinalSelectNode")
-        logger.debug(state['error'])
+        logger.error(state['error'])
         return state
 
 
@@ -557,7 +567,7 @@ def check_goals_node(state: NodeState) -> NodeState:
         return result_state
     except Exception as e:
         state['error'] = get_traceback(e, "ErrorCheckGoalsNode")
-        logger.debug(state['error'])
+        logger.error(state['error'])
         return state
 
 
@@ -576,7 +586,7 @@ def send_results_node(state: NodeState) -> NodeState:
         return result_state
     except Exception as e:
         state['error'] = get_traceback(e, "ErrorSendResultsNode")
-        logger.debug(state['error'])
+        logger.error(state['error'])
         return state
 
 
@@ -587,7 +597,7 @@ def check_done_logic(state: NodeState) -> str:
 
     except Exception as e:
         state['error'] = get_traceback(e, "ErrorCheckDoneLogic")
-        logger.debug(state['error'])
+        logger.error(state['error'])
         return "Error"
 
 
@@ -597,7 +607,7 @@ def check_captcha_logic(state: NodeState) -> str:
 
     except Exception as e:
         state['error'] = get_traceback(e, "ErrorCheckCaptchaLogic")
-        logger.debug(state['error'])
+        logger.error(state['error'])
         return "error"
 
 async def create_search_digi_key_skill(mainwin):
@@ -605,9 +615,11 @@ async def create_search_digi_key_skill(mainwin):
         llm = mainwin.llm
         mcp_client = mainwin.mcp_client
         local_server_port = mainwin.get_local_server_port()
-        searcher_skill = EC_Skill(name="meca search digi-key web site",
-                             description="help search a part/component or a product on digi-key website.")
-
+        searcher_skill = EC_Skill(
+            name="meca search digi-key web site",
+            description="help search a part/component or a product on digi-key website.",
+            source="code"  # Mark as code-generated skill
+        )        
         # await wait_until_server_ready(f"http://localhost:{local_server_port}/healthz")
         # print("connecting...........sse")
 
@@ -615,7 +627,7 @@ async def create_search_digi_key_skill(mainwin):
         # web_search_tool_names = ['reconnect_wifi', 'mouse_click', 'screen_capture', 'screen_analyze']
         # web_search_tools = [t for t in all_tools if t.name in web_search_tool_names]
         # print("searcher # tools ", len(all_tools), type(all_tools[-1]), all_tools[-1])
-        llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
         web_search_tools = []
         searcher_agent = create_react_agent(llm, web_search_tools)
         # Prompt Template
@@ -688,7 +700,7 @@ async def create_search_digi_key_skill(mainwin):
             return state
 
         # Router logic
-        async def route_logic(state: NodeState) -> str:
+        def route_logic(state: NodeState) -> str:
             if state["resolved"] or state["retries"] >= 5:
                 return END
             return "llm_loop"
@@ -728,11 +740,11 @@ async def create_search_digi_key_skill(mainwin):
         searcher_skill.set_work_flow(workflow)
         # Store manager so caller can close it after using the skill
          # type: ignore[attr-defined]
-        print("search_digi_key_skill build is done!")
+        logger.debug("search_digi_key_skill build is done!")
         return searcher_skill
     except Exception as e:
         err_trace = get_traceback(e, "ErrorCreateSearchDigiKeySkill")
-        logger.debug(err_trace)
+        logger.error(err_trace)
         return None
 
 #

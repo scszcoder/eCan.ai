@@ -1,228 +1,224 @@
-import os
-import sys
-import traceback
-import httpx
-import json
-
-from agent.mcp.server.server import handle_sse, sse_handle_messages, meca_mcp_server, meca_sse, handle_streamable_http, lifespan
-from agent.mcp.config import mcp_http_base, mcp_sse_url
-from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain_mcp_adapters.tools import load_mcp_tools
-from mcp.client.sse import sse_client
+from agent.mcp.config import mcp_http_base
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.client.session import ClientSession
-from contextlib import asynccontextmanager
 from agent.mcp.streamablehttp_manager import Streamable_HTTP_Manager
 
-
-# ============================= now create global client ===========================
-async def create_mcp_client():
-    mcp_client = MultiServerMCPClient(
-            {
-                "E-Commerce Agents Service": {
-                    # make sure you start your weather server on port 8000
-                    "url": mcp_sse_url(),
-                    "transport": "sse",
-                }
-            }
-    )
-
-    try:
-        # NotImplementedError: As of langchain - mcp - adapters0.1.0, MultiServerMCPClient
-        # cannot be used as a context manager(e.g., async with MultiServerMCPClient(...)).
-        # Instead, you can do one of the following:
-        # 1.
-        # client = MultiServerMCPClient(...)
-        # tools = await client.get_tools()
-        # 2.
-        # client = MultiServerMCPClient(...)
-        # async with client.session(server_name) as session:
-        # tools = await load_mcp_tools(session)
-
-        # CORRECTED LINE: Pass server_name as a keyword argument
-        # tools = await mcp_client.get_tools(server_name="E-Commerce Agents Service")
-        # print("MCP client created and tools loaded successfully for E-Commerce Agents Service.")
-        #
-        # # You might want to store the loaded tools on the client object if they're needed later
-        # mcp_client._loaded_tools = tools
-        # tools = await mcp_client.get_tools()
-        # print("MCP client created and tools loaded successfully.", tools)
-
-        async with mcp_client.session("E-Commerce Agents Service") as session:
-            print("MCP client session initing................")
-            await session.initialize()
-            # tools = await load_mcp_tools(session)
-            print("MCP client created................")
-            tools = await mcp_client.get_tools()
-            print("MCP client created and tools loaded successfully.", tools)
-            # return mcp_client
-
-        return mcp_client
-
-    except Exception as e:
-        print(f"Error creating MCP client or loading tools: {e}")
-        # Depending on your needs, you might re-raise the exception or return None
-        raise
-    # await mcp_client.__aenter__()
-    # await mcp_client.connect_to_server_via_sse("http://127.0.0.1:4668/sse")
-    # async with mcp_client.session("E-Commerce Agents Service") as session:
-    #     tools = await load_mcp_tools(session)
-    #     print("mcp client created................")
-    # return mcp_client
-@asynccontextmanager
-async def create_sse_client():
-    async with sse_client(mcp_sse_url()) as (read_stream, write_stream):
-        # Add debug prints to check stream types
-        print(f"Read stream type: {type(read_stream).__name__}")  # Should be MemoryObjectReceiveStream
-        print(f"Write stream type: {type(write_stream).__name__}")  # Should be MemoryObjectSendStream
-        print("before ClientSession  ", id(read_stream), id(write_stream))
-
-        async with ClientSession(read_stream, write_stream) as session:
-        # async with ClientSession(streams[0], streams[1]) as session:
-            print("SSE client session initing................")
-            await session.initialize()
-            print("SSE client created................")
-            yield session
+import asyncio
+import traceback
+from utils.logger_helper import logger_helper as logger
+from agent.ec_skills.system_proxy import create_mcp_httpx_client
 
 
-@asynccontextmanager
-async def create_streamable_http_client(url):
-    # mcp_http_base()
-    async with streamablehttp_client(url) as (read_stream, write_stream):
-        # Add debug prints to check stream types
-        print(f"Read stream type: {type(read_stream).__name__}")  # Should be MemoryObjectReceiveStream
-        print(f"Write stream type: {type(write_stream).__name__}")  # Should be MemoryObjectSendStream
-        print("before ClientSession  ", id(read_stream), id(write_stream))
 
-        async with ClientSession(read_stream, write_stream) as session:
-        # async with ClientSession(streams[0], streams[1]) as session:
-            print("SSE client session initing................")
-            await session.initialize()
-            print("SSE client created................")
-            yield session
+class MCPClientManager:
+    """Manages MCP client sessions and tool interactions."""
 
+    def __init__(self):
+        pass
 
-async def local_mcp_list_tools(url):
-    """
-    获取MCP工具列表
+    async def list_tools(self, url):
+        """
+        Lists available tools from an MCP server.
 
-    Args:
-        url: MCP服务器URL，例如 mcp_http_base()
+        Args:
+            url: The URL of the MCP server (e.g., mcp_http_base()).
 
-    Returns:
-        ListToolsResult对象，包含tools属性
+        Returns:
+            A ListToolsResult object containing the 'tools' attribute.
 
-    Raises:
-        Exception: 连接或获取工具列表失败
-    """
-    from utils.logger_helper import logger_helper as logger
-
-    try:
-        logger.debug(f"Connecting to MCP server at {url}")
-        async with streamablehttp_client(url) as streams:
-            async with ClientSession(streams[0], streams[1]) as session:
-                logger.debug("Initializing MCP session...")
-                await session.initialize()
-
-                logger.debug("Listing tools...")
-                tools_result = await session.list_tools()
-
-                # 记录结果信息
-                if hasattr(tools_result, 'tools'):
-                    logger.debug(f"Retrieved {len(tools_result.tools)} tools")
-                    if tools_result.tools:
-                        logger.debug(f"First tool: {tools_result.tools[0].name if hasattr(tools_result.tools[0], 'name') else 'Unknown'}")
-                else:
-                    logger.debug(f"Tools result type: {type(tools_result)}")
-
-                return tools_result
-
-    except Exception as e:
-        logger.error(f"Failed to list MCP tools from {url}: {e}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        raise
-
-async def local_mcp_call_tool(url, tool_name, arguments):
-    # mcp_http_base()
-    result = None
-    try:
-        # First try using a persistent session to avoid per-call teardown races
+        Raises:
+            Exception: If connecting or listing tools fails.
+        """
         try:
-            mgr = Streamable_HTTP_Manager.get(url)
-            session = await mgr.session()
-            result = await session.call_tool(tool_name, arguments)
-            try:
-                print(f"local_mcp_call_tool(persistent): received result type={type(result)} isError={getattr(result, 'isError', None)}")
-            except Exception:
-                pass
-            return result
-        except BaseException as _mgr_err:
-            try:
-                print(f"Persistent session path failed, falling back to ephemeral: {_mgr_err}")
-            except Exception:
-                pass
-            # Fall back to ephemeral session
-            # Avoid terminating the HTTP session abruptly to let server finish background tasks
-            async with streamablehttp_client(url, terminate_on_close=False) as streams:
+            logger.debug(f"Connecting to MCP server at {url} to list tools")
+            async with streamablehttp_client(url, httpx_client_factory=create_mcp_httpx_client) as streams:
                 async with ClientSession(streams[0], streams[1]) as session:
+                    logger.debug("Initializing MCP session...")
                     await session.initialize()
-                    # Execute tool call; rely on context manager to close session cleanly
-                    result = await session.call_tool(tool_name, arguments)
-                    try:
-                        print(f"local_mcp_call_tool: received result type={type(result)} isError={getattr(result, 'isError', None)}")
-                    except Exception:
-                        pass
-                    # Give server a moment to flush and avoid TaskGroup ExceptionGroup during teardown
-                    try:
-                        await session.send_ping()
-                    except Exception:
-                        pass
-                    try:
-                        import asyncio as _asyncio
-                        await _asyncio.sleep(0.05)
-                    except Exception:
-                        pass
-    except BaseException as e:
-        # If we already have a result, suppress teardown exceptions
-        if result is not None:
-            try:
-                print(f"Suppressed teardown error after tool result: {e}")
-            except Exception:
-                pass
-        else:
+                    logger.debug("Listing tools...")
+                    tools_result = await session.list_tools()
+
+                    if hasattr(tools_result, 'tools'):
+                        logger.debug(f"Retrieved {len(tools_result.tools)} tools")
+                    return tools_result
+        except Exception as e:
+            logger.error(f"Failed to list MCP tools from {url}: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
             raise
-    return result
+
+    async def call_tool(self, url, tool_name, arguments, timeout: float = 60.0):
+        """Calls a tool on an MCP server with robust session handling.
+        
+        Args:
+            url: MCP server URL
+            tool_name: Name of the tool to call
+            arguments: Tool arguments
+            timeout: Timeout in seconds (default 60s). Caller can specify longer
+                     timeout for slow operations like API queries.
+        """
+        result = None
+        # Use shorter timeout only for getting persistent session (not for the actual call)
+        persistent_session_timeout = min(5.0, timeout)
+        
+        try:
+            # First, try using a persistent session for efficiency
+            try:
+                mgr = Streamable_HTTP_Manager.get(url)
+                # Quick check if persistent session is available
+                logger.debug(f"[MCP] Getting persistent session for '{tool_name}'...")
+                session = await asyncio.wait_for(mgr.session(), timeout=persistent_session_timeout)
+                logger.debug(f"[MCP] Got persistent session, calling tool '{tool_name}'...")
+                # Use full timeout for the actual tool call
+                result = await asyncio.wait_for(
+                    session.call_tool(tool_name, arguments),
+                    timeout=timeout
+                )
+                logger.debug(f"Tool call via persistent session succeeded for '{tool_name}'")
+                return result
+            except asyncio.TimeoutError:
+                logger.warning(f"Persistent session timed out for '{tool_name}', falling back to ephemeral")
+                # Reset persistent session so next call can try to recreate it
+                Streamable_HTTP_Manager.reset()
+            except BaseException as mgr_err:
+                logger.warning(f"Persistent session failed, falling back to ephemeral: {mgr_err}")
+                # Reset persistent session so next call can try to recreate it
+                Streamable_HTTP_Manager.reset()
+            
+            # Fallback to a temporary (ephemeral) session
+            try:
+                async with streamablehttp_client(url, terminate_on_close=False, httpx_client_factory=create_mcp_httpx_client) as streams:
+                    async with ClientSession(streams[0], streams[1]) as session:
+                        await asyncio.wait_for(session.initialize(), timeout=timeout)
+                        result = await asyncio.wait_for(
+                            session.call_tool(tool_name, arguments),
+                            timeout=timeout
+                        )
+                        # Allow a brief moment for server-side cleanup before closing
+                        await asyncio.sleep(0.05)
+            except asyncio.TimeoutError:
+                logger.error(f"Ephemeral session timed out for '{tool_name}' after {timeout}s")
+                raise
+            except BaseException as cleanup_err:
+                # If we got a result but cleanup failed, log and return the result
+                if result is not None:
+                    # Check if it's a TaskGroup error during cleanup
+                    if "TaskGroup" in str(cleanup_err) or "cancel scope" in str(cleanup_err):
+                        logger.debug(f"Ephemeral session cleanup error (result obtained, ignoring): {cleanup_err}")
+                    else:
+                        logger.warning(f"Ephemeral session cleanup error (result obtained): {cleanup_err}")
+                    # Return the result anyway since we got it successfully
+                    return result
+                else:
+                    # No result obtained, this is a real error
+                    logger.error(f"Ephemeral session tool call failed for '{tool_name}': {cleanup_err}")
+                    raise
+        except asyncio.TimeoutError:
+            logger.error(f"Tool call timed out for '{tool_name}' after {timeout}s")
+            raise
+        except BaseException as e:
+            # This should not be reached if the inner try-except handles everything correctly
+            # But keep it as a safety net
+            if result is not None:
+                logger.warning(f"Suppressed outer teardown error after tool result: {e}")
+            else:
+                logger.error(f"Outer exception for '{tool_name}': {e}")
+                raise
+        return result
+    
+    async def close(self):
+        """Closes the underlying persistent HTTP session manager."""
+        logger.info("Closing persistent MCP client session...")
+        try:
+            # The manager is a singleton; get the instance and close it.
+            url = mcp_http_base()
+            manager_instance = Streamable_HTTP_Manager.get(url)
+            await manager_instance.close()
+            logger.info("✅ MCP client session closed successfully.")
+        except (RuntimeError, Exception) as e:
+            # Handle both RuntimeError from task group issues and other exceptions
+            if "cancel scope" in str(e) or "different task" in str(e):
+                logger.debug(f"MCP client session close: Task group exit error (expected during shutdown): {e}")
+            else:
+                logger.warning(f"MCP client session close: Unexpected error: {e}")
+            # Don't re-raise to avoid breaking the shutdown process
 
 
-async def mcp_call_tool(tool_name, args):
-    # async with mcp_client.session("E-Commerce Agents Service") as session:
-    print(f"MCP client calling tool: {tool_name} with args: {args}")
+
+# Create a singleton instance for managing MCP client operations
+mcp_client_manager = MCPClientManager()
+
+# Flag to track if persistent session needs warmup
+_needs_warmup = False
+_session_warmed_up = False
+
+def mark_needs_warmup():
+    """Mark that MCP session needs warmup on first call."""
+    global _needs_warmup
+    _needs_warmup = True
+
+async def warmup_mcp_session():
+    """Pre-initialize the persistent MCP session.
+    
+    This should be called from the same event loop where MCP calls will be made.
+    """
+    global _session_warmed_up, _needs_warmup
+    if _session_warmed_up:
+        logger.debug("MCP session already warmed up, skipping")
+        return True
+    
+    _needs_warmup = False  # Clear the flag
+    
+    try:
+        url = mcp_http_base()
+        logger.info(f"Warming up MCP persistent session to {url}...")
+        mgr = Streamable_HTTP_Manager.get(url)
+        # Try to establish session with a reasonable timeout
+        session = await asyncio.wait_for(mgr.session(), timeout=15.0)
+        if session is not None:
+            _session_warmed_up = True
+            logger.info("✅ MCP persistent session warmed up successfully")
+            return True
+        else:
+            logger.warning("MCP session warmup: session is None")
+            return False
+    except asyncio.TimeoutError:
+        logger.warning("MCP session warmup timed out after 15s, will use ephemeral sessions")
+        return False
+    except Exception as e:
+        logger.warning(f"MCP session warmup failed: {e}, will use ephemeral sessions")
+        return False
+
+async def mcp_call_tool(tool_name, args, timeout: float = 60.0):
+    """Public function to call a tool, using the client manager.
+    
+    Args:
+        tool_name: Name of the MCP tool to call
+        args: Tool arguments
+        timeout: Timeout in seconds (default 60s). Caller should specify longer
+                 timeout for slow operations like cloud API queries.
+    """
+    global _needs_warmup
+    
+    # Warmup on first call if needed (in the correct event loop)
+    if _needs_warmup and not _session_warmed_up:
+        logger.info("[MCP] First call - warming up persistent session...")
+        await warmup_mcp_session()
+    
+    logger.debug(f"MCP client calling tool: {tool_name} with args: {args}, timeout: {timeout}s")
     response = None
     try:
-        # Call the tool and get the raw response
         url = mcp_http_base()
-        response = await local_mcp_call_tool(url, tool_name, args)
-        print(f"Raw response type: {type(response)}")
-        try:
-            print(f"Raw response Err: {getattr(response, 'isError', None)}   {getattr(response.content[0], 'text', None)}")
-        except Exception:
-            pass
+        response = await mcp_client_manager.call_tool(url, tool_name, args, timeout=timeout)
+        logger.debug(f"Raw response type: {type(response)}")
         return response
     except BaseException as e:
-        # If we already have a valid response, prefer returning it and just log teardown errors
         if response is not None:
-            try:
-                # Provide more context for ExceptionGroup if present
-                if hasattr(e, 'exceptions'):
-                    sub_errs = getattr(e, 'exceptions')
-                    print(f"Teardown ExceptionGroup with {len(sub_errs)} sub-exceptions; suppressing due to successful response")
-                else:
-                    print(f"Suppressed teardown error after successful tool call: {e}")
-            except Exception:
-                pass
+            # If a result was obtained but an error occurred during cleanup, prioritize the result
+            logger.warning(f"Suppressed teardown error after successful tool call: {e}")
             return response
-        # No response obtained; propagate structured error
-        error_msg = f"Error calling {tool_name}: {str(e)}"
-        print(error_msg)
+
+        # No response was obtained, so the error is critical
+        error_msg = f"Error calling tool '{tool_name}': {e}"
+        logger.error(error_msg)
+        # Return a structured error message compatible with MCP tool results
         return {"content": [{"type": "text", "text": error_msg}], "isError": True}

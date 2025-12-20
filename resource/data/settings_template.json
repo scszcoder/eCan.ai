@@ -1,0 +1,70 @@
+{
+  "_comment": "eCan.ai Settings Template - Sensitive fields should not have default values",
+  
+  "_groups": {
+    "general": ["schedule_mode", "debug_mode"],
+    "hardware": ["default_wifi", "default_printer", "display_resolution"],
+    "paths": ["default_webdriver_path", "build_dom_tree_script_path", "new_orders_dir", "new_bots_file_path", "new_orders_path", "browser_use_file_system_path", "browser_use_download_dir", "browser_use_user_data_dir", "gui_flowgram_schema"],
+    "local_db": ["local_user_db_host", "local_user_db_port", "local_agent_db_host", "local_agent_db_port", "local_agent_ports", "local_server_port"],
+    "api_endpoints": ["lan_api_endpoint", "wan_api_endpoint", "ws_api_endpoint", "ws_api_host", "ecan_cloud_searcher_url"],
+    "api_keys": ["wan_api_key", "ocr_api_key"],
+    "engines": ["network_api_engine", "schedule_engine"],
+    "ocr": ["ocr_api_endpoint"],
+    "llm": ["default_llm", "default_llm_model"],
+    "embedding": ["default_embedding", "default_embedding_model"],
+    "skill": ["skill_use_git"],
+    "internal": ["last_bots_file", "last_bots_file_time", "last_order_file", "last_order_file_time", "mids_forced_to_run"]
+  },
+
+  "schedule_mode": "auto",
+  "debug_mode": false,
+  
+  "default_wifi": "",
+  "default_printer": "",
+  "display_resolution": "D1920X1080",
+  
+  "default_webdriver_path": "",
+  "build_dom_tree_script_path": "agent/ec_skills/dom/buildDomTree.js",
+  "new_orders_dir": "",
+  "new_bots_file_path": "",
+  "new_orders_path": "",
+  "browser_use_file_system_path": "",
+  "browser_use_download_dir": "",
+  "browser_use_user_data_dir": "",
+  "gui_flowgram_schema": "myskills/node_schemas.json",
+  
+  "local_user_db_host": "127.0.0.1",
+  "local_user_db_port": "5080",
+  "local_agent_db_host": "",
+  "local_agent_db_port": "6668",
+  "local_agent_ports": [3600, 3800],
+  "local_server_port": "4668",
+  
+  "lan_api_endpoint": "",
+  "wan_api_endpoint": "https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql",
+  "ws_api_endpoint": "wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql",
+  "ws_api_host": "3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com",
+  "ecan_cloud_searcher_url": "http://52.204.81.197:5808/search_components",
+  
+  "wan_api_key": "",
+  "ocr_api_key": "",
+  
+  "network_api_engine": "lan",
+  "schedule_engine": "wan",
+  
+  "ocr_api_endpoint": "http://52.204.81.197:8848/graphql/reqScreenTxtRead",
+  
+  "default_llm": "openai",
+  "default_llm_model": "gpt-5",
+  
+  "default_embedding": "openai",
+  "default_embedding_model": "text-embedding-3-small",
+  
+  "skill_use_git": false,
+  
+  "last_bots_file": "",
+  "last_bots_file_time": 0,
+  "last_order_file": "",
+  "last_order_file_time": 0,
+  "mids_forced_to_run": []
+}

@@ -58,7 +58,7 @@ const Collaboration: React.FC<CollaborationProps> = ({
   const [comments, setComments] = useState<Comment[]>([
     {
       id: '1',
-      content: '这个文档写得很好，但是建议在API部分添加更多的示例代码。@张三 你觉得呢？',
+      content: '这个Documentation写得很好，但是建议在API部分Add更多的ExampleCode。@张三 你觉得呢？',
       author: {
         id: 'user1',
         name: '李四',
@@ -70,7 +70,7 @@ const Collaboration: React.FC<CollaborationProps> = ({
       replies: [
         {
           id: '1-1',
-          content: '同意，我来补充一些示例代码。',
+          content: '同意，我来补充一些ExampleCode。',
           author: {
             id: 'user2',
             name: '张三',
@@ -89,7 +89,7 @@ const Collaboration: React.FC<CollaborationProps> = ({
     },
     {
       id: '2',
-      content: '文档结构很清晰，但是权限管理部分可以更详细一些。',
+      content: 'Documentation结构很清晰，但是Permission管理部分Can更Detailed一些。',
       author: {
         id: 'user3',
         name: '王五',
@@ -110,7 +110,7 @@ const Collaboration: React.FC<CollaborationProps> = ({
   const [showMentions, setShowMentions] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // 模拟用户列表
+  // 模拟UserList
   const users = [
     { id: 'user1', name: '李四' },
     { id: 'user2', name: '张三' },
@@ -119,10 +119,10 @@ const Collaboration: React.FC<CollaborationProps> = ({
     { id: 'user5', name: '钱七' },
   ];
 
-  // 处理发送评论
+  // ProcessSend评论
   const handleSendComment = () => {
     if (!newComment.trim()) {
-      message.warning('请输入评论内容');
+      message.warning('请Input评论Content');
       return;
     }
 
@@ -131,7 +131,7 @@ const Collaboration: React.FC<CollaborationProps> = ({
       content: newComment.trim(),
       author: {
         id: 'currentUser',
-        name: '当前用户',
+        name: 'When前User',
         avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=current',
       },
       mentions,
@@ -148,7 +148,7 @@ const Collaboration: React.FC<CollaborationProps> = ({
     };
 
     if (replyTo) {
-      // 添加回复
+      // Add回复
       setComments(prev => prev.map(comment => 
         comment.id === replyTo.id 
           ? { ...comment, replies: [...comment.replies, newCommentObj] }
@@ -156,29 +156,29 @@ const Collaboration: React.FC<CollaborationProps> = ({
       ));
       setReplyTo(null);
     } else {
-      // 添加新评论
+      // Add新评论
       setComments(prev => [newCommentObj, ...prev]);
     }
 
     setNewComment('');
     onComment?.(commentData);
-    message.success('评论发送成功');
+    message.success('评论SendSuccess');
   };
 
-  // 处理回复
+  // Process回复
   const handleReply = (comment: Comment) => {
     setReplyTo(comment);
     setNewComment(`@${comment.author.name} `);
     textareaRef.current?.focus();
   };
 
-  // 处理编辑评论
+  // ProcessEdit评论
   const handleEdit = (comment: Comment) => {
     setEditingComment(comment);
     setNewComment(comment.content);
   };
 
-  // 处理保存编辑
+  // ProcessSaveEdit
   const handleSaveEdit = () => {
     if (!editingComment) return;
 
@@ -190,22 +190,22 @@ const Collaboration: React.FC<CollaborationProps> = ({
 
     setEditingComment(null);
     setNewComment('');
-    message.success('评论更新成功');
+    message.success('评论UpdateSuccess');
   };
 
-  // 处理删除评论
+  // ProcessDelete评论
   const handleDelete = (comment: Comment) => {
     Modal.confirm({
-      title: '确认删除',
-      content: '确定要删除这条评论吗？',
+      title: 'ConfirmDelete',
+      content: '确定要Delete这条评论吗？',
       onOk: () => {
         setComments(prev => prev.filter(c => c.id !== comment.id));
-        message.success('评论删除成功');
+        message.success('评论DeleteSuccess');
       },
     });
   };
 
-  // 处理点赞/踩
+  // Process点赞/踩
   const handleVote = (comment: Comment, type: 'like' | 'dislike') => {
     setComments(prev => prev.map(c => 
       c.id === comment.id 
@@ -229,7 +229,7 @@ const Collaboration: React.FC<CollaborationProps> = ({
     return mentions;
   };
 
-  // 渲染评论内容
+  // Render评论Content
   const renderCommentContent = (content: string, mentions: string[]) => {
     let renderedContent = content;
     mentions.forEach(mention => {
@@ -239,23 +239,23 @@ const Collaboration: React.FC<CollaborationProps> = ({
     return <div dangerouslySetInnerHTML={{ __html: renderedContent }} />;
   };
 
-  // 渲染评论操作菜单
+  // Render评论OperationMenu
   const renderCommentMenu = (comment: Comment) => (
     <Menu>
       <Menu.Item key="reply" icon={<MessageOutlined />} onClick={() => handleReply(comment)}>
         回复
       </Menu.Item>
       <Menu.Item key="edit" icon={<EditOutlined />} onClick={() => handleEdit(comment)}>
-        编辑
+        Edit
       </Menu.Item>
       <Menu.Divider />
       <Menu.Item key="delete" icon={<DeleteOutlined />} danger onClick={() => handleDelete(comment)}>
-        删除
+        Delete
       </Menu.Item>
     </Menu>
   );
 
-  // 渲染单个评论
+  // Render单个评论
   const renderComment = (comment: Comment, isReply = false) => (
     <div key={comment.id} style={{ marginBottom: 16 }}>
       <div style={{ display: 'flex', gap: 12 }}>
@@ -270,14 +270,14 @@ const Collaboration: React.FC<CollaborationProps> = ({
               <Text strong>{comment.author.name}</Text>
               <Text type="secondary" style={{ marginLeft: 8 }}>
                 {comment.createdAt}
-                {comment.isEdited && <Text type="secondary"> (已编辑)</Text>}
+                {comment.isEdited && <Text type="secondary"> (已Edit)</Text>}
               </Text>
             </div>
             <Dropdown menu={{
               items: [
                 { key: 'reply', icon: <MessageOutlined />, label: '回复', onClick: () => handleReply(comment) },
-                { key: 'edit', icon: <EditOutlined />, label: '编辑', onClick: () => handleEdit(comment) },
-                { key: 'delete', icon: <DeleteOutlined />, label: '删除', danger: true, onClick: () => handleDelete(comment) },
+                { key: 'edit', icon: <EditOutlined />, label: 'Edit', onClick: () => handleEdit(comment) },
+                { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true, onClick: () => handleDelete(comment) },
               ],
               onClick: ({ key }) => {
                 if (key === 'reply') handleReply(comment);
@@ -322,7 +322,7 @@ const Collaboration: React.FC<CollaborationProps> = ({
             </Space>
           </div>
 
-          {/* 回复列表 */}
+          {/* 回复List */}
           {comment.replies.length > 0 && (
             <div style={{ marginTop: 12, paddingLeft: 16, borderLeft: '2px solid #f0f0f0' }}>
               {comment.replies.map(reply => (
@@ -337,10 +337,10 @@ const Collaboration: React.FC<CollaborationProps> = ({
 
   return (
     <div>
-      {/* 评论输入区 */}
+      {/* 评论Input区 */}
       <Card size="small" style={{ marginBottom: 16 }}>
         <div style={{ marginBottom: 12 }}>
-          <Text strong>添加评论</Text>
+          <Text strong>Add评论</Text>
           {replyTo && (
             <div style={{ marginTop: 8 }}>
               <Text type="secondary">
@@ -350,7 +350,7 @@ const Collaboration: React.FC<CollaborationProps> = ({
                   size="small" 
                   onClick={() => setReplyTo(null)}
                 >
-                  取消回复
+                  Cancel回复
                 </Button>
               </Text>
             </div>
@@ -362,7 +362,7 @@ const Collaboration: React.FC<CollaborationProps> = ({
             ref={textareaRef}
             value={newComment}
             onChange={(e) => setNewComment(e.target.value)}
-            placeholder={editingComment ? '编辑评论...' : '输入评论内容，使用 @用户名 来提及他人...'}
+            placeholder={editingComment ? 'Edit评论...' : 'Input评论Content，使用 @User名 来提及他人...'}
             autoSize={{ minRows: 2, maxRows: 4 }}
             style={{ flex: 1 }}
             onKeyPress={(e) => {
@@ -377,11 +377,11 @@ const Collaboration: React.FC<CollaborationProps> = ({
             onClick={editingComment ? handleSaveEdit : handleSendComment}
             disabled={!newComment.trim()}
           >
-            {editingComment ? '保存' : '发送'}
+            {editingComment ? 'Save' : 'Send'}
           </Button>
         </div>
 
-        {/* @提及下拉菜单 */}
+        {/* @提及下拉Menu */}
         {showMentions && (
           <div style={{ 
             position: 'absolute', 
@@ -394,7 +394,8 @@ const Collaboration: React.FC<CollaborationProps> = ({
             boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
             zIndex: 1000,
             maxHeight: 200,
-            overflow: 'auto'
+            overflowX: 'hidden',
+            overflowY: 'auto'
           }}>
             {users.map(user => (
               <div
@@ -419,7 +420,7 @@ const Collaboration: React.FC<CollaborationProps> = ({
         )}
       </Card>
 
-      {/* 评论列表 */}
+      {/* 评论List */}
       <div>
         <div style={{ marginBottom: 16 }}>
           <Text strong>评论 ({comments.length})</Text>

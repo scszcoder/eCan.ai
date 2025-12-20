@@ -64,26 +64,47 @@ export const TestRunForm: FC<TestRunFormProps> = ({ values, setValues }) => {
             />
           </div>
         );
-      case 'object':
+      case 'object': {
+        const current = typeof field.value === 'string' ? field.value : JSON.stringify(field.value ?? {}, null, 2);
         return (
           <div className={classNames(styles.fieldInput, styles.codeEditorWrapper)}>
             <CodeEditor
               languageId="json"
-              value={field.value}
-              onChange={(value) => field.onChange(value)}
+              value={current}
+              onChange={(value) => {
+                if (value === current) return; // echo guard
+                try {
+                  const parsed = JSON.parse(value);
+                  Promise.resolve().then(() => field.onChange(parsed));
+                } catch (e) {
+                  // ignore until valid JSON
+                }
+              }}
             />
           </div>
         );
+      }
       case 'array':
-        return (
-          <div className={classNames(styles.fieldInput, styles.codeEditorWrapper)}>
-            <CodeEditor
-              languageId="json"
-              value={field.value}
-              onChange={(value) => field.onChange(value)}
-            />
-          </div>
-        );
+        {
+          const current = typeof field.value === 'string' ? field.value : JSON.stringify(field.value ?? [], null, 2);
+          return (
+            <div className={classNames(styles.fieldInput, styles.codeEditorWrapper)}>
+              <CodeEditor
+                languageId="json"
+                value={current}
+                onChange={(value) => {
+                  if (value === current) return; // echo guard
+                  try {
+                    const parsed = JSON.parse(value);
+                    Promise.resolve().then(() => field.onChange(parsed));
+                  } catch (e) {
+                    // ignore until valid JSON
+                  }
+                }}
+              />
+            </div>
+          );
+        }
       default:
         return (
           <div className={styles.fieldInput}>

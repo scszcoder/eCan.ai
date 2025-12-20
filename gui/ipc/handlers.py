@@ -1,56 +1,55 @@
 """
-IPC 处理器实现模块
-提供各种 IPC 请求的具体处理实现
+IPC Handler Implementation Module
+Provides specific implementations for various IPC requests
 """
 
 from typing import Any, Optional, Dict
 
-from gui.LoginoutGUI import Login
 from .types import IPCRequest, IPCResponse, create_success_response, create_error_response
 from .registry import IPCHandlerRegistry
 from utils.logger_helper import logger_helper as logger
-import uuid
 import traceback
 from app_context import AppContext
 import asyncio
 
+
 def validate_params(params: Optional[Dict[str, Any]], required: list[str]) -> tuple[bool, Optional[Dict[str, Any]], Optional[str]]:
-    """验证请求参数
-    
+    """Validate request parameters
+
     Args:
-        params: 请求参数
-        required: 必需参数列表
-        
+        params: Request parameters
+        required: List of required parameters
+
     Returns:
-        tuple[bool, Optional[Dict[str, Any]], Optional[str]]: (是否有效, 参数数据, 错误信息)
+        tuple[bool, Optional[Dict[str, Any]], Optional[str]]: (is valid, parameter data, error message)
     """
     if not params:
         return False, None, f"Missing required parameters: {', '.join(required)}"
-    
+
     missing = [param for param in required if param not in params]
     if missing:
         return False, None, f"Missing required parameters: {', '.join(missing)}"
-    
+
     return True, params, None
 
 
 @IPCHandlerRegistry.handler('get_all')
 def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """处理登录请求
+    """Handle get all request
 
-    验证用户凭据并返回访问令牌。
+    Retrieve all data for the user.
 
     Args:
-        request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        request: IPC request object
+        params: Request parameters, must contain 'username' field
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Get all called with request: {request}")
 
-        # 验证参数
+        # Validate parameters
         is_valid, data, error = validate_params(params, ['username'])
         if not is_valid:
             logger.warning(f"Invalid parameters for get all: {error}")
@@ -61,35 +60,26 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPC
             )
 
         logger.debug("user name:" + data['username'])
-        # 获取用户名和密码
+        # Get username
         username = data['username']
 
-        ctx = AppContext()
-        login:Login = ctx.login
-        agents = login.main_win.agents
+        main_window = AppContext.get_main_window()
+        agents = main_window.agents
         all_tasks = []
         for agent in agents:
             all_tasks.extend(agent.tasks)
 
-        skills = login.main_win.agent_skills
-        vehicles = login.main_win.vehicles
-        organizations = login.main_win.organizations
-        titles = login.main_win.titles
-        ranks = login.main_win.ranks
-        personalities = login.main_win.personalities
-        settings = login.main_win.general_settings
-        # knowledges = login.main_win.knowledges
-        # chats = login.main_win.chats
+        skills = main_window.agent_skills
+        vehicles = main_window.vehicles
+        settings = main_window.config_manager.general_settings.data
+
         knowledges = {}
         chats = {}
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"Get all successful for user: {username}")
         resultJS = {
-            'token': token,
-            'agents': [agent.to_dict() for agent in agents],
+            'agents': [agent.to_dict(owner=username) for agent in agents],
             'skills': [sk.to_dict() for sk in skills],
-            'tools': [tool.model_dump() for tool in login.main_win.mcp_tools_schemas],
+            'tools': [tool.model_dump() for tool in main_window.mcp_tools_schemas],
             'tasks': [task.to_dict() for task in all_tasks],
             'vehicles': [vehicle.genJson() for vehicle in vehicles],
             'settings': settings,
@@ -111,108 +101,23 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPC
         )
 
 
-# @IPCHandlerRegistry.handler('get_vehicles')
-# def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-#     """处理登录请求
-
-#     验证用户凭据并返回访问令牌。
-
-#     Args:
-#         request: IPC 请求对象
-#         params: 请求参数，必须包含 'username' 和 'password' 字段
-
-#     Returns:
-#         str: JSON 格式的响应消息
-#     """
-#     try:
-#         logger.debug(f"Get vehicles handler called with request: {request}")
-
-#         # 验证参数
-#         is_valid, data, error = validate_params(params, ['username'])
-#         if not is_valid:
-#             logger.warning(f"Invalid parameters for get vehicles: {error}")
-#             return create_error_response(
-#                 request,
-#                 'INVALID_PARAMS',
-#                 error
-#             )
-
-#         # 获取用户名和密码
-#         username = data['username']
-
-#         # 简单的密码验证
-#         # 生成随机令牌
-#         token = str(uuid.uuid4()).replace('-', '')
-#         logger.info(f"Get vehicles successful for user: {username}")
-#         ctx = AppContext()
-#         login:Login = ctx.login
-#         vehicles = login.main_win.vehicles
-
-#         resultJS = {
-#             'token': token,
-#             'vehicles': [vehicle.genJson() for vehicle in vehicles],
-#             'message': 'Get all successful'
-#         }
-#         logger.debug('get vehicles resultJS:' + str(resultJS))
-#         return create_success_response(request, resultJS)
-
-#     except Exception as e:
-#         logger.error(f"Error in get vehicles handler: {e} {traceback.format_exc()}")
-#         return create_error_response(
-#             request,
-#             'LOGIN_ERROR',
-#             f"Error during get vehicles: {str(e)}"
-#         )
-
-
-# @IPCHandlerRegistry.handler('get_knowledges')
-# def handle_get_knowledges(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-#     """处理获取知识库请求
-    
-#     从知识库中获取条目。
-    
-#     Args:
-#         request: IPC 请求对象
-#         params: 请求参数，可以包含过滤条件
-        
-#     Returns:
-#         str: JSON 格式的响应消息
-#     """
-#     try:
-#         # 伪造一个知识库条目列表
-#         knowledges = [
-#             {'id': 'k1', 'title': 'How to setup environment', 'content': '...'},
-#             {'id': 'k2', 'title': 'Troubleshooting guide', 'content': '...'}
-#         ]
-        
-#         logger.info("Knowledge base retrieved")
-#         return create_success_response(request, knowledges)
-#     except Exception as e:
-#         logger.error(f"Error getting knowledges: {e} {traceback.format_exc()}")
-#         return create_error_response(
-#             request,
-#             'KNOWLEDGE_ERROR',
-#             f"Error getting knowledges: {str(e)}"
-#         )
-
-
 @IPCHandlerRegistry.handler('save_all')
 def handle_save_all(request: IPCRequest, params: Optional[list[Any]]) -> IPCResponse:
-    """处理登录请求
+    """Handle save all request
 
-    验证用户凭据并返回访问令牌。
+    Save all data for the user.
 
     Args:
-        request: IPC 请求对象
-        params: 请求参数，必须包含 'username' 和 'password' 字段
+        request: IPC request object
+        params: Request parameters, must contain 'username' and 'password' fields
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Save all handler called with request: {request}")
 
-        # 验证参数
+        # Validate parameters
         is_valid, data, error = validate_params(params, ['username', 'password'])
         if not is_valid:
             logger.warning(f"Invalid parameters for save all: {error}")
@@ -222,15 +127,12 @@ def handle_save_all(request: IPCRequest, params: Optional[list[Any]]) -> IPCResp
                 error
             )
 
-        # 获取用户名和密码
+        # Get username
         username = data['username']
 
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         logger.info(f"save all successful for user: {username}")
         return create_success_response(request, {
-            'token': token,
             'message': 'Save all successful'
         })
 
@@ -244,22 +146,19 @@ def handle_save_all(request: IPCRequest, params: Optional[list[Any]]) -> IPCResp
 
 @IPCHandlerRegistry.handler('get_available_tests')
 def handle_get_available_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
-    """处理获取可用测试项请求
+    """Handle get available tests request
 
     Args:
-        request: IPC 请求对象
+        request: IPC request object
         params: None
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Get available tests handler called with request: {request}")
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         return create_success_response(request, {
-            'token': token,
             "tests": ["test1", "test2", "test3"],
             'message': 'Get available tests successful'
         })
@@ -273,36 +172,42 @@ def handle_get_available_tests(request: IPCRequest, params: Optional[Any]) -> IP
         )
 
 
-@IPCHandlerRegistry.handler('run_tests')
+@IPCHandlerRegistry.background_handler('run_tests')
 def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
-    """处理跑测试请求
+    """Handle run tests request
 
     Args:
-        request: IPC 请求对象
+        request: IPC request object
         params: None
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
+    # from tests.main_test import run_default_tests  # Commented out to prevent UI freeze
+
     try:
         logger.debug(f"Run tests handler called with request: {request}, params: {params}")
         tests = params.get('tests', [])
 
         results = []
-        ctx = AppContext()
-        login: Login = ctx.login
-        agents = login.main_win.agents
+        main_win = AppContext.get_main_window()
+        agents = main_win.agents
 
-        web_gui = ctx.web_gui
+        web_gui = AppContext.web_gui
         for test in tests:
             test_id = test.get('test_id')
             test_args = test.get('args', {})
 
             # Process each test with its arguments
             if test_id == 'default_test':
-                ctx = AppContext()
-                login:Login = ctx.login
-                result = run_default_tests(web_gui, login.main_win)
+                main_win = AppContext.get_main_window()
+                print("oooooooooooooo running default test ooooooooooooooooooooooooooo")
+                # results = []
+
+                procurement_agent = next((ag for ag in agents if ag.card.name == "Engineering Procurement Agent"), None)
+                procurement_agent.self_wan_ping()
+                # from tests.unittests import run_default_tests
+                # result = run_default_tests(main_win)
             # Add other test cases as needed
             else:
                 print(">>>>>running test:", test_id, "trigger running procrement task")
@@ -367,32 +272,10 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
                 twin_agent = next((ag for ag in agents if ag.card.name == "My Twin Agent"), None)
                 print("twin:", twin_agent.card.name, "procurement:", procurement_agent.card.name)
 
-                runner_method = twin_agent.runner.chat_wait_in_line
-                if asyncio.iscoroutinefunction(runner_method):
-                    logger.debug("Runner method is a coroutine, running with asyncio.run()")
-
-                    def run_async():
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        try:
-                            return loop.run_until_complete(runner_method(request))
-                        finally:
-                            loop.close()
-
-                    # Run the coroutine in a separate thread
-                    import concurrent.futures
-                    with concurrent.futures.ThreadPoolExecutor() as executor:
-                        future = executor.submit(run_async)
-                        result = future.result()
-
-                    # loop = asyncio.get_event_loop()
-                    # # asyncio.set_event_loop(loop)
-                    # # 在独立的后台线程中，可以安全使用 asyncio.run()
-                    # # result = await runner_method(params["message"])
-                    # result = loop.run_until_complete(runner_method(params["message"]))
-                else:
-                    logger.debug("Runner method is synchronous, calling directly.")
-                    result = runner_method(request)
+                # Use sync_task_wait_in_line instead of deprecated chat_wait_in_line
+                # This is a synchronous method that takes (event_type, request) parameters
+                logger.debug("Calling sync_task_wait_in_line for human_chat event")
+                result = twin_agent.runner.sync_task_wait_in_line("human_chat", request)
 
                 logger.info(f"Background task 'send_chat' completed with result: {result}")
 
@@ -411,29 +294,25 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
         logger.error(f"Error in run tests handler: {e} {traceback.format_exc()}")
         return create_error_response(
             request,
-            'LOGIN_ERROR',
+            'RUN_TESTS_ERROR',
             f"Error during run tests: {str(e)}"
         )
 
-
 @IPCHandlerRegistry.handler('stop_tests')
 def handle_stop_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
-    """处理停止测试项请求
+    """Handle stop tests request
 
     Args:
-        request: IPC 请求对象
-        params: 测试项
+        request: IPC request object
+        params: Test items
 
     Returns:
-        str: JSON 格式的响应消息
+        str: JSON formatted response message
     """
     try:
         logger.debug(f"Stop tests handler called with request: {request}")
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
         return create_success_response(request, {
-            'token': token,
             "tests": ["test1", "test2", "test3"],
             'message': 'Stop tests successful'
         })
@@ -447,41 +326,145 @@ def handle_stop_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse
         )
 
 
-
-
-@IPCHandlerRegistry.handler('login_with_google')
-def handle_login_with_google(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
-    """处理停止测试项请求
+@IPCHandlerRegistry.handler('get_initialization_progress')
+def handle_get_initialization_progress(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
+    """Get MainWindow initialization progress
 
     Args:
-        request: IPC 请求对象
-        params: 测试项
+        request: IPC request object
+        params: Request parameters (not used)
 
     Returns:
-        str: JSON 格式的响应消息
+        IPCResponse: JSON response with initialization progress
     """
     try:
-        logger.debug(f"Login with google handler called with request: {request}")
-        ctx = AppContext()
-        login: Login = ctx.login
-        result = login.login_google()
+        # logger.debug(f"Get initialization progress handler called with request: {request}")
 
-        # 生成随机令牌
-        token = str(uuid.uuid4()).replace('-', '')
-        return create_success_response(request, {
-            'token': token,
-            "tests": ["test1", "test2", "test3"],
-            'message': 'login with google successful'
-        })
+        main_window = AppContext.get_main_window()
+        if main_window is None:
+            logger.info("MainWindow not yet created")
+            # MainWindow not yet created
+            return create_success_response(request, {
+                'ui_ready': False,
+                'critical_services_ready': False,
+                'async_init_complete': False,
+                'fully_ready': False,
+                'sync_init_complete': False,
+                'message': 'MainWindow not yet initialized'
+            })
+
+        # Get progress from MainWindow
+        progress = main_window.get_initialization_progress()
+        progress['message'] = 'Initialization progress retrieved successfully'
+
+        logger.debug(f"Initialization progress: {progress}")
+        return create_success_response(request, progress)
 
     except Exception as e:
-        logger.error(f"Error in login with google handler: {e} {traceback.format_exc()}")
+        logger.error(f"Error in get initialization progress handler: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return create_error_response(
             request,
-            'GOOGLE_LOGIN_ERROR',
-            f"Error during stop tests: {str(e)}"
+            'INIT_PROGRESS_ERROR',
+            f"Error getting initialization progress: {str(e)}"
         )
 
 
-# 打印所有已注册的处理器
+@IPCHandlerRegistry.handler('window_toggle_fullscreen')
+def handle_window_toggle_fullscreen(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle window fullscreen toggle request
+    
+    Toggle the main window fullscreen state.
+    
+    Args:
+        request: IPC request object
+        params: Request parameters (optional)
+        
+    Returns:
+        IPCResponse: Response with fullscreen state
+    """
+    try:
+        logger.debug("Window toggle fullscreen called")
+        
+        # Get WebGUI instance (not MainWindow)
+        web_gui = AppContext.get_instance().web_gui
+        if not web_gui:
+            logger.warning("WebGUI not available for fullscreen toggle")
+            return create_error_response(
+                request,
+                'WINDOW_NOT_AVAILABLE',
+                'WebGUI not yet initialized'
+            )
+        
+        # Toggle fullscreen
+        web_gui._toggle_fullscreen()
+        
+        # Get current fullscreen state
+        is_fullscreen = web_gui.isFullScreen()
+        
+        logger.info(f"Window fullscreen toggled, current state: {is_fullscreen}")
+        return create_success_response(request, {
+            'is_fullscreen': is_fullscreen,
+            'message': 'Fullscreen toggled successfully'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in window toggle fullscreen handler: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return create_error_response(
+            request,
+            'FULLSCREEN_ERROR',
+            f"Error toggling fullscreen: {str(e)}"
+        )
+
+
+@IPCHandlerRegistry.handler('window_get_fullscreen_state')
+def handle_window_get_fullscreen_state(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Handle window fullscreen state query request
+    
+    Get the current fullscreen state of the main window.
+    
+    Args:
+        request: IPC request object
+        params: Request parameters (optional)
+        
+    Returns:
+        IPCResponse: Response with fullscreen state
+    """
+    try:
+        logger.debug("Window get fullscreen state called")
+        
+        # Get WebGUI instance (not MainWindow)
+        web_gui = AppContext.get_instance().web_gui
+        if not web_gui:
+            logger.warning("WebGUI not available for fullscreen state query")
+            return create_error_response(
+                request,
+                'WINDOW_NOT_AVAILABLE',
+                'WebGUI not yet initialized'
+            )
+        
+        # Get current fullscreen state
+        is_fullscreen = web_gui.isFullScreen()
+        
+        logger.debug(f"Window fullscreen state: {is_fullscreen}")
+        return create_success_response(request, {
+            'is_fullscreen': is_fullscreen,
+            'message': 'Fullscreen state retrieved successfully'
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in window get fullscreen state handler: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return create_error_response(
+            request,
+            'FULLSCREEN_STATE_ERROR',
+            f"Error getting fullscreen state: {str(e)}"
+        )
+
+
+# Print all registered handlers
 logger.info(f"Registered handlers: {IPCHandlerRegistry.list_handlers()}")

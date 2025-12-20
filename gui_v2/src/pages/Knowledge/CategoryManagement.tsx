@@ -24,6 +24,7 @@ import {
   DragOutlined
 } from '@ant-design/icons';
 import type { DataNode } from 'antd/es/tree';
+import { useTranslation } from 'react-i18next';
 
 const { Title } = Typography;
 
@@ -37,30 +38,31 @@ interface CategoryNode extends DataNode {
 }
 
 const CategoryManagement: React.FC = () => {
+  const { t } = useTranslation();
   const [treeData, setTreeData] = useState<CategoryNode[]>([
     {
       key: 'tech',
-      title: '技术文档',
+      title: '技术Documentation',
       level: 0,
       documentCount: 15,
       children: [
         {
           key: 'tech-user',
-          title: '用户指南',
+          title: 'User指南',
           level: 1,
           parentKey: 'tech',
           documentCount: 8,
           children: [
             {
               key: 'tech-user-basic',
-              title: '基础操作',
+              title: 'BaseOperation',
               level: 2,
               parentKey: 'tech-user',
               documentCount: 3,
             },
             {
               key: 'tech-user-advanced',
-              title: '高级功能',
+              title: 'Advanced功能',
               level: 2,
               parentKey: 'tech-user',
               documentCount: 5,
@@ -69,21 +71,21 @@ const CategoryManagement: React.FC = () => {
         },
         {
           key: 'tech-dev',
-          title: '开发文档',
+          title: 'DevelopmentDocumentation',
           level: 1,
           parentKey: 'tech',
           documentCount: 7,
           children: [
             {
               key: 'tech-dev-api',
-              title: 'API文档',
+              title: 'APIDocumentation',
               level: 2,
               parentKey: 'tech-dev',
               documentCount: 4,
             },
             {
               key: 'tech-dev-sdk',
-              title: 'SDK文档',
+              title: 'SDKDocumentation',
               level: 2,
               parentKey: 'tech-dev',
               documentCount: 3,
@@ -94,7 +96,7 @@ const CategoryManagement: React.FC = () => {
     },
     {
       key: 'product',
-      title: '产品文档',
+      title: '产品Documentation',
       level: 0,
       documentCount: 12,
       children: [
@@ -116,20 +118,20 @@ const CategoryManagement: React.FC = () => {
     },
     {
       key: 'management',
-      title: '管理文档',
+      title: '管理Documentation',
       level: 0,
       documentCount: 8,
       children: [
         {
           key: 'management-permission',
-          title: '权限管理',
+          title: 'Permission管理',
           level: 1,
           parentKey: 'management',
           documentCount: 4,
         },
         {
           key: 'management-config',
-          title: '系统配置',
+          title: 'SystemConfiguration',
           level: 1,
           parentKey: 'management',
           documentCount: 4,
@@ -146,7 +148,7 @@ const CategoryManagement: React.FC = () => {
   // 生成唯一key
   const generateKey = () => `category_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-  // 递归查找节点
+  // Recursive查找节点
   const findNode = (nodes: CategoryNode[], key: string): CategoryNode | null => {
     for (const node of nodes) {
       if (node.key === key) return node;
@@ -158,7 +160,7 @@ const CategoryManagement: React.FC = () => {
     return null;
   };
 
-  // 递归更新节点
+  // RecursiveUpdate节点
   const updateNode = (nodes: CategoryNode[], key: string, updates: Partial<CategoryNode>): CategoryNode[] => {
     return nodes.map(node => {
       if (node.key === key) {
@@ -171,7 +173,7 @@ const CategoryManagement: React.FC = () => {
     });
   };
 
-  // 递归删除节点
+  // RecursiveDelete节点
   const deleteNode = (nodes: CategoryNode[], key: string): CategoryNode[] => {
     return nodes.filter(node => {
       if (node.key === key) return false;
@@ -182,7 +184,7 @@ const CategoryManagement: React.FC = () => {
     });
   };
 
-  // 处理添加分类
+  // ProcessAddCategory
   const handleAdd = (parentKey?: string) => {
     setEditingNode(null);
     setSelectedNode(parentKey ? findNode(treeData, parentKey) || null : null);
@@ -190,7 +192,7 @@ const CategoryManagement: React.FC = () => {
     setIsModalVisible(true);
   };
 
-  // 处理编辑分类
+  // ProcessEditCategory
   const handleEdit = (node: CategoryNode) => {
     setEditingNode(node);
     setSelectedNode(null);
@@ -200,30 +202,30 @@ const CategoryManagement: React.FC = () => {
     setIsModalVisible(true);
   };
 
-  // 处理删除分类
+  // ProcessDeleteCategory
   const handleDelete = (node: CategoryNode) => {
     if (node.children && node.children.length > 0) {
-      message.warning('该分类下还有子分类，无法删除');
+      message.warning('该Category下还有子Category，无法Delete');
       return;
     }
     if (node.documentCount && node.documentCount > 0) {
-      message.warning('该分类下还有文档，无法删除');
+      message.warning('该Category下还有Documentation，无法Delete');
       return;
     }
     
     setTreeData(prev => deleteNode(prev, node.key));
-    message.success('分类删除成功');
+    message.success('CategoryDeleteSuccess');
   };
 
-  // 处理表单提交
+  // ProcessFormSubmit
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
       
       if (editingNode) {
-        // 编辑模式
+        // Edit模式
         setTreeData(prev => updateNode(prev, editingNode.key, { title: values.title }));
-        message.success('分类更新成功');
+        message.success('CategoryUpdateSuccess');
       } else {
         // 新增模式
         const newNode: CategoryNode = {
@@ -235,15 +237,15 @@ const CategoryManagement: React.FC = () => {
         };
 
         if (selectedNode) {
-          // 添加到父节点
+          // Add到父节点
           setTreeData(prev => updateNode(prev, selectedNode.key, {
             children: [...(selectedNode.children || []), newNode]
           }));
         } else {
-          // 添加到根节点
+          // Add到根节点
           setTreeData(prev => [...prev, newNode]);
         }
-        message.success('分类创建成功');
+        message.success('CategoryCreateSuccess');
       }
       
       setIsModalVisible(false);
@@ -251,11 +253,11 @@ const CategoryManagement: React.FC = () => {
       setSelectedNode(null);
       form.resetFields();
     } catch (error) {
-      console.error('表单验证失败:', error);
+      console.error('FormValidateFailed:', error);
     }
   };
 
-  // 渲染树节点标题
+  // Render树节点标题
   const renderTitle = (node: CategoryNode) => (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
       <span>{node.title}</span>
@@ -268,10 +270,10 @@ const CategoryManagement: React.FC = () => {
         <Dropdown
           menu={{
             items: [
-              { key: 'add', icon: <PlusOutlined />, label: '添加子分类' },
-              { key: 'edit', icon: <EditOutlined />, label: '编辑' },
+              { key: 'add', icon: <PlusOutlined />, label: 'Add子Category' },
+              { key: 'edit', icon: <EditOutlined />, label: 'Edit' },
               { type: 'divider' },
-              { key: 'delete', icon: <DeleteOutlined />, label: '删除', danger: true },
+              { key: 'delete', icon: <DeleteOutlined />, label: 'Delete', danger: true },
             ],
             onClick: ({ key }) => {
               if (key === 'add') handleAdd(node.key);
@@ -287,7 +289,7 @@ const CategoryManagement: React.FC = () => {
     </div>
   );
 
-  // 转换数据为Tree组件格式
+  // ConvertData为TreeComponent格式
   const convertToTreeData = (nodes: CategoryNode[]): DataNode[] => {
     return nodes.map(node => ({
       key: node.key,
@@ -299,17 +301,17 @@ const CategoryManagement: React.FC = () => {
 
   return (
     <div>
-      {/* 页面标题和工具栏 */}
+      {/* Page标题和Tool栏 */}
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <Title level={4} style={{ margin: 0 }}>分类管理</Title>
+          <Title level={4} style={{ margin: 0 }}>{t('pages.knowledge.categoryManagement')}</Title>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => handleAdd()}>
-            添加根分类
+            Add根Category
           </Button>
         </div>
       </div>
 
-      {/* 分类树 */}
+      {/* Category树 */}
       <Card>
         <Tree
           treeData={convertToTreeData(treeData)}
@@ -318,15 +320,15 @@ const CategoryManagement: React.FC = () => {
           showLine
           draggable
           onDrop={(info) => {
-            // 这里可以实现拖拽排序逻辑
-            console.log('拖拽:', info);
+            // 这里CanImplementationDragSort逻辑
+            console.log('Drag:', info);
           }}
         />
       </Card>
 
-      {/* 添加/编辑分类弹窗 */}
+      {/* Add/EditCategoryModal */}
       <Modal
-        title={editingNode ? '编辑分类' : '添加分类'}
+        title={editingNode ? 'EditCategory' : 'AddCategory'}
         open={isModalVisible}
         onOk={handleSubmit}
         onCancel={() => {
@@ -339,17 +341,17 @@ const CategoryManagement: React.FC = () => {
       >
         <Form form={form} layout="vertical">
           {selectedNode && (
-            <Form.Item label="父分类">
+            <Form.Item label="父Category">
               <Input value={selectedNode.title} disabled />
             </Form.Item>
           )}
           
           <Form.Item
             name="title"
-            label="分类名称"
-            rules={[{ required: true, message: '请输入分类名称' }]}
+            label="CategoryName"
+            rules={[{ required: true, message: '请InputCategoryName' }]}
           >
-            <Input placeholder="请输入分类名称" />
+            <Input placeholder="请InputCategoryName" />
           </Form.Item>
         </Form>
       </Modal>

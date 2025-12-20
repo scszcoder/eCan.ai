@@ -1,0 +1,785 @@
+{
+  "mainSheetId": "main",
+  "sheets": [
+    {
+      "id": "main",
+      "name": "Main",
+      "document": {
+        "nodes": [
+          {
+            "id": "start_0",
+            "type": "start",
+            "meta": {
+              "position": {
+                "x": 180,
+                "y": 573.7
+              }
+            },
+            "data": {
+              "title": "Start",
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "query": {
+                    "type": "string",
+                    "default": "Hello Flow."
+                  },
+                  "enable": {
+                    "type": "boolean",
+                    "default": true
+                  },
+                  "array_obj": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "int": {
+                          "type": "number"
+                        },
+                        "str": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "end_0",
+            "type": "end",
+            "meta": {
+              "position": {
+                "x": 2793.0821552350762,
+                "y": 560.9187150715572
+              }
+            },
+            "data": {
+              "title": "End",
+              "inputsValues": {
+                "success": {
+                  "type": "constant",
+                  "content": true,
+                  "schema": {
+                    "type": "boolean"
+                  }
+                },
+                "query": {
+                  "type": "ref",
+                  "content": [
+                    "start_0",
+                    "query"
+                  ]
+                }
+              },
+              "data": {
+                "inputsValues": {}
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "success": {
+                    "type": "boolean"
+                  },
+                  "query": {
+                    "type": "string"
+                  }
+                }
+              },
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "159623",
+            "type": "comment",
+            "meta": {
+              "position": {
+                "x": 180,
+                "y": 756.7
+              }
+            },
+            "data": {
+              "size": {
+                "width": 240,
+                "height": 150
+              },
+              "note": "hi ~\n\nthis is a comment node\n\n- flowgram.ai",
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "llm_ePhbu",
+            "type": "llm",
+            "meta": {
+              "position": {
+                "x": 904.3364690503471,
+                "y": 589.0723394318164
+              }
+            },
+            "data": {
+              "title": "LLM_1",
+              "inputsValues": {
+                "modelProvider": {
+                  "type": "constant",
+                  "content": "OpenAI"
+                },
+                "modelName": {
+                  "type": "constant",
+                  "content": "gpt-5-mini"
+                },
+                "attachments": {
+                  "type": "constant",
+                  "content": []
+                },
+                "apiKey": {
+                  "type": "constant",
+                  "content": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                },
+                "apiHost": {
+                  "type": "constant",
+                  "content": "https://mock-ai-url/api/v3"
+                },
+                "temperature": {
+                  "type": "constant",
+                  "content": 1,
+                  "schema": {
+                    "type": "number"
+                  }
+                },
+                "systemPrompt": {
+                  "type": "template",
+                  "content": "# Role\nYou are an AI assistant.\n"
+                },
+                "prompt": {
+                  "type": "constant",
+                  "content": "who is the ceo of palantire, please return result in json like this schema: {{\"palantire_ceo\": \"string\"}}"
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "modelProvider": {
+                    "type": "string"
+                  },
+                  "modelName": {
+                    "type": "string"
+                  },
+                  "attachments": {
+                    "type": "object"
+                  },
+                  "apiKey": {
+                    "type": "string"
+                  },
+                  "apiHost": {
+                    "type": "string"
+                  },
+                  "temperature": {
+                    "type": "number"
+                  },
+                  "systemPrompt": {
+                    "type": "string"
+                  },
+                  "prompt": {
+                    "type": "string"
+                  }
+                }
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              },
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "mcp_am0uS",
+            "type": "mcp",
+            "meta": {
+              "position": {
+                "x": 581.0905822170357,
+                "y": 613.4539177992392
+              }
+            },
+            "data": {
+              "title": "MCP_1",
+              "inputsValues": {},
+              "inputs": {
+                "type": "object",
+                "properties": {}
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              },
+              "data": {
+                "callable": {
+                  "name": "api_ecan_ai_img2text_icons",
+                  "desc": "run API to convert image to text and icons matching including generate the text and icons' location cooridnates.",
+                  "params": {
+                    "type": "object",
+                    "required": [
+                      "input"
+                    ],
+                    "properties": {
+                      "input": {
+                        "type": "object",
+                        "required": [
+                          "win_title_keyword"
+                        ],
+                        "properties": {
+                          "win_title_keyword": {
+                            "type": "string",
+                            "description": "do OCR on the window whose window title with the keyword"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "returns": {
+                    "type": "object",
+                    "properties": {}
+                  },
+                  "type": "system",
+                  "source": ""
+                }
+              },
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "code_SF2WX",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": 1220.4274479324063,
+                "y": 573.7
+              }
+            },
+            "data": {
+              "title": "Code_1",
+              "inputsValues": {
+                "input": {
+                  "type": "constant",
+                  "content": ""
+                }
+              },
+              "script": {
+                "language": "python",
+                "content": "# Here, you can retrieve input variables from the node using 'state' \nimport time\ndef main(state, *, runtime, store):\n  # Build the output object\n  print(\"in code node.........\",state)\n  time.sleep(8)\n  print(\"code node woke now, outa here.....\")\n  state[\"condition\"] = True\n  state[\"result\"] = {\"status\": \"myfunc0 succeeded!!!\"}\n  return state"
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "string"
+                  }
+                }
+              },
+              "breakpoint": false
+            }
+          },
+          {
+            "id": "condition_Vd_PJ",
+            "type": "condition",
+            "meta": {
+              "position": {
+                "x": 1520.3702166048047,
+                "y": 539.5532133398765
+              }
+            },
+            "data": {
+              "title": "Condition",
+              "conditions": [
+                {
+                  "key": "if_Pol6-",
+                  "value": {}
+                },
+                {
+                  "key": "else_GMko-",
+                  "value": {}
+                }
+              ],
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "http_LIkPY",
+            "type": "http",
+            "meta": {
+              "position": {
+                "x": 1886.1553609698642,
+                "y": 360.74709799814843
+              }
+            },
+            "data": {
+              "title": "HTTP_1",
+              "inputsValues": {
+                "apiKey": {
+                  "type": "constant",
+                  "content": ""
+                }
+              },
+              "api": {
+                "method": "POST",
+                "url": {
+                  "type": "template",
+                  "content": "https://httpbin.org/post"
+                }
+              },
+              "body": {
+                "bodyType": "JSON",
+                "json": {
+                  "type": "template",
+                  "content": "{\"hello\": true, \"number\":-0.1, \"list\": [1,2], \"obj\": {\"abc\": \"cde\"}}"
+                }
+              },
+              "params": {
+                "type": "object",
+                "properties": {}
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              },
+              "timeout": {
+                "timeout": 10000,
+                "retryTimes": 1
+              },
+              "paramsValues": {}
+            }
+          },
+          {
+            "id": "chat_R41Pc",
+            "type": "chat_node",
+            "meta": {
+              "position": {
+                "x": 1820.8775052535825,
+                "y": 774.3281389453125
+              }
+            },
+            "data": {
+              "title": "Chat_1",
+              "inputsValues": {
+                "party": {
+                  "type": "constant",
+                  "content": "human"
+                },
+                "messageTemplate": {
+                  "type": "template",
+                  "content": "Hi, how can i assist you today!"
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "required": [
+                  "party"
+                ],
+                "properties": {
+                  "party": {
+                    "type": "string"
+                  },
+                  "messageTemplate": {
+                    "type": "string",
+                    "extra": {
+                      "formComponent": "prompt-editor"
+                    }
+                  }
+                }
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "pend_event_cQ3fQ",
+            "type": "pend_event_node",
+            "meta": {
+              "position": {
+                "x": 2134.7860306959683,
+                "y": 774.3281389453125
+              }
+            },
+            "data": {
+              "title": "PendEvent_1",
+              "inputsValues": {
+                "eventType": {
+                  "type": "constant",
+                  "content": "human_chat"
+                },
+                "pendingSources": {
+                  "type": "constant",
+                  "content": []
+                },
+                "timeoutSec": {
+                  "type": "constant",
+                  "content": 0
+                },
+                "resumePolicy": {
+                  "type": "constant",
+                  "content": "first"
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "required": [
+                  "eventType"
+                ],
+                "properties": {
+                  "eventType": {
+                    "type": "string"
+                  },
+                  "pendingSources": {
+                    "type": "array"
+                  },
+                  "timeoutSec": {
+                    "type": "number"
+                  },
+                  "resumePolicy": {
+                    "type": "string"
+                  }
+                }
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "code_1l3GM",
+            "type": "code",
+            "meta": {
+              "position": {
+                "x": 2482.2311823921586,
+                "y": 774.3281389453125
+              }
+            },
+            "data": {
+              "title": "Code_1",
+              "inputsValues": {
+                "input": {
+                  "type": "constant",
+                  "content": ""
+                }
+              },
+              "script": {
+                "language": "python",
+                "content": "# Here, you can retrieve input variables from the node using 'state' \nimport time\ndef main(state, *, runtime, store):\n  # Build the output object\n  print(\"in myfunc0.........\",state)\n  time.sleep(5)\n  print(\"myfunc0 woke now, outa here.....\")\n  state[\"result\"] = {\"status\": \"myfunc0 succeeded!!!\"}\n  return state"
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "input": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "rag_C_k-G",
+            "type": "rag",
+            "meta": {
+              "position": {
+                "x": 2377.4237818305696,
+                "y": 360.74709799814843
+              }
+            },
+            "data": {
+              "title": "RAG_1",
+              "inputsValues": {
+                "knowledgeBase": {
+                  "type": "constant",
+                  "content": "default"
+                },
+                "retrievalMode": {
+                  "type": "constant",
+                  "content": "vector"
+                },
+                "topK": {
+                  "type": "constant",
+                  "content": 5
+                },
+                "scoreThreshold": {
+                  "type": "constant",
+                  "content": 0.7
+                },
+                "embeddingModel": {
+                  "type": "constant",
+                  "content": "text-embedding-ada-002"
+                },
+                "query": {
+                  "type": "constant",
+                  "content": "which registers to set to disable interupt?"
+                },
+                "filters": {
+                  "type": "constant",
+                  "content": ""
+                }
+              },
+              "inputs": {
+                "type": "object",
+                "properties": {
+                  "knowledgeBase": {
+                    "type": "string"
+                  },
+                  "retrievalMode": {
+                    "type": "string"
+                  },
+                  "topK": {
+                    "type": "number"
+                  },
+                  "scoreThreshold": {
+                    "type": "number"
+                  },
+                  "embeddingModel": {
+                    "type": "string"
+                  },
+                  "query": {
+                    "type": "string"
+                  },
+                  "filters": {
+                    "type": "string"
+                  }
+                }
+              },
+              "outputs": {
+                "type": "object",
+                "properties": {
+                  "result": {
+                    "type": "object",
+                    "description": "Node execution result"
+                  },
+                  "condition": {
+                    "type": "boolean",
+                    "description": "Node execution condition"
+                  },
+                  "resolved": {
+                    "type": "boolean",
+                    "description": "Node execution resolved status"
+                  },
+                  "case": {
+                    "type": "string",
+                    "description": "Node execution case"
+                  }
+                }
+              },
+              "data": {
+                "inputsValues": {}
+              }
+            }
+          }
+        ],
+        "edges": [
+          {
+            "sourceNodeID": "start_0",
+            "targetNodeID": "mcp_am0uS"
+          },
+          {
+            "sourceNodeID": "code_1l3GM",
+            "targetNodeID": "end_0"
+          },
+          {
+            "sourceNodeID": "rag_C_k-G",
+            "targetNodeID": "end_0"
+          },
+          {
+            "sourceNodeID": "mcp_am0uS",
+            "targetNodeID": "llm_ePhbu"
+          },
+          {
+            "sourceNodeID": "llm_ePhbu",
+            "targetNodeID": "code_SF2WX"
+          },
+          {
+            "sourceNodeID": "code_SF2WX",
+            "targetNodeID": "condition_Vd_PJ"
+          },
+          {
+            "sourceNodeID": "condition_Vd_PJ",
+            "targetNodeID": "chat_R41Pc",
+            "sourcePortID": "else_out"
+          },
+          {
+            "sourceNodeID": "condition_Vd_PJ",
+            "targetNodeID": "http_LIkPY",
+            "sourcePortID": "if_out"
+          },
+          {
+            "sourceNodeID": "http_LIkPY",
+            "targetNodeID": "rag_C_k-G"
+          },
+          {
+            "sourceNodeID": "chat_R41Pc",
+            "targetNodeID": "pend_event_cQ3fQ"
+          },
+          {
+            "sourceNodeID": "pend_event_cQ3fQ",
+            "targetNodeID": "code_1l3GM"
+          }
+        ]
+      },
+      "lastOpenedAt": 1760468217334,
+      "createdAt": 1760057867632,
+      "view": {
+        "zoom": 0.25
+      },
+      "selectionIds": []
+    }
+  ],
+  "openTabs": [
+    "main"
+  ],
+  "activeSheetId": "main"
+}

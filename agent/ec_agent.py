@@ -1,184 +1,219 @@
 from __future__ import annotations
 import traceback
 import asyncio
-import gc
-import inspect
-import json
-import logging
-import os
-import socket
-import re
-import time
-from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, Generic, List, Optional, TypeVar, Union
+from typing import Dict, List, Optional
 from dotenv import load_dotenv
-from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import (
-	BaseMessage,
-	HumanMessage,
-	SystemMessage,
-)
-from langchain.embeddings import init_embeddings
-from langgraph.store.memory import InMemoryStore
+from queue import Queue
+from concurrent.futures import ThreadPoolExecutor
 
-# from lmnr.sdk.decorators import observe
-from pydantic import BaseModel, ValidationError
-from agent.models import *
 from agent.a2a.common.client import A2AClient
-# from agent.gif import create_history_gif
-from browser_use.agent.prompts import AgentMessagePrompt
-from browser_use.agent.views import (
-	ActionResult,
-	AgentError,
-	AgentHistory,
-	AgentHistoryList,
-	AgentOutput,
-	AgentSettings,
-	AgentState,
-	AgentStepInfo,
-	AgentStructuredOutput,
-	BrowserStateHistory,
-	StepMetadata,
-)
 from agent.a2a.common.server import A2AServer
-from agent.a2a.common.types import AgentCard, AgentCapabilities
+from agent.a2a.common.types import AgentCard
 from agent.a2a.common.utils.push_notification_auth import PushNotificationSenderAuth
 from agent.a2a.langgraph_agent.task_manager import AgentTaskManager
-from agent.a2a.common.types import Message, TextPart, FilePart, DataPart, FileContent, TaskSendParams
+from agent.a2a.common.types import Message, TextPart, FilePart, FileContent, TaskSendParams
+from agent.chats.unified_messenger import UnifiedMessenger, create_unified_messenger
 
-from browser_use.browser.types import Browser, BrowserContext, Page
-from browser_use.browser.views import BrowserStateSummary
-from browser_use.config import CONFIG
-from browser_use.controller.registry.views import ActionModel
-from browser_use.controller.service import Controller
 from browser_use.agent.service import Agent
-from agent.exceptions import LLMException
-
-from agent.run_utils import check_env_variables, time_execution_async, time_execution_sync
-from agent.tasks import TaskRunner, ManagedTask
+from agent.ec_skill import EC_Skill
+from agent.run_utils import time_execution_sync
+from agent.ec_tasks import TaskRunner, ManagedTask
 from agent.human_chatter import *
 import threading
 import concurrent.futures
 import base64
 from utils.logger_helper import logger_helper as logger
+from utils.logger_helper import get_traceback
+from agent.db.services.db_avatar_service import DBAvatarService
+from app_context import AppContext
+web_gui = AppContext.get_web_gui()
 
+# Thread pool for non-blocking A2A message sending
+_a2a_send_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="a2a_send_")
 
 load_dotenv()
+
+
+
 
 class EC_Agent(Agent):
 	@time_execution_sync('--init (agent)')
 	def __init__(
 		self,
-		mainwin,
+		mainwin,  # Add mainwin parameter
 		skill_llm,
 		tasks: Optional[List[ManagedTask]] = None,
 		# Optional parameters
-		skill_set: Optional[List[EC_Skill]] = None,
+		skills: Optional[List[EC_Skill]] = None,
 		card: AgentCard | None = None,
-		supervisors: Optional[List[str]] = None,
-		subordinates: Optional[List[str]] = None,
-		peers: Optional[List[str]] = None,
+		supervisor_id: Optional[str] = None,
 		rank: Optional[str] = None,
-		organizations: Optional[List[str]] = None,
+		org_id: Optional[str] = None,
 		title: Optional[str] = None,
 		gender: Optional[str] = None,
 		birthday: Optional[str] = None,
 		personalities: Optional[List[str]] = None,
 		vehicle: Optional[str] = None,
+		avatar: Optional[Dict] = None,
 		*args,
 		**kwargs
 	):
 		# Core components
 		self.tasks = tasks
 		self.skill_llm = skill_llm
-		self.running_tasks = []
-		self.skill_set = skill_set
+		self.active_tasks: Dict[str, concurrent.futures.Future] = {}
+		self.task_lock = threading.Lock()
+		self.skills = skills if skills is not None else []  # Use skills (unified naming)
 		self._stop_event = asyncio.Event()
-		self.supervisors = supervisors if supervisors is not None else []
-		self.subordinates = subordinates if subordinates is not None else []
-		self.peers = peers if peers is not None else []
+
+		# Save card before calling super().__init__() to ensure it's preserved
+		self.card = card
+
+		# Agent properties
+		self.supervisor_id = supervisor_id
 		self.rank = rank if rank is not None else ""
-		self.organizations = organizations if organizations is not None else []
+		# Note: subordinates can be queried via supervisor_id reverse lookup
+		# Note: peers relationship not yet implemented
+		self.org_id = org_id
 		self.title = title if title is not None else ""
 		self.gender = gender if gender is not None else "m"
 		self.birthday = birthday if birthday is not None else "2000-01-01"
-		self.personalities = personalities if personalities is not None else []
+		self.personalities = personalities if personalities is not None else []  # Use personalities (unified naming)
 		self.vehicle = vehicle if vehicle is not None else ""
 		self.status = "active"
+		self.images = [{"image_name":"", "image_source":"","text":""}]
+		self.avatar = avatar or (DBAvatarService.generate_default_avatar(card.id) if card else None)
 
-		# 在打包环境中安全初始化embeddings
-		try:
-			self.embeddings = init_embeddings("openai:text-embedding-3-small")
-			self.store = InMemoryStore(
-				index={
-					"embed": self.embeddings,
-					"dims": 1536,
-				}
-			)
-		except Exception as e:
-			logger.warning(f"Failed to initialize embeddings in packaged environment: {e}")
-		# keep the old inits
+		# Auto-detect model vision support and set use_vision accordingly to avoid warnings
+		if 'use_vision' not in kwargs:
+			from agent.ec_skills.llm_utils.llm_utils import get_use_vision_from_llm
+			llm = kwargs.get('llm')
+			kwargs['use_vision'] = get_use_vision_from_llm(llm, context="EC_Agent")
+
 		super().__init__(*args, **kwargs)
+		# Configure extraction
+		from agent.memory.service import MemoryManager
 
-		# LLM API connection setup
-		llm_api_env_vars = REQUIRED_LLM_API_ENV_VARS.get(self.llm.__class__.__name__, [])
-		if llm_api_env_vars and not check_env_variables(llm_api_env_vars):
-			logger.error(f'Environment variables not set for {self.llm.__class__.__name__}')
-			raise ValueError('Environment variables not set')
+		self.mem_manager = MemoryManager(agent_id=self.card.id, llm=self.skill_llm)
+
+		# LLM API connection setup: do not enforce environment variables.
+		# Provider-specific factories will read keys from secure_store when needed.
 
 
 		# Start non-blocking LLM connection verification
-		logger.info("OPENAI API KEY IS::::::::", os.getenv("OPENAI_API_KEY"))
+		# Show first 8 and last 4 characters, mask the middle
+		# openai_api_key: str = os.getenv("OPENAI_API_KEY")
+		# if openai_api_key and len(openai_api_key) > 12:
+		# 	mask_openai_api_key = openai_api_key[:8] + "*" * (len(openai_api_key) - 12) + openai_api_key[-4:]
+		# elif openai_api_key:
+		# 	mask_openai_api_key = openai_api_key[:2] + "*" * (len(openai_api_key) - 2)
+		# else:
+		# 	mask_openai_api_key = "Not set"
+		# logger.info("OPENAI API KEY IS::::::::", mask_openai_api_key)
 
-		capabilities = AgentCapabilities(streaming=True, pushNotifications=True)
-		def get_lan_ip():
-			try:
-				# Connect to an external address, but don't actually send anything
-				s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-				s.connect(("8.8.8.8", 80))  # Google's DNS IP
-				ip = s.getsockname()[0]
-				s.close()
-				return ip
-			except Exception:
-				return "127.0.0.1"  # fallback
 
-		host = get_lan_ip()
-		self.mainwin = mainwin
-		free_ports = mainwin.get_free_agent_ports(1)
-		if not free_ports:
+		# Extract port from Card URL (already allocated during card creation)
+		# This avoids duplicate port allocation
+		try:
+			a2a_server_port = int(card.url.split(":")[-1].split("/")[0])
+		except (ValueError, IndexError):
+			logger.error(f"Failed to extract port from card URL: {card.url}")
 			return None
-		a2a_server_port = free_ports[0]
+
+		self.mainwin = mainwin
 		self.card = card
+		server_host = "0.0.0.0"  # Bind to all interfaces for both local and remote access
+
 		self.a2a_client = A2AClient(self.card)
 		notification_sender_auth = PushNotificationSenderAuth()
 		notification_sender_auth.generate_jwk()
 		self.a2a_server = A2AServer(
 			agent_card=self.card,
 			task_manager=AgentTaskManager(notification_sender_auth=notification_sender_auth),
-			host=host,
+			host=server_host,
 			port=a2a_server_port,
 			endpoint="/a2a/",
 		)
-		logger.info("host:", host, "a2a server port:", a2a_server_port)
 		self.a2a_server.attach_agent(self)
+		self.a2a_msg_queue = Queue()
 
 		self.runner = TaskRunner(self)
 		self.human_chatter = HumanChatter(self)
 
+		# Initialize unified messenger for LAN/WAN auto-routing
+		self.unified_messenger = UnifiedMessenger(self, mainwin)
 
 
-	def to_dict(self):
-		agentJS = {
-			"card": self.card_to_dict(self.card),
-			"supervisors": self.supervisors,
-			"subordinates": self.subordinates,
-			"peers": self.peers,
-			"rank": self.rank,
-			"organizations": self.organizations,
-			"title": self.title,
-			"personalities": self.personalities
+
+
+	def to_dict(self, owner: str = None):
+		"""
+		Convert agent to dict for frontend/API consumption
+
+		Unified serialization that matches DBAgent.to_dict() structure
+		to ensure consistency across the application.
+
+		Args:
+			owner: Optional owner username/email to include in the dict
+
+		Returns:
+			dict: Agent structure compatible with frontend expectations
+		"""
+		# Helper function to serialize skills/tasks
+		def serialize_items(items):
+			"""Serialize skills/tasks to dict format.
+			
+			Handles:
+			- Pydantic models (EC_Skill, ManagedTask) with to_dict() method
+			- Plain dicts
+			- String IDs (converted to minimal dict)
+			"""
+			result = []
+			if items:
+				for item in items:
+					if hasattr(item, 'to_dict'):
+						# EC_Skill and ManagedTask have to_dict() method
+						result.append(item.to_dict())
+					elif isinstance(item, dict):
+						# Already a dict
+						result.append(item)
+					elif isinstance(item, str):
+						# String ID, convert to minimal dict
+						result.append({'id': item, 'name': item})
+			return result
+
+		# Build the unified structure
+		return {
+			# Card information (nested for frontend compatibility)
+			'card': self.card_to_dict(self.card) if self.card else {},
+
+			# Agent profile
+			'id': self.card.id if self.card else None,
+			'name': self.card.name if self.card else '',
+			'description': getattr(self, 'description', ''),
+			'owner': owner or getattr(self, 'owner', None),
+			'gender': getattr(self, 'gender', 'male'),
+			'birthday': getattr(self, 'birthday', None),
+
+			# Organization and hierarchy
+			'org_id': self.org_id,
+			'supervisor_id': self.supervisor_id,
+			'rank': self.rank,
+
+			# Agent characteristics
+			'title': self.title,
+			'personalities': self.personalities or [],
+			# Unified serialization: single source of truth
+			'skills': serialize_items(self.skills or []),
+			'tasks': serialize_items(self.tasks or []),
+
+			# Configuration
+			'vehicle_id': getattr(self, 'vehicle_id', None),
+			'status': getattr(self, 'status', 'active'),
+			# Avatar: 确保返回字典格式，如果是字典则直接返回，否则返回 None
+			'avatar': self.avatar if isinstance(self.avatar, dict) else None,
+			'extra_data': getattr(self, 'extra_data', ''),
 		}
-		return agentJS
 
 	def card_to_dict(self, card):
 		cardJS = {
@@ -197,6 +232,7 @@ class EC_Agent(Agent):
 		}
 		return cardJS
 
+
 	def add_tasks(self, tasks):
 		self.tasks += tasks  # or: self.tasks.extend(tasks)
 
@@ -208,15 +244,29 @@ class EC_Agent(Agent):
 		task_ids = {t.id for t in tasks}
 		self.tasks = [t for t in self.tasks if t.id not in task_ids] + tasks
 
+	def get_work_msg_queue(self):
+		chat_task = next((task for task in self.tasks if task and "work" in task.name.lower()), None)
+		if chat_task:
+			return chat_task.queue
+		else:
+			return None
+
+	def get_chat_msg_queue(self):
+		chat_task = next((task for task in self.tasks if task and "chat" in task.name.lower()), None)
+		if chat_task:
+			return chat_task.queue
+		else:
+			return None
+
 	def add_skills(self, skills):
-		self.skill_set += skills  # or: self.skill_set.extend(skills)
+		self.skills += skills  # or: self.skills.extend(skills)
 
 	def remove_skills(self, skills):
-		self.skill_set = [s for s in self.skill_set if s not in skills]
+		self.skills = [s for s in self.skills if s not in skills]
 
 	def update_skills(self, skills):
 		skill_ids = {s.id for s in skills}
-		self.skill_set = [s for s in self.skill_set if s.id not in skill_ids] + skills
+		self.skills = [s for s in self.skills if s.id not in skill_ids] + skills
 
 	def set_skill_llm(self, llm):
 		self.skill_llm = llm
@@ -228,18 +278,27 @@ class EC_Agent(Agent):
 		return self.card
 
 	def get_a2a_server_port(self):
-		logger.info(f"get a2a server port: {self.a2a_server.agent_card.url.split(':')[-1]}")
+		"""Get the A2A server port number"""
 		return int(self.a2a_server.agent_card.url.split(":")[-1])
+
+	def get_vehicle(self):
+		return self.vehicle
 
 	def is_busy(self):
 		busy = False
 		return busy
 
 	def start_a2a_server_in_thread(self, a2a_server):
+		"""Start A2A server in a daemon thread"""
 		def run_server():
-			a2a_server.start()  # this is the uvicorn.run(...) call
+			try:
+				a2a_server.start()
+			except Exception as e:
+				logger.error(f"[{self.card.name}] A2A server error: {e}")
+				import traceback
+				logger.error(traceback.format_exc())
 
-		self.a2a_server_thread = threading.Thread(target=run_server)
+		self.a2a_server_thread = threading.Thread(target=run_server, name=f"A2A-{self.card.name}")
 		self.a2a_server_thread.daemon = True
 		self.a2a_server_thread.start()
 
@@ -252,52 +311,93 @@ class EC_Agent(Agent):
 		self.running_tasks.append({'id': tid, 'thread': task_thread})
 		return task_thread
 
-	# async def start(self):
 	def start(self):
-		# kick off a2a server:
+		# Start A2A server in daemon thread
 		self.start_a2a_server_in_thread(self.a2a_server)
-		logger.info("A2A server started....")
+
+		# kick off memory manager in background.
+		self.mem_manager.start()
+		logger.info("A2A server started....", self.card.name)
 		# loop = asyncio.get_running_loop()
 		# kick off TaskExecutor
-		self.running_tasks = self.mainwin.threadPoolExecutor
+		thread_pool_executor = self.mainwin.threadPoolExecutor
+		logger.info(f"[AGENT_START] Agent {self.card.name} has {len(self.tasks)} tasks to start")
 		for task in self.tasks:
 			# new_thread = self.new_thread(task.id)
-			logger.info(f"{self.card.name} Starting task {task.name} with trigger {task.trigger}")
+			qid = id(task.queue) if hasattr(task, 'queue') and task.queue is not None else None
+			logger.info(f"[AGENT_START] {self.card.name} Starting task {task.name} with trigger {task.trigger}, has_queue={hasattr(task, 'queue') and task.queue is not None}")
+			logger.info(f"[AGENT_START] Task details: task_id={getattr(task,'id',None)}, run_id={getattr(task,'run_id',None)}, queue_id={qid}")
+
+			target_func = None
 			if task.trigger == "schedule":
-				logger.info(" scheduled task name:", task.name)
-				self.running_tasks.submit(self.runner.launch_scheduled_run,task)
-				# await self.runner.launch_scheduled_run(task)
-				# await loop.run_in_executor(threading.Thread(), await self.runner.launch_scheduled_run(task), True)
+				logger.info(f"[AGENT_START] scheduled task name: {task.name}")
+				target_func = self.runner.launch_scheduled_run
 			elif task.trigger == "message":
-				logger.info(" message task name:", task.name)
-				self.running_tasks.submit(self.runner.launch_reacted_run,task)
-
-				# await self.runner.launch_reacted_run(task)
-				# await loop.run_in_executor(threading.Thread(), await self.runner.launch_reacted_run(task), True)
+				logger.info(f"[AGENT_START] message task name: {task.name}")
+				target_func = self.runner.launch_reacted_run
 			elif task.trigger == "interaction":
-				logger.info(" interaction task name:", task.name)
-				self.running_tasks.submit(self.runner.launch_interacted_run,task)
-
-				# await self.runner.launch_interacted_run(task)
-				# await loop.run_in_executor(threading.Thread(), await self.runner.launch_interacted_run(task), True)
+				logger.info(f"[AGENT_START] interaction task name: {task.name}")
+				target_func = self.runner.launch_interacted_run
 			else:
-				logger.info("WARNING: UNRECOGNIZED task trigger type....")
+				logger.warning(f"[AGENT_START] WARNING: UNRECOGNIZED task trigger type for task {task.name}")
+				continue
 
-		# runnable = self.skill_set[0].get_runnable()
+			# Submit the task and register it using its run_id
+			if hasattr(task, 'run_id') and task.run_id:
+				future = thread_pool_executor.submit(target_func, task)
+				with self.task_lock:
+					self.active_tasks[task.run_id] = future
+				future.add_done_callback(lambda f, run_id=task.run_id: self._task_done_callback(run_id, f))
+				qid_after = id(task.queue) if hasattr(task, 'queue') and task.queue is not None else None
+				logger.info(f"[AGENT_START] ✅ Submitted: agent={self.card.name}, task={task.name}, task_id={task.id}, run_id={task.run_id}, queue_id={qid_after}, future={future}")
+			else:
+				logger.error(f"[AGENT_START] ❌ Task {task.name} is missing a 'run_id' and cannot be tracked.")
+
+
+		# runnable = self.skills[0].get_runnable()
 		# response: dict[str, Any] = await self.runnable.ainvoke(input_messages)
 		# runnable.ainvoke()
-		logger.info("Ready to A2A chat....")
+		
+		# Start WAN subscription for receiving messages over the internet
+		self._start_wan_subscriptions()
+		
+		logger.info("Ready to A2A chat....", self.card.name)
 
 	async def hone_skills(self):
 		logger.info("hone skills...")
 
-	def get_task_id_from_request(self, req):
-		task_id = req.params.id
-		logger.info(f"TASK ID IN QUERY:{task_id}.")
-		return task_id
+	def _task_done_callback(self, run_id: str, future: concurrent.futures.Future):
+		"""Callback to remove a task from the registry upon completion."""
+		# Keep dev run alive; it manages pause/step/resume explicitly.
+		if run_id == "dev_run_singleton":
+			try:
+				_ = future.result()  # raise if task errored, so we can log it
+			except Exception as e:
+				logger.error(f"Dev run task failed with an exception: {e}")
+			else:
+				logger.info("Dev run task callback invoked; preserving registry entry for step/resume.")
+			return
 
-	@time_execution_async('--request_local_help (agent)')
-	async def request_local_help(self, recipient_agent=None):
+		# Non-dev tasks: default behavior
+		try:
+			_ = future.result()
+		except Exception as e:
+			logger.error(f"Task with run_id {run_id} failed with an exception: {e}")
+
+		with self.task_lock:
+			if run_id in self.active_tasks:
+				del self.active_tasks[run_id]
+				logger.info(f"Task with run_id {run_id} completed and removed from registry.")
+
+
+
+
+	def is_task_running(self, run_id: str) -> bool:
+		"""Check if a task with the given run_id is currently running."""
+		with self.task_lock:
+			return run_id in self.active_tasks
+
+	def request_local_help(self, recipient_agent=None):
 		# this is only available if myself is not a helper agent
 		helper = next((ag for ag in self.mainwin.agents if "helper" in self.get_card().name.lower()), None)
 		logger.info("client card:", self.get_card().name.lower())
@@ -313,29 +413,29 @@ class EC_Agent(Agent):
 			}
 
 			logger.info("client payload:", payload["id"])
-			response = await self.a2a_client.send_task(payload)
+			response = self.a2a_client.send_task(payload)
 			logger.info("A2A RESPONSE:", response)
 		else:
 			logger.info("client err:", self.get_card().name.lower())
 
-	# class Message(BaseModel):
-	# 	role: Literal["user", "agent"]
-	# 	parts: List[Part]
-	# 	metadata: dict[str, Any] | None = None
-	# @time_execution_async('--a2a_send_message (agent, message)')
-	# async def a2a_send_chat_message(self, recipient_agent, message):
-	@time_execution_sync('--a2a_send_chat_message (agent, message)')
-	def a2a_send_chat_message(self, recipient_agent, message):
+	def a2a_send_chat_message_sync(self, recipient_agent, message):
 		# this is only available if myself is not a helper agent
-		logger.info("recipient card:", recipient_agent.get_card().name.lower())
-		logger.info("sending message:", message)
+		logger.info("[ec_agent] recipient card:", recipient_agent.get_card().name.lower())
+		logger.info("[ec_agent] sending message:", message)
 		try:
 			a2a_end_point = recipient_agent.get_card().url + "/a2a/"
-			logger.info("a2a end point: ", a2a_end_point)
+			logger.info("[ec_agent] a2a end point: ", a2a_end_point)
 			self.a2a_client.set_recipient(url=a2a_end_point)
-			msg_parts = [TextPart(type="text", text=message['chat']['input'])]
-			if message['chat']['attachments']:
-				for attachment in message['chat']['attachments']:
+			if isinstance(message["attributes"]['params']['content'], str):
+				msg_text = message["attributes"]['params']['content']
+			elif isinstance(message["attributes"]['params']['content'], dict):
+				msg_text = message["attributes"]['params']['content']['text']
+			else:
+				msg_text = message['attributes']['params']['content']['text']
+			msg_parts = [TextPart(type="text", text=msg_text)]
+
+			if message["attributes"]['params']['attachments']:
+				for attachment in message["attributes"]['params']['attachments']:
 					file_data = attachment['data']
 					if isinstance(file_data, bytes):
 						file_data = base64.b64encode(file_data).decode('utf-8')
@@ -346,63 +446,42 @@ class EC_Agent(Agent):
 								uri = attachment['url'])
 					msg_parts.append(FilePart(type="file", file=fc))
 
-			chat_msg = Message(role="user", parts=msg_parts, metadata={"mtype": "send_chat"})
 
-			if "attributes" in message["chat"]:
-				msgId = message['chat']['messages'][2],
-				chatId = message['chat']["attributes"]["params"]["chatId"],
-				senderId = message['chat']["attributes"]["params"]["senderId"],
-				createAt = message['chat']["attributes"]["params"]["createAt"],
-				senderName = message['chat']["attributes"]["params"]["senderName"],
-				status = message['chat']["attributes"]["params"]["status"],
-				ext = ""
-				dtype = "text"
-				card = {}
-				code = {}
-				form = {}
-				notification = {}
+			if msg_text.lstrip().lower().startswith("dev>"):
+				mtype = "dev_send_chat"
+				logger.debug("sending dev mode chat.......")
 			else:
-				msgId = message['chat']['messages'][2],
-				chatId = message['chat']['messages'][1][0],
-				senderId = message["params"]["senderId"],
-				createAt = message["params"]["createAt"],
-				senderName = message["params"]["senderName"],
-				status = message["params"]["status"],
-				ext = message["params"].get("ext", "")
-				dtype = message["params"]["metadata"]["dtype"]
-				card = message["params"]["metadata"]["card"]
-				code = message["params"]["metadata"]["code"]
-				form = message["params"]["metadata"]["form"]
-				notification = message["params"]["metadata"]["notification"]
+				mtype = "send_chat"
 
+			chat_msg = Message(role="user", parts=msg_parts, metadata={"mtype": mtype})
+
+			# Extract IDs for trace/tracking:
+			# messages = [agent_id, chat_id, msg_id, task_id, msg_txt]
+			#               [0]       [1]     [2]     [3]      [4]
+			# Upstream MUST guarantee these fields are populated
+			if 'messages' not in message:
+				logger.error(f"[a2a_send_chat_message] Missing 'messages' key in message! Keys: {list(message.keys())}")
+				raise KeyError(f"Missing 'messages' key. Message structure: {list(message.keys())}")
+			sess_id = message['messages'][1]      # chat_id for session
+			trace_task_id = message['messages'][3]  # task_id for trace linkage
+				
 			payload = TaskSendParams(
-				id="0001",
-				sessionId= message['chat']['messages'][3],
-				message =chat_msg,
-				acceptedOutputModes = ["text", "json", "image/png"],
-				pushNotification = None,
-				historyLength = None,
-				metadata = {
-					"mtype": "send_chat",
-					"dtype": dtype,
-					"msgId": msgId,
-					"chatId": chatId,
-					"senderId": senderId,
-					"createAt": createAt,
-					"senderName": senderName,
-					"status": status,
-					"card": card,
-					"code": code,
-					"form": form,
-					"notification": notification,
-					"ext": ""
+				id=trace_task_id,
+				sessionId=sess_id,
+				message=chat_msg,
+				acceptedOutputModes=["text", "json", "image/png"],
+				pushNotification=None,
+				historyLength=0,
+				metadata={
+					"params": message['attributes']["params"]
 				}
 			)
-			print("client payload:", payload)
-			logger.info("client payload:", payload)
+
+
+			logger.info("[ec_agent] client payload:", payload)
 			# response = await self.a2a_client.send_task(payload)
 			response = self.a2a_client.sync_send_task(payload.model_dump())
-			logger.info("A2A RESPONSE:", response)
+			logger.info("[ec_agent] A2A RESPONSE:", response)
 			return response
 		except Exception as e:
 			# Get the traceback information
@@ -413,3 +492,480 @@ class EC_Agent(Agent):
 			else:
 				ex_stat = "ErrorA2ASend: traceback information not available:" + str(e)
 			logger.error(ex_stat)
+
+	def a2a_send_chat_message_async(self, recipient_agent, message):
+		"""
+		Async fire-and-forget version of a2a_send_chat_message_sync.
+		
+		Use this when sending a response back to avoid deadlock:
+		- A sends message to B (blocking wait)
+		- B executes skill and wants to send response back to A
+		- If B uses blocking send, it will wait for A, but A is waiting for B = DEADLOCK
+		- Using non-blocking send, B sends and continues, A receives and resolves waiter
+		
+		Args:
+			recipient_agent: The agent to send the message to
+			message: The message dict with 'messages' and 'attributes' keys
+		"""
+		def _send():
+			try:
+				logger.info(f"[a2a_nonblocking] Sending message to {recipient_agent.get_card().name}")
+				result = self.a2a_send_chat_message_sync(recipient_agent, message)
+				logger.info(f"[a2a_nonblocking] Message sent successfully: {type(result)}")
+				return result
+			except Exception as e:
+				logger.error(f"[a2a_nonblocking] Error sending message: {e}")
+				logger.error(traceback.format_exc())
+				return None
+		
+		# Submit to thread pool and return immediately (fire-and-forget)
+		future = _a2a_send_executor.submit(_send)
+		logger.debug(f"[a2a_nonblocking] Message submission queued, returning immediately")
+		return future
+
+	# =========================================================================
+	# Unified Messaging API (LAN/WAN auto-routing)
+	# =========================================================================
+
+	def unified_send_chat_message(self, recipient_id: str, message: dict, use_wan_fallback: bool = True):
+		"""
+		Send a chat message using unified messenger with auto LAN/WAN routing.
+		
+		This is the preferred method for sending messages as it automatically
+		routes between LAN (direct A2A HTTP) and WAN (AWS AppSync WebSocket).
+		
+		Args:
+			recipient_id: Target agent ID
+			message: Message dict with 'messages' and 'attributes' keys (same as a2a_send_chat_message_sync)
+			use_wan_fallback: If True, try WAN when agent not found in LAN registry
+			
+		Returns:
+			Response dict with transport info and result
+		"""
+		try:
+			# Extract message content
+			if isinstance(message["attributes"]['params']['content'], str):
+				msg_text = message["attributes"]['params']['content']
+			elif isinstance(message["attributes"]['params']['content'], dict):
+				msg_text = message["attributes"]['params']['content']['text']
+			else:
+				msg_text = message['attributes']['params']['content']['text']
+			
+			# Build message parts
+			msg_parts = [TextPart(type="text", text=msg_text)]
+			
+			if message["attributes"]['params'].get('attachments'):
+				for attachment in message["attributes"]['params']['attachments']:
+					file_data = attachment.get('data', '')
+					if isinstance(file_data, bytes):
+						file_data = base64.b64encode(file_data).decode('utf-8')
+					
+					fc = FileContent(
+						name=attachment.get('name', ''),
+						mimeType=attachment.get('type', ''),
+						bytes=file_data,
+						uri=attachment.get('url', '')
+					)
+					msg_parts.append(FilePart(type="file", file=fc))
+			
+			# Determine message type
+			if msg_text.lstrip().lower().startswith("dev>"):
+				mtype = "dev_send_chat"
+			else:
+				mtype = "send_chat"
+			
+			# Build A2A Message
+			chat_msg = Message(role="user", parts=msg_parts, metadata={"mtype": mtype})
+			
+			# Extract session info
+			sess_id = message['messages'][1]  # chat_id
+			
+			# Send via unified messenger
+			return self.unified_messenger.send_sync(
+				recipient_id=recipient_id,
+				message=chat_msg,
+				session_id=sess_id,
+				accepted_output_modes=["text", "json", "image/png"],
+				metadata={"params": message['attributes']["params"]}
+			)
+			
+		except Exception as e:
+			logger.error(f"[unified_send] Error: {traceback.format_exc()}")
+			raise
+
+	def unified_send_chat_message_async(self, recipient_id: str, message: dict):
+		"""
+		Non-blocking fire-and-forget unified send.
+		
+		Use this when you don't need to wait for a response.
+		"""
+		return self.unified_messenger.send_async_fire_and_forget(
+			recipient_id=recipient_id,
+			message=self._build_a2a_message_from_dict(message),
+			session_id=message.get('messages', [None, None])[1],
+			metadata={"params": message.get('attributes', {}).get("params", {})}
+		)
+
+	def _build_a2a_message_from_dict(self, message: dict) -> Message:
+		"""Helper to convert legacy message dict to A2A Message."""
+		try:
+			params = message.get("attributes", {}).get("params", {})
+			content = params.get("content", "")
+			
+			if isinstance(content, str):
+				msg_text = content
+			elif isinstance(content, dict):
+				msg_text = content.get("text", "")
+			else:
+				msg_text = str(content)
+			
+			msg_parts = [TextPart(type="text", text=msg_text)]
+			
+			# Add attachments
+			for attachment in params.get("attachments", []) or []:
+				file_data = attachment.get('data', '')
+				if isinstance(file_data, bytes):
+					file_data = base64.b64encode(file_data).decode('utf-8')
+				
+				fc = FileContent(
+					name=attachment.get('name', ''),
+					mimeType=attachment.get('type', ''),
+					bytes=file_data,
+					uri=attachment.get('url', '')
+				)
+				msg_parts.append(FilePart(type="file", file=fc))
+			
+			mtype = "dev_send_chat" if msg_text.lstrip().lower().startswith("dev>") else "send_chat"
+			return Message(role="user", parts=msg_parts, metadata={"mtype": mtype})
+			
+		except Exception as e:
+			logger.error(f"[_build_a2a_message] Error: {e}")
+			return Message(role="user", parts=[TextPart(type="text", text="")], metadata={})
+
+	def register_lan_agent(self, agent_id: str, a2a_url: str):
+		"""Register an agent as reachable on LAN."""
+		self.unified_messenger.register_lan_agent(agent_id, a2a_url)
+
+	def register_wan_agent(self, agent_id: str):
+		"""Register an agent as reachable via WAN."""
+		self.unified_messenger.register_wan_agent(agent_id)
+
+	def sync_agent_registry(self):
+		"""Sync agent registry from MainWindow's agent list."""
+		self.unified_messenger.sync_from_mainwin()
+
+	# =========================================================================
+	# WAN Subscription Handling
+	# =========================================================================
+
+	def _start_wan_subscriptions(self):
+		"""
+		Start WAN subscriptions for this agent.
+		
+		Subscribes to:
+		1. Agent's own card.id - for receiving direct messages
+		2. Any group channels the agent belongs to
+		"""
+		try:
+			# Subscribe to direct messages using agent's own ID
+			if self.card and self.card.id:
+				logger.info(f"[EC_Agent] Starting WAN subscription for direct messages: {self.card.id}")
+				self.subscribe_to_wan_channel_background(channel_id=self.card.id)
+			
+			# Subscribe to group channels
+			if hasattr(self, 'unified_messenger') and self.unified_messenger:
+				for group_id in self.unified_messenger.groups.keys():
+					logger.info(f"[EC_Agent] Starting WAN subscription for group: {group_id}")
+					self.subscribe_to_wan_channel_background(channel_id=group_id)
+					
+		except Exception as e:
+			logger.error(f"[EC_Agent] Error starting WAN subscriptions: {e}")
+			import traceback
+			logger.error(traceback.format_exc())
+
+	async def subscribe_to_wan_channel(self, channel_id: str = None, on_message_callback=None):
+		"""
+		Subscribe to WAN messages on a channel via AWS AppSync WebSocket.
+		
+		Args:
+			channel_id: Channel to subscribe to. Defaults to agent's own ID for direct messages.
+			on_message_callback: Optional callback(TaskSendParams, sender_id, channel_id)
+		"""
+		channel_id = channel_id or (self.card.id if self.card else "default")
+		
+		async def _default_callback(task_params, sender_id, chan_id):
+			"""Default handler routes messages to agent's message queue."""
+			logger.info(f"[WAN] Received message from {sender_id} on channel {chan_id}: {task_params}")
+			try:
+				# Route to agent's A2A message queue for processing
+				self.a2a_msg_queue.put({
+					"type": "wan_a2a_message",
+					"task_params": task_params,
+					"sender_id": sender_id,
+					"channel_id": chan_id
+				})
+			except Exception as e:
+				logger.error(f"[WAN] Error routing message: {e}")
+		
+		callback = on_message_callback or _default_callback
+		logger.info(f"[EC_Agent] Subscribing to WAN channel: {channel_id}")
+		await self.unified_messenger.subscribe(channel_id, callback)
+
+	def subscribe_to_wan_channel_background(self, channel_id: str = None, on_message_callback=None):
+		"""
+		Start WAN subscription in background (non-blocking).
+		
+		Returns:
+			asyncio.Task: The subscription task
+		"""
+		channel_id = channel_id or (self.card.id if self.card else "default")
+		
+		async def _run_subscription():
+			await self.subscribe_to_wan_channel(channel_id, on_message_callback)
+		
+		# Get or create event loop
+		try:
+			loop = asyncio.get_running_loop()
+			task = loop.create_task(_run_subscription())
+		except RuntimeError:
+			# No running loop, create one in a thread
+			import threading
+			def _run_in_thread():
+				asyncio.run(_run_subscription())
+			thread = threading.Thread(target=_run_in_thread, daemon=True)
+			thread.start()
+			task = None
+
+		log_msg = f"[EC_Agent] WAN subscription started in background for channel: {channel_id}"
+		logger.info(log_msg)
+		web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
+		return task
+
+	def unsubscribe_from_wan_channel(self, channel_id: str):
+		"""Unsubscribe from a WAN channel."""
+		self.unified_messenger.unsubscribe(channel_id)
+		logger.info(f"[EC_Agent] Unsubscribed from WAN channel: {channel_id}")
+
+	def self_wan_ping(self, test_message: str = None):
+		"""
+		Send a WAN ping message to self for testing WAN connectivity.
+		
+		This sends a message via AWS AppSync to the agent's own channel_id,
+		which should be received back via the WAN subscription.
+		
+		Args:
+			test_message: Optional custom test message. Defaults to timestamp-based message.
+			
+		Returns:
+			dict: Response from wan_a2a_send_message
+		"""
+		from datetime import datetime
+		from agent.chats.wan_a2a_chat import wan_a2a_send_message_sync
+		from agent.a2a.common.types import Message, TextPart
+		
+		try:
+			agent_id = self.card.id if self.card else "unknown"
+			timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+			ping_text = test_message or f"🏓 WAN PING from {agent_id} at {timestamp}"
+			
+			logger.info(f"[WAN_PING] Sending self-ping to channel: {agent_id}")
+			logger.info(f"[WAN_PING] Message: {ping_text}")
+			
+			# Build A2A Message
+			message = Message(
+				role="agent",
+				parts=[TextPart(type="text", text=ping_text)],
+				metadata={"type": "wan_ping", "timestamp": timestamp}
+			)
+			
+			# Send via WAN (sync version for simplicity)
+			response = wan_a2a_send_message_sync(
+				mainwin=self.mainwin,
+				channel_id=agent_id,  # Send to self
+				message=message,
+				sender_id=agent_id,
+				recipient_id=agent_id,
+				session_id=f"wan_ping_{timestamp.replace(' ', '_').replace(':', '-')}",
+				metadata={"ping": True}
+			)
+			
+			logger.info(f"[WAN_PING] ✅ Ping sent successfully. Response: {response}")
+			return response
+			
+		except Exception as e:
+			logger.error(f"[WAN_PING] ❌ Ping failed: {e}")
+			import traceback
+			logger.error(traceback.format_exc())
+			return {"error": str(e)}
+
+	async def self_wan_ping_async(self, test_message: str = None):
+		"""
+		Async version of self_wan_ping.
+		"""
+		from datetime import datetime
+		from agent.chats.wan_a2a_chat import wan_a2a_send_message
+		from agent.a2a.common.types import Message, TextPart
+		
+		try:
+			agent_id = self.card.id if self.card else "unknown"
+			timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+			ping_text = test_message or f"🏓 WAN PING from {agent_id} at {timestamp}"
+			
+			logger.info(f"[WAN_PING] Sending self-ping (async) to channel: {agent_id}")
+			logger.info(f"[WAN_PING] Message: {ping_text}")
+			
+			message = Message(
+				role="agent",
+				parts=[TextPart(type="text", text=ping_text)],
+				metadata={"type": "wan_ping", "timestamp": timestamp}
+			)
+			
+			response = await wan_a2a_send_message(
+				mainwin=self.mainwin,
+				channel_id=agent_id,
+				message=message,
+				sender_id=agent_id,
+				recipient_id=agent_id,
+				session_id=f"wan_ping_{timestamp.replace(' ', '_').replace(':', '-')}",
+				metadata={"ping": True}
+			)
+			
+			logger.info(f"[WAN_PING] ✅ Ping sent successfully (async). Response: {response}")
+			return response
+			
+		except Exception as e:
+			logger.error(f"[WAN_PING] ❌ Ping failed (async): {e}")
+			import traceback
+			logger.error(traceback.format_exc())
+			return {"error": str(e)}
+
+	# =========================================================================
+	# Group Chat Support
+	# =========================================================================
+
+	def create_group(self, group_id: str, member_ids: list):
+		"""Create a group for group chat."""
+		self.unified_messenger.register_group(group_id, member_ids)
+		logger.info(f"[EC_Agent] Created group {group_id} with {len(member_ids)} members")
+
+	def join_group(self, group_id: str):
+		"""Add this agent to a group."""
+		self.unified_messenger.add_to_group(group_id, self.card.id if self.card else "unknown")
+
+	def leave_group(self, group_id: str):
+		"""Remove this agent from a group."""
+		self.unified_messenger.remove_from_group(group_id, self.card.id if self.card else "unknown")
+
+	async def send_to_group(self, group_id: str, text: str, metadata: dict = None):
+		"""Send a text message to all members of a group."""
+		return await self.unified_messenger.send_text_to_group(
+			group_id=group_id,
+			text=text,
+			role="agent",
+			metadata=metadata
+		)
+
+	def launch_dev_run_task(self, init_state):
+		"""Launches a development run, ensuring any previous dev run is cancelled first."""
+		logger.info("Attempting to launch dev run task...")
+		DEV_RUN_ID = "dev_run_singleton"
+
+		try:
+			# Check if a dev run is already active and cancel it
+			if self.is_task_running(DEV_RUN_ID):
+				logger.info(f"An existing dev run ({DEV_RUN_ID}) is active. Attempting to cancel it.")
+				with self.task_lock:
+					# Find the ManagedTask object associated with the running future
+					old_future = self.active_tasks.get(DEV_RUN_ID)
+					dev_task_instance = next((t for t in self.tasks if hasattr(t, 'run_id') and t.run_id == DEV_RUN_ID), None)
+
+					if dev_task_instance:
+						dev_task_instance.cancel() # Signal the task to stop
+						logger.info(f"Cancellation signal sent to task with run_id {DEV_RUN_ID}.")
+					else:
+						logger.warning(f"Could not find the ManagedTask object for run_id {DEV_RUN_ID} to send cancel signal.")
+
+					if old_future:
+						# Wait for the old task to finish cancelling
+						try:
+							old_future.result(timeout=5) # Wait for up to 5 seconds
+							logger.info(f"Previous dev run task {DEV_RUN_ID} successfully cancelled.")
+						except concurrent.futures.TimeoutError:
+							logger.error(f"Timeout waiting for previous dev run task {DEV_RUN_ID} to cancel.")
+						except Exception as e:
+							logger.info(f"Previous dev run task {DEV_RUN_ID} terminated. Exception during cancellation: {e}")
+
+			# Find the template task for development runs
+			dev_task_template = next((task for task in self.tasks if "run task for skill under development" in task.name.lower()), None)
+			if not dev_task_template:
+				logger.error("Could not find the 'run task for skill under development' template task.")
+				return {"success": False, "error": "Dev task template not found."}
+
+			# Assign the unique run_id for tracking
+			dev_task_template.run_id = DEV_RUN_ID
+			dev_task_template.cancellation_event.clear() # Ensure the event is not set from a previous run
+
+			# Launch the new dev run task
+			thread_pool_executor = self.mainwin.threadPoolExecutor
+			future = thread_pool_executor.submit(self.runner.launch_dev_run, init_state, dev_task_template)
+			with self.task_lock:
+				self.active_tasks[DEV_RUN_ID] = future
+			future.add_done_callback(lambda f: self._task_done_callback(DEV_RUN_ID, f))
+
+			logger.info(f"New dev run task with run_id {DEV_RUN_ID} submitted and registered.")
+			return {"success": True, "message": "Dev run launched successfully."}
+
+		except Exception as e:
+			err_msg = get_traceback(e, "ErrorLaunchDevRunTask")
+			logger.error(err_msg)
+			return {"success": False, "error": err_msg}
+
+	def resume_dev_run_task(self):
+		logger.info("launching dev run task!")
+		try:
+			response = self.runner.resume_dev_run()
+			logger.info("launching dev run task!", response)
+			return response
+		except Exception as e:
+			# Get the traceback information
+			err_msg = get_traceback(e, "ErrorLaunchDevRunTask")
+			logger.error(err_msg)
+
+	def step_dev_run_task(self):
+		logger.info("launching dev run task!")
+		try:
+			response = self.runner.step_dev_run()
+			logger.info("launching dev run task!", response)
+			return response
+		except Exception as e:
+			# Get the traceback information
+			err_msg = get_traceback(e, "ErrorLaunchDevRunTask")
+			logger.error(err_msg)
+
+	def pause_dev_run_task(self):
+		logger.info("launching dev run task!")
+		try:
+			response = self.runner.pause_dev_run()
+			logger.info("launching dev run task!", response)
+			return response
+		except Exception as e:
+			# Get the traceback information
+			err_msg = get_traceback(e, "ErrorLaunchDevRunTask")
+			logger.error(err_msg)
+
+	def cancel_dev_run_task(self):
+		logger.info("launching dev run task!")
+		try:
+			response = self.runner.cancel_dev_run()
+			logger.info("launching dev run task!", response)
+			return response
+		except Exception as e:
+			# Get the traceback information
+			err_msg = get_traceback(e, "ErrorLaunchDevRunTask")
+			logger.error(err_msg)
+
+
+	def set_checkpointer(self, checkpointer):
+		"""Sets the checkpointer for the agent's runner."""
+

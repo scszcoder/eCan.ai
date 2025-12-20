@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>eCan</string>
+    <key>CFBundleExecutable</key>
+    <string>eCan</string>
+    <key>CFBundleIconFile</key>
+    <string>eCan.icns</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.ecan.app</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>eCan</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>1.0.0</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>10.14</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSPrincipalClass</key>
+    <string>NSApplication</string>
+    <key>NSRequiresAquaSystemAppearance</key>
+    <false/>
+
+    <!-- URL Scheme Configuration -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.ecan.oauth</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>ecan</string>
+            </array>
+            <key>CFBundleURLIconFile</key>
+            <string>eCan.icns</string>
+        </dict>
+    </array>
+
+    <!-- Application Transport Security -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+        <key>NSAllowsLocalNetworking</key>
+        <true/>
+    </dict>
+
+    <!-- Camera and Microphone Permissions -->
+    <key>NSCameraUsageDescription</key>
+    <string>eCan needs camera access for automation tasks.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>eCan needs microphone access for automation tasks.</string>
+
+    <key>NSCameraUseContinuityCameraDeviceType</key>
+    <true/>
+    <!-- Screen Recording Permission -->
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>eCan needs screen recording permission for automation tasks.</string>
+
+    <!-- Accessibility Permission -->
+    <key>NSAccessibilityUsageDescription</key>
+    <string>eCan needs accessibility permission for automation tasks.</string>
+
+    <!-- File System Access -->
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>eCan needs access to Desktop folder for file operations.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>eCan needs access to Documents folder for file operations.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>eCan needs access to Downloads folder for file operations.</string>
+
+    <!-- Network Client -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- Hardened Runtime Entitlements -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!-- Keychain Access -->
+    <key>keychain-access-groups</key>
+    <array>
+        <string>$(AppIdentifierPrefix)com.ecan.app</string>
+    </array>
+
+    <!-- Application Support Directory Access -->
+    <key>NSApplicationSupportDirectoryUsageDescription</key>
+    <string>eCan needs access to Application Support directory to store user data and settings.</string>
+
+    <!-- Full Disk Access (for comprehensive file operations) -->
+    <key>NSSystemAdministrationUsageDescription</key>
+    <string>eCan needs system administration access for advanced automation features.</string>
+
+    <!-- Temporary Folder Access -->
+    <key>NSTemporaryDirectoryUsageDescription</key>
+    <string>eCan needs access to temporary directory for processing files.</string>
+
+    <!-- User Data Directory Access -->
+    <key>NSUserDataDirectoryUsageDescription</key>
+    <string>eCan needs access to user data directory to store application data.</string>
+</dict>
+</plist>

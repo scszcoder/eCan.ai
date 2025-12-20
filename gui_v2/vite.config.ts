@@ -81,10 +81,23 @@ export default defineConfig({
       'antd',
       '@ant-design/icons',
       '@douyinfe/semi-ui',
-      'monaco-editor'
+      'monaco-editor',
+      // react-sigma graph stack - prebundle to avoid Outdated Optimize Dep 504
+      '@react-sigma/core',
+      '@react-sigma/graph-search',
+      '@react-sigma/layout-circular',
+      '@react-sigma/layout-random',
+      '@react-sigma/layout-noverlap',
+      '@react-sigma/layout-force',
+      '@react-sigma/layout-forceatlas2',
+      'graphology',
+      'sigma',
+      '@sigma/node-border',
+      '@sigma/edge-curve'
     ],
     exclude: [],
-    force: false
+    // Force re-optimize after dependency changes to avoid stale optimized deps
+    force: true
   },
   worker: {
     format: 'es',

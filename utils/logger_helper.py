@@ -6,8 +6,8 @@ import colorlog
 from logging.handlers import RotatingFileHandler
 import os
 import sys
+import signal
 import io
-from app_context import AppContext
 from config.constants import APP_NAME
 from config.app_info import app_info
 import traceback
@@ -21,8 +21,6 @@ def trace(self, message, *args, **kws):
         self._log(TRACE_LEVEL_NUM, message, args, **kws)
 logging.Logger.trace = trace
 # ====== END ======
-
-login = None
 
 
 class LoggerHelper:
@@ -110,7 +108,15 @@ class LoggerHelper:
             message = str(message)
 
         # On Windows systems, if encoding issues occur, replace problematic characters
+        # Only check encoding if we're on Windows and message might have issues
         if sys.platform == "win32":
+            # Quick check: if message is pure ASCII, skip encoding check
+            try:
+                message.encode('ascii')
+                return message  # Pure ASCII, no encoding issues
+            except UnicodeEncodeError:
+                pass  # Contains non-ASCII, need to check GBK
+            
             try:
                 # Try encoding to GBK, if it fails then replace characters
                 message.encode('gbk')
@@ -121,6 +127,7 @@ class LoggerHelper:
         return message
 
     def _join_message_args(self, message, *args):
+        """Join message and args into a single string"""
         def safe_str(x):
             try:
                 return str(x)
@@ -139,32 +146,38 @@ class LoggerHelper:
         return self._safe_encode_message(result)
 
     def trace(self, message, *args, **kwargs):
-        if hasattr(self, 'logger'):
+        """Log trace message - only format if trace level is enabled"""
+        if hasattr(self, 'logger') and self.logger.isEnabledFor(TRACE_LEVEL_NUM):
             msg = self._join_message_args(message, *args)
             self.logger.trace(msg, **kwargs)
 
     def debug(self, message, *args, **kwargs):
-        if hasattr(self, 'logger'):
+        """Log debug message - only format if debug level is enabled"""
+        if hasattr(self, 'logger') and self.logger.isEnabledFor(logging.DEBUG):
             msg = self._join_message_args(message, *args)
             self.logger.debug(msg, **kwargs)
 
     def info(self, message, *args, **kwargs):
-        if hasattr(self, 'logger'):
+        """Log info message - only format if info level is enabled"""
+        if hasattr(self, 'logger') and self.logger.isEnabledFor(logging.INFO):
             msg = self._join_message_args(message, *args)
             self.logger.info(msg, **kwargs)
 
     def warning(self, message, *args, **kwargs):
-        if hasattr(self, 'logger'):
+        """Log warning message - only format if warning level is enabled"""
+        if hasattr(self, 'logger') and self.logger.isEnabledFor(logging.WARNING):
             msg = self._join_message_args(message, *args)
             self.logger.warning(msg, **kwargs)
 
     def error(self, message, *args, **kwargs):
-        if hasattr(self, 'logger'):
+        """Log error message - only format if error level is enabled"""
+        if hasattr(self, 'logger') and self.logger.isEnabledFor(logging.ERROR):
             msg = self._join_message_args(message, *args)
             self.logger.error(msg, **kwargs)
 
     def critical(self, message, *args, **kwargs):
-        if hasattr(self, 'logger'):
+        """Log critical message - only format if critical level is enabled"""
+        if hasattr(self, 'logger') and self.logger.isEnabledFor(logging.CRITICAL):
             msg = self._join_message_args(message, *args)
             self.logger.critical(msg, **kwargs)
 
@@ -236,9 +249,13 @@ class LoggerHelper:
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
 
     def install_crash_logger(self):
-        """Install crash logger"""
+        """Install crash logger for both Python exceptions and system signals"""
         # Set global exception handler
         sys.excepthook = self.log_uncaught_exception
+
+        # Setup signal handlers for system crashes
+        self._setup_signal_handlers()
+
         self.info("🛡️  Crash logger installed successfully")
 
     def get_crash_log_info(self) -> dict:
@@ -255,6 +272,49 @@ class LoggerHelper:
         }
 
         return info
+
+    def _setup_signal_handlers(self):
+        """Setup signal handlers for system crashes"""
+        def signal_crash_handler(signum, frame):
+            """Handle system signals that indicate crashes"""
+            signal_names = {
+                signal.SIGSEGV: "SIGSEGV",
+                signal.SIGABRT: "SIGABRT",
+            }
+            if hasattr(signal, 'SIGBUS'):
+                signal_names[signal.SIGBUS] = "SIGBUS"
+
+            signal_name = signal_names.get(signum, f"Signal {signum}")
+
+            # Log the crash
+            self.critical(f"FATAL CRASH: {signal_name} on {sys.platform}")
+
+            # Force flush all handlers
+            for handler in self.logger.handlers:
+                handler.flush()
+
+            # Write to crash file as backup
+            try:
+                crash_file = os.path.join(os.path.expanduser("~"), "eCan_crash.log")
+                with open(crash_file, "a", encoding="utf-8") as f:
+                    f.write(f"{__import__('datetime').datetime.now()}: FATAL CRASH: {signal_name}\n")
+            except:
+                pass
+
+            # Restore default handler and re-raise
+            signal.signal(signum, signal.SIG_DFL)
+            os.kill(os.getpid(), signum)
+
+        # Register signal handlers for common crash signals
+        crash_signals = [signal.SIGSEGV, signal.SIGABRT]
+        if hasattr(signal, 'SIGBUS'):
+            crash_signals.append(signal.SIGBUS)
+
+        for sig in crash_signals:
+            try:
+                signal.signal(sig, signal_crash_handler)
+            except (OSError, ValueError):
+                pass
 
 
 logger_helper = LoggerHelper()
@@ -278,19 +338,6 @@ def get_log_path():
     return env_info['log_path']
 # ====== END ======
 
-def get_agent_by_id(agent_id):
-    """Safely fetch agent by id from the current main window.
-    Returns None if main window or agents are not yet initialized.
-    """
-    try:
-        app_ctx = AppContext()
-        main_window = getattr(app_ctx, 'main_window', None)
-        if not main_window:
-            return None
-        agents = getattr(main_window, 'agents', []) or []
-        return next((ag for ag in agents if getattr(getattr(ag, 'card', None), 'id', None) == agent_id), None)
-    except Exception:
-        return None
 
 def get_traceback(e, eType="Error"):
     traceback_info = traceback.extract_tb(e.__traceback__)
@@ -300,3 +347,37 @@ def get_traceback(e, eType="Error"):
     else:
         ex_stat = f"{eType}: traceback information not available:" + str(e)
     return ex_stat
+
+
+def truncate_for_log(data, max_length: int = 500, suffix: str = "...") -> str:
+    """
+    Truncate data for logging to avoid excessively long log entries.
+    
+    Args:
+        data: Any data to be logged (dict, list, str, etc.)
+        max_length: Maximum length of the output string (default 500)
+        suffix: Suffix to append when truncated (default "...")
+    
+    Returns:
+        Truncated string representation of the data
+    """
+    try:
+        if data is None:
+            return "None"
+        
+        # Convert to string
+        if isinstance(data, (dict, list)):
+            import json
+            try:
+                text = json.dumps(data, ensure_ascii=False, default=str)
+            except Exception:
+                text = str(data)
+        else:
+            text = str(data)
+        
+        # Truncate if needed
+        if len(text) > max_length:
+            return text[:max_length - len(suffix)] + suffix + f" [truncated, total {len(text)} chars]"
+        return text
+    except Exception:
+        return f"<error converting to string: {type(data).__name__}>"

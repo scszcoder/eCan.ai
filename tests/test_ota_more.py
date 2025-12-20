@@ -62,8 +62,8 @@ class TestPackageFormatAndScan(unittest.TestCase):
 class TestGenericUpdaterNetwork(unittest.TestCase):
     def setUp(self):
         # Ensure not in dev mode for HTTPS requirement test
-        if 'ECBOT_DEV_MODE' in os.environ:
-            del os.environ['ECBOT_DEV_MODE']
+        if 'ECAN_DEV_MODE' in os.environ:
+            del os.environ['ECAN_DEV_MODE']
         from ota.core.config import ota_config
         # point to insecure server to trigger HTTPS check
         ota_config.set('update_server', 'http://insecure.example.com')
@@ -83,7 +83,7 @@ class TestGenericUpdaterNetwork(unittest.TestCase):
         from ota.core.updater import OTAUpdater
         from ota.core.config import ota_config
         # allow http in dev
-        os.environ['ECBOT_DEV_MODE'] = '1'
+        os.environ['ECAN_DEV_MODE'] = '1'
         ota_config.set('dev_update_server', 'http://localhost')
         u = OTAUpdater()
         u.platform_updater = GenericUpdater(u)
@@ -107,7 +107,7 @@ class TestGenericUpdaterNetwork(unittest.TestCase):
     def test_404_no_update(self, mget):
         from ota.core.platforms import GenericUpdater
         from ota.core.updater import OTAUpdater
-        os.environ['ECBOT_DEV_MODE'] = '1'
+        os.environ['ECAN_DEV_MODE'] = '1'
         u = OTAUpdater()
         u.platform_updater = GenericUpdater(u)
         class R:
@@ -123,7 +123,7 @@ class TestGenericUpdaterNetwork(unittest.TestCase):
 
 class TestUpdaterDevModeForcing(unittest.TestCase):
     def test_dev_mode_forces_generic(self):
-        os.environ['ECBOT_DEV_MODE'] = '1'
+        os.environ['ECAN_DEV_MODE'] = '1'
         from ota.core.updater import OTAUpdater
         from ota.core.platforms import GenericUpdater
         u = OTAUpdater()

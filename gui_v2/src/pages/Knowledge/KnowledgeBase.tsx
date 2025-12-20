@@ -10,13 +10,13 @@ import {
   Col, 
   Input, 
   Dropdown, 
-  Menu,
   Typography,
   Tooltip,
   Modal,
   Form,
   Select,
-  message
+  message,
+  theme
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { 
@@ -41,6 +41,7 @@ import Collaboration from './components/Collaboration';
 import AdvancedSearch from './components/AdvancedSearch';
 import DataManager from './components/DataManager';
 import { DataManager as StorageDataManager, initializeDefaultData } from './services/storage';
+import { useTranslation } from 'react-i18next';
 
 
 const { Search } = Input;
@@ -48,6 +49,8 @@ const { Title } = Typography;
 const { Option } = Select;
 
 const KnowledgeBase: React.FC = () => {
+  const { t } = useTranslation();
+  const { token } = theme.useToken();
   const [viewMode, setViewMode] = useState<'list' | 'card'>('list');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchText, setSearchText] = useState('');
@@ -62,71 +65,71 @@ const KnowledgeBase: React.FC = () => {
   const [searchResults, setSearchResults] = useState<KnowledgeEntry[]>([]);
   const [form] = Form.useForm();
 
-  // 初始化数据
+  // InitializeData
   useEffect(() => {
     initializeDefaultData();
   }, []);
 
-    // 从存储服务获取数据
+    // 从StorageServiceGetData
   const [knowledgeData, setKnowledgeData] = useState<KnowledgeEntry[]>(() => {
     const storedData = StorageDataManager.getKnowledgeEntries() || [];
     return storedData.length > 0 ? storedData : [
       {
         id: 1,
-        title: '快速开始指南',
-        content: '本文档介绍如何快速上手使用系统...',
-        category: '技术文档',
-        tags: ['入门', '指南', '快速'],
+        title: 'Fast开始指南',
+        content: '本Documentation介绍如何Fast上手使用System...',
+        category: '技术Documentation',
+        tags: ['入门', '指南', 'Fast'],
         createdAt: '2024-01-15',
         updatedAt: '2024-01-15',
       },
       {
         id: 2,
-        title: 'API 参考文档',
-        content: '详细的 API 接口说明和使用示例...',
-        category: '技术文档',
-        tags: ['API', '开发', '接口'],
+        title: 'API 参考Documentation',
+        content: 'Detailed的 API Interface说明和使用Example...',
+        category: '技术Documentation',
+        tags: ['API', 'Development', 'Interface'],
         createdAt: '2024-01-14',
         updatedAt: '2024-01-14',
       },
       {
         id: 3,
-        title: '用户权限管理',
-        content: '系统权限配置和管理说明...',
-        category: '管理文档',
-        tags: ['权限', '管理', '配置'],
+        title: 'UserPermission管理',
+        content: 'SystemPermissionConfiguration和管理说明...',
+        category: '管理Documentation',
+        tags: ['Permission', '管理', 'Configuration'],
         createdAt: '2024-01-13',
         updatedAt: '2024-01-13',
       },
     ];
   });
 
-  // 分类树数据
+  // Category树Data
   const treeData = [
     {
-      title: '技术文档',
+      title: '技术Documentation',
       key: 'tech',
       icon: <FolderOutlined />,
       children: [
         {
-          title: '用户指南',
+          title: 'User指南',
           key: 'tech-user',
           icon: <FileTextOutlined />,
         },
         {
-          title: '开发文档',
+          title: 'DevelopmentDocumentation',
           key: 'tech-dev',
           icon: <FileTextOutlined />,
         },
         {
-          title: 'API文档',
+          title: 'APIDocumentation',
           key: 'tech-api',
           icon: <FileTextOutlined />,
         },
       ],
     },
     {
-      title: '产品文档',
+      title: '产品Documentation',
       key: 'product',
       icon: <FolderOutlined />,
       children: [
@@ -143,17 +146,17 @@ const KnowledgeBase: React.FC = () => {
       ],
     },
     {
-      title: '管理文档',
+      title: '管理Documentation',
       key: 'management',
       icon: <FolderOutlined />,
       children: [
         {
-          title: '权限管理',
+          title: 'Permission管理',
           key: 'management-permission',
           icon: <FileTextOutlined />,
         },
         {
-          title: '系统配置',
+          title: 'SystemConfiguration',
           key: 'management-config',
           icon: <FileTextOutlined />,
         },
@@ -161,7 +164,7 @@ const KnowledgeBase: React.FC = () => {
     },
   ];
 
-  // 表格列配置
+  // Table列Configuration
   const columns: ColumnsType<KnowledgeEntry> = [
     {
       title: '标题',
@@ -169,23 +172,23 @@ const KnowledgeBase: React.FC = () => {
       key: 'title',
       render: (text, record) => (
         <div>
-          <div style={{ fontWeight: 500, color: '#1890ff', cursor: 'pointer' }}>
+          <div style={{ fontWeight: 500, color: token.colorPrimary, cursor: 'pointer' }}>
             {text}
           </div>
-          <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
+          <div style={{ fontSize: 12, color: token.colorTextSecondary, marginTop: 4 }}>
             {record.content.substring(0, 50)}...
           </div>
         </div>
       ),
     },
     {
-      title: '分类',
+      title: 'Category',
       dataIndex: 'category',
       key: 'category',
       width: 120,
     },
     {
-      title: '标签',
+      title: 'Tag',
       dataIndex: 'tags',
       key: 'tags',
       width: 200,
@@ -198,22 +201,22 @@ const KnowledgeBase: React.FC = () => {
       ),
     },
     {
-      title: '更新时间',
+      title: 'UpdateTime',
       dataIndex: 'updatedAt',
       key: 'updatedAt',
       width: 120,
     },
     {
-      title: '操作',
+      title: 'Operation',
       key: 'action',
       width: 120,
       render: (_, record) => {
         const menuItems = [
           { key: 'view', label: '查看', icon: <EyeOutlined /> },
-          { key: 'edit', label: '编辑', icon: <EditOutlined /> },
-          { key: 'version', label: '版本历史', icon: <HistoryOutlined /> },
+          { key: 'edit', label: 'Edit', icon: <EditOutlined /> },
+          { key: 'version', label: 'Version历史', icon: <HistoryOutlined /> },
           { type: 'divider' as const },
-          { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true },
+          { key: 'delete', label: 'Delete', icon: <DeleteOutlined />, danger: true },
         ];
         return (
           <Dropdown
@@ -221,7 +224,7 @@ const KnowledgeBase: React.FC = () => {
               if (key === 'view') { setSelectedDocument(record); setIsCollaborationVisible(true); }
               else if (key === 'edit') { handleEdit(record); }
               else if (key === 'version') { setSelectedDocument(record); setIsVersionControlVisible(true); }
-              else if (key === 'delete') { /* 删除逻辑 */ }
+              else if (key === 'delete') { /* Delete逻辑 */ }
             }}}
           >
             <Button type="text" icon={<MoreOutlined />} />
@@ -231,16 +234,16 @@ const KnowledgeBase: React.FC = () => {
     },
   ];
 
-  // 在组件内部定义菜单项
+  // 在ComponentInternalDefinitionMenu项
   const getMenuItems = (record: KnowledgeEntry) => ([
     { key: 'view', label: '查看', onClick: () => { setSelectedDocument(record); setIsCollaborationVisible(true); } },
-    { key: 'edit', label: '编辑', onClick: () => handleEdit(record) },
-    { key: 'version', label: '版本历史', onClick: () => { setSelectedDocument(record); setIsVersionControlVisible(true); } },
+    { key: 'edit', label: 'Edit', onClick: () => handleEdit(record) },
+    { key: 'version', label: 'Version历史', onClick: () => { setSelectedDocument(record); setIsVersionControlVisible(true); } },
     { type: 'divider' },
-    { key: 'delete', label: '删除', danger: true },
+    { key: 'delete', label: 'Delete', danger: true },
   ]);
 
-  // 卡片视图渲染
+  // 卡片视图Render
   const renderCardView = () => (
     <Row gutter={[16, 16]}>
       {knowledgeData.map(item => (
@@ -250,13 +253,13 @@ const KnowledgeBase: React.FC = () => {
             size="small"
             actions={[
               <Tooltip title="查看" key="view"><EyeOutlined /></Tooltip>,
-              <Tooltip title="编辑" key="edit"><EditOutlined onClick={() => handleEdit(item)} /></Tooltip>,
-              <Tooltip title="删除" key="delete"><DeleteOutlined style={{ color: '#ff4d4f' }} /></Tooltip>,
+              <Tooltip title="Edit" key="edit"><EditOutlined onClick={() => handleEdit(item)} /></Tooltip>,
+              <Tooltip title="Delete" key="delete"><DeleteOutlined style={{ color: '#ff4d4f' }} /></Tooltip>,
             ]}
           >
             <Card.Meta
               title={
-                <div style={{ color: '#1890ff', cursor: 'pointer' }}>
+                <div style={{ color: token.colorPrimary, cursor: 'pointer' }}>
                   {item.title}
                 </div>
               }
@@ -270,7 +273,7 @@ const KnowledgeBase: React.FC = () => {
                       <Tag key={tag + '-' + idx}>{tag}</Tag>
                     ))}
                   </div>
-                  <div style={{ fontSize: 12, color: '#666' }}>
+                  <div style={{ fontSize: 12, color: token.colorTextSecondary }}>
                     {item.category} • {item.updatedAt}
                   </div>
                 </div>
@@ -282,30 +285,30 @@ const KnowledgeBase: React.FC = () => {
     </Row>
   );
 
-  // 处理新建文档
+  // Process新建Documentation
   const handleCreate = () => {
     setEditingDocument(null);
     setIsEditorVisible(true);
   };
 
-  // 处理编辑文档
+  // ProcessEditDocumentation
   const handleEdit = (record: KnowledgeEntry) => {
     setEditingDocument(record);
     setIsEditorVisible(true);
   };
 
-  // 处理文档保存
+  // ProcessDocumentationSave
   const handleDocumentSave = (data: any) => {
-    console.log('保存文档:', data);
+    console.log('SaveDocumentation:', data);
     if (editingDocument) {
-      // 更新现有文档
+      // Update现有Documentation
       const updatedDocument = { ...editingDocument, ...data, updatedAt: new Date().toISOString() };
       StorageDataManager.updateKnowledgeEntry(editingDocument.id, updatedDocument);
       setKnowledgeData(prev => prev.map(item => 
         item.id === editingDocument.id ? updatedDocument : item
       ));
     } else {
-      // 创建新文档
+      // Create新Documentation
       const newDocument: KnowledgeEntry = {
         id: Date.now(),
         ...data,
@@ -319,39 +322,43 @@ const KnowledgeBase: React.FC = () => {
     setEditingDocument(null);
   };
 
-  // 处理表单提交
+  // ProcessFormSubmit
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      console.log('新建文档:', values);
-      message.success('文档创建成功');
+      console.log('新建Documentation:', values);
+      message.success('DocumentationCreateSuccess');
       setIsModalVisible(false);
       form.resetFields();
     } catch (error) {
-      console.error('表单验证失败:', error);
+      console.error('FormValidateFailed:', error);
     }
   };
 
   return (
-    <div>
-      {/* 页面标题和工具栏 */}
+    <div style={{ 
+      backgroundColor: token.colorBgContainer,
+      minHeight: '100vh',
+      padding: '24px'
+    }}>
+      {/* Page标题和Tool栏 */}
       <div style={{ marginBottom: 24 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <Title level={4} style={{ margin: 0 }}>知识库管理</Title>
+          <Title level={4} style={{ margin: 0, color: token.colorText }}>{t('pages.knowledge.knowledgeBaseManagement')}</Title>
           <Space>
             <Button 
               type={viewMode === 'list' ? 'primary' : 'default'} 
               icon={<UnorderedListOutlined />}
               onClick={() => setViewMode('list')}
             >
-              列表
+              {t('common.description')}
             </Button>
             <Button 
               type={viewMode === 'card' ? 'primary' : 'default'} 
               icon={<AppstoreOutlined />}
               onClick={() => setViewMode('card')}
             >
-              卡片
+              {t('common.card', { defaultValue: 'Card' })}
             </Button>
           </Space>
         </div>
@@ -359,11 +366,11 @@ const KnowledgeBase: React.FC = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Space>
             <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-              新建文档
+              {t('common.create')}
             </Button>
-            <Button icon={<ImportOutlined />}>批量导入</Button>
+            <Button icon={<ImportOutlined />}>{t('pages.knowledge.batchImport')}</Button>
             <Button icon={<ExportOutlined />} onClick={() => setIsDataManagerVisible(true)}>
-              数据管理
+              {t('pages.knowledge.dataManagement')}
             </Button>
           </Space>
           
@@ -372,10 +379,10 @@ const KnowledgeBase: React.FC = () => {
               icon={<SearchOutlined />} 
               onClick={() => setIsAdvancedSearchVisible(true)}
             >
-              高级搜索
+              {t('common.search', { defaultValue: 'Search' })}
             </Button>
             <Search
-              placeholder="搜索文档..."
+              placeholder={t('common.search', { defaultValue: 'Search...' })}
               style={{ width: 300 }}
               allowClear
               value={searchText}
@@ -386,9 +393,13 @@ const KnowledgeBase: React.FC = () => {
       </div>
 
       <div style={{ display: 'flex', gap: 16 }}>
-        {/* 左侧分类树 */}
+        {/* LeftCategory树 */}
         <div style={{ width: 250, flexShrink: 0 }}>
-          <Card size="small" title="分类导航">
+          <Card 
+            size="small" 
+            title="CategoryNavigation"
+            style={{ backgroundColor: token.colorBgElevated }}
+          >
             <Tree
               treeData={treeData}
               selectedKeys={selectedCategory === 'all' ? [] : [selectedCategory]}
@@ -398,8 +409,13 @@ const KnowledgeBase: React.FC = () => {
           </Card>
         </div>
 
-        {/* 右侧内容区 */}
-        <div style={{ flex: 1 }}>
+        {/* RightContent区 */}
+        <div style={{ 
+          flex: 1,
+          backgroundColor: token.colorBgElevated,
+          borderRadius: token.borderRadius,
+          padding: '16px'
+        }}>
           {viewMode === 'list' ? (
             <Table
               rowKey="id"
@@ -417,9 +433,9 @@ const KnowledgeBase: React.FC = () => {
         </div>
       </div>
 
-      {/* 文档编辑器弹窗 */}
+      {/* DocumentationEdit器Modal */}
       <Modal
-        title={editingDocument ? '编辑文档' : '新建文档'}
+        title={editingDocument ? 'EditDocumentation' : '新建Documentation'}
         open={isEditorVisible}
         onCancel={() => {
           setIsEditorVisible(false);
@@ -444,7 +460,7 @@ const KnowledgeBase: React.FC = () => {
         />
       </Modal>
 
-      {/* 版本控制弹窗 */}
+      {/* Version控制Modal */}
       <VersionControl
         visible={isVersionControlVisible}
         onClose={() => {
@@ -453,14 +469,14 @@ const KnowledgeBase: React.FC = () => {
         }}
         documentId={selectedDocument?.id || 0}
         onRevert={(version) => {
-          console.log('回滚到版本:', version);
-          message.success(`已回滚到版本 ${version.version}`);
+          console.log('回滚到Version:', version);
+          message.success(`已回滚到Version ${version.version}`);
         }}
       />
 
-      {/* 协作弹窗 */}
+      {/* 协作Modal */}
       <Modal
-        title={`文档协作 - ${selectedDocument?.title}`}
+        title={`Documentation协作 - ${selectedDocument?.title}`}
         open={isCollaborationVisible}
         onCancel={() => {
           setIsCollaborationVisible(false);
@@ -490,9 +506,9 @@ const KnowledgeBase: React.FC = () => {
         )}
       </Modal>
 
-      {/* 新建文档弹窗（保留原有简单表单） */}
+      {/* 新建DocumentationModal（保留原有SimpleForm） */}
       <Modal
-        title="新建文档"
+        title="新建Documentation"
         open={isModalVisible}
         onOk={handleSubmit}
         onCancel={() => {
@@ -504,47 +520,47 @@ const KnowledgeBase: React.FC = () => {
         <Form form={form} layout="vertical">
           <Form.Item
             name="title"
-            label="文档标题"
-            rules={[{ required: true, message: '请输入文档标题' }]}
+            label="Documentation标题"
+            rules={[{ required: true, message: '请InputDocumentation标题' }]}
           >
-            <Input placeholder="请输入文档标题" />
+            <Input placeholder="请InputDocumentation标题" />
           </Form.Item>
           
           <Form.Item
             name="category"
-            label="分类"
-            rules={[{ required: true, message: '请选择分类' }]}
+            label="Category"
+            rules={[{ required: true, message: '请SelectCategory' }]}
           >
-            <Select placeholder="请选择分类">
-              <Option value="tech">技术文档</Option>
-              <Option value="product">产品文档</Option>
-              <Option value="management">管理文档</Option>
+            <Select placeholder={t('pages.knowledge.selectCategory')}>
+              <Option value="tech">{t('pages.knowledge.technicalDocumentation')}</Option>
+              <Option value="product">{t('pages.knowledge.productDocumentation')}</Option>
+              <Option value="management">{t('pages.knowledge.managementDocumentation')}</Option>
             </Select>
           </Form.Item>
           
           <Form.Item
             name="tags"
-            label="标签"
+            label="Tag"
           >
-            <Select mode="tags" placeholder="请输入标签">
+            <Select mode="tags" placeholder="请InputTag">
               <Option value="入门">入门</Option>
               <Option value="指南">指南</Option>
               <Option value="API">API</Option>
-              <Option value="开发">开发</Option>
+              <Option value="Development">Development</Option>
             </Select>
           </Form.Item>
           
           <Form.Item
             name="content"
-            label="文档内容"
-            rules={[{ required: true, message: '请输入文档内容' }]}
+            label="DocumentationContent"
+            rules={[{ required: true, message: '请InputDocumentationContent' }]}
           >
-            <Input.TextArea rows={6} placeholder="请输入文档内容" />
+            <Input.TextArea rows={6} placeholder="请InputDocumentationContent" />
           </Form.Item>
         </Form>
       </Modal>
 
-      {/* 高级搜索弹窗 */}
+      {/* AdvancedSearchModal */}
       <AdvancedSearch
         visible={isAdvancedSearchVisible}
         onClose={() => setIsAdvancedSearchVisible(false)}
@@ -555,7 +571,7 @@ const KnowledgeBase: React.FC = () => {
         dataSource={knowledgeData}
       />
 
-      {/* 数据管理弹窗 */}
+      {/* Data管理Modal */}
       <DataManager
         visible={isDataManagerVisible}
         onClose={() => setIsDataManagerVisible(false)}

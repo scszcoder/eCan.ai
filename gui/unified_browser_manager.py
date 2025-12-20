@@ -12,17 +12,131 @@ import asyncio
 from threading import Lock
 
 from agent.playwright import get_playwright_manager
-from crawl4ai import BrowserConfig
-from browser_use.browser import BrowserSession
-from browser_use.controller.service import Controller as BrowserUseController
-from browser_use.filesystem.file_system import FileSystem
-from browser_use.agent.service import Agent
-from utils.logger_helper import get_agent_by_id, get_traceback
+from utils.logger_helper import get_traceback
 from utils.logger_helper import logger_helper as logger
 from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
+from agent.agent_service import get_agent_by_id
+from dotenv import load_dotenv
+from uuid_extensions import uuid7str
 
 if TYPE_CHECKING:
     from crawl4ai import AsyncWebCrawler
+    from browser_use import Agent, BrowserSession
+    from browser_use.filesystem.file_system import FileSystem
+
+from browser_use import Agent, BrowserSession
+from browser_use.browser.profile import BrowserProfile
+from browser_use.llm.openai.chat import ChatOpenAI
+from browser_use.browser.session import DEFAULT_BROWSER_PROFILE
+try:
+    from ..mcp.server.ads_power.ads_power import startAdspowerProfile
+except ImportError:
+    import sys
+    from pathlib import Path
+
+    project_root = Path(__file__).resolve().parents[3]
+    if str(project_root) not in sys.path:
+        sys.path.append(str(project_root))
+
+    from agent.mcp.server.ads_power.ads_power import startAdspowerProfile
+
+
+class LoggingChatOpenAI(ChatOpenAI):
+    def get_client(self):
+        client = super().get_client()
+        original_create = client.chat.completions.create
+
+        @wraps(original_create)
+        async def create_with_logging(*args, **kwargs):
+            response = await original_create(*args, **kwargs)
+            org = None
+
+            try:
+                org = response.response.headers.get("openai-organization")
+            except AttributeError:
+                pass
+
+            if org:
+                self.logger.info("OpenAI organization: %s", org)
+
+            return response
+
+        client.chat.completions.create = create_with_logging
+        return client
+
+load_dotenv()
+
+
+
+def _build_browser_session(br_type="existing_chrome", adspower_profile="", port="9228", headless=False) -> BrowserSession:
+    """Construct a BrowserSession.
+
+    Priority:
+    1. If ADSPOWER_PROFILE_ID is set, attach to the AdsPower fingerprint browser.
+    2. Otherwise, attach to a generic Chrome instance using BROWSER_USE_CDP_URL
+       (defaults to http://127.0.0.1:9228).
+    """
+    if br_type == "adspower":
+        adspower_profile = adspower_profile
+        if not adspower_profile:
+            adspower_profile = os.getenv("ADSPOWER_PROFILE_ID", "")
+
+        print("ads_profile:", adspower_profile)
+
+        if adspower_profile:
+            return _build_adspower_browser_session(adspower_profile)
+
+    else:
+        cdp_url = os.getenv("BROWSER_USE_CDP_URL", f"http://127.0.0.1:{port}")
+        print("cdp_url:", cdp_url)
+        profile = BrowserProfile(headless=headless, cdp_url=cdp_url)
+        profile.is_local = False
+        return BrowserSession(browser_profile=profile, id="ec"+uuid7str())
+
+
+def _build_adspower_browser_session(profile_id: str) -> BrowserSession:
+    """Attach BrowserUse to an AdsPower-managed Chrome profile."""
+
+    api_key = os.getenv("ADSPOWER_API_KEY")
+    if not api_key:
+        raise RuntimeError("ADSPOWER_API_KEY must be set to use the AdsPower browser variant")
+
+    port_env = os.getenv("ADSPOWER_PORT", "50325")
+    try:
+        port = int(port_env)
+    except ValueError as exc:  # pragma: no cover - defensive parsing
+        raise RuntimeError(f"ADSPOWER_PORT must be an integer, got: {port_env!r}") from exc
+
+    print("ads apikey:", api_key, "ads profile_id:", profile_id, "ads port:", port)
+    response = startAdspowerProfile(api_key, profile_id, port)
+    data = response.get("data", {}) if isinstance(response, dict) else {}
+    ws_info = data.get("ws", {}) if isinstance(data, dict) else {}
+
+    # Prefer full devtools websocket endpoint when available
+    devtools_ws = ws_info.get("devtools") or ws_info.get("chromedevtools")
+    selenium_addr = ws_info.get("selenium") or ws_info.get("webdriver")
+    debug_port = data.get("debug_port")
+
+    cdp_url: str | None = None
+    if isinstance(devtools_ws, str) and devtools_ws:
+        cdp_url = devtools_ws
+    elif isinstance(selenium_addr, str) and selenium_addr:
+        addr = selenium_addr.replace("ws://", "http://", 1)
+        if not (addr.startswith("http://") or addr.startswith("https://")):
+            addr = f"http://{addr}"
+        cdp_url = addr
+    elif debug_port:
+        cdp_url = f"http://127.0.0.1:{debug_port}"
+
+    if not cdp_url:
+        raise RuntimeError("Failed to determine AdsPower CDP endpoint from startAdspowerProfile response")
+    else:
+        logger.debug("[BrowserSession] adspower cdp_url:", cdp_url)
+
+    profile = BrowserProfile(headless=False, cdp_url=cdp_url)
+    profile.is_local = False
+    return BrowserSession(browser_profile=profile, id="ap"+uuid7str())
+
 
 
 class UnifiedBrowserManager:
@@ -39,8 +153,9 @@ class UnifiedBrowserManager:
         # Component instances
         self._async_crawler = None
         self._browser_session = None
-        self._browser_use_controller = None
         self._browser_use_file_system = None
+
+        self._browser_sessions = []
 
         # Configuration
         self._crawler_config = None
@@ -68,7 +183,7 @@ class UnifiedBrowserManager:
 
                 self._setup_crawler_config(crawler_config)
                 self._file_system_path = file_system_path
-                print("crawler initialized.............")
+                logger.info("crawler initialized.............")
                 self._initialized = True
                 self._initialization_error = None
                 logger.info("✅ Unified browser manager initialized successfully")
@@ -87,11 +202,11 @@ class UnifiedBrowserManager:
             self._playwright_manager = get_playwright_manager()
 
             if not self._playwright_manager.is_initialized():
-                logger.debug("Initializing Playwright environment...")
+                logger.info("🔧 Initializing Playwright environment...")
                 if not self._playwright_manager.lazy_init():
                     raise RuntimeError("Playwright environment initialization failed")
 
-            logger.debug("✅ Playwright manager ready")
+            logger.info("✅ Playwright manager ready")
             return True
 
         except Exception as e:
@@ -116,15 +231,16 @@ class UnifiedBrowserManager:
 
     def _setup_crawler_environment(self):
         """Setup crawler runtime environment"""
-        import os
+        from pathlib import Path
+        from agent.playwright.core.utils import core_utils
 
         # Ensure Playwright environment variables are set correctly so crawl4ai can find browsers
         if self._playwright_manager and self._playwright_manager.is_initialized():
             browsers_path = self._playwright_manager.get_browsers_path()
             if browsers_path:
-                os.environ["PLAYWRIGHT_BROWSERS_PATH"] = browsers_path
-                os.environ["PLAYWRIGHT_CACHE_DIR"] = browsers_path
-                logger.debug(f"Set crawler environment variable PLAYWRIGHT_BROWSERS_PATH: {browsers_path}")
+                # Use unified environment variable setting function
+                core_utils.set_environment_variables(Path(browsers_path))
+                logger.debug(f"Set crawler environment variables using core_utils: {browsers_path}")
             else:
                 logger.warning("Playwright manager is initialized but browser path is empty")
         else:
@@ -146,7 +262,7 @@ class UnifiedBrowserManager:
         logger.debug("get_async_crawler called: returning None to avoid creating AsyncWebCrawler on GUI thread")
         return None
     
-    def get_browser_session(self) -> Optional[BrowserSession]:
+    def get_browser_session(self) -> Optional['BrowserSession']:
         """Get BrowserSession instance (lazy creation)"""
         if not self._initialized:
             logger.warning("Manager not initialized, cannot get BrowserSession")
@@ -154,6 +270,7 @@ class UnifiedBrowserManager:
 
         if self._browser_session is None:
             try:
+                from browser_use.browser import BrowserSession as _BrowserSession
                 # Note: BrowserSession needs to be created after AsyncWebCrawler is started
                 # This is just preparation, actual creation should be done when needed
                 logger.debug("BrowserSession will be created when needed")
@@ -165,15 +282,59 @@ class UnifiedBrowserManager:
 
         return self._browser_session
 
-    def _create_bu_agent(self):
+
+
+    def create_browser_session(self, br_type="chromium", fpb_profile="") -> Optional['BrowserSession']:
+        """Create BrowserSession - fingerprint browser profile"""
+        if not self._initialized:
+            logger.warning("Manager not initialized, cannot get BrowserSession")
+            return None
+
+        if self._browser_session is None:
+            try:
+                from browser_use.browser import BrowserSession as _BrowserSession
+                # Note: BrowserSession needs to be created after AsyncWebCrawler is started
+                # This is just preparation, actual creation should be done when needed
+                if br_type == "adspower":
+                    headless = False
+                    logger.debug("BrowserSession adspower will be created when needed")
+                    self._browser_session = _build_browser_session(br_type, fpb_profile)
+                elif br_type == "existing_chrome":
+                    headless = False
+                    logger.debug("BrowserSession existing chrome will be created when needed")
+
+                    self._browser_session = _build_browser_session(br_type)
+                else:
+                    # this is simply bring up a new chromium browser
+                    logger.debug("BrowserSession new chromium will be created when needed")
+                    self._browser_session = BrowserSession(browser_profile=DEFAULT_BROWSER_PROFILE, id="nc"+uuid7str())
+                    print("BrowserSession new chromium created")
+                return self._browser_session
+
+            except Exception as e:
+                logger.error(f"Failed to prepare BrowserSession: {e}")
+                return None
+
+        return self._browser_session
+
+
+    def _create_bu_agent(self, mainwin=None):
         try:
-            print("create bu agent....")
-            from browser_use import Agent, Controller
+            if not mainwin:
+                raise ValueError("mainwin is required. Must use mainwin.llm from MainWindow. Please configure LLM provider API key in Settings.")
+            
+            logger.debug("create bu agent....")
+            from browser_use import Agent
             from browser_use.browser import BrowserProfile, BrowserSession
-            from browser_use.llm import ChatOpenAI
-            print("done import browser use....")
+            logger.debug("done import browser use....")
+            
+            # Use mainwin's LLM configuration (no fallback)
+            from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm
+            llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True)
+            if not llm:
+                raise ValueError("Failed to create browser_use LLM from mainwin. Please configure LLM provider API key in Settings.")
+            
             BasicConfig = {
-                "openai_api_key": os.getenv("OPENAI_API_KEY"),
                 "chrome_path": "",
                 "target_user":  "",# Twitter handle without @
                 "message":  "",
@@ -184,9 +345,9 @@ class UnifiedBrowserManager:
                 "product_phrase": "resistance loop band"
             }
             config = BasicConfig
-            print("done config....")
+            logger.debug("done config....")
             full_message = f'@{config["target_user"]} {config["message"]}'
-            print("done full message....")
+            logger.debug("done full message....")
             basic_task = f"""Navigate to Amazon and search a product.
     
                 Here are the specific steps:
@@ -200,9 +361,8 @@ class UnifiedBrowserManager:
                 - Wait for each element to load before interacting
                 - Make sure the search phrase is typed exactly as shown
                 """
-            print("done basic task....", basic_task)
-            llm = ChatOpenAI(model=config["model"], api_key=config["openai_api_key"])
-            print("llm set....")
+            logger.debug("done basic task....", basic_task)
+            logger.debug("llm set....")
             browser_profile = BrowserProfile(
                 headless=config["headless"],
                 executable_path=config["chrome_path"],
@@ -214,19 +374,23 @@ class UnifiedBrowserManager:
                 user_data_dir='~/.config/browseruse/profiles/default',
                 # trace_path='./tmp/web_voyager_agent',
             )
-            print("browser profile set....", browser_profile)
+            logger.debug("browser profile set....", browser_profile)
             browser_session = BrowserSession(browser_profile=browser_profile)
-            print("browser session set....", browser_session)
+            logger.debug("browser session set....", browser_session)
             # Construct the full message with tag
             # Create the agent with detailed instructions
-            agent = Agent(
-                task=basic_task,
-                llm=llm,
-                browser_session=browser_session,
-                validate_output=True,
-                enable_memory=False,
-            )
-            print("browser agent set....", browser_session)
+            # Auto-detect model vision support and set use_vision accordingly to avoid warnings
+            from agent.ec_skills.llm_utils.llm_utils import get_use_vision_from_llm
+            agent_kwargs = {
+                'task': basic_task,
+                'llm': llm,
+                'browser_session': browser_session,
+                'validate_output': True,
+                'enable_memory': False,
+                'use_vision': get_use_vision_from_llm(llm, context="UnifiedBrowserManager")
+            }
+            agent = Agent(**agent_kwargs)
+            logger.debug("browser agent set....", browser_session)
             return agent
 
         except Exception as e:
@@ -236,7 +400,7 @@ class UnifiedBrowserManager:
 
 
 
-    def get_browser_user(self) -> Optional[Agent]:
+    def get_browser_user(self) -> Optional['Agent']:
         """Get BrowserSession instance (lazy creation)"""
         if not self._initialized:
             logger.warning("Manager not initialized, cannot get BrowserSession")
@@ -247,25 +411,25 @@ class UnifiedBrowserManager:
         logger.debug("get_browser_user called: returning None to avoid creating Agent on GUI thread")
         return None
 
-    def run_basic_agent_task(self, product_phrase: Optional[str] = None):
+    def run_basic_agent_task(self, product_phrase: Optional[str] = None, mainwin=None):
         """Build and run a simple Browser Use agent inside a worker thread with its own Selector loop.
 
         This avoids running Playwright on the GUI/qasync loop (which lacks subprocess support on Windows).
+        
+        Args:
+            product_phrase: Optional product phrase to search for
+            mainwin: MainWindow instance (required, no fallback)
         """
+        if not mainwin:
+            raise ValueError("mainwin is required. Must use mainwin.llm from MainWindow. Please configure LLM provider API key in Settings.")
+        
         async def _do():
-            # Reinforce Proactor policy inside the coroutine context (worker thread) for subprocess support
-            if sys.platform.startswith("win"):
-                try:
-                    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
-                except Exception:
-                    pass
             try:
                 loop = asyncio.get_running_loop()
-                print(f"[UnifiedBrowserManager._do] loop={type(loop).__name__}")
+                logger.info(f"[UnifiedBrowserManager._do] loop={type(loop).__name__}")
             except Exception:
                 pass
             from browser_use import Agent
-            from browser_use.llm import ChatOpenAI
             from browser_use.browser import BrowserProfile, BrowserSession
 
             cfg_phrase = product_phrase or "resistance loop band"
@@ -276,7 +440,11 @@ class UnifiedBrowserManager:
                 4. Press Enter and wait for results
             """
 
-            llm = ChatOpenAI(model='gpt-4o', api_key=os.getenv("OPENAI_API_KEY"))
+            # Use mainwin's LLM configuration (no fallback)
+            from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm
+            llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True)
+            if not llm:
+                raise ValueError("Failed to create browser_use LLM from mainwin. Please configure LLM provider API key in Settings.")
             browser_profile = BrowserProfile(
                 headless=False,
                 executable_path='',
@@ -290,13 +458,17 @@ class UnifiedBrowserManager:
             )
             browser_session = BrowserSession(browser_profile=browser_profile)
 
-            agent = Agent(
-                task=task_text,
-                llm=llm,
-                browser_session=browser_session,
-                validate_output=True,
-                enable_memory=False,
-            )
+            # Auto-detect model vision support and set use_vision accordingly to avoid warnings
+            from agent.ec_skills.llm_utils.llm_utils import get_use_vision_from_llm
+            agent_kwargs = {
+                'task': task_text,
+                'llm': llm,
+                'browser_session': browser_session,
+                'validate_output': True,
+                'enable_memory': False,
+                'use_vision': get_use_vision_from_llm(llm, context="UnifiedBrowserManager._do")
+            }
+            agent = Agent(**agent_kwargs)
 
             history = await agent.run()
             return history
@@ -309,32 +481,14 @@ class UnifiedBrowserManager:
             return None
 
 
-    def get_browser_use_controller(self) -> Optional[BrowserUseController]:
-        if not self._initialized:
-            logger.warning("Manager not initialized, cannot get BrowserUseController")
-            return None
-
-        if self._browser_use_controller is None:
-            try:
-                logger.debug("Creating BrowserUseController instance...")
-                display_files_in_done_text = True
-                self._browser_use_controller = BrowserUseController(
-                    display_files_in_done_text=display_files_in_done_text
-                )
-                logger.debug("✅ BrowserUseController created successfully")
-
-            except Exception as e:
-                logger.error(f"Failed to create BrowserUseController: {e}")
-                return None
-
-        return self._browser_use_controller
     
-    def get_browser_use_file_system(self) -> Optional[FileSystem]:
+    def get_browser_use_file_system(self) -> Optional['FileSystem']:
         if not self._initialized:
             logger.warning("Manager not initialized, cannot get BrowserUse FileSystem")
             return None
 
         if self._browser_use_file_system is None:
+            from browser_use.filesystem.file_system import FileSystem
             try:
                 if self._file_system_path:
                     self._browser_use_file_system = FileSystem(self._file_system_path)
@@ -385,7 +539,6 @@ class UnifiedBrowserManager:
                 # Clean up component instances
                 self._async_crawler = None
                 self._browser_session = None
-                self._browser_use_controller = None
                 self._browser_use_file_system = None
 
                 self._initialized = False
@@ -406,7 +559,6 @@ class UnifiedBrowserManager:
             'initialization_error': self._initialization_error,
             'async_crawler_ready': self._async_crawler is not None,
             'browser_session_ready': self._browser_session is not None,
-            'browser_use_controller_ready': self._browser_use_controller is not None,
             'browser_use_file_system_ready': self._browser_use_file_system is not None,
             'playwright_manager_status': self._playwright_manager.get_status() if self._playwright_manager else None
         }

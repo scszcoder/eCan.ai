@@ -18,6 +18,8 @@ from build_system.build_cleaner import BuildCleaner
 from build_system.build_utils import standardize_artifact_names, show_build_results
 from build_system.ecan_build import BuildConfig, BuildEnvironment, FrontendBuilder, InstallerBuilder
 from build_system.minibuild_core import MiniSpecBuilder
+from build_system.build_utils import URLSchemeBuildConfig
+from build_system.signing_manager import create_signing_manager, create_ota_signing_manager
 
 
 class BuildError(Exception):
@@ -27,132 +29,11 @@ class BuildError(Exception):
         self.exit_code = exit_code
 
 
-class BuildCache:
-    """Intelligent build caching system with platform-aware symlink handling"""
-    
-    def __init__(self, project_root: Path, config: Dict[str, Any]):
-        self.project_root = project_root
-        self.cache_dir = project_root / ".build_cache"
-        self.cache_dir.mkdir(exist_ok=True)
-        self.config = config
-        self.platform = platform.system()
-        
-        # Apply platform-specific cache overrides
-        self.cache_settings = self._get_cache_settings()
-        
-    def _get_cache_settings(self) -> Dict[str, bool]:
-        """Get platform-specific cache settings"""
-        cache_config = self.config.get("cache", {})
-        base_settings = {
-            "enabled": cache_config.get("enabled", True),
-            "frontend_cache": cache_config.get("frontend_cache", True),
-            "core_cache": cache_config.get("core_cache", True),
-            "dependency_cache": cache_config.get("dependency_cache", True)
-        }
-        
-        # Apply platform overrides
-        platform_overrides = cache_config.get("platform_overrides", {})
-        platform_key = "macos" if self.platform == "Darwin" else "windows" if self.platform == "Windows" else "linux"
-        
-        if platform_key in platform_overrides:
-            overrides = platform_overrides[platform_key]
-            for key, value in overrides.items():
-                if key != "reason" and key in base_settings:
-                    base_settings[key] = value
-                    if key == "core_cache" and not value:
-                        print(f"[CACHE] {platform_key} core cache disabled: {overrides.get('reason', 'Platform-specific override')}")
-        
-        return base_settings
-        
-    def should_rebuild_frontend(self) -> bool:
-        """Check if frontend needs rebuilding"""
-        if not self.cache_settings.get("frontend_cache", True):
-            return True
-            
-        frontend_dir = self.project_root / "gui_v2"
-        dist_dir = frontend_dir / "dist"
-        
-        if not dist_dir.exists():
-            return True
-            
-        # Check if source files are newer than dist
-        try:
-            src_files = list(frontend_dir.glob("src/**/*"))
-            if not src_files:
-                return False
-                
-            newest_src = max(f.stat().st_mtime for f in src_files if f.is_file())
-            oldest_dist = min(f.stat().st_mtime for f in dist_dir.rglob("*") if f.is_file())
-            
-            return newest_src > oldest_dist
-        except (OSError, ValueError):
-            return True
-    
-    def should_rebuild_core(self) -> bool:
-        """Check if core application needs rebuilding with symlink awareness"""
-        # Always rebuild on macOS if core cache is disabled due to symlink issues
-        if not self.cache_settings.get("core_cache", True):
-            print("[CACHE] Core cache disabled, forcing rebuild")
-            return True
-            
-        dist_dir = self.project_root / "dist"
-        if not dist_dir.exists():
-            return True
-            
-        # Check main Python files
-        main_files = ["main.py", "app_context.py"]
-        try:
-            newest_main = max((self.project_root / f).stat().st_mtime 
-                            for f in main_files if (self.project_root / f).exists())
-            
-            if self.platform == "Windows":
-                exe_path = dist_dir / "eCan" / "eCan.exe"
-            elif self.platform == "Darwin":
-                exe_path = dist_dir / "eCan.app"
-                # On macOS, also check for symlink integrity
-                if exe_path.exists() and not self._validate_macos_symlinks(exe_path):
-                    print("[CACHE] macOS symlink validation failed, forcing rebuild")
-                    return True
-            else:
-                exe_path = dist_dir / "eCan"
-                
-            if not exe_path.exists():
-                return True
-                
-            exe_time = exe_path.stat().st_mtime
-            return newest_main > exe_time
-        except (OSError, ValueError):
-            return True
-            
-    def _validate_macos_symlinks(self, app_path: Path) -> bool:
-        """Validate critical symlinks in macOS app bundle"""
-        if self.platform != "Darwin":
-            return True
-            
-        try:
-            # Check for common framework symlink issues
-            frameworks_dir = app_path / "Contents" / "Frameworks"
-            if not frameworks_dir.exists():
-                return True
-                
-            # Look for broken symlinks in frameworks
-            for framework in frameworks_dir.glob("*.framework"):
-                # Check common symlink targets
-                critical_links = ["Resources", "Headers", "Modules", "Current"]
-                for link_name in critical_links:
-                    link_path = framework / link_name
-                    if link_path.is_symlink() and not link_path.exists():
-                        print(f"[CACHE] Broken symlink detected: {link_path}")
-                        return False
-                        
-            return True
-        except Exception as e:
-            print(f"[CACHE] Symlink validation error: {e}")
-            return False
+## BuildCache removed: always rebuild logic simplified for clarity
 
 
 class UnifiedBuildSystem:
-    """Unified build system with intelligent caching and error handling"""
+    """Unified build orchestrator with validation, cleanup, build, packaging, and reporting"""
     
     def __init__(self, project_root: Optional[Path] = None):
         self.project_root = project_root or Path.cwd()
@@ -160,7 +41,6 @@ class UnifiedBuildSystem:
         self.env = BuildEnvironment()
         self.validator = BuildValidator(verbose=False)
         self.cleaner = BuildCleaner(self.project_root, verbose=False)
-        self.cache = BuildCache(self.project_root, self.config.config)
         
     def get_build_profile(self, mode: str) -> Dict[str, Any]:
         """Get build profile settings for the specified mode"""
@@ -218,25 +98,49 @@ class UnifiedBuildSystem:
     def clean_environment(self, skip_cleanup: bool = False) -> None:
         """Clean build environment"""
         if skip_cleanup:
-            print("[CLEAN] Skipping automatic cleanup")
+            print("[CLEAN] Skipped")
             return
             
-        print("[CLEAN] Performing automatic build environment cleanup...")
         try:
-            cleanup_results = self.cleaner.clean_all()
-            print(f"[CLEAN] Cleanup completed: freed {cleanup_results['total_size_mb']:.1f}MB, "
-                  f"removed {cleanup_results['broken_symlinks']} broken symlinks")
+            results = self.cleaner.clean_all()
+            print(f"[CLEAN] Freed {results['total_size_mb']:.1f}MB, removed {results['broken_symlinks']} broken symlinks")
         except Exception as e:
             print(f"[CLEAN] Warning: Cleanup failed: {e}")
     
-    def build_frontend(self, skip_frontend: bool = False, force: bool = False) -> bool:
-        """Build frontend with caching"""
+    def prepare_third_party_assets(self) -> None:
+        """Prepare third-party assets (Playwright browsers)"""
+        print("[THIRD-PARTY] Preparing third-party assets...")
+        
+        # Check if Playwright browsers already exist (from CI cache or previous install)
+        playwright_dir = self.project_root / "third_party" / "ms-playwright"
+        if playwright_dir.exists():
+            browser_dirs = [d for d in playwright_dir.iterdir() 
+                           if d.is_dir() and any(b in d.name.lower() 
+                           for b in ['chromium', 'firefox', 'webkit'])]
+            if browser_dirs:
+                print(f"[THIRD-PARTY] Playwright browsers already present: {playwright_dir}")
+                print(f"[THIRD-PARTY]   Found: {[d.name for d in browser_dirs]}")
+                print("[THIRD-PARTY] Skipping download (using existing browsers)")
+                return
+        
+        try:
+            from build_system.build_utils import prepare_third_party_assets
+            prepare_third_party_assets()
+            print("[THIRD-PARTY] Third-party assets prepared successfully")
+        except Exception as e:
+            print(f"[THIRD-PARTY] Warning: Failed to prepare third-party assets: {e}")
+            print("[THIRD-PARTY]   This may cause issues with browser automation features")
+            # Don't fail the build, just warn
+    
+    def build_frontend(self, skip_frontend: bool = False) -> bool:
+        """Build frontend with caching optimization"""
         if skip_frontend:
             print("[FRONTEND] Skipped")
             return True
-            
-        if not force and not self.cache.should_rebuild_frontend():
-            print("[FRONTEND] Up to date, skipping")
+        
+        # Quick cache check
+        if self._can_skip_frontend_build():
+            print("[FRONTEND] Using cached build (no changes detected)")
             return True
             
         print("[FRONTEND] Building frontend...")
@@ -246,16 +150,69 @@ class UnifiedBuildSystem:
         except Exception as e:
             raise BuildError(f"Frontend build failed: {e}", 1)
     
-    def build_core(self, mode: str, force: bool = False) -> bool:
-        """Build core application with caching and profile-based settings"""
-        if not force and not self.cache.should_rebuild_core():
-            print("[CORE] Up to date, skipping")
-            return True
+    def _can_skip_frontend_build(self) -> bool:
+        """Check if frontend build can be skipped"""
+        try:
+            frontend_dir = self.project_root / "gui_v2"
+            if not frontend_dir.exists():
+                return True
             
+            dist_dir = frontend_dir / "dist"
+            if not dist_dir.exists() or not any(dist_dir.iterdir()):
+                return False
+            
+            # Check if source files are newer than dist
+            source_files = [
+                frontend_dir / "package.json",
+                frontend_dir / "package-lock.json",
+                frontend_dir / "vite.config.js"
+            ]
+            
+            src_dir = frontend_dir / "src"
+            if src_dir.exists():
+                source_files.extend(src_dir.rglob("*.[jt]s"))
+                source_files.extend(src_dir.rglob("*.vue"))
+                source_files.extend(src_dir.rglob("*.css"))
+            
+            # Get the newest source file time
+            newest_source = 0
+            for f in source_files:
+                if f.exists() and f.is_file():
+                    newest_source = max(newest_source, f.stat().st_mtime)
+            
+            # Get the oldest dist file time
+            oldest_dist = float('inf')
+            for f in dist_dir.rglob("*"):
+                if f.is_file():
+                    oldest_dist = min(oldest_dist, f.stat().st_mtime)
+            
+            # If dist is newer than source, we can skip
+            return oldest_dist > newest_source
+            
+        except Exception:
+            return False
+    
+    def setup_url_scheme(self) -> bool:
+        """Setup URL scheme configuration for the build"""
+        print("[URL-SCHEME] Setting up URL scheme configuration...")
+        try:
+            success = URLSchemeBuildConfig.setup_url_scheme_for_build()
+            if success:
+                print("[URL-SCHEME] URL scheme configuration ready")
+            else:
+                print("[URL-SCHEME] Warning: URL scheme setup failed")
+            return success
+        except Exception as e:
+            print(f"[URL-SCHEME] Warning: URL scheme setup error: {e}")
+            return False
+    
+    def build_core(self, mode: str) -> bool:
+        """Build core application (always build)"""
         profile = self.get_build_profile(mode)
         print(f"[CORE] Building core application in {mode} mode...")
-        
         try:
+            # Setup URL scheme configuration before building
+            self.setup_url_scheme()
             minispec = MiniSpecBuilder()
             # Apply profile settings to the build
             return minispec.build(mode, profile)
@@ -271,10 +228,128 @@ class UnifiedBuildSystem:
         print("[INSTALLER] Creating installer package...")
         try:
             installer = InstallerBuilder(self.config, self.env, self.project_root, mode)
-            return installer.build()
+            success = installer.build()
+            if not success:
+                raise BuildError("Installer creation failed", 1)
+            return True
+        except BuildError:
+            raise
         except Exception as e:
-            print(f"[WARNING] Installer creation failed: {e}")
+            raise BuildError(f"Installer creation raised an unexpected error: {e}", 1)
+    
+    def test_installer(self) -> bool:
+        """Test the created installer package"""
+        print("\n[TEST] Testing installer package...")
+        try:
+            # Find the most recent PKG file
+            pkg_files = list(self.project_root.glob("dist/*.pkg"))
+            if not pkg_files:
+                print("[TEST] No PKG files found to test")
+                return False
+            
+            # Get the most recent PKG file
+            latest_pkg = max(pkg_files, key=lambda p: p.stat().st_mtime)
+            print(f"[TEST] Testing PKG: {latest_pkg.name}")
+            
+            # Import and run the PKG tester
+            import sys
+            sys.path.insert(0, str(self.project_root / "build_system"))
+            
+            try:
+                from test_pkg_installer import PKGInstallerTester
+                tester = PKGInstallerTester(latest_pkg)
+                results = tester.run_all_tests()
+                
+                # Check if all tests passed
+                failed_count = sum(1 for r in results.values() if r["status"] in ["FAIL", "ERROR"])
+                if failed_count == 0:
+                    print("[TEST] All installer tests passed")
+                    return True
+                else:
+                    print(f"[TEST] [ERROR] {failed_count} installer test(s) failed")
+                    return False
+                    
+            finally:
+                sys.path.pop(0)
+                
+        except Exception as e:
+            print(f"[TEST] Installer testing failed: {e}")
             return False
+
+    def sign_artifacts(self, mode: str = "prod", version: str = None) -> bool:
+        """Sign build artifacts"""
+        print("\n[SIGN] Starting artifact code signing...")
+        
+        try:
+            # Create code signing manager
+            signing_manager = create_signing_manager(self.project_root, self.config.config)
+            
+            # Perform code signing
+            code_sign_success = signing_manager.sign_artifacts(mode)
+            
+            # Verify signatures
+            if code_sign_success:
+                signing_manager.verify_signatures()
+            
+            # Note: OTA signing moved to after installer creation
+            # See: sign_ota_artifacts() method called after build_installer()
+            
+            print("[SIGN] Signing workflow completed")
+            return True
+            
+        except Exception as e:
+            error_msg = str(e)
+            # Check if this is an OTA signing failure in non-dev environment
+            if "OTA signing failed in non-dev environment" in error_msg:
+                print(f"[SIGN] [ERROR] {error_msg}")
+                return False  # Block build for OTA signing failures in test/staging/production
+            else:
+                print(f"[SIGN] [WARNING] Error during signing process: {e}")
+                # Other signing failures should not block the overall build
+                return True
+    
+    def sign_ota_artifacts(self, version: str) -> bool:
+        """Sign OTA artifacts (must be called AFTER installer creation)"""
+        if not version:
+            return True
+            
+        print("\n[OTA-SIGN] Starting OTA artifact signing...")
+        
+        try:
+            ota_signing_manager = create_ota_signing_manager(self.project_root)
+            ota_sign_success = ota_signing_manager.sign_for_ota(version)
+            
+            if ota_sign_success:
+                print("[OTA-SIGN] [OK] OTA signing completed")
+                return True
+            else:
+                # OTA signing is REQUIRED for test/staging/production environments
+                # Only dev/development environment can skip OTA signing
+                environment = os.getenv('ECAN_ENVIRONMENT', 'dev').lower()
+                # Normalize environment names
+                if environment == 'development':
+                    environment = 'dev'
+                
+                if environment in ['test', 'staging', 'production']:
+                    print("[OTA-SIGN] [ERROR] ========================================")
+                    print("[OTA-SIGN] [ERROR] OTA signing REQUIRED for test/staging/production environments")
+                    print(f"[OTA-SIGN] [ERROR] Current environment: {environment}")
+                    print("[OTA-SIGN] [ERROR] Please ensure Ed25519 private key exists at:")
+                    print(f"[OTA-SIGN] [ERROR]   build_system/certificates/ed25519_private_key.pem")
+                    print("[OTA-SIGN] [ERROR] ========================================")
+                    raise Exception("OTA signing failed in non-dev environment")
+                else:
+                    print(f"[OTA-SIGN] [WARNING] OTA signing failed in {environment} environment, continuing build")
+                    return True
+                    
+        except Exception as e:
+            error_msg = str(e)
+            if "OTA signing failed in non-dev environment" in error_msg:
+                print(f"[OTA-SIGN] [ERROR] {error_msg}")
+                return False
+            else:
+                print(f"[OTA-SIGN] [WARNING] Error during OTA signing: {e}")
+                return True
     
     def standardize_artifacts(self, version: str) -> None:
         """Standardize artifact names"""
@@ -301,46 +376,107 @@ class UnifiedBuildSystem:
         except Exception as e:
             print(f"[RENAME] Warning: Failed to standardize names: {e}")
     
+    def _show_build_timing(self, build_times: Dict[str, float], total_time: float):
+        """Show detailed build timing breakdown"""
+        print("\n" + "=" * 50)
+        print("BUILD TIMING BREAKDOWN")
+        print("=" * 50)
+        
+        # Sort stages by time (longest first)
+        sorted_stages = sorted(build_times.items(), key=lambda x: x[1], reverse=True)
+        
+        for stage, duration in sorted_stages:
+            percentage = (duration / total_time) * 100
+            stage_name = stage.replace('_', ' ').title()
+            
+            # Add visual bar
+            bar_length = int(percentage / 5)  # Scale to 20 chars max
+            bar = "#" * bar_length + "-" * (20 - bar_length)
+            
+            print(f"{stage_name:12} | {bar} | {duration:6.2f}s ({percentage:5.1f}%)")
+        
+        print("=" * 50)
+        print(f"{'Total':12} | {'#' * 20} | {total_time:6.2f}s (100.0%)")
+        print("=" * 50)
+    
     def build(self, mode: str = "prod", version: str = None, **kwargs) -> int:
         """Unified build method with comprehensive error handling"""
         overall_start = time.perf_counter()
+        build_times = {}  # Track individual stage times
         
         try:
-            # Validate build mode and get profile
-            profile = self.get_build_profile(mode)
+            # Validate build mode (profile will be computed in build_core)
             
             # Update version if specified
             if version:
                 self.config.update_version(version)
             
             # Validate environment
+            stage_start = time.perf_counter()
             self.validate_environment(kwargs.get('skip_precheck', False))
+            build_times['validation'] = time.perf_counter() - stage_start
             
             # Clean environment
+            stage_start = time.perf_counter()
             self.clean_environment(kwargs.get('skip_cleanup', False))
+            build_times['cleanup'] = time.perf_counter() - stage_start
             
             # Build components
-            force_rebuild = kwargs.get('force', False)
-            
             if not kwargs.get('installer_only', False):
                 # Build frontend
-                if not self.build_frontend(kwargs.get('skip_frontend', False), force_rebuild):
+                stage_start = time.perf_counter()
+                if not self.build_frontend(kwargs.get('skip_frontend', False)):
                     raise BuildError("Frontend build failed", 1)
+                build_times['frontend'] = time.perf_counter() - stage_start
+                
+                # Prepare third-party assets (Playwright browsers) before core build
+                stage_start = time.perf_counter()
+                self.prepare_third_party_assets()
+                build_times['third_party_assets'] = time.perf_counter() - stage_start
                 
                 # Build core application
-                if not self.build_core(mode, force_rebuild):
+                stage_start = time.perf_counter()
+                if not self.build_core(mode):
                     raise BuildError("Core application build failed", 1)
+                build_times['core'] = time.perf_counter() - stage_start
+            
+            # Code signing
+            if not kwargs.get('skip_signing', False):
+                stage_start = time.perf_counter()
+                self.sign_artifacts(mode, version)
+                build_times['signing'] = time.perf_counter() - stage_start
             
             # Build installer
+            stage_start = time.perf_counter()
             self.build_installer(mode, kwargs.get('skip_installer', False))
+            build_times['installer'] = time.perf_counter() - stage_start
+            
+            # OTA signing (MUST be after installer creation)
+            if not kwargs.get('skip_installer', False):
+                stage_start = time.perf_counter()
+                if not self.sign_ota_artifacts(version):
+                    raise BuildError("OTA signing failed in non-dev environment", 1)
+                build_times['ota_signing'] = time.perf_counter() - stage_start
+            
+            # Test installer if requested
+            if kwargs.get('test_installer', False) and not kwargs.get('skip_installer', False):
+                stage_start = time.perf_counter()
+                self.test_installer()
+                build_times['testing'] = time.perf_counter() - stage_start
             
             # Standardize artifacts
+            stage_start = time.perf_counter()
             self.standardize_artifacts(version)
-            
+            build_times['standardize'] = time.perf_counter() - stage_start
+
             # Show results
             show_build_results()
             
             total_time = time.perf_counter() - overall_start
+            
+            # Show detailed timing breakdown
+            self._show_build_timing(build_times, total_time)
+            
             print(f"\n[SUCCESS] Build completed successfully in {total_time:.2f}s")
             return 0
             
@@ -367,7 +503,9 @@ def main():
     parser.add_argument("--installer-only", action="store_true", help="Create installer only")
     parser.add_argument("--skip-precheck", action="store_true", help="Skip pre-build validation")
     parser.add_argument("--skip-cleanup", action="store_true", help="Skip environment cleanup")
-    parser.add_argument("--force", action="store_true", help="Force rebuild all components")
+    parser.add_argument("--skip-signing", action="store_true", help="Skip code signing")
+    parser.add_argument("--test-installer", action="store_true", help="Test installer after creation")
+    # '--force' removed: always rebuild behavior is the default now
     
     args = parser.parse_args()
     
@@ -380,7 +518,8 @@ def main():
         installer_only=args.installer_only,
         skip_precheck=args.skip_precheck,
         skip_cleanup=args.skip_cleanup,
-        force=args.force
+        skip_signing=args.skip_signing,
+        test_installer=args.test_installer
     )
 
 

@@ -76,22 +76,22 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
   const [isSearching, setIsSearching] = useState(false);
   const [savedSearches, setSavedSearches] = useState<Array<{name: string, criteria: SearchCriteria}>>([]);
 
-  // 获取所有可用的分类、标签、作者等
+  // GetAllAvailable的Category、Tag、作者等
   const categories = Array.from(new Set(dataSource.map(item => item.category))).filter(Boolean);
   const tags = Array.from(new Set(dataSource.flatMap(item => item.tags || []))).filter(Boolean);
   const authors = Array.from(new Set(dataSource.map(item => item.author || item.asker))).filter(Boolean);
 
-  // 执行搜索
+  // ExecuteSearch
   const performSearch = async (criteria: SearchCriteria) => {
     setIsSearching(true);
     
     try {
-      // 模拟搜索延迟
+      // 模拟SearchDelay
       await new Promise(resolve => setTimeout(resolve, 500));
       
       let results = [...dataSource];
 
-      // 关键词搜索
+      // 关键词Search
       if (criteria.keyword) {
         const keyword = criteria.keyword.toLowerCase();
         results = results.filter(item => 
@@ -102,14 +102,14 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
         );
       }
 
-      // 分类筛选
+      // Category筛选
       if (criteria.category && criteria.category.length > 0) {
         results = results.filter(item => 
           criteria.category.includes(item.category)
         );
       }
 
-      // 标签筛选
+      // Tag筛选
       if (criteria.tags && criteria.tags.length > 0) {
         results = results.filter(item => 
           item.tags && criteria.tags.some(tag => item.tags.includes(tag))
@@ -123,7 +123,7 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
         );
       }
 
-      // 日期范围筛选
+      // DateRange筛选
       if (criteria.dateRange) {
         const [startDate, endDate] = criteria.dateRange;
         results = results.filter(item => {
@@ -142,7 +142,7 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
         });
       }
 
-      // 内容类型筛选
+      // ContentType筛选
       if (criteria.contentType && criteria.contentType.length > 0) {
         results = results.filter(item => {
           if (criteria.contentType.includes('document')) {
@@ -155,14 +155,14 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
         });
       }
 
-      // 状态筛选
+      // Status筛选
       if (criteria.status && criteria.status.length > 0) {
         results = results.filter(item => 
           item.status && criteria.status.includes(item.status)
         );
       }
 
-      // 内容长度筛选
+      // ContentLength筛选
       if (criteria.minLength > 0) {
         results = results.filter(item => {
           const content = item.content || item.answer || '';
@@ -192,14 +192,14 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
         relevance: calculateRelevance(item, criteria),
       }));
 
-      // 按相关性排序
+      // 按相关性Sort
       scoredResults.sort((a, b) => b.relevance - a.relevance);
 
       setSearchResults(scoredResults);
       onSearch(scoredResults);
-      message.success(`找到 ${scoredResults.length} 个结果`);
+      message.success(`找到 ${scoredResults.length} 个Result`);
     } catch (error) {
-      message.error('搜索失败');
+      message.error('SearchFailed');
     } finally {
       setIsSearching(false);
     }
@@ -218,20 +218,20 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
       if (item.answer?.toLowerCase().includes(keyword)) score += 3;
     }
 
-    // 标签匹配
+    // Tag匹配
     if (criteria.tags && item.tags) {
       const matchedTags = criteria.tags.filter(tag => item.tags.includes(tag));
       score += matchedTags.length * 2;
     }
 
-    // 时间权重（越新分数越高）
+    // Time权重（越新分数越高）
     const daysSinceCreation = (Date.now() - new Date(item.createdAt).getTime()) / (1000 * 60 * 60 * 24);
     score += Math.max(0, 10 - daysSinceCreation / 30);
 
     return score;
   };
 
-  // 处理搜索
+  // ProcessSearch
   const handleSearch = async () => {
     try {
       const values = await form.validateFields();
@@ -241,46 +241,46 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
     }
   };
 
-  // 清空搜索条件
+  // 清空Search条件
   const handleClear = () => {
     form.resetFields();
     setSearchResults([]);
   };
 
-  // 保存搜索条件
+  // SaveSearch条件
   const handleSaveSearch = async () => {
     try {
       const values = await form.validateFields();
-      const searchName = `搜索_${new Date().toLocaleString()}`;
+      const searchName = `Search_${new Date().toLocaleString()}`;
       const newSavedSearch = { name: searchName, criteria: values };
       setSavedSearches(prev => [...prev, newSavedSearch]);
-      message.success('搜索条件已保存');
+      message.success('Search条件已Save');
     } catch (error) {
-      message.error('保存失败');
+      message.error('SaveFailed');
     }
   };
 
-  // 加载保存的搜索
+  // LoadSave的Search
   const handleLoadSearch = (savedSearch: {name: string, criteria: SearchCriteria}) => {
     form.setFieldsValue(savedSearch.criteria);
     performSearch(savedSearch.criteria);
   };
 
-  // 禁用过去的日期
+  // Disabled过去的Date
   const disabledDate: RangePickerProps['disabledDate'] = (current) => {
     return current && current > new Date();
   };
 
   return (
     <Modal
-      title="高级搜索"
+      title="AdvancedSearch"
       open={visible}
       onCancel={onClose}
       width={1000}
       footer={null}
     >
       <div style={{ display: 'flex', gap: 16 }}>
-        {/* 搜索条件面板 */}
+        {/* Search条件面板 */}
         <div style={{ width: '40%' }}>
           <Form
             form={form}
@@ -297,29 +297,29 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
               maxLength: 10000,
             }}
           >
-            {/* 关键词搜索 */}
+            {/* 关键词Search */}
             <Form.Item name="keyword" label="关键词">
               <Input 
-                placeholder="搜索标题、内容、问题或答案..."
+                placeholder="Search标题、Content、问题或答案..."
                 prefix={<SearchOutlined />}
               />
             </Form.Item>
 
-            {/* 分类筛选 */}
-            <Form.Item name="category" label="分类">
+            {/* Category筛选 */}
+            <Form.Item name="category" label="Category">
               <Select
                 mode="multiple"
-                placeholder="选择分类"
+                placeholder="SelectCategory"
                 allowClear
                 options={categories.map(cat => ({ label: cat, value: cat }))}
               />
             </Form.Item>
 
-            {/* 标签筛选 */}
-            <Form.Item name="tags" label="标签">
+            {/* Tag筛选 */}
+            <Form.Item name="tags" label="Tag">
               <Select
                 mode="multiple"
-                placeholder="选择标签"
+                placeholder="SelectTag"
                 allowClear
                 options={tags.map(tag => ({ label: tag, value: tag }))}
               />
@@ -329,35 +329,35 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
             <Form.Item name="author" label="作者">
               <Select
                 mode="multiple"
-                placeholder="选择作者"
+                placeholder="Select作者"
                 allowClear
                 options={authors.map(author => ({ label: author, value: author }))}
               />
             </Form.Item>
 
-            {/* 日期范围 */}
-            <Form.Item name="dateRange" label="创建时间">
+            {/* DateRange */}
+            <Form.Item name="dateRange" label="CreateTime">
               <RangePicker 
                 style={{ width: '100%' }}
                 disabledDate={disabledDate}
               />
             </Form.Item>
 
-            {/* 内容类型 */}
-            <Form.Item name="contentType" label="内容类型">
+            {/* ContentType */}
+            <Form.Item name="contentType" label="ContentType">
               <Checkbox.Group>
                 <Space direction="vertical">
-                  <Checkbox value="document">文档</Checkbox>
+                  <Checkbox value="document">Documentation</Checkbox>
                   <Checkbox value="qa">问答</Checkbox>
                 </Space>
               </Checkbox.Group>
             </Form.Item>
 
-            {/* 状态筛选 */}
-            <Form.Item name="status" label="状态">
+            {/* Status筛选 */}
+            <Form.Item name="status" label="Status">
               <Select
                 mode="multiple"
-                placeholder="选择状态"
+                placeholder="SelectStatus"
                 allowClear
                 options={[
                   { label: '已发布', value: 'published' },
@@ -368,8 +368,8 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
               />
             </Form.Item>
 
-            {/* 内容长度 */}
-            <Form.Item label="内容长度">
+            {/* ContentLength */}
+            <Form.Item label="ContentLength">
               <div style={{ padding: '0 16px' }}>
                 <Slider
                   range
@@ -387,7 +387,7 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
               </div>
             </Form.Item>
 
-            {/* 操作按钮 */}
+            {/* OperationButton */}
             <Form.Item>
               <Space>
                 <Button 
@@ -396,7 +396,7 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
                   onClick={handleSearch}
                   loading={isSearching}
                 >
-                  搜索
+                  Search
                 </Button>
                 <Button 
                   icon={<ClearOutlined />}
@@ -408,15 +408,15 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
                   icon={<SaveOutlined />}
                   onClick={handleSaveSearch}
                 >
-                  保存
+                  Save
                 </Button>
               </Space>
             </Form.Item>
           </Form>
 
-          {/* 保存的搜索 */}
+          {/* Save的Search */}
           {savedSearches.length > 0 && (
-            <Card size="small" title="保存的搜索">
+            <Card size="small" title="Save的Search">
               {savedSearches.map((savedSearch, index) => (
                 <div key={index} style={{ marginBottom: 8 }}>
                   <Button 
@@ -432,15 +432,15 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
           )}
         </div>
 
-        {/* 搜索结果面板 */}
+        {/* SearchResult面板 */}
         <div style={{ flex: 1 }}>
           <div style={{ marginBottom: 16 }}>
             <Title level={5}>
-              搜索结果 ({searchResults.length})
+              SearchResult ({searchResults.length})
             </Title>
           </div>
 
-          <div style={{ maxHeight: 600, overflow: 'auto' }}>
+          <div style={{ maxHeight: 600, overflowX: 'hidden', overflowY: 'auto' }}>
             {searchResults.map((result) => (
               <Card 
                 key={result.id} 
@@ -458,7 +458,7 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
                         color={result.type === 'document' ? 'blue' : 'green'}
                         style={{ marginLeft: 8 }}
                       >
-                        {result.type === 'document' ? '文档' : '问答'}
+                        {result.type === 'document' ? 'Documentation' : '问答'}
                       </Tag>
                       <Tag color="orange" style={{ marginLeft: 4 }}>
                         相关性: {result.relevance}
@@ -496,8 +496,8 @@ const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
             {searchResults.length === 0 && !isSearching && (
               <div style={{ textAlign: 'center', padding: 40, color: '#666' }}>
                 <BookOutlined style={{ fontSize: 48, marginBottom: 16 }} />
-                <div>暂无搜索结果</div>
-                <div style={{ fontSize: 12 }}>尝试调整搜索条件</div>
+                <div>暂无SearchResult</div>
+                <div style={{ fontSize: 12 }}>尝试调整Search条件</div>
               </div>
             )}
           </div>

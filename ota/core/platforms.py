@@ -6,497 +6,580 @@ import shutil
 import zipfile
 import sys
 from typing import Optional
+from urllib.parse import urlparse
+
 
 from utils.logger_helper import logger_helper as logger
 from .package_manager import UpdatePackage, package_manager
-from .config import ota_config
+from ota.config.loader import ota_config
 from .errors import (
-    UpdateError, UpdateErrorCode, NetworkError, PlatformError, 
+    UpdateError, UpdateErrorCode, NetworkError, PlatformError,
     VerificationError, create_error_from_exception
 )
 
 
-class SparkleUpdater:
-    """macOS Sparkle更新器"""
-    
+class MacOSUpdater:
+    """macOS OTA updater using self-contained appcast parser
+
+    Uses industry-standard Sparkle-format appcast.xml but with independent implementation.
+    No dependency on Sparkle framework - fully self-contained OTA system.
+    """
+
     def __init__(self, ota_manager):
         self.ota_manager = ota_manager
-        self.sparkle_framework_path = self._find_sparkle_framework()
-        
-    def _find_sparkle_framework(self) -> Optional[str]:
-        """查找Sparkle框架路径"""
-        # 首先检查打包后的依赖位置
-        if hasattr(sys, '_MEIPASS'):
-            # PyInstaller打包环境
-            bundled_path = os.path.join(sys._MEIPASS, "third_party", "sparkle", "Sparkle.framework")
-            if os.path.exists(bundled_path):
-                logger.info(f"Found bundled Sparkle framework at: {bundled_path}")
-                return bundled_path
-        
-        # 开发环境或手动安装的位置
-        possible_paths = [
-            # 项目内打包的依赖
-            os.path.join(self.ota_manager.app_home_path, "third_party", "sparkle", "Sparkle.framework"),
-            # 标准安装位置
-            "/Applications/ECBot.app/Contents/Frameworks/Sparkle.framework",
-            os.path.join(self.ota_manager.app_home_path, "Frameworks", "Sparkle.framework"),
-            "/Library/Frameworks/Sparkle.framework",
-            "/opt/homebrew/Frameworks/Sparkle.framework",  # Apple Silicon Homebrew
-            "/usr/local/Frameworks/Sparkle.framework",     # Intel Homebrew
-        ]
-        
-        for path in possible_paths:
-            if os.path.exists(path):
-                logger.info(f"Found Sparkle framework at: {path}")
-                return path
-        
-        logger.warning("Sparkle framework not found in any expected location")
-        return None
-    
-    def check_for_updates(self, silent: bool = False, return_info: bool = False):
-        """检查更新，返回(是否有更新, 更新信息)"""
+        # Import appcast parsing functionality
         try:
-            if not self.sparkle_framework_path:
-                raise PlatformError(
-                    UpdateErrorCode.FRAMEWORK_NOT_FOUND,
-                    "Sparkle framework not found",
-                    {"searched_paths": [
-                        "/Applications/ECBot.app/Contents/Frameworks/Sparkle.framework",
-                        os.path.join(self.ota_manager.app_home_path, "Frameworks", "Sparkle.framework"),
-                        "/Library/Frameworks/Sparkle.framework"
-                    ]}
-                )
-            
-            # 首先尝试打包的CLI包装器
-            cli_path = None
-            if hasattr(sys, '_MEIPASS'):
-                bundled_cli = os.path.join(sys._MEIPASS, "third_party", "sparkle", "sparkle-cli")
-                if os.path.exists(bundled_cli):
-                    cli_path = bundled_cli
-            
-            # 如果没有找到打包的CLI，尝试框架内的CLI
-            if not cli_path:
-                framework_cli = os.path.join(self.sparkle_framework_path, "Versions", "Current", "Resources", "sparkle-cli")
-                if os.path.exists(framework_cli):
-                    cli_path = framework_cli
-            
-            # 最后尝试项目内的CLI包装器
-            if not cli_path:
-                project_cli = os.path.join(self.ota_manager.app_home_path, "third_party", "sparkle", "sparkle-cli")
-                if os.path.exists(project_cli):
-                    cli_path = project_cli
-            
-            # 检查CLI工具是否存在
-            if not cli_path or not os.path.exists(cli_path):
-                raise PlatformError(
-                    UpdateErrorCode.CLI_TOOL_NOT_FOUND,
-                    f"Sparkle CLI not found. Searched locations: framework, bundled, project",
-                    {"framework_path": self.sparkle_framework_path, "searched_paths": [
-                        os.path.join(self.sparkle_framework_path, "Versions", "Current", "Resources", "sparkle-cli"),
-                        os.path.join(sys._MEIPASS, "third_party", "sparkle", "sparkle-cli") if hasattr(sys, '_MEIPASS') else None,
-                        os.path.join(self.ota_manager.app_home_path, "third_party", "sparkle", "sparkle-cli")
-                    ]}
-                )
-            
-            # 检查是否可执行
-            if not os.access(cli_path, os.X_OK):
-                raise PlatformError(
-                    UpdateErrorCode.PERMISSION_DENIED,
-                    f"Sparkle CLI not executable: {cli_path}",
-                    {"cli_path": cli_path}
-                )
-            
-            cmd = [cli_path, "check"]
-            if silent:
-                cmd.append("--silent")
-                
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            has_update = result.returncode == 0
-            update_info = result.stdout if has_update else None
-            return (has_update, update_info) if return_info else has_update
-            
-        except subprocess.TimeoutExpired as e:
-            error = UpdateError(
-                UpdateErrorCode.CONNECTION_TIMEOUT,
-                "Sparkle check timed out",
-                {"timeout": 30, "command": cmd}
-            )
-            logger.error(str(error))
-            if return_info:
-                return False, error
-            return False
-            
-        except UpdateError:
-            # 重新抛出我们的自定义错误
-            raise
-            
-        except Exception as e:
-            error = create_error_from_exception(e, "Sparkle update check")
-            logger.error(str(error))
-            if return_info:
-                return False, error
-            return False
+            from .appcast import parse_appcast, select_latest_for_platform, normalize_arch_tag
+            self.appcast_parser = True
+        except ImportError:
+            logger.warning("Appcast parser not available, falling back to generic updater")
+            self.appcast_parser = False
     
-    def install_update(self, package_manager=None) -> bool:
-        """安装更新"""
-        try:
-            sparkle_path = self._find_sparkle_framework()
-            if not sparkle_path:
-                return False
-            
-            cmd = [
-                os.path.join(sparkle_path, "Versions", "Current", "Resources", "sparkle-cli"),
-                "install"
-            ]
-            
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            return result.returncode == 0
-            
-        except Exception as e:
-            logger.error(f"Sparkle install failed: {e}")
-            return False
-
-
-class WinSparkleUpdater:
-    """Windows winSparkle更新器"""
-    
-    def __init__(self, ota_manager):
-        self.ota_manager = ota_manager
-        self.winsparkle_dll_path = self._find_winsparkle_dll()
-        
-    def _find_winsparkle_dll(self) -> Optional[str]:
-        """查找winSparkle DLL路径"""
-        # 首先检查打包后的依赖位置
-        if hasattr(sys, '_MEIPASS'):
-            # PyInstaller打包环境
-            bundled_path = os.path.join(sys._MEIPASS, "third_party", "winsparkle", "winsparkle.dll")
-            if os.path.exists(bundled_path):
-                logger.info(f"Found bundled winSparkle DLL at: {bundled_path}")
-                return bundled_path
-        
-        # 开发环境或手动安装的位置
-        possible_paths = [
-            # 项目内打包的依赖
-            os.path.join(self.ota_manager.app_home_path, "third_party", "winsparkle", "winsparkle.dll"),
-            # 标准位置
-            os.path.join(self.ota_manager.app_home_path, "winsparkle.dll"),
-            os.path.join(self.ota_manager.app_home_path, "lib", "winsparkle.dll"),
-            os.path.join(self.ota_manager.app_home_path, "bin", "winsparkle.dll"),
-            "C:\\Program Files\\ECBot\\winsparkle.dll",
-            "C:\\Program Files (x86)\\ECBot\\winsparkle.dll"
-        ]
-        
-        for path in possible_paths:
-            if os.path.exists(path):
-                logger.info(f"Found winSparkle DLL at: {path}")
-                return path
-        
-        logger.warning("winSparkle DLL not found in any expected location")
-        return None
-    
-    def _find_winsparkle_cli(self) -> Optional[str]:
-        """查找winSparkle CLI工具路径"""
-        # 首先检查打包后的依赖位置
-        if hasattr(sys, '_MEIPASS'):
-            # PyInstaller打包环境
-            bundled_cli = os.path.join(sys._MEIPASS, "third_party", "winsparkle", "winsparkle-cli.bat")
-            if os.path.exists(bundled_cli):
-                logger.info(f"Found bundled winSparkle CLI at: {bundled_cli}")
-                return bundled_cli
-        
-        possible_names = ["winsparkle-cli.bat", "winsparkle-cli.exe", "winsparkle_cli.exe"]
-        possible_dirs = [
-            # 项目内打包的依赖
-            os.path.join(self.ota_manager.app_home_path, "third_party", "winsparkle"),
-            # 标准位置
-            self.ota_manager.app_home_path,
-            os.path.join(self.ota_manager.app_home_path, "bin"),
-            os.path.join(self.ota_manager.app_home_path, "tools"),
-            "C:\\Program Files\\ECBot",
-            "C:\\Program Files (x86)\\ECBot"
-        ]
-        
-        for directory in possible_dirs:
-            for name in possible_names:
-                cli_path = os.path.join(directory, name)
-                if os.path.exists(cli_path):
-                    logger.info(f"Found winSparkle CLI at: {cli_path}")
-                    return cli_path
-        
-        # 尝试在PATH中查找
-        import shutil
-        for name in possible_names:
-            cli_path = shutil.which(name)
-            if cli_path:
-                logger.info(f"Found winSparkle CLI in PATH: {cli_path}")
-                return cli_path
-        
-        logger.warning("winSparkle CLI not found")
-        return None
-    
-    def check_for_updates(self, silent: bool = False, return_info: bool = False):
-        """检查更新"""
-        if not self.winsparkle_dll_path:
-            logger.error("winSparkle DLL not found")
-            return (False, None) if return_info else False
-        
-        try:
-            # 查找CLI工具
-            cli_path = self._find_winsparkle_cli()
-            if not cli_path:
-                logger.error("winSparkle CLI not found")
-                return (False, None) if return_info else False
-            
-            cmd = [cli_path, "check"]
-            if silent:
-                cmd.append("--silent")
-                
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            has_update = result.returncode == 0
-            update_info = result.stdout if has_update else None
-            return (has_update, update_info) if return_info else has_update
-            
-        except subprocess.TimeoutExpired:
-            logger.error("winSparkle check timed out")
-            return (False, None) if return_info else False
-        except FileNotFoundError:
-            logger.error("winSparkle CLI executable not found")
-            return (False, None) if return_info else False
-        except Exception as e:
-            logger.error(f"winSparkle check failed: {e}")
-            return (False, None) if return_info else False
-    
-    def install_update(self, package_manager=None) -> bool:
-        """安装更新"""
-        try:
-            # 查找CLI工具
-            cli_path = self._find_winsparkle_cli()
-            if not cli_path:
-                logger.error("winSparkle CLI not found for installation")
-                return False
-            
-            cmd = [cli_path, "install"]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)  # 5分钟超时
-            return result.returncode == 0
-            
-        except subprocess.TimeoutExpired:
-            logger.error("winSparkle install timed out")
-            return False
-        except FileNotFoundError:
-            logger.error("winSparkle CLI executable not found for installation")
-            return False
-        except Exception as e:
-            logger.error(f"winSparkle install failed: {e}")
-            return False
-
-
-class GenericUpdater:
-    """通用更新器（用于Linux或其他平台）"""
-    
-    def __init__(self, ota_manager):
-        self.ota_manager = ota_manager
-    
-    def check_for_updates(self, silent: bool = False, return_info: bool = False):
-        """检查更新
-        优先支持配置中的 appcast_url（兼容 GitHub Pages/Release 提供的 Sparkle/winSparkle 协议）。
-        若无 appcast_url，则回退到 JSON API /api/check。
+    def _get_user_language(self) -> str:
         """
+        Get user's language preference for localized appcast
+        
+        Returns:
+            Language code (e.g., 'en-US', 'zh-CN')
+        """
+        try:
+            # Use unified language detection from utils.i18n_helper
+            from utils.i18n_helper import detect_language
+            
+            # Detect language with supported languages
+            detected = detect_language(
+                default_lang='en-US',
+                supported_languages=['zh-CN', 'en-US']
+            )
+            
+            logger.debug(f"[OTA] Detected user language: {detected}")
+            return detected
+                
+        except Exception as e:
+            logger.debug(f"[OTA] Could not detect user language: {e}, using 'en-US'")
+            return 'en-US'
+
+    def check_for_updates(self, silent: bool = False, return_info: bool = False):
+        """Check for updates by parsing the appcast file."""
+        return self._check_via_appcast(silent, return_info)
+
+    def _check_via_appcast(self, silent: bool = False, return_info: bool = False):
+        """Check for updates via appcast"""
         try:
             import requests
             from .appcast import parse_appcast, select_latest_for_platform, normalize_arch_tag
 
-            # 1) 优先读取 appcast_url（支持 GitHub appcast），按平台/架构选择
-            plat = platform.system().lower()
+            # Get platform configuration
+            plat_config = ota_config.get_platform_config()
             arch = normalize_arch_tag(platform.machine())
-            pf_conf = ota_config.get('platforms', {}).get(plat, {})
-            # 优先使用显式按架构配置的 feed
-            appcast_urls = pf_conf.get('appcast_urls', {})
-            appcast_url = appcast_urls.get(arch) if arch else None
-            # 其次使用平台级 appcast_url
-            if not appcast_url:
-                appcast_url = pf_conf.get('appcast_url')
-            # 若配置为平台 feed，尝试自动拼接架构后缀
-            if appcast_url and arch:
-                if appcast_url.endswith('.xml'):
-                    base, ext = appcast_url[:-4], '.xml'
-                    if ('x86_64' not in base and 'arm64' not in base and 'aarch64' not in base):
-                        arch_url = f"{base}-{arch}{ext}"
-                        try:
-                            resp = requests.get(arch_url, timeout=6)
-                            if resp.status_code == 200:
-                                appcast_url = arch_url
-                        except Exception:
-                            pass
+
+            # Get user language for localized appcast
+            language = self._get_user_language()
+            logger.info(f"[OTA] Requesting appcast for language: {language}")
+            
+            # Get appcast URL using new configuration method (with language support)
+            appcast_url = ota_config.get_appcast_url('macos', arch, language=language)
 
             if not appcast_url:
-                # 允许全局配置 appcast_url
-                appcast_url = ota_config.get('appcast_url')
+                raise PlatformError(
+                    UpdateErrorCode.INVALID_CONFIG,
+                    "No appcast URL configured for macOS platform",
+                    {"platform_config": plat_config}
+                )
 
-            if appcast_url:
-                # HTTPS check (allow HTTP only in dev)
-                if not appcast_url.startswith('https://'):
-                    if not ota_config.is_http_allowed():
-                        raise NetworkError(
-                            "Appcast URL must use HTTPS in production mode",
-                            {"appcast_url": appcast_url, "dev_mode": ota_config.is_dev_mode()}
-                        )
-                    else:
-                        logger.warning("Using HTTP appcast in development mode - not secure for production!")
+            # Get appcast content with multiple fallback strategies
+            response = None
+            urls_to_try = []
+            
+            # Strategy 1: Try localized version with standard URL
+            urls_to_try.append((appcast_url, f"{language} appcast"))
+            
+            # Strategy 2: Try localized version with accelerated URL
+            accelerated_url = appcast_url.replace('.s3.', '.s3-accelerate.')
+            urls_to_try.append((accelerated_url, f"{language} appcast (accelerated)"))
+            
+            # Strategy 3: Fallback to English if not already English
+            if language != 'en-US':
+                fallback_url = ota_config.get_appcast_url('macos', arch, language='en-US')
+                urls_to_try.append((fallback_url, "English appcast"))
+                
+                # Strategy 4: English with accelerated URL
+                fallback_accelerated = fallback_url.replace('.s3.', '.s3-accelerate.')
+                urls_to_try.append((fallback_accelerated, "English appcast (accelerated)"))
+            
+            # Try each URL in sequence with retry
+            last_error = None
+            max_retries_per_url = 2  # Retry each URL once if it fails
+            for url, description in urls_to_try:
+                for retry in range(max_retries_per_url):
+                    try:
+                        retry_suffix = f" (retry {retry + 1}/{max_retries_per_url})" if retry > 0 else ""
+                        logger.info(f"[OTA] Trying {description}: {url}{retry_suffix}")
+                        # Use longer timeout for first attempt (60s for slow networks)
+                        # Shorter timeout for retry (30s to fail fast if real issue)
+                        timeout = 60 if retry == 0 else 30
+                        response = requests.get(url, timeout=timeout)
+                        response.raise_for_status()
+                        logger.info(f"[OTA] Successfully fetched {description}")
+                        break  # Success, exit retry loop
+                    except Exception as e:
+                        logger.warning(f"[OTA] Failed to fetch {description}{retry_suffix}: {e}")
+                        last_error = e
+                        if retry < max_retries_per_url - 1:
+                            import time
+                            time.sleep(1)  # Wait 1 second before retry
+                            continue
+                        # All retries for this URL failed, try next URL
+                        break
+                
+                # If we got a successful response, exit URL loop
+                if response is not None:
+                    break
+            
+            # If all attempts failed, raise the last error
+            if response is None:
+                logger.error(f"[OTA] All appcast fetch attempts failed")
+                raise last_error if last_error else Exception("Failed to fetch appcast")
 
-                resp = requests.get(appcast_url, timeout=10)
-                if resp.status_code != 200:
-                    logger.warning(f"Appcast unavailable: HTTP {resp.status_code}, fallback to JSON API if configured")
+            # Parse appcast
+            logger.info(f"[OTA] Parsing appcast XML...")
+            items = parse_appcast(response.text)
+            logger.info(f"[OTA] Found {len(items)} version(s) in appcast")
+            
+            # Log current version
+            current_version = self.ota_manager.app_version
+            logger.info(f"[OTA] Current version: {current_version}")
+            
+            # Select latest version
+            selected = select_latest_for_platform(
+                items,
+                None,
+                current_version,
+                arch_tag=arch
+            )
+
+            if selected:
+                logger.info(f"[OTA] ✅ Update available!")
+                logger.info(f"[OTA]    Current version:  {current_version}")
+                logger.info(f"[OTA]    Latest version:   {selected.version}")
+                logger.info(f"[OTA]    Download URL:     {selected.url}")
+                logger.info(f"[OTA]    File size:        {selected.length or 0} bytes")
+                logger.info(f"[OTA]    Has signature:    {'Yes' if selected.ed_signature else 'No'}")
+                
+                # Auto-generate S3 accelerate URL if not provided
+                alternate_url = selected.alternate_url
+                logger.debug(f"[OTA] Checking alternate URL: alternate_url={alternate_url}, url contains '.s3.'={'.s3.' in selected.url}")
+                if not alternate_url and '.s3.' in selected.url and 'amazonaws.com' in selected.url:
+                    alternate_url = selected.url.replace('.s3.', '.s3-accelerate.')
+                    logger.info(f"[OTA]    Alternate URL (auto-generated): {alternate_url}")
+                elif alternate_url:
+                    logger.info(f"[OTA]    Alternate URL (configured): {alternate_url}")
+                
+                update_info = {
+                    "update_available": True,
+                    "latest_version": selected.version,
+                    "download_url": selected.url,
+                    "alternate_url": alternate_url,
+                    "file_size": selected.length or 0,
+                    "signature": selected.ed_signature or "",
+                    "description": selected.description_html or "",
+                    "source": "macos_appcast"
+                }
+                return (True, update_info) if return_info else True
+            else:
+                logger.info(f"[OTA] ℹ️  No update available")
+                logger.info(f"[OTA]    Current version: {current_version}")
+                logger.info(f"[OTA]    You are running the latest version")
+                return (False, None) if return_info else False
+
+        except Exception as e:
+            error = create_error_from_exception(e, "macOS appcast check")
+            logger.error(str(error))
+            if return_info:
+                return False, error
+            return False
+
+
+    def install_update(self, package_manager=None) -> bool:
+        """Install update"""
+        try:
+            if not package_manager or not package_manager.current_package:
+                logger.error("No package available for installation")
+                return False
+
+            package = package_manager.current_package
+            if not package.is_downloaded or not package.download_path:
+                logger.error("Package not downloaded")
+                return False
+
+            # Basic DMG installation logic
+            return self._install_dmg(package.download_path)
+
+        except Exception as e:
+            logger.error(f"macOS install failed: {e}")
+            return False
+
+    def _install_dmg(self, dmg_path) -> bool:
+        """Install DMG package (or PKG if it's a PKG file)"""
+        try:
+            # In dev mode, only log without actual installation
+            if ota_config.is_dev_mode():
+                logger.info("Development mode: Installation simulated")
+                return True
+
+            # Check if it's a PKG file
+            if dmg_path.endswith('.pkg'):
+                logger.info(f"Installing PKG: {dmg_path}")
+                # Use AppleScript (osascript) to run installer with administrator privileges
+                # Pass the package path via argv to avoid quoting issues in the script body
+                osa_cmd = [
+                    '/usr/bin/osascript',
+                    '-e',
+                    'on run argv',
+                    '-e',
+                    'set pkgPath to item 1 of argv',
+                    '-e',
+                    'do shell script "installer -pkg " & quoted form of pkgPath & " -target /" with administrator privileges',
+                    '-e',
+                    'end run',
+                    dmg_path,
+                ]
+
+                logger.info("Requesting admin privileges for installation...")
+                result = subprocess.run(osa_cmd, capture_output=True, text=True)
+
+                if result.returncode == 0:
+                    logger.info("PKG installation started successfully")
+                    return True
                 else:
-                    items = parse_appcast(resp.text)
-                    sel = select_latest_for_platform(items, None, self.ota_manager.app_version, arch_tag=arch)
-                    if sel:
-                        update_info = {
-                            "update_available": True,
-                            "latest_version": sel.version,
-                            "download_url": sel.url,
-                            "file_size": sel.length or 0,
-                            "signature": sel.ed_signature or "",
-                            "description": sel.description_html or "",
-                            "source": "appcast",
-                        }
-                        return (True, update_info) if return_info else True
-                    # No suitable item found; continue to fallback
+                    if "User canceled" in result.stderr:
+                        logger.warning("Installation canceled by user")
+                    else:
+                        logger.error(f"PKG installation failed: {result.stderr}")
+                    return False
+            else:
+                logger.info(f"Installing DMG: {dmg_path}")
+                logger.warning("DMG installation not fully implemented - manual installation required")
+                # For DMG, we typically just open it
+                subprocess.run(['open', dmg_path])
+                return False
 
-            # 2) 回退到 JSON API /api/check
-            update_url = f"{self.ota_manager.update_server_url}/api/check"
+        except Exception as e:
+            logger.error(f"Installation failed: {e}")
+            return False
+
+
+class WindowsUpdater:
+    """Windows OTA updater using self-contained appcast parser
+
+    Uses industry-standard Sparkle-format appcast.xml but with independent implementation.
+    No dependency on WinSparkle - fully self-contained OTA system.
+    """
+
+    def __init__(self, ota_manager):
+        self.ota_manager = ota_manager
+        # Import appcast parsing functionality
+        try:
+            from .appcast import parse_appcast, select_latest_for_platform, normalize_arch_tag
+            self.appcast_parser = True
+        except ImportError:
+            logger.warning("Appcast parser not available, falling back to generic updater")
+            self.appcast_parser = False
+    
+    def _get_user_language(self) -> str:
+        """
+        Get user's language preference for localized appcast
+        
+        Returns:
+            Language code (e.g., 'en-US', 'zh-CN')
+        """
+        try:
+            # Use unified language detection from utils.i18n_helper
+            from utils.i18n_helper import detect_language
+            
+            # Detect language with supported languages
+            detected = detect_language(
+                default_lang='en-US',
+                supported_languages=['zh-CN', 'en-US']
+            )
+            
+            logger.debug(f"[OTA] Detected user language: {detected}")
+            return detected
+                
+        except Exception as e:
+            logger.debug(f"[OTA] Could not detect user language: {e}, using 'en-US'")
+            return 'en-US'
+
+    def check_for_updates(self, silent: bool = False, return_info: bool = False):
+        """Check for updates by parsing the appcast file."""
+        return self._check_via_appcast(silent, return_info)
+
+    def _check_via_appcast(self, silent: bool = False, return_info: bool = False):
+        """Check for updates via appcast"""
+        try:
+            import requests
+            from .appcast import parse_appcast, select_latest_for_platform, normalize_arch_tag
+
+            # Get platform configuration
+            plat_config = ota_config.get_platform_config()
+            arch = normalize_arch_tag(platform.machine())
+
+            # Get user language for localized appcast
+            language = self._get_user_language()
+            logger.info(f"[OTA] Requesting appcast for language: {language}")
+            
+            # Get appcast URL using new configuration method (with language support)
+            appcast_url = ota_config.get_appcast_url('windows', arch, language=language)
+
+            if not appcast_url:
+                raise PlatformError(
+                    UpdateErrorCode.INVALID_CONFIG,
+                    "No appcast URL configured for Windows platform",
+                    {"platform_config": plat_config}
+                )
+
+            # Get appcast content with multiple fallback strategies
+            response = None
+            urls_to_try = []
+            
+            # Strategy 1: Try localized version with standard URL
+            urls_to_try.append((appcast_url, f"{language} appcast"))
+            
+            # Strategy 2: Try localized version with accelerated URL
+            accelerated_url = appcast_url.replace('.s3.', '.s3-accelerate.')
+            urls_to_try.append((accelerated_url, f"{language} appcast (accelerated)"))
+            
+            # Strategy 3: Fallback to English if not already English
+            if language != 'en-US':
+                fallback_url = ota_config.get_appcast_url('windows', arch, language='en-US')
+                urls_to_try.append((fallback_url, "English appcast"))
+                
+                # Strategy 4: English with accelerated URL
+                fallback_accelerated = fallback_url.replace('.s3.', '.s3-accelerate.')
+                urls_to_try.append((fallback_accelerated, "English appcast (accelerated)"))
+            
+            # Try each URL in sequence with retry
+            last_error = None
+            max_retries_per_url = 2  # Retry each URL once if it fails
+            for url, description in urls_to_try:
+                for retry in range(max_retries_per_url):
+                    try:
+                        retry_suffix = f" (retry {retry + 1}/{max_retries_per_url})" if retry > 0 else ""
+                        logger.info(f"[OTA] Trying {description}: {url}{retry_suffix}")
+                        # Use longer timeout for first attempt (60s for slow networks)
+                        # Shorter timeout for retry (30s to fail fast if real issue)
+                        timeout = 60 if retry == 0 else 30
+                        response = requests.get(url, timeout=timeout)
+                        response.raise_for_status()
+                        logger.info(f"[OTA] Successfully fetched {description}")
+                        break  # Success, exit retry loop
+                    except Exception as e:
+                        logger.warning(f"[OTA] Failed to fetch {description}{retry_suffix}: {e}")
+                        last_error = e
+                        if retry < max_retries_per_url - 1:
+                            import time
+                            time.sleep(1)  # Wait 1 second before retry
+                            continue
+                        # All retries for this URL failed, try next URL
+                        break
+                
+                # If we got a successful response, exit URL loop
+                if response is not None:
+                    break
+            
+            # If all attempts failed, raise the last error
+            if response is None:
+                logger.error(f"[OTA] All appcast fetch attempts failed")
+                raise last_error if last_error else Exception("Failed to fetch appcast")
+
+            # Parse appcast
+            logger.info(f"[OTA] Parsing appcast XML...")
+            items = parse_appcast(response.text)
+            logger.info(f"[OTA] Found {len(items)} version(s) in appcast")
+            
+            # Log current version
+            current_version = self.ota_manager.app_version
+            logger.info(f"[OTA] Current version: {current_version}")
+            
+            # Select latest version
+            selected = select_latest_for_platform(
+                items,
+                None,
+                current_version,
+                arch_tag=arch
+            )
+
+            if selected:
+                logger.info(f"[OTA] ✅ Update available!")
+                logger.info(f"[OTA]    Current version:  {current_version}")
+                logger.info(f"[OTA]    Latest version:   {selected.version}")
+                logger.info(f"[OTA]    Download URL:     {selected.url}")
+                logger.info(f"[OTA]    File size:        {selected.length or 0} bytes")
+                logger.info(f"[OTA]    Has signature:    {'Yes' if selected.ed_signature else 'No'}")
+                
+                # Auto-generate S3 accelerate URL if not provided
+                alternate_url = selected.alternate_url
+                logger.debug(f"[OTA] Checking alternate URL: alternate_url={alternate_url}, url contains '.s3.'={'.s3.' in selected.url}")
+                if not alternate_url and '.s3.' in selected.url and 'amazonaws.com' in selected.url:
+                    alternate_url = selected.url.replace('.s3.', '.s3-accelerate.')
+                    logger.info(f"[OTA]    Alternate URL (auto-generated): {alternate_url}")
+                elif alternate_url:
+                    logger.info(f"[OTA]    Alternate URL (configured): {alternate_url}")
+                
+                update_info = {
+                    "update_available": True,
+                    "latest_version": selected.version,
+                    "download_url": selected.url,
+                    "alternate_url": alternate_url,
+                    "file_size": selected.length or 0,
+                    "signature": selected.ed_signature or "",
+                    "description": selected.description_html or "",
+                    "source": "windows_appcast"
+                }
+                return (True, update_info) if return_info else True
+            else:
+                logger.info(f"[OTA] ℹ️  No update available")
+                logger.info(f"[OTA]    Current version: {current_version}")
+                logger.info(f"[OTA]    You are running the latest version")
+                return (False, None) if return_info else False
+
+        except Exception as e:
+            error = create_error_from_exception(e, "Windows appcast check")
+            logger.error(str(error))
+            if return_info:
+                return False, error
+            return False
+
+
+    def install_update(self, package_manager=None) -> bool:
+        """Install update"""
+        try:
+            if not package_manager or not package_manager.current_package:
+                logger.error("No package available for installation")
+                return False
+
+            package = package_manager.current_package
+            if not package.is_downloaded or not package.download_path:
+                logger.error("Package not downloaded")
+                return False
+
+            # Basic Windows installation logic
+            return self._install_windows_package(package.download_path)
+
+        except Exception as e:
+            logger.error(f"Windows install failed: {e}")
+            return False
+
+    def _install_windows_package(self, package_path) -> bool:
+        """Install Windows EXE/MSI package"""
+        try:
+            # In dev mode, only log without actual installation
+            if ota_config.is_dev_mode():
+                logger.info("Development mode: Installation simulated")
+                return True
+
+            logger.info(f"Installing Windows package: {package_path}")
+            
+            # Determine package type and install
+            if package_path.endswith('.msi'):
+                # MSI package: use msiexec with quiet mode
+                cmd = ['msiexec', '/i', package_path, '/quiet', '/norestart']
+            elif package_path.endswith('.exe'):
+                # EXE package: try silent install flag
+                cmd = [package_path, '/S', '/SILENT']  # Common silent flags
+            else:
+                logger.error(f"Unsupported package type: {package_path}")
+                return False
+            
+            # Start installation process
+            subprocess.Popen(cmd)
+            logger.info("Installation started successfully")
+            
+            # IMPORTANT: Exit the application immediately to allow the installer 
+            # to overwrite files. The installer should handle the restart.
+            logger.info("Exiting application to allow update...")
+            sys.exit(0)
+            
+            return True
+
+        except Exception as e:
+            logger.error(f"Windows package installation failed: {e}")
+            return False
+
+
+class GenericUpdater:
+    """Generic updater (for Linux or other platforms)"""
+
+    def __init__(self, ota_manager):
+        self.ota_manager = ota_manager
+
+    def check_for_updates(self, silent: bool = False, return_info: bool = False):
+        """Check for updates"""
+        # Enforce HTTPS in production unless HTTP is explicitly allowed
+        base_url = self.ota_manager.update_server_url or ota_config.get_update_server()
+        try:
+            scheme = urlparse(base_url).scheme.lower()
+        except Exception:
+            scheme = ""
+
+        if scheme == "http" and not ota_config.is_http_allowed():
+            # In production, plain HTTP endpoints are not allowed
+            raise NetworkError(
+                "Insecure HTTP update server is not allowed in production",
+                {"update_server_url": base_url},
+            )
+
+        try:
+            import requests
+
+            # Use JSON API for checking
+            update_url = f"{base_url.rstrip('/')}/api/check"
             params = {
-                "app": "ecbot",
+                "app": "ecan",
                 "version": self.ota_manager.app_version,
                 "platform": platform.system().lower(),
-                "arch": platform.machine()
+                "arch": platform.machine(),
             }
 
-            if not update_url.startswith('https://'):
-                if not ota_config.is_http_allowed():
-                    raise NetworkError(
-                        "Update server must use HTTPS in production mode",
-                        {"server_url": update_url, "dev_mode": ota_config.is_dev_mode()}
-                    )
-                else:
-                    logger.warning("Using HTTP in development mode - not secure for production!")
-
-            response = requests.get(update_url, params=params, timeout=10, verify=True)
+            response = requests.get(update_url, params=params, timeout=10)
 
             if response.status_code == 200:
-                data = response.json()
+                data = response.json() or {}
                 has_update = data.get("update_available", False)
                 update_info = data if has_update else None
                 return (has_update, update_info) if return_info else has_update
-            elif response.status_code == 404:
-                logger.info("No update information available on server")
-                return (False, None) if return_info else False
             else:
-                error = UpdateError(
-                    UpdateErrorCode.SERVER_UNAVAILABLE,
-                    f"Update server returned error: {response.status_code}",
-                    {"status_code": response.status_code, "response": response.text[:500]}
-                )
-                logger.error(str(error))
-                if return_info:
-                    return False, error
-                return False
+                return (False, None) if return_info else False
 
-        except requests.exceptions.ConnectionError as e:
-            error = NetworkError(
-                "Failed to connect to update source",
-                {"original_error": str(e)}
-            )
-            logger.error(str(error))
-            if return_info:
-                return False, error
-            return False
-        except requests.exceptions.Timeout as e:
-            error = UpdateError(
-                UpdateErrorCode.CONNECTION_TIMEOUT,
-                "Update check timed out",
-                {"timeout": 10, "original_error": str(e)}
-            )
-            logger.error(str(error))
-            if return_info:
-                return False, error
-            return False
-        except UpdateError:
-            # 重新抛出我们的自定义错误
-            raise
         except Exception as e:
-            error = create_error_from_exception(e, "Generic update check")
-            logger.error(str(error))
-            if return_info:
-                return False, error
-            return False
-    
+            logger.error(f"Generic update check failed: {e}")
+            return (False, None) if return_info else False
+
     def install_update(self, package_manager=None) -> bool:
-        """安装更新（通用安装器）。注意：对 .dmg/.exe/.msi 不提供安装实现。"""
+        """Install update"""
         try:
-            import requests
-            import os
-            from urllib.parse import urlparse
-            
-            # 先获取最新更新信息
-            has_update, update_info = self.check_for_updates(silent=True, return_info=True)
-            if not has_update or not update_info:
-                logger.info("No update available for installation.")
-                return False
-            
-            download_url = update_info.get("download_url", "")
-            # 基于扩展名的预检查，避免无谓下载
-            path = urlparse(download_url).path if download_url else ""
-            ext = os.path.splitext(path)[1].lower() if path else ""
-            unsupported_installer_ext = {".dmg", ".exe", ".msi"}
-            if ext in unsupported_installer_ext:
-                logger.error(
-                    f"Installer format not implemented for GenericUpdater: {ext}. "
-                    f"Use platform-specific updater or manual install. URL={download_url}"
-                )
-                return False
-            
-            # 构建UpdatePackage
-            package = UpdatePackage(
-                version=update_info.get("latest_version", ""),
-                download_url=download_url,
-                file_size=update_info.get("file_size", 0),
-                signature=update_info.get("signature", ""),
-                description=update_info.get("description", "")
-            )
-            # 下载
-            if not package_manager.download_package(package):
-                return False
-            # 验证
-            if not package_manager.verify_package(package):
-                return False
-            # 安装
-            install_dir = self.ota_manager.app_home_path
-            return package_manager.install_package(package, install_dir)
+            logger.info("Generic updater: install_update called")
+
+            # In dev mode, only log without actual installation
+            if ota_config.is_dev_mode():
+                logger.info("Development mode: Generic installation simulated")
+                return True
+
+            logger.warning("Generic installation not fully implemented - manual installation required")
+            return False
+
         except Exception as e:
             logger.error(f"Generic install failed: {e}")
             return False
-    
-    def _install_update_file(self, update_file: str) -> bool:
-        """安装更新文件"""
-        try:
-            # 解压更新文件
-            extract_dir = os.path.join(tempfile.gettempdir(), "ecbot_update")
-            if os.path.exists(extract_dir):
-                shutil.rmtree(extract_dir)
-            
-            with zipfile.ZipFile(update_file, 'r') as zip_ref:
-                zip_ref.extractall(extract_dir)
-            
-            # 执行安装脚本
-            install_script = os.path.join(extract_dir, "install.py")
-            if os.path.exists(install_script):
-                result = subprocess.run([sys.executable, install_script], 
-                                     cwd=extract_dir, capture_output=True, text=True)
-                return result.returncode == 0
-            else:
-                logger.error("Install script not found in update package")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Update file installation failed: {e}")
-            return False 
+
+
+def get_platform_updater(ota_manager):
+    """Get updater for current platform"""
+    system = platform.system().lower()
+
+    if system == 'darwin':  # macOS
+        return MacOSUpdater(ota_manager)
+    elif system == 'windows':
+        return WindowsUpdater(ota_manager)
+    else:  # Linux and other platforms
+        return GenericUpdater(ota_manager)

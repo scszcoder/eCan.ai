@@ -13,7 +13,7 @@ import { DEFAULT_NODE_OUTPUTS } from '../../typings/node-outputs';
 export const EndNodeRegistry: FlowNodeRegistry = {
   type: WorkflowNodeType.End,
   meta: {
-    deleteDisable: true,
+    deleteDisable: false,
     copyDisable: true,
     nodePanelVisible: true,
     defaultPorts: [{ type: 'input' }],
@@ -35,7 +35,7 @@ export const EndNodeRegistry: FlowNodeRegistry = {
    * End Node cannot be added
    */
   canAdd() {
-    return false;
+    return true;
   },
   onAdd() {
     return {

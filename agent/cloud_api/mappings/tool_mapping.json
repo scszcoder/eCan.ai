@@ -1,0 +1,42 @@
+{
+  "data_type": "tool",
+  "version": "1.0.0",
+  "description": "Tool entity field mapping",
+  "last_updated": "2025-10-15",
+  
+  "field_mapping": {
+    "id": "toolid"
+  },
+  
+  "cloud_required_fields": {
+    "toolid": "",
+    "owner": "",
+    "name": "",
+    "description": "",
+    "protocol": "",
+    "metadata": {},
+    "link": "",
+    "status": "active",
+    "price": 0.0
+  },
+  
+  "excluded_fields": [
+    "agid",
+    "tool_id"
+  ],
+  
+  "json_serialize_fields": [
+    "metadata"
+  ],
+  
+  "aws_datetime_fields": [
+    "created_at",
+    "updated_at"
+  ],
+  
+  "notes": [
+    "✨ This is for AgentTool (entity), not AgentToolRelation (relationship)",
+    "Contains tool data: name, description, protocol, metadata, link, status, price, created_at, updated_at",
+    "Excluded: agid, tool_id (those belong in AgentToolRelation)"
+  ]
+}

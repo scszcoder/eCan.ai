@@ -1,8 +1,8 @@
 
 
-from langchain_openai import ChatOpenAI
 from agent.ec_skill import NodeState
-from utils.logger_helper import get_agent_by_id, get_traceback, logger_helper as logger
+from utils.logger_helper import get_traceback, logger_helper as logger
+from agent.agent_service import get_agent_by_id
 import time
 
 
@@ -11,7 +11,10 @@ def check_top_categories_node(state: NodeState) -> NodeState:
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
+        llm = mainwin.llm if mainwin and mainwin.llm else None
+        if not llm:
+            raise ValueError("LLM not available in mainwin")
         user_content = """ 
                                 Given the json formated partial dom tree elements, and I want to extract available top categories that all products
                                 on digi-key are grouped into. please help figure out:
@@ -67,7 +70,10 @@ def check_sub_categories_node(state: NodeState) -> NodeState:
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
+        llm = mainwin.llm if mainwin and hasattr(mainwin, 'llm') and mainwin.llm else None
+        if not llm:
+            raise ValueError("LLM not available in mainwin")
         user_content = """ 
                                 Given the json formated partial dom tree elements, and I want to extract available top categories that all products
                                 on digi-key are grouped into. please help figure out:
@@ -124,7 +130,10 @@ def check_is_parametric_filter_node(state: NodeState) -> NodeState:
     agent = get_agent_by_id(agent_id)
     mainwin = agent.mainwin
     try:
-        llm = ChatOpenAI(model="gpt-4.1-2025-04-14")
+        # Use mainwin's llm object instead of hardcoded ChatOpenAI
+        llm = mainwin.llm if mainwin and hasattr(mainwin, 'llm') and mainwin.llm else None
+        if not llm:
+            raise ValueError("LLM not available in mainwin")
         user_content = """ 
                                         Given the json formated partial dom tree elements, and I want to extract available top categories that all products
                                         on digi-key are grouped into. please help figure out:

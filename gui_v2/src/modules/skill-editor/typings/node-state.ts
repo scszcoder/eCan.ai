@@ -1,23 +1,23 @@
 /**
  * Interface for defining a goal
- * 定义目标的接口
+ * Definition目标的Interface
  */
 export interface Goal {
     /**
      * Goal name
-     * 目标名称
+     * 目标Name
      */
     name: string;
     
     /**
      * Goal description
-     * 目标描述
+     * 目标Description
      */
     description: string;
     
     /**
      * Minimum criteria for goal achievement
-     * 目标达成的最低标准
+     * 目标达成的最低Standard
      */
     minCriteria: string;
     
@@ -36,30 +36,30 @@ export interface Goal {
   
   /**
    * Interface for defining node state
-   * 定义节点状态的接口
+   * Definition节点Status的Interface
    */
   export interface NodeState {
     /**
      * Input data
-     * 输入数据
+     * InputData
      */
     input: Record<string, any>;
     
     /**
      * Message history
-     * 消息历史
+     * Message历史
      */
     messages: any[];
     
     /**
      * Execution result
-     * 执行结果
+     * ExecuteResult
      */
     result: Record<string, any>;
     
     /**
      * Number of retries
-     * 重试次数
+     * Retry次数
      */
     retries: number;
     
@@ -71,7 +71,7 @@ export interface Goal {
     
     /**
      * Condition evaluation result
-     * 条件评估结果
+     * 条件评估Result
      */
     condition: boolean;
     
@@ -83,7 +83,7 @@ export interface Goal {
     
     /**
      * List of goals
-     * 目标列表
+     * 目标List
      */
     goals: Goal[];
   }

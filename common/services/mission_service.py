@@ -3,10 +3,10 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import MetaData,  inspect, delete, or_, tuple_, Table, Column, Integer, String, Text, text, TEXT, REAL, INTEGER
 
-from bot.Cloud import send_query_missions_by_time_request_to_cloud, send_query_manager_missions_request_to_cloud
+from agent.cloud_api.cloud_api import send_query_missions_by_time_request_to_cloud, send_query_manager_missions_request_to_cloud
 from common.db_init import sync_table_columns
 from common.models.mission import MissionModel
-from utils.logger_helper import logger_helper
+from utils.logger_helper import logger_helper as logger
 
 MISSION_TABLE_DEF = [ {'name': 'mid', 'type': 'INTEGER', 'nullable': True, 'default': 0},
                           {'name': 'ticket', 'type': 'INTEGER', 'nullable': True, 'default': 0},
@@ -56,10 +56,12 @@ MISSION_TABLE_DEF = [ {'name': 'mid', 'type': 'INTEGER', 'nullable': True, 'defa
 
 
 class MissionService:
-    def __init__(self, main_win, session):
+    def __init__(self, main_win, session, engine=None):
         self.main_win = main_win
         self.session = session
-        sync_table_columns(MissionModel, 'missions')
+        self.engine = engine
+        # Pass engine parameter to sync_table_columns
+        sync_table_columns(MissionModel, 'missions', engine)
 
     def find_missions_by_createon(self):
         current_time = datetime.now()
@@ -99,9 +101,9 @@ class MissionService:
             Queries the MISSIONS table to find rows matching the given list of dictionaries.
             Each dictionary must have 'asin' and 'src' keys.
             """
-        print("find_missions_by_asin_srcs...")
+        logger.debug("find_missions_by_asin_srcs...")
         if not m_asin_srcs:
-            print("❌ No input data provided.")
+            logger.warning("❌ No input data provided.")
             return []
 
         # Convert the input JSON list into a query filter
@@ -116,7 +118,7 @@ class MissionService:
 
         # Convert results to a list of dictionaries
         mrows = [mission.to_dict() for mission in results]
-        print("mrows...", mrows)
+        logger.debug("mrows...", mrows)
         return mrows
 
     def find_missions_by_ticket(self, ticket) -> MissionModel:
@@ -139,7 +141,7 @@ class MissionService:
         self.session.commit()
         dict_results = [result.to_dict() for result in missions]
         if len(dict_results) > 3:
-            print("type of dict_results:", type(dict_results))
+            logger.debug("type of dict_results:", type(dict_results))
             self.main_win.showMsg("Mission fetchall after batch insertion" + json.dumps(dict_results[:2]) + ".........")
         else:
             self.main_win.showMsg("Mission fetchall after batch insertion" + json.dumps(dict_results))
@@ -277,14 +279,14 @@ class MissionService:
 
     def delete_missions_by_mid(self, mid):
         delete_stmt = delete(MissionModel).where(MissionModel.mid == mid)
-        # 执行删除
+        # Execute deletion
         result = self.session.execute(delete_stmt)
-        print("result:", result)
+        logger.debug("result:", result)
         self.session.commit()
         if result.rowcount > 0:
-            print(f"Mission with mid {mid} deleted successfully.")
+            logger.debug(f"Mission with mid {mid} deleted successfully.")
         else:
-            print(f"No Mission found with mid {mid} to delete.")
+            logger.debug(f"No Mission found with mid {mid} to delete.")
 
     def delete_missions_by_ticket(self, ticket):
         mission_instance = self.session.query(MissionModel).filter(MissionModel.ticket == ticket).one()
@@ -300,24 +302,44 @@ class MissionService:
             self.session.commit()
         return mission_instances
 
-    def sync_cloud_mission_data(self, session, tokens, mwin):
+    def sync_cloud_mission_data(self, session, auth_token, mwin):
 
-        print("sending query missions.....")
-        jresp = send_query_missions_by_time_request_to_cloud(session, tokens['AuthenticationResult']['IdToken'],
+        logger.debug("sending query missions.....")
+        jresp = send_query_missions_by_time_request_to_cloud(session, auth_token,
                                                      [{"byowneruser": True}], mwin.getWanApiEndpoint())
-        # print("jresp:", type(jresp), jresp)
-        if jresp['body']:
-            if isinstance(jresp['body'], str):  # If it's a string, parse it
-                all_missions = json.loads(jresp['body'])
-            else:  # If it's already a list, use it as is
-                all_missions = jresp['body']
+        logger.debug("jresp:", type(jresp), jresp)
+        
+        # Handle different response formats
+        if isinstance(jresp, list):
+            # New format: direct list (empty list for no data)
+            all_missions = jresp
+        elif isinstance(jresp, dict) and 'body' in jresp:
+            # Old format: dict with 'body' key
+            if jresp['body']:
+                if isinstance(jresp['body'], str):  # If it's a string, parse it
+                    all_missions = json.loads(jresp['body'])
+                else:  # If it's already a list, use it as is
+                    all_missions = jresp['body']
+            else:
+                all_missions = []
         else:
+            # Fallback: empty list
+            logger.warning(f"Unexpected jresp format: {type(jresp)}, using empty list")
             all_missions = []
 
-        jresp = send_query_manager_missions_request_to_cloud(session, tokens['AuthenticationResult']['IdToken'],
+        jresp = send_query_manager_missions_request_to_cloud(session, auth_token,
                                                      [{"byowneruser": True}], mwin.getWanApiEndpoint())
-        # print("manager missions::", jresp)
-        manager_missions = jresp['body']
+        logger.debug("manager missions::", jresp)
+        
+        # Handle manager missions response format
+        if isinstance(jresp, list):
+            manager_missions = jresp
+        elif isinstance(jresp, dict) and 'body' in jresp:
+            manager_missions = jresp['body'] if jresp['body'] else []
+        else:
+            logger.warning(f"Unexpected manager missions format: {type(jresp)}, using empty list")
+            manager_missions = []
+            
         allmids = [m["mid"] for m in all_missions]
         for m in manager_missions:
             if m not in allmids:
@@ -368,10 +390,10 @@ class MissionService:
 
     def describe_table(self):
         inspector = inspect(MissionModel)
-        # 打印表结构信息
-        print(f"{MissionModel.__tablename__} Table column definitions: ")
+        # Print table structure information
+        logger.debug(f"{MissionModel.__tablename__} Table column definitions: ")
         columns = inspector.columns
         for column in columns:
-            logger_helper.debug(
+            logger.debug(
                 f"Column: {column.name}, Type: {column.type}, Nullable: {column.nullable}, Default: {column.default}")
         return columns

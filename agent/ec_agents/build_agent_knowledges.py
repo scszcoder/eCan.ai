@@ -1,12 +1,4 @@
-from agent.ec_skill import *
-from agent.ec_agents.ec_marketing_agent import *
-from agent.ec_agents.ec_sales_agent import *
-from agent.ec_agents.ec_helper_agent import *
-from agent.ec_agents.ec_rpa_supervisor_agent import *
-from agent.ec_agents.ec_rpa_operator_agent import *
-from agent.ec_agents.my_twin_agent import *
-from agent.ec_agents.ec_procurement_agent import *
-from agent.ec_agents.ec_marketing_agent import *
+import traceback
 from agent.ec_agents.agent_utils import load_knowledges_from_cloud
 from utils.logger_helper import logger_helper as logger
 

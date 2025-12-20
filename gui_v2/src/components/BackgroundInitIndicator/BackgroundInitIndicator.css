@@ -1,0 +1,76 @@
+.background-init-indicator {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 999;
+}
+
+.indicator-button {
+  background: rgba(30, 30, 46, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: #ffffff;
+  font-size: 12px;
+  padding: 4px 8px;
+  height: auto;
+  transition: all 0.3s ease;
+}
+
+.indicator-button:hover {
+  background: rgba(30, 30, 46, 0.95);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.status-icon {
+  font-size: 12px;
+  margin-right: 4px;
+}
+
+.status-icon.loading {
+  color: #1890ff;
+}
+
+.status-icon.success {
+  color: #52c41a;
+}
+
+/* Badge customization */
+.background-init-indicator .ant-badge-dot {
+  background-color: #1890ff;
+  animation: pulse-dot 2s infinite;
+}
+
+.background-init-indicator .ant-badge-status-success {
+  background-color: #52c41a;
+}
+
+@keyframes pulse-dot {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .background-init-indicator {
+    top: 10px;
+    right: 10px;
+  }
+  
+  .indicator-button {
+    font-size: 11px;
+    padding: 3px 6px;
+  }
+}
