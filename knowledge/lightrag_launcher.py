@@ -154,6 +154,111 @@ def patch_extract_entities_for_cancellation():
         logger.error(traceback.format_exc())
 
 
+def patch_http_clients_for_cancellation():
+    """Patch HTTP clients (Ollama, OpenAI, httpx) to register for cancellation.
+    
+    This allows us to close HTTP connections immediately when cancel is requested.
+    Works for both local Ollama and cloud APIs (OpenAI, Claude, DeepSeek, etc.)
+    """
+    logger.info("[Launcher] Patching HTTP clients for cancellation support...")
+    
+    from operate_custom import register_http_client
+    
+    # Patch Ollama AsyncClient
+    try:
+        import ollama
+        
+        original_ollama_init = ollama.AsyncClient.__init__
+        
+        def patched_ollama_init(self, *args, **kwargs):
+            original_ollama_init(self, *args, **kwargs)
+            # Register this client for potential cancellation
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(register_http_client(self))
+                else:
+                    loop.run_until_complete(register_http_client(self))
+            except Exception as e:
+                logger.debug(f"[Launcher] Could not register Ollama client: {e}")
+        
+        ollama.AsyncClient.__init__ = patched_ollama_init
+        logger.info("[Launcher] ✅ Ollama AsyncClient patched")
+        
+    except ImportError:
+        logger.debug("[Launcher] Ollama not installed, skipping patch")
+    except Exception as e:
+        logger.warning(f"[Launcher] Could not patch Ollama AsyncClient: {e}")
+    
+    # Patch OpenAI AsyncOpenAI (used by OpenAI, Azure, and compatible APIs)
+    try:
+        from openai import AsyncOpenAI
+        
+        original_openai_init = AsyncOpenAI.__init__
+        
+        def patched_openai_init(self, *args, **kwargs):
+            original_openai_init(self, *args, **kwargs)
+            # Register this client for potential cancellation
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(register_http_client(self))
+                else:
+                    loop.run_until_complete(register_http_client(self))
+            except Exception as e:
+                logger.debug(f"[Launcher] Could not register OpenAI client: {e}")
+        
+        AsyncOpenAI.__init__ = patched_openai_init
+        logger.info("[Launcher] ✅ OpenAI AsyncOpenAI patched")
+        
+    except ImportError:
+        logger.debug("[Launcher] OpenAI not installed, skipping patch")
+    except Exception as e:
+        logger.warning(f"[Launcher] Could not patch OpenAI AsyncOpenAI: {e}")
+    
+    # Patch httpx AsyncClient (used by many APIs including Anthropic)
+    try:
+        import httpx
+        
+        original_httpx_init = httpx.AsyncClient.__init__
+        
+        def patched_httpx_init(self, *args, **kwargs):
+            original_httpx_init(self, *args, **kwargs)
+            # Register this client for potential cancellation
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(register_http_client(self))
+                else:
+                    loop.run_until_complete(register_http_client(self))
+            except Exception as e:
+                logger.debug(f"[Launcher] Could not register httpx client: {e}")
+        
+        httpx.AsyncClient.__init__ = patched_httpx_init
+        logger.info("[Launcher] ✅ httpx AsyncClient patched")
+        
+    except ImportError:
+        logger.debug("[Launcher] httpx not installed, skipping patch")
+    except Exception as e:
+        logger.warning(f"[Launcher] Could not patch httpx AsyncClient: {e}")
+
+
+def patch_utils_for_confidence_scoring():
+    """Patch utils.generate_reference_list_from_chunks to include scores for confidence scoring"""
+    logger.info("[Launcher] Patching utils for confidence scoring...")
+    
+    try:
+        from utils_custom import patch_generate_reference_list_from_chunks
+        patch_generate_reference_list_from_chunks()
+    except Exception as e:
+        logger.error(f"[Launcher] ❌ utils patch failed: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+
 def apply_all_patches():
     """Apply all customizations"""
     logger.info('[Launcher] ==================== Applying Customizations ====================')
@@ -164,6 +269,8 @@ def apply_all_patches():
     patch_lightrag_init()       # 自定义分块器
     patch_ssl()                 # SSL
     patch_extract_entities_for_cancellation()  # 立即取消支持
+    patch_http_clients_for_cancellation()      # HTTP 客户端取消支持 (Ollama + OpenAI + httpx)
+    patch_utils_for_confidence_scoring()       # 置信度评分支持 (references 包含 score)
     
     logger.info('[Launcher] ==================== Complete ====================')
 

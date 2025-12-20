@@ -74,6 +74,10 @@ class StopController:
         """
         Async version of request_stop.
         Also cancels all registered extraction tasks.
+        
+        Note: For LLM calls in progress, the cancellation will take effect at the next
+        await point. Long-running HTTP requests (like Ollama) may need to complete or
+        timeout before the cancellation is fully processed.
         """
         self.request_stop()
         

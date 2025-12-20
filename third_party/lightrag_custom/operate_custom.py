@@ -26,6 +26,54 @@ from lightrag.base import TextChunkSchema, BaseKVStorage
 _running_extraction_tasks: set = set()
 _extraction_tasks_lock = asyncio.Lock()
 
+# Global registry for active HTTP clients (for immediate cancellation)
+_active_http_clients: set = set()
+_http_clients_lock = asyncio.Lock()
+
+
+async def register_http_client(client):
+    """Register an active HTTP client for potential cancellation.
+    
+    Works with:
+    - ollama.AsyncClient (has _client attribute which is httpx.AsyncClient)
+    - openai.AsyncOpenAI (has _client attribute which is httpx.AsyncClient)
+    - httpx.AsyncClient directly
+    - aiohttp.ClientSession
+    """
+    async with _http_clients_lock:
+        _active_http_clients.add(client)
+        logger.debug(f"[operate_custom] Registered HTTP client: {type(client).__name__}")
+
+
+async def close_all_http_clients() -> int:
+    """Close all active HTTP clients immediately. Returns count of closed clients."""
+    async with _http_clients_lock:
+        closed_count = 0
+        clients_to_close = list(_active_http_clients)
+        for client in clients_to_close:
+            try:
+                # Try different close methods based on client type
+                if hasattr(client, '_client') and hasattr(client._client, 'aclose'):
+                    # ollama.AsyncClient or openai.AsyncOpenAI
+                    await client._client.aclose()
+                    closed_count += 1
+                    logger.info(f"[operate_custom] Closed HTTP client (via _client): {type(client).__name__}")
+                elif hasattr(client, 'aclose'):
+                    # httpx.AsyncClient
+                    await client.aclose()
+                    closed_count += 1
+                    logger.info(f"[operate_custom] Closed HTTP client: {type(client).__name__}")
+                elif hasattr(client, 'close'):
+                    # aiohttp.ClientSession
+                    await client.close()
+                    closed_count += 1
+                    logger.info(f"[operate_custom] Closed HTTP client (aiohttp): {type(client).__name__}")
+            except Exception as e:
+                logger.warning(f"[operate_custom] Failed to close HTTP client {type(client).__name__}: {e}")
+        _active_http_clients.clear()
+        logger.info(f"[operate_custom] Total closed: {closed_count} HTTP clients")
+        return closed_count
+
 
 async def register_extraction_task(task: asyncio.Task):
     """Register a running extraction task for potential cancellation"""
@@ -40,7 +88,11 @@ async def unregister_extraction_task(task: asyncio.Task):
 
 
 async def cancel_all_extraction_tasks() -> int:
-    """Cancel all running extraction tasks immediately. Returns count of cancelled tasks."""
+    """Cancel all running extraction tasks and close HTTP clients immediately. Returns count of cancelled tasks."""
+    # First close all HTTP clients to interrupt ongoing requests
+    closed_clients = await close_all_http_clients()
+    
+    # Then cancel asyncio tasks
     async with _extraction_tasks_lock:
         cancelled_count = 0
         tasks_to_cancel = list(_running_extraction_tasks)
@@ -50,7 +102,7 @@ async def cancel_all_extraction_tasks() -> int:
                 cancelled_count += 1
                 logger.info(f"[operate_custom] Cancelled task: {task.get_name()}")
         _running_extraction_tasks.clear()
-        logger.info(f"[operate_custom] Total cancelled: {cancelled_count} tasks")
+        logger.info(f"[operate_custom] Total cancelled: {cancelled_count} tasks, {closed_clients} HTTP clients closed")
         return cancelled_count
 
 
