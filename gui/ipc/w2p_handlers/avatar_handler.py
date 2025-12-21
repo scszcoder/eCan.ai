@@ -16,6 +16,7 @@ from typing import Dict, Optional, Any
 
 from agent.avatar.avatar_manager import AvatarManager
 from app_context import AppContext
+from gui.ipc.context_bridge import get_handler_context
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 
@@ -43,11 +44,11 @@ class AvatarHandler:
             AvatarManager: Fresh instance with db_avatar_service
         """
         # Get avatar_service from ECDBMgr
-        main_window = AppContext.get_main_window()
+        ctx = get_handler_context(request, params)
         avatar_service = None
-        if main_window and hasattr(main_window, 'ec_db_mgr'):
+        if ctx:
             # Use the unified avatar_service from ECDBMgr
-            avatar_service = main_window.ec_db_mgr.avatar_service
+            avatar_service = ctx.get_ec_db_mgr().avatar_service
         
         # Create fresh AvatarManager instance for each request
         return AvatarManager(
@@ -280,15 +281,15 @@ class AvatarHandler:
                 # Generate avatar video in background (after response sent)
                 try:
                     # Check if MainWindow is available
-                    main_window = AppContext.get_main_window()
-                    if main_window:
+                    ctx = get_handler_context(request, params)
+                    if ctx:
                         # Get organization name from agent if not provided
-                        if not org_name and agent_id and main_window.ec_db_mgr:
+                        if not org_name and agent_id and ctx.get_ec_db_mgr():
                             try:
-                                agent_service = main_window.ec_db_mgr.agent_service
+                                agent_service = ctx.get_ec_db_mgr().agent_service
                                 agent = agent_service.get_agent(agent_id)
                                 if agent and agent.get('org_id'):
-                                    org_service = main_window.ec_db_mgr.org_service
+                                    org_service = ctx.get_ec_db_mgr().org_service
                                     org = org_service.get_organization(agent['org_id'])
                                     if org:
                                         org_name = org.get('name')
@@ -330,7 +331,7 @@ class AvatarHandler:
                                         generate_avatar_video(
                                             image_path=actual_image_path,
                                             org_name=org_name,
-                                            llm=main_window.llm if hasattr(main_window, 'llm') else None,
+                                            llm=ctx.get_llm() if True else None,
                                             output_dir=None,  # Use same directory as image
                                             duration=5.0
                                         )
@@ -346,8 +347,8 @@ class AvatarHandler:
                                         
                                         # Update avatar resource with both video paths
                                         # Frontend will choose which format to use based on browser support
-                                        if main_window.ec_db_mgr:
-                                            avatar_service = main_window.ec_db_mgr.avatar_service
+                                        if ctx.get_ec_db_mgr():
+                                            avatar_service = ctx.get_ec_db_mgr().avatar_service
                                             # Use WebM as primary video_path for backward compatibility
                                             # But store both paths in metadata for frontend to choose
                                             update_data = {

@@ -26,6 +26,7 @@ export interface LoginSession {
   userInfo: UserInfo;
   loginTime: number;
   expiresAt?: number;
+  sessionId?: string; // Web mode session ID from backend
 }
 
 export interface UserPreferences {
@@ -49,6 +50,7 @@ const STORAGE_KEYS = {
   // Session
   LOGIN_TIME: 'loginTime',
   LAST_LOGIN: 'lastLogin',
+  SESSION_ID: 'session_id', // Web mode session ID
   
   // Preferences
   LANGUAGE: 'language',
@@ -118,6 +120,44 @@ export class UserStorageManager {
   hasValidToken(): boolean {
     const token = this.getToken();
     return !!token && token.length > 0;
+  }
+
+  // ===== Session ID Management (Web Mode) =====
+  
+  /**
+   * Set session ID (for web mode)
+   */
+  setSessionId(sessionId: string): void {
+    try {
+      localStorage.setItem(STORAGE_KEYS.SESSION_ID, sessionId);
+      logger.debug('Session ID stored successfully');
+    } catch (error) {
+      logger.error('Failed to store session ID:', error);
+    }
+  }
+  
+  /**
+   * Get session ID (for web mode)
+   */
+  getSessionId(): string | null {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.SESSION_ID);
+    } catch (error) {
+      logger.error('Failed to get session ID:', error);
+      return null;
+    }
+  }
+  
+  /**
+   * Remove session ID
+   */
+  removeSessionId(): void {
+    try {
+      localStorage.removeItem(STORAGE_KEYS.SESSION_ID);
+      logger.debug('Session ID removed successfully');
+    } catch (error) {
+      logger.error('Failed to remove session ID:', error);
+    }
   }
 
   // ===== User Info Management =====
@@ -235,6 +275,12 @@ export class UserStorageManager {
         localStorage.setItem('sessionExpiresAt', session.expiresAt.toString());
       }
       
+      // Store session ID for web mode (if provided by backend)
+      if (session.sessionId) {
+        this.setSessionId(session.sessionId);
+        logger.debug('Web session ID stored:', session.sessionId);
+      }
+      
       logger.info('Login session saved successfully for user:', session.userInfo.username);
     } catch (error) {
       logger.error('Failed to save login session:', error);
@@ -264,6 +310,12 @@ export class UserStorageManager {
       const expiresAtStr = localStorage.getItem('sessionExpiresAt');
       if (expiresAtStr) {
         session.expiresAt = parseInt(expiresAtStr, 10);
+      }
+      
+      // Include session ID if available (web mode)
+      const sessionId = this.getSessionId();
+      if (sessionId) {
+        session.sessionId = sessionId;
       }
       
       return session;

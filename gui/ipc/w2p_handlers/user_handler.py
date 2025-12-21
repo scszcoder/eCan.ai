@@ -8,6 +8,54 @@ from auth.auth_messages import auth_messages
 
 from utils.logger_helper import logger_helper as logger
 
+
+def _is_web_mode() -> bool:
+    """Check if running in web deployment mode."""
+    import os
+    return os.getenv('ECAN_MODE', 'desktop') == 'web'
+
+
+def _create_web_session(user_id: str, user_data: dict) -> Optional[str]:
+    """Create a web session for the user. Only called in web mode."""
+    if not _is_web_mode():
+        return None
+    try:
+        from gui.context.session_manager import SessionManager
+        session_id = SessionManager.get_instance().create_session(
+            user_id=user_id,
+            user_data=user_data
+        )
+        logger.info(f"[user_handler] Created web session {session_id} for user {user_id}")
+        return session_id
+    except Exception as e:
+        logger.error(f"[user_handler] Failed to create web session: {e}")
+        return None
+
+
+def _destroy_web_session(session_id: Optional[str] = None, user_id: Optional[str] = None) -> bool:
+    """Destroy a web session. Only called in web mode."""
+    if not _is_web_mode():
+        return True
+    try:
+        from gui.context.session_manager import SessionManager
+        manager = SessionManager.get_instance()
+        if session_id:
+            manager.destroy_session(session_id)
+            logger.info(f"[user_handler] Destroyed web session {session_id}")
+        elif user_id:
+            context = manager.get_context_by_user(user_id)
+            if context:
+                for sid in list(manager._sessions.keys()):
+                    if manager._sessions.get(sid) == context:
+                        manager.destroy_session(sid)
+                        logger.info(f"[user_handler] Destroyed web session {sid} for user {user_id}")
+                        break
+        return True
+    except Exception as e:
+        logger.error(f"[user_handler] Failed to destroy web session: {e}")
+        return False
+
+
 COGNITO_ERROR_MAP = {
     # Login errors
     'UserNotConfirmedException': 'login_user_not_confirmed',
@@ -29,11 +77,15 @@ def get_message_from_cognito_error(error_code, default_key):
     key = COGNITO_ERROR_MAP.get(error_code, default_key)
     return auth_messages.get_message(key)
 
-def _build_user_info_response(request, token, user_profile, username, machine_role, login_type, message_key):
-    """Helper to build consistent user info response for both login methods."""
+def _build_user_info_response(request, token, user_profile, username, machine_role, login_type, message_key, session_id=None):
+    """Helper to build consistent user info response for both login methods.
+    
+    Args:
+        session_id: Optional session ID for web mode. If provided, included in response.
+    """
     user_email = user_profile.get('email') or username
     
-    return create_success_response(request, {
+    response_data = {
         'token': token,
         'message': auth_messages.get_message(message_key),
         'user_info': {
@@ -47,7 +99,13 @@ def _build_user_info_response(request, token, user_profile, username, machine_ro
             'email_verified': user_profile.get('email_verified', True),
             'login_type': login_type
         }
-    })
+    }
+    
+    # Include session_id for web mode (frontend needs this for subsequent requests)
+    if session_id:
+        response_data['session_id'] = session_id
+    
+    return create_success_response(request, response_data)
 
 @IPCHandlerRegistry.handler('login')
 def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
@@ -101,8 +159,16 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
             # Get user profile from AuthManager (populated during login)
             user_profile = login.auth_manager.get_user_profile()
             
+            # Create web session if in web mode (no-op in desktop mode)
+            user_email = user_profile.get('email') or username
+            session_id = _create_web_session(username, {
+                'email': user_email,
+                'role': machine_role,
+                'login_type': 'password'
+            })
+            
             return _build_user_info_response(
-                request, token, user_profile, username, machine_role, 'password', 'login_success'
+                request, token, user_profile, username, machine_role, 'password', 'login_success', session_id
             )
         else:
             error_code = result.get('error', 'login_failed')
@@ -161,6 +227,10 @@ def handle_logout(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
             })
         
         result = login.handleLogout()
+        
+        # Destroy web session if in web mode (no-op in desktop mode)
+        session_id = params.get('session_id') if params else None
+        _destroy_web_session(session_id=session_id)
 
         return create_success_response(request, {
             "result": result,
@@ -325,8 +395,15 @@ def handle_google_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -
             except Exception as e:
                 logger.debug(f"[user_handler] Could not schedule onboarding check: {e}")
             
+            # Create web session if in web mode (no-op in desktop mode)
+            session_id = _create_web_session(user_email, {
+                'email': user_email,
+                'role': machine_role,
+                'login_type': 'google'
+            })
+            
             return _build_user_info_response(
-                request, session_token, user_profile, user_email, machine_role, 'google', 'google_login_success'
+                request, session_token, user_profile, user_email, machine_role, 'google', 'google_login_success', session_id
             )
         else:
             error_msg = result.get('error', 'Unknown error')

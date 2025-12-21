@@ -1074,19 +1074,20 @@ def handle_restart_server(request: IPCRequest, params: Optional[Dict[str, Any]])
     """Restart LightRAG server to apply new settings."""
     try:
         from app_context import AppContext
+        from gui.ipc.context_bridge import get_handler_context
         
         # Get MainWindow instance
-        main_window = AppContext.get_main_window()
-        if not main_window:
+        ctx = get_handler_context(request, params)
+        if not ctx:
             return create_error_response(request, 'MAIN_WINDOW_NOT_FOUND', 'MainWindow instance not found')
         
         # Check if server exists
-        if not hasattr(main_window, 'lightrag_server') or not main_window.lightrag_server:
+        if not ctx.get_lightrag_server() or not ctx.get_lightrag_server():
             return create_error_response(request, 'SERVER_NOT_RUNNING', 'LightRAG server is not running')
         
         # Stop the server
         logger.info("[LightRAG] Stopping server for restart...")
-        main_window.stop_lightrag_server()
+        ctx.main_window.stop_lightrag_server()
         
         # Restart the server asynchronously
         import asyncio
@@ -1097,11 +1098,18 @@ def handle_restart_server(request: IPCRequest, params: Optional[Dict[str, Any]])
                 # Create and start new server instance
                 # Paths are automatically handled by LightragServer using app_info defaults
                 # API Keys are automatically handled by LightragServer using config_manager
-                main_window.lightrag_server = LightragServer()
-                success = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: main_window.lightrag_server.start(wait_ready=True)
-                )
+                # Note: In desktop mode, this sets ctx.get_lightrag_server()
+                # In web mode, this would need to set the user context's lightrag_server
+                from app_context import AppContext
+                mw = AppContext.get_ctx()
+                if mw:
+                    mw.lightrag_server = LightragServer()
+                    success = await asyncio.get_event_loop().run_in_executor(
+                        None,
+                        lambda: ctx.get_lightrag_server().start(wait_ready=True)
+                    )
+                else:
+                    success = False
                 
                 if success:
                     logger.info("[LightRAG] Server restarted successfully")
@@ -1284,13 +1292,14 @@ def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, 
     """
     try:
         from app_context import AppContext
+        from gui.ipc.context_bridge import get_handler_context
         from gui.ollama_utils import merge_ollama_models_to_providers
         
         # Get manager instances
-        main_window = AppContext.get_main_window()
-        llm_manager = main_window.config_manager.llm_manager if main_window else None
-        embedding_manager = main_window.config_manager.embedding_manager if main_window else None
-        rerank_manager = main_window.config_manager.rerank_manager if main_window else None
+        ctx = get_handler_context(request, params)
+        llm_manager = ctx.get_config_manager().llm_manager if ctx else None
+        embedding_manager = ctx.get_config_manager().embedding_manager if ctx else None
+        rerank_manager = ctx.get_config_manager().rerank_manager if ctx else None
         
         # Get providers with Ollama models merged (same as Settings page)
         llm_providers = merge_ollama_models_to_providers(

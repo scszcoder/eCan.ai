@@ -11,6 +11,7 @@ from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from app_context import AppContext
+from gui.ipc.context_bridge import get_handler_context
 from utils.logger_helper import logger_helper as logger
 from agent.ec_org_ctrl import get_ec_org_ctrl
 
@@ -336,10 +337,10 @@ def handle_bind_agent_to_org(request: IPCRequest, params: Optional[list[Any]]) -
         result = ec_org_ctrl.bind_agent_to_org(agent_id, organization_id)
 
         if result.get("success"):
-            # Update memory: set org_id for the agent in main_window.agents
-            main_window = AppContext.get_main_window()
-            if main_window and hasattr(main_window, 'agents'):
-                for agent in main_window.agents:
+            # Update memory: set org_id for the agent in ctx.get_agents()
+            ctx = get_handler_context(request, params)
+            if ctx:
+                for agent in ctx.get_agents():
                     # All agents are EC_Agent objects with card.id and org_id attributes
                     if hasattr(agent, 'card') and hasattr(agent.card, 'id') and agent.card.id == agent_id:
                         agent.org_id = organization_id
@@ -398,10 +399,10 @@ def handle_unbind_agent_from_org(request: IPCRequest, params: Optional[list[Any]
         result = ec_org_ctrl.unbind_agent_from_org(agent_id)
 
         if result.get("success"):
-            # Update memory: set org_id to None for the agent in main_window.agents
-            main_window = AppContext.get_main_window()
-            if main_window and hasattr(main_window, 'agents'):
-                for agent in main_window.agents:
+            # Update memory: set org_id to None for the agent in ctx.get_agents()
+            ctx = get_handler_context(request, params)
+            if ctx:
+                for agent in ctx.get_agents():
                     # All agents are EC_Agent objects with card.id and org_id attributes
                     if hasattr(agent, 'card') and hasattr(agent.card, 'id') and agent.card.id == agent_id:
                         agent.org_id = None

@@ -9,6 +9,7 @@ from gui.ipc.registry import IPCHandlerRegistry
 from utils.logger_helper import logger_helper as logger
 import traceback
 from app_context import AppContext
+from gui.ipc.context_bridge import get_handler_context
 
 # @IPCHandlerRegistry.handler('run_skill')
 # def handle_run_skill(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
@@ -68,7 +69,7 @@ def handle_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
         # Lazy import to avoid slow startup
         from agent.ec_skills.dev_utils.skill_dev_utils import run_dev_skill
 
-        main_window = AppContext.get_main_window()
+        ctx = get_handler_context(request, params)
         # Prefer params['skill'] (sent by FE) over legacy request.meta key
         skill_src = "params.skill" if isinstance(params, dict) and params.get("skill") is not None else "meta.skill_flowgram"
         skill = (params or {}).get("skill") if skill_src == "params.skill" else request.meta.get("skill_flowgram")
@@ -81,7 +82,7 @@ def handle_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
             logger.debug(f"[IPC][run_skill] incoming diagram.bundle.sheets: count={len(bundle)} names={[ (s.get('name') or s.get('id')) for s in bundle if isinstance(s, dict) ]}")
         except Exception as _e:
             logger.debug(f"[IPC][run_skill] payload debug logging failed: {_e}")
-        results = run_dev_skill(main_window, skill)
+        results = run_dev_skill(ctx.main_window, skill)
         return create_success_response(request, {
             "results": results,
             'message': "Start skill run successful" if results["success"] else "Start skill run failed"
@@ -113,8 +114,8 @@ def handle_cancel_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCRe
         # Lazy import to avoid slow startup
         from agent.ec_skills.dev_utils.skill_dev_utils import cancel_run_dev_skill
 
-        main_window = AppContext.get_main_window()
-        results = cancel_run_dev_skill(main_window)
+        ctx = get_handler_context(request, params)
+        results = cancel_run_dev_skill(ctx.main_window)
         return create_success_response(request, {
             "results": results,
             "message": "Cancelling skill run successful" if results["success"] else "Cancelling skill run failed"
@@ -145,8 +146,8 @@ def handle_pause_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCRes
         # Lazy import to avoid slow startup
         from agent.ec_skills.dev_utils.skill_dev_utils import pause_run_dev_skill
 
-        main_window = AppContext.get_main_window()
-        results = pause_run_dev_skill(main_window)
+        ctx = get_handler_context(request, params)
+        results = pause_run_dev_skill(ctx.main_window)
         return create_success_response(request, {
             "results": results,
             "message": "Get pause skill run successful" if results["success"] else "Pausing skill run failed"
@@ -177,8 +178,8 @@ def handle_resume_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCRe
         # Lazy import to avoid slow startup
         from agent.ec_skills.dev_utils.skill_dev_utils import resume_run_dev_skill
 
-        main_window = AppContext.get_main_window()
-        results = resume_run_dev_skill(main_window)
+        ctx = get_handler_context(request, params)
+        results = resume_run_dev_skill(ctx.main_window)
         return create_success_response(request, {
             "results": results,
             "message": "Resume skill run successful" if results["success"] else "Pausing skill run failed"
@@ -209,8 +210,8 @@ def handle_step_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResp
         # Lazy import to avoid slow startup
         from agent.ec_skills.dev_utils.skill_dev_utils import step_run_dev_skill
 
-        main_window = AppContext.get_main_window()
-        results = step_run_dev_skill(main_window)
+        ctx = get_handler_context(request, params)
+        results = step_run_dev_skill(ctx.main_window)
         return create_success_response(request, {
             "results": results,
             "message": "single step skill run successful" if results["success"] else "Single Stepping skill run failed"
@@ -241,10 +242,10 @@ def handle_set_skill_breakpoints(request: IPCRequest, params: Optional[Any]) -> 
         # Lazy import to avoid slow startup
         from agent.ec_skills.dev_utils.skill_dev_utils import set_bps_dev_skill
 
-        main_window = AppContext.get_main_window()
+        ctx = get_handler_context(request, params)
         owner = params["username"]
         bps = [params["node_name"]]
-        results = set_bps_dev_skill(main_window, bps)
+        results = set_bps_dev_skill(ctx.main_window, bps)
         results = {"success": True}
         return create_success_response(request, {
             "results": results,
@@ -276,7 +277,7 @@ def handle_clear_skill_breakpoints(request: IPCRequest, params: Optional[Any]) -
         # Lazy import to avoid slow startup; reuse dev utils clear implementation
         from agent.ec_skills.dev_utils.skill_dev_utils import clear_bps_dev_skill
 
-        main_win = AppContext.get_main_window()
+        ctx = get_handler_context(request, params)
         owner = (params or {}).get("username")
         node_name = (params or {}).get("node_name")
         # Normalize node_name parameter to a list
@@ -292,7 +293,7 @@ def handle_clear_skill_breakpoints(request: IPCRequest, params: Optional[Any]) -
         except Exception:
             pass
 
-        results = clear_bps_dev_skill(main_win, bps)
+        results = clear_bps_dev_skill(ctx.main_window, bps)
         return create_success_response(request, {
             "results": results,
             'message': 'Clear skill breakpoints successful' if results.get('success') else 'Clear skill breakpoints failed'
@@ -324,11 +325,11 @@ def handle_get_editor_agents(request: IPCRequest, params: Optional[Dict[str, Any
       }
     """
     try:
-        main_window = AppContext.get_main_window()
+        ctx = get_handler_context(request, params)
         agents: List[Dict[str, str]] = []
 
-        if main_window and hasattr(main_window, 'agents'):
-            for ag in getattr(main_window, 'agents', []) or []:
+        if ctx:
+            for ag in ctx.get_agents() or []:
                 try:
                     # Prefer unified serialization from EC_Agent.to_dict for field consistency
                     ag_dict = {}
@@ -411,11 +412,11 @@ def handle_get_editor_pending_sources(request: IPCRequest, params: Optional[Dict
       { "queues": [{id, name}], "events": [{id, name}] }
     """
     try:
-        main_window = AppContext.get_main_window()
+        ctx = get_handler_context(request, params)
         queues: List[Dict[str, str]] = []
 
-        if main_window and hasattr(main_window, 'agents'):
-            for ag in getattr(main_window, 'agents', []) or []:
+        if ctx:
+            for ag in ctx.get_agents() or []:
                 try:
                     card = getattr(ag, 'card', None)
                     agid = getattr(card, 'id', None)
@@ -526,8 +527,9 @@ def handle_load_skill_schemas(request: IPCRequest, params: Optional[Any]) -> IPC
     try:
         logger.debug(f"loading skill schemas: {request}")
 
-        main_win = AppContext.get_main_window()
-        node_schemas = main_win.node_schemas
+        ctx = get_handler_context(request, params)
+        # node_schemas is accessed via ctx property for desktop compatibility
+        node_schemas = ctx.main_window.node_schemas if hasattr(ctx, 'ctx') and ctx.main_window else {}
         return create_success_response(request, {
             "node_schemas": node_schemas,
             'message': 'Load skill schemas successful'
@@ -909,6 +911,8 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
         IPCResponse: Success or error response
     """
     try:
+        ctx = get_handler_context(request, params)
+        
         if not params or 'cacheData' not in params:
             return create_error_response(request, 'INVALID_PARAMS', 'cacheData is required')
         
@@ -984,9 +988,7 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
                             
                             # Update database record and in-memory skill
                             try:
-                                from app_context import AppContext as AC
-                                main_window = AC.get_main_window()
-                                if main_window:
+                                if ctx:
                                     old_dir_name = old_skill_root.name  # e.g., "ff2_skill"
                                     old_base_name = old_dir_name.replace('_skill', '') if old_dir_name.endswith('_skill') else old_dir_name
                                     new_base_name = expected_new_stem.replace('_skill', '') if expected_new_stem.endswith('_skill') else expected_new_stem
@@ -995,8 +997,8 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
                                     
                                     # Update database
                                     db_updated = False
-                                    if hasattr(main_window, 'ec_db_mgr') and main_window.ec_db_mgr:
-                                        skill_service = main_window.ec_db_mgr.get_skill_service()
+                                    if ctx.get_ec_db_mgr():
+                                        skill_service = ctx.get_ec_db_mgr().get_skill_service()
                                         if skill_service:
                                             # Find skill by old path using search_skills
                                             all_skills = skill_service.search_skills()  # Returns list directly
@@ -1021,9 +1023,9 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
                                     
                                     # Update in-memory skill list
                                     mem_updated = False
-                                    if hasattr(main_window, 'agent_skills'):
-                                        logger.info(f"[AutoSave] Found {len(main_window.agent_skills or [])} skills in memory")
-                                        for mem_skill in (main_window.agent_skills or []):
+                                    if ctx.get_agent_skills():
+                                        logger.info(f"[AutoSave] Found {len(ctx.get_agent_skills() or [])} skills in memory")
+                                        for mem_skill in (ctx.get_agent_skills() or []):
                                             if hasattr(mem_skill, 'name'):
                                                 skill_name = mem_skill.name
                                                 skill_path = getattr(mem_skill, 'path', '')
@@ -1046,7 +1048,7 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
                                         
                                         if not mem_updated:
                                             # Skill not in memory - load and add it
-                                            skill_names = [getattr(s, 'name', 'N/A') for s in (main_window.agent_skills or [])]
+                                            skill_names = [getattr(s, 'name', 'N/A') for s in (ctx.get_agent_skills() or [])]
                                             logger.info(f"[AutoSave] No matching skill in memory. Looking for: {old_dir_name} or {old_base_name}")
                                             logger.info(f"[AutoSave] Available skills: {skill_names[:10]}...")
                                             
@@ -1055,9 +1057,9 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
                                                 from agent.ec_skills.build_agent_skills import load_from_diagram
                                                 new_skill = load_from_diagram(Path(str(new_skill_file)))
                                                 if new_skill:
-                                                    if main_window.agent_skills is None:
-                                                        main_window.agent_skills = []
-                                                    main_window.agent_skills.append(new_skill)
+                                                    agent_skills = ctx.get_agent_skills()
+                                                    if agent_skills is not None:
+                                                        agent_skills.append(new_skill)
                                                     logger.info(f"[AutoSave] ✅ New skill added to memory: {new_skill.name}")
                                                     mem_updated = True
                                             except Exception as load_err:
@@ -1216,7 +1218,7 @@ def handle_clear_editor_cache(request: IPCRequest, params: Optional[Dict[str, An
         logger.debug("[EditorCache] Clearing editor cache")
         
         # Get cache directory
-        cache_dir = _get_cache_directory()
+        cache_dir = _get_editor_data_directory()
         cache_file = cache_dir / 'editor-cache.json'
         
         # Delete cache file if it exists
