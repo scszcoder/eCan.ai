@@ -435,11 +435,13 @@ def wan_a2a_send_message_sync(
         'cache-control': "no-cache",
     }
     
+    http_endpoint = endpoints["http"]
+    
     try:
-        logger.debug(f"[wan_a2a_sync] Sending message to channel: {endpoints["http"]}, {headers}, {query_string}, {variables}")
+        logger.debug(f"[wan_a2a_sync] Sending message to channel: {http_endpoint}, {headers}, {query_string}, {variables}")
         
         response = requests.post(
-            url=endpoints["http"],
+            url=http_endpoint,
             headers=headers,
             json={
                 'query': query_string,
