@@ -12,10 +12,11 @@ from typing import Any, Optional, Dict
 # from agent.ec_skills.extern_skills.extern_skills import scaffold_skill, rename_skill, user_skills_root
 from ..types import IPCRequest, IPCResponse, create_success_response, create_error_response
 from ..registry import IPCHandlerRegistry
+from gui.ipc.context_bridge import get_handler_context
 from utils.logger_helper import logger_helper as logger
 
 
-def _get_extern_skills():
+def _get_extern_skills(request=None, params=None):
     """Lazy import extern_skills to avoid blocking during module initialization."""
     from agent.ec_skills.extern_skills.extern_skills import scaffold_skill, rename_skill, user_skills_root
     return scaffold_skill, rename_skill, user_skills_root
@@ -67,7 +68,7 @@ def handle_show_open_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
 
         # Force initial directory to the per-user skills root
         try:
-            _, _, user_skills_root = _get_extern_skills()
+            _, _, user_skills_root = _get_extern_skills(request, params)
             skills_root = user_skills_root()
             os.makedirs(skills_root, exist_ok=True)
             initial_dir = str(skills_root)
@@ -183,7 +184,7 @@ def handle_show_save_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
 
         # Get per-user skills root directory
         try:
-            _, _, user_skills_root = _get_extern_skills()
+            _, _, user_skills_root = _get_extern_skills(request, params)
             skills_root = user_skills_root()
             os.makedirs(skills_root, exist_ok=True)
             initial_dir = str(skills_root)
@@ -616,7 +617,7 @@ def handle_skills_scaffold(request: IPCRequest, params: Optional[Dict[str, Any]]
         check_only = p.get('checkOnly', False)
         
         # Get skills root directory
-        _, _, user_skills_root = _get_extern_skills()
+        _, _, user_skills_root = _get_extern_skills(request, params)
         skills_root = user_skills_root()
         skill_dir = skills_root / f"{name}_skill"
         
@@ -631,7 +632,7 @@ def handle_skills_scaffold(request: IPCRequest, params: Optional[Dict[str, Any]]
             logger.warning(f"[IPC] skills.scaffold: skill '{name}' already exists at {skill_dir}")
             return create_error_response(request, 'SKILL_EXISTS', f"Skill '{name}' already exists. Please choose a different name.")
         
-        scaffold_skill, _, _ = _get_extern_skills()
+        scaffold_skill, _, _ = _get_extern_skills(request, params)
         path = scaffold_skill(name, description, kind, skill_json, bundle_json, mapping_json)
         
         # Return the diagram file path for frontend to use
@@ -677,7 +678,7 @@ def handle_skills_rename(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         new_name = data['newName']
         
         # Rename the skill directory
-        _, rename_skill, _ = _get_extern_skills()
+        _, rename_skill, _ = _get_extern_skills(request, params)
         new_path = rename_skill(old_name, new_name)
         
         # Rename files inside diagram_dir to match new name
@@ -706,7 +707,6 @@ def handle_skills_rename(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         # Update skill database if old skill exists
         try:
             from gui.ipc.w2p_handlers.skill_handler import sync_skill_from_file
-            from gui.context.app_context import AppContext
             
             # Construct old and new skill file paths
             # new_path is already the renamed directory path
@@ -717,9 +717,9 @@ def handle_skills_rename(request: IPCRequest, params: Optional[Dict[str, Any]]) 
             logger.info(f"[SKILL_RENAME] Checking for existing skill at: {old_skill_file}")
             
             # Get skill service to check if old skill exists in database
-            main_window = AppContext.get_main_window()
-            if main_window and hasattr(main_window, 'ec_db_mgr') and main_window.ec_db_mgr:
-                skill_service = main_window.ec_db_mgr.skill_service
+            ctx = get_handler_context(request, params)
+            if ctx and ctx.get_ec_db_mgr() and hasattr(ctx.get_ec_db_mgr(), 'ec_db_mgr') and ctx.get_ec_db_mgr():
+                skill_service = ctx.get_ec_db_mgr().skill_service
                 if skill_service:
                     # Check if skill exists by old path
                     existing_skill = skill_service.get_skill_by_path(old_skill_file)
@@ -730,7 +730,7 @@ def handle_skills_rename(request: IPCRequest, params: Optional[Dict[str, Any]]) 
                         # Check if new skill file exists
                         if os.path.exists(new_skill_file):
                             # Sync the renamed skill file to update database
-                            sync_result = sync_skill_from_file(new_skill_file)
+                            sync_result = sync_skill_from_file(new_skill_file, request, params)
                             
                             if sync_result.get('success'):
                                 logger.info(f"[SKILL_RENAME] ✅ Skill database updated successfully")
@@ -858,11 +858,12 @@ def handle_skills_copy_to(request: IPCRequest, params: Optional[Dict[str, Any]])
         new_skill_full_name = f"{new_name}_skill"
         try:
             from app_context import AppContext
-            main_window = AppContext.get_main_window()
-            if main_window:
+            from gui.ipc.context_bridge import get_handler_context
+            ctx = get_handler_context(request, params)
+            if ctx:
                 # Update database: find existing skill and update its path
-                if hasattr(main_window, 'ec_db_mgr'):
-                    skill_service = main_window.ec_db_mgr.get_skill_service()
+                if hasattr(ctx, 'ec_db_mgr'):
+                    skill_service = ctx.get_ec_db_mgr().get_skill_service()
                     if skill_service:
                         old_skill_name = old_skill_root.name  # e.g., "ff_skill"
                         all_skills = skill_service.search_skills()
@@ -894,11 +895,11 @@ def handle_skills_copy_to(request: IPCRequest, params: Optional[Dict[str, Any]])
                                 logger.info(f"[SKILL_COPY] ✅ New skill created in database (ID: {skill_id})")
                 
                 # Update in-memory skill list
-                if hasattr(main_window, 'agent_skills'):
+                if hasattr(ctx, 'agent_skills'):
                     old_dir_name = old_skill_root.name
                     old_base_name = old_dir_name.replace('_skill', '') if old_dir_name.endswith('_skill') else old_dir_name
                     
-                    for mem_skill in (main_window.agent_skills or []):
+                    for mem_skill in (ctx.get_agent_skills() or []):
                         if hasattr(mem_skill, 'name'):
                             skill_name = mem_skill.name
                             if skill_name == old_dir_name or skill_name == old_base_name:

@@ -7,6 +7,7 @@ from ..types import IPCRequest, IPCResponse, create_success_response, create_err
 from ..registry import IPCHandlerRegistry
 from utils.logger_helper import logger_helper as logger
 from app_context import AppContext
+from gui.ipc.context_bridge import get_handler_context
 
 
 def validate_params(params: Optional[Dict[str, Any]], required_keys: list) -> tuple[bool, Dict[str, Any], str]:
@@ -21,10 +22,10 @@ def validate_params(params: Optional[Dict[str, Any]], required_keys: list) -> tu
     return True, params, ""
 
 
-def get_rerank_manager():
+def get_rerank_manager(request=None, params=None):
     """Get Rerank manager instance"""
-    main_window = AppContext.get_main_window()
-    return main_window.config_manager.rerank_manager
+    ctx = get_handler_context(request, params)
+    return ctx.get_config_manager().rerank_manager
 
 
 @IPCHandlerRegistry.handler('get_rerank_providers')
@@ -33,7 +34,7 @@ def handle_get_rerank_providers(request: IPCRequest, params: Optional[Dict[str, 
     try:
         from gui.ollama_utils import merge_ollama_models_to_providers
         
-        rerank_manager = get_rerank_manager()
+        rerank_manager = get_rerank_manager(request, params)
         providers = rerank_manager.get_all_providers()
         
         # Merge Ollama models using shared utility
@@ -42,10 +43,10 @@ def handle_get_rerank_providers(request: IPCRequest, params: Optional[Dict[str, 
         logger.info(f"Retrieved {len(providers)} Rerank providers")
 
         # Include current settings for frontend
-        main_window = AppContext.get_main_window()
+        ctx = get_handler_context(request, params)
         settings = {}
-        if main_window:
-            general_settings = main_window.config_manager.general_settings
+        if ctx:
+            general_settings = ctx.get_config_manager().general_settings
             settings = {
                 'default_rerank': general_settings.default_rerank,
                 'default_rerank_model': general_settings.default_rerank_model
@@ -70,7 +71,7 @@ def handle_update_rerank_provider(request: IPCRequest, params: Optional[Dict[str
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
 
-        rerank_manager = get_rerank_manager()
+        rerank_manager = get_rerank_manager(request, params)
         # Frontend MUST send standard provider identifier (e.g., "openai", "dashscope", "azure_openai")
         # NOT name or display_name (e.g., NOT "OpenAI", "Qwen (DashScope)")
         provider_identifier = (data.get('name') or "").strip()
@@ -143,9 +144,9 @@ def handle_update_rerank_provider(request: IPCRequest, params: Optional[Dict[str
         auto_set_as_default = False
         if api_key_stored or base_url_updated:
             try:
-                main_window = AppContext.get_main_window()
-                if main_window:
-                    general_settings = main_window.config_manager.general_settings
+                ctx = get_handler_context(request, params)
+                if ctx:
+                    general_settings = ctx.get_config_manager().general_settings
                     current_default = general_settings.default_rerank
                     
                     configured_providers = []
@@ -186,13 +187,13 @@ def handle_update_rerank_provider(request: IPCRequest, params: Optional[Dict[str
         
         # Find shared LLM providers that use the same API keys
         from gui.ipc.w2p_handlers.llm_handler import find_shared_providers
-        shared_providers = find_shared_providers(env_vars, 'rerank')
+        shared_providers = find_shared_providers(env_vars, 'rerank', request, params)
         
         # Get updated provider info for frontend
         updated_provider = rerank_manager.get_provider(provider_identifier)
         
         # Build response with auto-set information and updated provider
-        main_window = AppContext.get_main_window()
+        ctx = get_handler_context(request, params)
         response_data = {
             'message': f'Rerank provider {provider_identifier} updated successfully',
             'provider': updated_provider
@@ -207,10 +208,10 @@ def handle_update_rerank_provider(request: IPCRequest, params: Optional[Dict[str
             logger.debug(f"[Rerank] No shared LLM providers found for {provider_identifier}")
         
         # Always include current settings for frontend UI update
-        if main_window:
+        if ctx:
             response_data['settings'] = {
-                'default_rerank': main_window.config_manager.general_settings.default_rerank,
-                'default_rerank_model': main_window.config_manager.general_settings.default_rerank_model
+                'default_rerank': ctx.get_config_manager().general_settings.default_rerank,
+                'default_rerank_model': ctx.get_config_manager().general_settings.default_rerank_model
             }
         
         if auto_set_as_default:
@@ -220,10 +221,10 @@ def handle_update_rerank_provider(request: IPCRequest, params: Optional[Dict[str
             response_data['default_rerank_model'] = default_model
             
             # Hot-update: Update all agents' memoryManager reranks (similar to update_all_llms)
-            if main_window and default_model and hasattr(main_window, 'agents') and main_window.agents:
+            if ctx and default_model and ctx.get_agents():
                 try:
                     updated_agents = 0
-                    for agent in main_window.agents:
+                    for agent in ctx.get_agents():
                         # Update memoryManager reranks
                         if hasattr(agent, 'mem_manager') and agent.mem_manager:
                             try:
@@ -259,8 +260,8 @@ def handle_set_rerank_provider_model(request: IPCRequest, params: Optional[Dict[
         
         model_name = data['model']
 
-        rerank_manager = get_rerank_manager()
-        main_window = AppContext.get_main_window()
+        rerank_manager = get_rerank_manager(request, params)
+        ctx = get_handler_context(request, params)
         
         # Get provider by standard identifier (case-insensitive)
         provider = rerank_manager.get_provider(provider_identifier)
@@ -283,17 +284,17 @@ def handle_set_rerank_provider_model(request: IPCRequest, params: Optional[Dict[
         updated_provider = rerank_manager.get_provider(provider_identifier)
         
         # If this is the current default rerank, also update default_rerank_model in general_settings (case-insensitive)
-        current_default = (main_window.config_manager.general_settings.default_rerank or "").lower()
+        current_default = (ctx.get_config_manager().general_settings.default_rerank or "").lower()
         if current_default == (provider_identifier or "").lower():
-            main_window.config_manager.general_settings.default_rerank_model = model_name
-            main_window.config_manager.general_settings.save()
+            ctx.get_config_manager().general_settings.default_rerank_model = model_name
+            ctx.get_config_manager().general_settings.save()
             logger.info(f"[Rerank] Updated default_rerank_model to {model_name} for current provider {provider_identifier}")
             
             # Hot-update: Update all agents' memoryManager reranks (similar to update_all_llms)
-            if hasattr(main_window, 'agents') and main_window.agents:
+            if ctx.get_agents():
                 try:
                     updated_agents = 0
-                    for agent in main_window.agents:
+                    for agent in ctx.get_agents():
                         # Update memoryManager reranks
                         if hasattr(agent, 'mem_manager') and agent.mem_manager:
                             try:
@@ -311,8 +312,8 @@ def handle_set_rerank_provider_model(request: IPCRequest, params: Optional[Dict[
             'message': f'Default model for {provider_identifier} updated successfully',
             'provider': updated_provider,
             'settings': {
-                'default_rerank': main_window.config_manager.general_settings.default_rerank,
-                'default_rerank_model': main_window.config_manager.general_settings.default_rerank_model
+                'default_rerank': ctx.get_config_manager().general_settings.default_rerank,
+                'default_rerank_model': ctx.get_config_manager().general_settings.default_rerank_model
             }
         })
 
@@ -329,8 +330,8 @@ def handle_delete_rerank_provider_config(request: IPCRequest, params: Optional[D
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
 
-        rerank_manager = get_rerank_manager()
-        main_window = AppContext.get_main_window()
+        rerank_manager = get_rerank_manager(request, params)
+        ctx = get_handler_context(request, params)
         # Frontend MUST send standard provider identifier
         provider_identifier = (data.get('name') or "").strip()
         if not provider_identifier:
@@ -351,7 +352,7 @@ def handle_delete_rerank_provider_config(request: IPCRequest, params: Optional[D
             )
 
         # Check if this is the current default rerank (case-insensitive)
-        current_default_rerank = (main_window.config_manager.general_settings.default_rerank or "").lower()
+        current_default_rerank = (ctx.get_config_manager().general_settings.default_rerank or "").lower()
         is_default_rerank = (current_default_rerank == (provider_identifier or "").lower())
 
         # Delete API key and other credentials from environment variables
@@ -417,19 +418,19 @@ def handle_delete_rerank_provider_config(request: IPCRequest, params: Optional[D
                 logger.info(f"No configured providers found; clearing default rerank setting")
             
             # Update default_rerank setting
-            main_window.config_manager.general_settings.default_rerank = new_default_rerank
-            main_window.config_manager.general_settings.default_rerank_model = new_default_model
-            save_result = main_window.config_manager.general_settings.save()
+            ctx.get_config_manager().general_settings.default_rerank = new_default_rerank
+            ctx.get_config_manager().general_settings.default_rerank_model = new_default_model
+            save_result = ctx.get_config_manager().general_settings.save()
             
             if not save_result:
                 logger.error(f"Failed to save new default Rerank setting")
                 return create_error_response(request, 'RERANK_ERROR', f"Failed to save new default Rerank setting")
             
             # Hot-update: Update all agents' memoryManager reranks after switching default
-            if new_default_rerank and new_default_model and hasattr(main_window, 'agents') and main_window.agents:
+            if new_default_rerank and new_default_model and ctx.get_agents():
                 try:
                     updated_agents = 0
-                    for agent in main_window.agents:
+                    for agent in ctx.get_agents():
                         # Update memoryManager reranks
                         if hasattr(agent, 'mem_manager') and agent.mem_manager:
                             try:
@@ -445,7 +446,7 @@ def handle_delete_rerank_provider_config(request: IPCRequest, params: Optional[D
 
         # Find shared LLM providers that use the same API keys
         from gui.ipc.w2p_handlers.llm_handler import find_shared_providers
-        shared_providers = find_shared_providers(env_vars, 'rerank')
+        shared_providers = find_shared_providers(env_vars, 'rerank', request, params)
         
         # Get updated provider info for frontend
         updated_provider = rerank_manager.get_provider(provider_identifier)
@@ -467,8 +468,8 @@ def handle_delete_rerank_provider_config(request: IPCRequest, params: Optional[D
         
         # Always include current settings for frontend UI update
         response_data['settings'] = {
-            'default_rerank': main_window.config_manager.general_settings.default_rerank,
-            'default_rerank_model': main_window.config_manager.general_settings.default_rerank_model
+            'default_rerank': ctx.get_config_manager().general_settings.default_rerank,
+            'default_rerank_model': ctx.get_config_manager().general_settings.default_rerank_model
         }
         
         # Include new default settings if changed
@@ -495,8 +496,8 @@ def handle_set_default_rerank(request: IPCRequest, params: Optional[Dict[str, An
         name = data['name']  # May be name or provider identifier
         model = data.get('model')  # Optional model parameter from frontend
 
-        rerank_manager = get_rerank_manager()
-        main_window = AppContext.get_main_window()
+        rerank_manager = get_rerank_manager(request, params)
+        ctx = get_handler_context(request, params)
 
         # Verify provider exists and is configured
         provider = rerank_manager.get_provider(name)
@@ -512,11 +513,11 @@ def handle_set_default_rerank(request: IPCRequest, params: Optional[Dict[str, An
             return create_error_response(request, 'RERANK_ERROR', f"Provider {provider_identifier} is not configured")
 
         # Save current settings for potential rollback
-        old_default_rerank = main_window.config_manager.general_settings.default_rerank
-        old_default_model = main_window.config_manager.general_settings.default_rerank_model
+        old_default_rerank = ctx.get_config_manager().general_settings.default_rerank
+        old_default_model = ctx.get_config_manager().general_settings.default_rerank_model
 
         # Update default_rerank and default_rerank_model in general_settings
-        main_window.config_manager.general_settings.default_rerank = provider_identifier
+        ctx.get_config_manager().general_settings.default_rerank = provider_identifier
         
         # Use model from frontend if provided, otherwise fallback to provider's preferred/default model
         if model:
@@ -535,9 +536,9 @@ def handle_set_default_rerank(request: IPCRequest, params: Optional[Dict[str, An
                 logger.warning("Using provider's default model instead")
                 provider_model = provider.get('default_model', '')
         
-        main_window.config_manager.general_settings.default_rerank_model = provider_model
+        ctx.get_config_manager().general_settings.default_rerank_model = provider_model
         
-        save_result = main_window.config_manager.general_settings.save()
+        save_result = ctx.get_config_manager().general_settings.save()
 
         if not save_result:
             return create_error_response(request, 'RERANK_ERROR', f"Failed to save default Rerank setting")
@@ -547,7 +548,7 @@ def handle_set_default_rerank(request: IPCRequest, params: Optional[Dict[str, An
         # Hot-update: Update all agents' memoryManager reranks (similar to update_all_llms)
         try:
             updated_agents = 0
-            for agent in main_window.agents:
+            for agent in ctx.get_agents():
                 # Update memoryManager reranks
                 if hasattr(agent, 'mem_manager') and agent.mem_manager:
                     try:
@@ -571,8 +572,8 @@ def handle_set_default_rerank(request: IPCRequest, params: Optional[Dict[str, An
             'message': f'Default Rerank set to {provider_identifier} successfully (hot-updated {updated_agents} agents)',
             'provider': updated_provider,
             'settings': {
-                'default_rerank': main_window.config_manager.general_settings.default_rerank,
-                'default_rerank_model': main_window.config_manager.general_settings.default_rerank_model
+                'default_rerank': ctx.get_config_manager().general_settings.default_rerank,
+                'default_rerank_model': ctx.get_config_manager().general_settings.default_rerank_model
             }
         })
 
@@ -585,11 +586,11 @@ def handle_set_default_rerank(request: IPCRequest, params: Optional[Dict[str, An
 def handle_get_default_rerank(request: IPCRequest, params: Optional[Dict[str, Any]] = None) -> IPCResponse:
     """Get current default Rerank provider"""
     try:
-        main_window = AppContext.get_main_window()
-        if not main_window:
+        ctx = get_handler_context(request, params)
+        if not ctx:
             return create_error_response(request, 'RERANK_ERROR', "Main window not available")
         
-        general_settings = main_window.config_manager.general_settings
+        general_settings = ctx.get_config_manager().general_settings
         default_rerank = general_settings.default_rerank
         default_rerank_model = general_settings.default_rerank_model
 
@@ -619,7 +620,7 @@ def handle_get_rerank_provider_api_key(request: IPCRequest, params: Optional[Dic
         
         show_full = data.get('show_full', False)  # Whether to show full API key
 
-        rerank_manager = get_rerank_manager()
+        rerank_manager = get_rerank_manager(request, params)
 
         # Get provider by standard identifier (case-insensitive)
         provider = rerank_manager.get_provider(provider_identifier)

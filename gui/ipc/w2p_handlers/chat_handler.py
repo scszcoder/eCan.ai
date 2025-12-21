@@ -10,6 +10,7 @@ import traceback
 from typing import Any, Optional, TYPE_CHECKING
 import uuid
 from app_context import AppContext
+from gui.ipc.context_bridge import get_handler_context
 
 from utils.gui_dispatch import post_to_main_thread
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
@@ -85,8 +86,8 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
     """
     try:
         t_start = time.time()
-        main_window = AppContext.get_main_window()
-        db_chat_service = main_window.db_chat_service
+        ctx = get_handler_context(request, params)
+        db_chat_service = ctx.get_db_chat_service()
         # 1. Extract and validate parameters
         t0 = time.time()
         chat_args = extract_and_validate_chat_args(params)
@@ -181,7 +182,7 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
         
         # 5. Echo/push
         if ECHO_REPLY_ENABLED:
-            echo_and_push_message_async(chatId, chat_args)
+            echo_and_push_message_async(chatId, chat_args, request, params)
         else:
             # Lazy import for heavy dependencies
             from agent.chats.chat_utils import gui_a2a_send_chat
@@ -192,7 +193,7 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
             logger.info(f"[handle_send_chat] Calling gui_a2a_send_chat with chatId: {chatId}, original: {original_chatId}")
             logger.debug(f"[handle_send_chat] request['params']['chatId']: {request['params']['chatId']}")
             t3 = time.time()
-            gui_a2a_send_chat(main_window, request)
+            gui_a2a_send_chat(ctx, request)
             logger.debug(f"[PERF] handle_send_chat - gui_a2a_send_chat: {time.time()-t3:.3f}s")
         
         logger.info(f"[PERF] handle_send_chat - TOTAL: {time.time()-t_start:.3f}s")
@@ -203,7 +204,7 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
 
 # ===================== echo_and_push_message_async Optimized Version =====================
 
-def _do_push_and_echo(chatId, message):
+def _do_push_and_echo(chatId, message, request=None, params=None):
     """
     Helper function to construct and push messages.
     This function is intended to be run on the main GUI thread via post_to_main_thread.
@@ -212,11 +213,12 @@ def _do_push_and_echo(chatId, message):
     import time
     import uuid
     from app_context import AppContext
+    from gui.ipc.context_bridge import get_handler_context
 
-    main_window = AppContext.get_main_window()
+    ctx = get_handler_context(request, params)
     web_gui = AppContext.get_web_gui()
 
-    def build_echo_message(main_window, message):
+    def build_echo_message(ctx, message):
         """Construct echo message, automatically handle role, content, attachments, etc., ensure all required fields are complete"""
         echo_msg = copy.deepcopy(message)
         # Fill required fields
@@ -248,10 +250,10 @@ def _do_push_and_echo(chatId, message):
                 if 'name' in att:
                     ext = os.path.splitext(att['name'])[1]
                     new_filename = f"{uuid.uuid4().hex}{ext}"
-                    new_url = os.path.join(main_window.temp_dir, new_filename)
-                    new_file_path = os.path.join(main_window.temp_dir, new_filename)
+                    new_url = os.path.join(ctx.get_temp_dir(), new_filename)
+                    new_file_path = os.path.join(ctx.get_temp_dir(), new_filename)
                     original_url = att.get('url', '')
-                    os.makedirs(main_window.temp_dir, exist_ok=True)
+                    os.makedirs(ctx.get_temp_dir(), exist_ok=True)
                     try:
                         if original_url:
                             if original_url.startswith('pyqtfile://'):
@@ -312,16 +314,16 @@ def _do_push_and_echo(chatId, message):
             'attachments': attachments or []
         }
 
-    def push_message(main_window: MainWindow, chatId, msg):
+    def push_message(ctx: MainWindow, chatId, msg):
         """Type dispatch, automatically call db_chat_service.add_xxx_message, push to frontend, and log database write result"""
         logger.info(f"push_message echo_msg: {msg}")
-        main_window.db_chat_service.push_message_to_chat(chatId, msg)
+        ctx.get_db_chat_service().push_message_to_chat(chatId, msg)
 
     logger.debug("start do push echo message")
     # 1. Construct and push echo message
-    echo_msg = build_echo_message(main_window, message)
+    echo_msg = build_echo_message(ctx, message)
     if echo_msg: # Ensure echo_msg is not None
-        push_message(main_window, chatId, echo_msg)
+        push_message(ctx, chatId, echo_msg)
     # 2. Construct and push form template message
     try:
         template_path = os.path.join(os.path.dirname(__file__), '../../../agent/chats/templates/mcu_config_form.json')
@@ -329,7 +331,7 @@ def _do_push_and_echo(chatId, message):
         with open(template_path, 'r', encoding='utf-8') as f:
             form_template = json.load(f)
         form_msg = build_form_message(form_template, base_msg=echo_msg, chatId=chatId)
-        push_message(main_window, chatId, form_msg)
+        push_message(ctx, chatId, form_msg)
     except Exception as e:
         logger.error(f"Failed to push form template message: {e}")
     # 3. Construct and push form template message
@@ -339,7 +341,7 @@ def _do_push_and_echo(chatId, message):
         with open(template_path, 'r', encoding='utf-8') as f:
             form_template = json.load(f)
         form_msg = build_form_message(form_template, base_msg=echo_msg, chatId=chatId)
-        push_message(main_window, chatId, form_msg)
+        push_message(ctx, chatId, form_msg)
     except Exception as e:
         logger.error(f"Failed to push form template message: {e}")
     # 4. Construct and push agent notification message
@@ -353,7 +355,7 @@ def _do_push_and_echo(chatId, message):
             content_dict = json.loads(content)
         except Exception:
             content_dict = {"raw": content}
-        db_chat_service = main_window.db_chat_service
+        db_chat_service = ctx.get_db_chat_service()
         result = db_chat_service.add_chat_notification(chatId, content_dict, int(time.time() * 1000), isRead=False)
         if result and result.get('success') and result.get('data'):
             notif_data = result['data']
@@ -367,14 +369,14 @@ def _do_push_and_echo(chatId, message):
     except Exception as e:
         logger.error(f"Failed to push agent notification: {e}")
 
-def echo_and_push_message_async(chatId, message):
+def echo_and_push_message_async(chatId, message, request=None, params=None):
     """
     Asynchronously schedule message push logic, execute on main GUI thread after 1 second delay.
     This function is called from background thread, does not block current request, returns immediately.
     Uses threading.Timer to delay execution in background thread, then dispatches to main thread.
     """
     def delayed_push():
-        post_to_main_thread(lambda: _do_push_and_echo(chatId, message))
+        post_to_main_thread(lambda: _do_push_and_echo(chatId, message, request, params))
 
     # Use Timer for async delayed execution, does not block current thread
     timer = threading.Timer(1.0, delayed_push)
@@ -391,8 +393,8 @@ def handle_get_chats(request: IPCRequest, params: Optional[dict]) -> IPCResponse
         logger.debug(f"get chats handler called with request: {request}")
         userId = params.get('userId')
         deep = params.get('deep', False)
-        main_window = AppContext.get_main_window()
-        db_chat_service = main_window.db_chat_service
+        ctx = get_handler_context(request, params)
+        db_chat_service = ctx.get_db_chat_service()
         result = db_chat_service.query_chats_by_user(userId=userId, deep=deep)
         return create_success_response(request, result)
     except Exception as e:
@@ -415,8 +417,8 @@ def handle_search_chats(request: IPCRequest, params: Optional[dict]) -> IPCRespo
         searchText = params.get('searchText', '')
         deep = params.get('deep', False)
         
-        main_window = AppContext.get_main_window()
-        db_chat_service = main_window.db_chat_service
+        ctx = get_handler_context(request, params)
+        db_chat_service = ctx.get_db_chat_service()
         
         result = db_chat_service.search_chats_by_message_content(
             userId=userId,
@@ -435,8 +437,8 @@ def handle_create_chat(request: IPCRequest, params: Optional[dict]) -> IPCRespon
     """
     logger.debug(f"create chat handler called with request: {request}")
     try:
-        main_window = AppContext.get_main_window()
-        db_chat_service = main_window.db_chat_service
+        ctx = get_handler_context(request, params)
+        db_chat_service = ctx.get_db_chat_service()
         # Split parameters
         members = params['members']
         name = params['name']
@@ -480,8 +482,8 @@ def handle_get_chat_messages(request: IPCRequest, params: Optional[dict]) -> IPC
         limit = params.get('limit', 20)
         offset = params.get('offset', 0)
         reverse = params.get('reverse', False)
-        main_window = AppContext.get_main_window()
-        db_chat_service = main_window.db_chat_service
+        ctx = get_handler_context(request, params)
+        db_chat_service = ctx.get_db_chat_service()
         result = db_chat_service.query_messages_by_chat(chatId=chatId, limit=limit, offset=offset, reverse=reverse)
         return create_success_response(request, result)
     except Exception as e:
@@ -495,8 +497,8 @@ def handle_delete_chat(request: IPCRequest, params: Optional[dict]) -> IPCRespon
     """
     try:
         chatId = params.get('chatId')
-        main_window = AppContext.get_main_window()
-        db_chat_service = main_window.db_chat_service
+        ctx = get_handler_context(request, params)
+        db_chat_service = ctx.get_db_chat_service()
         result = db_chat_service.delete_chat(chatId=chatId)
         return create_success_response(request, result)
     except Exception as e:
@@ -511,8 +513,8 @@ def handle_mark_message_as_read(request: IPCRequest, params: Optional[dict]) -> 
     try:
         messageIds = params.get('messageIds')
         userId = params.get('userId')
-        main_window = AppContext.get_main_window()
-        db_chat_service = main_window.db_chat_service
+        ctx = get_handler_context(request, params)
+        db_chat_service = ctx.get_db_chat_service()
         result = db_chat_service.mark_message_as_read(messageIds=messageIds, userId=userId)
         return create_success_response(request, result)
     except Exception as e:
@@ -533,9 +535,9 @@ def handle_upload_attachment(request: IPCRequest, params: Optional[dict]) -> IPC
         # Generate unique filename to prevent conflicts
         ext = os.path.splitext(name)[1]
         unique_name = f"{uuid.uuid4().hex}{ext}"
-        main_window = AppContext.get_main_window()
-        # Use main_window.temp_dir instead of tempfile.gettempdir()
-        file_path = os.path.join(main_window.temp_dir, unique_name)
+        ctx = get_handler_context(request, params)
+        # Use ctx.get_temp_dir() instead of tempfile.gettempdir()
+        file_path = os.path.join(ctx.get_temp_dir(), unique_name)
         # Ensure directory exists using safe method
 
         path_manager.ensure_directory_exists(file_path)
@@ -557,7 +559,7 @@ def handle_upload_attachment(request: IPCRequest, params: Optional[dict]) -> IPC
             logger.error(f"File save failed: {file_path}")
             raise Exception(f"Failed to save file to {file_path}")
         # Construct url
-        url = os.path.join(main_window.temp_dir, unique_name)
+        url = os.path.join(ctx.get_temp_dir(), unique_name)
         logger.debug(f"upload attachem name:{name}; url:{url};file  type:{file_type};size:{size}")
         result = {
             'url': url,
@@ -585,8 +587,8 @@ def handle_get_file_content(request: IPCRequest, params: Optional[dict]) -> IPCR
             file_path = file_path.replace('pyqtfile://', '')
         # Security check: ensure file path is within allowed directory
         temp_dir = tempfile.gettempdir()
-        main_window = AppContext.get_main_window()
-        allowed_dir = main_window.temp_dir if hasattr(main_window, 'temp_dir') else temp_dir
+        ctx = get_handler_context(request, params)
+        allowed_dir = ctx.get_temp_dir() if True else temp_dir
         # Normalize path and check security
         file_path = os.path.abspath(file_path)
         allowed_dir = os.path.abspath(allowed_dir)
@@ -644,8 +646,8 @@ def handle_get_file_info(request: IPCRequest, params: Optional[dict]) -> IPCResp
             file_path = file_path.replace('pyqtfile://', '')
         # Security check: ensure file path is within allowed directory
         temp_dir = tempfile.gettempdir()
-        main_window = AppContext.get_main_window()
-        allowed_dir = main_window.temp_dir if hasattr(main_window, 'temp_dir') else temp_dir
+        ctx = get_handler_context(request, params)
+        allowed_dir = ctx.get_temp_dir() if True else temp_dir
         # Normalize path and check security
         file_path = os.path.abspath(file_path)
         allowed_dir = os.path.abspath(allowed_dir)
@@ -707,8 +709,8 @@ def handle_chat_form_submit(request: IPCRequest, params: Optional[dict]) -> IPCR
         if not chatId or not messageId or not formId or formData is None:
             logger.error("chat form submit invalid params")
             return create_error_response(request, 'INVALID_PARAMS', 'chatId, messageId, formId, formData are required')
-        main_window = AppContext.get_main_window()
-        db_chat_service = main_window.db_chat_service
+        ctx = get_handler_context(request, params)
+        db_chat_service = ctx.get_db_chat_service()
         # Assume db_chat_service has submit_form method, otherwise custom handling
         if hasattr(db_chat_service, 'submit_form'):
             result = db_chat_service.submit_form(chatId=chatId, messageId=messageId, formId=formId, formData=formData)
@@ -728,7 +730,7 @@ def handle_chat_form_submit(request: IPCRequest, params: Optional[dict]) -> IPCR
             # Lazy import for heavy dependencies
             from agent.chats.chat_utils import gui_a2a_send_chat
             request['params']['human'] = True
-            gui_a2a_send_chat(main_window, form_submit_req)
+            gui_a2a_send_chat(ctx, form_submit_req)
 
             return create_success_response(request, result.get('data'))
         else:
@@ -756,8 +758,8 @@ def handle_delete_message(request: IPCRequest, params: Optional[dict]) -> IPCRes
         messageId = params.get('messageId')
         if not chatId or not messageId:
             return create_error_response(request, 'INVALID_PARAMS', 'chatId, messageId are required')
-        main_window = AppContext.get_main_window()
-        db_chat_service = main_window.db_chat_service
+        ctx = get_handler_context(request, params)
+        db_chat_service = ctx.get_db_chat_service()
         result = db_chat_service.delete_message(chatId=chatId, messageId=messageId)
         logger.debug("chat delete message  result: %s", result)
         return create_success_response(request, result)
@@ -780,8 +782,8 @@ def handle_get_chat_notifications(request: IPCRequest, params: Optional[dict]) -
         if not chatId:
             return create_error_response(request, 'INVALID_PARAMS', 'chatId is required')
 
-        main_window = AppContext.get_main_window()
-        db_chat_service = main_window.db_chat_service
+        ctx = get_handler_context(request, params)
+        db_chat_service = ctx.get_db_chat_service()
         result = db_chat_service.query_chat_notifications(
             chatId=chatId, 
             limit=limit, 
@@ -802,8 +804,8 @@ def handle_clean_chat_unread(request: IPCRequest, params: Optional[dict]) -> IPC
         chatId = params.get('chatId')
         if not chatId:
             return create_error_response(request, 'INVALID_PARAMS', 'chatId is required')
-        main_window = AppContext.get_main_window()
-        db_chat_service = main_window.db_chat_service
+        ctx = get_handler_context(request, params)
+        db_chat_service = ctx.get_db_chat_service()
         # Assume db_chat_service has set_chat_unread method, otherwise directly update chat's unread field
         if hasattr(db_chat_service, 'set_chat_unread'):
             result = db_chat_service.set_chat_unread(chatId=chatId, unread=0)
