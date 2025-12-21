@@ -7,6 +7,7 @@ from ..types import IPCRequest, IPCResponse, create_success_response, create_err
 from ..registry import IPCHandlerRegistry
 from utils.logger_helper import logger_helper as logger
 from app_context import AppContext
+from gui.ipc.context_bridge import get_handler_context
 
 
 def validate_params(params: Optional[Dict[str, Any]], required_keys: list) -> tuple[bool, Dict[str, Any], str]:
@@ -21,43 +22,45 @@ def validate_params(params: Optional[Dict[str, Any]], required_keys: list) -> tu
     return True, params, ""
 
 
-def get_llm_manager():
+def get_llm_manager(request=None, params=None):
     """Get LLM manager instance"""
-    main_window = AppContext.get_main_window()
-    return main_window.config_manager.llm_manager
+    ctx = get_handler_context(request, params)
+    return ctx.get_config_manager().llm_manager if ctx and ctx.get_config_manager() else None
 
 
-def get_embedding_manager():
+def get_embedding_manager(request=None, params=None):
     """Get Embedding manager instance"""
-    main_window = AppContext.get_main_window()
-    return main_window.config_manager.embedding_manager
+    ctx = get_handler_context(request, params)
+    return ctx.get_config_manager().embedding_manager if ctx and ctx.get_config_manager() else None
 
 
-def get_rerank_manager():
+def get_rerank_manager(request=None, params=None):
     """Get Rerank manager instance"""
-    main_window = AppContext.get_main_window()
-    return main_window.config_manager.rerank_manager
+    ctx = get_handler_context(request, params)
+    return ctx.get_config_manager().rerank_manager if ctx and ctx.get_config_manager() else None
 
 
-def find_shared_providers(env_vars: list, provider_type: str) -> list:
+def find_shared_providers(env_vars: list, provider_type: str, request=None, params=None) -> list:
     """
     Find providers in the other systems (LLM/Embedding/Rerank) that share the same API key env vars.
     
     Args:
         env_vars: List of environment variable names used by the current provider
         provider_type: 'llm', 'embedding', or 'rerank' to indicate which system we're updating
+        request: IPC request object (optional)
+        params: Request parameters (optional)
     
     Returns:
         List of provider dicts that share the same env_vars
     """
     shared_providers = []
     try:
-        main_window = AppContext.get_main_window()
-        if not main_window:
-            logger.debug("find_shared_providers: main_window is None")
+        ctx = get_handler_context(request, params)
+        if not ctx:
+            logger.debug("find_shared_providers: ctx is None")
             return shared_providers
         
-        if not hasattr(main_window, 'config_manager') or not main_window.config_manager:
+        if not hasattr(ctx, 'config_manager') or not ctx.get_config_manager():
             logger.debug("find_shared_providers: config_manager is not available")
             return shared_providers
         
@@ -80,13 +83,13 @@ def find_shared_providers(env_vars: list, provider_type: str) -> list:
 
         # Check other systems based on current provider type
         if provider_type != 'embedding':
-            check_manager(get_embedding_manager(), 'embedding')
+            check_manager(get_embedding_manager(request, params), 'embedding')
             
         if provider_type != 'llm':
-            check_manager(get_llm_manager(), 'llm')
+            check_manager(get_llm_manager(request, params), 'llm')
             
         if provider_type != 'rerank':
-            check_manager(get_rerank_manager(), 'rerank')
+            check_manager(get_rerank_manager(request, params), 'rerank')
 
     except Exception as e:
         logger.warning(f"Error finding shared providers: {e}", exc_info=True)
@@ -100,7 +103,7 @@ def handle_get_llm_providers(request: IPCRequest, params: Optional[Dict[str, Any
     try:
         from gui.ollama_utils import merge_ollama_models_to_providers
         
-        llm_manager = get_llm_manager()
+        llm_manager = get_llm_manager(request, params)
         providers = llm_manager.get_all_providers()
         
         # Merge Ollama models using shared utility
@@ -126,7 +129,7 @@ def handle_get_llm_provider(request: IPCRequest, params: Optional[Dict[str, Any]
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
 
-        llm_manager = get_llm_manager()
+        llm_manager = get_llm_manager(request, params)
         provider = llm_manager.get_provider(data['name'])
         if not provider:
             return create_error_response(request, 'LLM_ERROR', f"Provider {data['name']} not found")
@@ -149,7 +152,7 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
 
-        llm_manager = get_llm_manager()
+        llm_manager = get_llm_manager(request, params)
         # Frontend MUST send standard provider identifier (e.g., "openai", "dashscope", "azure_openai")
         # NOT name or display_name (e.g., NOT "OpenAI", "Qwen (DashScope)")
         provider_identifier = (data.get('name') or "").strip()
@@ -259,9 +262,10 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
                 # If only one provider is configured, set it as default
                 if len(configured_providers) == 1 and configured_providers[0] == provider_identifier:
                     from app_context import AppContext
-                    main_window = AppContext.get_main_window()
-                    if main_window:
-                        general_settings = main_window.config_manager.general_settings
+                    from gui.ipc.context_bridge import get_handler_context
+                    ctx = get_handler_context(request, params)
+                    if ctx:
+                        general_settings = ctx.get_config_manager().general_settings
                         general_settings.default_llm = provider_identifier
                         # Always update default model when auto-setting provider
                         default_model = provider.get('default_model')
@@ -277,12 +281,13 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
                     # Hot-update LLM instances if default was changed
                     if auto_set_as_default:
                         from app_context import AppContext
-                        main_window = AppContext.get_main_window()
-                        if main_window:
+                        from gui.ipc.context_bridge import get_handler_context
+                        ctx = get_handler_context(request, params)
+                        if ctx:
                             try:
                                 default_model = provider.get('default_model')
                                 provider_info = f"{provider.get('display_name', provider_identifier)}, Model: {default_model}"
-                                update_success = main_window.update_all_llms(reason=f"Default LLM changed to {provider_info}")
+                                update_success = ctx.main_window.update_all_llms(reason=f"Default LLM changed to {provider_info}")
                                 if update_success:
                                     logger.info(f"Successfully hot-updated LLM instances to {provider_identifier}")
                                 else:
@@ -295,7 +300,7 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
         logger.info(f"Updated LLM provider: {provider_identifier}")
         
         # Find shared Embedding providers that use the same API keys
-        shared_providers = find_shared_providers(env_vars, 'llm')
+        shared_providers = find_shared_providers(env_vars, 'llm', request, params)
         
         # Get updated provider info for frontend
         updated_provider = llm_manager.get_provider(provider_identifier)
@@ -319,11 +324,11 @@ def handle_update_llm_provider(request: IPCRequest, params: Optional[Dict[str, A
             response_data['default_llm'] = provider_identifier
             response_data['default_llm_model'] = provider.get('default_model')
             # Also include current settings for frontend
-            main_window = AppContext.get_main_window()
-            if main_window:
+            ctx = get_handler_context(request, params)
+            if ctx:
                 response_data['settings'] = {
-                    'default_llm': main_window.config_manager.general_settings.default_llm,
-                    'default_llm_model': main_window.config_manager.general_settings.default_llm_model
+                    'default_llm': ctx.get_config_manager().general_settings.default_llm,
+                    'default_llm_model': ctx.get_config_manager().general_settings.default_llm_model
                 }
         
         return create_success_response(request, response_data)
@@ -344,8 +349,8 @@ def handle_set_llm_provider_model(request: IPCRequest, params: Optional[Dict[str
         provider_name = data['name']
         model_name = data['model']
 
-        llm_manager = get_llm_manager()
-        main_window = AppContext.get_main_window()
+        llm_manager = get_llm_manager(request, params)
+        ctx = get_handler_context(request, params)
         
         # Update provider's default model
         success, error_msg = llm_manager.set_provider_default_model(provider_name, model_name)
@@ -356,16 +361,16 @@ def handle_set_llm_provider_model(request: IPCRequest, params: Optional[Dict[str
         updated_provider = llm_manager.get_provider(provider_name)
         
         # If this is the current default LLM, also update default_llm_model in general_settings (case-insensitive)
-        current_default = (main_window.config_manager.general_settings.default_llm or "").lower()
+        current_default = (ctx.get_config_manager().general_settings.default_llm or "").lower()
         if current_default == (provider_name or "").lower():
-            main_window.config_manager.general_settings.default_llm_model = model_name
-            main_window.config_manager.general_settings.save()
+            ctx.get_config_manager().general_settings.default_llm_model = model_name
+            ctx.get_config_manager().general_settings.save()
             logger.info(f"[LLM] Updated default_llm_model to {model_name} for current provider {provider_name}")
             
             # Hot-update: Use unified method to update all LLMs (including browser_use)
             try:
                 provider_info = f"{updated_provider.get('display_name', provider_name)}, Model: {model_name}"
-                update_success = main_window.update_all_llms(reason=f"Model changed to {provider_info}")
+                update_success = ctx.main_window.update_all_llms(reason=f"Model changed to {provider_info}")
                 
                 if not update_success:
                     logger.warning(f"Failed to update LLM instances after model change, but settings were saved")
@@ -393,8 +398,8 @@ def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
 
-        llm_manager = get_llm_manager()
-        main_window = AppContext.get_main_window()
+        llm_manager = get_llm_manager(request, params)
+        ctx = get_handler_context(request, params)
         provider_name = data['name']
         username = data.get('username', '')
 
@@ -404,7 +409,7 @@ def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict
             return create_error_response(request, 'LLM_ERROR', f"Provider {provider_name} not found")
 
         # Check if this is the current default LLM (case-insensitive)
-        current_default_llm = (main_window.config_manager.general_settings.default_llm or "").lower()
+        current_default_llm = (ctx.get_config_manager().general_settings.default_llm or "").lower()
         is_default_llm = (current_default_llm == (provider_name or "").lower())
 
         # Delete API key and other credentials from environment variables
@@ -476,9 +481,9 @@ def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict
                 logger.info(f"No configured providers found; defaulting to {new_default_llm} with model {new_default_model} (no API key)")
             
             # Update default_llm setting
-            main_window.config_manager.general_settings.default_llm = new_default_llm
-            main_window.config_manager.general_settings.default_llm_model = new_default_model
-            save_result = main_window.config_manager.general_settings.save()
+            ctx.get_config_manager().general_settings.default_llm = new_default_llm
+            ctx.get_config_manager().general_settings.default_llm_model = new_default_model
+            save_result = ctx.get_config_manager().general_settings.save()
             
             if not save_result:
                 logger.error(f"Failed to save new default LLM setting")
@@ -488,7 +493,7 @@ def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict
             if configured_providers and new_provider:
                 try:
                     provider_info = f"{new_provider.get('display_name', new_default_llm)}, Model: {new_default_model}"
-                    update_success = main_window.update_all_llms(reason=f"Default LLM changed to {provider_info}")
+                    update_success = ctx.main_window.update_all_llms(reason=f"Default LLM changed to {provider_info}")
                     if not update_success:
                         logger.warning("Failed to hot-update LLMs after default change")
                 except Exception as update_error:
@@ -496,13 +501,17 @@ def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict
             else:
                 # Clear LLM instance if no provider is configured
                 try:
-                    main_window.llm = None
+                    # Note: Cannot directly set via ctx.get_llm(), use ctx for desktop mode
+                    from app_context import AppContext
+                    mw = AppContext.get_ctx()
+                    if mw:
+                        mw.llm = None
                     logger.info("Cleared LLM instance because no providers are configured")
                 except Exception as clear_error:
                     logger.error(f"Error clearing LLM instance: {clear_error}")
 
         # Find shared Embedding providers that use the same API keys
-        shared_providers = find_shared_providers(env_vars, 'llm')
+        shared_providers = find_shared_providers(env_vars, 'llm', request, params)
         
         # Get updated provider info for frontend
         updated_provider = llm_manager.get_provider(provider_name)
@@ -529,8 +538,8 @@ def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict
             response_data['reset_to_default'] = (len(configured_providers) == 0)
             # Also include current settings for frontend
             response_data['settings'] = {
-                'default_llm': main_window.config_manager.general_settings.default_llm,
-                'default_llm_model': main_window.config_manager.general_settings.default_llm_model
+                'default_llm': ctx.get_config_manager().general_settings.default_llm,
+                'default_llm_model': ctx.get_config_manager().general_settings.default_llm_model
             }
         
         return create_success_response(request, response_data)
@@ -563,8 +572,8 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
         name = data['name']
         model = data.get('model')  # Optional model parameter from frontend
 
-        llm_manager = get_llm_manager()
-        main_window = AppContext.get_main_window()
+        llm_manager = get_llm_manager(request, params)
+        ctx = get_handler_context(request, params)
 
         # Verify provider exists and is configured
         provider = llm_manager.get_provider(name)
@@ -575,11 +584,11 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
             return create_error_response(request, 'LLM_ERROR', f"Provider {name} is not configured")
 
         # Save current settings for potential rollback
-        old_default_llm = main_window.config_manager.general_settings.default_llm
-        old_default_model = main_window.config_manager.general_settings.default_llm_model
+        old_default_llm = ctx.get_config_manager().general_settings.default_llm
+        old_default_model = ctx.get_config_manager().general_settings.default_llm_model
 
         # Update default_llm first
-        main_window.config_manager.general_settings.default_llm = name
+        ctx.get_config_manager().general_settings.default_llm = name
         
         # Determine which model to use
         if model:
@@ -588,7 +597,7 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
             logger.info(f"[LLM] Using model from frontend: {model}")
         else:
             # No model from frontend, need to determine from current settings
-            current_default_model = main_window.config_manager.general_settings.default_llm_model
+            current_default_model = ctx.get_config_manager().general_settings.default_llm_model
             
             # Check if we're switching providers
             is_switching_provider = (old_default_llm != name)
@@ -624,9 +633,9 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
                 provider_model = provider.get('default_model', '')
         
         # Update default_llm_model
-        main_window.config_manager.general_settings.default_llm_model = provider_model
+        ctx.get_config_manager().general_settings.default_llm_model = provider_model
         
-        save_result = main_window.config_manager.general_settings.save()
+        save_result = ctx.get_config_manager().general_settings.save()
 
         if not save_result:
             return create_error_response(request, 'LLM_ERROR', f"Failed to save default LLM setting")
@@ -634,7 +643,7 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
         # Hot-update: Use unified method to update all LLMs (including browser_use)
         try:
             provider_info = f"{provider.get('display_name', name)}, Model: {provider_model}"
-            success = main_window.update_all_llms(reason=f"Provider switched to {provider_info}")
+            success = ctx.main_window.update_all_llms(reason=f"Provider switched to {provider_info}")
             
             if not success:
                 # Revert the setting change if LLM creation failed
@@ -642,13 +651,13 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
                 logger.info(f"Reverting: default_llm from '{name}' to '{old_default_llm}'")
                 logger.info(f"Reverting: default_llm_model from '{provider_model}' to '{old_default_model}'")
                 
-                main_window.config_manager.general_settings.default_llm = old_default_llm
-                main_window.config_manager.general_settings.default_llm_model = old_default_model
-                rollback_saved = main_window.config_manager.general_settings.save()
+                ctx.get_config_manager().general_settings.default_llm = old_default_llm
+                ctx.get_config_manager().general_settings.default_llm_model = old_default_model
+                rollback_saved = ctx.get_config_manager().general_settings.save()
                 
                 # Verify rollback
-                current_llm = main_window.config_manager.general_settings.default_llm
-                current_model = main_window.config_manager.general_settings.default_llm_model
+                current_llm = ctx.get_config_manager().general_settings.default_llm
+                current_model = ctx.get_config_manager().general_settings.default_llm_model
                 logger.info(f"After rollback: default_llm='{current_llm}', default_llm_model='{current_model}'")
                 
                 if current_llm != old_default_llm or current_model != old_default_model:
@@ -669,13 +678,13 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
             logger.info(f"Reverting: default_llm from '{name}' to '{old_default_llm}'")
             logger.info(f"Reverting: default_llm_model from '{provider_model}' to '{old_default_model}'")
             
-            main_window.config_manager.general_settings.default_llm = old_default_llm
-            main_window.config_manager.general_settings.default_llm_model = old_default_model
-            rollback_saved = main_window.config_manager.general_settings.save()
+            ctx.get_config_manager().general_settings.default_llm = old_default_llm
+            ctx.get_config_manager().general_settings.default_llm_model = old_default_model
+            rollback_saved = ctx.get_config_manager().general_settings.save()
             
             # Verify rollback
-            current_llm = main_window.config_manager.general_settings.default_llm
-            current_model = main_window.config_manager.general_settings.default_llm_model
+            current_llm = ctx.get_config_manager().general_settings.default_llm
+            current_model = ctx.get_config_manager().general_settings.default_llm_model
             logger.info(f"After rollback: default_llm='{current_llm}', default_llm_model='{current_model}'")
             
             if current_llm != old_default_llm or current_model != old_default_model:
@@ -690,8 +699,8 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
             )
 
         # Verify the final state
-        final_default_llm = main_window.config_manager.general_settings.default_llm
-        final_llm_type = type(main_window.llm).__name__ if main_window.llm else "None"
+        final_default_llm = ctx.get_config_manager().general_settings.default_llm
+        final_llm_type = type(ctx.get_llm()).__name__ if ctx.get_llm() else "None"
         
         verification_status = "VERIFIED" if (final_default_llm or "").lower() == (name or "").lower() else "MISMATCH"
         logger.info("Provider switch verification:")
@@ -717,8 +726,8 @@ def handle_set_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
 def handle_get_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]] = None) -> IPCResponse:
     """Get current default LLM provider"""
     try:
-        main_window = AppContext.get_main_window()
-        default_llm = main_window.config_manager.general_settings.default_llm
+        ctx = get_handler_context(request, params)
+        default_llm = ctx.get_config_manager().general_settings.default_llm
 
         return create_success_response(request, {
             'default_llm': default_llm,
@@ -734,7 +743,7 @@ def handle_get_default_llm(request: IPCRequest, params: Optional[Dict[str, Any]]
 def handle_get_configured_llm_providers(request: IPCRequest, params: Optional[Dict[str, Any]] = None) -> IPCResponse:
     """Get configured LLM providers"""
     try:
-        llm_manager = get_llm_manager()
+        llm_manager = get_llm_manager(request, params)
         all_providers = llm_manager.get_all_providers()
 
         # Filter out configured providers
@@ -765,7 +774,7 @@ def handle_get_llm_providers_with_credentials(request: IPCRequest, params: Optio
     try:
         from gui.ollama_utils import merge_ollama_models_to_providers
         
-        llm_manager = get_llm_manager()
+        llm_manager = get_llm_manager(request, params)
         all_providers = llm_manager.get_all_providers()
         
         # Merge Ollama models using shared utility
@@ -831,7 +840,7 @@ def handle_get_llm_provider_api_key(request: IPCRequest, params: Optional[Dict[s
         provider_name = data['name']
         show_full = data.get('show_full', False)  # Whether to show full API key
 
-        llm_manager = get_llm_manager()
+        llm_manager = get_llm_manager(request, params)
 
         # Get provider information
         provider = llm_manager.get_provider(provider_name)

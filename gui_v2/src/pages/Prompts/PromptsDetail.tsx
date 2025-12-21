@@ -34,9 +34,9 @@ const SectionContainer: React.FC<{
 }> = ({ title, extra, children }) => (
   <Card
     size="small"
-    bordered={false}
+    variant="borderless"
     style={{ background: 'rgba(15,23,42,0.55)', border: '1px solid rgba(148,163,184,0.14)' }}
-    bodyStyle={{ padding: 16 }}
+    styles={{ body: { padding: 16 } }}
     title={<Typography.Text strong style={{ color: '#fff' }}>{title}</Typography.Text>}
     extra={extra}
   >
@@ -917,7 +917,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                 <Card
                   key={section.id}
                   size="small"
-                  bordered
+                  variant="outlined"
                   style={{ background: 'rgba(15,23,42,0.65)', borderColor: 'rgba(148,163,184,0.2)' }}
                   title={<Typography.Text strong style={{ color: '#fff' }}>{label}</Typography.Text>}
                   extra={
@@ -1139,7 +1139,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                 <Card
                   key={section.id}
                   size="small"
-                  bordered
+                  variant="outlined"
                   style={{ background: 'rgba(15,23,42,0.65)', borderColor: 'rgba(148,163,184,0.2)' }}
                   title={<Typography.Text strong style={{ color: '#fff' }}>{label}</Typography.Text>}
                   extra={

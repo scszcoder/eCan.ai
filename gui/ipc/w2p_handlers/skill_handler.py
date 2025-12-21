@@ -3,6 +3,7 @@ import asyncio
 import requests
 from typing import TYPE_CHECKING, Any, Optional, Dict, Tuple
 from app_context import AppContext
+from gui.ipc.context_bridge import get_handler_context
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
@@ -55,8 +56,8 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
         # Get skills from memory (mainwin.agent_skills is the single source of truth)
         # Skills are loaded from database during startup by build_agent_skills()
         try:
-            main_window = AppContext.get_main_window()
-            memory_skills = main_window.agent_skills or []
+            ctx = get_handler_context(request, params)
+            memory_skills = ctx.get_agent_skills() or []
             logger.info(f"Found {len(memory_skills)} skills in memory (mainwin.agent_skills)")
 
             # Convert skills to dictionary format
@@ -140,7 +141,7 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
         logger.info(f"Saving agent skill for user: {username}, skill_id: {skill_id}")
 
         # Get database service
-        skill_service = _get_skill_service()
+        skill_service = _get_skill_service(request, params)
         if not skill_service:
             return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
 
@@ -165,7 +166,7 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
             logger.info(f"Skill saved successfully: {skill_data['name']} (ID: {actual_skill_id})")
 
             # Step 2: Update memory after database update succeeds
-            _update_skill_in_memory(actual_skill_id, skill_data)
+            _update_skill_in_memory(actual_skill_id, skill_data, request, params)
 
             # Step 3: Clean up offline sync queue for this skill (remove pending add/update operations)
             try:
@@ -245,7 +246,7 @@ def handle_new_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]]
         logger.info(f"Creating new agent skill for user: {username}")
 
         # Get database service
-        skill_service = _get_skill_service()
+        skill_service = _get_skill_service(request, params)
         if not skill_service:
             return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
 
@@ -270,7 +271,7 @@ def handle_new_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]]
             logger.info(f"Skill created successfully: {skill_data['name']} (ID: {skill_id})")
 
             # Step 2: Update memory after database creation succeeds
-            _update_skill_in_memory(skill_id, skill_data)
+            _update_skill_in_memory(skill_id, skill_data, request, params)
 
             # Step 3: Sync to cloud after memory update succeeds (async, fire and forget)
             skill_data_with_id = skill_data.copy()
@@ -339,9 +340,9 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
 
         # Check if this is a read-only skill (cannot be deleted from UI)
         try:
-            main_window = AppContext.get_main_window()
-            if main_window and hasattr(main_window, 'agent_skills'):
-                for skill in (main_window.agent_skills or []):
+            ctx = get_handler_context(request, params)
+            if ctx:
+                for skill in (ctx.get_agent_skills() or []):
                     if hasattr(skill, 'id') and skill.id == skill_id:
                         source = getattr(skill, 'source', 'ui')
                         if source == 'code':
@@ -356,7 +357,7 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
             logger.warning(f"[skill_handler] Failed to check skill source: {e}")
 
         # Get database service
-        skill_service = _get_skill_service()
+        skill_service = _get_skill_service(request, params)
         if not skill_service:
             return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
 
@@ -364,9 +365,9 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
         skill_path = None
         skill_name = None
         try:
-            main_window = AppContext.get_main_window()
-            if main_window and hasattr(main_window, 'agent_skills'):
-                for skill in (main_window.agent_skills or []):
+            ctx = get_handler_context(request, params)
+            if ctx:
+                for skill in (ctx.get_agent_skills() or []):
                     if hasattr(skill, 'id') and skill.id == skill_id:
                         skill_path = getattr(skill, 'path', None)
                         skill_name = getattr(skill, 'name', None)
@@ -388,14 +389,15 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
         # Step 2: Remove from memory (always try, even if DB deletion failed)
         mem_deleted = False
         try:
-            main_window = AppContext.get_main_window()
-            if main_window and hasattr(main_window, 'agent_skills'):
-                original_count = len(main_window.agent_skills or [])
-                main_window.agent_skills = [
-                    skill for skill in (main_window.agent_skills or [])
+            ctx = get_handler_context(request, params)
+            agent_skills = ctx.get_agent_skills()
+            if agent_skills is not None:
+                original_count = len(agent_skills)
+                agent_skills[:] = [
+                    skill for skill in agent_skills
                     if not (hasattr(skill, 'id') and skill.id == skill_id)
                 ]
-                new_count = len(main_window.agent_skills)
+                new_count = len(agent_skills)
                 if new_count < original_count:
                     mem_deleted = True
                     logger.info(f"[skill_handler] Removed skill from memory: {skill_id} (count: {original_count} → {new_count})")
@@ -482,15 +484,15 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
 # Helper Functions for Skill Management
 # ============================================================================
 
-def _get_skill_service():
+def _get_skill_service(request=None, params=None):
     """Get skill service from mainwin (uses correct user-specific database path)
 
     Returns:
         skill_service: Database skill service instance, or None if not available
     """
-    main_window = AppContext.get_main_window()
-    if main_window and hasattr(main_window, 'ec_db_mgr'):
-        return main_window.ec_db_mgr.skill_service
+    ctx = get_handler_context(request, params)
+    if ctx:
+        return ctx.get_ec_db_mgr().skill_service
     else:
         logger.error("[skill_handler] mainwin.ec_db_mgr not available - cannot access database")
         return None
@@ -536,19 +538,21 @@ def _prepare_skill_data(skill_info: Dict[str, Any], username: str, skill_id: Opt
     return skill_data
 
 
-def _update_skill_in_memory(skill_id: str, skill_data: Dict[str, Any]) -> bool:
+def _update_skill_in_memory(skill_id: str, skill_data: Dict[str, Any], request=None, params=None) -> bool:
     """Update or add skill in mainwin.agent_skills memory
 
     Args:
         skill_id: Skill ID
         skill_data: Skill data dictionary
+        request: IPC request object (optional)
+        params: Request parameters (optional)
 
     Returns:
         bool: True if successful, False otherwise
     """
     try:
-        main_window = AppContext.get_main_window()
-        if not main_window or not hasattr(main_window, 'agent_skills'):
+        ctx = get_handler_context(request, params)
+        if not ctx or not hasattr(ctx, 'agent_skills'):
             logger.warning("[skill_handler] mainwin.agent_skills not available")
             return False
 
@@ -560,7 +564,7 @@ def _update_skill_in_memory(skill_id: str, skill_data: Dict[str, Any]) -> bool:
 
         # Check if skill already exists in memory
         existing_index = None
-        for i, skill in enumerate(main_window.agent_skills or []):
+        for i, skill in enumerate(ctx.get_agent_skills() or []):
             if hasattr(skill, 'id') and skill.id == skill_id:
                 existing_index = i
                 break
@@ -579,14 +583,15 @@ def _update_skill_in_memory(skill_id: str, skill_data: Dict[str, Any]) -> bool:
         
         if existing_index is not None:
             # Update existing skill
-            main_window.agent_skills[existing_index] = skill_obj
+            agent_skills = ctx.get_agent_skills()
+            agent_skills[existing_index] = skill_obj
             logger.info(f"[skill_handler] ✅ Updated skill in memory: {skill_name} (index={existing_index})")
         else:
             # Add new skill
-            if main_window.agent_skills is None:
-                main_window.agent_skills = []
-            main_window.agent_skills.append(skill_obj)
-            logger.info(f"[skill_handler] ✅ Added new skill to memory: {skill_name} (total={len(main_window.agent_skills)})")
+            agent_skills = ctx.get_agent_skills()
+            if agent_skills is not None:
+                agent_skills.append(skill_obj)
+                logger.info(f"[skill_handler] ✅ Added new skill to memory: {skill_name} (total={len(agent_skills)})")
 
         return True
 
@@ -681,10 +686,11 @@ def _sync_skill_tool_relations(skill_id: str, tool_ids: list, operation: 'Operat
     from agent.cloud_api.offline_sync_manager import get_sync_manager
     from agent.cloud_api.constants import DataType
     from app_context import AppContext
+    from gui.ipc.context_bridge import get_handler_context
     
     manager = get_sync_manager()
-    main_window = AppContext.get_main_window()
-    owner = main_window.current_user if main_window else 'unknown'
+    ctx = get_handler_context(request, params)
+    owner = ctx.get_username() if ctx else 'unknown'
     
     logger.info(f"[skill_handler] Syncing {len(tool_ids)} tool relationships for skill: {skill_id}")
     
@@ -720,10 +726,11 @@ def _sync_skill_knowledge_relations(skill_id: str, knowledge_ids: list, operatio
     from agent.cloud_api.offline_sync_manager import get_sync_manager
     from agent.cloud_api.constants import DataType
     from app_context import AppContext
+    from gui.ipc.context_bridge import get_handler_context
     
     manager = get_sync_manager()
-    main_window = AppContext.get_main_window()
-    owner = main_window.current_user if main_window else 'unknown'
+    ctx = get_handler_context(request, params)
+    owner = ctx.get_username() if ctx else 'unknown'
     
     logger.info(f"[skill_handler] Syncing {len(knowledge_ids)} knowledge relationships for skill: {skill_id}")
     
@@ -745,7 +752,7 @@ def _sync_skill_knowledge_relations(skill_id: str, knowledge_ids: list, operatio
         manager.sync_to_cloud_async(DataType.SKILL_KNOWLEDGE, relation_data, operation, callback=_log_result)
 
 
-def sync_skill_from_file(file_path: str) -> Dict[str, Any]:
+def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str, Any]:
     """
     Standard function to sync skill from file to database.
     This function reads the skill JSON file and creates/updates the skill in database.
@@ -755,6 +762,8 @@ def sync_skill_from_file(file_path: str) -> Dict[str, Any]:
     
     Args:
         file_path: Full path to the skill JSON file
+        request: IPC request object (optional)
+        params: Request parameters (optional)
     
     Returns:
         Dict with success status and skill_id
@@ -769,14 +778,14 @@ def sync_skill_from_file(file_path: str) -> Dict[str, Any]:
             skill_data = json.load(f)
         
         # Get username from AppContext
-        main_window = AppContext.get_main_window()
-        if not main_window or not hasattr(main_window, 'user'):
-            raise ValueError("Cannot get username: main_window or main_window.user not available")
+        ctx = get_handler_context(request, params)
+        if not ctx or not True:
+            raise ValueError("Cannot get username: ctx or ctx.get_username() not available")
         
-        username = main_window.user
+        username = ctx.get_username()
         
         # Get skill service
-        skill_service = _get_skill_service()
+        skill_service = _get_skill_service(request, params)
         if not skill_service:
             return {'success': False, 'error': 'Database service not available'}
         
@@ -836,7 +845,7 @@ def sync_skill_from_file(file_path: str) -> Dict[str, Any]:
             
             if result.get('success'):
                 # Update memory
-                _update_skill_in_memory(skill_id, prepared_data)
+                _update_skill_in_memory(skill_id, prepared_data, request, params)
                 
                 # Sync to cloud
                 skill_data_with_id = prepared_data.copy()
@@ -860,7 +869,7 @@ def sync_skill_from_file(file_path: str) -> Dict[str, Any]:
                 skill_id = result.get('id')
                 
                 # Update memory
-                _update_skill_in_memory(skill_id, prepared_data)
+                _update_skill_in_memory(skill_id, prepared_data, request, params)
                 
                 # Sync to cloud
                 skill_data_with_id = prepared_data.copy()
