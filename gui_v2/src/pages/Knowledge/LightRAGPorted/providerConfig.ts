@@ -106,7 +106,7 @@ export const RERANKING_PROVIDERS: ProviderConfig[] = [
 
 export const RERANKING_COMMON_FIELDS: ProviderFieldConfig[] = [
   { key: 'RERANK_BY_DEFAULT', label: 'fields.enableByDefault', type: 'boolean', placeholder: 'True', tooltip: 'tooltips.rerankByDefault' },
-  { key: 'MIN_RERANK_SCORE', label: 'fields.minRerankScore', type: 'number', placeholder: '0.0', tooltip: 'tooltips.minRerankScore' }
+  { key: 'MIN_RERANK_SCORE', label: 'fields.minRerankScore', type: 'number', placeholder: '0.25', tooltip: 'tooltips.minRerankScore' }
 ];
 
 // ==================== LLM Providers ====================
@@ -116,7 +116,7 @@ export const LLM_PROVIDERS: ProviderConfig[] = [
     name: 'OpenAI',
     description: 'OpenAI GPT models',
     fields: [
-      { key: 'LLM_MODEL', label: 'fields.model', type: 'text', defaultValue: 'gpt-4o', required: true },
+      { key: 'LLM_MODEL', label: 'fields.model', type: 'text', defaultValue: 'gpt-5', required: true },
       { key: 'LLM_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'https://api.openai.com/v1' },
       { key: 'LLM_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', placeholder: 'sk-...', required: true },
       { key: 'OPENAI_LLM_TEMPERATURE', label: 'fields.temperature', type: 'number', placeholder: '0.9' },
@@ -137,7 +137,7 @@ export const LLM_PROVIDERS: ProviderConfig[] = [
       { key: 'LLM_MODEL', label: 'fields.model', type: 'text', placeholder: 'qwen2.5:32b', required: true, isDynamicOllamaModel: true },
       { key: 'LLM_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'http://127.0.0.1:11434' },
       { key: 'LLM_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', placeholder: 'fields.optional' },
-      { key: 'OLLAMA_LLM_NUM_CTX', label: 'fields.contextWindow', type: 'number', defaultValue: '8192', tooltip: 'tooltips.ollamaNumCtx' },
+      { key: 'OLLAMA_LLM_NUM_CTX', label: 'fields.contextWindow', type: 'number', defaultValue: '32768', tooltip: 'tooltips.ollamaNumCtx' },
       { key: 'OLLAMA_LLM_NUM_PREDICT', label: 'fields.maxPredictTokens', type: 'number', placeholder: '9000' }
     ]
   },
@@ -384,7 +384,7 @@ export const EMBEDDING_PROVIDERS: ProviderConfig[] = [
 ];
 
 export const EMBEDDING_COMMON_FIELDS: ProviderFieldConfig[] = [
-  { key: 'EMBEDDING_TIMEOUT', label: 'fields.requestTimeout', type: 'number', placeholder: '30', tooltip: 'tooltips.embeddingTimeout' },
+  { key: 'EMBEDDING_TIMEOUT', label: 'fields.requestTimeout', type: 'number', placeholder: '60', tooltip: 'tooltips.embeddingTimeout' },
   { 
     key: 'EMBEDDING_SEND_DIM', 
     label: 'fields.sendDimensions', 
