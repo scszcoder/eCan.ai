@@ -113,10 +113,22 @@ const LLMManagement = React.forwardRef<
         providers: LLMProvider[];
       }>();
       if (response.success && response.data) {
-        setProviders(response.data.providers);
-        console.log("✅ LLM providers loaded:", response.data.providers);
+        const loadedProviders = response.data.providers;
+        setProviders(loadedProviders);
+        console.log("✅ LLM providers loaded:", loadedProviders);
+
+        const ollamaProvider = loadedProviders.find(
+          (p) =>
+            (p.provider || "").toLowerCase() === "ollama" ||
+            (p.name || "").toLowerCase().includes("ollama") ||
+            (p.display_name || "").toLowerCase().includes("ollama")
+        );
+        const loadedOllamaHost = ollamaProvider?.base_url;
+        if (!editingOllamaHost && loadedOllamaHost && loadedOllamaHost !== ollamaHost) {
+          setOllamaHost(loadedOllamaHost);
+        }
         // Debug: Check OpenAI provider name
-        const openaiProvider = response.data.providers.find(p => 
+        const openaiProvider = loadedProviders.find(p => 
           p.name === 'OpenAI' || p.name === 'ChatOpenAI' || p.display_name?.toLowerCase().includes('openai')
         );
         if (openaiProvider) {
@@ -140,7 +152,7 @@ const LLMManagement = React.forwardRef<
     } finally {
       setLoading(false);
     }
-  }, [username, defaultLLM, t, message]);
+  }, [username, defaultLLM, t, message, editingOllamaHost, ollamaHost]);
 
   // Expose loadProviders method via ref
   useImperativeHandle(ref, () => ({

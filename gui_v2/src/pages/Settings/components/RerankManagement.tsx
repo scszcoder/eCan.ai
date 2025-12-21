@@ -109,8 +109,20 @@ const RerankManagement = React.forwardRef<
         providers: LLMProvider[];
       }>();
       if (response.success && response.data) {
-        setProviders(response.data.providers);
-        console.log("✅ Rerank providers loaded:", response.data.providers);
+        const loadedProviders = response.data.providers;
+        setProviders(loadedProviders);
+        console.log("✅ Rerank providers loaded:", loadedProviders);
+
+        const ollamaProvider = loadedProviders.find(
+          (p) =>
+            (p.provider || "").toLowerCase() === "ollama" ||
+            (p.name || "").toLowerCase().includes("ollama") ||
+            (p.display_name || "").toLowerCase().includes("ollama")
+        );
+        const loadedOllamaHost = ollamaProvider?.base_url;
+        if (!editingOllamaHost && loadedOllamaHost && loadedOllamaHost !== ollamaHost) {
+          setOllamaHost(loadedOllamaHost);
+        }
       } else {
         message.error(
           `${t("pages.settings.failed_to_load_providers")}: ${
@@ -124,7 +136,7 @@ const RerankManagement = React.forwardRef<
     } finally {
       setLoading(false);
     }
-  }, [username, t, message]);
+  }, [username, t, message, editingOllamaHost, ollamaHost]);
 
   // Expose loadProviders method via ref
   useImperativeHandle(ref, () => ({
