@@ -1,0 +1,61 @@
+# eCan.ai Web Server Dockerfile
+# 
+# This Dockerfile builds a headless web server image without Qt dependencies.
+# It's optimized for multi-user web deployment.
+#
+# Build:
+#   docker build -f Dockerfile.web -t ecan-web .
+#
+# Run:
+#   docker run -p 8765:8765 -e ECAN_WS_PORT=8765 ecan-web
+#
+# With environment file:
+#   docker run -p 8765:8765 --env-file .env.web ecan-web
+
+FROM python:3.12-slim
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    ECAN_MODE=web \
+    ECAN_WS_HOST=0.0.0.0 \
+    ECAN_WS_PORT=8765
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies (minimal for headless)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libffi-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user for security
+RUN useradd --create-home --shell /bin/bash ecan
+RUN chown -R ecan:ecan /app
+
+# Copy requirements first for better caching
+COPY requirements-base.txt ./
+
+# Install Python dependencies (excluding Qt)
+# Filter out PySide6 and other desktop-only dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    grep -v -E "^(PySide6|PyQt|qtpy)" requirements-base.txt > requirements-web.txt && \
+    pip install --no-cache-dir -r requirements-web.txt && \
+    pip install --no-cache-dir fastapi uvicorn websockets
+
+# Copy application code
+COPY --chown=ecan:ecan . .
+
+# Switch to non-root user
+USER ecan
+
+# Expose WebSocket port
+EXPOSE 8765
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8765/health')" || exit 1
+
+# Default command
+CMD ["python", "-m", "uvicorn", "web_server:app", "--host", "0.0.0.0", "--port", "8765"]

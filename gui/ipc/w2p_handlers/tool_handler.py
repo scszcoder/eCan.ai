@@ -1,8 +1,7 @@
 import traceback
 from typing import TYPE_CHECKING, Any, Optional, Dict
 from app_context import AppContext
-if TYPE_CHECKING:
-    from gui.MainGUI import MainWindow
+from gui.ipc.context_bridge import get_handler_context
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
@@ -40,9 +39,9 @@ def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
         username = data['username']
         logger.info(f"get tools successful for user: {username}")
 
-        main_window: MainWindow = AppContext.get_main_window()
+        ctx = get_handler_context(request, params)
         resultJS = {
-            'tools': [tool.model_dump() for tool in main_window.mcp_tools_schemas],
+            'tools': [tool.model_dump() for tool in ctx.get_mcp_tools_schemas()],
             'message': 'Get all successful'
         }
         resultJS_str = str(resultJS)
@@ -89,9 +88,9 @@ def handle_new_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> I
         username = data['username']
         logger.info(f"create tools successful for user: {username}")
 
-        main_window: MainWindow = AppContext.get_main_window()
+        ctx = get_handler_context(request, params)
         resultJS = {
-            'tools': [tool.model_dump() for tool in main_window.mcp_tools_schemas],
+            'tools': [tool.model_dump() for tool in ctx.get_mcp_tools_schemas()],
             'message': 'Create all successful'
         }
         resultJS_str = str(resultJS)
@@ -140,9 +139,9 @@ def handle_delete_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         username = data['username']
         logger.info(f"delete tools successful for user: {username}")
 
-        main_window: MainWindow = AppContext.get_main_window()
+        ctx = get_handler_context(request, params)
         resultJS = {
-            'tools': [tool.model_dump() for tool in main_window.mcp_tools_schemas],
+            'tools': [tool.model_dump() for tool in ctx.get_mcp_tools_schemas()],
             'message': 'Delete all successful'
         }
         resultJS_str = str(resultJS)

@@ -1,0 +1,64 @@
+# eCan.ai Web Deployment - Docker Compose
+#
+# This configuration runs the eCan.ai web server with optional services.
+#
+# Usage:
+#   docker-compose -f docker-compose.web.yml up -d
+#
+# With build:
+#   docker-compose -f docker-compose.web.yml up -d --build
+
+version: '3.8'
+
+services:
+  # eCan.ai Web Server (Backend)
+  ecan-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: ecan-backend
+    ports:
+      - "8765:8765"
+    environment:
+      - ECAN_MODE=web
+      - ECAN_WS_HOST=0.0.0.0
+      - ECAN_WS_PORT=8765
+      - ECAN_LOG_LEVEL=INFO
+      # AWS credentials (if needed)
+      # - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      # - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      # - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+    volumes:
+      # Persist user data
+      - ecan-data:/app/data
+      # Mount config (optional)
+      # - ./config:/app/config:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8765/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Nginx reverse proxy (optional, for production)
+  nginx:
+    image: nginx:alpine
+    container_name: ecan-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./gui_v2/dist:/usr/share/nginx/html:ro
+      # SSL certificates (for HTTPS)
+      # - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - ecan-backend
+    restart: unless-stopped
+    profiles:
+      - production
+
+volumes:
+  ecan-data:
+    driver: local

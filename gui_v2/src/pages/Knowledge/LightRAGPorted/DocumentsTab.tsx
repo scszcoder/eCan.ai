@@ -545,7 +545,10 @@ const DocumentsTab: React.FC = () => {
     setSelectedDirs([]);
   };
 
-  const loadDocuments = async (silentRefresh: boolean = false) => {
+  const loadDocuments = async (silentRefresh: boolean = false, retryCount: number = 0) => {
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 2000; // 2 seconds
+    
     try {
       if (!silentRefresh) {
         setLoading(true);
@@ -561,6 +564,25 @@ const DocumentsTab: React.FC = () => {
       });
 
       console.log('[DocumentsTab] Raw API response:', response);
+      
+      // Check if server is not ready (connection refused) and retry
+      if (!response.success && retryCount < MAX_RETRIES) {
+        const errorMsg = response.error?.message || '';
+        const isConnectionError = errorMsg.includes('Connection') || 
+                                   errorMsg.includes('refused') || 
+                                   errorMsg.includes('Max retries exceeded');
+        
+        if (isConnectionError) {
+          console.log(`[DocumentsTab] Server not ready, retrying in ${RETRY_DELAY}ms... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+          if (!silentRefresh) {
+            appendLog(t('pages.knowledge.documents.waitingForServer', { 
+              defaultValue: `Waiting for LightRAG server... (attempt ${retryCount + 1}/${MAX_RETRIES})` 
+            }));
+          }
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+          return loadDocuments(silentRefresh, retryCount + 1);
+        }
+      }
 
       if (response.success && response.data) {
           const res = response.data as any;
