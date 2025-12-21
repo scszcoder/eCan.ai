@@ -6,6 +6,7 @@ from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from app_context import AppContext
+from gui.ipc.context_bridge import get_handler_context
 from utils.logger_helper import logger_helper as logger
 from agent.ec_org_ctrl import get_ec_org_ctrl
 from agent.cloud_api.constants import Operation
@@ -235,24 +236,24 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         
         logger.info(f"[agent_handler] get agents request for user: {username}, agent_id: {agent_ids}")
 
-        main_window = AppContext.get_main_window()
-        if main_window is None:
+        ctx = get_handler_context(request, params)
+        if ctx is None:
             logger.warning(f"[agent_handler] MainWindow not available for user: {username} - user may have logged out")
             return create_error_response(request, 'MAIN_WINDOW_ERROR', 'User session not available - please login again')
 
         # This ensures we get all agents including newly created ones
-        if not main_window.ec_db_mgr or not main_window.ec_db_mgr.agent_service:
+        if not ctx.get_ec_db_mgr() or not ctx.get_ec_db_mgr().agent_service:
             logger.error(f"[agent_handler] Database service not available")
             return create_error_response(request, 'DB_ERROR', 'Database service not available')
 
         # Get all agents from memory (MainWindow.agents contains the most up-to-date data)
         # This includes both database agents and special agents like MyTwinAgent
-        memory_agents = getattr(main_window, 'agents', []) or []
+        memory_agents = ctx.get_agents() or []
         
         # If specific agent IDs are requested, query from database with relations to get tasks/skills
         if agent_ids and len(agent_ids) > 0:
             logger.info(f"[agent_handler] Querying agents from database with relations for IDs: {agent_ids}")
-            agent_service = main_window.ec_db_mgr.agent_service
+            agent_service = ctx.get_ec_db_mgr().agent_service
             
             agents_data = []
             for agent_id in agent_ids:
@@ -326,17 +327,17 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
 
         logger.info(f"[agent_handler] Saving {len(agents_data)} agents for user: {username}")
 
-        main_window = AppContext.get_main_window()
-        if main_window is None:
+        ctx = get_handler_context(request, params)
+        if ctx is None:
             logger.error(f"[agent_handler] MainWindow not available for user: {username}")
             return create_error_response(request, 'MAIN_WINDOW_ERROR', 'MainWindow not available')
 
         # Get database service
-        if not main_window.ec_db_mgr or not main_window.ec_db_mgr.agent_service:
+        if not ctx.get_ec_db_mgr() or not ctx.get_ec_db_mgr().agent_service:
             logger.error(f"[agent_handler] Database service not available")
             return create_error_response(request, 'DB_ERROR', 'Database service not available')
         
-        agent_service = main_window.ec_db_mgr.agent_service
+        agent_service = ctx.get_ec_db_mgr().agent_service
         
         # Process each agent
         saved_count = 0
@@ -374,17 +375,17 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
                             logger.info(f"[agent_handler] ✅ Query successful, agent has {len(db_agent_data.get('skills', []))} skills, {len(db_agent_data.get('tasks', []))} tasks")
                             
                             # Convert database agent to EC_Agent instance
-                            updated_ec_agent = convert_agent_dict_to_ec_agent(db_agent_data, main_window)
+                            updated_ec_agent = convert_agent_dict_to_ec_agent(db_agent_data, ctx)
                             
                             if updated_ec_agent:
-                                # Replace the agent in main_window.agents
-                                agent_index = next((i for i, ag in enumerate(main_window.agents) if ag.card.id == agent_id), None)
+                                # Replace the agent in ctx.get_agents()
+                                agent_index = next((i for i, ag in enumerate(ctx.get_agents()) if ag.card.id == agent_id), None)
                                 if agent_index is not None:
-                                    main_window.agents[agent_index] = updated_ec_agent
+                                    ctx.get_agents()[agent_index] = updated_ec_agent
                                     logger.info(f"[agent_handler] ✅ Replaced agent in memory: {agent_id}")
                                 else:
                                     # Agent not in memory, add it (might be newly created or memory was cleared)
-                                    main_window.agents.append(updated_ec_agent)
+                                    ctx.get_agents().append(updated_ec_agent)
                                     logger.info(f"[agent_handler] ✅ Added agent to memory (was missing): {agent_id}")
                             else:
                                 logger.error(f"[agent_handler] ❌ Failed to convert agent to EC_Agent: {agent_id}")
@@ -425,7 +426,7 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
                     
                     # Sync Agent's Avatar resource to cloud (if avatar changed)
                     if 'avatar_id' in agent_data:
-                        _sync_agent_avatar_to_cloud(updated_agent_data, Operation.UPDATE)
+                        _sync_agent_avatar_to_cloud(updated_agent_data, Operation.UPDATE, request, params)
                     
                     saved_count += 1
                     logger.info(f"[agent_handler] Updated agent in database: {agent_id}")
@@ -493,17 +494,17 @@ def handle_delete_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPC
         else:
             return create_error_response(request, 'INVALID_PARAMS', 'Invalid agent_id parameter type')
         
-        main_window = AppContext.get_main_window()
-        if main_window is None:
+        ctx = get_handler_context(request, params)
+        if ctx is None:
             logger.error(f"[agent_handler] MainWindow not available for user: {username}")
             return create_error_response(request, 'MAIN_WINDOW_ERROR', 'MainWindow not available')
         
         # Get database service
-        if not main_window.ec_db_mgr or not main_window.ec_db_mgr.agent_service:
+        if not ctx.get_ec_db_mgr() or not ctx.get_ec_db_mgr().agent_service:
             logger.error(f"[agent_handler] Database service not available")
             return create_error_response(request, 'DB_ERROR', 'Database service not available')
         
-        agent_service = main_window.ec_db_mgr.agent_service
+        agent_service = ctx.get_ec_db_mgr().agent_service
         
         # Delete each agent from database and memory
         deleted_count = 0
@@ -516,10 +517,11 @@ def handle_delete_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPC
                 
                 if result.get('success'):
                     try:
-                        original_count = len(main_window.agents)
+                        agents = ctx.get_agents()
+                        original_count = len(agents)
                         # Step 2: Delete from memory after database deletion succeeds
-                        main_window.agents = [ag for ag in main_window.agents if ag.card.id != agent_id]
-                        new_count = len(main_window.agents)
+                        agents[:] = [ag for ag in agents if ag.card.id != agent_id]
+                        new_count = len(agents)
                         logger.info(f"[agent_handler] Removed agent from memory: {agent_id} (count: {original_count} → {new_count})")
                     except Exception as e:
                         logger.warning(f"[agent_handler] Failed to remove agent from memory: {e}")
@@ -537,12 +539,12 @@ def handle_delete_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPC
                     # Step 4: Check if agent had a custom avatar and clean it up if orphaned
                     try:
                         # Get the deleted agent's avatar_id before it's removed from memory
-                        deleted_agent = next((ag for ag in main_window.agents if ag.card.id == agent_id), None)
+                        deleted_agent = next((ag for ag in ctx.get_agents() if ag.card.id == agent_id), None)
                         avatar_id = deleted_agent.card.avatar_id if deleted_agent and hasattr(deleted_agent.card, 'avatar_id') else None
                         
                         if avatar_id and not avatar_id.startswith('A00'):  # Not a system avatar
                             # Check if this avatar is used by other agents
-                            is_orphaned = _check_and_cleanup_orphaned_avatar(avatar_id, agent_id, username)
+                            is_orphaned = _check_and_cleanup_orphaned_avatar(avatar_id, agent_id, username, request, params)
                             if is_orphaned:
                                 logger.info(f"[agent_handler] Orphaned avatar {avatar_id} cleaned up")
                     except Exception as e:
@@ -622,17 +624,17 @@ def handle_new_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
 
         logger.info(f"[agent_handler] Creating agent '{agent_data.get('name')}' for user: {username}")
 
-        main_window = AppContext.get_main_window()
-        if main_window is None:
+        ctx = get_handler_context(request, params)
+        if ctx is None:
             logger.error(f"[agent_handler] MainWindow not available for user: {username}")
             return create_error_response(request, 'MAIN_WINDOW_ERROR', 'MainWindow not available')
 
         # Get database service
-        if not main_window.ec_db_mgr:
+        if not ctx.get_ec_db_mgr():
             logger.error(f"[agent_handler] Database manager not available")
             return create_error_response(request, 'DB_ERROR', 'Database manager not available')
 
-        agent_service = main_window.ec_db_mgr.agent_service
+        agent_service = ctx.get_ec_db_mgr().agent_service
         if not agent_service:
             logger.error(f"[agent_handler] Agent service not available")
             return create_error_response(request, 'DB_ERROR', 'Agent service not available')
@@ -658,11 +660,11 @@ def handle_new_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
                 db_agent_data = db_agent_result['data'][0]
                 
                 # Convert database agent to EC_Agent instance
-                ec_agent = convert_agent_dict_to_ec_agent(db_agent_data, main_window)
+                ec_agent = convert_agent_dict_to_ec_agent(db_agent_data, ctx)
                 
                 if ec_agent:
-                    # Add to main_window.agents
-                    main_window.agents.append(ec_agent)
+                    # Add to ctx.get_agents()
+                    ctx.get_agents().append(ec_agent)
                     
                     # Hot-start the new agent
                     try:
@@ -695,7 +697,7 @@ def handle_new_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
         _sync_agent_tool_relations(created_agent, agent_data.get('tools', []), Operation.ADD)
         
         # Sync Agent's Avatar resource to cloud (if has custom avatar)
-        _sync_agent_avatar_to_cloud(created_agent, Operation.ADD)
+        _sync_agent_avatar_to_cloud(created_agent, Operation.ADD, request, params)
 
         logger.info(f"[agent_handler] Successfully created agent '{created_agent.get('name')}' for user: {username}")
         result_data = {
@@ -745,9 +747,9 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
         username = data['username']
         logger.info(f"[agent_handler] Getting all organizations and agents for user: {username}")
         
-        # Get main_window to access integrated agents list
-        main_window = AppContext.get_main_window()
-        if main_window is None:
+        # Get ctx to access integrated agents list
+        ctx = get_handler_context(request, params)
+        if ctx is None:
             logger.warning(f"[agent_handler] MainWindow not available for user: {username}")
             return create_error_response(request, 'MAIN_WINDOW_ERROR', 'User session not available - please login again')
         
@@ -755,20 +757,20 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
         # This ensures both performance and data consistency
         all_agents = []
         
-        if hasattr(main_window, 'agents') and main_window.agents:
+        if ctx.get_agents():
             # Data in memory, use directly (best performance)
-            all_agents = [agent.to_dict(owner=username) for agent in main_window.agents]
+            all_agents = [agent.to_dict(owner=username) for agent in ctx.get_agents()]
             logger.info(f"[agent_handler] Retrieved {len(all_agents)} agents from memory")
         else:
             # Memory empty, sync from database (ensure data availability)
             logger.warning(f"[agent_handler] Memory cache empty, syncing from database...")
             try:
-                # Get database service from main_window
-                if not main_window.ec_db_mgr or not main_window.ec_db_mgr.agent_service:
+                # Get database service from ctx
+                if not ctx.get_ec_db_mgr() or not ctx.get_ec_db_mgr().agent_service:
                     logger.error(f"[agent_handler] Database service not available")
                     return create_error_response(request, 'DB_ERROR', 'Database service not available')
                 
-                db_service = main_window.ec_db_mgr.agent_service
+                db_service = ctx.get_ec_db_mgr().agent_service
                 db_result = db_service.get_agents_by_owner(username)
                 
                 # Improved error handling - check if db_result is valid
@@ -782,18 +784,19 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
                     logger.info(f"[agent_handler] Retrieved {len(db_agents)} agents from database")
                     
                     # Convert to EC_Agent and add to memory
-                    main_window.agents = []
+                    agents = ctx.get_agents()
+                    agents.clear()
                     for db_agent_dict in db_agents:
                         try:
-                            ec_agent = convert_agent_dict_to_ec_agent(db_agent_dict, main_window)
+                            ec_agent = convert_agent_dict_to_ec_agent(db_agent_dict, ctx)
                             if ec_agent:
-                                main_window.agents.append(ec_agent)
+                                ctx.get_agents().append(ec_agent)
                                 all_agents.append(ec_agent.to_dict(owner=username))
                         except Exception as e:
                             logger.warning(f"[agent_handler] Failed to convert agent: {e}")
                             continue
                     
-                    logger.info(f"[agent_handler] Synced {len(main_window.agents)} agents to memory")
+                    logger.info(f"[agent_handler] Synced {len(ctx.get_agents())} agents to memory")
                 else:
                     error_msg = db_result.get('error', 'Unknown error')
                     logger.error(f"[agent_handler] Failed to query agents from database: {error_msg}")
@@ -997,7 +1000,7 @@ def _sync_agent_tool_relations(agent_data: Dict[str, Any], tool_ids: list, opera
         manager.sync_to_cloud_async(DataType.AGENT_TOOL, tool_relation_data, operation, callback=_log_result)
 
 
-def _sync_agent_avatar_to_cloud(agent_data: Dict[str, Any], operation: 'Operation') -> None:
+def _sync_agent_avatar_to_cloud(agent_data: Dict[str, Any], operation: 'Operation', request=None, params=None) -> None:
     """Sync agent's avatar resource to cloud (async, non-blocking)
     
     When creating or updating an agent, if the agent has an avatar_id,
@@ -1006,6 +1009,8 @@ def _sync_agent_avatar_to_cloud(agent_data: Dict[str, Any], operation: 'Operatio
     Args:
         agent_data: Agent data (must contain 'avatar_id' and 'owner')
         operation: Operation type (ADD/UPDATE/DELETE)
+        request: IPC request object (optional)
+        params: Request parameters (optional)
     """
     avatar_id = agent_data.get('avatar_id')
     if not avatar_id:
@@ -1018,14 +1023,14 @@ def _sync_agent_avatar_to_cloud(agent_data: Dict[str, Any], operation: 'Operatio
         return
     
     try:
-        main_window = AppContext.get_main_window()
-        if not main_window or not main_window.ec_db_mgr:
+        ctx = get_handler_context(request, params)
+        if not ctx or not ctx.get_ec_db_mgr():
             logger.warning("[agent_handler] MainWindow or DB manager not available for avatar sync")
             return
         
         # Get avatar resource from database
         from agent.db.models.avatar_model import DBAvatarResource
-        db_session = main_window.ec_db_mgr.get_session()
+        db_session = ctx.get_ec_db_mgr().get_session()
         
         avatar_resource = db_session.query(DBAvatarResource).filter_by(id=avatar_id).first()
         
@@ -1081,7 +1086,7 @@ def _sync_agent_avatar_to_cloud(agent_data: Dict[str, Any], operation: 'Operatio
                 )
                 if has_local_files:
                     from agent.avatar.avatar_cloud_sync import upload_avatar_to_cloud_async
-                    upload_avatar_to_cloud_async(avatar_resource, db_service=main_window.ec_db_mgr.avatar_service)
+                    upload_avatar_to_cloud_async(avatar_resource, db_service=ctx.get_ec_db_mgr().avatar_service)
                 else:
                     logger.debug(f"[agent_handler] No local files to upload for avatar: {avatar_id}")
             else:
@@ -1097,7 +1102,7 @@ def _sync_agent_avatar_to_cloud(agent_data: Dict[str, Any], operation: 'Operatio
 # Use: from agent.avatar.avatar_cloud_sync import upload_avatar_to_cloud_async
 
 
-def _check_and_cleanup_orphaned_avatar(avatar_id: str, deleted_agent_id: str, username: str) -> bool:
+def _check_and_cleanup_orphaned_avatar(avatar_id: str, deleted_agent_id: str, username: str, request=None, params=None) -> bool:
     """Check if an avatar is orphaned and clean it up if needed
     
     An avatar is orphaned if no other agents are using it after the current agent is deleted.
@@ -1106,17 +1111,19 @@ def _check_and_cleanup_orphaned_avatar(avatar_id: str, deleted_agent_id: str, us
         avatar_id: Avatar resource ID to check
         deleted_agent_id: ID of the agent being deleted
         username: Owner username
+        request: IPC request object (optional)
+        params: Request parameters (optional)
         
     Returns:
         True if avatar was orphaned and cleaned up, False otherwise
     """
     try:
-        main_window = AppContext.get_main_window()
-        if not main_window or not main_window.ec_db_mgr:
+        ctx = get_handler_context(request, params)
+        if not ctx or not ctx.get_ec_db_mgr():
             logger.warning("[agent_handler] MainWindow or DB manager not available for avatar cleanup")
             return False
         
-        agent_service = main_window.ec_db_mgr.agent_service
+        agent_service = ctx.get_ec_db_mgr().agent_service
         
         # Query all agents with this avatar_id (excluding the one being deleted)
         result = agent_service.query_agents_with_relations(
@@ -1142,7 +1149,7 @@ def _check_and_cleanup_orphaned_avatar(avatar_id: str, deleted_agent_id: str, us
         
         # Delete from database
         from agent.db.models.avatar_model import DBAvatarResource
-        db_session = main_window.ec_db_mgr.get_session()
+        db_session = ctx.get_ec_db_mgr().get_session()
         
         avatar_resource = db_session.query(DBAvatarResource).filter_by(id=avatar_id).first()
         
@@ -1174,7 +1181,7 @@ def _check_and_cleanup_orphaned_avatar(avatar_id: str, deleted_agent_id: str, us
                 'owner': username,
                 'resource_type': avatar_resource.resource_type
             }
-            _sync_agent_avatar_to_cloud(avatar_data, Operation.DELETE)
+            _sync_agent_avatar_to_cloud(avatar_data, Operation.DELETE, request, params)
             
             return True
         else:

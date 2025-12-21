@@ -4,6 +4,7 @@ from os.path import exists
 from typing import Any, Optional, Dict
 import requests
 from app_context import AppContext
+from gui.ipc.context_bridge import get_handler_context
 from config.envi import getECBotDataHome
 from gui.ipc.handlers import validate_params
 from gui.ipc.registry import IPCHandlerRegistry
@@ -41,8 +42,8 @@ def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         username = data['username']
         # Simple password validation
         logger.info(f"get settings successful for user: {username}")
-        main_window = AppContext.get_main_window()
-        general_settings = main_window.config_manager.general_settings
+        ctx = get_handler_context(request, params)
+        general_settings = ctx.get_config_manager().general_settings
         settings = general_settings.data.copy()
         
         # Add cached hardware detection info (no real-time probing here)
@@ -122,13 +123,13 @@ def handle_save_settings(request: IPCRequest, params: Optional[list[Any]]) -> IP
         logger.info(f"Saving settings: {list(settings_data.keys())}")
 
         # Get main window instance
-        main_window = AppContext.get_main_window()
-        if not main_window:
+        ctx = get_handler_context(request, params)
+        if not ctx:
             logger.error("Main window not available - user may have logged out")
             return create_error_response(request, 'MAIN_WINDOW_ERROR', 'User session not available - please login again')
 
         # Get config manager
-        if not main_window.config_manager:
+        if not ctx.get_config_manager():
             logger.error("Config manager not available")
             return create_error_response(
                 request,
@@ -137,7 +138,7 @@ def handle_save_settings(request: IPCRequest, params: Optional[list[Any]]) -> IP
             )
 
         # Save settings to general_settings
-        general_settings = main_window.config_manager.general_settings
+        general_settings = ctx.get_config_manager().general_settings
 
         # Use update_data method to handle all settings data uniformly
         try:

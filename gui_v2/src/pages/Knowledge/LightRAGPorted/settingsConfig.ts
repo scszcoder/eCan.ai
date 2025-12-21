@@ -105,9 +105,9 @@ export const BASIC_FIELDS: FieldConfig[] = [
 export const RAG_FIELDS: FieldConfig[] = [
   // Query Configuration
   { key: 'ENABLE_LLM_CACHE', type: 'boolean', defaultValue: 'true', section: 'query', tooltip: 'tooltips.enableLlmCache' },
-  { key: 'COSINE_THRESHOLD', type: 'number', placeholder: '0.2', section: 'query' },
-  { key: 'TOP_K', type: 'number', placeholder: '40', section: 'query', tooltip: 'tooltips.topK' },
-  { key: 'CHUNK_TOP_K', type: 'number', placeholder: '20', section: 'query', tooltip: 'tooltips.chunkTopK' },
+  { key: 'COSINE_THRESHOLD', type: 'number', placeholder: '0.4', section: 'query' },
+  { key: 'TOP_K', type: 'number', placeholder: '15', section: 'query', tooltip: 'tooltips.topK' },
+  { key: 'CHUNK_TOP_K', type: 'number', placeholder: '10', section: 'query', tooltip: 'tooltips.chunkTopK' },
   { key: 'MAX_ENTITY_TOKENS', type: 'number', placeholder: '6000', section: 'query', tooltip: 'tooltips.maxEntityTokens' },
   { key: 'MAX_RELATION_TOKENS', type: 'number', placeholder: '8000', section: 'query', tooltip: 'tooltips.maxRelationTokens' },
   { key: 'MAX_TOTAL_TOKENS', type: 'number', placeholder: '30000', section: 'query', tooltip: 'tooltips.maxTotalTokens' },
@@ -118,7 +118,7 @@ export const RAG_FIELDS: FieldConfig[] = [
   
   // Document Processing
   { key: 'ENABLE_LLM_CACHE_FOR_EXTRACT', type: 'boolean', defaultValue: 'true', section: 'document' },
-  { key: 'SUMMARY_LANGUAGE', type: 'text', defaultValue: 'English', section: 'document', tooltip: 'tooltips.summaryLanguage' },
+  { key: 'SUMMARY_LANGUAGE', type: 'text', defaultValue: 'English, Chinese', section: 'document', tooltip: 'tooltips.summaryLanguage' },
   { key: 'PDF_DECRYPT_PASSWORD', type: 'password', placeholder: 'your_pdf_password_here', section: 'document' },
   { key: 'ENTITY_TYPES', type: 'textarea', placeholder: '["Person", "Organization", "Location", "Event", "Concept"]', section: 'document', tooltip: 'tooltips.entityTypes' },
   { key: 'CHUNK_SIZE', type: 'number', placeholder: '1200', section: 'document', tooltip: 'tooltips.chunkSize' },
@@ -137,10 +137,10 @@ export const RAG_FIELDS: FieldConfig[] = [
   { key: 'RELATED_CHUNK_NUMBER', type: 'number', placeholder: '5', section: 'document', tooltip: 'tooltips.relatedChunkNumber' },
   
   // Concurrency
-  { key: 'MAX_ASYNC', type: 'number', defaultValue: '4', section: 'concurrency', tooltip: 'tooltips.maxAsync' },
-  { key: 'MAX_PARALLEL_INSERT', type: 'number', defaultValue: '2', section: 'concurrency', tooltip: 'tooltips.maxParallelInsert' },
-  { key: 'EMBEDDING_FUNC_MAX_ASYNC', type: 'number', placeholder: '8', section: 'concurrency' },
-  { key: 'EMBEDDING_BATCH_NUM', type: 'number', placeholder: '10', section: 'concurrency' },
+  { key: 'MAX_ASYNC', type: 'number', defaultValue: '6', section: 'concurrency', tooltip: 'tooltips.maxAsync' },
+  { key: 'MAX_PARALLEL_INSERT', type: 'number', defaultValue: '3', section: 'concurrency', tooltip: 'tooltips.maxParallelInsert' },
+  { key: 'EMBEDDING_FUNC_MAX_ASYNC', type: 'number', placeholder: '4', section: 'concurrency' },
+  { key: 'EMBEDDING_BATCH_NUM', type: 'number', placeholder: '64', section: 'concurrency' },
   
   // Other
   { key: 'OLLAMA_EMULATING_MODEL_NAME', type: 'text', placeholder: 'lightrag', section: 'other' },
@@ -158,7 +158,7 @@ export const RERANKING_FIELDS: FieldConfig[] = [
     { value: 'aliyun', label: 'Aliyun' }
   ], tooltip: 'settings.tooltips.rerankBinding' },
   { key: 'RERANK_BY_DEFAULT', type: 'boolean', placeholder: 'True', tooltip: 'settings.tooltips.rerankByDefault' },
-  { key: 'MIN_RERANK_SCORE', type: 'number', placeholder: '0.0', tooltip: 'settings.tooltips.minRerankScore' },
+  { key: 'MIN_RERANK_SCORE', type: 'number', placeholder: '0.25', tooltip: 'settings.tooltips.minRerankScore' },
   { key: 'RERANK_MODEL', type: 'text', placeholder: 'BAAI/bge-reranker-v2-m3', section: 'model' },
   { key: 'RERANK_BINDING_HOST', type: 'text', placeholder: 'http://localhost:8000/v1/rerank', section: 'model' },
   { key: 'RERANK_BINDING_API_KEY', type: 'password', placeholder: 'your_rerank_api_key_here', section: 'model' }
@@ -175,7 +175,7 @@ export const LLM_FIELDS: FieldConfig[] = [
     { value: 'aws_bedrock', label: 'AWS Bedrock' },
     { value: 'lollms', label: 'Lollms' }
   ], tooltip: 'settings.tooltips.llmBinding' },
-  { key: 'LLM_MODEL', type: 'text', defaultValue: 'gpt-4o', section: 'basic' },
+  { key: 'LLM_MODEL', type: 'text', defaultValue: 'gpt-5', section: 'basic' },
   { key: 'LLM_BINDING_HOST', type: 'text', defaultValue: 'https://api.openai.com/v1', section: 'basic' },
   { key: 'LLM_BINDING_API_KEY', type: 'password', defaultValue: 'your_api_key', section: 'basic' },
   { key: 'LLM_TIMEOUT', type: 'number', placeholder: '180', section: 'basic', tooltip: 'settings.tooltips.llmTimeout' },
@@ -223,11 +223,11 @@ export const EMBEDDING_FIELDS: FieldConfig[] = [
   ], tooltip: 'settings.tooltips.embeddingBinding' },
   { key: 'EMBEDDING_MODEL', type: 'text', defaultValue: 'text-embedding-3-large', section: 'basic' },
   { key: 'EMBEDDING_DIM', type: 'number', defaultValue: '3072', section: 'basic', tooltip: 'settings.tooltips.embeddingDim' },
-  { key: 'EMBEDDING_SEND_DIM', type: 'boolean', defaultValue: 'false', section: 'basic', tooltip: 'settings.tooltips.embeddingSendDim' },
+  { key: 'EMBEDDING_SEND_DIM', type: 'boolean', defaultValue: 'true', section: 'basic', tooltip: 'settings.tooltips.embeddingSendDim' },
   { key: 'EMBEDDING_TOKEN_LIMIT', type: 'number', defaultValue: '8192', section: 'basic' },
   { key: 'EMBEDDING_BINDING_HOST', type: 'text', defaultValue: 'https://api.openai.com/v1', section: 'basic' },
   { key: 'EMBEDDING_BINDING_API_KEY', type: 'password', defaultValue: 'your_api_key', section: 'basic' },
-  { key: 'EMBEDDING_TIMEOUT', type: 'number', placeholder: '30', section: 'basic' },
+  { key: 'EMBEDDING_TIMEOUT', type: 'number', placeholder: '60', section: 'basic' },
   
   // Azure Embedding
   { key: 'AZURE_EMBEDDING_API_VERSION', type: 'text', placeholder: '2024-08-01-preview', section: 'azure' },
