@@ -1,6 +1,7 @@
 import traceback
 from typing import TYPE_CHECKING, Any, Optional, Dict
 from app_context import AppContext
+from gui.ipc.context_bridge import get_handler_context
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from agent.vehicles.vehicles import VEHICLE
@@ -20,17 +21,17 @@ def handle_get_vehicles(request: IPCRequest, params: Optional[Dict[str, Any]]) -
     """
     try:
         logger.debug(f"Get vehicles handler called with request: {request}")
-        main_window = AppContext.get_main_window()
-        vehicles = main_window.vehicles
+        ctx = get_handler_context(request, params)
+        vehicles = ctx.get_vehicles()
 
         # Add detailed debug logs
         logger.info(f"[DEBUG] get_vehicles called")
-        logger.info(f"[DEBUG] main_window.vehicles type: {type(vehicles)}")
-        logger.info(f"[DEBUG] main_window.vehicles count: {len(vehicles) if vehicles else 0}")
+        logger.info(f"[DEBUG] ctx.get_vehicles() type: {type(vehicles)}")
+        logger.info(f"[DEBUG] ctx.get_vehicles() count: {len(vehicles) if vehicles else 0}")
         if vehicles and len(vehicles) > 0:
             logger.info(f"[DEBUG] First vehicle: {vehicles[0].to_dict() if hasattr(vehicles[0], 'to_dict') else str(vehicles[0])}")
         else:
-            logger.warning(f"[DEBUG] main_window.vehicles is empty!")
+            logger.warning(f"[DEBUG] ctx.get_vehicles() is empty!")
 
         logger.info(f"get vehicles successful")
         resultJS = {
@@ -69,8 +70,8 @@ def handle_update_vehicle_status(request: IPCRequest, params: Optional[Dict[str,
         if not vehicle_id or not new_status:
             return create_error_response(request, 'INVALID_PARAMS', 'vehicle_id and status are required')
 
-        main_window = AppContext.get_main_window()
-        vehicle = next((v for v in main_window.vehicles if str(v.id) == str(vehicle_id)), None)
+        ctx = get_handler_context(request, params)
+        vehicle = next((v for v in ctx.get_vehicles() if str(v.id) == str(vehicle_id)), None)
 
         if not vehicle:
             return create_error_response(request, 'VEHICLE_NOT_FOUND', f'Vehicle {vehicle_id} not found')
@@ -80,7 +81,7 @@ def handle_update_vehicle_status(request: IPCRequest, params: Optional[Dict[str,
         backend_status = status_map.get(new_status, new_status)
 
         vehicle.setStatus(backend_status)
-        main_window.saveVehicle(vehicle)
+        ctx.main_window.saveVehicle(vehicle)
 
         logger.info(f"Updated vehicle {vehicle_id} status to {backend_status}")
         return create_success_response(request, {
@@ -115,27 +116,27 @@ def handle_add_vehicle(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
         if not name:
             return create_error_response(request, 'INVALID_PARAMS', 'name is required')
 
-        main_window = AppContext.get_main_window()
+        ctx = get_handler_context(request, params)
 
         # Check if vehicle with same name or IP already exists
-        existing = next((v for v in main_window.vehicles if v.getName() == name or v.getIP() == ip), None)
+        existing = next((v for v in ctx.get_vehicles() if v.getName() == name or v.getIP() == ip), None)
         if existing:
             return create_error_response(request, 'VEHICLE_EXISTS', f'Vehicle with name {name} or ip {ip} already exists')
 
         # Create new vehicle
-        new_vehicle = VEHICLE(main_window, name=name, ip=ip)
-        new_vehicle.setOS(params.get('os', main_window.os_short))
+        new_vehicle = VEHICLE(ctx, name=name, ip=ip)
+        new_vehicle.setOS(params.get('os', ctx.main_window.os_short))
         new_vehicle.setArch(params.get('arch', ''))
         new_vehicle.setStatus(params.get('status', 'offline'))
         new_vehicle.setFunctions(params.get('functions', ''))
         new_vehicle.setTestDisabled(params.get('test_disabled', False))
 
         # Generate ID
-        new_vehicle.setVid(len(main_window.vehicles) + 1)
+        new_vehicle.setVid(len(ctx.get_vehicles()) + 1)
 
-        main_window.vehicles.append(new_vehicle)
-        main_window.saveVehicle(new_vehicle)
-        main_window.saveVehiclesJsonFile()
+        ctx.get_vehicles().append(new_vehicle)
+        ctx.main_window.saveVehicle(new_vehicle)
+        ctx.main_window.saveVehiclesJsonFile()
 
         logger.info(f"Added new vehicle: {name}")
         return create_success_response(request, {
@@ -170,8 +171,8 @@ def handle_update_vehicle(request: IPCRequest, params: Optional[Dict[str, Any]])
         if not vehicle_id:
             return create_error_response(request, 'INVALID_PARAMS', 'vehicle_id is required')
 
-        main_window = AppContext.get_main_window()
-        vehicle = next((v for v in main_window.vehicles if str(v.id) == str(vehicle_id)), None)
+        ctx = get_handler_context(request, params)
+        vehicle = next((v for v in ctx.get_vehicles() if str(v.id) == str(vehicle_id)), None)
 
         if not vehicle:
             return create_error_response(request, 'VEHICLE_NOT_FOUND', f'Vehicle {vehicle_id} not found')
@@ -194,8 +195,8 @@ def handle_update_vehicle(request: IPCRequest, params: Optional[Dict[str, Any]])
         if 'test_disabled' in params:
             vehicle.setTestDisabled(params['test_disabled'])
 
-        main_window.saveVehicle(vehicle)
-        main_window.saveVehiclesJsonFile()
+        ctx.main_window.saveVehicle(vehicle)
+        ctx.main_window.saveVehiclesJsonFile()
 
         logger.info(f"Updated vehicle {vehicle_id}")
         return create_success_response(request, {
@@ -226,8 +227,8 @@ def handle_delete_vehicle(request: IPCRequest, params: Optional[Dict[str, Any]])
         if not vehicle_id:
             return create_error_response(request, 'INVALID_PARAMS', 'vehicle_id is required')
 
-        main_window = AppContext.get_main_window()
-        vehicle = next((v for v in main_window.vehicles if str(v.id) == str(vehicle_id)), None)
+        ctx = get_handler_context(request, params)
+        vehicle = next((v for v in ctx.get_vehicles() if str(v.id) == str(vehicle_id)), None)
 
         if not vehicle:
             return create_error_response(request, 'VEHICLE_NOT_FOUND', f'Vehicle {vehicle_id} not found')
@@ -240,16 +241,16 @@ def handle_delete_vehicle(request: IPCRequest, params: Optional[Dict[str, Any]])
                 f'Cannot delete vehicle with {len(vehicle.getBotIds())} assigned bots'
             )
 
-        main_window.vehicles.remove(vehicle)
-        main_window.saveVehiclesJsonFile()
+        ctx.get_vehicles().remove(vehicle)
+        ctx.main_window.saveVehiclesJsonFile()
 
         # Delete from database (if Commander role)
-        if hasattr(main_window, 'vehicle_service') and main_window.vehicle_service:
+        if ctx.get_vehicle_service():
             try:
-                db_vehicle = main_window.vehicle_service.find_vehicle_by_name(vehicle.getName())
+                db_vehicle = ctx.get_vehicle_service().find_vehicle_by_name(vehicle.getName())
                 if db_vehicle:
-                    main_window.vehicle_service.session.delete(db_vehicle)
-                    main_window.vehicle_service.session.commit()
+                    ctx.get_vehicle_service().session.delete(db_vehicle)
+                    ctx.get_vehicle_service().session.commit()
             except Exception as db_error:
                 logger.warning(f"Failed to delete vehicle from database: {db_error}")
 
@@ -283,8 +284,8 @@ def handle_assign_bot_to_vehicle(request: IPCRequest, params: Optional[Dict[str,
         if not bot_id or not vehicle_id:
             return create_error_response(request, 'INVALID_PARAMS', 'bot_id and vehicle_id are required')
 
-        main_window = AppContext.get_main_window()
-        vehicle = next((v for v in main_window.vehicles if str(v.id) == str(vehicle_id)), None)
+        ctx = get_handler_context(request, params)
+        vehicle = next((v for v in ctx.get_vehicles() if str(v.id) == str(vehicle_id)), None)
 
         if not vehicle:
             return create_error_response(request, 'VEHICLE_NOT_FOUND', f'Vehicle {vehicle_id} not found')
@@ -302,8 +303,8 @@ def handle_assign_bot_to_vehicle(request: IPCRequest, params: Optional[Dict[str,
         if added == 0:
             return create_error_response(request, 'BOT_ALREADY_ASSIGNED', f'Bot {bot_id} already assigned to this vehicle')
         
-        main_window.saveVehicle(vehicle)
-        main_window.saveVehiclesJsonFile()
+        ctx.main_window.saveVehicle(vehicle)
+        ctx.main_window.saveVehiclesJsonFile()
         
         logger.info(f"Assigned bot {bot_id} to vehicle {vehicle_id}")
         return create_success_response(request, {
@@ -336,8 +337,8 @@ def handle_remove_bot_from_vehicle(request: IPCRequest, params: Optional[Dict[st
         if not bot_id or not vehicle_id:
             return create_error_response(request, 'INVALID_PARAMS', 'bot_id and vehicle_id are required')
 
-        main_window = AppContext.get_main_window()
-        vehicle = next((v for v in main_window.vehicles if str(v.id) == str(vehicle_id)), None)
+        ctx = get_handler_context(request, params)
+        vehicle = next((v for v in ctx.get_vehicles() if str(v.id) == str(vehicle_id)), None)
 
         if not vehicle:
             return create_error_response(request, 'VEHICLE_NOT_FOUND', f'Vehicle {vehicle_id} not found')
@@ -347,8 +348,8 @@ def handle_remove_bot_from_vehicle(request: IPCRequest, params: Optional[Dict[st
         if removed == 0:
             return create_error_response(request, 'BOT_NOT_FOUND', f'Bot {bot_id} not assigned to this vehicle')
 
-        main_window.saveVehicle(vehicle)
-        main_window.saveVehiclesJsonFile()
+        ctx.main_window.saveVehicle(vehicle)
+        ctx.main_window.saveVehiclesJsonFile()
 
         logger.info(f"Removed bot {bot_id} from vehicle {vehicle_id}")
         return create_success_response(request, {

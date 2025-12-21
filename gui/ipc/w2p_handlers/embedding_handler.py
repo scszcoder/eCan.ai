@@ -7,6 +7,7 @@ from ..types import IPCRequest, IPCResponse, create_success_response, create_err
 from ..registry import IPCHandlerRegistry
 from utils.logger_helper import logger_helper as logger
 from app_context import AppContext
+from gui.ipc.context_bridge import get_handler_context
 
 
 def validate_params(params: Optional[Dict[str, Any]], required_keys: list) -> tuple[bool, Dict[str, Any], str]:
@@ -21,10 +22,10 @@ def validate_params(params: Optional[Dict[str, Any]], required_keys: list) -> tu
     return True, params, ""
 
 
-def get_embedding_manager():
+def get_embedding_manager(request=None, params=None):
     """Get Embedding manager instance"""
-    main_window = AppContext.get_main_window()
-    return main_window.config_manager.embedding_manager
+    ctx = get_handler_context(request, params)
+    return ctx.get_config_manager().embedding_manager
 
 
 @IPCHandlerRegistry.handler('get_embedding_providers')
@@ -33,7 +34,7 @@ def handle_get_embedding_providers(request: IPCRequest, params: Optional[Dict[st
     try:
         from gui.ollama_utils import merge_ollama_models_to_providers
         
-        embedding_manager = get_embedding_manager()
+        embedding_manager = get_embedding_manager(request, params)
         providers = embedding_manager.get_all_providers()
         
         # Merge Ollama models using shared utility
@@ -42,10 +43,10 @@ def handle_get_embedding_providers(request: IPCRequest, params: Optional[Dict[st
         logger.info(f"Retrieved {len(providers)} Embedding providers")
 
         # Include current settings for frontend
-        main_window = AppContext.get_main_window()
+        ctx = get_handler_context(request, params)
         settings = {}
-        if main_window:
-            general_settings = main_window.config_manager.general_settings
+        if ctx:
+            general_settings = ctx.get_config_manager().general_settings
             settings = {
                 'default_embedding': general_settings.default_embedding,
                 'default_embedding_model': general_settings.default_embedding_model
@@ -70,7 +71,7 @@ def handle_update_embedding_provider(request: IPCRequest, params: Optional[Dict[
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
 
-        embedding_manager = get_embedding_manager()
+        embedding_manager = get_embedding_manager(request, params)
         # Frontend MUST send standard provider identifier (e.g., "openai", "dashscope", "azure_openai")
         # NOT name or display_name (e.g., NOT "OpenAI", "Qwen (DashScope)")
         provider_identifier = (data.get('name') or "").strip()
@@ -143,9 +144,9 @@ def handle_update_embedding_provider(request: IPCRequest, params: Optional[Dict[
         auto_set_as_default = False
         if api_key_stored or base_url_updated:
             try:
-                main_window = AppContext.get_main_window()
-                if main_window:
-                    general_settings = main_window.config_manager.general_settings
+                ctx = get_handler_context(request, params)
+                if ctx:
+                    general_settings = ctx.get_config_manager().general_settings
                     current_default = general_settings.default_embedding
                     
                     configured_providers = []
@@ -186,13 +187,13 @@ def handle_update_embedding_provider(request: IPCRequest, params: Optional[Dict[
         
         # Find shared LLM providers that use the same API keys
         from gui.ipc.w2p_handlers.llm_handler import find_shared_providers
-        shared_providers = find_shared_providers(env_vars, 'embedding')
+        shared_providers = find_shared_providers(env_vars, 'embedding', request, params)
         
         # Get updated provider info for frontend
         updated_provider = embedding_manager.get_provider(provider_identifier)
         
         # Build response with auto-set information and updated provider
-        main_window = AppContext.get_main_window()
+        ctx = get_handler_context(request, params)
         response_data = {
             'message': f'Embedding provider {provider_identifier} updated successfully',
             'provider': updated_provider
@@ -207,10 +208,10 @@ def handle_update_embedding_provider(request: IPCRequest, params: Optional[Dict[
             logger.debug(f"[Embedding] No shared LLM providers found for {provider_identifier}")
         
         # Always include current settings for frontend UI update
-        if main_window:
+        if ctx:
             response_data['settings'] = {
-                'default_embedding': main_window.config_manager.general_settings.default_embedding,
-                'default_embedding_model': main_window.config_manager.general_settings.default_embedding_model
+                'default_embedding': ctx.get_config_manager().general_settings.default_embedding,
+                'default_embedding_model': ctx.get_config_manager().general_settings.default_embedding_model
             }
         
         if auto_set_as_default:
@@ -220,10 +221,10 @@ def handle_update_embedding_provider(request: IPCRequest, params: Optional[Dict[
             response_data['default_embedding_model'] = default_model
             
             # Hot-update: Update all agents' memoryManager embeddings (similar to update_all_llms)
-            if main_window and default_model and hasattr(main_window, 'agents') and main_window.agents:
+            if ctx and default_model and ctx.get_agents():
                 try:
                     updated_agents = 0
-                    for agent in main_window.agents:
+                    for agent in ctx.get_agents():
                         # Update memoryManager embeddings
                         if hasattr(agent, 'mem_manager') and agent.mem_manager:
                             try:
@@ -259,8 +260,8 @@ def handle_set_embedding_provider_model(request: IPCRequest, params: Optional[Di
         
         model_name = data['model']
 
-        embedding_manager = get_embedding_manager()
-        main_window = AppContext.get_main_window()
+        embedding_manager = get_embedding_manager(request, params)
+        ctx = get_handler_context(request, params)
         
         # Get provider by standard identifier (case-insensitive)
         provider = embedding_manager.get_provider(provider_identifier)
@@ -283,17 +284,17 @@ def handle_set_embedding_provider_model(request: IPCRequest, params: Optional[Di
         updated_provider = embedding_manager.get_provider(provider_identifier)
         
         # If this is the current default embedding, also update default_embedding_model in general_settings (case-insensitive)
-        current_default = (main_window.config_manager.general_settings.default_embedding or "").lower()
+        current_default = (ctx.get_config_manager().general_settings.default_embedding or "").lower()
         if current_default == (provider_identifier or "").lower():
-            main_window.config_manager.general_settings.default_embedding_model = model_name
-            main_window.config_manager.general_settings.save()
+            ctx.get_config_manager().general_settings.default_embedding_model = model_name
+            ctx.get_config_manager().general_settings.save()
             logger.info(f"[Embedding] Updated default_embedding_model to {model_name} for current provider {provider_identifier}")
             
             # Hot-update: Update all agents' memoryManager embeddings (similar to update_all_llms)
-            if hasattr(main_window, 'agents') and main_window.agents:
+            if ctx.get_agents():
                 try:
                     updated_agents = 0
-                    for agent in main_window.agents:
+                    for agent in ctx.get_agents():
                         # Update memoryManager embeddings
                         if hasattr(agent, 'mem_manager') and agent.mem_manager:
                             try:
@@ -311,8 +312,8 @@ def handle_set_embedding_provider_model(request: IPCRequest, params: Optional[Di
             'message': f'Default model for {provider_identifier} updated successfully',
             'provider': updated_provider,
             'settings': {
-                'default_embedding': main_window.config_manager.general_settings.default_embedding,
-                'default_embedding_model': main_window.config_manager.general_settings.default_embedding_model
+                'default_embedding': ctx.get_config_manager().general_settings.default_embedding,
+                'default_embedding_model': ctx.get_config_manager().general_settings.default_embedding_model
             }
         })
 
@@ -329,8 +330,8 @@ def handle_delete_embedding_provider_config(request: IPCRequest, params: Optiona
         if not is_valid:
             return create_error_response(request, 'INVALID_PARAMS', error)
 
-        embedding_manager = get_embedding_manager()
-        main_window = AppContext.get_main_window()
+        embedding_manager = get_embedding_manager(request, params)
+        ctx = get_handler_context(request, params)
         # Frontend MUST send standard provider identifier
         provider_identifier = (data.get('name') or "").strip()
         if not provider_identifier:
@@ -351,7 +352,7 @@ def handle_delete_embedding_provider_config(request: IPCRequest, params: Optiona
             )
 
         # Check if this is the current default embedding (case-insensitive)
-        current_default_embedding = (main_window.config_manager.general_settings.default_embedding or "").lower()
+        current_default_embedding = (ctx.get_config_manager().general_settings.default_embedding or "").lower()
         is_default_embedding = (current_default_embedding == (provider_identifier or "").lower())
 
         # Delete API key and other credentials from environment variables
@@ -421,19 +422,19 @@ def handle_delete_embedding_provider_config(request: IPCRequest, params: Optiona
                 logger.info(f"No configured providers found; defaulting to {new_default_embedding} with model {new_default_model} (no API key)")
             
             # Update default_embedding setting
-            main_window.config_manager.general_settings.default_embedding = new_default_embedding
-            main_window.config_manager.general_settings.default_embedding_model = new_default_model
-            save_result = main_window.config_manager.general_settings.save()
+            ctx.get_config_manager().general_settings.default_embedding = new_default_embedding
+            ctx.get_config_manager().general_settings.default_embedding_model = new_default_model
+            save_result = ctx.get_config_manager().general_settings.save()
             
             if not save_result:
                 logger.error(f"Failed to save new default Embedding setting")
                 return create_error_response(request, 'EMBEDDING_ERROR', f"Failed to save new default Embedding setting")
             
             # Hot-update: Update all agents' memoryManager embeddings after switching default
-            if new_default_embedding and new_default_model and hasattr(main_window, 'agents') and main_window.agents:
+            if new_default_embedding and new_default_model and ctx.get_agents():
                 try:
                     updated_agents = 0
-                    for agent in main_window.agents:
+                    for agent in ctx.get_agents():
                         # Update memoryManager embeddings
                         if hasattr(agent, 'mem_manager') and agent.mem_manager:
                             try:
@@ -449,7 +450,7 @@ def handle_delete_embedding_provider_config(request: IPCRequest, params: Optiona
 
         # Find shared LLM providers that use the same API keys
         from gui.ipc.w2p_handlers.llm_handler import find_shared_providers
-        shared_providers = find_shared_providers(env_vars, 'embedding')
+        shared_providers = find_shared_providers(env_vars, 'embedding', request, params)
         
         # Get updated provider info for frontend
         updated_provider = embedding_manager.get_provider(provider_identifier)
@@ -471,8 +472,8 @@ def handle_delete_embedding_provider_config(request: IPCRequest, params: Optiona
         
         # Always include current settings for frontend UI update
         response_data['settings'] = {
-            'default_embedding': main_window.config_manager.general_settings.default_embedding,
-            'default_embedding_model': main_window.config_manager.general_settings.default_embedding_model
+            'default_embedding': ctx.get_config_manager().general_settings.default_embedding,
+            'default_embedding_model': ctx.get_config_manager().general_settings.default_embedding_model
         }
         
         # Include new default settings if changed
@@ -499,8 +500,8 @@ def handle_set_default_embedding(request: IPCRequest, params: Optional[Dict[str,
         name = data['name']  # May be name or provider identifier
         model = data.get('model')  # Optional model parameter from frontend
 
-        embedding_manager = get_embedding_manager()
-        main_window = AppContext.get_main_window()
+        embedding_manager = get_embedding_manager(request, params)
+        ctx = get_handler_context(request, params)
 
         # Verify provider exists and is configured
         provider = embedding_manager.get_provider(name)
@@ -516,11 +517,11 @@ def handle_set_default_embedding(request: IPCRequest, params: Optional[Dict[str,
             return create_error_response(request, 'EMBEDDING_ERROR', f"Provider {provider_identifier} is not configured")
 
         # Save current settings for potential rollback
-        old_default_embedding = main_window.config_manager.general_settings.default_embedding
-        old_default_model = main_window.config_manager.general_settings.default_embedding_model
+        old_default_embedding = ctx.get_config_manager().general_settings.default_embedding
+        old_default_model = ctx.get_config_manager().general_settings.default_embedding_model
 
         # Update default_embedding and default_embedding_model in general_settings
-        main_window.config_manager.general_settings.default_embedding = provider_identifier
+        ctx.get_config_manager().general_settings.default_embedding = provider_identifier
         
         # Use model from frontend if provided, otherwise fallback to provider's preferred/default model
         if model:
@@ -539,9 +540,9 @@ def handle_set_default_embedding(request: IPCRequest, params: Optional[Dict[str,
                 logger.warning("Using provider's default model instead")
                 provider_model = provider.get('default_model', '')
         
-        main_window.config_manager.general_settings.default_embedding_model = provider_model
+        ctx.get_config_manager().general_settings.default_embedding_model = provider_model
         
-        save_result = main_window.config_manager.general_settings.save()
+        save_result = ctx.get_config_manager().general_settings.save()
 
         if not save_result:
             return create_error_response(request, 'EMBEDDING_ERROR', f"Failed to save default Embedding setting")
@@ -551,7 +552,7 @@ def handle_set_default_embedding(request: IPCRequest, params: Optional[Dict[str,
         # Hot-update: Update all agents' memoryManager embeddings (similar to update_all_llms)
         try:
             updated_agents = 0
-            for agent in main_window.agents:
+            for agent in ctx.get_agents():
                 # Update memoryManager embeddings
                 if hasattr(agent, 'mem_manager') and agent.mem_manager:
                     try:
@@ -575,8 +576,8 @@ def handle_set_default_embedding(request: IPCRequest, params: Optional[Dict[str,
             'message': f'Default Embedding set to {provider_identifier} successfully (hot-updated {updated_agents} agents)',
             'provider': updated_provider,
             'settings': {
-                'default_embedding': main_window.config_manager.general_settings.default_embedding,
-                'default_embedding_model': main_window.config_manager.general_settings.default_embedding_model
+                'default_embedding': ctx.get_config_manager().general_settings.default_embedding,
+                'default_embedding_model': ctx.get_config_manager().general_settings.default_embedding_model
             }
         })
 
@@ -589,11 +590,11 @@ def handle_set_default_embedding(request: IPCRequest, params: Optional[Dict[str,
 def handle_get_default_embedding(request: IPCRequest, params: Optional[Dict[str, Any]] = None) -> IPCResponse:
     """Get current default Embedding provider"""
     try:
-        main_window = AppContext.get_main_window()
-        if not main_window:
+        ctx = get_handler_context(request, params)
+        if not ctx:
             return create_error_response(request, 'EMBEDDING_ERROR', "Main window not available")
         
-        general_settings = main_window.config_manager.general_settings
+        general_settings = ctx.get_config_manager().general_settings
         default_embedding = general_settings.default_embedding
         default_embedding_model = general_settings.default_embedding_model
 
@@ -623,7 +624,7 @@ def handle_get_embedding_provider_api_key(request: IPCRequest, params: Optional[
         
         show_full = data.get('show_full', False)  # Whether to show full API key
 
-        embedding_manager = get_embedding_manager()
+        embedding_manager = get_embedding_manager(request, params)
 
         # Get provider by standard identifier (case-insensitive)
         provider = embedding_manager.get_provider(provider_identifier)
