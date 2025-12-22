@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { Form, Input, Button, Card, Select, Typography, App, Modal, Spin } from 'antd';
 import { UserOutlined, LockOutlined, LoadingOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { APIResponse, IPCAPI } from '../../services/ipc';
+import { APIResponse, IPCAPI, ipcClient } from '../../services/ipc';
 import { get_ipc_api } from '../../services/ipc_api';
-import { userStorageManager } from '../../services/storage/UserStorageManager';
+import { userStorageManager, type LoginSession } from '../../services/storage/UserStorageManager';
 import { pageRefreshManager } from '../../services/events/PageRefreshManager';
 import { useInitializationProgress } from '../../hooks/useInitializationProgress';
 import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
@@ -194,11 +194,11 @@ const Login: React.FC = () => {
 				console.log('[Login] Login successful', response.data);
 				setLoginProgress('success');
 
-				const { token, user_info } = response.data;
+				const { token, user_info, session_id } = response.data;
 				const username = user_info?.username || values.username;
 
 				// 使用统一的UserStorage管理器，保存完整的用户信息
-				const loginSession = {
+				const loginSession: LoginSession = {
 					token,
 					userInfo: {
 						username,
@@ -213,6 +213,12 @@ const Login: React.FC = () => {
 					},
 					loginTime: Date.now()
 				};
+
+				if (session_id) {
+					loginSession.sessionId = session_id;
+					userStorageManager.setSessionId(session_id);
+					ipcClient.setSessionId(session_id);
+				}
 
 				userStorageManager.saveLoginSession(loginSession);
 				// LoginSuccess后EnabledPageRefreshListen
@@ -382,7 +388,7 @@ const Login: React.FC = () => {
 	};
 
   // Google login handler
-  const handleGoogleLogin = useCallback(async () => {
+	const handleGoogleLogin = useCallback(async () => {
     if (loading || loginSuccessful) return; // Prevent double submission
 
     setLoading(true);
@@ -417,12 +423,12 @@ const Login: React.FC = () => {
         console.log('Google login successful', response.data);
         setGoogleLoginProgress('success');
 
-        const { token, user_info, message } = response.data;
+		const { token, user_info, message, session_id } = response.data;
         // 优先使用 name（显示名称），其次是 username，最后是 email
         const displayName = user_info.name || user_info.username || user_info.email;
 
         // 使用统一的UserStorage管理器，保存完整的用户信息
-        const loginSession = {
+		const loginSession: LoginSession = {
           token,
           userInfo: {
             username: displayName,
@@ -438,7 +444,13 @@ const Login: React.FC = () => {
           loginTime: Date.now()
         };
 
-        userStorageManager.saveLoginSession(loginSession);
+		if (session_id) {
+			loginSession.sessionId = session_id;
+			userStorageManager.setSessionId(session_id);
+			ipcClient.setSessionId(session_id);
+		}
+
+		userStorageManager.saveLoginSession(loginSession);
 
         // Enable page refresh monitoring
         pageRefreshManager.enable();

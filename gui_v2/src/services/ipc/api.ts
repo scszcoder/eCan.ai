@@ -2,12 +2,12 @@
  * IPC API
  * 提供与 Python Backend通信的Advanced API
  */
-import { IPCWCClient } from './ipcWCClient';
 import { IPCResponse } from './types';
 import { logger } from '../../utils/logger';
 import { createChatApi } from './chatApi';
 import { createLightRAGApi } from './lightragApi';
 import { logoutManager } from '../LogoutManager';
+import { ipcClient } from './ipcClient';
 
 /**
  * API ResponseType
@@ -39,7 +39,7 @@ export interface TestConfig {
  */
 export class IPCAPI {
     private static instance: IPCAPI;
-    private ipcWCClient: IPCWCClient;
+    private clientInitPromise: Promise<void> | null = null;
 
     // 新增 chat Field
     public chatApi: ReturnType<typeof createChatApi>;
@@ -47,7 +47,6 @@ export class IPCAPI {
     public lightragApi: ReturnType<typeof createLightRAGApi>;
 
     private constructor() {
-        this.ipcWCClient = IPCWCClient.getInstance();
         // Initialize chat api
         this.chatApi = createChatApi(this);
         this.lightragApi = createLightRAGApi(this);
@@ -59,7 +58,7 @@ export class IPCAPI {
      * CleanupIPCRequest队列
      */
     public clearQueue(): void {
-        this.ipcWCClient.clearQueue();
+        ipcClient.clearQueue();
     }
 
     /**
@@ -92,7 +91,8 @@ export class IPCAPI {
      * Toggle window fullscreen state
      */
     public async windowToggleFullscreen(): Promise<boolean> {
-        const response = await this.ipcWCClient.invoke('window_toggle_fullscreen', {});
+        await this.ensureInitialized();
+        const response = await ipcClient.invoke('window_toggle_fullscreen', {});
         return response?.result?.is_fullscreen ?? response?.data?.is_fullscreen ?? false;
     }
 
@@ -100,8 +100,24 @@ export class IPCAPI {
      * Get window fullscreen state
      */
     public async windowGetFullscreenState(): Promise<boolean> {
-        const response = await this.ipcWCClient.invoke('window_get_fullscreen_state', {});
+        await this.ensureInitialized();
+        const response = await ipcClient.invoke('window_get_fullscreen_state', {});
         return response?.result?.is_fullscreen ?? response?.data?.is_fullscreen ?? false;
+    }
+
+    private async ensureInitialized(): Promise<void> {
+        if (ipcClient.isInitialized()) {
+            return;
+        }
+
+        if (!this.clientInitPromise) {
+            this.clientInitPromise = ipcClient.initialize().catch((error) => {
+                this.clientInitPromise = null;
+                throw error;
+            });
+        }
+
+        await this.clientInitPromise;
     }
 
     /**
@@ -115,12 +131,14 @@ export class IPCAPI {
         const startTs = Date.now();
         console.log('[IPCAPI] executeRequest:start', method, { params, timeout });
         try {
+            await this.ensureInitialized();
+
             // 对于 get_initialization_progress，使用 invoke Method以利用队列和并发控制
             let response: IPCResponse;
             if (method === 'get_initialization_progress') {
-                response = await this.ipcWCClient.invoke(method, params, { timeout }) as IPCResponse;
+                response = await ipcClient.invoke(method, params, { timeout });
             } else {
-                response = await this.ipcWCClient.sendRequest(method, params, timeout) as IPCResponse;
+                response = await ipcClient.invoke(method, params, { timeout });
             }
 
             console.log('[IPCAPI] executeRequest:response', method, { response, durationMs: Date.now() - startTs });
