@@ -4,6 +4,8 @@ Provides specific implementations for various IPC requests
 """
 
 from typing import Any, Optional, Dict
+import os
+from datetime import datetime
 
 from .types import IPCRequest, IPCResponse, create_success_response, create_error_response
 from .registry import IPCHandlerRegistry
@@ -341,6 +343,16 @@ def handle_get_initialization_progress(request: IPCRequest, params: Optional[Any
         # logger.debug(f"Get initialization progress handler called with request: {request}")
 
         main_window = AppContext.get_main_window()
+        if main_window is None and os.getenv("ECAN_MODE", "desktop") == "web":
+            # In web mode we don't create a Qt MainWindow; report ready so the frontend can proceed
+            return create_success_response(request, {
+                'ui_ready': True,
+                'critical_services_ready': True,
+                'async_init_complete': True,
+                'fully_ready': True,
+                'sync_init_complete': True,
+                'message': 'Web mode: backend ready'
+            })
         if main_window is None:
             logger.info("MainWindow not yet created")
             # MainWindow not yet created
@@ -369,6 +381,19 @@ def handle_get_initialization_progress(request: IPCRequest, params: Optional[Any
             'INIT_PROGRESS_ERROR',
             f"Error getting initialization progress: {str(e)}"
         )
+
+
+@IPCHandlerRegistry.handler('ping')
+def handle_ping(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
+    """Simple health check handler"""
+    try:
+        return create_success_response(request, {
+            "message": "pong",
+            "timestamp": datetime.utcnow().isoformat() + "Z"
+        })
+    except Exception as e:
+        logger.error(f"Error in ping handler: {e}")
+        return create_error_response(request, 'PING_ERROR', str(e))
 
 
 @IPCHandlerRegistry.handler('window_toggle_fullscreen')
