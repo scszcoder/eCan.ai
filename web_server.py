@@ -132,6 +132,22 @@ async def main_async():
     
     # Setup
     logger = setup_logging()
+    
+    # Initialize AppContext for web mode
+    from app_context import AppContext
+    from config.app_settings import app_settings
+    from config.app_info import app_info
+    
+    ctx = AppContext()
+    ctx.set_logger(logger)
+    ctx.set_config(app_settings)
+    ctx.set_app_info(app_info)
+    
+    # Initialize Login component for web mode
+    from gui.LoginoutGUI import Login
+    login = Login()
+    ctx.set_login(login)
+    
     load_handlers()
     session_manager = setup_session_manager()
     

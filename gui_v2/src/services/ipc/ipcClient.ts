@@ -34,7 +34,8 @@ export interface IPCClientConfig {
 
 // Default WebSocket URL (can be overridden by environment variable)
 // @ts-ignore - import.meta.env is available in Vite
-const DEFAULT_WS_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_WS_URL) || 'ws://localhost:8765';
+const DEFAULT_WS_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_WS_URL) || 
+    (typeof window !== 'undefined' ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws` : 'ws://localhost:8765');
 
 /**
  * Detect deployment mode based on environment
@@ -199,6 +200,15 @@ class UnifiedIPCClient {
         return this.wsClient?.isConnected() ?? false;
     }
     
+    /**
+     * Clear any queued desktop IPC requests
+     */
+    public clearQueue(): void {
+        if (this.mode === 'desktop' && this.wcClient && typeof this.wcClient.clearQueue === 'function') {
+            this.wcClient.clearQueue();
+        }
+    }
+
     /**
      * Send request to backend
      */

@@ -5,6 +5,7 @@ Unified IPC request handler registration, management and middleware system
 
 from typing import Any, Dict, Optional, Callable, TypeVar, ClassVar, Tuple, Literal, Set
 from functools import wraps
+import os
 from .types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from .token_manager import token_manager
 from utils.logger_helper import logger_helper as logger
@@ -15,6 +16,17 @@ SyncHandlerFunc = Callable[[IPCRequest, Optional[Any]], IPCResponse]
 BackgroundHandlerFunc = Callable[[IPCRequest, Optional[Any]], IPCResponse]
 
 HandlerType = TypeVar('HandlerType')
+
+
+def _find_session_id(request: Optional[Dict[str, Any]], params: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Extract session_id from params or request meta."""
+    if params and isinstance(params, dict) and params.get('session_id'):
+        return params['session_id']
+    if request and isinstance(request, dict):
+        meta = request.get('meta', {})
+        if isinstance(meta, dict):
+            return meta.get('session_id')
+    return None
 
 class IPCHandlerRegistry:
     """Unified IPC handler registration and middleware system
@@ -175,6 +187,12 @@ class IPCHandlerRegistry:
         try:
             current_time = time.time()
 
+            # In web mode we don't rely on Qt MainWindow; treat backend as ready
+            if os.getenv("ECAN_MODE", "desktop") == "web":
+                cls._system_ready_cache = True
+                cls._system_ready_cache_time = current_time
+                return True, None
+
             # Check if cache is valid (using dynamic TTL)
             if cls._system_ready_cache is not None:
                 # Choose different TTL based on cache status
@@ -249,6 +267,23 @@ class IPCHandlerRegistry:
                 system_error or 'SYSTEM_NOT_READY',
                 f"System not ready for method {method}"
             )
+
+        # In web mode, allow authenticated session_id to bypass token requirement
+        if os.getenv("ECAN_MODE", "desktop") == "web":
+            session_id = _find_session_id(request, params)
+            if session_id:
+                try:
+                    from gui.context.session_manager import SessionManager
+                    if SessionManager.get_instance().get_context(session_id):
+                        return None
+                    else:
+                        return create_error_response(
+                            request,
+                            'SESSION_NOT_FOUND',
+                            f"Session {session_id} not found or expired"
+                        )
+                except Exception as e:
+                    logger.error(f"[registry] Error validating session_id {session_id}: {e}")
 
         # Token validation (after system check, as token validation is not needed when system is not ready)
         token_valid, token_error = cls._validate_token(request, params)
