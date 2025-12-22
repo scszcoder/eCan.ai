@@ -15,7 +15,7 @@ def _is_web_mode() -> bool:
     return os.getenv('ECAN_MODE', 'desktop') == 'web'
 
 
-def _create_web_session(user_id: str, user_data: dict) -> Optional[str]:
+def _create_web_session(user_id: str, user_data: dict, auth_token: str = "") -> Optional[str]:
     """Create a web session for the user. Only called in web mode."""
     if not _is_web_mode():
         return None
@@ -23,7 +23,8 @@ def _create_web_session(user_id: str, user_data: dict) -> Optional[str]:
         from gui.context.session_manager import SessionManager
         session_id = SessionManager.get_instance().create_session(
             user_id=user_id,
-            user_data=user_data
+            username=user_data.get('email', user_id),  # Use email as username
+            auth_token=auth_token,
         )
         logger.info(f"[user_handler] Created web session {session_id} for user {user_id}")
         return session_id
@@ -165,7 +166,7 @@ def handle_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCRe
                 'email': user_email,
                 'role': machine_role,
                 'login_type': 'password'
-            })
+            }, auth_token=token)
             
             return _build_user_info_response(
                 request, token, user_profile, username, machine_role, 'password', 'login_success', session_id

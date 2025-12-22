@@ -10,7 +10,20 @@ from gui.ipc.context_bridge import get_handler_context
 from utils.logger_helper import logger_helper as logger
 from agent.ec_org_ctrl import get_ec_org_ctrl
 from agent.cloud_api.constants import Operation
-from agent.agent_converter import convert_agent_dict_to_ec_agent
+convert_agent_dict_to_ec_agent = None  # Lazy import to avoid circulars
+
+
+def _get_converter():
+    """Lazy import agent converter to reduce circular import risk."""
+    global convert_agent_dict_to_ec_agent
+    if convert_agent_dict_to_ec_agent is None:
+        try:
+            from agent.agent_converter import convert_agent_dict_to_ec_agent as _conv
+            convert_agent_dict_to_ec_agent = _conv
+        except Exception as e:
+            logger.error(f"[agent_handler] Failed to import agent converter: {e}")
+            convert_agent_dict_to_ec_agent = False  # mark tried
+    return convert_agent_dict_to_ec_agent or None
 
 
 def _json_safe(value, depth: int = 0):
@@ -375,7 +388,8 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
                             logger.info(f"[agent_handler] ✅ Query successful, agent has {len(db_agent_data.get('skills', []))} skills, {len(db_agent_data.get('tasks', []))} tasks")
                             
                             # Convert database agent to EC_Agent instance
-                            updated_ec_agent = convert_agent_dict_to_ec_agent(db_agent_data, ctx)
+                            converter = _get_converter()
+                            updated_ec_agent = converter(db_agent_data, ctx) if converter else None
                             
                             if updated_ec_agent:
                                 # Replace the agent in ctx.get_agents()
@@ -660,7 +674,8 @@ def handle_new_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
                 db_agent_data = db_agent_result['data'][0]
                 
                 # Convert database agent to EC_Agent instance
-                ec_agent = convert_agent_dict_to_ec_agent(db_agent_data, ctx)
+                converter = _get_converter()
+                ec_agent = converter(db_agent_data, ctx) if converter else None
                 
                 if ec_agent:
                     # Add to ctx.get_agents()
@@ -753,6 +768,28 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
             logger.warning(f"[agent_handler] MainWindow not available for user: {username}")
             return create_error_response(request, 'MAIN_WINDOW_ERROR', 'User session not available - please login again')
         
+        # In web mode we may not have DB/config wired yet; fall back to empty structures
+        if not ctx.get_ec_db_mgr() or not ctx.get_ec_db_mgr().agent_service:
+            logger.error(f"[agent_handler] Database service not available")
+            empty_tree = {
+                'id': '__virtual_root__',
+                'name': 'eCan.ai',
+                'description': 'Root Organization',
+                'org_type': 'company',
+                'level': 0,
+                'sort_order': 0,
+                'status': 'active',
+                'parent_id': None,
+                'created_at': None,
+                'updated_at': None,
+                'children': [],
+                'agents': []
+            }
+            return create_success_response(request, {
+                'orgs': empty_tree,
+                'message': 'Database service not available; returning empty org structure'
+            })
+        
         # 🔥 Optimization: Prefer memory, sync from database if memory is empty
         # This ensures both performance and data consistency
         all_agents = []
@@ -784,17 +821,23 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
                     logger.info(f"[agent_handler] Retrieved {len(db_agents)} agents from database")
                     
                     # Convert to EC_Agent and add to memory
-                    agents = ctx.get_agents()
-                    agents.clear()
-                    for db_agent_dict in db_agents:
-                        try:
-                            ec_agent = convert_agent_dict_to_ec_agent(db_agent_dict, ctx)
-                            if ec_agent:
-                                ctx.get_agents().append(ec_agent)
-                                all_agents.append(ec_agent.to_dict(owner=username))
-                        except Exception as e:
-                            logger.warning(f"[agent_handler] Failed to convert agent: {e}")
-                            continue
+                    converter = _get_converter()
+                    if not converter:
+                        logger.error("[agent_handler] Agent converter unavailable; returning DB agent dicts")
+                        all_agents.extend(db_agents)
+                    else:
+                        agents = ctx.get_agents()
+                        agents.clear()
+                        for db_agent_dict in db_agents:
+                            try:
+                                ec_agent = converter(db_agent_dict, ctx)
+                                if ec_agent:
+                                    agents.append(ec_agent)
+                                    all_agents.append(ec_agent.to_dict(owner=username))
+                            except Exception as e:
+                                logger.warning(f"[agent_handler] Failed to convert agent: {e}")
+                                logger.debug(traceback.format_exc())
+                                continue
                     
                     logger.info(f"[agent_handler] Synced {len(ctx.get_agents())} agents to memory")
                 else:

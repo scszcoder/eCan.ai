@@ -197,6 +197,16 @@ class WebSocketTransport(IPCTransport):
         except Exception as e:
             logger.error(f"[WS] Connection error: {connection_id} - {e}")
         finally:
+            # Unbind connection from session manager
+            try:
+                from gui.context.session_manager import SessionManager
+                session_manager = SessionManager.get_instance()
+                unbound_session = session_manager.unbind_connection(connection_id)
+                if unbound_session:
+                    logger.info(f"[WS] Unbound connection {connection_id} from session {unbound_session}")
+            except Exception as e:
+                logger.error(f"[WS] Error unbinding connection {connection_id}: {e}")
+            
             del self._connections[connection_id]
             logger.info(f"[WS] Connection removed: {connection_id} (remaining: {len(self._connections)})")
     
@@ -322,19 +332,34 @@ class WebSocketTransport(IPCTransport):
         # 1. From connection binding
         if connection_id:
             from gui.context.session_manager import SessionManager
-            session_id = SessionManager.get_instance().get_session_id_by_connection(connection_id)
+            session_manager = SessionManager.get_instance()
+            session_id = session_manager.get_session_id_by_connection(connection_id)
             if session_id:
                 return session_id
         
         # 2. From request params
         params = request.get('params', {})
         if isinstance(params, dict) and params.get('session_id'):
-            return params['session_id']
+            session_id = params['session_id']
+            # Bind this connection to the session if not already bound
+            if connection_id and session_id:
+                from gui.context.session_manager import SessionManager
+                session_manager = SessionManager.get_instance()
+                if session_manager.bind_connection(connection_id, session_id):
+                    logger.info(f"[WS] Bound connection {connection_id} to session {session_id}")
+            return session_id
         
         # 3. From request meta
         meta = request.get('meta', {})
         if isinstance(meta, dict) and meta.get('session_id'):
-            return meta['session_id']
+            session_id = meta['session_id']
+            # Bind this connection to the session if not already bound
+            if connection_id and session_id:
+                from gui.context.session_manager import SessionManager
+                session_manager = SessionManager.get_instance()
+                if session_manager.bind_connection(connection_id, session_id):
+                    logger.info(f"[WS] Bound connection {connection_id} to session {session_id}")
+            return session_id
         
         return None
 

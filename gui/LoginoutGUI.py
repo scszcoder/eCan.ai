@@ -12,6 +12,7 @@ from config.app_info import app_info
 from config.envi import getECBotDataHome
 from agent.network.network import commanderIP
 import asyncio
+import os
 
 
 print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui finished...")
@@ -139,11 +140,16 @@ class Login:
                     schedule_mode=schedule_mode
                 )
                 
-                # Start async task to create MainWindow
-                try:
-                    asyncio.create_task(self._async_launch_main_window(request))
-                except Exception as e:
-                    logger.error(f"[Login] Failed to start async main window launch: {e}")
+                # In web mode we don't have a Qt event loop/MainWindow; mark ready and return
+                if os.getenv('ECAN_MODE', 'desktop') == 'web':
+                    logger.info("[Login] Web mode detected - skipping MainWindow launch")
+                    self._update_progress(100, "Web session ready")
+                else:
+                    # Start async task to create MainWindow
+                    try:
+                        asyncio.create_task(self._async_launch_main_window(request))
+                    except Exception as e:
+                        logger.error(f"[Login] Failed to start async main window launch: {e}")
                 
                 return {'success': True, 'message': 'Authentication successful'}
             else:

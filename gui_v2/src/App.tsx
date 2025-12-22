@@ -12,7 +12,7 @@ import './styles/global.css';
 import 'antd/dist/reset.css';
 import './index.css';
 import { set_ipc_api } from './services/ipc_api';
-import { createIPCAPI } from './services/ipc';
+import { createIPCAPI, ipcClient } from './services/ipc';
 import { protocolHandler } from './pages/Chat/utils/protocolHandler';
 import { useUserStore } from './stores/userStore';
 import { useAgentStore } from './stores/agentStore';
@@ -213,46 +213,50 @@ function App() {
     const [isInitialized, setIsInitialized] = React.useState(false);
 
     React.useEffect(() => {
-        // Synchronously initialize critical services, asynchronously initialize other services
-        try {
-            // Initialize IPC service (synchronous) - must be before platform detection
-            set_ipc_api(createIPCAPI());
+        const initApp = async () => {
+            try {
+                // Initialize IPC service (supports desktop + web)
+                await ipcClient.initialize();
+                set_ipc_api(createIPCAPI());
 
-            // Initialize platform configuration (synchronous) - depends on IPC API for platform detection
-            initializePlatform();
+                // Initialize platform configuration (synchronous) - depends on IPC API for platform detection
+                initializePlatform();
 
-            // Asynchronously initialize other services
-            const initOtherServices = async () => {
-                try {
-                    // Initialize page refresh manager
-                    pageRefreshManager.initialize();
+                // Asynchronously initialize other services
+                const initOtherServices = async () => {
+                    try {
+                        // Initialize page refresh manager
+                        pageRefreshManager.initialize();
 
-                    // Initialize protocol handler
-                    protocolHandler.init();
-                    
-                    // Initialize store sync listeners
-                    initializeStoreSync();
+                        // Initialize protocol handler
+                        protocolHandler.init();
+                        
+                        // Initialize store sync listeners
+                        initializeStoreSync();
 
-                    // Set log level based on environment
-                    const isDevelopment = process.env.NODE_ENV === 'development';
+                        // Set log level based on environment
+                        const isDevelopment = process.env.NODE_ENV === 'development';
 
-                    if (isDevelopment) {
-                        logger.setLevel(LogLevel.DEBUG);
-                    } else {
-                        logger.setLevel(LogLevel.INFO);
-                        logger.info('Running in production mode, debug logs disabled');
+                        if (isDevelopment) {
+                            logger.setLevel(LogLevel.DEBUG);
+                        } else {
+                            logger.setLevel(LogLevel.INFO);
+                            logger.info('Running in production mode, debug logs disabled');
+                        }
+                    } catch (error) {
+                        console.error('Failed to initialize other services:', error);
                     }
-                } catch (error) {
-                    console.error('Failed to initialize other services:', error);
-                }
-            };
+                };
 
-            initOtherServices();
-            setIsInitialized(true);
-        } catch (error) {
-            console.error('Failed to initialize core services:', error);
-            setIsInitialized(true); // Still allow app to start, but functionality may be limited
-        }
+                initOtherServices();
+                setIsInitialized(true);
+            } catch (error) {
+                console.error('Failed to initialize core services:', error);
+                setIsInitialized(true); // Still allow app to start, but functionality may be limited
+            }
+        };
+
+        void initApp();
     }, []);
 
     if (!isInitialized) {
