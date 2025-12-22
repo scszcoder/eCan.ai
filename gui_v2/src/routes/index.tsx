@@ -28,6 +28,7 @@ const Warehouses = React.lazy(() => import('../pages/Warehouses/Warehouses'));
 const Products = React.lazy(() => import('../pages/Products/Products'));
 const Prompts = React.lazy(() => import('../pages/Prompts/Prompts'));
 const Account = React.lazy(() => import('../pages/Account/Account'));
+const PaymentPlan = React.lazy(() => import('../pages/Account/PaymentPlan'));
 const ShippingLabel = React.lazy(() => import('../pages/ShippingLabel/ShippingLabel'));
 
 // LoadComponent包装器
@@ -186,6 +187,11 @@ export const protectedRoutes: RouteConfig[] = [
             {
                 path: 'account',
                 element: <LazyWrapper><Account /></LazyWrapper>,
+                keepAlive: false,
+            },
+            {
+                path: 'account/payment-plan',
+                element: <LazyWrapper><PaymentPlan /></LazyWrapper>,
                 keepAlive: false,
             },
             {

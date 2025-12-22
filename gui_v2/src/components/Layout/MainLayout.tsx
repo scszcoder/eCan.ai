@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { Layout } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -33,6 +33,7 @@ import PageBackBreadcrumb from './PageBackBreadcrumb';
 import QuickActionMenu from './QuickActionMenu';
 import A11yFocusGuard from '../Common/A11yFocusGuard';
 import { logoutManager } from '../../services/LogoutManager';
+import { pushTestAds } from '../../stores/adStore';
 
 
 const StyledLayout = styled(Layout)`
@@ -88,6 +89,15 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
             i18n.changeLanguage(savedLanguage);
         }
     }, [i18n]);
+
+    // Trigger test ads after login initialization completes
+    // useEffect(() => {
+    //     const timer = setTimeout(() => {
+    //         console.log('[MainLayout] Triggering test ads for 1 minute');
+    //         pushTestAds(60000);
+    //     }, 1000);
+    //     return () => clearTimeout(timer);
+    // }, []);
 
     const handleLogout = async () => {
         try {

@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 MainGUI.py - eCan.ai
 """
@@ -476,6 +476,9 @@ class MainWindow:
             total_time = time.time() - self._init_start_time
             logger.info(f"[MainWindow] ✅ Background initialization completed successfully in {total_time:.2f}s total")
 
+            # TEST: Push demo ad after initialization (comment out after testing)
+            # self._test_push_demo_ad()
+
         except Exception as e:
             logger.error(f"[MainWindow] ❌ Background initialization failed: {e}")
             import traceback
@@ -483,6 +486,41 @@ class MainWindow:
             # Even if background init fails, mark as complete to prevent hanging
             self._initialization_status['async_init_complete'] = True
             logger.info("[MainWindow] ✅ Marked async_init_complete=True after background initialization failure")
+
+    def _test_push_demo_ad(self):
+        """TEST: Push a demo ad to frontend after initialization. Comment out after testing."""
+        try:
+            from gui.ipc.w2p_handlers.ad_handler import push_ad_to_frontend
+            import threading
+            
+            def delayed_push():
+                import time
+                time.sleep(3)  # Wait 3 seconds for frontend to be ready
+                push_ad_to_frontend(
+                    banner_text='🎉 Welcome! Special Offer: 50% off Premium Plans - Limited Time Only! Click for details.',
+                    popup_html='''
+                        <div style="text-align: center; padding: 20px;">
+                            <h2 style="color: #f8fafc; margin-bottom: 12px;">🎉 Special Offer!</h2>
+                            <p style="color: rgba(248, 250, 252, 0.8); margin-bottom: 20px;">
+                                Upgrade to Premium and get <strong style="color: #3b82f6;">50% OFF</strong> for 3 months!
+                            </p>
+                            <button onclick="window.location.href='/account/payment-plan'" style="
+                                background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+                                color: white; border: none; padding: 12px 32px;
+                                border-radius: 8px; font-size: 16px; cursor: pointer;
+                            ">Get Started</button>
+                        </div>
+                    ''',
+                    duration_ms=60000  # 1 minute
+                )
+                logger.info('[MainWindow] TEST: Demo ad pushed to frontend')
+            
+            # Run in background thread to not block
+            threading.Thread(target=delayed_push, daemon=True).start()
+            logger.info('[MainWindow] TEST: Scheduled demo ad push in 3 seconds')
+            
+        except Exception as e:
+            logger.error(f'[MainWindow] TEST: Failed to push demo ad: {e}')
 
     async def _finalize_async_initialization(self):
         """Finalize async initialization and start final background services"""
