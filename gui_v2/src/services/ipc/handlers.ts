@@ -1,4 +1,4 @@
-/**
+﻿/**
  * IPC Process器
  * Implementation了与 Python Backend通信的RequestProcess器
  */
@@ -74,6 +74,9 @@ export class IPCHandlers {
         this.registerHandler('lightrag.queryStream.chunk', this.handleLightRagChunk);
         this.registerHandler('lightrag.queryStream.done', this.handleLightRagDone);
         this.registerHandler('lightrag.queryStream.error', this.handleLightRagError);
+
+        // Ad banner push from backend
+        this.registerHandler('push_ad', this.pushAd);
     }
     private registerHandler(method: string, handler: Handler): void {
         this.handlers[method] = handler;
@@ -842,6 +845,41 @@ export class IPCHandlers {
         const response = await IPCWCClient.getInstance().invoke('window_toggle_fullscreen', {});
         logger.debug('[IPC] Window toggle fullscreen response:', response);
         return response?.result?.is_fullscreen ?? response?.data?.is_fullscreen ?? false;
+    }
+
+    /**
+     * Handle ad push from backend
+     */
+    async pushAd(request: IPCRequest): Promise<{ success: boolean }> {
+        const params = request.params as {
+            bannerText?: string;
+            popupHtml?: string;
+            durationMs?: number;
+        };
+        
+        const { useAdStore } = await import('../../stores/adStore');
+        const store = useAdStore.getState();
+        const durationMs = params.durationMs || 60000;
+        const expiresAt = Date.now() + durationMs;
+        
+        if (params.bannerText) {
+            store.setBannerAd({
+                id: `ad-banner-${Date.now()}`,
+                text: params.bannerText,
+                expiresAt,
+            });
+        }
+        
+        if (params.popupHtml) {
+            store.setPopupAd({
+                id: `ad-popup-${Date.now()}`,
+                htmlContent: params.popupHtml,
+                expiresAt,
+            });
+        }
+        
+        logger.info('[IPC] Ad pushed from backend', { durationMs });
+        return { success: true };
     }
 
     /**
