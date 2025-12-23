@@ -1,17 +1,35 @@
-import React, { useState } from 'react';
-import { Button, Card, Col, Divider, InputNumber, Row, Space, Typography } from 'antd';
+import React, { useState, useEffect } from 'react';
+import { Button, Card, Col, Divider, InputNumber, Row, Space, Typography, message } from 'antd';
 import { ReloadOutlined, DollarOutlined, ArrowRightOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import { useAccountStore } from '../../stores';
+import { ipcApi } from '../../services/ipc';
 
 const { Title, Text } = Typography;
 
 const Account: React.FC = () => {
     const [topUpAmount, setTopUpAmount] = useState<number | null>(50);
+    const [refreshing, setRefreshing] = useState(false);
     const navigate = useNavigate();
+    const accountData = useAccountStore((state) => state.accountData);
+    const setAccountData = useAccountStore((state) => state.setAccountData);
 
-    const handleRefresh = () => {
-        // TODO: Wire up IPC call to fetch account info
-        console.log('Account data refresh requested');
+    const handleRefresh = async () => {
+        setRefreshing(true);
+        try {
+            const response = await ipcApi.invoke('get_account_info', {});
+            if (response?.result?.accountInfo) {
+                setAccountData(response.result.accountInfo);
+                message.success('Account info refreshed');
+            } else {
+                message.error('Failed to fetch account info');
+            }
+        } catch (error) {
+            console.error('Error fetching account info:', error);
+            message.error('Error fetching account info');
+        } finally {
+            setRefreshing(false);
+        }
     };
 
     const handleChangePlan = () => {
@@ -34,7 +52,7 @@ const Account: React.FC = () => {
                     <Text type="secondary">Manage your subscription and billing details.</Text>
                 </Col>
                 <Col>
-                    <Button icon={<ReloadOutlined />} onClick={handleRefresh}>
+                    <Button icon={<ReloadOutlined />} onClick={handleRefresh} loading={refreshing}>
                         Refresh
                     </Button>
                 </Col>
@@ -45,16 +63,27 @@ const Account: React.FC = () => {
                     <Card>
                         <Space direction="vertical" size={12} style={{ width: '100%' }}>
                             <Title level={4} style={{ margin: 0 }}>Current Plan</Title>
-                            <Text type="secondary">Subscription details fetched from the cloud will appear here.</Text>
+                            <Text type="secondary">
+                                {accountData?.acctInfo?.email || 'Subscription details will appear after refresh.'}
+                            </Text>
                             <Space size={32} wrap>
                                 <div>
                                     <Text type="secondary">Plan</Text><br />
-                                    <Text strong>Pro (placeholder)</Text>
+                                    <Text strong>
+                                        {accountData?.acctInfo?.subs && accountData.acctInfo.subs !== '[]' && accountData.acctInfo.subs.trim() !== '' 
+                                            ? accountData.acctInfo.subs 
+                                            : 'Free Tier'}
+                                    </Text>
                                 </div>
                                 <Divider type="vertical" style={{ height: 'auto' }} />
                                 <div>
-                                    <Text type="secondary">Monthly usage</Text><br />
-                                    <Text strong>$120.00</Text>
+                                    <Text type="secondary">Balance</Text><br />
+                                    <Text strong>${accountData?.acctInfo?.fund ?? 0}</Text>
+                                </div>
+                                <Divider type="vertical" style={{ height: 'auto' }} />
+                                <div>
+                                    <Text type="secondary">Quota</Text><br />
+                                    <Text strong>{accountData?.acctInfo?.quota ?? 0}</Text>
                                 </div>
                             </Space>
                             <Button type="primary" icon={<ArrowRightOutlined />} onClick={handleChangePlan}>

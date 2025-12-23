@@ -81,7 +81,8 @@ print(TimeUtil.formatted_now_with_ms() + " load MainGui #2 finished...")
 # 8. Cloud Service Imports
 # ============================================================================
 from agent.cloud_api.cloud_api import (set_up_cloud, upload_file, download_file,
-    send_query_chat_request_to_cloud, send_report_vehicles_to_cloud, send_update_vehicles_request_to_cloud)
+    send_query_chat_request_to_cloud, send_report_vehicles_to_cloud, send_update_vehicles_request_to_cloud,
+    send_account_info_request_to_cloud)
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui #3 finished...")
 
@@ -522,6 +523,75 @@ class MainWindow:
         except Exception as e:
             logger.error(f'[MainWindow] TEST: Failed to push demo ad: {e}')
 
+    async def _fetch_account_info_from_cloud(self):
+        """Fetch account info from cloud and push to frontend for Account page display."""
+        try:
+            logger.info("[MainWindow] Fetching account info from cloud...")
+            
+            # Build the account info request
+            # actid: 0 means query current user's account based on auth token
+            acct_ops = [{
+                'actid': 0,
+                'op': {"action": "get all"},
+                'options': '{}'
+            }]
+            
+            # Run the cloud request in executor to avoid blocking
+            response = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: send_account_info_request_to_cloud(
+                    self.session,
+                    acct_ops,
+                    self.get_auth_token(),
+                    self.getWanApiEndpoint()
+                )
+            )
+            
+            if response and 'errorType' not in response:
+                # Store account info for later use
+                self._account_info = response
+                logger.info(f"[MainWindow] Account info fetched successfully")
+                logger.debug(f"[MainWindow] Account info: {response}")
+                
+                # Push account info to frontend
+                self._push_account_info_to_frontend(response)
+            else:
+                logger.warning(f"[MainWindow] Failed to fetch account info: {response}")
+                self._account_info = None
+                
+        except Exception as e:
+            logger.error(f"[MainWindow] Error fetching account info: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            self._account_info = None
+
+    def _push_account_info_to_frontend(self, account_info):
+        """Push account info to frontend via IPC."""
+        try:
+            from gui.ipc.api import IPCAPI
+            
+            try:
+                ipc_api = IPCAPI.get_instance()
+            except RuntimeError:
+                logger.warning("[MainWindow] IPCAPI not initialized, cannot push account info")
+                return
+            
+            def callback(response):
+                if response.success:
+                    logger.info("[MainWindow] Account info pushed to frontend")
+                else:
+                    logger.warning(f"[MainWindow] Failed to push account info: {response.error}")
+            
+            # Send the account info to frontend
+            ipc_api._send_request(
+                'push_account_info',
+                params={'accountInfo': account_info},
+                callback=callback
+            )
+            
+        except Exception as e:
+            logger.error(f"[MainWindow] Error pushing account info: {e}")
+
     async def _finalize_async_initialization(self):
         """Finalize async initialization and start final background services"""
         logger.info("[MainWindow] 🏁 Finalizing async initialization...")
@@ -539,6 +609,9 @@ class MainWindow:
         logger.info(f"[MainWindow] Final vehicle count: {len(getattr(self, 'vehicles', []))}")
         for v in getattr(self, 'vehicles', []):
             logger.debug(f"[MainWindow] Vehicle: {v.getName()}, Status: {v.getStatus()}")
+
+        # Fetch account info from cloud
+        await self._fetch_account_info_from_cloud()
 
         # Start cloud sync if needed (deferred from sync phase)
         if getattr(self, '_should_start_cloud_sync', False):

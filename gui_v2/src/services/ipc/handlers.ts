@@ -77,6 +77,9 @@ export class IPCHandlers {
 
         // Ad banner push from backend
         this.registerHandler('push_ad', this.pushAd);
+
+        // Account info push from backend
+        this.registerHandler('push_account_info', this.pushAccountInfo);
     }
     private registerHandler(method: string, handler: Handler): void {
         this.handlers[method] = handler;
@@ -879,6 +882,28 @@ export class IPCHandlers {
         }
         
         logger.info('[IPC] Ad pushed from backend', { durationMs });
+        return { success: true };
+    }
+
+    /**
+     * Handle account info push from backend
+     */
+    async pushAccountInfo(request: IPCRequest): Promise<{ success: boolean }> {
+        const params = request.params as {
+            accountInfo?: any;
+        };
+        
+        if (!params.accountInfo) {
+            logger.warn('[IPC] No account info in push_account_info request');
+            return { success: false };
+        }
+        
+        const { useAccountStore } = await import('../../stores/accountStore');
+        const store = useAccountStore.getState();
+        
+        store.setAccountData(params.accountInfo);
+        
+        logger.info('[IPC] Account info pushed from backend');
         return { success: true };
     }
 
