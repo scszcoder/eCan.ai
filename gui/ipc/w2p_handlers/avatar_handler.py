@@ -30,7 +30,7 @@ class AvatarHandler:
         # Removed avatar_managers cache - create on-demand for better decoupling
         logger.info("[AvatarHandler] Initialized")
     
-    def _get_avatar_manager(self, username: str) -> AvatarManager:
+    def _get_avatar_manager(self, username: str, request: Dict = None, params: Any = None) -> AvatarManager:
         """
         Create AvatarManager on-demand for each request.
         
@@ -39,16 +39,23 @@ class AvatarHandler:
         
         Args:
             username: User identifier
+            request: IPC request dict (optional, for context)
+            params: IPC params (optional, for context)
             
         Returns:
             AvatarManager: Fresh instance with db_avatar_service
         """
         # Get avatar_service from ECDBMgr
-        ctx = get_handler_context(request, params)
         avatar_service = None
-        if ctx:
-            # Use the unified avatar_service from ECDBMgr
-            avatar_service = ctx.get_ec_db_mgr().avatar_service
+        if request is not None:
+            ctx = get_handler_context(request, params)
+            if ctx:
+                ec_db_mgr = ctx.get_ec_db_mgr()
+                if ec_db_mgr:
+                    avatar_service = ec_db_mgr.avatar_service
+            else:
+                avatar_service = None
+                logger.warning("[AvatarHandler] No context found for avatar manager")
         
         # Create fresh AvatarManager instance for each request
         return AvatarManager(
@@ -100,7 +107,7 @@ class AvatarHandler:
                     "error": "Missing required parameter: avatarResourceId"
                 }
             
-            avatar_manager = self._get_avatar_manager(username)
+            avatar_manager = self._get_avatar_manager(username, request)
             
             # Get avatar resource, automatically check and restore missing files
             avatar_data = avatar_manager.get_avatar_info(avatar_resource_id, auto_restore=True)
@@ -158,7 +165,7 @@ class AvatarHandler:
                     "error": "Missing required parameter: username"
                 }
             
-            avatar_manager = self._get_avatar_manager(username)
+            avatar_manager = self._get_avatar_manager(username, request)
             
             avatars = avatar_manager.get_system_avatars()
             
@@ -242,7 +249,7 @@ class AvatarHandler:
                         "error": f"Unknown file type: {ext}"
                     }
             
-            avatar_manager = self._get_avatar_manager(username)
+            avatar_manager = self._get_avatar_manager(username, request)
             
             # Handle video upload
             if file_type == 'video':
@@ -458,7 +465,7 @@ class AvatarHandler:
                     "error": "Missing required parameter: username"
                 }
             
-            avatar_manager = self._get_avatar_manager(username)
+            avatar_manager = self._get_avatar_manager(username, request)
             
             avatars = avatar_manager.get_uploaded_avatars()
             
@@ -507,7 +514,7 @@ class AvatarHandler:
                     "error": "Missing required parameters: username, avatarId"
                 }
             
-            avatar_manager = self._get_avatar_manager(username)
+            avatar_manager = self._get_avatar_manager(username, request)
             result = await avatar_manager.delete_uploaded_avatar(avatar_id)
             
             if result["success"]:
@@ -565,7 +572,7 @@ class AvatarHandler:
                     "error": "Missing required parameters: username, agentId, avatarType, imageUrl"
                 }
             
-            avatar_manager = self._get_avatar_manager(username)
+            avatar_manager = self._get_avatar_manager(username, request)
             result = await avatar_manager.set_agent_avatar(
                 agent_id=agent_id,
                 avatar_type=avatar_type,
@@ -627,7 +634,7 @@ class AvatarHandler:
                     "error": "Missing required parameters: username, imagePath"
                 }
             
-            avatar_manager = self._get_avatar_manager(username)
+            avatar_manager = self._get_avatar_manager(username, request)
             result = await avatar_manager.generate_avatar_video(
                 image_path=image_path,
                 model=model,

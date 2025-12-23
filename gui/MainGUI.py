@@ -2049,33 +2049,25 @@ class MainWindow:
     def get_free_agent_ports(self, n):
         """
         Thread-safe port allocation for agents.
-        Uses the global port allocator to prevent race conditions during parallel agent launch.
+        Uses the global port allocator with lock to prevent race conditions during parallel agent launch.
+        
+        The _port_allocator maintains its own lock, so this method is safe to call
+        during parallel agent initialization without worrying about self.agents state.
         """
         try:
-            # Get currently used ports from existing agents
-            used_ports = [ag.get_a2a_server_port() for ag in self.agents if ag is not None and hasattr(ag, 'get_a2a_server_port')]
-            
             # Get port range from configuration
             local_agent_ports = self.config_manager.general_settings.local_agent_ports
                         
-            # Use thread-safe allocator
-            free_ports = self._port_allocator.get_free_ports(n, local_agent_ports, used_ports)
+            # Use thread-safe allocator - it maintains its own internal state
+            # No need to check self.agents here, the allocator tracks allocated ports
+            free_ports = self._port_allocator.get_free_ports(n, local_agent_ports, [])
             
             logger.info(f"[MainWindow] Allocated ports: {free_ports}")
             return free_ports
             
         except Exception as e:
             logger.error(f"[MainWindow] Port allocation failed: {e}")
-            # Fallback to original method if allocator fails
-            used_ports = [ag.get_a2a_server_port() for ag in self.agents if ag is not None]
-            local_agent_ports = self.config_manager.general_settings.local_agent_ports
-            all_ports = range(local_agent_ports[0], local_agent_ports[1]+1)
-            free_ports = [port for port in all_ports if port not in used_ports]
-            
-            if len(free_ports) < n:
-                raise RuntimeError(f"[MainWindow] Only {len(free_ports)} free ports available, but {n} requested.")
-            
-            return free_ports[:n]
+            raise
 
 
     def release_agent_port(self, port):

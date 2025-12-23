@@ -389,7 +389,7 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
                             
                             # Convert database agent to EC_Agent instance
                             converter = _get_converter()
-                            updated_ec_agent = converter(db_agent_data, ctx) if converter else None
+                            updated_ec_agent = converter(db_agent_data, ctx.main_window) if converter else None
                             
                             if updated_ec_agent:
                                 # Replace the agent in ctx.get_agents()
@@ -675,7 +675,7 @@ def handle_new_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
                 
                 # Convert database agent to EC_Agent instance
                 converter = _get_converter()
-                ec_agent = converter(db_agent_data, ctx) if converter else None
+                ec_agent = converter(db_agent_data, ctx.main_window) if converter else None
                 
                 if ec_agent:
                     # Add to ctx.get_agents()
@@ -830,7 +830,7 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
                         agents.clear()
                         for db_agent_dict in db_agents:
                             try:
-                                ec_agent = converter(db_agent_dict, ctx)
+                                ec_agent = converter(db_agent_dict, ctx.main_window)
                                 if ec_agent:
                                     agents.append(ec_agent)
                                     all_agents.append(ec_agent.to_dict(owner=username))
