@@ -1344,15 +1344,7 @@ def _create_llm_instance(provider, config_manager=None, allow_no_api_key=False):
         elif 'ollama' in provider_name.lower() or 'chatollama' == class_name:
             model_name = model_name or 'llama3.2'
             
-            logger.info(f"[Ollama] Starting Ollama LLM creation - Initial base_url from config: {base_url}")
-            
-            # Get base_url from settings.json (ollama_llm_base_url) or use provider default
-            if not base_url:
-                from gui.manager.provider_settings_helper import get_ollama_base_url
-                base_url = get_ollama_base_url('llm', provider)
-                logger.info(f"[Ollama] base_url was empty, loaded from settings: {base_url}")
-            else:
-                logger.info(f"[Ollama] Using base_url from provider config: {base_url}")
+            logger.info(f"[Ollama] Starting Ollama LLM creation - base_url from config: {base_url}")
             
             # Convert native Ollama URL to OpenAI-compatible endpoint
             original_base_url = base_url

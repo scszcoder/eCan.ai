@@ -193,7 +193,7 @@ def handle_send_chat(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
             logger.info(f"[handle_send_chat] Calling gui_a2a_send_chat with chatId: {chatId}, original: {original_chatId}")
             logger.debug(f"[handle_send_chat] request['params']['chatId']: {request['params']['chatId']}")
             t3 = time.time()
-            gui_a2a_send_chat(ctx, request)
+            gui_a2a_send_chat(ctx.main_window, request)
             logger.debug(f"[PERF] handle_send_chat - gui_a2a_send_chat: {time.time()-t3:.3f}s")
         
         logger.info(f"[PERF] handle_send_chat - TOTAL: {time.time()-t_start:.3f}s")
