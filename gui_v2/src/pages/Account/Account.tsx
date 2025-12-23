@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { Button, Card, Col, Divider, InputNumber, Row, Space, Typography } from 'antd';
 import { ReloadOutlined, DollarOutlined, ArrowRightOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 
 const { Title, Text } = Typography;
 
 const Account: React.FC = () => {
     const [topUpAmount, setTopUpAmount] = useState<number | null>(50);
+    const navigate = useNavigate();
 
     const handleRefresh = () => {
         // TODO: Wire up IPC call to fetch account info
@@ -13,8 +15,7 @@ const Account: React.FC = () => {
     };
 
     const handleChangePlan = () => {
-        // TODO: Navigate to change plan flow
-        console.log('Change plan clicked');
+        navigate('/account/payment-plan');
     };
 
     const handleTopUp = () => {

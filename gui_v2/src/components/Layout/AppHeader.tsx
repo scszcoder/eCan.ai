@@ -13,6 +13,7 @@ import { get_ipc_api } from '../../services/ipc_api';
 import { messageManager } from '../../pages/Chat/managers/MessageManager';
 import { userStorageManager, type UserInfo } from '../../services/storage/UserStorageManager';
 import { UserAvatar } from '../Common/UserAvatar';
+import { AdBanner, AdPopup } from '../AdBanner';
 
 const StyledHeader = styled(Header)`
     padding: 0 24px;
@@ -333,6 +334,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
                 onClick={onCollapse}
                 style={{ fontSize: '18px', width: 64, height: 64 }}
             />
+            <AdBanner />
             <HeaderRight>
                 <StyledBadge count={totalUnreadCount > 0 ? totalUnreadCount : 0} overflowCount={99}>
                     <StyledButton
@@ -432,6 +434,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
                     )}
                 </Modal>
             </HeaderRight>
+            <AdPopup />
         </StyledHeader>
     );
 };
