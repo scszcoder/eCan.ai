@@ -57,19 +57,27 @@ def update_ollama_base_url(
         return False, error_msg
 
 
-def get_ollama_base_url(provider_type: str, provider_config: dict = None) -> str:
+def get_ollama_base_url(provider_type: str, provider_config = None) -> str:
     """
     Get Ollama base_url from settings.json or provider config.
     
     Args:
         provider_type: Type of provider ('llm', 'embedding', or 'rerank')
-        provider_config: Optional provider config dict with default base_url
+        provider_config: Optional provider config (dict or object) with default base_url
     
     Returns:
         Base URL string
     """
     # Start with provider default or fallback
-    base_url = provider_config.get('base_url', 'http://localhost:11434') if provider_config else 'http://localhost:11434'
+    if provider_config:
+        # Handle both dict and object types
+        if isinstance(provider_config, dict):
+            base_url = provider_config.get('base_url', 'http://localhost:11434')
+        else:
+            # It's an object (e.g., LLMProviderConfig)
+            base_url = getattr(provider_config, 'base_url', 'http://localhost:11434')
+    else:
+        base_url = 'http://localhost:11434'
     
     # Try to get from settings.json
     try:
