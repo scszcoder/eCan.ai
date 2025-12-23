@@ -77,6 +77,9 @@ const DocumentsTab: React.FC = () => {
   const [processingProgress, setProcessingProgress] = useState<ProcessingProgress | null>(null);
   const [documentProgress, setDocumentProgress] = useState<Map<string, number>>(new Map());
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const failurePollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const scanPollingStartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const statusCountsInFlightRef = useRef(false);
   const consoleRef = useRef<HTMLDivElement | null>(null);
   const [autoStopOnFailure, setAutoStopOnFailure] = useState(true); // 默认启用自动停止
   const [consoleCollapsed, setConsoleCollapsed] = useState(false); // Console折叠状态，默认展开
@@ -122,8 +125,167 @@ const DocumentsTab: React.FC = () => {
     
     return () => {
       stopProgressPolling();
+      if (scanPollingStartTimeoutRef.current) {
+        clearTimeout(scanPollingStartTimeoutRef.current);
+        scanPollingStartTimeoutRef.current = null;
+      }
+      if (failurePollIntervalRef.current) {
+        clearInterval(failurePollIntervalRef.current);
+        failurePollIntervalRef.current = null;
+      }
     };
   }, [statusCounts.PROCESSING, statusCounts.PENDING]);
+
+  const stopFailureDetectionPolling = () => {
+    if (failurePollIntervalRef.current) {
+      clearInterval(failurePollIntervalRef.current);
+      failurePollIntervalRef.current = null;
+    }
+    statusCountsInFlightRef.current = false;
+  };
+
+  const cancelScanPollingStartTimeout = () => {
+    if (scanPollingStartTimeoutRef.current) {
+      clearTimeout(scanPollingStartTimeoutRef.current);
+      scanPollingStartTimeoutRef.current = null;
+    }
+  };
+
+  const startFailureDetectionPolling = (previousFailedCount: number) => {
+    stopFailureDetectionPolling();
+
+    let pollCount = 0;
+    const maxPolls = 40;
+    let failureDetected = false;
+
+    console.log('[DocumentsTab] Starting failure detection polling...');
+    appendLog('🔍 Starting failure detection polling (checking every 3s for up to 120s)...');
+
+    failurePollIntervalRef.current = setInterval(async () => {
+      pollCount++;
+      console.log(`[DocumentsTab] Poll #${pollCount}/${maxPolls}`);
+
+      if (pollCount >= maxPolls || failureDetected) {
+        console.log(`[DocumentsTab] Stopping polling. Reason: ${failureDetected ? 'failure detected' : 'max polls reached'}`);
+        appendLog(`🛑 Stopping failure detection polling (${failureDetected ? 'failure detected' : 'max attempts reached'})`);
+        stopFailureDetectionPolling();
+        return;
+      }
+
+      if (statusCountsInFlightRef.current) {
+        return;
+      }
+
+      statusCountsInFlightRef.current = true;
+      try {
+        const statusResponse = await get_ipc_api().lightragApi.getStatusCounts();
+        if (statusResponse.success && statusResponse.data) {
+          const statusData = statusResponse.data as any;
+          const currentStatusCounts = statusData?.data?.status_counts || statusData?.status_counts || {};
+          const newFailedCount = currentStatusCounts?.FAILED || currentStatusCounts?.failed || 0;
+          const processingCount = currentStatusCounts?.PROCESSING || currentStatusCounts?.processing || 0;
+          const pendingCount = currentStatusCounts?.PENDING || currentStatusCounts?.pending || 0;
+
+          console.log(`[DocumentsTab] Poll #${pollCount}: FAILED=${newFailedCount} (was ${previousFailedCount}), PROCESSING=${processingCount}, PENDING=${pendingCount}`);
+          console.log(`[DocumentsTab] Full status counts:`, currentStatusCounts);
+          console.log(`[DocumentsTab] Raw statusData:`, statusData);
+
+          if (newFailedCount > previousFailedCount) {
+            failureDetected = true;
+            stopFailureDetectionPolling();
+
+            const failedDiff = newFailedCount - previousFailedCount;
+            let errorDetails = '';
+
+            console.log(`[DocumentsTab] Detected ${failedDiff} new failed document(s), fetching details...`);
+
+            try {
+              const failedDocsResponse = await get_ipc_api().lightragApi.getDocumentsPaginated({
+                page: 1,
+                page_size: 10,
+                status_filter: 'failed',
+                sort_field: 'updated_at',
+                sort_direction: 'desc'
+              });
+
+              console.log(`[DocumentsTab] getDocumentsPaginated response:`, failedDocsResponse);
+
+              if (!failedDocsResponse.success) {
+                console.error(`[DocumentsTab] Failed to fetch failed documents:`, failedDocsResponse.error);
+                appendLog(`❌ Failed to fetch failed document details: ${failedDocsResponse.error?.message || 'Unknown error'}`);
+              }
+
+              if (failedDocsResponse.success && failedDocsResponse.data) {
+                const failedData = failedDocsResponse.data as any;
+                const failedDocs = failedData?.data?.documents || [];
+
+                console.log(`[DocumentsTab] Failed docs response:`, failedDocsResponse);
+                console.log(`[DocumentsTab] Failed docs count: ${failedDocs.length}`);
+                if (failedDocs.length > 0) {
+                  console.log(`[DocumentsTab] First failed doc:`, failedDocs[0]);
+                }
+
+                if (failedDocs.length > 0) {
+                  appendLog(`\n=== Failed Documents Details ===`);
+                  failedDocs.slice(0, 3).forEach((doc: any) => {
+                    appendLog(`📄 File: ${doc.file_path}`);
+                    appendLog(`   Status: ${doc.status}`);
+                    appendLog(`   Updated: ${doc.updated_at || 'N/A'}`);
+                    if (doc.error_msg) {
+                      appendLog(`   Error: ${doc.error_msg}`);
+                    }
+                  });
+                  appendLog(`================================\n`);
+
+                  const firstDoc = failedDocs[0];
+                  if (firstDoc.file_path) {
+                    errorDetails = `\nLast failed: ${firstDoc.file_path}`;
+                    if (firstDoc.error_msg) {
+                      const shortError = firstDoc.error_msg.length > 500
+                        ? firstDoc.error_msg.substring(0, 500) + '...'
+                        : firstDoc.error_msg;
+                      errorDetails += `\nError: ${shortError}`;
+                    }
+                  }
+                }
+              }
+            } catch (e) {
+              console.error('Failed to fetch failed document details:', e);
+              appendLog(`❌ Exception while fetching failed document details: ${e}`);
+            }
+
+            message.error({
+              content: `⚠️ ${failedDiff} document(s) failed to process. Please check the document list and server logs for details.${errorDetails}`,
+              duration: 10,
+              style: { maxWidth: '600px' }
+            });
+            appendLog(`⚠️ ${failedDiff} document(s) failed during processing. Check server logs for error details.`);
+            await loadDocuments();
+            return;
+          }
+
+          if (processingCount === 0 && pendingCount === 0 && pollCount >= 2) {
+            console.log(`[DocumentsTab] No documents pending or processing, stopping polling early`);
+            appendLog(`✅ No documents pending or processing, stopping polling early`);
+
+            if (documents.length > 0) {
+              console.log(`[DocumentsTab] Current documents in UI:`, documents.map(d => ({
+                file: d.file_path,
+                status: d.status
+              })));
+            }
+
+            stopFailureDetectionPolling();
+            await loadDocuments();
+          }
+        }
+      } catch (e) {
+        console.error('Error polling for failed documents:', e);
+      } finally {
+        statusCountsInFlightRef.current = false;
+      }
+    }, 3000);
+  };
 
   const startProgressPolling = () => {
     if (progressIntervalRef.current) return;
@@ -514,6 +676,9 @@ const DocumentsTab: React.FC = () => {
   const handleScan = async () => {
     try {
       appendLog(t('pages.knowledge.documents.startingScan'));
+
+      cancelScanPollingStartTimeout();
+      stopFailureDetectionPolling();
       
       // Record current failed count before scan
       const previousFailedCount = statusCounts.FAILED;
@@ -525,151 +690,9 @@ const DocumentsTab: React.FC = () => {
           message.success(t('pages.knowledge.documents.scanStarted') + (res.message || ''));
           
           // Reload documents after scan and start polling for failures
-          setTimeout(async () => {
+          scanPollingStartTimeoutRef.current = setTimeout(async () => {
             await loadDocuments();
-            
-            // Poll for failed documents - check every 3 seconds for up to 120 seconds
-            let pollCount = 0;
-            const maxPolls = 40; // 40 polls * 3 seconds = 120 seconds max
-            let failureDetected = false;
-            
-            console.log('[DocumentsTab] Starting failure detection polling...');
-            appendLog('🔍 Starting failure detection polling (checking every 3s for up to 120s)...');
-            
-            const pollInterval = setInterval(async () => {
-              pollCount++;
-              console.log(`[DocumentsTab] Poll #${pollCount}/${maxPolls}`);
-              
-              // Stop polling after max attempts or if failure detected
-              if (pollCount >= maxPolls || failureDetected) {
-                console.log(`[DocumentsTab] Stopping polling. Reason: ${failureDetected ? 'failure detected' : 'max polls reached'}`);
-                appendLog(`🛑 Stopping failure detection polling (${failureDetected ? 'failure detected' : 'max attempts reached'})`);
-                clearInterval(pollInterval);
-                return;
-              }
-              
-              try {
-                const statusResponse = await get_ipc_api().lightragApi.getStatusCounts();
-                if (statusResponse.success && statusResponse.data) {
-                  const statusData = statusResponse.data as any;
-                  // Try both possible data structures
-                  const statusCounts = statusData?.data?.status_counts || statusData?.status_counts || {};
-                  // Handle both uppercase and lowercase keys
-                  const newFailedCount = statusCounts?.FAILED || statusCounts?.failed || 0;
-                  const processingCount = statusCounts?.PROCESSING || statusCounts?.processing || 0;
-                  const pendingCount = statusCounts?.PENDING || statusCounts?.pending || 0;
-                  
-                  console.log(`[DocumentsTab] Poll #${pollCount}: FAILED=${newFailedCount} (was ${previousFailedCount}), PROCESSING=${processingCount}, PENDING=${pendingCount}`);
-                  console.log(`[DocumentsTab] Full status counts:`, statusCounts);
-                  console.log(`[DocumentsTab] Raw statusData:`, statusData);
-                  
-                  // Check for failures FIRST (before early stop check)
-                  if (newFailedCount > previousFailedCount) {
-                    failureDetected = true;
-                    clearInterval(pollInterval);
-                    
-                    const failedDiff = newFailedCount - previousFailedCount;
-                    let errorDetails = '';
-                    
-                    console.log(`[DocumentsTab] Detected ${failedDiff} new failed document(s), fetching details...`);
-                    
-                    // Fetch failed documents to get error details
-                    try {
-                      const failedDocsResponse = await get_ipc_api().lightragApi.getDocumentsPaginated({
-                        page: 1,
-                        page_size: 10,
-                        status_filter: 'failed',  // Use lowercase to match backend status format
-                        sort_field: 'updated_at',
-                        sort_direction: 'desc'
-                      });
-                      
-                      console.log(`[DocumentsTab] getDocumentsPaginated response:`, failedDocsResponse);
-                      
-                      if (!failedDocsResponse.success) {
-                        console.error(`[DocumentsTab] Failed to fetch failed documents:`, failedDocsResponse.error);
-                        appendLog(`❌ Failed to fetch failed document details: ${failedDocsResponse.error?.message || 'Unknown error'}`);
-                      }
-                      
-                      if (failedDocsResponse.success && failedDocsResponse.data) {
-                        const failedData = failedDocsResponse.data as any;
-                        const failedDocs = failedData?.data?.documents || [];
-                        
-                        console.log(`[DocumentsTab] Failed docs response:`, failedDocsResponse);
-                        console.log(`[DocumentsTab] Failed docs count: ${failedDocs.length}`);
-                        if (failedDocs.length > 0) {
-                          console.log(`[DocumentsTab] First failed doc:`, failedDocs[0]);
-                        }
-                        
-                        // Log details of failed documents
-                        if (failedDocs.length > 0) {
-                          appendLog(`\n=== Failed Documents Details ===`);
-                          failedDocs.slice(0, 3).forEach((doc: any) => {
-                            appendLog(`📄 File: ${doc.file_path}`);
-                            appendLog(`   Status: ${doc.status}`);
-                            appendLog(`   Updated: ${doc.updated_at || 'N/A'}`);
-                            // LightRAG saves error in 'error_msg' field (not 'error_message')
-                            if (doc.error_msg) {
-                              appendLog(`   Error: ${doc.error_msg}`);
-                            }
-                          });
-                          appendLog(`================================\n`);
-                          
-                          // Build error summary for UI message
-                          const firstDoc = failedDocs[0];
-                          if (firstDoc.file_path) {
-                            errorDetails = `\nLast failed: ${firstDoc.file_path}`;
-                            // Include error message in UI if available
-                            if (firstDoc.error_msg) {
-                              // Truncate long error messages for UI display
-                              const shortError = firstDoc.error_msg.length > 500 
-                                ? firstDoc.error_msg.substring(0, 500) + '...'
-                                : firstDoc.error_msg;
-                              errorDetails += `\nError: ${shortError}`;
-                            }
-                          }
-                        }
-                      }
-                    } catch (e) {
-                      console.error('Failed to fetch failed document details:', e);
-                      appendLog(`❌ Exception while fetching failed document details: ${e}`);
-                    }
-                    
-                    // Always show error message, even if we couldn't fetch details
-                    message.error({
-                      content: `⚠️ ${failedDiff} document(s) failed to process. Please check the document list and server logs for details.${errorDetails}`,
-                      duration: 10,
-                      style: { maxWidth: '600px' }
-                    });
-                    appendLog(`⚠️ ${failedDiff} document(s) failed during processing. Check server logs for error details.`);
-                    
-                    // Refresh the document list to show failed status
-                    await loadDocuments();
-                  }
-                  
-                  // Check for early stop AFTER failure detection
-                  // Stop polling if no documents are pending or processing and we've checked at least twice
-                  if (processingCount === 0 && pendingCount === 0 && pollCount >= 2) {
-                    console.log(`[DocumentsTab] No documents pending or processing, stopping polling early`);
-                    appendLog(`✅ No documents pending or processing, stopping polling early`);
-                    
-                    // Log current document statuses for debugging
-                    if (documents.length > 0) {
-                      console.log(`[DocumentsTab] Current documents in UI:`, documents.map(d => ({
-                        file: d.file_path,
-                        status: d.status
-                      })));
-                    }
-                    
-                    clearInterval(pollInterval);
-                    // Force refresh to ensure UI shows latest status
-                    await loadDocuments();
-                    return;
-                  }
-                }
-              } catch (e) {
-                console.error('Error polling for failed documents:', e);
-              }
-            }, 3000); // Poll every 3 seconds
+            startFailureDetectionPolling(previousFailedCount);
           }, 2000);
       } else {
           const errorMsg = response.error?.message || 'Unknown error';

@@ -295,6 +295,17 @@ class EmbeddingManager:
             # Validate configuration
             validation = embedding_config.validate_provider_config(provider_name)
             
+            # For Ollama, use base_url from settings.json if available (user preference)
+            base_url = provider_config.base_url
+            if 'ollama' in provider_config.name.lower() or 'ollama' in provider_config.provider.value.lower():
+                try:
+                    from gui.manager.provider_settings_helper import get_ollama_base_url
+                    settings_base_url = get_ollama_base_url('embedding', provider_config)
+                    if settings_base_url and settings_base_url.strip():
+                        base_url = settings_base_url
+                except Exception:
+                    pass  # Use default base_url if settings retrieval fails
+            
             provider_data = {
                 "name": provider_config.name,
                 "display_name": provider_config.display_name,
@@ -303,7 +314,7 @@ class EmbeddingManager:
                 "description": provider_config.description,
                 "documentation_url": provider_config.documentation_url,
                 "is_local": provider_config.is_local,
-                "base_url": provider_config.base_url,
+                "base_url": base_url,
                 "default_model": provider_config.default_model,
                 "api_key_env_vars": provider_config.api_key_env_vars,
                 "supported_models": self._serialize_models(provider_config.supported_models),
