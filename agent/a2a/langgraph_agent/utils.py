@@ -17,16 +17,19 @@ def get_lan_ip():
 
 def get_a2a_server_url(mainwin):
     """
-    Get A2A server URL with port allocation.
-    Always returns a valid URL with format: http://host:port
+    Get A2A server URL with thread-safe port allocation.
+    
+    The port allocator (_port_allocator) maintains its own lock and internal state,
+    so this is safe to call during parallel agent initialization.
     
     Returns:
         str: Valid URL with allocated port, or fallback URL if allocation fails
     """
     try:
         host = get_lan_ip()
+        # Use thread-safe port allocator - it has its own lock
         free_ports = mainwin.get_free_agent_ports(1)
-        logger.debug("getting a2a server ports:", host, free_ports)
+        logger.debug(f"Getting a2a server ports: {host}, {free_ports}")
         
         if not free_ports:
             # No free ports available, use default port
@@ -35,7 +38,7 @@ def get_a2a_server_url(mainwin):
         
         a2a_server_port = free_ports[0]
         url = f"http://{host}:{a2a_server_port}"
-        logger.debug("a2a server url:", url)
+        logger.debug(f"A2A server url: {url}")
         return url
 
     except Exception as e:
