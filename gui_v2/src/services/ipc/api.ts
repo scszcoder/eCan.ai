@@ -725,3 +725,7 @@ export class IPCAPI {
 export function createIPCAPI(): IPCAPI {
     return IPCAPI.getInstance();
 } 
+/**
+ * Singleton IPC API instance for convenient imports
+ */
+export const ipcApi = IPCAPI.getInstance();
