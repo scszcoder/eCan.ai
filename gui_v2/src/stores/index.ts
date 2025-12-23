@@ -18,6 +18,7 @@ export { useContextStore } from './contextStore';
 export { useWarehouseStore } from './warehouseStore';
 export { useProductStore } from './productStore';
 export { usePromptStore } from './promptStore';
+export { useAccountStore } from './accountStore';
 
 // === Tool和Service ===
 export { storeSyncManager } from './sync/syncManager';

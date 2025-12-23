@@ -163,9 +163,9 @@ def gen_account_info_request_string(query):
     """
     rec_string = ""
     for i in range(len(query)):
-        # rec_string = rec_string + "{ id: \"" + query[i].id + "\", "
-        rec_string = rec_string + "{ actid: " + str(query[i]["actid"]) + ", "
-        rec_string = rec_string + "op: \"" + query[i]["op"] + "\", "
+        # actid is ID! type in GraphQL schema, must be quoted as string
+        rec_string = rec_string + "{ actid: \"" + str(query[i]["actid"]) + "\", "
+        rec_string = rec_string + "op: \"" + json.dumps(query[i]["op"]).replace('"', '\\"') + "\", "
         rec_string = rec_string + "options: \"" + query[i]["options"] + "\" }"
         if i != len(query) - 1:
             rec_string = rec_string + ', '
@@ -715,12 +715,13 @@ def send_account_info_request_to_cloud(session, acct_ops, token, endpoint):
 
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
-    #  logger_helper.debug("file op response:"+json.dumps(jresp))
+    logger_helper.debug("account info response:" + json.dumps(jresp))
     if "errors" in jresp:
-        screen_error = True
-        logger_helper.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(
-            jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
+        error_obj = jresp["errors"][0]
+        error_type = error_obj.get("errorType", error_obj.get("type", "Unknown"))
+        error_msg = error_obj.get("message", str(error_obj))
+        logger_helper.error(f"ERROR Type: {error_type} ERROR Info: {error_msg}")
+        jresponse = {"errorType": error_type, "message": error_msg}
     else:
         jresponse = json.loads(jresp["data"]["reqAccountInfo"])
 

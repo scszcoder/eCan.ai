@@ -1,4 +1,4 @@
-import traceback
+﻿import traceback
 from typing import Any, Optional, Dict
 from app_context import AppContext
 from gui.ipc.handlers import validate_params
@@ -415,3 +415,47 @@ def handle_google_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         logger.error(f"Error in Google login handler: {e} {traceback.format_exc()}")
         auth_messages.set_language(lang)
         return create_error_response(request, 'GOOGLE_LOGIN_ERROR', auth_messages.get_message('login_failed'))
+
+@IPCHandlerRegistry.handler('get_account_info')
+def handle_get_account_info(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """
+    Fetch account info from cloud on demand.
+    Called when user clicks refresh on Account page.
+    """
+    try:
+        logger.info("[GetAccountInfo] Fetching account info from cloud...")
+        
+        mainwin = AppContext.get_main_window()
+        if not mainwin:
+            return create_error_response(request, 'NOT_INITIALIZED', 'Main window not initialized')
+        
+        from agent.cloud_api.cloud_api import send_account_info_request_to_cloud
+        
+        # Build the account info request
+        acct_ops = [{
+            'actid': 0,
+            'op': 'query',
+            'options': '{}'
+        }]
+        
+        response = send_account_info_request_to_cloud(
+            mainwin.session,
+            acct_ops,
+            mainwin.get_auth_token(),
+            mainwin.getWanApiEndpoint()
+        )
+        
+        if response and 'errorType' not in response:
+            logger.info("[GetAccountInfo] Account info fetched successfully")
+            # Store in mainwin for later use
+            mainwin._account_info = response
+            return create_success_response(request, {'accountInfo': response})
+        else:
+            logger.warning(f"[GetAccountInfo] Failed to fetch account info: {response}")
+            return create_error_response(request, 'FETCH_ERROR', str(response))
+            
+    except Exception as e:
+        logger.error(f"[GetAccountInfo] Error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return create_error_response(request, 'GET_ACCOUNT_INFO_ERROR', str(e))
