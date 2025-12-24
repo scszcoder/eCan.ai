@@ -61,6 +61,17 @@ class GraphQLBuilder:
         (DataType.TOOL, Operation.UPDATE): "updateAgentTools",
         (DataType.TOOL, Operation.DELETE): "removeAgentTools",
         
+        (DataType.KNOWLEDGE, Operation.ADD): "addKnowledges",
+        (DataType.KNOWLEDGE, Operation.UPDATE): "updateKnowledges",
+        (DataType.KNOWLEDGE, Operation.DELETE): "removeKnowledges",
+        
+        (DataType.AVATAR_RESOURCE, Operation.ADD): "addAvatarResources",
+        (DataType.AVATAR_RESOURCE, Operation.UPDATE): "updateAvatarResources",
+        (DataType.AVATAR_RESOURCE, Operation.DELETE): "removeAvatarResources",
+        
+        (DataType.VEHICLE, Operation.ADD): "reportVehicles",
+        (DataType.VEHICLE, Operation.UPDATE): "updateVehicles",
+        
         # ============================================================================
         # First-Level Relationship Operations
         # ============================================================================

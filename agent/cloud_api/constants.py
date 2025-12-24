@@ -27,6 +27,7 @@ class DataType(str, Enum):
     KNOWLEDGE = 'knowledge'      # Knowledge entity
     ORGANIZATION = 'organization' # Organization entity
     AVATAR_RESOURCE = 'avatar_resource' # Avatar resource entity
+    VEHICLE = 'vehicle'          # Vehicle entity
     
     # ============================================================================
     # First-Level Relationships (Agent relationships with other entities)

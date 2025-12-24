@@ -2664,6 +2664,328 @@ def convert_cloud_result_to_task_send_params(result_obj: dict, work_type: str) -
         }
 
 
+# ============================================================================
+# SCENE GENERATION API FUNCTIONS
+# ============================================================================
+
+def gen_req_scene_mutation_string(scene_input: dict) -> str:
+    """
+    Generate GraphQL mutation string for requesting scene generation.
+    
+    Args:
+        scene_input: Dict with keys: acctSiteID, agent_id, emotion, mind_state, 
+                     description, style, output_format, duration_hint_ms, context
+    """
+    # Escape strings for GraphQL
+    def escape_str(s):
+        if s is None:
+            return "null"
+        return '"' + str(s).replace('\\', '\\\\').replace('"', '\\"') + '"'
+    
+    acct_site_id = escape_str(scene_input.get("acctSiteID"))
+    agent_id = escape_str(scene_input.get("agent_id"))
+    emotion = escape_str(scene_input.get("emotion"))
+    mind_state = escape_str(scene_input.get("mind_state"))
+    description = escape_str(scene_input.get("description"))
+    style = scene_input.get("style", "ANIME")  # Enum, no quotes
+    output_format = scene_input.get("output_format", "WEBM")  # Enum, no quotes
+    duration_hint_ms = scene_input.get("duration_hint_ms")
+    context = scene_input.get("context")
+    
+    # Build context JSON string if provided
+    context_str = "null"
+    if context:
+        context_str = '"' + json.dumps(context).replace('\\', '\\\\').replace('"', '\\"') + '"'
+    
+    duration_str = str(duration_hint_ms) if duration_hint_ms else "null"
+    
+    mutation_string = f"""
+        mutation ReqScene {{
+          reqScene(input: {{
+            acctSiteID: {acct_site_id}
+            agent_id: {agent_id}
+            emotion: {emotion}
+            mind_state: {mind_state}
+            description: {description}
+            style: {style}
+            output_format: {output_format}
+            duration_hint_ms: {duration_str}
+            context: {context_str}
+          }}) {{
+            request_id
+            status
+            message
+            estimated_time_ms
+          }}
+        }}
+    """
+    logger_helper.debug(f"[Scene] Generated reqScene mutation: {mutation_string}")
+    return mutation_string
+
+
+def gen_query_scene_string(scene_id: str) -> str:
+    """Generate GraphQL query string for getting a scene by ID."""
+    query_string = f"""
+        query GetScene {{
+          getScene(id: "{scene_id}") {{
+            id
+            acctSiteID
+            scene_id
+            agent_ids
+            label
+            clip
+            n_repeat
+            priority
+            captions
+            trigger_events
+            description
+            dialogs
+            actions
+            duration_ms
+            timestamp
+            status
+          }}
+        }}
+    """
+    return query_string
+
+
+def gen_query_scenes_string(query_input: dict) -> str:
+    """
+    Generate GraphQL query string for querying scenes with filters.
+    
+    Args:
+        query_input: Dict with keys: acctSiteID, agent_id, label, emotion, status, limit, nextToken
+    """
+    def escape_str(s):
+        if s is None:
+            return "null"
+        return '"' + str(s).replace('\\', '\\\\').replace('"', '\\"') + '"'
+    
+    acct_site_id = escape_str(query_input.get("acctSiteID"))
+    agent_id = escape_str(query_input.get("agent_id")) if query_input.get("agent_id") else "null"
+    label = escape_str(query_input.get("label")) if query_input.get("label") else "null"
+    emotion = escape_str(query_input.get("emotion")) if query_input.get("emotion") else "null"
+    status = query_input.get("status") if query_input.get("status") else "null"  # Enum
+    limit = query_input.get("limit", 20)
+    next_token = escape_str(query_input.get("nextToken")) if query_input.get("nextToken") else "null"
+    
+    query_string = f"""
+        query QueryScenes {{
+          queryScenes(input: {{
+            acctSiteID: {acct_site_id}
+            agent_id: {agent_id}
+            label: {label}
+            emotion: {emotion}
+            status: {status}
+            limit: {limit}
+            nextToken: {next_token}
+          }}) {{
+            items {{
+              id
+              acctSiteID
+              scene_id
+              agent_ids
+              label
+              clip
+              n_repeat
+              priority
+              captions
+              description
+              timestamp
+              status
+            }}
+            nextToken
+          }}
+        }}
+    """
+    return query_string
+
+
+def gen_start_soap_mutation_string(soap_input: dict) -> str:
+    """
+    Generate GraphQL mutation string for starting a soap opera.
+    
+    Args:
+        soap_input: Dict with keys: acctSiteID, agent_ids, theme, mood, settings
+    """
+    def escape_str(s):
+        if s is None:
+            return "null"
+        return '"' + str(s).replace('\\', '\\\\').replace('"', '\\"') + '"'
+    
+    acct_site_id = escape_str(soap_input.get("acctSiteID"))
+    agent_ids = soap_input.get("agent_ids", [])
+    agent_ids_str = "[" + ", ".join([f'"{aid}"' for aid in agent_ids]) + "]"
+    theme = escape_str(soap_input.get("theme"))
+    mood = escape_str(soap_input.get("mood"))
+    settings = soap_input.get("settings")
+    settings_str = "null"
+    if settings:
+        settings_str = '"' + json.dumps(settings).replace('\\', '\\\\').replace('"', '\\"') + '"'
+    
+    mutation_string = f"""
+        mutation StartSoap {{
+          startSoap(input: {{
+            acctSiteID: {acct_site_id}
+            agent_ids: {agent_ids_str}
+            theme: {theme}
+            mood: {mood}
+            settings: {settings_str}
+          }}) {{
+            soap_id
+            status
+            message
+          }}
+        }}
+    """
+    return mutation_string
+
+
+def send_req_scene_to_cloud(session, scene_input: dict, token: str, endpoint: str) -> dict:
+    """
+    Send a scene generation request to the cloud.
+    
+    Args:
+        session: HTTP session
+        scene_input: Scene generation parameters
+        token: Auth token
+        endpoint: API endpoint
+        
+    Returns:
+        dict with request_id, status, message, estimated_time_ms or error info
+    """
+    mutation_string = gen_req_scene_mutation_string(scene_input)
+    
+    jresp = appsync_http_request(mutation_string, session, token, endpoint)
+    
+    logger_helper.debug(f"[Scene] reqScene response: {json.dumps(jresp)}")
+    if "errors" in jresp:
+        error_obj = jresp["errors"][0]
+        error_type = error_obj.get("errorType", error_obj.get("type", "Unknown"))
+        error_msg = error_obj.get("message", str(error_obj))
+        logger_helper.error(f"[Scene] ERROR Type: {error_type} ERROR Info: {error_msg}")
+        return {"errorType": error_type, "message": error_msg}
+    else:
+        return jresp.get("data", {}).get("reqScene", {})
+
+
+def send_get_scene_to_cloud(session, scene_id: str, token: str, endpoint: str) -> dict:
+    """
+    Get a scene by ID from the cloud.
+    
+    Args:
+        session: HTTP session
+        scene_id: Scene ID to retrieve
+        token: Auth token
+        endpoint: API endpoint
+        
+    Returns:
+        Scene object or error info
+    """
+    query_string = gen_query_scene_string(scene_id)
+    
+    jresp = appsync_http_request(query_string, session, token, endpoint)
+    
+    logger_helper.debug(f"[Scene] getScene response: {json.dumps(jresp)}")
+    if "errors" in jresp:
+        error_obj = jresp["errors"][0]
+        error_type = error_obj.get("errorType", error_obj.get("type", "Unknown"))
+        error_msg = error_obj.get("message", str(error_obj))
+        logger_helper.error(f"[Scene] ERROR Type: {error_type} ERROR Info: {error_msg}")
+        return {"errorType": error_type, "message": error_msg}
+    else:
+        return jresp.get("data", {}).get("getScene", {})
+
+
+def send_query_scenes_to_cloud(session, query_input: dict, token: str, endpoint: str) -> dict:
+    """
+    Query scenes with filters from the cloud.
+    
+    Args:
+        session: HTTP session
+        query_input: Query parameters (acctSiteID, agent_id, label, etc.)
+        token: Auth token
+        endpoint: API endpoint
+        
+    Returns:
+        dict with items list and nextToken, or error info
+    """
+    query_string = gen_query_scenes_string(query_input)
+    
+    jresp = appsync_http_request(query_string, session, token, endpoint)
+    
+    logger_helper.debug(f"[Scene] queryScenes response: {json.dumps(jresp)}")
+    if "errors" in jresp:
+        error_obj = jresp["errors"][0]
+        error_type = error_obj.get("errorType", error_obj.get("type", "Unknown"))
+        error_msg = error_obj.get("message", str(error_obj))
+        logger_helper.error(f"[Scene] ERROR Type: {error_type} ERROR Info: {error_msg}")
+        return {"errorType": error_type, "message": error_msg}
+    else:
+        return jresp.get("data", {}).get("queryScenes", {})
+
+
+def send_start_soap_to_cloud(session, soap_input: dict, token: str, endpoint: str) -> dict:
+    """
+    Start a soap opera (continuous story generation) on the cloud.
+    
+    Args:
+        session: HTTP session
+        soap_input: Soap parameters (acctSiteID, agent_ids, theme, mood, settings)
+        token: Auth token
+        endpoint: API endpoint
+        
+    Returns:
+        dict with soap_id, status, message or error info
+    """
+    mutation_string = gen_start_soap_mutation_string(soap_input)
+    
+    jresp = appsync_http_request(mutation_string, session, token, endpoint)
+    
+    logger_helper.debug(f"[Scene] startSoap response: {json.dumps(jresp)}")
+    if "errors" in jresp:
+        error_obj = jresp["errors"][0]
+        error_type = error_obj.get("errorType", error_obj.get("type", "Unknown"))
+        error_msg = error_obj.get("message", str(error_obj))
+        logger_helper.error(f"[Scene] ERROR Type: {error_type} ERROR Info: {error_msg}")
+        return {"errorType": error_type, "message": error_msg}
+    else:
+        return jresp.get("data", {}).get("startSoap", {})
+
+
+def send_stop_soap_to_cloud(session, soap_id: str, token: str, endpoint: str) -> bool:
+    """
+    Stop a running soap opera.
+    
+    Args:
+        session: HTTP session
+        soap_id: Soap ID to stop
+        token: Auth token
+        endpoint: API endpoint
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    mutation_string = f"""
+        mutation StopSoap {{
+          stopSoap(soap_id: "{soap_id}")
+        }}
+    """
+    
+    jresp = appsync_http_request(mutation_string, session, token, endpoint)
+    
+    logger_helper.debug(f"[Scene] stopSoap response: {json.dumps(jresp)}")
+    if "errors" in jresp:
+        error_obj = jresp["errors"][0]
+        error_type = error_obj.get("errorType", error_obj.get("type", "Unknown"))
+        error_msg = error_obj.get("message", str(error_obj))
+        logger_helper.error(f"[Scene] ERROR Type: {error_type} ERROR Info: {error_msg}")
+        return False
+    else:
+        return jresp.get("data", {}).get("stopSoap", False)
+
+
 # related to websocket sub/push to get long running task results
 def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[str] = None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
     from agent.agent_service import get_agent_by_id
@@ -2835,3 +3157,483 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
     t.start()
     logger.info("[CloudLLMTask] Web socket thread launched")
     return ws, t
+
+
+# ============================================================================
+# Vehicle Operations (with decorator registration)
+# ============================================================================
+
+@cloud_api(DataType.VEHICLE, Operation.ADD)
+def send_add_vehicles_request_to_cloud(session, vehicles, token, endpoint, timeout=180):
+    """Add/Report vehicles to cloud"""
+    mutationInfo = gen_report_vehicles_string(vehicles)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "reportVehicles", "reportVehicles")
+
+
+@cloud_api(DataType.VEHICLE, Operation.UPDATE)
+def send_update_vehicles_decorated_to_cloud(session, vehicles, token, endpoint, timeout=180):
+    """Update vehicles in cloud"""
+    mutationInfo = gen_update_vehicles_string(vehicles)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "updateVehicles", "updateVehicles")
+
+
+# ============================================================================
+# Knowledge Operations (with decorator registration)
+# ============================================================================
+
+@cloud_api(DataType.KNOWLEDGE, Operation.ADD)
+def send_add_knowledges_decorated_to_cloud(session, knowledges, token, endpoint, timeout=180):
+    """Add Knowledge entities to cloud"""
+    mutationInfo = gen_add_knowledges_string(knowledges)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "addKnowledges", "addKnowledges")
+
+
+@cloud_api(DataType.KNOWLEDGE, Operation.UPDATE)
+def send_update_knowledges_decorated_to_cloud(session, knowledges, token, endpoint, timeout=180):
+    """Update Knowledge entities in cloud"""
+    mutationInfo = gen_update_knowledges_string(knowledges)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "updateKnowledges", "updateKnowledges")
+
+
+@cloud_api(DataType.KNOWLEDGE, Operation.DELETE)
+def send_remove_knowledges_decorated_to_cloud(session, removes, token, endpoint, timeout=180):
+    """Remove Knowledge entities from cloud"""
+    mutationInfo = gen_remove_knowledges_string(removes)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "removeKnowledges", "removeKnowledges")
+
+
+@cloud_api(DataType.KNOWLEDGE, Operation.QUERY)
+def send_query_knowledges_decorated_to_cloud(session, token, q_settings, endpoint):
+    """Query Knowledge entities from cloud"""
+    queryInfo = gen_query_knowledges_string(q_settings)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    return safe_parse_response(jresp, "queryKnowledges", "queryKnowledges")
+
+
+# ============================================================================
+# Avatar Resource Operations
+# ============================================================================
+
+def gen_add_avatar_resources_string(resources):
+    """Generate GraphQL mutation string for adding avatar resources"""
+    query_string = """
+        mutation MyMutation {
+      addAvatarResources (input:[
+    """
+    rec_string = ""
+    for i, res in enumerate(resources):
+        rec_string += "{ "
+        rec_string += f'id: "{res.get("id", "")}", '
+        rec_string += f'owner: "{res.get("owner", "")}", '
+        rec_string += f'resource_type: "{res.get("resource_type", "")}", '
+        rec_string += f'name: "{res.get("name", "")}", '
+        rec_string += f'description: "{res.get("description", "")}", '
+        rec_string += f'image_path: "{res.get("image_path", "")}", '
+        rec_string += f'video_path: "{res.get("video_path", "")}", '
+        rec_string += f'image_hash: "{res.get("image_hash", "")}", '
+        rec_string += f'video_hash: "{res.get("video_hash", "")}", '
+        rec_string += f'cloud_image_url: "{res.get("cloud_image_url", "")}", '
+        rec_string += f'cloud_video_url: "{res.get("cloud_video_url", "")}", '
+        rec_string += f'cloud_image_key: "{res.get("cloud_image_key", "")}", '
+        rec_string += f'cloud_video_key: "{res.get("cloud_video_key", "")}", '
+        rec_string += f'cloud_synced: {"true" if res.get("cloud_synced") else "false"}, '
+        avatar_metadata = res.get("avatar_metadata", "{}")
+        if isinstance(avatar_metadata, dict):
+            avatar_metadata = json.dumps(avatar_metadata, ensure_ascii=False).replace('"', '\\"')
+        rec_string += f'avatar_metadata: "{avatar_metadata}", '
+        rec_string += f'usage_count: {res.get("usage_count", 0)}, '
+        rec_string += f'is_public: {"true" if res.get("is_public") else "false"}'
+        rec_string += " }"
+        if i != len(resources) - 1:
+            rec_string += ', '
+        else:
+            rec_string += ']'
+    
+    query_string += rec_string
+    query_string += """
+        )
+    }
+    """
+    return query_string
+
+
+def gen_update_avatar_resources_string(resources):
+    """Generate GraphQL mutation string for updating avatar resources"""
+    query_string = """
+        mutation MyMutation {
+      updateAvatarResources (input:[
+    """
+    rec_string = ""
+    for i, res in enumerate(resources):
+        rec_string += "{ "
+        rec_string += f'id: "{res.get("id", "")}", '
+        if "owner" in res:
+            rec_string += f'owner: "{res.get("owner", "")}", '
+        if "resource_type" in res:
+            rec_string += f'resource_type: "{res.get("resource_type", "")}", '
+        if "name" in res:
+            rec_string += f'name: "{res.get("name", "")}", '
+        if "description" in res:
+            rec_string += f'description: "{res.get("description", "")}", '
+        if "cloud_image_url" in res:
+            rec_string += f'cloud_image_url: "{res.get("cloud_image_url", "")}", '
+        if "cloud_video_url" in res:
+            rec_string += f'cloud_video_url: "{res.get("cloud_video_url", "")}", '
+        if "cloud_synced" in res:
+            rec_string += f'cloud_synced: {"true" if res.get("cloud_synced") else "false"}, '
+        if "avatar_metadata" in res:
+            avatar_metadata = res.get("avatar_metadata", "{}")
+            if isinstance(avatar_metadata, dict):
+                avatar_metadata = json.dumps(avatar_metadata, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f'avatar_metadata: "{avatar_metadata}", '
+        if "usage_count" in res:
+            rec_string += f'usage_count: {res.get("usage_count", 0)}, '
+        if "is_public" in res:
+            rec_string += f'is_public: {"true" if res.get("is_public") else "false"}'
+        # Remove trailing comma if present
+        rec_string = rec_string.rstrip(', ')
+        rec_string += " }"
+        if i != len(resources) - 1:
+            rec_string += ', '
+        else:
+            rec_string += ']'
+    
+    query_string += rec_string
+    query_string += """
+        )
+    }
+    """
+    return query_string
+
+
+def gen_remove_avatar_resources_string(removeOrders):
+    """Generate GraphQL mutation string for removing avatar resources"""
+    query_string = """
+        mutation MyMutation {
+      removeAvatarResources (input:[
+    """
+    rec_string = ""
+    for i in range(len(removeOrders)):
+        rec_string += "{ "
+        rec_string += f'oid: "{removeOrders[i]["oid"]}", '
+        rec_string += f'owner: "{removeOrders[i]["owner"]}", '
+        rec_string += f'reason: "{removeOrders[i]["reason"]}"'
+        rec_string += " }"
+        if i != len(removeOrders) - 1:
+            rec_string += ', '
+        else:
+            rec_string += ']'
+    
+    query_string += rec_string
+    query_string += """
+        )
+    }
+    """
+    return query_string
+
+
+def gen_query_avatar_resources_string(q_settings):
+    """Generate GraphQL query string for querying avatar resources"""
+    qb = json.dumps(q_settings, ensure_ascii=False).replace('"', '\\"')
+    query_string = f'''
+        query MyQuery {{
+            queryAvatarResources(qb: "{qb}")
+        }}
+    '''
+    return query_string
+
+
+@cloud_api(DataType.AVATAR_RESOURCE, Operation.ADD)
+def send_add_avatar_resources_to_cloud(session, resources, token, endpoint, timeout=180):
+    """Add Avatar Resource entities to cloud"""
+    mutationInfo = gen_add_avatar_resources_string(resources)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "addAvatarResources", "addAvatarResources")
+
+
+@cloud_api(DataType.AVATAR_RESOURCE, Operation.UPDATE)
+def send_update_avatar_resources_to_cloud(session, resources, token, endpoint, timeout=180):
+    """Update Avatar Resource entities in cloud"""
+    mutationInfo = gen_update_avatar_resources_string(resources)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "updateAvatarResources", "updateAvatarResources")
+
+
+@cloud_api(DataType.AVATAR_RESOURCE, Operation.DELETE)
+def send_remove_avatar_resources_to_cloud(session, removes, token, endpoint, timeout=180):
+    """Remove Avatar Resource entities from cloud"""
+    mutationInfo = gen_remove_avatar_resources_string(removes)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "removeAvatarResources", "removeAvatarResources")
+
+
+@cloud_api(DataType.AVATAR_RESOURCE, Operation.QUERY)
+def send_query_avatar_resources_to_cloud(session, token, q_settings, endpoint):
+    """Query Avatar Resource entities from cloud"""
+    queryInfo = gen_query_avatar_resources_string(q_settings)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    return safe_parse_response(jresp, "queryAvatarResources", "queryAvatarResources")
+
+
+# ============================================================================
+# Organization Operations
+# ============================================================================
+
+def gen_query_organizations_string(q_settings):
+    """Generate GraphQL query string for querying organizations"""
+    qb = json.dumps(q_settings, ensure_ascii=False).replace('"', '\\"')
+    query_string = f'''
+        query MyQuery {{
+            queryOrganizations(qb: "{qb}")
+        }}
+    '''
+    return query_string
+
+
+def gen_get_organizations_string(ids):
+    """Generate GraphQL query string for getting organizations by IDs"""
+    ids_str = ",".join(ids) if isinstance(ids, list) else str(ids)
+    query_string = f'''
+        query MyQuery {{
+            getOrganizations(ids: "{ids_str}")
+        }}
+    '''
+    return query_string
+
+
+@cloud_api(DataType.ORGANIZATION, Operation.QUERY)
+def send_query_organizations_to_cloud(session, token, q_settings, endpoint):
+    """Query Organization entities from cloud"""
+    queryInfo = gen_query_organizations_string(q_settings)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    return safe_parse_response(jresp, "queryOrganizations", "queryOrganizations")
+
+
+# ============================================================================
+# Skill Entity Query (missing query operation)
+# ============================================================================
+
+def gen_query_skills_entity_string(q_settings):
+    """Generate GraphQL query string for querying skill entities"""
+    qb = json.dumps(q_settings, ensure_ascii=False).replace('"', '\\"')
+    query_string = f'''
+        query MyQuery {{
+            queryAgentSkills(qb: "{qb}")
+        }}
+    '''
+    return query_string
+
+
+@cloud_api(DataType.SKILL, Operation.QUERY)
+def send_query_skills_entity_to_cloud(session, token, q_settings, endpoint):
+    """Query Skill entities from cloud"""
+    queryInfo = gen_query_skills_entity_string(q_settings)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    return safe_parse_response(jresp, "queryAgentSkills", "queryAgentSkills")
+
+
+# ============================================================================
+# Task Entity Query (missing query operation)
+# ============================================================================
+
+def gen_query_tasks_entity_string(q_settings):
+    """Generate GraphQL query string for querying task entities"""
+    qb = json.dumps(q_settings, ensure_ascii=False).replace('"', '\\"')
+    query_string = f'''
+        query MyQuery {{
+            queryAgentTasks(qb: "{qb}")
+        }}
+    '''
+    return query_string
+
+
+@cloud_api(DataType.TASK, Operation.QUERY)
+def send_query_tasks_entity_to_cloud(session, token, q_settings, endpoint):
+    """Query Task entities from cloud"""
+    queryInfo = gen_query_tasks_entity_string(q_settings)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    return safe_parse_response(jresp, "queryAgentTasks", "queryAgentTasks")
+
+
+# ============================================================================
+# Tool Entity Query (missing query operation)
+# ============================================================================
+
+def gen_query_tools_entity_string(q_settings):
+    """Generate GraphQL query string for querying tool entities"""
+    qb = json.dumps(q_settings, ensure_ascii=False).replace('"', '\\"')
+    query_string = f'''
+        query MyQuery {{
+            queryAgentTools(qb: "{qb}")
+        }}
+    '''
+    return query_string
+
+
+@cloud_api(DataType.TOOL, Operation.QUERY)
+def send_query_tools_entity_to_cloud(session, token, q_settings, endpoint):
+    """Query Tool entities from cloud"""
+    queryInfo = gen_query_tools_entity_string(q_settings)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    return safe_parse_response(jresp, "queryAgentTools", "queryAgentTools")
+
+
+# ============================================================================
+# Second-Level Relationship Operations: Skill-Tool
+# ============================================================================
+
+def gen_add_skill_tool_relations_string(relations):
+    """Generate GraphQL mutation string for adding skill-tool relations"""
+    from agent.cloud_api.graphql_builder import build_mutation
+    return build_mutation(DataType.SKILL_TOOL, Operation.ADD, relations)
+
+
+def gen_query_skill_tool_relations_string(q_settings):
+    """Generate GraphQL query string for querying skill-tool relations"""
+    qb = json.dumps(q_settings, ensure_ascii=False).replace('"', '\\"')
+    query_string = f'''
+        query MyQuery {{
+            querySkillToolRelations(qb: "{qb}")
+        }}
+    '''
+    return query_string
+
+
+@cloud_api(DataType.SKILL_TOOL, Operation.ADD)
+def send_add_skill_tool_relations_to_cloud(session, relations, token, endpoint, timeout=180):
+    """Add Skill-Tool relations to cloud"""
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.SKILL_TOOL, Operation.ADD, relations)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "addSkillToolRelations", "addSkillToolRelations")
+
+
+@cloud_api(DataType.SKILL_TOOL, Operation.UPDATE)
+def send_update_skill_tool_relations_to_cloud(session, relations, token, endpoint, timeout=180):
+    """Update Skill-Tool relations in cloud"""
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.SKILL_TOOL, Operation.UPDATE, relations)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "updateSkillToolRelations", "updateSkillToolRelations")
+
+
+@cloud_api(DataType.SKILL_TOOL, Operation.DELETE)
+def send_remove_skill_tool_relations_to_cloud(session, removes, token, endpoint, timeout=180):
+    """Remove Skill-Tool relations from cloud"""
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.SKILL_TOOL, Operation.DELETE, removes)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "removeSkillToolRelations", "removeSkillToolRelations")
+
+
+@cloud_api(DataType.SKILL_TOOL, Operation.QUERY)
+def send_query_skill_tool_relations_to_cloud(session, token, q_settings, endpoint):
+    """Query Skill-Tool relations from cloud"""
+    queryInfo = gen_query_skill_tool_relations_string(q_settings)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    return safe_parse_response(jresp, "querySkillToolRelations", "querySkillToolRelations")
+
+
+# ============================================================================
+# Second-Level Relationship Operations: Skill-Knowledge
+# ============================================================================
+
+def gen_query_skill_knowledge_relations_string(q_settings):
+    """Generate GraphQL query string for querying skill-knowledge relations"""
+    qb = json.dumps(q_settings, ensure_ascii=False).replace('"', '\\"')
+    query_string = f'''
+        query MyQuery {{
+            querySkillKnowledgeRelations(qb: "{qb}")
+        }}
+    '''
+    return query_string
+
+
+@cloud_api(DataType.SKILL_KNOWLEDGE, Operation.ADD)
+def send_add_skill_knowledge_relations_to_cloud(session, relations, token, endpoint, timeout=180):
+    """Add Skill-Knowledge relations to cloud"""
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.SKILL_KNOWLEDGE, Operation.ADD, relations)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "addSkillKnowledgeRelations", "addSkillKnowledgeRelations")
+
+
+@cloud_api(DataType.SKILL_KNOWLEDGE, Operation.UPDATE)
+def send_update_skill_knowledge_relations_to_cloud(session, relations, token, endpoint, timeout=180):
+    """Update Skill-Knowledge relations in cloud"""
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.SKILL_KNOWLEDGE, Operation.UPDATE, relations)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "updateSkillKnowledgeRelations", "updateSkillKnowledgeRelations")
+
+
+@cloud_api(DataType.SKILL_KNOWLEDGE, Operation.DELETE)
+def send_remove_skill_knowledge_relations_to_cloud(session, removes, token, endpoint, timeout=180):
+    """Remove Skill-Knowledge relations from cloud"""
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.SKILL_KNOWLEDGE, Operation.DELETE, removes)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "removeSkillKnowledgeRelations", "removeSkillKnowledgeRelations")
+
+
+@cloud_api(DataType.SKILL_KNOWLEDGE, Operation.QUERY)
+def send_query_skill_knowledge_relations_to_cloud(session, token, q_settings, endpoint):
+    """Query Skill-Knowledge relations from cloud"""
+    queryInfo = gen_query_skill_knowledge_relations_string(q_settings)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    return safe_parse_response(jresp, "querySkillKnowledgeRelations", "querySkillKnowledgeRelations")
+
+
+# ============================================================================
+# Second-Level Relationship Operations: Task-Skill
+# ============================================================================
+
+def gen_query_task_skill_relations_string(q_settings):
+    """Generate GraphQL query string for querying task-skill relations"""
+    qb = json.dumps(q_settings, ensure_ascii=False).replace('"', '\\"')
+    query_string = f'''
+        query MyQuery {{
+            queryTaskSkillRelations(qb: "{qb}")
+        }}
+    '''
+    return query_string
+
+
+@cloud_api(DataType.TASK_SKILL, Operation.ADD)
+def send_add_task_skill_relations_to_cloud(session, relations, token, endpoint, timeout=180):
+    """Add Task-Skill relations to cloud"""
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.TASK_SKILL, Operation.ADD, relations)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "addTaskSkillRelations", "addTaskSkillRelations")
+
+
+@cloud_api(DataType.TASK_SKILL, Operation.UPDATE)
+def send_update_task_skill_relations_to_cloud(session, relations, token, endpoint, timeout=180):
+    """Update Task-Skill relations in cloud"""
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.TASK_SKILL, Operation.UPDATE, relations)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "updateTaskSkillRelations", "updateTaskSkillRelations")
+
+
+@cloud_api(DataType.TASK_SKILL, Operation.DELETE)
+def send_remove_task_skill_relations_to_cloud(session, removes, token, endpoint, timeout=180):
+    """Remove Task-Skill relations from cloud"""
+    from agent.cloud_api.graphql_builder import build_mutation
+    mutationInfo = build_mutation(DataType.TASK_SKILL, Operation.DELETE, removes)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "removeTaskSkillRelations", "removeTaskSkillRelations")
+
+
+@cloud_api(DataType.TASK_SKILL, Operation.QUERY)
+def send_query_task_skill_relations_to_cloud(session, token, q_settings, endpoint):
+    """Query Task-Skill relations from cloud"""
+    queryInfo = gen_query_task_skill_relations_string(q_settings)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    return safe_parse_response(jresp, "queryTaskSkillRelations", "queryTaskSkillRelations")
