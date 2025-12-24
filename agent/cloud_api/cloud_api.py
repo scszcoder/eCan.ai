@@ -2121,6 +2121,303 @@ def send_remove_skills_request_to_cloud(session, removes, token, endpoint):
     return safe_parse_response(jresp, "removeAgentSkills", "removeAgentSkills")
 
 
+# ============================================================================
+# Skill File Upload Utilities
+# ============================================================================
+
+def collect_skill_files(skill_directory: str) -> list:
+    """
+    Recursively collect all files under the skill directory.
+    
+    Args:
+        skill_directory: Absolute path to the skill directory
+        
+    Returns:
+        List of relative file paths (relative to skill_directory)
+    """
+    import glob
+    
+    if not os.path.isdir(skill_directory):
+        logger.warning(f"[SkillFiles] Skill directory not found: {skill_directory}")
+        return []
+    
+    all_files = []
+    for root, dirs, files in os.walk(skill_directory):
+        for file in files:
+            abs_path = os.path.join(root, file)
+            rel_path = os.path.relpath(abs_path, skill_directory)
+            # Normalize path separators to forward slashes
+            rel_path = rel_path.replace("\\", "/")
+            all_files.append(rel_path)
+    
+    logger.debug(f"[SkillFiles] Collected {len(all_files)} files from {skill_directory}")
+    return all_files
+
+
+def build_skill_source_string(file_paths: list) -> str:
+    """
+    Build comma-separated source string from file paths.
+    
+    Args:
+        file_paths: List of relative file paths
+        
+    Returns:
+        Comma-separated string of file paths
+    """
+    return ",".join(file_paths)
+
+
+def prepare_skill_with_source(skill_data: dict, skill_directory: str = None) -> dict:
+    """
+    Prepare skill data with source attribute containing file paths.
+    
+    Args:
+        skill_data: Original skill data dictionary
+        skill_directory: Path to skill directory (if None, uses skill_data['path'])
+        
+    Returns:
+        Skill data with 'source' attribute populated
+    """
+    skill = skill_data.copy()
+    
+    # Determine skill directory
+    if skill_directory is None:
+        skill_directory = skill.get('path', '')
+    
+    if skill_directory and os.path.isdir(skill_directory):
+        # Collect all files recursively
+        file_paths = collect_skill_files(skill_directory)
+        # Build source string
+        skill['source'] = build_skill_source_string(file_paths)
+        logger.info(f"[SkillFiles] Prepared skill with {len(file_paths)} files in source")
+    else:
+        skill['source'] = skill.get('source', '')
+        logger.debug(f"[SkillFiles] No valid skill directory, using existing source: {skill['source'][:100]}...")
+    
+    return skill
+
+
+def upload_skill_files_with_presigned_urls(
+    session, 
+    skill_directory: str, 
+    presigned_urls: list, 
+    file_paths: list
+) -> dict:
+    """
+    Upload skill files using presigned URLs returned from cloud.
+    
+    Args:
+        session: Requests session
+        skill_directory: Absolute path to skill directory
+        presigned_urls: List of presigned URL objects from cloud response
+        file_paths: List of relative file paths (matching order with presigned_urls)
+        
+    Returns:
+        Dict with upload results: {'success': [...], 'failed': [...]}
+    """
+    results = {'success': [], 'failed': []}
+    
+    if len(presigned_urls) != len(file_paths):
+        logger.warning(f"[SkillUpload] Mismatch: {len(presigned_urls)} URLs vs {len(file_paths)} files")
+    
+    for i, (url_info, rel_path) in enumerate(zip(presigned_urls, file_paths)):
+        abs_path = os.path.join(skill_directory, rel_path)
+        
+        if not os.path.isfile(abs_path):
+            logger.warning(f"[SkillUpload] File not found: {abs_path}")
+            results['failed'].append({'path': rel_path, 'error': 'File not found'})
+            continue
+        
+        try:
+            # Upload using presigned URL
+            resp = send_file_with_presigned_url(abs_path, url_info)
+            results['success'].append({'path': rel_path, 'response': resp})
+            logger.debug(f"[SkillUpload] Uploaded {rel_path}")
+        except Exception as e:
+            logger.error(f"[SkillUpload] Failed to upload {rel_path}: {e}")
+            results['failed'].append({'path': rel_path, 'error': str(e)})
+    
+    logger.info(f"[SkillUpload] Upload complete: {len(results['success'])} success, {len(results['failed'])} failed")
+    return results
+
+
+def send_add_skills_with_files_to_cloud(
+    session, 
+    skills: list, 
+    token: str, 
+    endpoint: str, 
+    timeout: int = 180
+) -> dict:
+    """
+    Add skills to cloud with file upload support.
+    
+    This function:
+    1. Prepares each skill with source attribute (comma-separated file paths)
+    2. Sends add request to cloud
+    3. Parses presigned URLs from response
+    4. Uploads files using presigned URLs
+    
+    Args:
+        session: Requests session
+        skills: List of skill data dicts (each should have 'path' pointing to skill directory)
+        token: Auth token
+        endpoint: AppSync endpoint
+        timeout: Request timeout
+        
+    Returns:
+        Dict with cloud response and file upload results
+    """
+    from agent.cloud_api.graphql_builder import build_mutation
+    
+    # Step 1: Prepare skills with source attribute
+    prepared_skills = []
+    skill_file_map = {}  # Map skill ID to file paths for later upload
+    
+    for skill in skills:
+        skill_dir = skill.get('path', '')
+        prepared_skill = prepare_skill_with_source(skill, skill_dir)
+        prepared_skills.append(prepared_skill)
+        
+        # Store file paths for upload
+        skill_id = prepared_skill.get('askid') or prepared_skill.get('id', '')
+        if skill_dir and os.path.isdir(skill_dir):
+            skill_file_map[skill_id] = {
+                'directory': skill_dir,
+                'files': collect_skill_files(skill_dir)
+            }
+    
+    # Step 2: Send add request to cloud
+    mutationInfo = build_mutation(DataType.SKILL, Operation.ADD, prepared_skills)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    cloud_response = safe_parse_response(jresp, "addAgentSkills", "addAgentSkills")
+    
+    # Step 3: Parse presigned URLs and upload files
+    upload_results = {}
+    
+    if isinstance(cloud_response, dict) and 'presigned_urls' in cloud_response:
+        # Cloud returned presigned URLs for file uploads
+        for skill_id, url_list in cloud_response.get('presigned_urls', {}).items():
+            if skill_id in skill_file_map:
+                skill_info = skill_file_map[skill_id]
+                upload_result = upload_skill_files_with_presigned_urls(
+                    session,
+                    skill_info['directory'],
+                    url_list,
+                    skill_info['files']
+                )
+                upload_results[skill_id] = upload_result
+    elif isinstance(cloud_response, dict) and 'body' in cloud_response:
+        # Alternative response format with body containing URLs
+        body = cloud_response.get('body', {})
+        if isinstance(body, dict) and 'urls' in body:
+            urls_data = body.get('urls', {})
+            if isinstance(urls_data, dict) and 'result' in urls_data:
+                try:
+                    url_result = json.loads(urls_data['result']) if isinstance(urls_data['result'], str) else urls_data['result']
+                    if 'body' in url_result and isinstance(url_result['body'], list):
+                        # Upload files for each skill
+                        for skill_id, skill_info in skill_file_map.items():
+                            upload_result = upload_skill_files_with_presigned_urls(
+                                session,
+                                skill_info['directory'],
+                                url_result['body'],
+                                skill_info['files']
+                            )
+                            upload_results[skill_id] = upload_result
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(f"[SkillUpload] Failed to parse presigned URLs: {e}")
+    
+    return {
+        'cloud_response': cloud_response,
+        'upload_results': upload_results,
+        'skills_processed': len(prepared_skills)
+    }
+
+
+def send_update_skills_with_files_to_cloud(
+    session, 
+    skills: list, 
+    token: str, 
+    endpoint: str, 
+    timeout: int = 180
+) -> dict:
+    """
+    Update skills in cloud with file upload support.
+    
+    Similar to send_add_skills_with_files_to_cloud but for updates.
+    
+    Args:
+        session: Requests session
+        skills: List of skill data dicts
+        token: Auth token
+        endpoint: AppSync endpoint
+        timeout: Request timeout
+        
+    Returns:
+        Dict with cloud response and file upload results
+    """
+    from agent.cloud_api.graphql_builder import build_mutation
+    
+    # Step 1: Prepare skills with source attribute
+    prepared_skills = []
+    skill_file_map = {}
+    
+    for skill in skills:
+        skill_dir = skill.get('path', '')
+        prepared_skill = prepare_skill_with_source(skill, skill_dir)
+        prepared_skills.append(prepared_skill)
+        
+        skill_id = prepared_skill.get('askid') or prepared_skill.get('id', '')
+        if skill_dir and os.path.isdir(skill_dir):
+            skill_file_map[skill_id] = {
+                'directory': skill_dir,
+                'files': collect_skill_files(skill_dir)
+            }
+    
+    # Step 2: Send update request to cloud
+    mutationInfo = build_mutation(DataType.SKILL, Operation.UPDATE, prepared_skills)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    cloud_response = safe_parse_response(jresp, "updateAgentSkills", "updateAgentSkills")
+    
+    # Step 3: Parse presigned URLs and upload files
+    upload_results = {}
+    
+    if isinstance(cloud_response, dict) and 'presigned_urls' in cloud_response:
+        for skill_id, url_list in cloud_response.get('presigned_urls', {}).items():
+            if skill_id in skill_file_map:
+                skill_info = skill_file_map[skill_id]
+                upload_result = upload_skill_files_with_presigned_urls(
+                    session,
+                    skill_info['directory'],
+                    url_list,
+                    skill_info['files']
+                )
+                upload_results[skill_id] = upload_result
+    elif isinstance(cloud_response, dict) and 'body' in cloud_response:
+        body = cloud_response.get('body', {})
+        if isinstance(body, dict) and 'urls' in body:
+            urls_data = body.get('urls', {})
+            if isinstance(urls_data, dict) and 'result' in urls_data:
+                try:
+                    url_result = json.loads(urls_data['result']) if isinstance(urls_data['result'], str) else urls_data['result']
+                    if 'body' in url_result and isinstance(url_result['body'], list):
+                        for skill_id, skill_info in skill_file_map.items():
+                            upload_result = upload_skill_files_with_presigned_urls(
+                                session,
+                                skill_info['directory'],
+                                url_result['body'],
+                                skill_info['files']
+                            )
+                            upload_results[skill_id] = upload_result
+                except (json.JSONDecodeError, TypeError) as e:
+                    logger.warning(f"[SkillUpload] Failed to parse presigned URLs: {e}")
+    
+    return {
+        'cloud_response': cloud_response,
+        'upload_results': upload_results,
+        'skills_processed': len(prepared_skills)
+    }
+
 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
