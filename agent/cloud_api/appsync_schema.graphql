@@ -89,6 +89,7 @@ input AgentSkill {
 	apps: AWSJSON
 	limitations: AWSJSON
 	path: String
+	source: String
 	status: String
 	price: Float
 	price_model: String

@@ -1,8 +1,8 @@
 {
   "data_type": "skill",
-  "version": "1.0.0",
-  "description": "Skill entity field mapping",
-  "last_updated": "2025-10-15",
+  "version": "1.1.0",
+  "description": "Skill entity field mapping with file upload support",
+  "last_updated": "2025-12-23",
   
   "field_mapping": {
     "id": "askid"
@@ -16,6 +16,7 @@
     "flowgram": {},
     "langgraph": {},
     "path": "",
+    "source": "",
     "status": "active",
     "price": 0.0
   },
@@ -48,6 +49,7 @@
     "Contains complete skill data including metadata, configuration, and business fields",
     "Excluded fields:",
     "  - agid, skid: Belong in AgentSkillRelation (relationship table)",
-    "Schema fields: askid, owner, name, description, version, level, config, diagram, flowgram, langgraph, tags, examples, inputModes, outputModes, apps, limitations, path, status, price, price_model, public, rentable, created_at, updated_at"
+    "Schema fields: askid, owner, name, description, version, level, config, diagram, flowgram, langgraph, tags, examples, inputModes, outputModes, apps, limitations, path, source, status, price, price_model, public, rentable, created_at, updated_at",
+    "source field: Comma-separated list of relative file paths under the skill directory. Cloud returns presigned URLs for uploading these files."
   ]
 }
