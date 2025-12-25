@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 MainGUI.py - eCan.ai
 """
@@ -82,7 +82,7 @@ print(TimeUtil.formatted_now_with_ms() + " load MainGui #2 finished...")
 # ============================================================================
 from agent.cloud_api.cloud_api import (set_up_cloud, upload_file, download_file,
     send_query_chat_request_to_cloud, send_report_vehicles_to_cloud, send_update_vehicles_request_to_cloud,
-    send_account_info_request_to_cloud)
+    send_account_info_request_to_cloud, subscribe_account_notifications, handle_account_notification)
 
 print(TimeUtil.formatted_now_with_ms() + " load MainGui #3 finished...")
 
@@ -631,6 +631,7 @@ class MainWindow:
             self.wan_sub_task = loop.create_task(self._async_start_wan_chat())
             self.llm_sub_task = loop.create_task(self._async_start_llm_subscription())
             # self.cloud_show_sub_task = loop.create_task(self._async_start_cloud_show_subscription())
+            self.account_notification_sub_task = loop.create_task(self._async_start_account_notification_subscription())
             logger.info("[MainWindow] ✅ All final background service tasks created successfully")
         except RuntimeError as e:
             logger.error(f"[MainWindow] ⚠️ No running event loop for final background services: {e}")
@@ -1721,6 +1722,73 @@ class MainWindow:
             # Don't crash the app if Cloud LLM Subscription fails
             # The app should continue to work without Cloud LLM Subscription
 
+
+    async def _async_start_account_notification_subscription(self):
+        """
+        Asynchronously start account notification subscription for real-time notifications.
+        Receives notifications from cloud and displays them as ad banners and popups.
+        """
+        try:
+            # Check if shutting down before starting
+            if hasattr(self, '_shutting_down') and self._shutting_down:
+                logger.info("[MainWindow] System is shutting down, skipping account notification subscription")
+                return
+
+            # Wait a bit to ensure other services are ready
+            await asyncio.sleep(1.0)
+
+            logger.info("[MainWindow] 📢 Starting Account Notification Subscription...")
+
+            # Get required parameters
+            ws_endpoint = self.getWSApiEndpoint()
+            token = self.get_auth_token()
+            
+            if not token:
+                logger.warning("[MainWindow] No auth token available, skipping account notification subscription")
+                return
+                
+            # Get owner email from auth manager
+            owner = None
+            try:
+                tokens = self.auth_manager.get_tokens()
+                if tokens:
+                    # Try to get email from token claims or user info
+                    owner = tokens.get('email') or tokens.get('username')
+                    if not owner and hasattr(self.auth_manager, 'get_user_email'):
+                        owner = self.auth_manager.get_user_email()
+                    if not owner and hasattr(self, 'user'):
+                        owner = self.user
+            except Exception as e:
+                logger.warning(f"[MainWindow] Could not get owner email: {e}")
+            
+            if not owner:
+                logger.warning("[MainWindow] No owner email available, skipping account notification subscription")
+                return
+
+            masked_token = token[:15] + "..." + token[-4:] if len(token) > 20 else "***"
+            logger.info(f"[MainWindow] Account notification subscription: owner={owner}, token={masked_token}")
+
+            # Start the subscription in executor and save references for cleanup
+            ws, thread = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: subscribe_account_notifications(
+                    owner=owner,
+                    id_token=token,
+                    ws_url=ws_endpoint,
+                    on_notification_callback=handle_account_notification
+                )
+            )
+
+            # Save references for cleanup
+            self.account_notification_ws = ws
+            self.account_notification_thread = thread
+
+            logger.info("[MainWindow] ✅ Account Notification Subscription initialized successfully!")
+
+        except Exception as e:
+            logger.error(f"[MainWindow] ❌ Account Notification Subscription failed: {e}")
+            logger.error(f"[MainWindow] Account notification error details: {traceback.format_exc()}")
+            # Don't crash the app if subscription fails
 
     def get_auth_token(self):
         """Return a valid JWT for AppSync Authorization header.

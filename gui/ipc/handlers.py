@@ -208,8 +208,8 @@ def handle_run_tests(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
 
                 procurement_agent = next((ag for ag in agents if ag.card.name == "Engineering Procurement Agent"), None)
                 procurement_agent.self_wan_ping()
-                # from tests.unittests import run_default_tests
-                # result = run_default_tests(main_win)
+                from tests.unittests import run_default_tests
+                result = run_default_tests(main_win, {"test_cloud_api": True})
             # Add other test cases as needed
             else:
                 print(">>>>>running test:", test_id, "trigger running procrement task")
