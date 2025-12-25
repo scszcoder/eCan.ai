@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import platform
 import time
+import traceback
 from pathlib import Path
 from typing import Optional, List
 from utils.logger_helper import logger_helper as logger
@@ -511,6 +512,73 @@ class PlaywrightCoreUtils:
                 logger.warning("[PLAYWRIGHT] Target directory is empty after installation")
         else:
             logger.warning(f"[PLAYWRIGHT] Target directory does not exist after install: {target_path}")
+    
+    @staticmethod
+    def install_browser_extensions() -> None:
+        """Install browser-use extensions to user config directory (macOS/Windows)."""
+        try:
+            import shutil
+            
+            logger.info("[PLAYWRIGHT] Installing browser-use extensions...")
+            
+            # Source: bundled extensions (check both frozen and development environments)
+            bundled_ext = None
+            
+            if getattr(sys, 'frozen', False):
+                # PyInstaller frozen environment
+                bundled_ext = Path(sys._MEIPASS) / 'third_party' / 'browser_extensions'
+            else:
+                # Development environment
+                project_root = Path(__file__).parent.parent.parent.parent
+                bundled_ext = project_root / 'third_party' / 'browser_extensions'
+            
+            if not bundled_ext or not bundled_ext.exists():
+                logger.info("[PLAYWRIGHT] No bundled browser extensions found, extensions will be downloaded at runtime")
+                return
+            
+            # Target: user config directory (browser_use default location)
+            # Support both macOS and Windows
+            if sys.platform == 'win32':
+                # Windows: %USERPROFILE%\.config\browseruse\extensions
+                base = Path(os.environ.get('USERPROFILE', str(Path.home())))
+                user_ext = base / '.config' / 'browseruse' / 'extensions'
+            elif sys.platform == 'darwin':
+                # macOS: ~/.config/browseruse/extensions
+                base = Path(os.environ.get('XDG_CONFIG_HOME', str(Path.home() / '.config')))
+                user_ext = base / 'browseruse' / 'extensions'
+            else:
+                # Linux: ~/.config/browseruse/extensions
+                base = Path(os.environ.get('XDG_CONFIG_HOME', str(Path.home() / '.config')))
+                user_ext = base / 'browseruse' / 'extensions'
+            
+            # Quick check: if directory exists and has expected extension IDs, skip
+            expected_ext_ids = ['cjpalhdlnbpafiamejdnhcphjbkeiagm', 'edibdbjcniadpccecjdfdjjppcpchdlm', 
+                               'lckanjgmijmafbedllaakclkaicjfmnk', 'gidlfommnbibbmegmgajdbikelkdcmcl']
+            
+            if user_ext.exists():
+                # Fast check: verify at least one expected extension exists
+                has_extensions = any((user_ext / ext_id / 'manifest.json').exists() for ext_id in expected_ext_ids)
+                if has_extensions:
+                    logger.debug(f"[PLAYWRIGHT] Browser extensions already installed, skipping copy")
+                    return
+            
+            # Extensions not found, need to install
+            logger.info(f"[PLAYWRIGHT] Installing browser extensions from {bundled_ext} to {user_ext}")
+            
+            # Remove existing directory if it exists
+            if user_ext.exists():
+                shutil.rmtree(user_ext)
+            
+            # Copy bundled extensions
+            shutil.copytree(bundled_ext, user_ext)
+            
+            # Count installed extensions
+            ext_count = len([d for d in user_ext.iterdir() if d.is_dir() and (d / 'manifest.json').exists()])
+            logger.info(f"[PLAYWRIGHT] Browser extensions installed: {ext_count} extensions")
+            
+        except Exception as e:
+            logger.warning(f"[PLAYWRIGHT] Failed to install browser extensions: {e}")
+            logger.debug(f"[PLAYWRIGHT] Extension install error details: {traceback.format_exc()}")
     
     @staticmethod
     def cleanup_incomplete_browsers(path: Path) -> None:

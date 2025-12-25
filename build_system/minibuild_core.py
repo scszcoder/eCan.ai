@@ -771,45 +771,92 @@ if sys.platform == 'darwin':
 
 {collect_packages_code}
 
-# Add Playwright browsers - carefully handle symlinks to avoid conflicts
+# Add Playwright browsers - handle symlinks correctly
 playwright_third_party = project_root / "third_party" / "ms-playwright"
 if playwright_third_party.exists():
     print(f'[SPEC] Adding Playwright browsers from: {{playwright_third_party}}')
     
-    # Manual walk to exclude ALL symlinks (files and directories)
-    # This prevents FileExistsError with Chromium Framework structures
+    # Use Tree class to collect files with proper symlink handling
+    # This resolves symlinks to their targets, avoiding FileExistsError while preserving all files
     import os
     pw_files = []
-    skipped_symlinks = 0
+    symlinks_resolved = 0
     
     for root, dirs, files in os.walk(str(playwright_third_party), followlinks=False):
-        # Remove symlink directories from dirs list (modifies in-place)
-        # This prevents os.walk from descending into them
+        # Process symlink directories by resolving them
         original_dirs = dirs[:]
         dirs[:] = []
         for d in original_dirs:
             dir_path = os.path.join(root, d)
             if os.path.islink(dir_path):
-                skipped_symlinks += 1
+                # Resolve symlink and add target files directly
+                symlinks_resolved += 1
+                try:
+                    real_path = os.path.realpath(dir_path)
+                    if os.path.isdir(real_path):
+                        # Walk the resolved directory and add its contents
+                        for sub_root, sub_dirs, sub_files in os.walk(real_path, followlinks=False):
+                            for sub_file in sub_files:
+                                src_path = os.path.join(sub_root, sub_file)
+                                # Calculate relative path from the symlink location
+                                rel_from_symlink = os.path.relpath(src_path, real_path)
+                                rel_path = os.path.join(os.path.relpath(dir_path, str(playwright_third_party)), rel_from_symlink)
+                                dest_path = os.path.join('third_party/ms-playwright', rel_path)
+                                pw_files.append((src_path, dest_path))
+                except Exception as e:
+                    print(f'[SPEC] Warning: Failed to resolve symlink {{dir_path}}: {{e}}')
                 continue
             dirs.append(d)
         
-        # Process files, skip symlinks
+        # Process files (both regular and symlinks)
         for file in files:
             src_path = os.path.join(root, file)
             if os.path.islink(src_path):
-                skipped_symlinks += 1
+                # Resolve symlink to actual file
+                symlinks_resolved += 1
+                try:
+                    real_path = os.path.realpath(src_path)
+                    if os.path.isfile(real_path):
+                        rel_path = os.path.relpath(src_path, str(playwright_third_party))
+                        dest_path = os.path.join('third_party/ms-playwright', rel_path)
+                        pw_files.append((real_path, dest_path))
+                except Exception as e:
+                    print(f'[SPEC] Warning: Failed to resolve symlink {{src_path}}: {{e}}')
                 continue
             
-            # Add as data file
+            # Add regular file
             rel_path = os.path.relpath(src_path, str(playwright_third_party))
             dest_path = os.path.join('third_party/ms-playwright', rel_path)
             pw_files.append((src_path, dest_path))
     
     data_files.extend(pw_files)
-    print(f'[SPEC] Added {{len(pw_files)}} Playwright files, skipped {{skipped_symlinks}} symlinks')
+    print(f'[SPEC] Added {{len(pw_files)}} Playwright files, resolved {{symlinks_resolved}} symlinks')
 else:
     print('[SPEC] Playwright browsers not found in third_party')
+
+# Add browser-use extensions
+browser_extensions_dir = project_root / "third_party" / "browser_extensions"
+if browser_extensions_dir.exists():
+    print(f'[SPEC] Adding browser-use extensions from: {{browser_extensions_dir}}')
+    
+    import os
+    ext_files = []
+    
+    for root, dirs, files in os.walk(str(browser_extensions_dir), followlinks=False):
+        for file in files:
+            src_path = os.path.join(root, file)
+            if os.path.islink(src_path):
+                continue
+            
+            # Add as data file
+            rel_path = os.path.relpath(src_path, str(browser_extensions_dir))
+            dest_path = os.path.join('third_party/browser_extensions', rel_path)
+            ext_files.append((src_path, dest_path))
+    
+    data_files.extend(ext_files)
+    print(f'[SPEC] Added {{len(ext_files)}} browser extension files')
+else:
+    print('[SPEC] Browser extensions not found in third_party (extensions will be disabled)')
 
 # Icon detection with enhanced Windows support
 icon_path = None
