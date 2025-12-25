@@ -309,11 +309,19 @@ def patch_asyncio_subprocess_for_windows():
         return
     
     try:
-        policy = asyncio.get_event_loop_policy()
-        if not isinstance(policy, asyncio.WindowsSelectorEventLoopPolicy):
+        # Check if already patched to avoid recursion
+        if getattr(asyncio, '_subprocess_patched', False):
+            logger.debug("[SubprocessPatch] Already patched, skipping")
             return
+
+        # Relaxed check: We apply the patch regardless of the current policy class,
+        # because the patch logic itself tries the original method first and only
+        # falls back if NotImplementedError is raised. This safeguards against
+        # cases where the policy is wrapped or detection fails.
+        policy = asyncio.get_event_loop_policy()
+        logger.debug(f"[SubprocessPatch] Current policy: {type(policy).__name__}")
         
-        logger.info("[SubprocessPatch] Applying Windows subprocess patch for SelectorEventLoop")
+        logger.info("[SubprocessPatch] Applying Windows subprocess patch")
         
         original_create_subprocess_exec = asyncio.create_subprocess_exec
         original_create_subprocess_shell = asyncio.create_subprocess_shell
@@ -334,6 +342,7 @@ def patch_asyncio_subprocess_for_windows():
         
         asyncio.create_subprocess_exec = patched_create_subprocess_exec
         asyncio.create_subprocess_shell = patched_create_subprocess_shell
+        asyncio._subprocess_patched = True
         logger.info("[SubprocessPatch] Patch applied successfully")
         
     except Exception as e:

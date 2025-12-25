@@ -1701,6 +1701,7 @@
           "chunkSize": "Document chunk size, 500~1500 recommended",
           "forceLlmSummary": "Number of segments or tokens to trigger LLM summary (at least 3 recommended)",
           "relatedChunkNumber": "Maximum number of related chunks per source entity or relation",
+          "maxGleaning": "Entity extraction gleaning count (0=disabled, 1=enabled for better quality)",
           "maxAsync": "Max concurrency requests of LLM (for both query and document processing)",
           "maxParallelInsert": "Number of parallel processing documents (between 2~10, MAX_ASYNC/3 recommended)",
           "maxGraphNodes": "Max nodes for graph retrieval, ensure WebUI local settings are also updated",
