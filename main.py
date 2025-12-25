@@ -330,11 +330,18 @@ try:
 
         # Proxy initialization will be done after splash screen (to avoid blocking startup)
 
-        # Ensure Windows uses SelectorEventLoop to support subprocesses (e.g., Playwright)
+        # Ensure Windows uses SelectorEventLoop to support Qt/qasync integration
         try:
             _asyncio = _import_asyncio_safely()
             if sys.platform.startswith('win'):
                 _asyncio.set_event_loop_policy(_asyncio.WindowsSelectorEventLoopPolicy())
+                # Apply subprocess patch for Windows SelectorEventLoop
+                # This allows browser-use/Playwright to launch Chrome despite SelectorEventLoop limitations
+                try:
+                    from utils.win_subproc import patch_asyncio_subprocess_for_windows
+                    patch_asyncio_subprocess_for_windows()
+                except Exception as patch_err:
+                    print(f"[WARNING] Failed to apply Windows subprocess patch: {patch_err}")
             # Cache asyncio to avoid later re-import quirks
             globals()['ASYNCIO'] = _asyncio
         except Exception:
