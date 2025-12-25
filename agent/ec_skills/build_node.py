@@ -6,7 +6,7 @@ import importlib.util
 import httpx
 from urllib.parse import urlparse, parse_qsl, urlunparse
 from agent.mcp.local_client import mcp_call_tool
-from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
+# REMOVED: from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync  # Moved to lazy import to avoid circular dependency
 from agent.ec_skills.dev_defs import BreakpointManager
 from agent.ec_tasks.pending_events import register_async_operation, resolve_async_operation
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -15,7 +15,7 @@ from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
 from langgraph.types import interrupt
 from utils.env.secure_store import secure_store, get_current_username
-from agent.ec_skills.llm_utils.llm_utils import _create_no_proxy_http_client
+# REMOVED: from agent.ec_skills.llm_utils.llm_utils import _create_no_proxy_http_client  # Moved to lazy import to avoid circular dependency
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
 from langchain_community.chat_models import ChatAnthropic
 from langchain_community.chat_models import ChatOllama
@@ -1006,6 +1006,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     if not key:
                         raise ValueError("DeepSeek API key missing")
                     base_url = host or "https://api.deepseek.com"
+                    from agent.ec_skills.llm_utils.llm_utils import _create_no_proxy_http_client
                     sync_client, async_client = _create_no_proxy_http_client()
                     llm = ChatDeepSeek(
                         model=model_name or "deepseek-chat",
@@ -1021,6 +1022,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     if not key:
                         raise ValueError("DashScope (Qwen/QwQ) API key missing")
                     base_url = host or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+                    from agent.ec_skills.llm_utils.llm_utils import _create_no_proxy_http_client
                     sync_client, async_client = _create_no_proxy_http_client()
                     kw = {
                         "model": model_name or "qwq-plus",
@@ -1037,6 +1039,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     if not key:
                         raise ValueError("Bytedance (Doubao/ARK) API key missing")
                     base_url = host or "https://ark.cn-beijing.volces.com/api/v3"
+                    from agent.ec_skills.llm_utils.llm_utils import _create_no_proxy_http_client
                     sync_client, async_client = _create_no_proxy_http_client()
                     kwargs = {
                         "model": model_name or "doubao-pro-256k",
@@ -1053,6 +1056,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     if not key:
                         raise ValueError("Baidu Qianfan API key missing")
                     base_url = host or "https://qianfan.baidubce.com/v2"
+                    from agent.ec_skills.llm_utils.llm_utils import _create_no_proxy_http_client
                     sync_client, async_client = _create_no_proxy_http_client()
                     kwargs = {
                         "model": model_name or "ernie-4.0-8k",
@@ -1293,6 +1297,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             loop = asyncio.get_event_loop()
                             if loop.is_running():
                                 # Use run_async_in_sync for nested event loop
+                                from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
                                 response = run_async_in_sync(_invoke_with_hard_timeout())
                             else:
                                 response = loop.run_until_complete(_invoke_with_hard_timeout())
@@ -2463,6 +2468,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
                     
                     # Make the tool call (fire-and-forget - we don't wait for full completion)
+                    from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
                     tool_result = run_async_in_sync(run_tool_call())
                     
                     # Store initial result and correlation_id
@@ -2500,6 +2506,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         # ============================================================
         try:
             # Use the utility to run the async function from a sync context
+            from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
             tool_result = run_async_in_sync(run_tool_call())
 
             log_msg = f"mcp tool call results: {tool_result}"
@@ -3228,6 +3235,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 _run_browser_use(combined_task, mainwin),
                                 timeout=effective_timeout
                             )
+                        from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
                         info = run_async_in_sync(_run_with_hard_timeout()) or {}
                     except asyncio.TimeoutError:
                         error_msg = f"Browser automation timed out after {effective_timeout}s (hard timeout)"
@@ -3244,6 +3252,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             pass
                         info = {"error": error_msg, "timed_out": True}
                 else:
+                    from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
                     info = run_async_in_sync(_run_browser_use(combined_task, mainwin)) or {}
                 
                 # Cancel guardrail timer on success

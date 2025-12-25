@@ -1043,6 +1043,15 @@ def handle_save_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         if not params:
             return create_error_response(request, 'INVALID_PARAMS', 'No settings provided')
         
+        # Log received settings for debugging
+        logger.info(f"[LightRAG] Received {len(params)} settings to save")
+        
+        # Log key Ollama settings
+        ollama_keys = ['EMBEDDING_BINDING_HOST', 'LLM_BINDING_HOST', 'EMBEDDING_BINDING', 'LLM_BINDING']
+        for key in ollama_keys:
+            if key in params:
+                logger.info(f"[LightRAG] {key} = {params[key]}")
+        
         # Filter out system-managed keys to avoid saving them to local env file
         # This ensures the file remains clean and system settings remain authoritative
         keys_to_exclude = ['_SYSTEM_LLM_KEY_SOURCE', '_SYSTEM_EMBED_KEY_SOURCE']
@@ -1057,15 +1066,19 @@ def handle_save_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         
         settings_to_save = {k: v for k, v in params.items() if k not in keys_to_exclude}
         
+        logger.info(f"[LightRAG] Saving {len(settings_to_save)} settings after filtering")
+        
         config_manager = get_config_manager()
         success = config_manager.update_config(settings_to_save)
         
         if not success:
+            logger.error("[LightRAG] Failed to save settings to file")
             return create_error_response(request, 'CONFIG_ERROR', 'Failed to save settings')
         
+        logger.info("[LightRAG] ✅ Settings saved successfully")
         return create_success_response(request, {'success': True, 'message': 'Settings saved'})
     except Exception as e:
-        logger.error(f"Error saving settings: {e}")
+        logger.error(f"[LightRAG] Error saving settings: {e}", exc_info=True)
         return create_error_response(request, 'SAVE_SETTINGS_ERROR', str(e))
 
 
@@ -1074,20 +1087,19 @@ def handle_restart_server(request: IPCRequest, params: Optional[Dict[str, Any]])
     """Restart LightRAG server to apply new settings."""
     try:
         from app_context import AppContext
-        from gui.ipc.context_bridge import get_handler_context
         
         # Get MainWindow instance
-        ctx = get_handler_context(request, params)
-        if not ctx:
+        main_window = AppContext.get_main_window()
+        if not main_window:
             return create_error_response(request, 'MAIN_WINDOW_NOT_FOUND', 'MainWindow instance not found')
         
         # Check if server exists
-        if not ctx.get_lightrag_server() or not ctx.get_lightrag_server():
+        if not hasattr(main_window, 'lightrag_server') or not main_window.lightrag_server:
             return create_error_response(request, 'SERVER_NOT_RUNNING', 'LightRAG server is not running')
         
         # Stop the server
         logger.info("[LightRAG] Stopping server for restart...")
-        ctx.main_window.stop_lightrag_server()
+        main_window.stop_lightrag_server()
         
         # Restart the server asynchronously
         import asyncio
@@ -1096,27 +1108,18 @@ def handle_restart_server(request: IPCRequest, params: Optional[Dict[str, Any]])
         async def restart_server():
             try:
                 # Create and start new server instance
-                # Paths are automatically handled by LightragServer using app_info defaults
-                # API Keys are automatically handled by LightragServer using config_manager
-                # Note: In desktop mode, this sets ctx.get_lightrag_server()
-                # In web mode, this would need to set the user context's lightrag_server
-                from app_context import AppContext
-                mw = AppContext.get_ctx()
-                if mw:
-                    mw.lightrag_server = LightragServer()
-                    success = await asyncio.get_event_loop().run_in_executor(
-                        None,
-                        lambda: ctx.get_lightrag_server().start(wait_ready=True)
-                    )
-                else:
-                    success = False
+                main_window.lightrag_server = LightragServer()
+                success = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: main_window.lightrag_server.start(wait_ready=True)
+                )
                 
                 if success:
-                    logger.info("[LightRAG] Server restarted successfully")
+                    logger.info("[LightRAG] ✅ Server restarted successfully")
                 else:
-                    logger.error("[LightRAG] Server restart failed - check logs for details")
+                    logger.error("[LightRAG] ❌ Server restart failed")
             except Exception as e:
-                logger.error(f"[LightRAG] Error restarting server: {e}")
+                logger.error(f"[LightRAG] ❌ Error restarting server: {e}")
         
         # Schedule restart in the event loop
         asyncio.create_task(restart_server())
@@ -1125,6 +1128,116 @@ def handle_restart_server(request: IPCRequest, params: Optional[Dict[str, Any]])
     except Exception as e:
         logger.error(f"Error restarting LightRAG server: {e}")
         return create_error_response(request, 'RESTART_SERVER_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('lightrag.getWorkspaces')
+def handle_get_workspaces(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Get list of available LightRAG workspaces by scanning workspace folders.
+    
+    Workspace folders follow the pattern: {user_data_path}/lightrag_{workspace_name}/
+    """
+    try:
+        from utils.path_manager import get_user_data_path
+        from gui.ipc.context_bridge import get_handler_context
+        
+        # Get current user from context
+        ctx = get_handler_context(request, params)
+        user = ctx.main_window.log_user if ctx and ctx.main_window else None
+        
+        # Get user's data directory
+        user_data_path = get_user_data_path(user)
+        
+        # Scan for workspace folders (lightrag_*)
+        workspaces = []
+        if os.path.exists(user_data_path):
+            for item in os.listdir(user_data_path):
+                if item.startswith('lightrag_'):
+                    workspace_name = item[len('lightrag_'):]  # Remove 'lightrag_' prefix
+                    item_path = os.path.join(user_data_path, item)
+                    
+                    if os.path.isdir(item_path):
+                        # Check if it has typical workspace structure
+                        has_storage = os.path.exists(os.path.join(item_path, 'rag_storage')) or \
+                                    os.path.exists(os.path.join(item_path, 'inputs'))
+                        
+                        workspaces.append({
+                            'name': workspace_name,
+                            'is_valid': has_storage
+                        })
+        
+        # Get current workspace from config
+        config_manager = get_config_manager()
+        current_workspace = config_manager.get_value('WORKSPACE', 'space1')
+        
+        # If no workspaces found, add the current workspace as default
+        if not workspaces:
+            workspaces.append({
+                'name': current_workspace,
+                'is_valid': True
+            })
+        
+        return create_success_response(request, {
+            'workspaces': workspaces,
+            'current': current_workspace
+        })
+    except Exception as e:
+        logger.error(f"[LightRAG] Error getting workspaces: {e}", exc_info=True)
+        return create_error_response(request, 'GET_WORKSPACES_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('lightrag.deleteWorkspace')
+def handle_delete_workspace(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Delete a workspace folder and its contents.
+    
+    This will delete the workspace-specific directory structure:
+    - {user_data_path}/lightrag_{workspace_name}/
+    """
+    try:
+        if not params or 'workspace_name' not in params:
+            return create_error_response(request, 'INVALID_PARAMS', 'workspace_name is required')
+        
+        workspace_name = params['workspace_name'].strip()
+        
+        if not workspace_name:
+            return create_error_response(request, 'INVALID_PARAMS', 'workspace_name cannot be empty')
+        
+        # Check if it's the current workspace
+        config_manager = get_config_manager()
+        current_workspace = config_manager.get_value('WORKSPACE', '')
+        
+        if current_workspace == workspace_name:
+            return create_error_response(request, 'WORKSPACE_IN_USE', 
+                                        f"Cannot delete workspace '{workspace_name}' because it is currently in use. Please switch to another workspace first.")
+        
+        from utils.path_manager import get_user_data_path
+        from gui.ipc.context_bridge import get_handler_context
+        import shutil
+        
+        # Get current user from context
+        ctx = get_handler_context(request, params)
+        user = ctx.main_window.log_user if ctx and ctx.main_window else None
+        
+        # Build workspace folder path
+        user_data_path = get_user_data_path(user)
+        workspace_folder = os.path.join(user_data_path, f'lightrag_{workspace_name}')
+        
+        # Check if workspace folder exists
+        if not os.path.exists(workspace_folder):
+            return create_error_response(request, 'WORKSPACE_NOT_FOUND', 
+                                        f"Workspace folder '{workspace_name}' does not exist")
+        
+        # Delete the workspace folder
+        shutil.rmtree(workspace_folder)
+        logger.info(f"[LightRAG] ✅ Deleted workspace folder: {workspace_folder}")
+        
+        return create_success_response(request, {
+            'success': True,
+            'workspace_name': workspace_name,
+            'message': f"Workspace '{workspace_name}' deleted successfully"
+        })
+    except Exception as e:
+        logger.error(f"[LightRAG] Error deleting workspace: {e}", exc_info=True)
+        return create_error_response(request, 'DELETE_WORKSPACE_ERROR', str(e))
 
 
 @IPCHandlerRegistry.handler('lightrag.getSettings')

@@ -1547,6 +1547,18 @@
         "restartError": "Failed to apply configuration",
         "restartLater": "Cancel",
         "applyNow": "Apply Now",
+        "workspace": {
+          "tooltip": "Workspace",
+          "refresh": "Refresh workspace list",
+          "delete": "Delete workspace",
+          "deleteTitle": "Delete Workspace",
+          "deleteConfirm": "Are you sure you want to delete workspace \"{{name}}\"? This action cannot be undone.",
+          "deleteSuccess": "Workspace deleted successfully",
+          "deleteError": "Failed to delete workspace",
+          "loadError": "Failed to load workspace list",
+          "newPlaceholder": "Enter new workspace name...",
+          "newHint": "Press Enter to create"
+        },
         "tabs": {
           "basic": "Basic Config",
           "rag": "RAG Parameters",

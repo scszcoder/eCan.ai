@@ -206,6 +206,18 @@ export function createLightRAGApi(apiInstance: IPCAPI) {
 
     async downloadFile<T>(payload: { fileName: string }): Promise<APIResponse<T>> {
       return apiInstance.executeRequest<T>('lightrag.downloadFile', payload);
+    },
+
+    async getWorkspaces<T>(): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.getWorkspaces', {});
+    },
+
+    async deleteWorkspace<T>(payload: { workspace_name: string }): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.deleteWorkspace', payload);
+    },
+
+    async restartServer<T>(payload: Record<string, any>): Promise<APIResponse<T>> {
+      return apiInstance.executeRequest<T>('lightrag.restartServer', payload);
     }
   };
 }

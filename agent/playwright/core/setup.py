@@ -53,6 +53,8 @@ def ensure_playwright_browsers_ready(app_data_root: Optional[Path] = None,
         if bundled_path.exists() and _validate_browser_installation(bundled_path):
             logger.info(f"Using bundled Playwright browsers in PyInstaller: {bundled_path}")
             core_utils.set_environment_variables(bundled_path)
+            # Install browser extensions from bundled resources (first run)
+            core_utils.install_browser_extensions()
             return bundled_path
         else:
             logger.warning(f"Bundled browsers not found or invalid at: {bundled_path}")
