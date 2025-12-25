@@ -1547,6 +1547,18 @@
         "restartError": "应用配置失败",
         "restartLater": "取消",
         "applyNow": "立即应用",
+        "workspace": {
+          "tooltip": "工作空间",
+          "refresh": "刷新工作空间列表",
+          "delete": "删除工作空间",
+          "deleteTitle": "删除工作空间",
+          "deleteConfirm": "确定要删除工作空间 \"{{name}}\" 吗？此操作不可恢复。",
+          "deleteSuccess": "工作空间删除成功",
+          "deleteError": "删除工作空间失败",
+          "loadError": "加载工作空间列表失败",
+          "newPlaceholder": "输入新工作空间名称...",
+          "newHint": "按 Enter 创建"
+        },
         "tabs": {
           "basic": "基础配置",
           "rag": "RAG参数",
