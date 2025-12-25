@@ -14,13 +14,13 @@ from typing import Optional, Tuple
 from utils.logger_helper import logger_helper
 from agent.a2a.common.types import TaskSendParams, Message, TextPart
 from agent.cloud_api.constants import cloud_api, DataType, Operation
-
+import aiohttp
 # Import new generic GraphQL builder
 from agent.cloud_api.graphql_builder import build_mutation
 
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
-
+from datetime import datetime
 
 limiter = AsyncLimiter(1, 1)  # Max 5 requests per second
 
@@ -954,9 +954,9 @@ def appsync_http_request(query_string, session, token, endpoint=None, timeout=18
             headers=headers,
             json={'query': query_string}
         )
-
+        print("raw response: ", response)
         jresp = response.json()
-
+        print("json respose: ", response)
         # Check for authentication errors
         if "errors" in jresp:
             for error in jresp["errors"]:
@@ -1235,11 +1235,32 @@ def gen_query_agents_string(q_setting):
     return query_string
 
 def gen_get_agents_string():
-    query_string = 'query MyGetAgentQuery { getAgents (ids:"'
-    rec_string = "0"
-
-    tail_string = '") }'
-    query_string = query_string + rec_string + tail_string
+    """Generate GraphQL query string for getting all agents for current user"""
+    # Use queryAgents with input parameter (AgentQueryInput type)
+    # Returns [Agent!]! so we need to specify which fields to select
+    query_string = '''query MyGetAgentQuery {
+  queryAgents(input: {}) {
+    id
+    owner
+    name
+    title
+    supervisor_id
+    birthday
+    gender
+    personalities
+    status
+    rank
+    vehicle_id
+    avatar_resource_id
+    description
+    url
+    version
+    extra_data
+    capabilities
+    created_at
+    updated_at
+  }
+}'''
     logger.debug(query_string)
     return query_string
 
@@ -1293,11 +1314,40 @@ def gen_query_agent_skills_string(q_setting):
     return query_string
 
 def gen_get_agent_skills_string():
-    query_string = 'query MyGetAgentSkillsQuery { getAgentSkills (ids:"'
-    rec_string = "0"
-
-    tail_string = '") }'
-    query_string = query_string + rec_string + tail_string
+    """Generate GraphQL query string for getting all skills for current user
+    
+    Server schema: queryAgentSkills(input: SkillQueryInput): [AgentSkill!]!
+    SkillQueryInput: { id: ID, name: String, description: String }
+    AgentSkill fields: id, askid, owner, name, description, version, level, config, diagram,
+                       tags, examples, inputModes, outputModes, apps, limitations, path,
+                       source, price, price_model, public, rentable
+    """
+    # Query all skills by passing empty input (no filters)
+    query_string = '''query MyGetAgentSkillsQuery {
+        queryAgentSkills(input: {}) {
+            id
+            askid
+            owner
+            name
+            description
+            version
+            level
+            config
+            diagram
+            tags
+            examples
+            inputModes
+            outputModes
+            apps
+            limitations
+            path
+            source
+            price
+            price_model
+            public
+            rentable
+        }
+    }'''
     logger.debug(query_string)
     return query_string
 
@@ -1389,11 +1439,10 @@ def gen_query_agent_tasks_string(query):
 
 
 def gen_get_agent_tasks_string():
-    query_string = 'query MyGetAgentTasksQuery { getAgentTasks (ids:"'
-    rec_string = "0"
-
-    tail_string = '") }'
-    query_string = query_string + rec_string + tail_string
+    """Generate GraphQL query string for getting all tasks for current user"""
+    # Use queryAgentTasks with qb parameter (byowneruser: true to get current user's tasks)
+    qb = json.dumps({"byowneruser": True}, ensure_ascii=False).replace('"', '\\"')
+    query_string = f'query MyGetAgentTasksQuery {{ queryAgentTasks(qb: "{qb}") }}'
     logger.debug(query_string)
     return query_string
 
@@ -1484,11 +1533,10 @@ def gen_query_agent_tools_string(query):
 
 
 def gen_get_agent_tools_string():
-    query_string = 'query MyGetAgentToolsQuery { getAgentTools (ids:"'
-    rec_string = "0"
-
-    tail_string = '") }'
-    query_string = query_string + rec_string + tail_string
+    """Generate GraphQL query string for getting all tools for current user"""
+    # Use queryAgentTools with qb parameter (byowneruser: true to get current user's tools)
+    qb = json.dumps({"byowneruser": True}, ensure_ascii=False).replace('"', '\\"')
+    query_string = f'query MyGetAgentToolsQuery {{ queryAgentTools(qb: "{qb}") }}'
     logger.debug(query_string)
     return query_string
 
@@ -2020,30 +2068,30 @@ def send_query_agents_request_to_cloud(session, token, q_settings, endpoint):
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
 def send_get_agents_request_to_cloud(session, token, endpoint):
-
+    """Query all agents for current user using queryAgents with byowneruser"""
     queryInfo = gen_get_agents_string()
 
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     if "errors" in jresp:
-        screen_error = True
-        logger.error("AppSync getAgents error: " + json.dumps(jresp))
+        logger.error("AppSync queryAgents error: " + json.dumps(jresp))
         if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
-            logger.info("No agents data found for user - returning empty dict")
-            jresponse = {}
+            logger.info("No agents data found for user - returning empty list")
+            jresponse = []
         else:
             jresponse = jresp["errors"][0] if jresp["errors"] else {}
     else:
         try:
-            agents_data = jresp["data"]["getAgents"]
+            agents_data = jresp["data"]["queryAgents"]
             if agents_data is None:
-                logger.info("getAgents returned null - user has no agents data")
-                jresponse = {}
+                logger.info("queryAgents returned null - user has no agents data")
+                jresponse = []
             else:
-                jresponse = json.loads(agents_data)
-        except (json.JSONDecodeError, TypeError) as e:
-            logger.error(f"Failed to parse getAgents response: {e}")
-            jresponse = {}
+                # Return type is now [Agent!]! - already a list of dicts, no json.loads needed
+                jresponse = agents_data
+        except (KeyError, TypeError) as e:
+            logger.error(f"Failed to parse queryAgents response: {e}")
+            jresponse = []
 
     return jresponse
 
@@ -2422,31 +2470,31 @@ def send_update_skills_with_files_to_cloud(
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
 def send_get_agent_skills_request_to_cloud(session, token, endpoint):
-
+    """Query all skills for current user using queryAgentSkills
+    
+    Server returns [AgentSkill!]! - an array of skill objects (not AWSJSON)
+    """
     queryInfo = gen_get_agent_skills_string()
 
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     if "errors" in jresp:
-        screen_error = True
-        logger.error("AppSync getAgentSkills error: " + json.dumps(jresp))
-        # Handle case where user has no agent skills data (return empty dict)
+        logger.error("AppSync queryAgentSkills error: " + json.dumps(jresp))
+        # Handle case where user has no agent skills data (return empty list)
         if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
-            logger.info("No agent skills data found for user - returning empty dict")
-            jresponse = {}
+            logger.info("No agent skills data found for user - returning empty list")
+            jresponse = []
         else:
             jresponse = jresp["errors"][0] if jresp["errors"] else {}
     else:
-        try:
-            skills_data = jresp["data"]["getAgentSkills"]
-            if skills_data is None:
-                logger.info("getAgentSkills returned null - user has no agent skills data")
-                jresponse = {}
-            else:
-                jresponse = json.loads(skills_data)
-        except (json.JSONDecodeError, TypeError) as e:
-            logger.error(f"Failed to parse getAgentSkills response: {e}")
-            jresponse = {}
+        # Response is already parsed as array of objects (not AWSJSON string)
+        skills_data = jresp.get("data", {}).get("queryAgentSkills")
+        if skills_data is None:
+            logger.info("queryAgentSkills returned null - user has no agent skills data")
+            jresponse = []
+        else:
+            # skills_data is already a list of dicts, no json.loads needed
+            jresponse = skills_data
 
     return jresponse
 
@@ -2559,14 +2607,13 @@ def send_query_agent_tasks_by_time_request_to_cloud(session, token, q_settings, 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
 def send_get_agent_tasks_request_to_cloud(session, token, endpoint):
-
+    """Query all tasks for current user using queryAgentTasks with byowneruser"""
     queryInfo = gen_get_agent_tasks_string()
 
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     if "errors" in jresp:
-        screen_error = True
-        logger.error("AppSync getAgentTasks error: " + json.dumps(jresp))
+        logger.error("AppSync queryAgentTasks error: " + json.dumps(jresp))
         if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
             logger.info("No agent tasks data found for user - returning empty dict")
             jresponse = {}
@@ -2574,14 +2621,14 @@ def send_get_agent_tasks_request_to_cloud(session, token, endpoint):
             jresponse = jresp["errors"][0] if jresp["errors"] else {}
     else:
         try:
-            tasks_data = jresp["data"]["getAgentTasks"]
+            tasks_data = jresp["data"]["queryAgentTasks"]
             if tasks_data is None:
-                logger.info("getAgentTasks returned null - user has no agent tasks data")
+                logger.info("queryAgentTasks returned null - user has no agent tasks data")
                 jresponse = {}
             else:
                 jresponse = json.loads(tasks_data)
         except (json.JSONDecodeError, TypeError) as e:
-            logger.error(f"Failed to parse getAgentTasks response: {e}")
+            logger.error(f"Failed to parse queryAgentTasks response: {e}")
             jresponse = {}
 
     return jresponse
@@ -2694,14 +2741,13 @@ def send_query_agent_tools_by_time_request_to_cloud(session, token, q_settings, 
 # interface appsync, directly use HTTP request.
 # Use AWS4Auth to sign a requests session
 def send_get_agent_tools_request_to_cloud(session, token, endpoint):
-
+    """Query all tools for current user using queryAgentTools with byowneruser"""
     queryInfo = gen_get_agent_tools_string()
 
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     if "errors" in jresp:
-        screen_error = True
-        logger.error("AppSync getAgentTools error: " + json.dumps(jresp))
+        logger.error("AppSync queryAgentTools error: " + json.dumps(jresp))
         if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
             logger.info("No agent tools data found for user - returning empty dict")
             jresponse = {}
@@ -2709,14 +2755,14 @@ def send_get_agent_tools_request_to_cloud(session, token, endpoint):
             jresponse = jresp["errors"][0] if jresp["errors"] else {}
     else:
         try:
-            tools_data = jresp["data"]["getAgentTools"]
+            tools_data = jresp["data"]["queryAgentTools"]
             if tools_data is None:
-                logger.info("getAgentTools returned null - user has no agent tools data")
+                logger.info("queryAgentTools returned null - user has no agent tools data")
                 jresponse = {}
             else:
                 jresponse = json.loads(tools_data)
         except (json.JSONDecodeError, TypeError) as e:
-            logger.error(f"Failed to parse getAgentTools response: {e}")
+            logger.error(f"Failed to parse queryAgentTools response: {e}")
             jresponse = {}
 
     return jresponse
@@ -3457,6 +3503,249 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
 
 
 # ============================================================================
+# Account Notification Subscription (WebSocket)
+# ============================================================================
+
+def subscribe_account_notifications(owner: str, id_token: str, ws_url: Optional[str] = None, 
+                                     on_notification_callback=None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
+    """Subscribe to account notifications over WebSocket.
+
+    Parameters:
+        owner: Owner email/identifier for the subscription filter.
+        id_token: Cognito/AppSync ID token (Authorization header).
+        ws_url: Optional AppSync GraphQL endpoint; if https, auto-converted to realtime wss.
+        on_notification_callback: Optional callback function(notification_data) to handle received notifications.
+    """
+
+    def on_message(ws, message):
+        logger.debug("[AccountNotification] Received WebSocket message")
+        try:
+            data = json.loads(message)
+        except Exception:
+            data = {"raw": message}
+        logger.debug("[AccountNotification] Subscription update: %s", json.dumps(data, indent=2))
+        
+        msg_type = data.get("type")
+
+        if msg_type == "connection_ack":
+            # After ack, start the subscription
+            try:
+                subscription = (
+                    """
+                    subscription OnAccountNotification($owner: String!) {
+                      onAccountNotification(owner: $owner) {
+                        id
+                        type
+                        title
+                        message
+                        payload
+                        cta_url
+                        created_at
+                      }
+                    }
+                    """
+                )
+                data_obj = {
+                    "query": subscription,
+                    "operationName": "OnAccountNotification",
+                    "variables": {"owner": owner},
+                }
+                start_payload = {
+                    "id": "AccountNotification1",
+                    "type": "start",
+                    "payload": {
+                        "data": json.dumps(data_obj),
+                        "extensions": {
+                            "authorization": {
+                                "host": api_host,
+                                "Authorization": id_token,
+                            }
+                        },
+                    },
+                }
+                logger.info("[AccountNotification] connection_ack received, sending start subscription")
+                ws.send(json.dumps(start_payload))
+            except Exception as e:
+                logger.error(f"[AccountNotification] Failed to send start payload: {e}")
+
+        elif msg_type in ("ka", "keepalive"):
+            # Keep-alive from server; no action required
+            return
+        elif msg_type == "data" and isinstance(data.get("payload"), dict) and data.get("id") == "AccountNotification1":
+            # Extract notification data
+            payload_data = data.get("payload", {}).get("data", {})
+            notification = None
+            if isinstance(payload_data, dict):
+                notification = payload_data.get("onAccountNotification")
+                logger.info(f"[AccountNotification] Received notification: {json.dumps(notification, indent=2, ensure_ascii=False)}")
+                
+                # Call the callback if provided
+                if on_notification_callback and notification:
+                    try:
+                        on_notification_callback(notification)
+                    except Exception as cb_err:
+                        logger.error(f"[AccountNotification] Callback error: {cb_err}")
+
+    def on_error(ws, error):
+        logger.error(f"[AccountNotification] WebSocket error: {error}")
+
+    def on_close(ws, status_code, msg):
+        logger.warning(f"[AccountNotification] WebSocket closed: code={status_code}, msg={msg}")
+
+    def on_open(ws):
+        logger_helper.debug("[AccountNotification] WebSocket opened")
+        init_payload = {
+            "type": "connection_init",
+            "payload": {}
+        }
+        try:
+            logger_helper.debug("[AccountNotification] Sending connection_init...")
+            ws.send(json.dumps(init_payload))
+        except Exception as e:
+            logger.error(f"[AccountNotification] Failed to send connection_init: {e}")
+
+    # Resolve WS URL and ensure it's the AppSync realtime endpoint
+    if not ws_url:
+        ws_url = os.getenv("ECAN_WS_URL", "")
+    if not ws_url:
+        logger_helper.warning(
+            "[AccountNotification] WebSocket URL not provided and ECAN_WS_URL is not set. Subscription disabled.")
+        raise ValueError("WebSocket URL not provided and ECAN_WS_URL is not set")
+
+    if ws_url.startswith("https://") and "appsync-api" in ws_url:
+        try:
+            prefix = "https://"
+            rest = ws_url[len(prefix):]
+            rest = rest.replace("appsync-api", "appsync-realtime-api", 1)
+            ws_url = "wss://" + rest
+            logger_helper.info(f"[AccountNotification] Converted to realtime endpoint: {ws_url}")
+        except Exception:
+            pass
+
+    parsed = urlparse(ws_url)
+    api_host = parsed.netloc.replace("appsync-realtime-api", "appsync-api")
+    header_obj = {
+        "host": api_host,
+        "Authorization": id_token,
+    }
+    payload_obj = {}
+    header_b64 = base64.b64encode(json.dumps(header_obj).encode("utf-8")).decode("utf-8")
+    payload_b64 = base64.b64encode(json.dumps(payload_obj).encode("utf-8")).decode("utf-8")
+
+    query = dict(parse_qsl(parsed.query))
+    query.update({
+        "header": header_b64,
+        "payload": payload_b64,
+    })
+    signed_url = urlunparse((
+        parsed.scheme,
+        parsed.netloc,
+        parsed.path,
+        parsed.params,
+        urlencode(query),
+        parsed.fragment,
+    ))
+
+    logger.debug("[AccountNotification] ws_url ok")
+    headers = []
+
+    ws = websocket.WebSocketApp(
+        signed_url,
+        header=headers,
+        on_message=on_message,
+        on_error=on_error,
+        on_close=on_close,
+        on_open=on_open,
+        subprotocols=["graphql-ws"],
+    )
+
+    logger.info("[AccountNotification] Launching WebSocket thread")
+    import ssl
+
+    t = threading.Thread(target=lambda: ws.run_forever(sslopt={"cert_reqs": ssl.CERT_NONE}), daemon=True)
+    t.start()
+    logger.info("[AccountNotification] WebSocket thread launched")
+    return ws, t
+
+
+def handle_account_notification(notification: dict):
+    """
+    Default handler for account notifications.
+    Links notifications to ad banner and notification popup.
+    
+    Args:
+        notification: Dict with keys: id, type, title, message, payload, cta_url, created_at
+    """
+    try:
+        from gui.ipc.w2p_handlers.ad_handler import push_ad_to_frontend
+        
+        notification_type = notification.get("type", "")
+        title = notification.get("title", "")
+        message = notification.get("message", "")
+        payload = notification.get("payload", {})
+        cta_url = notification.get("cta_url", "")
+        
+        # Parse payload if it's a string
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except:
+                payload = {}
+        
+        logger.info(f"[AccountNotification] Handling notification: type={notification_type}, title={title}")
+        
+        # Build banner text
+        banner_text = f"📢 {title}" if title else f"📢 {message[:50]}..."
+        
+        # Build popup HTML
+        popup_html = f"""
+        <div style="padding: 20px; font-family: Arial, sans-serif;">
+            <h2 style="margin-top: 0; color: #333;">{title}</h2>
+            <p style="color: #666; line-height: 1.6;">{message}</p>
+        """
+        
+        # Add payload info if present
+        if payload:
+            popup_html += '<div style="background: #f5f5f5; padding: 10px; border-radius: 5px; margin: 10px 0;">'
+            for key, value in payload.items():
+                popup_html += f'<p style="margin: 5px 0;"><strong>{key}:</strong> {value}</p>'
+            popup_html += '</div>'
+        
+        # Add CTA button if URL provided
+        if cta_url:
+            popup_html += f"""
+            <a href="{cta_url}" target="_blank" 
+               style="display: inline-block; background: #007bff; color: white; 
+                      padding: 10px 20px; text-decoration: none; border-radius: 5px; margin-top: 10px;">
+                Learn More
+            </a>
+            """
+        
+        popup_html += "</div>"
+        
+        # Determine duration based on notification type
+        duration_ms = 60000  # Default 1 minute
+        if notification_type in ("urgent", "alert", "critical"):
+            duration_ms = 120000  # 2 minutes for urgent
+        elif notification_type in ("info", "tip"):
+            duration_ms = 30000  # 30 seconds for info
+        
+        # Push to frontend
+        push_ad_to_frontend(
+            banner_text=banner_text,
+            popup_html=popup_html,
+            duration_ms=duration_ms
+        )
+        
+        logger.info(f"[AccountNotification] Pushed notification to frontend: {title}")
+        
+    except Exception as e:
+        logger.error(f"[AccountNotification] Error handling notification: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+
+
+# ============================================================================
 # Vehicle Operations (with decorator registration)
 # ============================================================================
 
@@ -3711,6 +4000,135 @@ def send_query_organizations_to_cloud(session, token, q_settings, endpoint):
     return safe_parse_response(jresp, "queryOrganizations", "queryOrganizations")
 
 
+def gen_add_organizations_string(organizations):
+    """Generate GraphQL mutation string for adding organizations"""
+    query_string = """
+        mutation MyMutation {
+      addOrganizations (input:[
+    """
+    rec_string = ""
+    for i, org in enumerate(organizations):
+        rec_string += "{ "
+        rec_string += f'id: "{org.get("id", "")}", '
+        rec_string += f'owner: "{org.get("owner", "")}", '
+        rec_string += f'name: "{org.get("name", "")}", '
+        description = org.get("description", "").replace('"', '\\"').replace('\n', '\\n')
+        rec_string += f'description: "{description}", '
+        rec_string += f'org_type: "{org.get("org_type", "")}", '
+        rec_string += f'status: "{org.get("status", "active")}"'
+        if "parent_id" in org:
+            rec_string += f', parent_id: "{org.get("parent_id", "")}"'
+        if "metadata" in org:
+            metadata = org.get("metadata", {})
+            if isinstance(metadata, dict):
+                metadata = json.dumps(metadata, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', metadata: "{metadata}"'
+        rec_string += " }"
+        if i != len(organizations) - 1:
+            rec_string += ', '
+        else:
+            rec_string += ']'
+    
+    query_string += rec_string
+    query_string += """
+        )
+    }
+    """
+    return query_string
+
+
+def gen_update_organizations_string(organizations):
+    """Generate GraphQL mutation string for updating organizations"""
+    query_string = """
+        mutation MyMutation {
+      updateOrganizations (input:[
+    """
+    rec_string = ""
+    for i, org in enumerate(organizations):
+        rec_string += "{ "
+        rec_string += f'id: "{org.get("id", "")}"'
+        if "owner" in org:
+            rec_string += f', owner: "{org.get("owner", "")}"'
+        if "name" in org:
+            rec_string += f', name: "{org.get("name", "")}"'
+        if "description" in org:
+            description = org.get("description", "").replace('"', '\\"').replace('\n', '\\n')
+            rec_string += f', description: "{description}"'
+        if "org_type" in org:
+            rec_string += f', org_type: "{org.get("org_type", "")}"'
+        if "status" in org:
+            rec_string += f', status: "{org.get("status", "")}"'
+        if "parent_id" in org:
+            rec_string += f', parent_id: "{org.get("parent_id", "")}"'
+        if "metadata" in org:
+            metadata = org.get("metadata", {})
+            if isinstance(metadata, dict):
+                metadata = json.dumps(metadata, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', metadata: "{metadata}"'
+        rec_string += " }"
+        if i != len(organizations) - 1:
+            rec_string += ', '
+        else:
+            rec_string += ']'
+    
+    query_string += rec_string
+    query_string += """
+        )
+    }
+    """
+    return query_string
+
+
+def gen_remove_organizations_string(removeOrders):
+    """Generate GraphQL mutation string for removing organizations"""
+    query_string = """
+        mutation MyMutation {
+      removeOrganizations (input:[
+    """
+    rec_string = ""
+    for i in range(len(removeOrders)):
+        rec_string += "{ "
+        rec_string += f'oid: "{removeOrders[i].get("oid", removeOrders[i].get("id", ""))}", '
+        rec_string += f'owner: "{removeOrders[i]["owner"]}", '
+        rec_string += f'reason: "{removeOrders[i].get("reason", "removed")}"'
+        rec_string += " }"
+        if i != len(removeOrders) - 1:
+            rec_string += ', '
+        else:
+            rec_string += ']'
+    
+    query_string += rec_string
+    query_string += """
+        )
+    }
+    """
+    return query_string
+
+
+@cloud_api(DataType.ORGANIZATION, Operation.ADD)
+def send_add_organizations_to_cloud(session, organizations, token, endpoint, timeout=180):
+    """Add Organization entities to cloud"""
+    mutationInfo = gen_add_organizations_string(organizations)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "addOrganizations", "addOrganizations")
+
+
+@cloud_api(DataType.ORGANIZATION, Operation.UPDATE)
+def send_update_organizations_to_cloud(session, organizations, token, endpoint, timeout=180):
+    """Update Organization entities in cloud"""
+    mutationInfo = gen_update_organizations_string(organizations)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "updateOrganizations", "updateOrganizations")
+
+
+@cloud_api(DataType.ORGANIZATION, Operation.DELETE)
+def send_remove_organizations_to_cloud(session, removes, token, endpoint, timeout=180):
+    """Remove Organization entities from cloud"""
+    mutationInfo = gen_remove_organizations_string(removes)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "removeOrganizations", "removeOrganizations")
+
+
 # ============================================================================
 # Skill Entity Query (missing query operation)
 # ============================================================================
@@ -3934,3 +4352,229 @@ def send_query_task_skill_relations_to_cloud(session, token, q_settings, endpoin
     queryInfo = gen_query_task_skill_relations_string(q_settings)
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
     return safe_parse_response(jresp, "queryTaskSkillRelations", "queryTaskSkillRelations")
+
+
+# ============================================================================
+# Vehicle Operations (missing remove and query)
+# ============================================================================
+
+def gen_remove_vehicles_string(removeOrders):
+    """Generate GraphQL mutation string for removing vehicles"""
+    query_string = """
+        mutation MyMutation {
+      removeVehicles (input:[
+    """
+    rec_string = ""
+    for i in range(len(removeOrders)):
+        rec_string += "{ "
+        rec_string += f'oid: "{removeOrders[i].get("oid", removeOrders[i].get("vid", ""))}", '
+        rec_string += f'owner: "{removeOrders[i]["owner"]}", '
+        rec_string += f'reason: "{removeOrders[i].get("reason", "removed")}"'
+        rec_string += " }"
+        if i != len(removeOrders) - 1:
+            rec_string += ', '
+        else:
+            rec_string += ']'
+    
+    query_string += rec_string
+    query_string += """
+        )
+    }
+    """
+    return query_string
+
+
+def gen_query_vehicles_string(q_settings):
+    """Generate GraphQL query string for querying vehicles"""
+    qb = json.dumps(q_settings, ensure_ascii=False).replace('"', '\\"')
+    query_string = f'''
+        query MyQuery {{
+            queryVehicles(qb: "{qb}")
+        }}
+    '''
+    return query_string
+
+
+@cloud_api(DataType.VEHICLE, Operation.DELETE)
+def send_remove_vehicles_request_to_cloud(session, removes, token, endpoint, timeout=180):
+    """Remove Vehicle entities from cloud"""
+    mutationInfo = gen_remove_vehicles_string(removes)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "removeVehicles", "removeVehicles")
+
+
+@cloud_api(DataType.VEHICLE, Operation.QUERY)
+def send_query_vehicles_request_to_cloud(session, token, q_settings, endpoint):
+    """Query Vehicle entities from cloud"""
+    queryInfo = gen_query_vehicles_string(q_settings)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    return safe_parse_response(jresp, "queryVehicles", "queryVehicles")
+
+
+# ============================================================================
+# Prompt Operations
+# ============================================================================
+
+def gen_add_prompts_string(prompts):
+    """Generate GraphQL mutation string for adding prompts"""
+    query_string = """
+        mutation MyMutation {
+      addPrompts (input:[
+    """
+    rec_string = ""
+    for i, prompt in enumerate(prompts):
+        rec_string += "{ "
+        rec_string += f'id: "{prompt.get("id", "")}", '
+        rec_string += f'owner: "{prompt.get("owner", "")}", '
+        rec_string += f'name: "{prompt.get("name", "")}", '
+        description = prompt.get("description", "").replace('"', '\\"').replace('\n', '\\n')
+        rec_string += f'description: "{description}", '
+        content = prompt.get("content", "").replace('"', '\\"').replace('\n', '\\n')
+        rec_string += f'content: "{content}", '
+        rec_string += f'category: "{prompt.get("category", "")}", '
+        rec_string += f'version: "{prompt.get("version", "1.0.0")}", '
+        rec_string += f'status: "{prompt.get("status", "active")}", '
+        rec_string += f'is_public: {"true" if prompt.get("is_public") else "false"}'
+        if "tags" in prompt:
+            tags = prompt.get("tags", [])
+            if isinstance(tags, list):
+                tags = json.dumps(tags, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', tags: "{tags}"'
+        if "metadata" in prompt:
+            metadata = prompt.get("metadata", {})
+            if isinstance(metadata, dict):
+                metadata = json.dumps(metadata, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', metadata: "{metadata}"'
+        rec_string += " }"
+        if i != len(prompts) - 1:
+            rec_string += ', '
+        else:
+            rec_string += ']'
+    
+    query_string += rec_string
+    query_string += """
+        )
+    }
+    """
+    return query_string
+
+
+def gen_update_prompts_string(prompts):
+    """Generate GraphQL mutation string for updating prompts"""
+    query_string = """
+        mutation MyMutation {
+      updatePrompts (input:[
+    """
+    rec_string = ""
+    for i, prompt in enumerate(prompts):
+        rec_string += "{ "
+        rec_string += f'id: "{prompt.get("id", "")}"'
+        if "owner" in prompt:
+            rec_string += f', owner: "{prompt.get("owner", "")}"'
+        if "name" in prompt:
+            rec_string += f', name: "{prompt.get("name", "")}"'
+        if "description" in prompt:
+            description = prompt.get("description", "").replace('"', '\\"').replace('\n', '\\n')
+            rec_string += f', description: "{description}"'
+        if "content" in prompt:
+            content = prompt.get("content", "").replace('"', '\\"').replace('\n', '\\n')
+            rec_string += f', content: "{content}"'
+        if "category" in prompt:
+            rec_string += f', category: "{prompt.get("category", "")}"'
+        if "version" in prompt:
+            rec_string += f', version: "{prompt.get("version", "")}"'
+        if "status" in prompt:
+            rec_string += f', status: "{prompt.get("status", "")}"'
+        if "is_public" in prompt:
+            rec_string += f', is_public: {"true" if prompt.get("is_public") else "false"}'
+        if "tags" in prompt:
+            tags = prompt.get("tags", [])
+            if isinstance(tags, list):
+                tags = json.dumps(tags, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', tags: "{tags}"'
+        if "metadata" in prompt:
+            metadata = prompt.get("metadata", {})
+            if isinstance(metadata, dict):
+                metadata = json.dumps(metadata, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', metadata: "{metadata}"'
+        rec_string += " }"
+        if i != len(prompts) - 1:
+            rec_string += ', '
+        else:
+            rec_string += ']'
+    
+    query_string += rec_string
+    query_string += """
+        )
+    }
+    """
+    return query_string
+
+
+def gen_remove_prompts_string(removeOrders):
+    """Generate GraphQL mutation string for removing prompts"""
+    query_string = """
+        mutation MyMutation {
+      removePrompts (input:[
+    """
+    rec_string = ""
+    for i in range(len(removeOrders)):
+        rec_string += "{ "
+        rec_string += f'oid: "{removeOrders[i].get("oid", removeOrders[i].get("id", ""))}", '
+        rec_string += f'owner: "{removeOrders[i]["owner"]}", '
+        rec_string += f'reason: "{removeOrders[i].get("reason", "removed")}"'
+        rec_string += " }"
+        if i != len(removeOrders) - 1:
+            rec_string += ', '
+        else:
+            rec_string += ']'
+    
+    query_string += rec_string
+    query_string += """
+        )
+    }
+    """
+    return query_string
+
+
+def gen_query_prompts_string(q_settings):
+    """Generate GraphQL query string for querying prompts"""
+    qb = json.dumps(q_settings, ensure_ascii=False).replace('"', '\\"')
+    query_string = f'''
+        query MyQuery {{
+            queryPrompts(qb: "{qb}")
+        }}
+    '''
+    return query_string
+
+
+@cloud_api(DataType.PROMPT, Operation.ADD)
+def send_add_prompts_request_to_cloud(session, prompts, token, endpoint, timeout=180):
+    """Add Prompt entities to cloud"""
+    mutationInfo = gen_add_prompts_string(prompts)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "addPrompts", "addPrompts")
+
+
+@cloud_api(DataType.PROMPT, Operation.UPDATE)
+def send_update_prompts_request_to_cloud(session, prompts, token, endpoint, timeout=180):
+    """Update Prompt entities in cloud"""
+    mutationInfo = gen_update_prompts_string(prompts)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "updatePrompts", "updatePrompts")
+
+
+@cloud_api(DataType.PROMPT, Operation.DELETE)
+def send_remove_prompts_request_to_cloud(session, removes, token, endpoint, timeout=180):
+    """Remove Prompt entities from cloud"""
+    mutationInfo = gen_remove_prompts_string(removes)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "removePrompts", "removePrompts")
+
+
+@cloud_api(DataType.PROMPT, Operation.QUERY)
+def send_query_prompts_request_to_cloud(session, token, q_settings, endpoint):
+    """Query Prompt entities from cloud"""
+    queryInfo = gen_query_prompts_string(q_settings)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    return safe_parse_response(jresp, "queryPrompts", "queryPrompts")

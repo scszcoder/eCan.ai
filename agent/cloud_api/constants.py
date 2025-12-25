@@ -28,6 +28,7 @@ class DataType(str, Enum):
     ORGANIZATION = 'organization' # Organization entity
     AVATAR_RESOURCE = 'avatar_resource' # Avatar resource entity
     VEHICLE = 'vehicle'          # Vehicle entity
+    PROMPT = 'prompt'            # Prompt entity
     
     # ============================================================================
     # First-Level Relationships (Agent relationships with other entities)
