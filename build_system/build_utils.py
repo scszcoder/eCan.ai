@@ -491,11 +491,11 @@ def clean_macos_build_artifacts(build_path: Path) -> None:
 
 
 def prepare_third_party_assets() -> None:
-    """Prepare third-party assets (Playwright browsers)"""
+    """Prepare third-party assets (Playwright browsers and browser-use extensions)"""
     print("[THIRD-PARTY] Preparing third-party assets...")
 
     try:
-        # Use simplified Playwright preparation
+        # 1. Prepare Playwright browsers
         _prepare_playwright_simple()
         print("[THIRD-PARTY] Playwright assets prepared successfully")
 
@@ -503,6 +503,130 @@ def prepare_third_party_assets() -> None:
         print(f"[THIRD-PARTY] Playwright preparation failed: {e}")
         print("[THIRD-PARTY] This may cause issues with browser automation features")
         # Don't fail the build, just warn
+    
+    try:
+        # 2. Prepare browser-use extensions
+        _prepare_browser_extensions()
+        print("[THIRD-PARTY] Browser extensions prepared successfully")
+    
+    except Exception as e:
+        print(f"[THIRD-PARTY] Browser extensions preparation failed: {e}")
+        print("[THIRD-PARTY] Extensions will be disabled at runtime")
+        # Don't fail the build, just warn
+
+
+def _prepare_browser_extensions() -> None:
+    """Download browser-use extensions for offline bundling
+    
+    Note: This is only called if extensions don't already exist.
+    GitHub Actions should download extensions during setup-playwright step.
+    """
+    import zipfile
+    import tempfile
+    import urllib.request
+    import shutil
+    from pathlib import Path
+    
+    # Extension definitions (from browser_use/browser/profile.py)
+    EXTENSIONS = [
+        {
+            'name': 'uBlock Origin',
+            'id': 'cjpalhdlnbpafiamejdnhcphjbkeiagm',
+            'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=133&acceptformat=crx3&x=id%3Dcjpalhdlnbpafiamejdnhcphjbkeiagm%26uc',
+        },
+        {
+            'name': "I still don't care about cookies",
+            'id': 'edibdbjcniadpccecjdfdjjppcpchdlm',
+            'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=133&acceptformat=crx3&x=id%3Dedibdbjcniadpccecjdfdjjppcpchdlm%26uc',
+        },
+        {
+            'name': 'ClearURLs',
+            'id': 'lckanjgmijmafbedllaakclkaicjfmnk',
+            'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=133&acceptformat=crx3&x=id%3Dlckanjgmijmafbedllaakclkaicjfmnk%26uc',
+        },
+        {
+            'name': 'Force Background Tab',
+            'id': 'gidlfommnbibbmegmgajdbikelkdcmcl',
+            'url': 'https://clients2.google.com/service/update2/crx?response=redirect&prodversion=133&acceptformat=crx3&x=id%3Dgidlfommnbibbmegmgajdbikelkdcmcl%26uc',
+        },
+    ]
+    
+    # Check if extensions already exist (from GitHub Actions)
+    extensions_dir = Path.cwd() / "third_party" / "browser_extensions"
+    if extensions_dir.exists():
+        ext_dirs = [d for d in extensions_dir.iterdir() if d.is_dir() and (d / 'manifest.json').exists()]
+        if ext_dirs:
+            print(f"[BUILD] Browser extensions already present: {extensions_dir}")
+            print(f"[BUILD]   Found: {[d.name for d in ext_dirs]}")
+            print("[BUILD] Skipping download (using existing extensions)")
+            return
+    
+    print("[BUILD] Downloading browser-use extensions...")
+    extensions_dir.mkdir(parents=True, exist_ok=True)
+    
+    success_count = 0
+    for ext in EXTENSIONS:
+        print(f"[BUILD] {ext['name']}")
+        ext_dir = extensions_dir / ext['id']
+        crx_file = extensions_dir / f"{ext['id']}.crx"
+        
+        # Check if already exists
+        if ext_dir.exists() and (ext_dir / 'manifest.json').exists():
+            print(f"[BUILD]   Already cached, skipping")
+            success_count += 1
+            continue
+        
+        try:
+            # Download
+            if not crx_file.exists():
+                print(f"[BUILD]   Downloading...")
+                with urllib.request.urlopen(ext['url'], timeout=30) as response:
+                    with open(crx_file, 'wb') as f:
+                        f.write(response.read())
+                print(f"[BUILD]   Downloaded: {crx_file.stat().st_size / 1024:.1f} KB")
+            
+            # Extract
+            if ext_dir.exists():
+                shutil.rmtree(ext_dir)
+            ext_dir.mkdir(parents=True, exist_ok=True)
+            
+            try:
+                # Try ZIP extraction first
+                with zipfile.ZipFile(crx_file, 'r') as zip_ref:
+                    zip_ref.extractall(ext_dir)
+            except zipfile.BadZipFile:
+                # Handle CRX header
+                with open(crx_file, 'rb') as f:
+                    magic = f.read(4)
+                    if magic != b'Cr24':
+                        raise Exception('Invalid CRX file format')
+                    version = int.from_bytes(f.read(4), 'little')
+                    if version == 2:
+                        pubkey_len = int.from_bytes(f.read(4), 'little')
+                        sig_len = int.from_bytes(f.read(4), 'little')
+                        f.seek(16 + pubkey_len + sig_len)
+                    elif version == 3:
+                        header_len = int.from_bytes(f.read(4), 'little')
+                        f.seek(12 + header_len)
+                    zip_data = f.read()
+                
+                with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_zip:
+                    temp_zip.write(zip_data)
+                    temp_zip.flush()
+                    with zipfile.ZipFile(temp_zip.name, 'r') as zip_ref:
+                        zip_ref.extractall(ext_dir)
+                    os.unlink(temp_zip.name)
+            
+            if not (ext_dir / 'manifest.json').exists():
+                raise Exception('No manifest.json found')
+            
+            print(f"[BUILD]   Extracted successfully")
+            success_count += 1
+            
+        except Exception as e:
+            print(f"[BUILD]   [WARN] Failed: {e}")
+    
+    print(f"[BUILD] Successfully prepared: {success_count}/{len(EXTENSIONS)} extensions")
 
 
 def _prepare_playwright_simple() -> None:
@@ -538,9 +662,17 @@ def _prepare_playwright_simple() -> None:
     if target_path.exists():
         shutil.rmtree(target_path, ignore_errors=True)
 
-    # Simple copy using standard library
+    # Copy with symlinks preserved (important for macOS Chromium.app structure)
+    # Note: symlinks=True preserves symbolic links, which is critical for browser functionality
     try:
-        shutil.copytree(cache_path, target_path, symlinks=False, dirs_exist_ok=True)
+        shutil.copytree(cache_path, target_path, symlinks=True, dirs_exist_ok=True)
+        
+        # Validate the copy
+        from agent.playwright.core.utils import PlaywrightCoreUtils
+        if not PlaywrightCoreUtils.validate_browser_installation(target_path):
+            raise RuntimeError(f"Browser installation validation failed after copy: {target_path}")
+        
+        print(f"[BUILD] ✅ Playwright browsers copied and validated successfully")
     except Exception as e:
         print(f"[PLAYWRIGHT] Copy failed: {e}")
         raise

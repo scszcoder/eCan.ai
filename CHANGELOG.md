@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.5] - 2025-12-25
+
+### Fixed
+- **Browser Automation**: Fixed an issue where bundled browsers were missing in the packaged application.
+- **Windows Compatibility**: Fixed a subprocess startup issue on Windows when using the "new chromium" mode in browser-use, ensuring compatibility with PySide6 event loops.
+- **Browser Extensions**: Fixed an issue where browser extensions failed to download during the build process.
+
 ## [0.0.5] - 2025-11-21
 
 ### Added

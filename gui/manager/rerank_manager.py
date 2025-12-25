@@ -382,11 +382,7 @@ class RerankManager:
         if not provider_config:
             return False, f"Provider '{provider_key}' not found"
 
-        # Validate model belongs to provider
-        if provider_config.supported_models:
-            valid_model_names = {m.name for m in provider_config.supported_models}
-            if model_name not in valid_model_names:
-                return False, f"Model '{model_name}' is not supported by provider '{provider_config.name}'"
+        # Skip model validation - models are dynamically fetched via API
 
         # Save to user's settings.json (writable even in PyInstaller)
         from app_context import AppContext

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { theme, App, Tabs, Tooltip, Input, Select, Switch } from 'antd';
+import { theme, App, Tabs, Tooltip, Input, Select, Switch, Button } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
 import { 
@@ -12,7 +12,9 @@ import {
   BlockOutlined,
   SortAscendingOutlined,
   ExperimentOutlined,
-  QuestionCircleOutlined
+  QuestionCircleOutlined,
+  DeleteOutlined,
+  ReloadOutlined
 } from '@ant-design/icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { FIELDS_BY_TAB, FieldConfig, PROVIDER_BASED_TABS } from './settingsConfig';
@@ -85,9 +87,18 @@ const mergeProviders = (staticList: ProviderConfig[], systemList: ProviderConfig
   return result;
 };
 
+interface Workspace {
+  name: string;
+  path: string;
+  is_valid: boolean;
+  created_at: number;
+}
+
 const SettingsTab: React.FC = () => {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const savedScrollPosition = useRef<number>(0);
   const restoringRef = useRef(false);
 
@@ -458,6 +469,55 @@ const SettingsTab: React.FC = () => {
     }
   };
 
+  const loadWorkspaces = async () => {
+    try {
+      setWorkspaceLoading(true);
+      const response = await get_ipc_api().lightragApi.getWorkspaces<{ workspaces: Workspace[]; current: string }>();
+      if (response.success && response.data) {
+        setWorkspaces(response.data.workspaces || []);
+      }
+    } catch (e: any) {
+      console.error('Failed to load workspaces:', e);
+      message.error(t('pages.knowledge.settings.workspace.loadError'));
+    } finally {
+      setWorkspaceLoading(false);
+    }
+  };
+
+  const handleDeleteWorkspace = async (workspaceName: string) => {
+    modal.confirm({
+      title: t('pages.knowledge.settings.workspace.deleteTitle'),
+      content: t('pages.knowledge.settings.workspace.deleteConfirm', { name: workspaceName }),
+      okText: t('common.delete'),
+      okButtonProps: { danger: true },
+      cancelText: t('common.cancel'),
+      onOk: async () => {
+        try {
+          const response = await get_ipc_api().lightragApi.deleteWorkspace<any>({
+            workspace_name: workspaceName
+          });
+
+          if (response.success) {
+            message.success(t('pages.knowledge.settings.workspace.deleteSuccess'));
+            await loadWorkspaces();
+            // If deleted workspace was selected, clear the field
+            if (settings['WORKSPACE'] === workspaceName) {
+              updateSetting('WORKSPACE', '');
+            }
+          } else {
+            throw new Error(response.error?.message || 'Unknown error');
+          }
+        } catch (e: any) {
+          message.error(t('pages.knowledge.settings.workspace.deleteError') + ': ' + (e.message || String(e)));
+        }
+      }
+    });
+  };
+
+  useEffect(() => {
+    loadWorkspaces();
+  }, []);
+
   const handleSave = async () => {
     try {
       setLoading(true);
@@ -467,7 +527,7 @@ const SettingsTab: React.FC = () => {
         
         // Prompt user to restart server
         modal.confirm({
-          title: t('pages.knowledge.settings.restartServer'),
+          title: t('pages.knowledge.settings.restartPrompt'),
           content: (
             <div style={{ color: token.colorText }}>
               {t('pages.knowledge.settings.restartPrompt')}
@@ -492,7 +552,7 @@ const SettingsTab: React.FC = () => {
   const handleRestartServer = async () => {
     try {
       const hideLoading = message.loading(t('pages.knowledge.settings.restarting'), 0);
-      const response = await get_ipc_api().executeRequest<any>('lightrag.restartServer', {});
+      const response = await get_ipc_api().lightragApi.restartServer({});
       hideLoading();
       
       if (response.success) {
@@ -678,9 +738,9 @@ const SettingsTab: React.FC = () => {
   };
 
   // Helper function to group fields by section and render them
-  const renderFieldsBySection = (fields: FieldConfig[]) => {
-    // Group fields by section
+  const renderFieldsBySection = (fields: FieldConfig[], isBasicTab: boolean = false) => {
     const sections: Record<string, FieldConfig[]> = {};
+    
     fields.forEach(field => {
       const section = field.section || 'default';
       if (!sections[section]) {
@@ -691,6 +751,86 @@ const SettingsTab: React.FC = () => {
 
     return (
       <div style={{ padding: '16px 0' }}>
+        {/* Workspace Module - Only show in basic tab */}
+        {isBasicTab && (
+          <div style={{ marginBottom: 24 }}>
+            <h3 style={{ 
+              marginBottom: 12, 
+              fontSize: 14, 
+              fontWeight: 600, 
+              color: token.colorText,
+              borderBottom: `1px solid ${token.colorBorder}`,
+              paddingBottom: 6,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8
+            }}>
+              <BlockOutlined style={{ fontSize: 14, color: token.colorPrimary }} />
+              {t('pages.knowledge.settings.workspace.tooltip')}
+            </h3>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', flexDirection: 'column' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%' }}>
+                <Select
+                  value={(() => {
+                    const val = settings['WORKSPACE'];
+                    // Ensure value is always a string, not an array
+                    if (Array.isArray(val)) {
+                      return val[0] || 'space1';
+                    }
+                    return val || 'space1';
+                  })()}
+                  placeholder="space1"
+                  onChange={(val) => updateSetting('WORKSPACE', val)}
+                  style={{ flex: 1 }}
+                  size="small"
+                  loading={workspaceLoading}
+                  showSearch
+                  allowClear={false}
+                  options={workspaces.map(ws => ({
+                    label: ws.name + (!ws.is_valid ? ' (empty)' : ''),
+                    value: ws.name
+                  }))}
+                />
+                <Tooltip title={t('pages.knowledge.settings.workspace.refresh')}>
+                  <Button
+                    icon={<ReloadOutlined />}
+                    onClick={loadWorkspaces}
+                    loading={workspaceLoading}
+                    size="small"
+                  />
+                </Tooltip>
+                {settings['WORKSPACE'] && (
+                  <Tooltip title={t('pages.knowledge.settings.workspace.delete')}>
+                    <Button
+                      icon={<DeleteOutlined />}
+                      onClick={() => handleDeleteWorkspace(settings['WORKSPACE'])}
+                      danger
+                      size="small"
+                    />
+                  </Tooltip>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', width: '100%' }}>
+                <Input
+                  placeholder={t('pages.knowledge.settings.workspace.newPlaceholder') || 'Enter new workspace name...'}
+                  size="small"
+                  style={{ flex: 1 }}
+                  onPressEnter={(e) => {
+                    const newName = (e.target as HTMLInputElement).value.trim();
+                    if (newName) {
+                      updateSetting('WORKSPACE', newName);
+                      (e.target as HTMLInputElement).value = '';
+                    }
+                  }}
+                />
+                <span style={{ fontSize: 12, color: token.colorTextSecondary, whiteSpace: 'nowrap' }}>
+                  {t('pages.knowledge.settings.workspace.newHint') || 'Press Enter to create'}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {Object.entries(sections).map(([sectionName, sectionFields]) => (
           <div key={sectionName} style={{ marginBottom: 20 }}>
             {sectionName !== 'default' && (
@@ -953,7 +1093,7 @@ const SettingsTab: React.FC = () => {
     ),
     children: PROVIDER_BASED_TABS.includes(tabKey) 
       ? renderProviderTab(tabKey)
-      : renderFieldsBySection(fields)
+      : renderFieldsBySection(fields, tabKey === 'basic')
   }));
 
   // Don't render until i18n is ready
