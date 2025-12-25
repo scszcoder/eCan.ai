@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { theme, App, Tabs, Tooltip, Input, Select, Switch, Button } from 'antd';
+import { theme, App, Tabs, Tooltip, Input, InputNumber, Select, Switch, Button } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
 import { 
@@ -645,13 +645,16 @@ const SettingsTab: React.FC = () => {
         return (
           <div key={field.key} style={{ marginBottom: 12 }}>
             {label}
-            <Input
-              value={value}
+            <InputNumber
+              value={value ? Number(value) : undefined}
               placeholder={placeholder}
-              onChange={(e) => updateSetting(field.key, e.target.value)}
+              onChange={(val) => updateSetting(field.key, val?.toString() || '')}
               style={commonStyle}
               size="small"
-              disabled={field.disabled}
+              disabled={disabled}
+              min={0}
+              step={field.key.includes('TEMPERATURE') ? 0.1 : 1}
+              precision={field.key.includes('TEMPERATURE') || field.key.includes('THRESHOLD') ? 2 : 0}
             />
           </div>
         );
