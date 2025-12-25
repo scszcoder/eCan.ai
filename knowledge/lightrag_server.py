@@ -808,23 +808,36 @@ class LightragServer:
         start_time = time.time()
         import requests
         
-        logger.info(f"[LightragServer] Waiting for server to be ready on port {port}...")
+        logger.info(f"[LightragServer] Waiting for server to be ready on port {port} (timeout: {timeout}s)...")
+        attempt = 0
         while time.time() - start_time < timeout:
+            attempt += 1
+            elapsed = time.time() - start_time
             try:
                 # Check if process is still running
                 if self.proc and self.proc.poll() is not None:
                     logger.error(f"[LightragServer] Server process exited prematurely with code {self.proc.returncode}")
                     return False
                 
-                response = requests.get(f"http://127.0.0.1:{port}/health", timeout=1)
+                # Use /auth-status instead of /health (which requires authentication)
+                # /auth-status is public and returns server status
+                response = requests.get(f"http://127.0.0.1:{port}/auth-status", timeout=2)
                 if response.status_code == 200:
-                    logger.info(f"[LightragServer] Server is ready on port {port}")
+                    data = response.json()
+                    logger.info(f"[LightragServer] Server is ready on port {port} (took {elapsed:.1f}s, {attempt} attempts)")
+                    logger.info(f"[LightragServer] Auth mode: {data.get('auth_mode', 'unknown')}, API version: {data.get('api_version', 'unknown')}")
                     return True
-            except:
-                pass
+                else:
+                    logger.debug(f"[LightragServer] Health check attempt {attempt} got status {response.status_code} ({elapsed:.1f}s elapsed)")
+            except requests.exceptions.ConnectionError as e:
+                logger.debug(f"[LightragServer] Health check attempt {attempt} connection refused ({elapsed:.1f}s elapsed)")
+            except requests.exceptions.Timeout:
+                logger.debug(f"[LightragServer] Health check attempt {attempt} timeout ({elapsed:.1f}s elapsed)")
+            except Exception as e:
+                logger.debug(f"[LightragServer] Health check attempt {attempt} error: {type(e).__name__} ({elapsed:.1f}s elapsed)")
             time.sleep(0.5)
         
-        logger.error(f"[LightragServer] Timeout waiting for server ready on port {port}")
+        logger.error(f"[LightragServer] Timeout waiting for server ready on port {port} after {timeout}s ({attempt} attempts)")
         return False
 
     def start(self, wait_ready=False):
