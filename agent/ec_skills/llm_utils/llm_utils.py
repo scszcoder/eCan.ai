@@ -7,7 +7,7 @@ import sys
 import time
 import uuid
 from threading import Thread
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, TYPE_CHECKING
 
 # Third-party library imports
 import requests
@@ -33,13 +33,16 @@ except ImportError:
 
 # Local application imports
 from agent.agent_service import get_agent_by_id
-from agent.ec_skill import *
 from agent.ec_skills.dev_defs import BreakpointManager
 from agent.memory.models import MemoryItem
 from utils.env.secure_store import secure_store, get_current_username
 from utils.logger_helper import get_traceback
 from utils.logger_helper import logger_helper as logger
 from app_context import AppContext
+
+# Type-only imports to avoid circular dependency
+if TYPE_CHECKING:
+    from agent.ec_skill import NodeState
 
 web_gui = AppContext.get_web_gui()
 
