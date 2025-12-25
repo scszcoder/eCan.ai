@@ -145,8 +145,7 @@ export const RAG_FIELDS: FieldConfig[] = [
   // Other
   { key: 'OLLAMA_EMULATING_MODEL_NAME', type: 'text', placeholder: 'lightrag', section: 'other' },
   { key: 'OLLAMA_EMULATING_MODEL_TAG', type: 'text', defaultValue: 'latest', section: 'other' },
-  { key: 'MAX_GRAPH_NODES', type: 'number', placeholder: '1000', section: 'other', tooltip: 'tooltips.maxGraphNodes' },
-  { key: 'WORKSPACE', type: 'text', placeholder: 'space1', section: 'other', tooltip: 'tooltips.workspace' }
+  { key: 'MAX_GRAPH_NODES', type: 'number', placeholder: '1000', section: 'other', tooltip: 'tooltips.maxGraphNodes' }
 ];
 
 // Continue with other tabs...

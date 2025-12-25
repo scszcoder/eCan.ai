@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import platform
 import time
+import traceback
 from pathlib import Path
 from typing import Optional, List
 from utils.logger_helper import logger_helper as logger
@@ -403,25 +404,181 @@ class PlaywrightCoreUtils:
 
     @staticmethod
     def install_playwright_browsers(target_path: Path) -> None:
-        """Install Playwright browsers to specified path"""
-        from utils.subprocess_helper import run_no_window
-        # Ensure playwright package is installed
+        """Install Playwright browsers to specified path.
+        
+        In PyInstaller frozen environment, sys.executable points to the packaged .exe,
+        not the Python interpreter. So we use Playwright's Python API directly instead
+        of subprocess commands.
+        """
+        logger.info(f"[PLAYWRIGHT] Starting browser installation to: {target_path}")
+        logger.info(f"[PLAYWRIGHT] Frozen environment: {getattr(sys, 'frozen', False)}")
+        logger.info(f"[PLAYWRIGHT] sys.executable: {sys.executable}")
+        
+        # Ensure target directory exists
         try:
-            run_no_window([sys.executable, "-m", "pip", "show", "playwright"], 
-                         check=True, capture_output=True)
-        except subprocess.CalledProcessError:
-            logger.error("[PLAYWRIGHT] playwright not found; installing...")
-            run_no_window([sys.executable, "-m", "pip", "install", "playwright"], check=True)
+            target_path.mkdir(parents=True, exist_ok=True)
+            logger.debug(f"[PLAYWRIGHT] Target directory ensured: {target_path}")
+        except Exception as e:
+            logger.error(f"[PLAYWRIGHT] Failed to create target directory: {e}")
+            raise
         
-        # Set environment variables for subprocess
-        env = os.environ.copy()
-        env[core_utils.ENV_BASE_DIR] = str(target_path)
-        env[core_utils.ENV_CACHE_DIR] = str(target_path)
+        # Set environment variables BEFORE importing playwright
+        os.environ[core_utils.ENV_BASE_DIR] = str(target_path)
+        os.environ[core_utils.ENV_CACHE_DIR] = str(target_path)
+        os.environ[core_utils.ENV_BROWSERS_PATH] = str(target_path)
+        logger.debug(f"[PLAYWRIGHT] Set PLAYWRIGHT_BROWSERS_PATH={target_path}")
         
-        # Install browsers - install chromium and chromium-headless-shell
-        logger.info("[PLAYWRIGHT] Installing chromium browsers...")
-        run_no_window([sys.executable, "-m", "playwright", "install", "chromium", "chromium-headless-shell"],
-                      check=True, env=env)
+        # Try using Playwright's Python API directly (works in frozen environment)
+        try:
+            logger.info("[PLAYWRIGHT] Attempting to install browsers using Playwright Python API...")
+            
+            # Import playwright's internal installer
+            try:
+                from playwright._impl._driver import compute_driver_executable, get_driver_env
+            except ImportError as ie:
+                logger.warning(f"[PLAYWRIGHT] Could not import playwright internals: {ie}")
+                # Fall back to subprocess method
+                raise
+            
+            # Use playwright's CLI through its internal mechanism
+            try:
+                driver_executable = compute_driver_executable()
+                logger.info(f"[PLAYWRIGHT] Driver executable info: {driver_executable}")
+                
+                # Build the install command
+                cmd = []
+                # Handle different return types of compute_driver_executable (tuple in newer versions, str in older)
+                if isinstance(driver_executable, tuple):
+                    node_exec, driver_cli = driver_executable
+                    cmd = [str(node_exec), str(driver_cli)]
+                else:
+                    cmd = [str(driver_executable)]
+                
+                # Install both chromium and chromium-headless-shell (required for newer Playwright versions)
+                cmd.extend(["install", "chromium", "chromium-headless-shell"])
+                
+                env = get_driver_env()
+                env[core_utils.ENV_BROWSERS_PATH] = str(target_path)
+                
+                from utils.subprocess_helper import run_no_window
+                
+                # Run playwright install using the driver executable
+                logger.info(f"[PLAYWRIGHT] Running internal install command: {cmd}")
+                
+                result = run_no_window(
+                    cmd,
+                    check=True,
+                    env=env,
+                    capture_output=True,
+                    text=True
+                )
+                if result.stdout:
+                    logger.info(f"[PLAYWRIGHT] Install stdout: {result.stdout[:500]}")
+                if result.stderr:
+                    logger.debug(f"[PLAYWRIGHT] Install stderr: {result.stderr[:500]}")
+                    
+                logger.info("[PLAYWRIGHT] Browser installation via driver completed")
+
+                # Strong validation to avoid false-success (e.g. empty/partial install)
+                if not PlaywrightCoreUtils.validate_browser_installation(target_path):
+                    raise RuntimeError(f"Playwright browser installation completed but validation failed: {target_path}")
+                
+            except Exception as driver_err:
+                logger.warning(f"[PLAYWRIGHT] Driver method failed: {driver_err}")
+                raise
+                
+        except Exception as api_err:
+            logger.error(f"[PLAYWRIGHT] Browser installation failed: {api_err}")
+            
+            if getattr(sys, 'frozen', False):
+                # In frozen/packaged environment
+                raise RuntimeError(
+                    "Playwright browser installation failed in packaged application. "
+                    "Please ensure browsers are bundled during the build process, or install them manually "
+                    "using 'playwright install chromium' in your Python environment before packaging."
+                ) from api_err
+            else:
+                # In development environment
+                raise RuntimeError(
+                    "Playwright browser installation failed. "
+                    "Please check your Playwright installation: pip install --upgrade playwright"
+                ) from api_err
+        
+        # Verify installation
+        if target_path.exists():
+            contents = list(target_path.iterdir())
+            logger.info(f"[PLAYWRIGHT] Target directory contents after install: {[c.name for c in contents]}")
+            if not contents:
+                logger.warning("[PLAYWRIGHT] Target directory is empty after installation")
+        else:
+            logger.warning(f"[PLAYWRIGHT] Target directory does not exist after install: {target_path}")
+    
+    @staticmethod
+    def install_browser_extensions() -> None:
+        """Install browser-use extensions to user config directory (macOS/Windows)."""
+        try:
+            import shutil
+            
+            logger.info("[PLAYWRIGHT] Installing browser-use extensions...")
+            
+            # Source: bundled extensions (check both frozen and development environments)
+            bundled_ext = None
+            
+            if getattr(sys, 'frozen', False):
+                # PyInstaller frozen environment
+                bundled_ext = Path(sys._MEIPASS) / 'third_party' / 'browser_extensions'
+            else:
+                # Development environment
+                project_root = Path(__file__).parent.parent.parent.parent
+                bundled_ext = project_root / 'third_party' / 'browser_extensions'
+            
+            if not bundled_ext or not bundled_ext.exists():
+                logger.info("[PLAYWRIGHT] No bundled browser extensions found, extensions will be downloaded at runtime")
+                return
+            
+            # Target: user config directory (browser_use default location)
+            # Support both macOS and Windows
+            if sys.platform == 'win32':
+                # Windows: %USERPROFILE%\.config\browseruse\extensions
+                base = Path(os.environ.get('USERPROFILE', str(Path.home())))
+                user_ext = base / '.config' / 'browseruse' / 'extensions'
+            elif sys.platform == 'darwin':
+                # macOS: ~/.config/browseruse/extensions
+                base = Path(os.environ.get('XDG_CONFIG_HOME', str(Path.home() / '.config')))
+                user_ext = base / 'browseruse' / 'extensions'
+            else:
+                # Linux: ~/.config/browseruse/extensions
+                base = Path(os.environ.get('XDG_CONFIG_HOME', str(Path.home() / '.config')))
+                user_ext = base / 'browseruse' / 'extensions'
+            
+            # Quick check: if directory exists and has expected extension IDs, skip
+            expected_ext_ids = ['cjpalhdlnbpafiamejdnhcphjbkeiagm', 'edibdbjcniadpccecjdfdjjppcpchdlm', 
+                               'lckanjgmijmafbedllaakclkaicjfmnk', 'gidlfommnbibbmegmgajdbikelkdcmcl']
+            
+            if user_ext.exists():
+                # Fast check: verify at least one expected extension exists
+                has_extensions = any((user_ext / ext_id / 'manifest.json').exists() for ext_id in expected_ext_ids)
+                if has_extensions:
+                    logger.debug(f"[PLAYWRIGHT] Browser extensions already installed, skipping copy")
+                    return
+            
+            # Extensions not found, need to install
+            logger.info(f"[PLAYWRIGHT] Installing browser extensions from {bundled_ext} to {user_ext}")
+            
+            # Remove existing directory if it exists
+            if user_ext.exists():
+                shutil.rmtree(user_ext)
+            
+            # Copy bundled extensions
+            shutil.copytree(bundled_ext, user_ext)
+            
+            # Count installed extensions
+            ext_count = len([d for d in user_ext.iterdir() if d.is_dir() and (d / 'manifest.json').exists()])
+            logger.info(f"[PLAYWRIGHT] Browser extensions installed: {ext_count} extensions")
+            
+        except Exception as e:
+            logger.warning(f"[PLAYWRIGHT] Failed to install browser extensions: {e}")
+            logger.debug(f"[PLAYWRIGHT] Extension install error details: {traceback.format_exc()}")
     
     @staticmethod
     def cleanup_incomplete_browsers(path: Path) -> None:

@@ -102,6 +102,63 @@ runs:
         }
         
         Write-Host "Playwright browsers installed successfully" -ForegroundColor Green
+        
+        # Copy browsers to third_party for packaging
+        Write-Host "Copying browsers to third_party/ms-playwright for packaging..." -ForegroundColor Cyan
+        $thirdPartyDir = "third_party\ms-playwright"
+        
+        if (Test-Path $playwrightCache) {
+          # Remove existing third_party directory if it exists
+          if (Test-Path $thirdPartyDir) {
+            Write-Host "Removing existing third_party/ms-playwright..."
+            Remove-Item -Path $thirdPartyDir -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          
+          # Create parent directory
+          $null = New-Item -ItemType Directory -Path "third_party" -Force -ErrorAction SilentlyContinue
+          
+          # Copy browsers
+          Write-Host "Copying from: $playwrightCache"
+          Write-Host "Copying to: $thirdPartyDir"
+          Copy-Item -Path $playwrightCache -Destination $thirdPartyDir -Recurse -Force
+          
+          # Verify copy
+          if (Test-Path $thirdPartyDir) {
+            $copiedBrowsers = Get-ChildItem -Path $thirdPartyDir -Directory | Where-Object { 
+              $_.Name -like "chromium-*" -or $_.Name -like "firefox-*" -or $_.Name -like "webkit-*" 
+            }
+            if ($copiedBrowsers) {
+              Write-Host "[OK] Successfully copied browsers to third_party:" -ForegroundColor Green
+              $copiedBrowsers | ForEach-Object { Write-Host "  - $($_.Name)" -ForegroundColor Green }
+            } else {
+              Write-Host "[WARN] No browser directories found in third_party after copy" -ForegroundColor Yellow
+            }
+          } else {
+            Write-Host "[WARN] third_party/ms-playwright not created" -ForegroundColor Yellow
+          }
+        } else {
+          Write-Host "[WARN] Playwright cache not found at $playwrightCache" -ForegroundColor Yellow
+        }
+        
+        # Download browser-use extensions for packaging
+        Write-Host "Downloading browser-use extensions..." -ForegroundColor Cyan
+        $extensionsDir = "third_party\browser_extensions"
+        
+        try {
+          & $PYTHON_EXE -c "from build_system.build_utils import _prepare_browser_extensions; _prepare_browser_extensions()"
+          if ($LASTEXITCODE -eq 0) {
+            if (Test-Path $extensionsDir) {
+              $extCount = (Get-ChildItem -Path $extensionsDir -Directory | Measure-Object).Count
+              Write-Host "[OK] Successfully downloaded $extCount browser extensions" -ForegroundColor Green
+            } else {
+              Write-Host "[WARN] Extensions directory not created" -ForegroundColor Yellow
+            }
+          } else {
+            Write-Host "[WARN] Extension download failed" -ForegroundColor Yellow
+          }
+        } catch {
+          Write-Host "[WARN] Failed to download extensions: $_" -ForegroundColor Yellow
+        }
 
     - name: Install Playwright browsers (Unix)
       if: ${{ inputs.platform == 'macos' || inputs.platform == 'linux' }}
@@ -204,4 +261,56 @@ runs:
         done
         
         echo "[OK] Playwright browsers installed successfully"
+        
+        # Copy browsers to third_party for packaging
+        echo "Copying browsers to third_party/ms-playwright for packaging..."
+        third_party_dir="third_party/ms-playwright"
+        
+        if [ -d "$playwright_cache" ]; then
+          # Remove existing third_party directory if it exists
+          if [ -d "$third_party_dir" ]; then
+            echo "Removing existing third_party/ms-playwright..."
+            rm -rf "$third_party_dir"
+          fi
+          
+          # Create parent directory
+          mkdir -p "third_party"
+          
+          # Copy browsers (preserve symlinks on macOS/Linux)
+          echo "Copying from: $playwright_cache"
+          echo "Copying to: $third_party_dir"
+          cp -R "$playwright_cache" "$third_party_dir"
+          
+          # Verify copy
+          if [ -d "$third_party_dir" ]; then
+            copied_browsers=$(ls -d "$third_party_dir"/{chromium,firefox,webkit}-* 2>/dev/null || true)
+            if [ -n "$copied_browsers" ]; then
+              echo "[OK] Successfully copied browsers to third_party:"
+              echo "$copied_browsers" | while read dir; do
+                echo "  - $(basename "$dir")"
+              done
+            else
+              echo "[WARN] No browser directories found in third_party after copy"
+            fi
+          else
+            echo "[WARN] third_party/ms-playwright not created"
+          fi
+        else
+          echo "[WARN] Playwright cache not found at $playwright_cache"
+        fi
+        
+        # Download browser-use extensions for packaging
+        echo "Downloading browser-use extensions..."
+        extensions_dir="third_party/browser_extensions"
+        
+        if "$PYTHON_EXE" -c "from build_system.build_utils import _prepare_browser_extensions; _prepare_browser_extensions()"; then
+          if [ -d "$extensions_dir" ]; then
+            ext_count=$(find "$extensions_dir" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+            echo "[OK] Successfully downloaded $ext_count browser extensions"
+          else
+            echo "[WARN] Extensions directory not created"
+          fi
+        else
+          echo "[WARN] Extension download failed"
+        fi
 

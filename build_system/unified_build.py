@@ -118,10 +118,18 @@ class UnifiedBuildSystem:
                            if d.is_dir() and any(b in d.name.lower() 
                            for b in ['chromium', 'firefox', 'webkit'])]
             if browser_dirs:
-                print(f"[THIRD-PARTY] Playwright browsers already present: {playwright_dir}")
-                print(f"[THIRD-PARTY]   Found: {[d.name for d in browser_dirs]}")
-                print("[THIRD-PARTY] Skipping download (using existing browsers)")
-                return
+                # Validate browser installation completeness
+                from agent.playwright.core.utils import PlaywrightCoreUtils
+                if PlaywrightCoreUtils.validate_browser_installation(playwright_dir):
+                    print(f"[THIRD-PARTY] Playwright browsers already present and valid: {playwright_dir}")
+                    print(f"[THIRD-PARTY]   Found: {[d.name for d in browser_dirs]}")
+                    print("[THIRD-PARTY] Skipping download (using existing browsers)")
+                    return
+                else:
+                    print(f"[THIRD-PARTY] WARNING: Existing browsers at {playwright_dir} are incomplete or invalid")
+                    print("[THIRD-PARTY]   Will re-download browsers...")
+                    import shutil
+                    shutil.rmtree(playwright_dir, ignore_errors=True)
         
         try:
             from build_system.build_utils import prepare_third_party_assets
