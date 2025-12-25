@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Select, Input, Switch, Card, theme, Tooltip, Button } from 'antd';
+import { theme, Select, Input, InputNumber, Switch, Card, Tooltip, Button } from 'antd';
 import { QuestionCircleOutlined, SettingOutlined, ReloadOutlined, GlobalOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type { ProviderConfig, ProviderFieldConfig } from './providerConfig';
@@ -265,13 +265,16 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
         return (
           <div key={field.key} style={{ marginBottom: 12 }}>
             {label}
-            <Input
-              value={value}
+            <InputNumber
+              value={value ? Number(value) : undefined}
               placeholder={placeholder}
-              onChange={(e) => onSettingChange(field.key, e.target.value)}
+              onChange={(val) => onSettingChange(field.key, val?.toString() || '')}
               style={commonStyle}
               size="small"
               disabled={field.disabled}
+              min={0}
+              step={field.key.includes('TEMPERATURE') ? 0.1 : 1}
+              precision={field.key.includes('TEMPERATURE') || field.key.includes('THRESHOLD') ? 2 : 0}
             />
           </div>
         );

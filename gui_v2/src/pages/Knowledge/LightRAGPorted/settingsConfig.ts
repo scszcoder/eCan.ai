@@ -135,6 +135,7 @@ export const RAG_FIELDS: FieldConfig[] = [
   ]},
   { key: 'MAX_FILE_PATHS', type: 'number', placeholder: '100', section: 'document' },
   { key: 'RELATED_CHUNK_NUMBER', type: 'number', placeholder: '5', section: 'document', tooltip: 'tooltips.relatedChunkNumber' },
+  { key: 'MAX_GLEANING', type: 'number', defaultValue: '1', section: 'document', tooltip: 'tooltips.maxGleaning' },
   
   // Concurrency
   { key: 'MAX_ASYNC', type: 'number', defaultValue: '6', section: 'concurrency', tooltip: 'tooltips.maxAsync' },

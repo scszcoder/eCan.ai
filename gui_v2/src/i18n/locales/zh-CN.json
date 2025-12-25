@@ -1641,6 +1641,7 @@
           "chunkSize": "文本块大小（Token）",
           "forceLlmSummary": "合并超过N个块时强制LLM摘要",
           "relatedChunkNumber": "检索的相关块数量",
+          "maxGleaning": "实体提取二次精炼次数（0=禁用，1=启用，提高质量）",
           "maxAsync": "最大并发异步任务数",
           "maxParallelInsert": "最大并行插入数",
           "maxGraphNodes": "图查询返回的最大节点数",
