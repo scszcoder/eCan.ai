@@ -5,31 +5,17 @@
   "last_updated": "2025-10-15",
   
   "field_mapping": {
-    "id": "ataskid"
   },
   
   "cloud_required_fields": {
-    "ataskid": "",
-    "owner": "",
-    "name": "",
-    "description": "",
-    "objectives": [],
-    "schedule": {},
-    "metadata": {},
-    "start": "",
-    "priority": "medium",
-    "trigger": "manual",
-    "progress": 0.0,
-    "result": {},
-    "error_message": "",
-    "settings": {}
+    "name": ""
   },
   
   "excluded_fields": [
     "agid",
     "task_id",
-    "status",
-    "task_type"
+    "ataskid",
+    "owner"
   ],
   
   "json_serialize_fields": [

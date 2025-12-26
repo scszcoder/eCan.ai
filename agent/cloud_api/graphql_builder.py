@@ -103,6 +103,47 @@ class GraphQLBuilder:
         (DataType.TASK_SKILL, Operation.DELETE): "removeTaskSkillRelations",
     }
     
+    # Return field selection for mutations that return result types
+    # Format: mutation_name -> "{ field1 field2 ... }"
+    MUTATION_RETURN_FIELDS = {
+        # Agent mutations -> AgentMutationResult
+        "addAgents": "{ id success error }",
+        "updateAgents": "{ id success error }",
+        "removeAgents": "{ id success error }",
+        # Skill mutations -> SkillMutationResult
+        "addAgentSkills": "{ id success error }",
+        "updateAgentSkills": "{ id success error }",
+        "removeAgentSkills": "{ id success error }",
+        # Task mutations -> TaskMutationResult
+        "addAgentTasks": "{ id success error }",
+        "updateAgentTasks": "{ id success error }",
+        "removeAgentTasks": "{ id success error }",
+        # Tool mutations -> ToolMutationResult
+        "addAgentTools": "{ id success error }",
+        "updateAgentTools": "{ id success error }",
+        "removeAgentTools": "{ id success error }",
+        # Knowledge mutations -> KnowledgeMutationResult
+        "addAgentKnowledges": "{ id success error }",
+        "updateAgentKnowledges": "{ id success error }",
+        "removeAgentKnowledges": "{ id success error }",
+        # Avatar mutations -> AvatarMutationResult
+        "addAvatars": "{ id success error }",
+        "updateAvatars": "{ id success error }",
+        "removeAvatars": "{ id success error }",
+        # Vehicle mutations -> VehicleMutationResult
+        "addVehicles": "{ id success error }",
+        "updateVehicles": "{ id success error }",
+        "removeVehicles": "{ id success error }",
+        # Org mutations -> OrgMutationResult
+        "addOrgs": "{ id success error }",
+        "updateOrgs": "{ id success error }",
+        "removeOrgs": "{ id success error }",
+        # Prompt mutations -> PromptMutationResult
+        "addPrompts": "{ id success error }",
+        "updatePrompts": "{ id success error }",
+        "removePrompts": "{ id success error }",
+    }
+    
     def __init__(self):
         self.schema_registry = get_schema_registry()
     
@@ -181,8 +222,9 @@ class GraphQLBuilder:
             settings_str = json.dumps(settings).replace('"', '\\"')
             mutation_str += f', settings: "{settings_str}"'
         
-        # Close mutation
-        mutation_str += ") }"
+        # Close mutation with return field selection if needed
+        return_fields = self.MUTATION_RETURN_FIELDS.get(mutation_name, "")
+        mutation_str += f") {return_fields} }}"
         
         logger.debug(f"[GraphQLBuilder] Built mutation: {mutation_str[:200]}...")
         return mutation_str
@@ -194,38 +236,33 @@ class GraphQLBuilder:
     ) -> str:
         """Build REMOVE mutation
         
-        Note: RemoveOrder uses 'oid' field, but we need to map from entity-specific ID fields
+        New schema: remove mutations take [ID!]! - just an array of ID strings
         """
         mutation_str = f"mutation MyMutation {{ {mutation_name}(input: ["
         
-        # Build each remove order
-        item_strings = []
+        # Build array of IDs
+        id_strings = []
         for item in items:
-            # Remove operation needs: oid, owner, reason
-            # Get ID from entity-specific field (agid, skid, etc.) or generic id/oid
-            oid = (item.get("agid") or  # Agent ID
-                   item.get("skid") or  # Skill ID
-                   item.get("task_id") or  # Task ID
-                   item.get("tool_id") or  # Tool ID
-                   item.get("id") or  # Generic ID
-                   item.get("oid"))  # Order ID
+            # Get ID from various possible field names
+            oid = (item.get("id") or  # Generic ID
+                   item.get("oid") or  # Order ID
+                   item.get("agid") or  # Agent ID (legacy)
+                   item.get("skid") or  # Skill ID (legacy)
+                   item.get("task_id") or  # Task ID (legacy)
+                   item.get("tool_id"))  # Tool ID (legacy)
             
             if not oid:
                 logger.warning(f"[GraphQLBuilder] Remove item missing ID: {item}")
-                oid = "unknown"
+                continue
             
-            owner = item.get("owner", "")
-            reason = item.get("reason", "User deleted")
-            
-            item_str = "{ "
-            item_str += f'oid: "{oid}", '
-            item_str += f'owner: "{owner}", '
-            item_str += f'reason: "{reason}"'
-            item_str += " }"
-            item_strings.append(item_str)
+            id_strings.append(f'"{oid}"')
         
-        mutation_str += ", ".join(item_strings)
-        mutation_str += "]) }"
+        mutation_str += ", ".join(id_strings)
+        mutation_str += "]"
+        
+        # Close mutation with return field selection if needed
+        return_fields = self.MUTATION_RETURN_FIELDS.get(mutation_name, "")
+        mutation_str += f") {return_fields} }}"
         
         logger.debug(f"[GraphQLBuilder] Built remove mutation: {mutation_str[:200]}...")
         return mutation_str

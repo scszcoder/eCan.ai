@@ -5,25 +5,17 @@
   "last_updated": "2025-12-23",
   
   "field_mapping": {
-    "id": "askid"
   },
   
   "cloud_required_fields": {
-    "askid": "",
-    "owner": "",
-    "name": "",
-    "description": "",
-    "flowgram": {},
-    "langgraph": {},
-    "path": "",
-    "source": "",
-    "status": "active",
-    "price": 0.0
+    "name": ""
   },
   
   "excluded_fields": [
     "agid",
-    "skid"
+    "skid",
+    "askid",
+    "owner"
   ],
   
   "json_serialize_fields": [

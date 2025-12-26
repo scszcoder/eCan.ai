@@ -5,24 +5,17 @@
   "last_updated": "2025-10-15",
   
   "field_mapping": {
-    "id": "toolid"
   },
   
   "cloud_required_fields": {
-    "toolid": "",
-    "owner": "",
-    "name": "",
-    "description": "",
-    "protocol": "",
-    "metadata": {},
-    "link": "",
-    "status": "active",
-    "price": 0.0
+    "name": ""
   },
   
   "excluded_fields": [
     "agid",
-    "tool_id"
+    "tool_id",
+    "toolid",
+    "owner"
   ],
   
   "json_serialize_fields": [
