@@ -1223,14 +1223,45 @@ def gen_remove_agents_string(removeOrders):
 
 
 def gen_query_agents_string(q_setting):
-    if q_setting["byowneruser"]:
-        query_string = "query MyBOTQuery { queryAgents(qb: \"{ \\\"byowneruser\\\": true}\") } "
-    else:
-        query_string = "query MyBOTQuery { queryAgents(qb: \"{ \\\"byowneruser\\\": false, \\\"qphrase\\\": \\\""+q_setting["qphrase"]+"\\\"}\") } "
-
-    rec_string = ""
-    tail_string = ""
-    query_string = query_string + rec_string + tail_string
+    """Generate GraphQL query string for querying agents
+    
+    New schema: queryAgents(input: AgentQueryInput): [Agent!]!
+    AgentQueryInput has: id, name, description (all optional)
+    """
+    # Build input object based on q_setting
+    input_parts = []
+    if q_setting.get("id"):
+        input_parts.append(f'id: "{q_setting["id"]}"')
+    if q_setting.get("name"):
+        input_parts.append(f'name: "{q_setting["name"]}"')
+    if q_setting.get("description"):
+        input_parts.append(f'description: "{q_setting["description"]}"')
+    
+    input_str = ", ".join(input_parts) if input_parts else ""
+    
+    query_string = f'''query MyAgentQuery {{
+  queryAgents(input: {{ {input_str} }}) {{
+    id
+    owner
+    name
+    title
+    supervisor_id
+    birthday
+    gender
+    personalities
+    status
+    rank
+    vehicle_id
+    avatar_resource_id
+    description
+    url
+    version
+    extra_data
+    capabilities
+    created_at
+    updated_at
+  }}
+}}'''
     logger.debug(query_string)
     return query_string
 
@@ -2010,7 +2041,12 @@ def safe_parse_response(jresp, operation_name, data_key):
         data = jresp.get("data", {})
         response_data = data.get(data_key) if data else None
         if response_data is not None:
-            return json.loads(response_data)
+            # If already parsed (list/dict from typed GraphQL response), return directly
+            # If string (AWSJSON), parse it
+            if isinstance(response_data, str):
+                return json.loads(response_data)
+            else:
+                return response_data
         else:
             # Null response without errors - this is a server-side issue
             error_msg = f"{operation_name} returned null"
@@ -3924,13 +3960,42 @@ def gen_remove_avatar_resources_string(removeOrders):
 
 
 def gen_query_avatar_resources_string(q_settings):
-    """Generate GraphQL query string for querying avatar resources"""
-    qb = json.dumps(q_settings, ensure_ascii=False).replace('"', '\\"')
-    query_string = f'''
-        query MyQuery {{
-            queryAvatarResources(qb: "{qb}")
-        }}
-    '''
+    """Generate GraphQL query string for querying avatar resources
+    
+    New schema: queryAvatars(input: AvatarQueryInput): [AvatarResource!]!
+    AvatarQueryInput has: owner, resource_type (all optional)
+    """
+    # Build input object based on q_settings
+    input_parts = []
+    if q_settings.get("owner"):
+        input_parts.append(f'owner: "{q_settings["owner"]}"')
+    if q_settings.get("resource_type"):
+        input_parts.append(f'resource_type: "{q_settings["resource_type"]}"')
+    
+    input_str = ", ".join(input_parts) if input_parts else ""
+    
+    query_string = f'''query MyAvatarQuery {{
+  queryAvatars(input: {{ {input_str} }}) {{
+    id
+    owner
+    name
+    description
+    resource_type
+    image_path
+    image_hash
+    video_path
+    video_hash
+    cloud_image_key
+    cloud_image_url
+    cloud_video_key
+    cloud_video_url
+    cloud_synced
+    avatar_metadata
+    is_public
+    usage_count
+    last_used_at
+  }}
+}}'''
     return query_string
 
 
@@ -3963,7 +4028,7 @@ def send_query_avatar_resources_to_cloud(session, token, q_settings, endpoint):
     """Query Avatar Resource entities from cloud"""
     queryInfo = gen_query_avatar_resources_string(q_settings)
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
-    return safe_parse_response(jresp, "queryAvatarResources", "queryAvatarResources")
+    return safe_parse_response(jresp, "queryAvatars", "queryAvatars")
 
 
 # ============================================================================
@@ -3971,13 +4036,35 @@ def send_query_avatar_resources_to_cloud(session, token, q_settings, endpoint):
 # ============================================================================
 
 def gen_query_organizations_string(q_settings):
-    """Generate GraphQL query string for querying organizations"""
-    qb = json.dumps(q_settings, ensure_ascii=False).replace('"', '\\"')
-    query_string = f'''
-        query MyQuery {{
-            queryOrganizations(qb: "{qb}")
-        }}
-    '''
+    """Generate GraphQL query string for querying organizations
+    
+    New schema: queryOrgs(input: OrgQueryInput): [Org!]!
+    OrgQueryInput has: name, org_type, status (all optional)
+    """
+    # Build input object based on q_settings
+    input_parts = []
+    if q_settings.get("name"):
+        input_parts.append(f'name: "{q_settings["name"]}"')
+    if q_settings.get("org_type"):
+        input_parts.append(f'org_type: "{q_settings["org_type"]}"')
+    if q_settings.get("status"):
+        input_parts.append(f'status: "{q_settings["status"]}"')
+    
+    input_str = ", ".join(input_parts) if input_parts else ""
+    
+    query_string = f'''query MyOrgQuery {{
+  queryOrgs(input: {{ {input_str} }}) {{
+    id
+    name
+    description
+    org_type
+    parent_id
+    level
+    sort_order
+    status
+    settings
+  }}
+}}'''
     return query_string
 
 
@@ -3997,7 +4084,7 @@ def send_query_organizations_to_cloud(session, token, q_settings, endpoint):
     """Query Organization entities from cloud"""
     queryInfo = gen_query_organizations_string(q_settings)
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
-    return safe_parse_response(jresp, "queryOrganizations", "queryOrganizations")
+    return safe_parse_response(jresp, "queryOrgs", "queryOrgs")
 
 
 def gen_add_organizations_string(organizations):
@@ -4134,13 +4221,46 @@ def send_remove_organizations_to_cloud(session, removes, token, endpoint, timeou
 # ============================================================================
 
 def gen_query_skills_entity_string(q_settings):
-    """Generate GraphQL query string for querying skill entities"""
-    qb = json.dumps(q_settings, ensure_ascii=False).replace('"', '\\"')
-    query_string = f'''
-        query MyQuery {{
-            queryAgentSkills(qb: "{qb}")
-        }}
-    '''
+    """Generate GraphQL query string for querying skill entities
+    
+    New schema: queryAgentSkills(input: SkillQueryInput): [AgentSkill!]!
+    SkillQueryInput has: id, name, description (all optional)
+    """
+    # Build input object based on q_settings
+    input_parts = []
+    if q_settings.get("id"):
+        input_parts.append(f'id: "{q_settings["id"]}"')
+    if q_settings.get("name"):
+        input_parts.append(f'name: "{q_settings["name"]}"')
+    if q_settings.get("description"):
+        input_parts.append(f'description: "{q_settings["description"]}"')
+    
+    input_str = ", ".join(input_parts) if input_parts else ""
+    
+    query_string = f'''query MySkillQuery {{
+  queryAgentSkills(input: {{ {input_str} }}) {{
+    id
+    owner
+    name
+    description
+    version
+    level
+    config
+    diagram
+    examples
+    inputModes
+    outputModes
+    apps
+    limitations
+    path
+    source
+    tags
+    price
+    price_model
+    public
+    rentable
+  }}
+}}'''
     return query_string
 
 
@@ -4157,13 +4277,41 @@ def send_query_skills_entity_to_cloud(session, token, q_settings, endpoint):
 # ============================================================================
 
 def gen_query_tasks_entity_string(q_settings):
-    """Generate GraphQL query string for querying task entities"""
-    qb = json.dumps(q_settings, ensure_ascii=False).replace('"', '\\"')
-    query_string = f'''
-        query MyQuery {{
-            queryAgentTasks(qb: "{qb}")
-        }}
-    '''
+    """Generate GraphQL query string for querying task entities
+    
+    New schema: queryAgentTasks(input: TaskQueryInput): [Task!]!
+    TaskQueryInput has: id, name, description (all optional)
+    """
+    # Build input object based on q_settings
+    input_parts = []
+    if q_settings.get("id"):
+        input_parts.append(f'id: "{q_settings["id"]}"')
+    if q_settings.get("name"):
+        input_parts.append(f'name: "{q_settings["name"]}"')
+    if q_settings.get("description"):
+        input_parts.append(f'description: "{q_settings["description"]}"')
+    
+    input_str = ", ".join(input_parts) if input_parts else ""
+    
+    query_string = f'''query MyTaskQuery {{
+  queryAgentTasks(input: {{ {input_str} }}) {{
+    id
+    owner
+    name
+    description
+    task_type
+    status
+    priority
+    trigger_type
+    schedule
+    objectives
+    metadata
+    progress
+    result
+    error_message
+    org_id
+  }}
+}}'''
     return query_string
 
 
@@ -4180,13 +4328,44 @@ def send_query_tasks_entity_to_cloud(session, token, q_settings, endpoint):
 # ============================================================================
 
 def gen_query_tools_entity_string(q_settings):
-    """Generate GraphQL query string for querying tool entities"""
-    qb = json.dumps(q_settings, ensure_ascii=False).replace('"', '\\"')
-    query_string = f'''
-        query MyQuery {{
-            queryAgentTools(qb: "{qb}")
-        }}
-    '''
+    """Generate GraphQL query string for querying tool entities
+    
+    New schema: queryAgentTools(input: ToolQueryInput): [AgentTool!]!
+    ToolQueryInput has: id, name, description (all optional)
+    """
+    # Build input object based on q_settings
+    input_parts = []
+    if q_settings.get("id"):
+        input_parts.append(f'id: "{q_settings["id"]}"')
+    if q_settings.get("name"):
+        input_parts.append(f'name: "{q_settings["name"]}"')
+    if q_settings.get("description"):
+        input_parts.append(f'description: "{q_settings["description"]}"')
+    
+    input_str = ", ".join(input_parts) if input_parts else ""
+    
+    query_string = f'''query MyToolQuery {{
+  queryAgentTools(input: {{ {input_str} }}) {{
+    id
+    owner
+    name
+    description
+    tool_type
+    status
+    version
+    level
+    config
+    capabilities
+    dependencies
+    limitations
+    settings
+    path
+    price
+    price_model
+    public
+    rentable
+  }}
+}}'''
     return query_string
 
 
@@ -4385,13 +4564,56 @@ def gen_remove_vehicles_string(removeOrders):
 
 
 def gen_query_vehicles_string(q_settings):
-    """Generate GraphQL query string for querying vehicles"""
-    qb = json.dumps(q_settings, ensure_ascii=False).replace('"', '\\"')
-    query_string = f'''
-        query MyQuery {{
-            queryVehicles(qb: "{qb}")
-        }}
-    '''
+    """Generate GraphQL query string for querying vehicles
+    
+    New schema: queryVehicles(input: VehicleQueryInput): [Vehicle!]!
+    VehicleQueryInput has: id, name, description (all optional)
+    """
+    # Build input object based on q_settings
+    input_parts = []
+    if q_settings.get("id"):
+        input_parts.append(f'id: "{q_settings["id"]}"')
+    if q_settings.get("name"):
+        input_parts.append(f'name: "{q_settings["name"]}"')
+    if q_settings.get("description"):
+        input_parts.append(f'description: "{q_settings["description"]}"')
+    
+    input_str = ", ".join(input_parts) if input_parts else ""
+    
+    query_string = f'''query MyVehicleQuery {{
+  queryVehicles(input: {{ {input_str} }}) {{
+    id
+    owner
+    name
+    description
+    vehicle_type
+    status
+    hostname
+    ip_address
+    port
+    url
+    platform
+    architecture
+    environment
+    cpu_cores
+    memory_gb
+    storage_gb
+    gpu_info
+    capabilities
+    limitations
+    settings
+    extra_metadata
+    max_concurrent_tasks
+    health_score
+    last_heartbeat
+    uptime_seconds
+    timezone
+    location
+    security_level
+    ssl_enabled
+    access_token
+  }}
+}}'''
     return query_string
 
 
@@ -4538,13 +4760,34 @@ def gen_remove_prompts_string(removeOrders):
 
 
 def gen_query_prompts_string(q_settings):
-    """Generate GraphQL query string for querying prompts"""
-    qb = json.dumps(q_settings, ensure_ascii=False).replace('"', '\\"')
-    query_string = f'''
-        query MyQuery {{
-            queryPrompts(qb: "{qb}")
-        }}
-    '''
+    """Generate GraphQL query string for querying prompts
+    
+    New schema: queryPrompts(input: PromptQueryInput): [Prompt!]!
+    PromptQueryInput has: id, owner, version, search (all optional)
+    """
+    # Build input object based on q_settings
+    input_parts = []
+    if q_settings.get("id"):
+        input_parts.append(f'id: "{q_settings["id"]}"')
+    if q_settings.get("owner"):
+        input_parts.append(f'owner: "{q_settings["owner"]}"')
+    if q_settings.get("version"):
+        input_parts.append(f'version: "{q_settings["version"]}"')
+    if q_settings.get("search"):
+        input_parts.append(f'search: "{q_settings["search"]}"')
+    
+    input_str = ", ".join(input_parts) if input_parts else ""
+    
+    query_string = f'''query MyPromptQuery {{
+  queryPrompts(input: {{ {input_str} }}) {{
+    id
+    owner
+    version
+    prompt
+    created_at
+    updated_at
+  }}
+}}'''
     return query_string
 
 

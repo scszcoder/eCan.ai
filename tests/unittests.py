@@ -151,7 +151,20 @@ def run_default_tests(mwin, test_setup=None):
                 'skill_with_files': False,
                 'account_info': True
             })
-            cloud_results = run_cloud_api_tests(mwin, cloud_config)
+            # cloud_results = run_cloud_api_tests(mwin, cloud_config)
+
+            cloud_config = test_setup.get('cloud_api_config', {
+                'agent': True,
+                'agent_task': False,
+                'agent_skill': False,
+                'agent_tool': False,
+                'prompt': False,
+                'avatar': False,
+                'vehicle': False,
+                'organization': False
+            })
+            cloud_results = run_cloud_api_entity_tests(mwin, cloud_config)
+
             results['tests_run'].append({
                 'test': 'cloud_api_tests',
                 'success': cloud_results['success'],
@@ -680,7 +693,8 @@ def run_cloud_api_tests(mwin, test_config=None):
             results['passed'] += 1
         else:
             results['failed'] += 1
-    
+
+
     if test_config.get('add_skill', False):
         result = test_cloud_api_add_skill(mwin)
         results['tests_run'].append(result)
@@ -765,7 +779,7 @@ def test_cloud_api_agent_crud(mwin):
         # REMOVE
         logger.info(f"[TEST] Removing agent: {test_agent_id}")
         results['remove'] = send_remove_agents_request_to_cloud(
-            session, [{"oid": test_agent_id, "owner": "unittest@test.com", "reason": "test cleanup"}], token, endpoint
+            session, [{"id": test_agent_id}], token, endpoint
         )
         logger.info(f"[TEST] Remove agent response: {json.dumps(results['remove'], default=str)[:300]}")
         
@@ -811,8 +825,7 @@ def test_cloud_api_agent_task_crud(mwin):
         # Create test task
         test_task_id = f"test_task_{uuid.uuid4().hex[:8]}"
         test_task = {
-            "ataskid": test_task_id,
-            "owner": "unittest@test.com",
+            "id": test_task_id,
             "name": f"Test Task {datetime.now().strftime('%H%M%S')}",
             "description": "Unit test task - safe to delete",
             "status": "test",
@@ -840,7 +853,7 @@ def test_cloud_api_agent_task_crud(mwin):
         # REMOVE
         logger.info(f"[TEST] Removing task: {test_task_id}")
         results['remove'] = send_remove_tasks_request_to_cloud(
-            session, [{"oid": test_task_id, "owner": "unittest@test.com", "reason": "test cleanup"}], token, endpoint
+            session, [{"id": test_task_id}], token, endpoint
         )
         logger.info(f"[TEST] Remove task response: {json.dumps(results['remove'], default=str)[:300]}")
         
@@ -886,12 +899,10 @@ def test_cloud_api_agent_skill_crud(mwin):
         # Create test skill
         test_skill_id = f"test_skill_{uuid.uuid4().hex[:8]}"
         test_skill = {
-            "askid": test_skill_id,
-            "owner": "unittest@test.com",
+            "id": test_skill_id,
             "name": f"Test Skill {datetime.now().strftime('%H%M%S')}",
             "description": "Unit test skill - safe to delete",
             "version": "1.0.0",
-            "status": "test",
             "public": False,
             "rentable": False
         }
@@ -917,7 +928,7 @@ def test_cloud_api_agent_skill_crud(mwin):
         # REMOVE
         logger.info(f"[TEST] Removing skill: {test_skill_id}")
         results['remove'] = send_remove_skills_request_to_cloud(
-            session, [{"oid": test_skill_id, "owner": "unittest@test.com", "reason": "test cleanup"}], token, endpoint
+            session, [{"id": test_skill_id}], token, endpoint
         )
         logger.info(f"[TEST] Remove skill response: {json.dumps(results['remove'], default=str)[:300]}")
         
@@ -963,11 +974,10 @@ def test_cloud_api_agent_tool_crud(mwin):
         # Create test tool
         test_tool_id = f"test_tool_{uuid.uuid4().hex[:8]}"
         test_tool = {
-            "toolid": test_tool_id,
-            "owner": "unittest@test.com",
+            "id": test_tool_id,
             "name": f"Test Tool {datetime.now().strftime('%H%M%S')}",
             "description": "Unit test tool - safe to delete",
-            "protocol": "mcp",
+            "tool_type": "mcp",
             "status": "test"
         }
         
@@ -992,7 +1002,7 @@ def test_cloud_api_agent_tool_crud(mwin):
         # REMOVE
         logger.info(f"[TEST] Removing tool: {test_tool_id}")
         results['remove'] = send_remove_tools_request_to_cloud(
-            session, [{"oid": test_tool_id, "owner": "unittest@test.com", "reason": "test cleanup"}], token, endpoint
+            session, [{"id": test_tool_id}], token, endpoint
         )
         logger.info(f"[TEST] Remove tool response: {json.dumps(results['remove'], default=str)[:300]}")
         
@@ -1035,18 +1045,17 @@ def test_cloud_api_prompt_crud(mwin):
         if not token:
             return {'success': False, 'test': 'test_cloud_api_prompt_crud', 'message': 'No auth token'}
         
-        # Create test prompt
+        # Create test prompt - PromptInput requires: prompt (AWSJSON!), optional: id, owner, version
         test_prompt_id = f"test_prompt_{uuid.uuid4().hex[:8]}"
         test_prompt = {
             "id": test_prompt_id,
             "owner": "unittest@test.com",
-            "name": f"Test Prompt {datetime.now().strftime('%H%M%S')}",
-            "description": "Unit test prompt - safe to delete",
-            "content": "You are a helpful assistant. This is a test prompt.",
-            "category": "test",
             "version": "1.0.0",
-            "status": "test",
-            "is_public": False
+            "prompt": {
+                "name": f"Test Prompt {datetime.now().strftime('%H%M%S')}",
+                "content": "You are a helpful assistant. This is a test prompt.",
+                "category": "test"
+            }
         }
         
         results = {'add': None, 'update': None, 'query': None, 'remove': None}
@@ -1070,7 +1079,7 @@ def test_cloud_api_prompt_crud(mwin):
         # REMOVE
         logger.info(f"[TEST] Removing prompt: {test_prompt_id}")
         results['remove'] = send_remove_prompts_request_to_cloud(
-            session, [{"oid": test_prompt_id, "owner": "unittest@test.com", "reason": "test cleanup"}], token, endpoint
+            session, [{"id": test_prompt_id}], token, endpoint
         )
         logger.info(f"[TEST] Remove prompt response: {json.dumps(results['remove'], default=str)[:300]}")
         
@@ -1147,7 +1156,7 @@ def test_cloud_api_avatar_crud(mwin):
         # REMOVE
         logger.info(f"[TEST] Removing avatar: {test_avatar_id}")
         results['remove'] = send_remove_avatar_resources_to_cloud(
-            session, [{"oid": test_avatar_id, "owner": "unittest@test.com", "reason": "test cleanup"}], token, endpoint
+            session, [{"id": test_avatar_id}], token, endpoint
         )
         logger.info(f"[TEST] Remove avatar response: {json.dumps(results['remove'], default=str)[:300]}")
         
@@ -1190,16 +1199,14 @@ def test_cloud_api_vehicle_crud(mwin):
         if not token:
             return {'success': False, 'test': 'test_cloud_api_vehicle_crud', 'message': 'No auth token'}
         
-        # Create test vehicle
+        # Create test vehicle - VehicleInput uses id, name (required)
         test_vehicle_id = f"test_vehicle_{uuid.uuid4().hex[:8]}"
         test_vehicle = {
-            "vid": test_vehicle_id,
-            "vname": f"Test Vehicle {datetime.now().strftime('%H%M%S')}",
-            "owner": "unittest@test.com",
+            "id": test_vehicle_id,
+            "name": f"Test Vehicle {datetime.now().strftime('%H%M%S')}",
+            "description": "Unit test vehicle - safe to delete",
             "status": "test",
-            "functions": "unittest",
-            "hardware": "test_hardware",
-            "software": "test_software"
+            "vehicle_type": "unittest"
         }
         
         results = {'add': None, 'update': None, 'query': None, 'remove': None}
@@ -1223,7 +1230,7 @@ def test_cloud_api_vehicle_crud(mwin):
         # REMOVE
         logger.info(f"[TEST] Removing vehicle: {test_vehicle_id}")
         results['remove'] = send_remove_vehicles_request_to_cloud(
-            session, [{"vid": test_vehicle_id, "owner": "unittest@test.com", "reason": "test cleanup"}], token, endpoint
+            session, [{"id": test_vehicle_id}], token, endpoint
         )
         logger.info(f"[TEST] Remove vehicle response: {json.dumps(results['remove'], default=str)[:300]}")
         
@@ -1266,11 +1273,10 @@ def test_cloud_api_organization_crud(mwin):
         if not token:
             return {'success': False, 'test': 'test_cloud_api_organization_crud', 'message': 'No auth token'}
         
-        # Create test organization
+        # Create test organization - OrgInput: name (required), id, description, org_type, parent_id, settings, sort_order, status
         test_org_id = f"test_org_{uuid.uuid4().hex[:8]}"
         test_org = {
             "id": test_org_id,
-            "owner": "unittest@test.com",
             "name": f"Test Organization {datetime.now().strftime('%H%M%S')}",
             "description": "Unit test organization - safe to delete",
             "org_type": "test",
@@ -1298,7 +1304,7 @@ def test_cloud_api_organization_crud(mwin):
         # REMOVE
         logger.info(f"[TEST] Removing organization: {test_org_id}")
         results['remove'] = send_remove_organizations_to_cloud(
-            session, [{"oid": test_org_id, "owner": "unittest@test.com", "reason": "test cleanup"}], token, endpoint
+            session, [{"id": test_org_id}], token, endpoint
         )
         logger.info(f"[TEST] Remove organization response: {json.dumps(results['remove'], default=str)[:300]}")
         

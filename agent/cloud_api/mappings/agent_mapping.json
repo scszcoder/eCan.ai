@@ -1,15 +1,13 @@
 {
   "data_type": "agent",
-  "version": "2.0.0",
-  "description": "Agent field mapping configuration - Unified naming",
-  "last_updated": "2025-10-14",
+  "version": "2.1.0",
+  "description": "Agent field mapping configuration - Updated for new AgentInput schema",
+  "last_updated": "2025-12-24",
   
   "field_mapping": {
-    "id": "agid"
   },
   
   "cloud_required_fields": {
-    "agid": "",
     "status": "active"
   },
   
@@ -22,7 +20,9 @@
   "excluded_fields": [
     "skills",
     "tasks",
-    "tools"
+    "tools",
+    "owner",
+    "agid"
   ],
   
   "json_serialize_fields": [
