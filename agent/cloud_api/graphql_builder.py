@@ -110,9 +110,9 @@ class GraphQLBuilder:
         "addAgents": "{ id success error }",
         "updateAgents": "{ id success error }",
         "removeAgents": "{ id success error }",
-        # Skill mutations -> SkillMutationResult
-        "addAgentSkills": "{ id success error }",
-        "updateAgentSkills": "{ id success error }",
+        # Skill mutations -> SkillMutationResult (includes upload_urls for presigned S3 URLs)
+        "addAgentSkills": "{ id success error upload_urls }",
+        "updateAgentSkills": "{ id success error upload_urls }",
         "removeAgentSkills": "{ id success error }",
         # Task mutations -> TaskMutationResult
         "addAgentTasks": "{ id success error }",
