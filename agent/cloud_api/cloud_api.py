@@ -55,6 +55,59 @@ def send_file_with_presigned_url(src_file, resp):
     logger_helper.debug(str(r.status_code))
 
 
+# Upload file to S3 using PUT presigned URL (for avatar uploads)
+def upload_file_to_presigned_url(file_path, presigned_url, content_type=None):
+    """
+    Upload a file to S3 using a PUT presigned URL.
+    
+    Args:
+        file_path: Local path to the file to upload
+        presigned_url: The presigned PUT URL from the server
+        content_type: Optional content type (auto-detected if not provided)
+    
+    Returns:
+        dict with success status and any error message
+    """
+    if not file_path or not presigned_url:
+        return {"success": False, "error": "Missing file_path or presigned_url"}
+    
+    if not os.path.exists(file_path):
+        return {"success": False, "error": f"File not found: {file_path}"}
+    
+    try:
+        # Auto-detect content type if not provided
+        if not content_type:
+            ext = os.path.splitext(file_path)[1].lower()
+            content_types = {
+                '.png': 'image/png',
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.gif': 'image/gif',
+                '.webp': 'image/webp',
+                '.mp4': 'video/mp4',
+                '.webm': 'video/webm',
+                '.mov': 'video/quicktime',
+                '.avi': 'video/x-msvideo',
+            }
+            content_type = content_types.get(ext, 'application/octet-stream')
+        
+        with open(file_path, 'rb') as f:
+            file_data = f.read()
+        
+        headers = {'Content-Type': content_type}
+        response = requests.put(presigned_url, data=file_data, headers=headers, timeout=300)
+        
+        if response.status_code in [200, 204]:
+            logger.info(f"✅ Successfully uploaded {file_path} to S3")
+            return {"success": True}
+        else:
+            logger.error(f"❌ Failed to upload {file_path}: {response.status_code} - {response.text}")
+            return {"success": False, "error": f"Upload failed: {response.status_code}"}
+    except Exception as e:
+        logger.error(f"❌ Exception uploading {file_path}: {e}")
+        return {"success": False, "error": str(e)}
+
+
 # resp is the response from requesting the presigned_url
 def get_file_with_presigned_url(dest_file, url):
     # Download file to S3 using presigned URL
@@ -1258,8 +1311,6 @@ def gen_query_agents_string(q_setting):
     version
     extra_data
     capabilities
-    created_at
-    updated_at
   }}
 }}'''
     logger.debug(query_string)
@@ -1288,8 +1339,6 @@ def gen_get_agents_string():
     version
     extra_data
     capabilities
-    created_at
-    updated_at
   }
 }'''
     logger.debug(query_string)
@@ -2030,16 +2079,29 @@ def safe_parse_response(jresp, operation_name, data_key):
     Raises:
         Exception: If response contains errors or returns null
     """
+    # Check if data exists first (partial success case - data with errors)
+    data = jresp.get("data", {})
+    response_data = data.get(data_key) if data else None
+    
     if "errors" in jresp:
         errors = jresp.get("errors", [])
         error_message = errors[0].get("message", "Unknown error") if errors else "Unknown error"
-        logger.error(f"❌ GraphQL Error: {error_message}")
-        logger.error(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
-        raise Exception(f"{operation_name} failed: {error_message}")
+        
+        # If we have data despite errors, log warning but return the data (partial success)
+        if response_data is not None:
+            logger.warning(f"⚠️ GraphQL partial success with errors: {error_message}")
+            logger.debug(f"📋 Errors: {json.dumps(errors, ensure_ascii=False)[:500]}")
+            # Return the data we got
+            if isinstance(response_data, str):
+                return json.loads(response_data)
+            else:
+                return response_data
+        else:
+            # No data and errors - this is a failure
+            logger.error(f"❌ GraphQL Error: {error_message}")
+            logger.error(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
+            raise Exception(f"{operation_name} failed: {error_message}")
     else:
-        # Check if data exists and is not None
-        data = jresp.get("data", {})
-        response_data = data.get(data_key) if data else None
         if response_data is not None:
             # If already parsed (list/dict from typed GraphQL response), return directly
             # If string (AWSJSON), parse it
@@ -2180,9 +2242,35 @@ def send_add_skills_request_to_cloud(session, skills, token, endpoint, timeout=1
     """Add Skill entities (skill data: name, description, etc.)"""
     from agent.cloud_api.graphql_builder import build_mutation
     from agent.cloud_api.constants import Operation
+    
+    logger.info(f"[Skill ADD] Sending addAgentSkills mutation for {len(skills)} skill(s)")
     mutationInfo = build_mutation(DataType.SKILL, Operation.ADD, skills)
+    logger.debug(f"[Skill ADD] Mutation: {mutationInfo[:500]}...")
+    
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
-    return safe_parse_response(jresp, "addAgentSkills", "addAgentSkills")
+    logger.info(f"[Skill ADD] Received response from server")
+    logger.debug(f"[Skill ADD] Raw response: {json.dumps(jresp, default=str)[:1500]}")
+    
+    results = safe_parse_response(jresp, "addAgentSkills", "addAgentSkills")
+    
+    # Log upload_urls if present
+    if isinstance(results, list):
+        logger.info(f"[Skill ADD] Parsed {len(results)} result(s)")
+        for i, result in enumerate(results):
+            skill_id = result.get('id', 'unknown')
+            success = result.get('success', False)
+            upload_urls = result.get('upload_urls')
+            logger.info(f"[Skill ADD] Result[{i}]: id={skill_id}, success={success}, has_upload_urls={bool(upload_urls)}")
+            if upload_urls:
+                # Parse if string
+                if isinstance(upload_urls, str):
+                    try:
+                        upload_urls = json.loads(upload_urls)
+                    except:
+                        pass
+                logger.info(f"[Skill ADD] upload_urls structure: {json.dumps(upload_urls, default=str)[:800]}")
+    
+    return results
 
 
 @cloud_api(DataType.SKILL, Operation.UPDATE)
@@ -2190,9 +2278,34 @@ def send_update_skills_request_to_cloud(session, skills, token, endpoint):
     """Update Skill entities (skill data: name, description, etc.)"""
     from agent.cloud_api.graphql_builder import build_mutation
     from agent.cloud_api.constants import Operation
+    
+    logger.info(f"[Skill UPDATE] Sending updateAgentSkills mutation for {len(skills)} skill(s)")
     mutationInfo = build_mutation(DataType.SKILL, Operation.UPDATE, skills)
+    logger.debug(f"[Skill UPDATE] Mutation: {mutationInfo[:500]}...")
+    
     jresp = appsync_http_request(mutationInfo, session, token, endpoint)
-    return safe_parse_response(jresp, "updateAgentSkills", "updateAgentSkills")
+    logger.info(f"[Skill UPDATE] Received response from server")
+    logger.debug(f"[Skill UPDATE] Raw response: {json.dumps(jresp, default=str)[:1500]}")
+    
+    results = safe_parse_response(jresp, "updateAgentSkills", "updateAgentSkills")
+    
+    # Log upload_urls if present
+    if isinstance(results, list):
+        logger.info(f"[Skill UPDATE] Parsed {len(results)} result(s)")
+        for i, result in enumerate(results):
+            skill_id = result.get('id', 'unknown')
+            success = result.get('success', False)
+            upload_urls = result.get('upload_urls')
+            logger.info(f"[Skill UPDATE] Result[{i}]: id={skill_id}, success={success}, has_upload_urls={bool(upload_urls)}")
+            if upload_urls:
+                if isinstance(upload_urls, str):
+                    try:
+                        upload_urls = json.loads(upload_urls)
+                    except:
+                        pass
+                logger.info(f"[Skill UPDATE] upload_urls structure: {json.dumps(upload_urls, default=str)[:800]}")
+    
+    return results
 
 
 @cloud_api(DataType.SKILL, Operation.DELETE)
@@ -2253,30 +2366,46 @@ def build_skill_source_string(file_paths: list) -> str:
 
 def prepare_skill_with_source(skill_data: dict, skill_directory: str = None) -> dict:
     """
-    Prepare skill data with source attribute containing file paths.
+    Prepare skill data with source attribute containing CODE file paths only.
+    
+    The 'source' field should only contain code files (e.g., .py files).
+    Diagram JSON, bundle, and data_mapping files are handled separately via upload_urls.
     
     Args:
         skill_data: Original skill data dictionary
+            - If 'source' is already set (comma-separated code filenames), use it
+            - Otherwise, auto-detect .py files in skill_directory
         skill_directory: Path to skill directory (if None, uses skill_data['path'])
         
     Returns:
-        Skill data with 'source' attribute populated
+        Skill data with 'source' attribute populated (code files only)
     """
     skill = skill_data.copy()
+    
+    # If source is already provided (comma-separated code filenames), use it as-is
+    existing_source = skill.get('source', '')
+    if existing_source:
+        logger.info(f"[SkillFiles] Using provided source: {existing_source}")
+        return skill
     
     # Determine skill directory
     if skill_directory is None:
         skill_directory = skill.get('path', '')
     
+    # Auto-detect code files (.py) only - NOT diagram or data_mapping files
     if skill_directory and os.path.isdir(skill_directory):
-        # Collect all files recursively
-        file_paths = collect_skill_files(skill_directory)
-        # Build source string
-        skill['source'] = build_skill_source_string(file_paths)
-        logger.info(f"[SkillFiles] Prepared skill with {len(file_paths)} files in source")
+        # Only collect .py files at the root level (not in subdirectories)
+        code_files = [f for f in os.listdir(skill_directory) 
+                      if f.endswith('.py') and os.path.isfile(os.path.join(skill_directory, f))]
+        if code_files:
+            skill['source'] = ','.join(code_files)
+            logger.info(f"[SkillFiles] Auto-detected {len(code_files)} code files: {skill['source']}")
+        else:
+            skill['source'] = ''
+            logger.info(f"[SkillFiles] No code files found in {skill_directory}")
     else:
-        skill['source'] = skill.get('source', '')
-        logger.debug(f"[SkillFiles] No valid skill directory, using existing source: {skill['source'][:100]}...")
+        skill['source'] = ''
+        logger.debug(f"[SkillFiles] No valid skill directory for code file detection")
     
     return skill
 
@@ -2325,12 +2454,185 @@ def upload_skill_files_with_presigned_urls(
     return results
 
 
+def upload_skill_files_with_upload_urls(
+    skill_directory: str,
+    upload_urls: dict,
+    skill_name: str = '',
+    diagram_subdir: str = 'diagram_dir',
+    source_files: str = ''
+) -> dict:
+    """
+    Upload skill files using the new upload_urls format from SkillMutationResult.
+    
+    The upload_urls structure from cloud:
+    {
+        "diagram": {
+            "json": { "key": "...", "url": "..." },
+            "bundle": { "key": "...", "url": "..." }
+        },
+        "code": [],  # Array of { "key": "...", "url": "..." } for code files
+        "data_mapping": { "key": "...", "url": "..." }
+    }
+    
+    File structure:
+        {skill_directory}/
+            - data_mapping.json (if exists)
+            - {diagram_subdir}/{skill_name}.json (diagram JSON)
+            - {diagram_subdir}/{skill_name}_bundle.json (diagram bundle)
+            - {source_files} (comma-separated code file names, e.g., "a.py,b.py,c.py")
+    
+    Args:
+        skill_directory: Absolute path to skill directory (e.g., my_skills/skill_name/)
+        upload_urls: The upload_urls dict from SkillMutationResult
+        skill_name: Name of the skill (used to find diagram files)
+        diagram_subdir: Subdirectory containing diagram files (default: 'diagram_dir')
+        source_files: Comma-separated list of code file names to upload
+        
+    Returns:
+        Dict with upload results for each file type
+    """
+    results = {
+        'diagram_json': None,
+        'diagram_bundle': None,
+        'data_mapping': None,
+        'code': [],
+        'errors': []
+    }
+    
+    if not upload_urls:
+        logger.warning("[SkillUpload] No upload_urls provided")
+        return results
+    
+    # Parse upload_urls if it's a string (AWSJSON)
+    if isinstance(upload_urls, str):
+        try:
+            upload_urls = json.loads(upload_urls)
+        except json.JSONDecodeError as e:
+            logger.error(f"[SkillUpload] Failed to parse upload_urls JSON: {e}")
+            results['errors'].append(f"Failed to parse upload_urls: {e}")
+            return results
+    
+    logger.info(f"[SkillUpload] Processing upload_urls for skill: {skill_name}")
+    logger.info(f"[SkillUpload] skill_directory={skill_directory}, diagram_subdir={diagram_subdir}, source_files={source_files}")
+    logger.debug(f"[SkillUpload] upload_urls structure: {json.dumps(upload_urls, default=str)[:500]}")
+    
+    # Build diagram directory path
+    diagram_dir = os.path.join(skill_directory, diagram_subdir)
+    logger.info(f"[SkillUpload] Diagram directory: {diagram_dir} (exists={os.path.isdir(diagram_dir)})")
+    
+    # 1. Upload diagram JSON: {diagram_subdir}/{skill_name}.json
+    diagram_urls = upload_urls.get('diagram', {})
+    if diagram_urls.get('json'):
+        json_url_info = diagram_urls['json']
+        presigned_url = json_url_info.get('url')
+        if presigned_url:
+            # Use skill_name to find the exact file: {skill_name}.json
+            json_filename = f"{skill_name}.json" if skill_name else None
+            json_path = os.path.join(diagram_dir, json_filename) if json_filename else None
+            
+            # Fallback: search for *_skill.json if exact file not found
+            if not json_path or not os.path.isfile(json_path):
+                json_files = [f for f in os.listdir(diagram_dir) if f.endswith('.json')] if os.path.isdir(diagram_dir) else []
+                if json_files:
+                    json_path = os.path.join(diagram_dir, json_files[0])
+                    logger.info(f"[SkillUpload] Using fallback diagram JSON: {json_files[0]}")
+            
+            if json_path and os.path.isfile(json_path):
+                logger.info(f"[SkillUpload] 📤 Uploading diagram JSON: {json_path}")
+                result = upload_file_to_presigned_url(json_path, presigned_url, 'application/json')
+                results['diagram_json'] = result
+                logger.info(f"[SkillUpload] Diagram JSON upload result: {result}")
+            else:
+                logger.warning(f"[SkillUpload] Diagram JSON file not found: {json_path}")
+                results['errors'].append(f"Diagram JSON file not found: {json_filename}")
+    
+    # 2. Upload diagram bundle: {diagram_subdir}/{skill_name}_bundle.json
+    if diagram_urls.get('bundle'):
+        bundle_url_info = diagram_urls['bundle']
+        presigned_url = bundle_url_info.get('url')
+        if presigned_url:
+            # Use skill_name to find the exact file: {skill_name}_bundle.json
+            bundle_filename = f"{skill_name}_bundle.json" if skill_name else None
+            bundle_path = os.path.join(diagram_dir, bundle_filename) if bundle_filename else None
+            
+            # Fallback: search for *_bundle.json if exact file not found
+            if not bundle_path or not os.path.isfile(bundle_path):
+                bundle_files = [f for f in os.listdir(diagram_dir) if f.endswith('_bundle.json')] if os.path.isdir(diagram_dir) else []
+                if bundle_files:
+                    bundle_path = os.path.join(diagram_dir, bundle_files[0])
+                    logger.info(f"[SkillUpload] Using fallback diagram bundle: {bundle_files[0]}")
+            
+            if bundle_path and os.path.isfile(bundle_path):
+                logger.info(f"[SkillUpload] 📤 Uploading diagram bundle: {bundle_path}")
+                result = upload_file_to_presigned_url(bundle_path, presigned_url, 'application/octet-stream')
+                results['diagram_bundle'] = result
+                logger.info(f"[SkillUpload] Diagram bundle upload result: {result}")
+            else:
+                logger.warning(f"[SkillUpload] Diagram bundle file not found: {bundle_path}")
+                results['errors'].append(f"Diagram bundle file not found: {bundle_filename}")
+    
+    # 3. Upload data_mapping.json (at skill root directory)
+    data_mapping_url_info = upload_urls.get('data_mapping', {})
+    if data_mapping_url_info.get('url'):
+        presigned_url = data_mapping_url_info['url']
+        data_mapping_path = os.path.join(skill_directory, 'data_mapping.json')
+        if os.path.isfile(data_mapping_path):
+            logger.info(f"[SkillUpload] 📤 Uploading data_mapping.json: {data_mapping_path}")
+            result = upload_file_to_presigned_url(data_mapping_path, presigned_url, 'application/json')
+            results['data_mapping'] = result
+            logger.info(f"[SkillUpload] Data mapping upload result: {result}")
+        else:
+            logger.info(f"[SkillUpload] data_mapping.json not found at {data_mapping_path} (optional)")
+    
+    # 4. Upload code files (from source_files parameter - comma-separated filenames)
+    # Code files are in code_dir/ subdirectory
+    code_urls = upload_urls.get('code', [])
+    if code_urls and isinstance(code_urls, list):
+        # Parse source_files: comma-separated list of filenames (e.g., "a.py,b.py,c.py")
+        code_file_list = [f.strip() for f in source_files.split(',') if f.strip()] if source_files else []
+        code_dir = os.path.join(skill_directory, 'code_dir')
+        logger.info(f"[SkillUpload] Code directory: {code_dir} (exists={os.path.isdir(code_dir)})")
+        logger.info(f"[SkillUpload] Code files to upload: {code_file_list}")
+        
+        for i, code_url_info in enumerate(code_urls):
+            if i < len(code_file_list):
+                presigned_url = code_url_info.get('url')
+                code_filename = code_file_list[i]
+                if presigned_url and code_filename:
+                    # Look for code file in code_dir/ subdirectory
+                    code_path = os.path.join(code_dir, code_filename)
+                    # Fallback to skill root if not in code_dir
+                    if not os.path.isfile(code_path):
+                        code_path = os.path.join(skill_directory, code_filename)
+                    
+                    if os.path.isfile(code_path):
+                        logger.info(f"[SkillUpload] 📤 Uploading code file: {code_path}")
+                        result = upload_file_to_presigned_url(code_path, presigned_url, 'text/x-python')
+                        results['code'].append({'file': code_filename, 'result': result})
+                        logger.info(f"[SkillUpload] Code file upload result: {result}")
+                    else:
+                        logger.warning(f"[SkillUpload] Code file not found: {code_path}")
+                        results['errors'].append(f"Code file not found: {code_filename}")
+    
+    # Summary
+    success_count = sum([
+        1 if results['diagram_json'] and results['diagram_json'].get('success') else 0,
+        1 if results['diagram_bundle'] and results['diagram_bundle'].get('success') else 0,
+        1 if results['data_mapping'] and results['data_mapping'].get('success') else 0,
+        sum(1 for c in results['code'] if c.get('result', {}).get('success'))
+    ])
+    logger.info(f"[SkillUpload] Upload complete: {success_count} files uploaded successfully")
+    
+    return results
+
+
 def send_add_skills_with_files_to_cloud(
     session, 
     skills: list, 
     token: str, 
     endpoint: str, 
-    timeout: int = 180
+    timeout: int = 180,
+    upload_files: bool = True
 ) -> dict:
     """
     Add skills to cloud with file upload support.
@@ -2338,7 +2640,7 @@ def send_add_skills_with_files_to_cloud(
     This function:
     1. Prepares each skill with source attribute (comma-separated file paths)
     2. Sends add request to cloud
-    3. Parses presigned URLs from response
+    3. Parses upload_urls from response (new SkillMutationResult format)
     4. Uploads files using presigned URLs
     
     Args:
@@ -2347,69 +2649,129 @@ def send_add_skills_with_files_to_cloud(
         token: Auth token
         endpoint: AppSync endpoint
         timeout: Request timeout
+        upload_files: If True, automatically upload files using presigned URLs
         
     Returns:
         Dict with cloud response and file upload results
     """
     from agent.cloud_api.graphql_builder import build_mutation
     
+    logger.info(f"[Skill ADD] Sending addAgentSkills mutation for {len(skills)} skill(s)")
+    
     # Step 1: Prepare skills with source attribute
     prepared_skills = []
-    skill_file_map = {}  # Map skill ID to file paths for later upload
+    skill_file_map = {}  # Map skill ID to directory info for later upload
     
     for skill in skills:
+        # Derive skill directory from diagram field or path
+        # diagram: {"dir": "diagram_dir", "local_dir": "my_skills/"} 
+        # Skill files are at: {local_dir}/{skill_name}/
+        #   - data_mapping.json (if exists)
+        #   - {diagram_dir}/{skill_name}.json
+        #   - {diagram_dir}/{skill_name}_bundle.json
+        # Code files from "source" attribute (comma-separated filenames)
+        
+        skill_name = skill.get('name', '')
+        diagram = skill.get('diagram', {})
+        source = skill.get('source', '')  # comma-separated code file names
+        
+        # Build skill directory path
         skill_dir = skill.get('path', '')
+        if not skill_dir and diagram:
+            local_dir = diagram.get('local_dir', 'my_skills/')
+            if skill_name:
+                skill_dir = os.path.join(local_dir, skill_name)
+                # Convert relative path to absolute if needed
+                if not os.path.isabs(skill_dir):
+                    skill_dir = os.path.abspath(skill_dir)
+                logger.info(f"[Skill ADD] Derived skill_dir from diagram: {skill_dir}")
+        
         prepared_skill = prepare_skill_with_source(skill, skill_dir)
         prepared_skills.append(prepared_skill)
         
-        # Store file paths for upload
+        # Store directory info for upload
         skill_id = prepared_skill.get('askid') or prepared_skill.get('id', '')
         if skill_dir and os.path.isdir(skill_dir):
+            diagram_subdir = diagram.get('dir', 'diagram_dir') if diagram else 'diagram_dir'
             skill_file_map[skill_id] = {
-                'directory': skill_dir,
-                'files': collect_skill_files(skill_dir)
+                'dir': skill_dir,
+                'name': skill_name,
+                'diagram_subdir': diagram_subdir,
+                'source': source  # comma-separated code file names
             }
+            logger.info(f"[Skill ADD] Mapped skill {skill_id} to directory: {skill_dir} (diagram_subdir={diagram_subdir})")
+        else:
+            logger.warning(f"[Skill ADD] Skill directory not found: {skill_dir}")
     
     # Step 2: Send add request to cloud
     mutationInfo = build_mutation(DataType.SKILL, Operation.ADD, prepared_skills)
-    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
-    cloud_response = safe_parse_response(jresp, "addAgentSkills", "addAgentSkills")
+    logger.debug(f"[Skill ADD] Mutation: {mutationInfo[:500]}...")
     
-    # Step 3: Parse presigned URLs and upload files
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    logger.info(f"[Skill ADD] Received response from server")
+    logger.debug(f"[Skill ADD] Raw response: {json.dumps(jresp, default=str)[:1000]}")
+    
+    cloud_response = safe_parse_response(jresp, "addAgentSkills", "addAgentSkills")
+    logger.info(f"[Skill ADD] Parsed {len(cloud_response) if isinstance(cloud_response, list) else 1} result(s)")
+    
+    # Step 3: Parse upload_urls and upload files (new SkillMutationResult format)
     upload_results = {}
     
-    if isinstance(cloud_response, dict) and 'presigned_urls' in cloud_response:
-        # Cloud returned presigned URLs for file uploads
-        for skill_id, url_list in cloud_response.get('presigned_urls', {}).items():
-            if skill_id in skill_file_map:
+    if upload_files and isinstance(cloud_response, list):
+        logger.info(f"[Skill ADD] Processing upload_urls from response")
+        logger.info(f"[Skill ADD] skill_file_map keys: {list(skill_file_map.keys())}")
+        
+        for i, result in enumerate(cloud_response):
+            skill_id = result.get('id', '')
+            success = result.get('success', False)
+            upload_urls_raw = result.get('upload_urls')
+            
+            # Parse upload_urls if it's a JSON string (AWSJSON comes as string)
+            upload_urls = None
+            if upload_urls_raw:
+                if isinstance(upload_urls_raw, str):
+                    try:
+                        upload_urls = json.loads(upload_urls_raw)
+                        logger.info(f"[Skill ADD] Parsed upload_urls from JSON string")
+                    except json.JSONDecodeError as e:
+                        logger.error(f"[Skill ADD] Failed to parse upload_urls JSON: {e}")
+                        upload_urls = None
+                elif isinstance(upload_urls_raw, dict):
+                    upload_urls = upload_urls_raw
+            
+            logger.info(f"[Skill ADD] Result[{i}]: id={skill_id}, success={success}, has_upload_urls={bool(upload_urls)}")
+            logger.info(f"[Skill ADD] skill_id '{skill_id}' in skill_file_map: {skill_id in skill_file_map}")
+            
+            if success and upload_urls and skill_id in skill_file_map:
                 skill_info = skill_file_map[skill_id]
-                upload_result = upload_skill_files_with_presigned_urls(
-                    session,
-                    skill_info['directory'],
-                    url_list,
-                    skill_info['files']
+                skill_dir = skill_info['dir']
+                skill_name = skill_info['name']
+                diagram_subdir = skill_info['diagram_subdir']
+                source_files = skill_info['source']
+                logger.info(f"[Skill ADD] 📤 Uploading files for skill {skill_id} from {skill_dir}")
+                logger.info(f"[Skill ADD] skill_name={skill_name}, diagram_subdir={diagram_subdir}, source={source_files}")
+                upload_result = upload_skill_files_with_upload_urls(
+                    skill_dir, upload_urls, skill_name, diagram_subdir, source_files
                 )
                 upload_results[skill_id] = upload_result
-    elif isinstance(cloud_response, dict) and 'body' in cloud_response:
-        # Alternative response format with body containing URLs
-        body = cloud_response.get('body', {})
-        if isinstance(body, dict) and 'urls' in body:
-            urls_data = body.get('urls', {})
-            if isinstance(urls_data, dict) and 'result' in urls_data:
-                try:
-                    url_result = json.loads(urls_data['result']) if isinstance(urls_data['result'], str) else urls_data['result']
-                    if 'body' in url_result and isinstance(url_result['body'], list):
-                        # Upload files for each skill
-                        for skill_id, skill_info in skill_file_map.items():
-                            upload_result = upload_skill_files_with_presigned_urls(
-                                session,
-                                skill_info['directory'],
-                                url_result['body'],
-                                skill_info['files']
-                            )
-                            upload_results[skill_id] = upload_result
-                except (json.JSONDecodeError, TypeError) as e:
-                    logger.warning(f"[SkillUpload] Failed to parse presigned URLs: {e}")
+                result['file_upload_results'] = upload_result
+            elif upload_urls:
+                logger.warning(f"[Skill ADD] Skipping upload: success={success}, skill_id_in_map={skill_id in skill_file_map}")
+                logger.debug(f"[Skill ADD] upload_urls content: {json.dumps(upload_urls, default=str)[:500]}")
+    
+    # Legacy format handling (for backwards compatibility)
+    elif isinstance(cloud_response, dict):
+        if 'presigned_urls' in cloud_response:
+            for skill_id, url_list in cloud_response.get('presigned_urls', {}).items():
+                if skill_id in skill_file_map:
+                    skill_dir = skill_file_map[skill_id]
+                    files = collect_skill_files(skill_dir)
+                    upload_result = upload_skill_files_with_presigned_urls(
+                        session, skill_dir, url_list, files
+                    )
+                    upload_results[skill_id] = upload_result
+    
+    logger.info(f"[Skill ADD] Completed with {len(upload_results)} skill(s) uploaded")
     
     return {
         'cloud_response': cloud_response,
@@ -2423,7 +2785,8 @@ def send_update_skills_with_files_to_cloud(
     skills: list, 
     token: str, 
     endpoint: str, 
-    timeout: int = 180
+    timeout: int = 180,
+    upload_files: bool = True
 ) -> dict:
     """
     Update skills in cloud with file upload support.
@@ -2436,65 +2799,123 @@ def send_update_skills_with_files_to_cloud(
         token: Auth token
         endpoint: AppSync endpoint
         timeout: Request timeout
+        upload_files: If True, automatically upload files using presigned URLs
         
     Returns:
         Dict with cloud response and file upload results
     """
     from agent.cloud_api.graphql_builder import build_mutation
     
+    logger.info(f"[Skill UPDATE] Sending updateAgentSkills mutation for {len(skills)} skill(s)")
+    
     # Step 1: Prepare skills with source attribute
     prepared_skills = []
-    skill_file_map = {}
+    skill_file_map = {}  # Map skill ID to directory info for later upload
     
     for skill in skills:
+        # Derive skill directory from diagram field or path
+        # diagram: {"dir": "diagram_dir", "local_dir": "my_skills/"} 
+        # Skill files are at: {local_dir}/{skill_name}/
+        skill_name = skill.get('name', '')
+        diagram = skill.get('diagram', {})
+        source = skill.get('source', '')  # comma-separated code file names
+        
+        # Build skill directory path
         skill_dir = skill.get('path', '')
+        if not skill_dir and diagram:
+            local_dir = diagram.get('local_dir', 'my_skills/')
+            if skill_name:
+                skill_dir = os.path.join(local_dir, skill_name)
+                # Convert relative path to absolute if needed
+                if not os.path.isabs(skill_dir):
+                    skill_dir = os.path.abspath(skill_dir)
+                logger.info(f"[Skill UPDATE] Derived skill_dir from diagram: {skill_dir}")
+        
         prepared_skill = prepare_skill_with_source(skill, skill_dir)
         prepared_skills.append(prepared_skill)
         
         skill_id = prepared_skill.get('askid') or prepared_skill.get('id', '')
         if skill_dir and os.path.isdir(skill_dir):
+            diagram_subdir = diagram.get('dir', 'diagram_dir') if diagram else 'diagram_dir'
             skill_file_map[skill_id] = {
-                'directory': skill_dir,
-                'files': collect_skill_files(skill_dir)
+                'dir': skill_dir,
+                'name': skill_name,
+                'diagram_subdir': diagram_subdir,
+                'source': source
             }
+            logger.info(f"[Skill UPDATE] Mapped skill {skill_id} to directory: {skill_dir} (diagram_subdir={diagram_subdir})")
+        else:
+            logger.warning(f"[Skill UPDATE] Skill directory not found: {skill_dir}")
     
     # Step 2: Send update request to cloud
     mutationInfo = build_mutation(DataType.SKILL, Operation.UPDATE, prepared_skills)
-    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
-    cloud_response = safe_parse_response(jresp, "updateAgentSkills", "updateAgentSkills")
+    logger.debug(f"[Skill UPDATE] Mutation: {mutationInfo[:500]}...")
     
-    # Step 3: Parse presigned URLs and upload files
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout)
+    logger.info(f"[Skill UPDATE] Received response from server")
+    logger.debug(f"[Skill UPDATE] Raw response: {json.dumps(jresp, default=str)[:1000]}")
+    
+    cloud_response = safe_parse_response(jresp, "updateAgentSkills", "updateAgentSkills")
+    logger.info(f"[Skill UPDATE] Parsed {len(cloud_response) if isinstance(cloud_response, list) else 1} result(s)")
+    
+    # Step 3: Parse upload_urls and upload files (new SkillMutationResult format)
     upload_results = {}
     
-    if isinstance(cloud_response, dict) and 'presigned_urls' in cloud_response:
-        for skill_id, url_list in cloud_response.get('presigned_urls', {}).items():
-            if skill_id in skill_file_map:
+    if upload_files and isinstance(cloud_response, list):
+        logger.info(f"[Skill UPDATE] Processing upload_urls from response")
+        logger.info(f"[Skill UPDATE] skill_file_map keys: {list(skill_file_map.keys())}")
+        
+        for i, result in enumerate(cloud_response):
+            skill_id = result.get('id', '')
+            success = result.get('success', False)
+            upload_urls_raw = result.get('upload_urls')
+            
+            # Parse upload_urls if it's a JSON string (AWSJSON comes as string)
+            upload_urls = None
+            if upload_urls_raw:
+                if isinstance(upload_urls_raw, str):
+                    try:
+                        upload_urls = json.loads(upload_urls_raw)
+                        logger.info(f"[Skill UPDATE] Parsed upload_urls from JSON string")
+                    except json.JSONDecodeError as e:
+                        logger.error(f"[Skill UPDATE] Failed to parse upload_urls JSON: {e}")
+                        upload_urls = None
+                elif isinstance(upload_urls_raw, dict):
+                    upload_urls = upload_urls_raw
+            
+            logger.info(f"[Skill UPDATE] Result[{i}]: id={skill_id}, success={success}, has_upload_urls={bool(upload_urls)}")
+            logger.info(f"[Skill UPDATE] skill_id '{skill_id}' in skill_file_map: {skill_id in skill_file_map}")
+            
+            if success and upload_urls and skill_id in skill_file_map:
                 skill_info = skill_file_map[skill_id]
-                upload_result = upload_skill_files_with_presigned_urls(
-                    session,
-                    skill_info['directory'],
-                    url_list,
-                    skill_info['files']
+                skill_dir = skill_info['dir']
+                skill_name = skill_info['name']
+                diagram_subdir = skill_info['diagram_subdir']
+                source_files = skill_info['source']
+                logger.info(f"[Skill UPDATE] 📤 Uploading files for skill {skill_id} from {skill_dir}")
+                logger.info(f"[Skill UPDATE] skill_name={skill_name}, diagram_subdir={diagram_subdir}, source={source_files}")
+                upload_result = upload_skill_files_with_upload_urls(
+                    skill_dir, upload_urls, skill_name, diagram_subdir, source_files
                 )
                 upload_results[skill_id] = upload_result
-    elif isinstance(cloud_response, dict) and 'body' in cloud_response:
-        body = cloud_response.get('body', {})
-        if isinstance(body, dict) and 'urls' in body:
-            urls_data = body.get('urls', {})
-            if isinstance(urls_data, dict) and 'result' in urls_data:
-                try:
-                    url_result = json.loads(urls_data['result']) if isinstance(urls_data['result'], str) else urls_data['result']
-                    if 'body' in url_result and isinstance(url_result['body'], list):
-                        for skill_id, skill_info in skill_file_map.items():
-                            upload_result = upload_skill_files_with_presigned_urls(
-                                session,
-                                skill_info['directory'],
-                                url_result['body'],
-                                skill_info['files']
-                            )
-                            upload_results[skill_id] = upload_result
-                except (json.JSONDecodeError, TypeError) as e:
-                    logger.warning(f"[SkillUpload] Failed to parse presigned URLs: {e}")
+                result['file_upload_results'] = upload_result
+            elif upload_urls:
+                logger.warning(f"[Skill UPDATE] Skipping upload: success={success}, skill_id_in_map={skill_id in skill_file_map}")
+                logger.debug(f"[Skill UPDATE] upload_urls content: {json.dumps(upload_urls, default=str)[:500]}")
+    
+    # Legacy format handling (for backwards compatibility)
+    elif isinstance(cloud_response, dict):
+        if 'presigned_urls' in cloud_response:
+            for skill_id, url_list in cloud_response.get('presigned_urls', {}).items():
+                if skill_id in skill_file_map:
+                    skill_dir = skill_file_map[skill_id]
+                    files = collect_skill_files(skill_dir)
+                    upload_result = upload_skill_files_with_presigned_urls(
+                        session, skill_dir, url_list, files
+                    )
+                    upload_results[skill_id] = upload_result
+    
+    logger.info(f"[Skill UPDATE] Completed with {len(upload_results)} skill(s) uploaded")
     
     return {
         'cloud_response': cloud_response,
@@ -3787,16 +4208,16 @@ def handle_account_notification(notification: dict):
 
 @cloud_api(DataType.VEHICLE, Operation.ADD)
 def send_add_vehicles_request_to_cloud(session, vehicles, token, endpoint, timeout=180):
-    """Add/Report vehicles to cloud"""
-    mutationInfo = gen_report_vehicles_string(vehicles)
+    """Add vehicles to cloud using new schema"""
+    mutationInfo = gen_add_vehicles_string(vehicles)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
-    return safe_parse_response(jresp, "reportVehicles", "reportVehicles")
+    return safe_parse_response(jresp, "addVehicles", "addVehicles")
 
 
 @cloud_api(DataType.VEHICLE, Operation.UPDATE)
 def send_update_vehicles_decorated_to_cloud(session, vehicles, token, endpoint, timeout=180):
-    """Update vehicles in cloud"""
-    mutationInfo = gen_update_vehicles_string(vehicles)
+    """Update vehicles in cloud using new schema"""
+    mutationInfo = gen_update_vehicles_new_string(vehicles)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
     return safe_parse_response(jresp, "updateVehicles", "updateVehicles")
 
@@ -3838,38 +4259,308 @@ def send_query_knowledges_decorated_to_cloud(session, token, q_settings, endpoin
 
 
 # ============================================================================
+# Agent Knowledge Operations (New Schema)
+# ============================================================================
+
+def gen_add_agent_knowledges_string(knowledges):
+    """Generate GraphQL mutation string for adding agent knowledges
+    
+    New schema: addAgentKnowledges(input: [KnowledgeInput!]!): [KnowledgeMutationResult!]!
+    KnowledgeInput has: name (required), id, description, knowledge_type, status, etc.
+    """
+    query_string = """
+        mutation MyMutation {
+      addAgentKnowledges (input:[
+    """
+    rec_string = ""
+    for i, k in enumerate(knowledges):
+        rec_string += "{ "
+        if k.get("id"):
+            rec_string += f'id: "{k.get("id")}", '
+        rec_string += f'name: "{k.get("name", "")}"'
+        if k.get("description"):
+            description = k.get("description", "").replace('"', '\\"').replace('\n', '\\n')
+            rec_string += f', description: "{description}"'
+        if k.get("knowledge_type"):
+            rec_string += f', knowledge_type: "{k.get("knowledge_type")}"'
+        if k.get("status"):
+            rec_string += f', status: "{k.get("status")}"'
+        if k.get("path"):
+            rec_string += f', path: "{k.get("path")}"'
+        if k.get("content"):
+            content = k.get("content", "").replace('"', '\\"').replace('\n', '\\n')
+            rec_string += f', content: "{content}"'
+        if k.get("version"):
+            rec_string += f', version: "{k.get("version")}"'
+        if k.get("level") is not None:
+            rec_string += f', level: {k.get("level")}'
+        if k.get("public") is not None:
+            rec_string += f', public: {"true" if k.get("public") else "false"}'
+        if k.get("rentable") is not None:
+            rec_string += f', rentable: {"true" if k.get("rentable") else "false"}'
+        if k.get("price") is not None:
+            rec_string += f', price: {k.get("price")}'
+        if k.get("price_model"):
+            rec_string += f', price_model: "{k.get("price_model")}"'
+        if k.get("tags"):
+            tags = k.get("tags", [])
+            if isinstance(tags, (list, dict)):
+                tags = json.dumps(tags, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', tags: "{tags}"'
+        if k.get("categories"):
+            categories = k.get("categories", [])
+            if isinstance(categories, (list, dict)):
+                categories = json.dumps(categories, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', categories: "{categories}"'
+        if k.get("config"):
+            config = k.get("config", {})
+            if isinstance(config, dict):
+                config = json.dumps(config, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', config: "{config}"'
+        if k.get("settings"):
+            settings = k.get("settings", {})
+            if isinstance(settings, dict):
+                settings = json.dumps(settings, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', settings: "{settings}"'
+        rec_string += " }"
+        if i != len(knowledges) - 1:
+            rec_string += ', '
+        else:
+            rec_string += ']'
+    
+    query_string += rec_string
+    query_string += """
+        ) { id success error }
+    }
+    """
+    return query_string
+
+
+def gen_update_agent_knowledges_string(knowledges):
+    """Generate GraphQL mutation string for updating agent knowledges
+    
+    New schema: updateAgentKnowledges(input: [KnowledgeUpdateInput!]!): [KnowledgeMutationResult!]!
+    KnowledgeUpdateInput has: id (required), and many optional fields
+    """
+    query_string = """
+        mutation MyMutation {
+      updateAgentKnowledges (input:[
+    """
+    rec_string = ""
+    for i, k in enumerate(knowledges):
+        rec_string += "{ "
+        rec_string += f'id: "{k.get("id", "")}"'
+        if "name" in k:
+            rec_string += f', name: "{k.get("name", "")}"'
+        if "description" in k:
+            description = k.get("description", "").replace('"', '\\"').replace('\n', '\\n')
+            rec_string += f', description: "{description}"'
+        if "knowledge_type" in k:
+            rec_string += f', knowledge_type: "{k.get("knowledge_type", "")}"'
+        if "status" in k:
+            rec_string += f', status: "{k.get("status", "")}"'
+        if "path" in k:
+            rec_string += f', path: "{k.get("path", "")}"'
+        if "content" in k:
+            content = k.get("content", "").replace('"', '\\"').replace('\n', '\\n')
+            rec_string += f', content: "{content}"'
+        if "version" in k:
+            rec_string += f', version: "{k.get("version", "")}"'
+        if "level" in k:
+            rec_string += f', level: {k.get("level")}'
+        if "public" in k:
+            rec_string += f', public: {"true" if k.get("public") else "false"}'
+        if "rentable" in k:
+            rec_string += f', rentable: {"true" if k.get("rentable") else "false"}'
+        if "price" in k:
+            rec_string += f', price: {k.get("price")}'
+        if "price_model" in k:
+            rec_string += f', price_model: "{k.get("price_model", "")}"'
+        if "tags" in k:
+            tags = k.get("tags", [])
+            if isinstance(tags, (list, dict)):
+                tags = json.dumps(tags, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', tags: "{tags}"'
+        if "categories" in k:
+            categories = k.get("categories", [])
+            if isinstance(categories, (list, dict)):
+                categories = json.dumps(categories, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', categories: "{categories}"'
+        if "config" in k:
+            config = k.get("config", {})
+            if isinstance(config, dict):
+                config = json.dumps(config, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', config: "{config}"'
+        if "settings" in k:
+            settings = k.get("settings", {})
+            if isinstance(settings, dict):
+                settings = json.dumps(settings, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', settings: "{settings}"'
+        rec_string += " }"
+        if i != len(knowledges) - 1:
+            rec_string += ', '
+        else:
+            rec_string += ']'
+    
+    query_string += rec_string
+    query_string += """
+        ) { id success error }
+    }
+    """
+    return query_string
+
+
+def gen_remove_agent_knowledges_string(removeOrders):
+    """Generate GraphQL mutation string for removing agent knowledges
+    
+    New schema: removeAgentKnowledges(input: [ID!]!): [KnowledgeMutationResult!]!
+    Input is just an array of IDs
+    """
+    ids = []
+    for item in removeOrders:
+        if isinstance(item, str):
+            ids.append(item)
+        elif isinstance(item, dict):
+            ids.append(item.get("id", item.get("oid", "")))
+    
+    ids_str = ', '.join([f'"{id}"' for id in ids])
+    
+    query_string = f'''
+        mutation MyMutation {{
+      removeAgentKnowledges (input: [{ids_str}]) {{ id success error }}
+    }}
+    '''
+    return query_string
+
+
+def gen_query_agent_knowledges_string(q_settings):
+    """Generate GraphQL query string for querying agent knowledges
+    
+    New schema: queryAgentKnowledges(input: KnowledgeQueryInput): [AgentKnowledge!]!
+    KnowledgeQueryInput has: id, name, description (all optional)
+    """
+    input_parts = []
+    if q_settings.get("id"):
+        input_parts.append(f'id: "{q_settings["id"]}"')
+    if q_settings.get("name"):
+        input_parts.append(f'name: "{q_settings["name"]}"')
+    if q_settings.get("description"):
+        input_parts.append(f'description: "{q_settings["description"]}"')
+    
+    input_str = ", ".join(input_parts) if input_parts else ""
+    
+    query_string = f'''query MyKnowledgeQuery {{
+  queryAgentKnowledges(input: {{ {input_str} }}) {{
+    id
+    owner
+    name
+    description
+    knowledge_type
+    status
+    path
+    content
+    version
+    level
+    public
+    rentable
+    price
+    price_model
+    tags
+    categories
+    config
+    settings
+    access_methods
+    limitations
+  }}
+}}'''
+    return query_string
+
+
+def send_add_agent_knowledges_to_cloud(session, knowledges, token, endpoint, timeout=180):
+    """Add Agent Knowledge entities to cloud"""
+    mutationInfo = gen_add_agent_knowledges_string(knowledges)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "addAgentKnowledges", "addAgentKnowledges")
+
+
+def send_update_agent_knowledges_to_cloud(session, knowledges, token, endpoint, timeout=180):
+    """Update Agent Knowledge entities in cloud"""
+    mutationInfo = gen_update_agent_knowledges_string(knowledges)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "updateAgentKnowledges", "updateAgentKnowledges")
+
+
+def send_remove_agent_knowledges_to_cloud(session, removes, token, endpoint, timeout=180):
+    """Remove Agent Knowledge entities from cloud"""
+    mutationInfo = gen_remove_agent_knowledges_string(removes)
+    jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
+    return safe_parse_response(jresp, "removeAgentKnowledges", "removeAgentKnowledges")
+
+
+def send_query_agent_knowledges_to_cloud(session, token, q_settings, endpoint):
+    """Query Agent Knowledge entities from cloud"""
+    queryInfo = gen_query_agent_knowledges_string(q_settings)
+    jresp = appsync_http_request(queryInfo, session, token, endpoint)
+    return safe_parse_response(jresp, "queryAgentKnowledges", "queryAgentKnowledges")
+
+
+# ============================================================================
 # Avatar Resource Operations
 # ============================================================================
 
 def gen_add_avatar_resources_string(resources):
-    """Generate GraphQL mutation string for adding avatar resources"""
+    """Generate GraphQL mutation string for adding avatar resources
+    
+    New schema: addAvatars(input: [AvatarInput!]!): [AvatarMutationResult!]!
+    AvatarInput has all optional fields: id, owner, name, description, resource_type, etc.
+    """
     query_string = """
         mutation MyMutation {
-      addAvatarResources (input:[
+      addAvatars (input:[
     """
     rec_string = ""
     for i, res in enumerate(resources):
         rec_string += "{ "
-        rec_string += f'id: "{res.get("id", "")}", '
-        rec_string += f'owner: "{res.get("owner", "")}", '
-        rec_string += f'resource_type: "{res.get("resource_type", "")}", '
-        rec_string += f'name: "{res.get("name", "")}", '
-        rec_string += f'description: "{res.get("description", "")}", '
-        rec_string += f'image_path: "{res.get("image_path", "")}", '
-        rec_string += f'video_path: "{res.get("video_path", "")}", '
-        rec_string += f'image_hash: "{res.get("image_hash", "")}", '
-        rec_string += f'video_hash: "{res.get("video_hash", "")}", '
-        rec_string += f'cloud_image_url: "{res.get("cloud_image_url", "")}", '
-        rec_string += f'cloud_video_url: "{res.get("cloud_video_url", "")}", '
-        rec_string += f'cloud_image_key: "{res.get("cloud_image_key", "")}", '
-        rec_string += f'cloud_video_key: "{res.get("cloud_video_key", "")}", '
-        rec_string += f'cloud_synced: {"true" if res.get("cloud_synced") else "false"}, '
-        avatar_metadata = res.get("avatar_metadata", "{}")
-        if isinstance(avatar_metadata, dict):
-            avatar_metadata = json.dumps(avatar_metadata, ensure_ascii=False).replace('"', '\\"')
-        rec_string += f'avatar_metadata: "{avatar_metadata}", '
-        rec_string += f'usage_count: {res.get("usage_count", 0)}, '
-        rec_string += f'is_public: {"true" if res.get("is_public") else "false"}'
+        parts = []
+        if res.get("id"):
+            parts.append(f'id: "{res.get("id")}"')
+        if res.get("owner"):
+            parts.append(f'owner: "{res.get("owner")}"')
+        if res.get("name"):
+            parts.append(f'name: "{res.get("name")}"')
+        if res.get("description"):
+            description = res.get("description", "").replace('"', '\\"').replace('\n', '\\n')
+            parts.append(f'description: "{description}"')
+        if res.get("resource_type"):
+            parts.append(f'resource_type: "{res.get("resource_type")}"')
+        if res.get("image_path"):
+            parts.append(f'image_path: "{res.get("image_path")}"')
+        if res.get("video_path"):
+            parts.append(f'video_path: "{res.get("video_path")}"')
+        if res.get("image_hash"):
+            parts.append(f'image_hash: "{res.get("image_hash")}"')
+        if res.get("video_hash"):
+            parts.append(f'video_hash: "{res.get("video_hash")}"')
+        if res.get("cloud_image_url"):
+            parts.append(f'cloud_image_url: "{res.get("cloud_image_url")}"')
+        if res.get("cloud_video_url"):
+            parts.append(f'cloud_video_url: "{res.get("cloud_video_url")}"')
+        if res.get("cloud_image_key"):
+            parts.append(f'cloud_image_key: "{res.get("cloud_image_key")}"')
+        if res.get("cloud_video_key"):
+            parts.append(f'cloud_video_key: "{res.get("cloud_video_key")}"')
+        if "cloud_synced" in res:
+            parts.append(f'cloud_synced: {"true" if res.get("cloud_synced") else "false"}')
+        if res.get("avatar_metadata"):
+            avatar_metadata = res.get("avatar_metadata", {})
+            if isinstance(avatar_metadata, dict):
+                avatar_metadata = json.dumps(avatar_metadata, ensure_ascii=False).replace('"', '\\"')
+            parts.append(f'avatar_metadata: "{avatar_metadata}"')
+        if res.get("usage_count") is not None:
+            parts.append(f'usage_count: {res.get("usage_count")}')
+        if "is_public" in res:
+            parts.append(f'is_public: {"true" if res.get("is_public") else "false"}')
+        rec_string += ", ".join(parts)
         rec_string += " }"
         if i != len(resources) - 1:
             rec_string += ', '
@@ -3878,47 +4569,54 @@ def gen_add_avatar_resources_string(resources):
     
     query_string += rec_string
     query_string += """
-        )
+        ) { id success error image_upload_url video_upload_url }
     }
     """
     return query_string
 
 
 def gen_update_avatar_resources_string(resources):
-    """Generate GraphQL mutation string for updating avatar resources"""
+    """Generate GraphQL mutation string for updating avatar resources
+    
+    New schema: updateAvatars(input: [AvatarUpdateInput!]!): [AvatarMutationResult!]!
+    AvatarUpdateInput has: id (required), and many optional fields
+    """
     query_string = """
         mutation MyMutation {
-      updateAvatarResources (input:[
+      updateAvatars (input:[
     """
     rec_string = ""
     for i, res in enumerate(resources):
         rec_string += "{ "
-        rec_string += f'id: "{res.get("id", "")}", '
+        rec_string += f'id: "{res.get("id", "")}"'
         if "owner" in res:
-            rec_string += f'owner: "{res.get("owner", "")}", '
+            rec_string += f', owner: "{res.get("owner", "")}"'
         if "resource_type" in res:
-            rec_string += f'resource_type: "{res.get("resource_type", "")}", '
+            rec_string += f', resource_type: "{res.get("resource_type", "")}"'
         if "name" in res:
-            rec_string += f'name: "{res.get("name", "")}", '
+            rec_string += f', name: "{res.get("name", "")}"'
         if "description" in res:
-            rec_string += f'description: "{res.get("description", "")}", '
+            description = res.get("description", "").replace('"', '\\"').replace('\n', '\\n')
+            rec_string += f', description: "{description}"'
+        if "image_path" in res:
+            rec_string += f', image_path: "{res.get("image_path", "")}"'
+        if "video_path" in res:
+            rec_string += f', video_path: "{res.get("video_path", "")}"'
         if "cloud_image_url" in res:
-            rec_string += f'cloud_image_url: "{res.get("cloud_image_url", "")}", '
+            rec_string += f', cloud_image_url: "{res.get("cloud_image_url", "")}"'
         if "cloud_video_url" in res:
-            rec_string += f'cloud_video_url: "{res.get("cloud_video_url", "")}", '
+            rec_string += f', cloud_video_url: "{res.get("cloud_video_url", "")}"'
         if "cloud_synced" in res:
-            rec_string += f'cloud_synced: {"true" if res.get("cloud_synced") else "false"}, '
+            rec_string += f', cloud_synced: {"true" if res.get("cloud_synced") else "false"}'
         if "avatar_metadata" in res:
-            avatar_metadata = res.get("avatar_metadata", "{}")
+            avatar_metadata = res.get("avatar_metadata", {})
             if isinstance(avatar_metadata, dict):
                 avatar_metadata = json.dumps(avatar_metadata, ensure_ascii=False).replace('"', '\\"')
-            rec_string += f'avatar_metadata: "{avatar_metadata}", '
+            rec_string += f', avatar_metadata: "{avatar_metadata}"'
         if "usage_count" in res:
-            rec_string += f'usage_count: {res.get("usage_count", 0)}, '
+            rec_string += f', usage_count: {res.get("usage_count", 0)}'
         if "is_public" in res:
-            rec_string += f'is_public: {"true" if res.get("is_public") else "false"}'
-        # Remove trailing comma if present
-        rec_string = rec_string.rstrip(', ')
+            rec_string += f', is_public: {"true" if res.get("is_public") else "false"}'
         rec_string += " }"
         if i != len(resources) - 1:
             rec_string += ', '
@@ -3927,35 +4625,32 @@ def gen_update_avatar_resources_string(resources):
     
     query_string += rec_string
     query_string += """
-        )
+        ) { id success error image_upload_url video_upload_url }
     }
     """
     return query_string
 
 
 def gen_remove_avatar_resources_string(removeOrders):
-    """Generate GraphQL mutation string for removing avatar resources"""
-    query_string = """
-        mutation MyMutation {
-      removeAvatarResources (input:[
-    """
-    rec_string = ""
-    for i in range(len(removeOrders)):
-        rec_string += "{ "
-        rec_string += f'oid: "{removeOrders[i]["oid"]}", '
-        rec_string += f'owner: "{removeOrders[i]["owner"]}", '
-        rec_string += f'reason: "{removeOrders[i]["reason"]}"'
-        rec_string += " }"
-        if i != len(removeOrders) - 1:
-            rec_string += ', '
-        else:
-            rec_string += ']'
+    """Generate GraphQL mutation string for removing avatar resources
     
-    query_string += rec_string
-    query_string += """
-        )
-    }
+    New schema: removeAvatars(input: [ID!]!): [AvatarMutationResult!]!
+    Input is just an array of IDs
     """
+    ids = []
+    for item in removeOrders:
+        if isinstance(item, str):
+            ids.append(item)
+        elif isinstance(item, dict):
+            ids.append(item.get("id", item.get("oid", "")))
+    
+    ids_str = ', '.join([f'"{id}"' for id in ids])
+    
+    query_string = f'''
+        mutation MyMutation {{
+      removeAvatars (input: [{ids_str}]) {{ id success error }}
+    }}
+    '''
     return query_string
 
 
@@ -3993,26 +4688,153 @@ def gen_query_avatar_resources_string(q_settings):
     avatar_metadata
     is_public
     usage_count
-    last_used_at
   }}
 }}'''
     return query_string
 
 
 @cloud_api(DataType.AVATAR_RESOURCE, Operation.ADD)
-def send_add_avatar_resources_to_cloud(session, resources, token, endpoint, timeout=180):
-    """Add Avatar Resource entities to cloud"""
+def send_add_avatar_resources_to_cloud(session, resources, token, endpoint, timeout=180, upload_files=True):
+    """Add Avatar Resource entities to cloud
+    
+    Args:
+        session: HTTP session
+        resources: List of avatar resource dicts with image_path and/or video_path
+        token: Auth token
+        endpoint: API endpoint
+        timeout: Request timeout
+        upload_files: If True, automatically upload files using presigned URLs from response
+    
+    Returns:
+        List of mutation results, with upload_results added if upload_files=True
+    """
+    logger.info(f"[Avatar ADD] Sending addAvatars mutation for {len(resources)} resource(s)")
     mutationInfo = gen_add_avatar_resources_string(resources)
+    logger.debug(f"[Avatar ADD] Mutation: {mutationInfo[:500]}...")
+    
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
-    return safe_parse_response(jresp, "addAvatarResources", "addAvatarResources")
+    logger.info(f"[Avatar ADD] Received response from server")
+    logger.debug(f"[Avatar ADD] Raw response: {json.dumps(jresp, default=str)[:1000]}")
+    
+    results = safe_parse_response(jresp, "addAvatars", "addAvatars")
+    logger.info(f"[Avatar ADD] Parsed {len(results) if results else 0} result(s)")
+    
+    # Log presigned URLs received
+    if results:
+        for i, result in enumerate(results):
+            avatar_id = result.get("id", "unknown")
+            success = result.get("success", False)
+            has_image_url = bool(result.get("image_upload_url"))
+            has_video_url = bool(result.get("video_upload_url"))
+            logger.info(f"[Avatar ADD] Result[{i}]: id={avatar_id}, success={success}, has_image_url={has_image_url}, has_video_url={has_video_url}")
+            if has_image_url:
+                logger.debug(f"[Avatar ADD] image_upload_url: {result.get('image_upload_url')[:100]}...")
+            if has_video_url:
+                logger.debug(f"[Avatar ADD] video_upload_url: {result.get('video_upload_url')[:100]}...")
+    
+    # If upload_files is True and we got presigned URLs, upload the files
+    if upload_files and results:
+        logger.info(f"[Avatar ADD] Starting file uploads (upload_files={upload_files})")
+        for i, result in enumerate(results):
+            if result.get("success") and i < len(resources):
+                resource = resources[i]
+                avatar_id = result.get("id", "unknown")
+                
+                # Upload image if we have image_path and image_upload_url
+                if result.get("image_upload_url") and resource.get("image_path"):
+                    image_path = resource["image_path"]
+                    logger.info(f"[Avatar ADD] 📤 Uploading image for {avatar_id}: {image_path}")
+                    upload_result = upload_file_to_presigned_url(image_path, result["image_upload_url"])
+                    result["image_upload_result"] = upload_result
+                    logger.info(f"[Avatar ADD] Image upload result: {upload_result}")
+                else:
+                    if not result.get("image_upload_url"):
+                        logger.debug(f"[Avatar ADD] No image_upload_url in response for {avatar_id}")
+                    if not resource.get("image_path"):
+                        logger.debug(f"[Avatar ADD] No image_path in resource for {avatar_id}")
+                
+                # Upload video if we have video_path and video_upload_url
+                if result.get("video_upload_url") and resource.get("video_path"):
+                    video_path = resource["video_path"]
+                    logger.info(f"[Avatar ADD] 📤 Uploading video for {avatar_id}: {video_path}")
+                    upload_result = upload_file_to_presigned_url(video_path, result["video_upload_url"])
+                    result["video_upload_result"] = upload_result
+                    logger.info(f"[Avatar ADD] Video upload result: {upload_result}")
+                else:
+                    if not result.get("video_upload_url"):
+                        logger.debug(f"[Avatar ADD] No video_upload_url in response for {avatar_id}")
+                    if not resource.get("video_path"):
+                        logger.debug(f"[Avatar ADD] No video_path in resource for {avatar_id}")
+    else:
+        logger.info(f"[Avatar ADD] Skipping file uploads (upload_files={upload_files}, results={bool(results)})")
+    
+    logger.info(f"[Avatar ADD] Completed")
+    return results
 
 
 @cloud_api(DataType.AVATAR_RESOURCE, Operation.UPDATE)
-def send_update_avatar_resources_to_cloud(session, resources, token, endpoint, timeout=180):
-    """Update Avatar Resource entities in cloud"""
+def send_update_avatar_resources_to_cloud(session, resources, token, endpoint, timeout=180, upload_files=True):
+    """Update Avatar Resource entities in cloud
+    
+    Args:
+        session: HTTP session
+        resources: List of avatar resource dicts with id (required) and optional image_path/video_path
+        token: Auth token
+        endpoint: API endpoint
+        timeout: Request timeout
+        upload_files: If True, automatically upload files using presigned URLs from response
+    
+    Returns:
+        List of mutation results, with upload_results added if upload_files=True
+    """
+    logger.info(f"[Avatar UPDATE] Sending updateAvatars mutation for {len(resources)} resource(s)")
     mutationInfo = gen_update_avatar_resources_string(resources)
+    logger.debug(f"[Avatar UPDATE] Mutation: {mutationInfo[:500]}...")
+    
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
-    return safe_parse_response(jresp, "updateAvatarResources", "updateAvatarResources")
+    logger.info(f"[Avatar UPDATE] Received response from server")
+    logger.debug(f"[Avatar UPDATE] Raw response: {json.dumps(jresp, default=str)[:1000]}")
+    
+    results = safe_parse_response(jresp, "updateAvatars", "updateAvatars")
+    logger.info(f"[Avatar UPDATE] Parsed {len(results) if results else 0} result(s)")
+    
+    # Log presigned URLs received
+    if results:
+        for i, result in enumerate(results):
+            avatar_id = result.get("id", "unknown")
+            success = result.get("success", False)
+            has_image_url = bool(result.get("image_upload_url"))
+            has_video_url = bool(result.get("video_upload_url"))
+            logger.info(f"[Avatar UPDATE] Result[{i}]: id={avatar_id}, success={success}, has_image_url={has_image_url}, has_video_url={has_video_url}")
+    
+    # If upload_files is True and we got presigned URLs, upload the files
+    if upload_files and results:
+        logger.info(f"[Avatar UPDATE] Starting file uploads (upload_files={upload_files})")
+        for i, result in enumerate(results):
+            if result.get("success") and i < len(resources):
+                resource = resources[i]
+                avatar_id = result.get("id", "unknown")
+                
+                # Upload image if we have image_path and image_upload_url
+                if result.get("image_upload_url") and resource.get("image_path"):
+                    image_path = resource["image_path"]
+                    logger.info(f"[Avatar UPDATE] 📤 Uploading image for {avatar_id}: {image_path}")
+                    upload_result = upload_file_to_presigned_url(image_path, result["image_upload_url"])
+                    result["image_upload_result"] = upload_result
+                    logger.info(f"[Avatar UPDATE] Image upload result: {upload_result}")
+                
+                # Upload video if we have video_path and video_upload_url
+                if result.get("video_upload_url") and resource.get("video_path"):
+                    video_path = resource["video_path"]
+                    logger.info(f"[Avatar UPDATE] 📤 Uploading video for {avatar_id}: {video_path}")
+                    upload_result = upload_file_to_presigned_url(video_path, result["video_upload_url"])
+                    result["video_upload_result"] = upload_result
+                    logger.info(f"[Avatar UPDATE] Video upload result: {upload_result}")
+    else:
+        logger.info(f"[Avatar UPDATE] Skipping file uploads (upload_files={upload_files}, results={bool(results)})")
+    
+    logger.info(f"[Avatar UPDATE] Completed")
+    return results
 
 
 @cloud_api(DataType.AVATAR_RESOURCE, Operation.DELETE)
@@ -4020,7 +4842,7 @@ def send_remove_avatar_resources_to_cloud(session, removes, token, endpoint, tim
     """Remove Avatar Resource entities from cloud"""
     mutationInfo = gen_remove_avatar_resources_string(removes)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
-    return safe_parse_response(jresp, "removeAvatarResources", "removeAvatarResources")
+    return safe_parse_response(jresp, "removeAvatars", "removeAvatars")
 
 
 @cloud_api(DataType.AVATAR_RESOURCE, Operation.QUERY)
@@ -4088,28 +4910,38 @@ def send_query_organizations_to_cloud(session, token, q_settings, endpoint):
 
 
 def gen_add_organizations_string(organizations):
-    """Generate GraphQL mutation string for adding organizations"""
+    """Generate GraphQL mutation string for adding organizations
+    
+    New schema: addOrgs(input: [OrgInput!]!): [OrgMutationResult!]!
+    OrgInput has: id, name!, description, org_type, parent_id, settings, sort_order, status
+    Note: No 'owner' field in OrgInput
+    """
     query_string = """
         mutation MyMutation {
-      addOrganizations (input:[
+      addOrgs (input:[
     """
     rec_string = ""
     for i, org in enumerate(organizations):
         rec_string += "{ "
-        rec_string += f'id: "{org.get("id", "")}", '
-        rec_string += f'owner: "{org.get("owner", "")}", '
-        rec_string += f'name: "{org.get("name", "")}", '
-        description = org.get("description", "").replace('"', '\\"').replace('\n', '\\n')
-        rec_string += f'description: "{description}", '
-        rec_string += f'org_type: "{org.get("org_type", "")}", '
-        rec_string += f'status: "{org.get("status", "active")}"'
-        if "parent_id" in org:
-            rec_string += f', parent_id: "{org.get("parent_id", "")}"'
-        if "metadata" in org:
-            metadata = org.get("metadata", {})
-            if isinstance(metadata, dict):
-                metadata = json.dumps(metadata, ensure_ascii=False).replace('"', '\\"')
-            rec_string += f', metadata: "{metadata}"'
+        if org.get("id"):
+            rec_string += f'id: "{org.get("id")}", '
+        rec_string += f'name: "{org.get("name", "")}"'
+        if org.get("description"):
+            description = org.get("description", "").replace('"', '\\"').replace('\n', '\\n')
+            rec_string += f', description: "{description}"'
+        if org.get("org_type"):
+            rec_string += f', org_type: "{org.get("org_type")}"'
+        if org.get("status"):
+            rec_string += f', status: "{org.get("status")}"'
+        if org.get("parent_id"):
+            rec_string += f', parent_id: "{org.get("parent_id")}"'
+        if org.get("sort_order") is not None:
+            rec_string += f', sort_order: {org.get("sort_order")}'
+        if org.get("settings"):
+            settings = org.get("settings", {})
+            if isinstance(settings, dict):
+                settings = json.dumps(settings, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', settings: "{settings}"'
         rec_string += " }"
         if i != len(organizations) - 1:
             rec_string += ', '
@@ -4118,24 +4950,26 @@ def gen_add_organizations_string(organizations):
     
     query_string += rec_string
     query_string += """
-        )
+        ) { id success error }
     }
     """
     return query_string
 
 
 def gen_update_organizations_string(organizations):
-    """Generate GraphQL mutation string for updating organizations"""
+    """Generate GraphQL mutation string for updating organizations
+    
+    New schema: updateOrgs(input: [OrgUpdateInput!]!): [OrgMutationResult!]!
+    OrgUpdateInput has: id!, name, description, org_type, parent_id, level, settings, sort_order, status
+    """
     query_string = """
         mutation MyMutation {
-      updateOrganizations (input:[
+      updateOrgs (input:[
     """
     rec_string = ""
     for i, org in enumerate(organizations):
         rec_string += "{ "
         rec_string += f'id: "{org.get("id", "")}"'
-        if "owner" in org:
-            rec_string += f', owner: "{org.get("owner", "")}"'
         if "name" in org:
             rec_string += f', name: "{org.get("name", "")}"'
         if "description" in org:
@@ -4147,11 +4981,15 @@ def gen_update_organizations_string(organizations):
             rec_string += f', status: "{org.get("status", "")}"'
         if "parent_id" in org:
             rec_string += f', parent_id: "{org.get("parent_id", "")}"'
-        if "metadata" in org:
-            metadata = org.get("metadata", {})
-            if isinstance(metadata, dict):
-                metadata = json.dumps(metadata, ensure_ascii=False).replace('"', '\\"')
-            rec_string += f', metadata: "{metadata}"'
+        if "level" in org:
+            rec_string += f', level: {org.get("level")}'
+        if "sort_order" in org:
+            rec_string += f', sort_order: {org.get("sort_order")}'
+        if "settings" in org:
+            settings = org.get("settings", {})
+            if isinstance(settings, dict):
+                settings = json.dumps(settings, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', settings: "{settings}"'
         rec_string += " }"
         if i != len(organizations) - 1:
             rec_string += ', '
@@ -4160,35 +4998,33 @@ def gen_update_organizations_string(organizations):
     
     query_string += rec_string
     query_string += """
-        )
+        ) { id success error }
     }
     """
     return query_string
 
 
 def gen_remove_organizations_string(removeOrders):
-    """Generate GraphQL mutation string for removing organizations"""
-    query_string = """
-        mutation MyMutation {
-      removeOrganizations (input:[
-    """
-    rec_string = ""
-    for i in range(len(removeOrders)):
-        rec_string += "{ "
-        rec_string += f'oid: "{removeOrders[i].get("oid", removeOrders[i].get("id", ""))}", '
-        rec_string += f'owner: "{removeOrders[i]["owner"]}", '
-        rec_string += f'reason: "{removeOrders[i].get("reason", "removed")}"'
-        rec_string += " }"
-        if i != len(removeOrders) - 1:
-            rec_string += ', '
-        else:
-            rec_string += ']'
+    """Generate GraphQL mutation string for removing organizations
     
-    query_string += rec_string
-    query_string += """
-        )
-    }
+    New schema: removeOrgs(input: [ID!]!): [OrgMutationResult!]!
+    Input is just an array of IDs
     """
+    # Extract IDs from removeOrders (can be list of strings or list of dicts)
+    ids = []
+    for item in removeOrders:
+        if isinstance(item, str):
+            ids.append(item)
+        elif isinstance(item, dict):
+            ids.append(item.get("id", item.get("oid", "")))
+    
+    ids_str = ', '.join([f'"{id}"' for id in ids])
+    
+    query_string = f'''
+        mutation MyMutation {{
+      removeOrgs (input: [{ids_str}]) {{ id success error }}
+    }}
+    '''
     return query_string
 
 
@@ -4197,7 +5033,7 @@ def send_add_organizations_to_cloud(session, organizations, token, endpoint, tim
     """Add Organization entities to cloud"""
     mutationInfo = gen_add_organizations_string(organizations)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
-    return safe_parse_response(jresp, "addOrganizations", "addOrganizations")
+    return safe_parse_response(jresp, "addOrgs", "addOrgs")
 
 
 @cloud_api(DataType.ORGANIZATION, Operation.UPDATE)
@@ -4205,7 +5041,7 @@ def send_update_organizations_to_cloud(session, organizations, token, endpoint, 
     """Update Organization entities in cloud"""
     mutationInfo = gen_update_organizations_string(organizations)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
-    return safe_parse_response(jresp, "updateOrganizations", "updateOrganizations")
+    return safe_parse_response(jresp, "updateOrgs", "updateOrgs")
 
 
 @cloud_api(DataType.ORGANIZATION, Operation.DELETE)
@@ -4213,7 +5049,7 @@ def send_remove_organizations_to_cloud(session, removes, token, endpoint, timeou
     """Remove Organization entities from cloud"""
     mutationInfo = gen_remove_organizations_string(removes)
     jresp = appsync_http_request(mutationInfo, session, token, endpoint, timeout=timeout)
-    return safe_parse_response(jresp, "removeOrganizations", "removeOrganizations")
+    return safe_parse_response(jresp, "removeOrgs", "removeOrgs")
 
 
 # ============================================================================
@@ -4537,29 +5373,149 @@ def send_query_task_skill_relations_to_cloud(session, token, q_settings, endpoin
 # Vehicle Operations (missing remove and query)
 # ============================================================================
 
-def gen_remove_vehicles_string(removeOrders):
-    """Generate GraphQL mutation string for removing vehicles"""
+def gen_add_vehicles_string(vehicles):
+    """Generate GraphQL mutation string for adding vehicles
+    
+    New schema: addVehicles(input: [VehicleInput!]!): [VehicleMutationResult!]!
+    VehicleInput has: id, name (required), and many optional fields
+    """
     query_string = """
         mutation MyMutation {
-      removeVehicles (input:[
+      addVehicles (input:[
     """
     rec_string = ""
-    for i in range(len(removeOrders)):
+    for i, v in enumerate(vehicles):
         rec_string += "{ "
-        rec_string += f'oid: "{removeOrders[i].get("oid", removeOrders[i].get("vid", ""))}", '
-        rec_string += f'owner: "{removeOrders[i]["owner"]}", '
-        rec_string += f'reason: "{removeOrders[i].get("reason", "removed")}"'
+        if v.get("id"):
+            rec_string += f'id: "{v.get("id")}", '
+        rec_string += f'name: "{v.get("name", "")}"'
+        if v.get("description"):
+            description = v.get("description", "").replace('"', '\\"').replace('\n', '\\n')
+            rec_string += f', description: "{description}"'
+        if v.get("vehicle_type"):
+            rec_string += f', vehicle_type: "{v.get("vehicle_type")}"'
+        if v.get("status"):
+            rec_string += f', status: "{v.get("status")}"'
+        if v.get("hostname"):
+            rec_string += f', hostname: "{v.get("hostname")}"'
+        if v.get("ip_address"):
+            rec_string += f', ip_address: "{v.get("ip_address")}"'
+        if v.get("port") is not None:
+            rec_string += f', port: {v.get("port")}'
+        if v.get("url"):
+            rec_string += f', url: "{v.get("url")}"'
+        if v.get("platform"):
+            rec_string += f', platform: "{v.get("platform")}"'
+        if v.get("architecture"):
+            rec_string += f', architecture: "{v.get("architecture")}"'
+        if v.get("environment"):
+            rec_string += f', environment: "{v.get("environment")}"'
+        if v.get("capabilities"):
+            caps = v.get("capabilities", {})
+            if isinstance(caps, dict):
+                caps = json.dumps(caps, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', capabilities: "{caps}"'
+        if v.get("settings"):
+            settings = v.get("settings", {})
+            if isinstance(settings, dict):
+                settings = json.dumps(settings, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', settings: "{settings}"'
         rec_string += " }"
-        if i != len(removeOrders) - 1:
+        if i != len(vehicles) - 1:
             rec_string += ', '
         else:
             rec_string += ']'
     
     query_string += rec_string
     query_string += """
-        )
+        ) { id success error }
     }
     """
+    return query_string
+
+
+def gen_update_vehicles_new_string(vehicles):
+    """Generate GraphQL mutation string for updating vehicles
+    
+    New schema: updateVehicles(input: [VehicleUpdateInput!]!): [VehicleMutationResult!]!
+    VehicleUpdateInput has: id (required), and many optional fields
+    """
+    query_string = """
+        mutation MyMutation {
+      updateVehicles (input:[
+    """
+    rec_string = ""
+    for i, v in enumerate(vehicles):
+        rec_string += "{ "
+        rec_string += f'id: "{v.get("id", "")}"'
+        if "name" in v:
+            rec_string += f', name: "{v.get("name", "")}"'
+        if "description" in v:
+            description = v.get("description", "").replace('"', '\\"').replace('\n', '\\n')
+            rec_string += f', description: "{description}"'
+        if "vehicle_type" in v:
+            rec_string += f', vehicle_type: "{v.get("vehicle_type", "")}"'
+        if "status" in v:
+            rec_string += f', status: "{v.get("status", "")}"'
+        if "hostname" in v:
+            rec_string += f', hostname: "{v.get("hostname", "")}"'
+        if "ip_address" in v:
+            rec_string += f', ip_address: "{v.get("ip_address", "")}"'
+        if "port" in v:
+            rec_string += f', port: {v.get("port")}'
+        if "url" in v:
+            rec_string += f', url: "{v.get("url", "")}"'
+        if "platform" in v:
+            rec_string += f', platform: "{v.get("platform", "")}"'
+        if "architecture" in v:
+            rec_string += f', architecture: "{v.get("architecture", "")}"'
+        if "environment" in v:
+            rec_string += f', environment: "{v.get("environment", "")}"'
+        if "capabilities" in v:
+            caps = v.get("capabilities", {})
+            if isinstance(caps, dict):
+                caps = json.dumps(caps, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', capabilities: "{caps}"'
+        if "settings" in v:
+            settings = v.get("settings", {})
+            if isinstance(settings, dict):
+                settings = json.dumps(settings, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', settings: "{settings}"'
+        rec_string += " }"
+        if i != len(vehicles) - 1:
+            rec_string += ', '
+        else:
+            rec_string += ']'
+    
+    query_string += rec_string
+    query_string += """
+        ) { id success error }
+    }
+    """
+    return query_string
+
+
+def gen_remove_vehicles_string(removeOrders):
+    """Generate GraphQL mutation string for removing vehicles
+    
+    New schema: removeVehicles(input: [ID!]!): [VehicleMutationResult!]!
+    Input is just an array of IDs
+    """
+    # Extract IDs from removeOrders (can be list of strings or list of dicts)
+    ids = []
+    for item in removeOrders:
+        if isinstance(item, str):
+            ids.append(item)
+        elif isinstance(item, dict):
+            ids.append(item.get("id", item.get("vid", item.get("oid", ""))))
+    
+    ids_str = ', '.join([f'"{id}"' for id in ids])
+    
+    query_string = f'''
+        mutation MyMutation {{
+      removeVehicles (input: [{ids_str}]) {{ id success error }}
+    }}
+    '''
     return query_string
 
 
@@ -4605,7 +5561,6 @@ def gen_query_vehicles_string(q_settings):
     extra_metadata
     max_concurrent_tasks
     health_score
-    last_heartbeat
     uptime_seconds
     timezone
     location
@@ -4638,7 +5593,11 @@ def send_query_vehicles_request_to_cloud(session, token, q_settings, endpoint):
 # ============================================================================
 
 def gen_add_prompts_string(prompts):
-    """Generate GraphQL mutation string for adding prompts"""
+    """Generate GraphQL mutation string for adding prompts
+    
+    New schema: addPrompts(input: [PromptInput!]!): [PromptMutationResult!]!
+    PromptInput has: id, owner, version, prompt (AWSJSON, required)
+    """
     query_string = """
         mutation MyMutation {
       addPrompts (input:[
@@ -4646,27 +5605,19 @@ def gen_add_prompts_string(prompts):
     rec_string = ""
     for i, prompt in enumerate(prompts):
         rec_string += "{ "
-        rec_string += f'id: "{prompt.get("id", "")}", '
-        rec_string += f'owner: "{prompt.get("owner", "")}", '
-        rec_string += f'name: "{prompt.get("name", "")}", '
-        description = prompt.get("description", "").replace('"', '\\"').replace('\n', '\\n')
-        rec_string += f'description: "{description}", '
-        content = prompt.get("content", "").replace('"', '\\"').replace('\n', '\\n')
-        rec_string += f'content: "{content}", '
-        rec_string += f'category: "{prompt.get("category", "")}", '
-        rec_string += f'version: "{prompt.get("version", "1.0.0")}", '
-        rec_string += f'status: "{prompt.get("status", "active")}", '
-        rec_string += f'is_public: {"true" if prompt.get("is_public") else "false"}'
-        if "tags" in prompt:
-            tags = prompt.get("tags", [])
-            if isinstance(tags, list):
-                tags = json.dumps(tags, ensure_ascii=False).replace('"', '\\"')
-            rec_string += f', tags: "{tags}"'
-        if "metadata" in prompt:
-            metadata = prompt.get("metadata", {})
-            if isinstance(metadata, dict):
-                metadata = json.dumps(metadata, ensure_ascii=False).replace('"', '\\"')
-            rec_string += f', metadata: "{metadata}"'
+        if prompt.get("id"):
+            rec_string += f'id: "{prompt.get("id")}", '
+        if prompt.get("owner"):
+            rec_string += f'owner: "{prompt.get("owner")}", '
+        if prompt.get("version"):
+            rec_string += f'version: "{prompt.get("version")}", '
+        # prompt field is required AWSJSON
+        prompt_data = prompt.get("prompt", {})
+        if isinstance(prompt_data, dict):
+            prompt_json = json.dumps(prompt_data, ensure_ascii=False).replace('"', '\\"')
+        else:
+            prompt_json = str(prompt_data).replace('"', '\\"')
+        rec_string += f'prompt: "{prompt_json}"'
         rec_string += " }"
         if i != len(prompts) - 1:
             rec_string += ', '
@@ -4675,14 +5626,18 @@ def gen_add_prompts_string(prompts):
     
     query_string += rec_string
     query_string += """
-        )
+        ) { id success error }
     }
     """
     return query_string
 
 
 def gen_update_prompts_string(prompts):
-    """Generate GraphQL mutation string for updating prompts"""
+    """Generate GraphQL mutation string for updating prompts
+    
+    New schema: updatePrompts(input: [PromptUpdateInput!]!): [PromptMutationResult!]!
+    PromptUpdateInput has: id (required), version, prompt (AWSJSON)
+    """
     query_string = """
         mutation MyMutation {
       updatePrompts (input:[
@@ -4691,34 +5646,15 @@ def gen_update_prompts_string(prompts):
     for i, prompt in enumerate(prompts):
         rec_string += "{ "
         rec_string += f'id: "{prompt.get("id", "")}"'
-        if "owner" in prompt:
-            rec_string += f', owner: "{prompt.get("owner", "")}"'
-        if "name" in prompt:
-            rec_string += f', name: "{prompt.get("name", "")}"'
-        if "description" in prompt:
-            description = prompt.get("description", "").replace('"', '\\"').replace('\n', '\\n')
-            rec_string += f', description: "{description}"'
-        if "content" in prompt:
-            content = prompt.get("content", "").replace('"', '\\"').replace('\n', '\\n')
-            rec_string += f', content: "{content}"'
-        if "category" in prompt:
-            rec_string += f', category: "{prompt.get("category", "")}"'
         if "version" in prompt:
             rec_string += f', version: "{prompt.get("version", "")}"'
-        if "status" in prompt:
-            rec_string += f', status: "{prompt.get("status", "")}"'
-        if "is_public" in prompt:
-            rec_string += f', is_public: {"true" if prompt.get("is_public") else "false"}'
-        if "tags" in prompt:
-            tags = prompt.get("tags", [])
-            if isinstance(tags, list):
-                tags = json.dumps(tags, ensure_ascii=False).replace('"', '\\"')
-            rec_string += f', tags: "{tags}"'
-        if "metadata" in prompt:
-            metadata = prompt.get("metadata", {})
-            if isinstance(metadata, dict):
-                metadata = json.dumps(metadata, ensure_ascii=False).replace('"', '\\"')
-            rec_string += f', metadata: "{metadata}"'
+        if "prompt" in prompt:
+            prompt_data = prompt.get("prompt", {})
+            if isinstance(prompt_data, dict):
+                prompt_json = json.dumps(prompt_data, ensure_ascii=False).replace('"', '\\"')
+            else:
+                prompt_json = str(prompt_data).replace('"', '\\"')
+            rec_string += f', prompt: "{prompt_json}"'
         rec_string += " }"
         if i != len(prompts) - 1:
             rec_string += ', '
@@ -4727,35 +5663,33 @@ def gen_update_prompts_string(prompts):
     
     query_string += rec_string
     query_string += """
-        )
+        ) { id success error }
     }
     """
     return query_string
 
 
 def gen_remove_prompts_string(removeOrders):
-    """Generate GraphQL mutation string for removing prompts"""
-    query_string = """
-        mutation MyMutation {
-      removePrompts (input:[
-    """
-    rec_string = ""
-    for i in range(len(removeOrders)):
-        rec_string += "{ "
-        rec_string += f'oid: "{removeOrders[i].get("oid", removeOrders[i].get("id", ""))}", '
-        rec_string += f'owner: "{removeOrders[i]["owner"]}", '
-        rec_string += f'reason: "{removeOrders[i].get("reason", "removed")}"'
-        rec_string += " }"
-        if i != len(removeOrders) - 1:
-            rec_string += ', '
-        else:
-            rec_string += ']'
+    """Generate GraphQL mutation string for removing prompts
     
-    query_string += rec_string
-    query_string += """
-        )
-    }
+    New schema: removePrompts(input: [ID!]!): [PromptMutationResult!]!
+    Input is just an array of IDs
     """
+    # Extract IDs from removeOrders (can be list of strings or list of dicts)
+    ids = []
+    for item in removeOrders:
+        if isinstance(item, str):
+            ids.append(item)
+        elif isinstance(item, dict):
+            ids.append(item.get("id", item.get("oid", "")))
+    
+    ids_str = ', '.join([f'"{id}"' for id in ids])
+    
+    query_string = f'''
+        mutation MyMutation {{
+      removePrompts (input: [{ids_str}]) {{ id success error }}
+    }}
+    '''
     return query_string
 
 
@@ -4784,8 +5718,6 @@ def gen_query_prompts_string(q_settings):
     owner
     version
     prompt
-    created_at
-    updated_at
   }}
 }}'''
     return query_string
