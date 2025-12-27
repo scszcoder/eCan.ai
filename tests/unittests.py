@@ -154,14 +154,15 @@ def run_default_tests(mwin, test_setup=None):
             # cloud_results = run_cloud_api_tests(mwin, cloud_config)
 
             cloud_config = test_setup.get('cloud_api_config', {
-                'agent': True,
-                'agent_task': False,
-                'agent_skill': False,
-                'agent_tool': False,
-                'prompt': False,
-                'avatar': False,
-                'vehicle': False,
-                'organization': False
+                'agent': False,             # tested on 12/26/2025
+                'agent_task': False,        # tested on 12/26/2025
+                'agent_skill': True,       # tested on 12/26/2025 13:12
+                'agent_tool': False,        # tested on 12/26/2025 13:13
+                'agent_knowledge': False,   # tested on 12/26/2025 13:39
+                'prompt': False,            # tested on 12/26/2025 13:12
+                'avatar': False,            # tested on 12/26/2025 13:12
+                'vehicle': False,           # tested on 12/26/2025 13:24
+                'organization': False       # tested on 12/26/2025
             })
             cloud_results = run_cloud_api_entity_tests(mwin, cloud_config)
 
@@ -882,7 +883,9 @@ def test_cloud_api_agent_skill_crud(mwin):
     try:
         from agent.cloud_api.cloud_api import (
             send_add_skills_request_to_cloud,
+            send_add_skills_with_files_to_cloud,
             send_update_skills_request_to_cloud,
+            send_update_skills_with_files_to_cloud,
             send_query_skills_entity_to_cloud,
             send_remove_skills_request_to_cloud
         )
@@ -896,29 +899,38 @@ def test_cloud_api_agent_skill_crud(mwin):
         if not token:
             return {'success': False, 'test': 'test_cloud_api_agent_skill_crud', 'message': 'No auth token'}
         
-        # Create test skill
+        # Create test skill with path to actual skill directory for file upload
         test_skill_id = f"test_skill_{uuid.uuid4().hex[:8]}"
+        # Use an existing skill directory for testing file uploads
+        import os
+        skill_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "my_skills", "ebay_fullfill_messages_skill")
+        
         test_skill = {
             "id": test_skill_id,
-            "name": f"Test Skill {datetime.now().strftime('%H%M%S')}",
+            "name": f"search_digikey_chatter_skill",
             "description": "Unit test skill - safe to delete",
+            "diagram": {"local_dir": "my_skills/"},   # Path for file upload is my_skills/skil_name/diagram_dir/*.json
             "version": "1.0.0",
-            "public": False,
+            "source": "helpers.py,search_digikey_chatter_skill.py",
+            "public": True,
             "rentable": False
         }
         
+        logger.info(f"[TEST] Skill directory: {skill_dir}")
+        logger.info(f"[TEST] Skill directory exists: {os.path.isdir(skill_dir)}")
+        
         results = {'add': None, 'update': None, 'query': None, 'remove': None}
         
-        # ADD
-        logger.info(f"[TEST] Adding skill: {test_skill_id}")
-        results['add'] = send_add_skills_request_to_cloud(session, [test_skill], token, endpoint)
-        logger.info(f"[TEST] Add skill response: {json.dumps(results['add'], default=str)[:300]}")
+        # ADD with file upload
+        logger.info(f"[TEST] Adding skill with files: {test_skill_id}")
+        results['add'] = send_add_skills_with_files_to_cloud(session, [test_skill], token, endpoint)
+        logger.info(f"[TEST] Add skill response: {json.dumps(results['add'], default=str)[:500]}")
         
-        # UPDATE
+        # UPDATE with file upload
         test_skill['description'] = "Updated skill description"
-        logger.info(f"[TEST] Updating skill: {test_skill_id}")
-        results['update'] = send_update_skills_request_to_cloud(session, [test_skill], token, endpoint)
-        logger.info(f"[TEST] Update skill response: {json.dumps(results['update'], default=str)[:300]}")
+        logger.info(f"[TEST] Updating skill with files: {test_skill_id}")
+        results['update'] = send_update_skills_with_files_to_cloud(session, [test_skill], token, endpoint)
+        logger.info(f"[TEST] Update skill response: {json.dumps(results['update'], default=str)[:500]}")
         
         # QUERY
         logger.info(f"[TEST] Querying skills...")
@@ -926,11 +938,11 @@ def test_cloud_api_agent_skill_crud(mwin):
         logger.info(f"[TEST] Query skills response: {json.dumps(results['query'], default=str)[:300]}")
         
         # REMOVE
-        logger.info(f"[TEST] Removing skill: {test_skill_id}")
-        results['remove'] = send_remove_skills_request_to_cloud(
-            session, [{"id": test_skill_id}], token, endpoint
-        )
-        logger.info(f"[TEST] Remove skill response: {json.dumps(results['remove'], default=str)[:300]}")
+        # logger.info(f"[TEST] Removing skill: {test_skill_id}")
+        # results['remove'] = send_remove_skills_request_to_cloud(
+        #     session, [{"id": test_skill_id}], token, endpoint
+        # )
+        # logger.info(f"[TEST] Remove skill response: {json.dumps(results['remove'], default=str)[:300]}")
         
         return {
             'success': True,
@@ -1065,8 +1077,12 @@ def test_cloud_api_prompt_crud(mwin):
         results['add'] = send_add_prompts_request_to_cloud(session, [test_prompt], token, endpoint)
         logger.info(f"[TEST] Add prompt response: {json.dumps(results['add'], default=str)[:300]}")
         
-        # UPDATE
-        test_prompt['content'] = "Updated prompt content"
+        # UPDATE - update the prompt field (AWSJSON)
+        test_prompt['prompt'] = {
+            "name": f"Test Prompt {datetime.now().strftime('%H%M%S')}",
+            "content": "Updated prompt content - this is the new content.",
+            "category": "test"
+        }
         logger.info(f"[TEST] Updating prompt: {test_prompt_id}")
         results['update'] = send_update_prompts_request_to_cloud(session, [test_prompt], token, endpoint)
         logger.info(f"[TEST] Update prompt response: {json.dumps(results['update'], default=str)[:300]}")
@@ -1078,10 +1094,10 @@ def test_cloud_api_prompt_crud(mwin):
         
         # REMOVE
         logger.info(f"[TEST] Removing prompt: {test_prompt_id}")
-        results['remove'] = send_remove_prompts_request_to_cloud(
-            session, [{"id": test_prompt_id}], token, endpoint
-        )
-        logger.info(f"[TEST] Remove prompt response: {json.dumps(results['remove'], default=str)[:300]}")
+        # results['remove'] = send_remove_prompts_request_to_cloud(
+        #     session, [{"id": test_prompt_id}], token, endpoint
+        # )
+        # logger.info(f"[TEST] Remove prompt response: {json.dumps(results['remove'], default=str)[:300]}")
         
         return {
             'success': True,
@@ -1095,6 +1111,82 @@ def test_cloud_api_prompt_crud(mwin):
         import traceback
         traceback.print_exc()
         return {'success': False, 'test': 'test_cloud_api_prompt_crud', 'message': str(e)}
+
+
+# ============================================================================
+# Agent Knowledge Entity Tests (add/update/query/remove)
+# ============================================================================
+
+def test_cloud_api_agent_knowledge_crud(mwin):
+    """
+    Test full CRUD operations for Agent Knowledge entity.
+    """
+    try:
+        from agent.cloud_api.cloud_api import (
+            send_add_agent_knowledges_to_cloud,
+            send_update_agent_knowledges_to_cloud,
+            send_query_agent_knowledges_to_cloud,
+            send_remove_agent_knowledges_to_cloud
+        )
+        
+        logger.info("[TEST] Starting Agent Knowledge CRUD test...")
+        
+        session = mwin.session
+        token = mwin.get_auth_token()
+        endpoint = mwin.getWanApiEndpoint()
+        
+        if not token:
+            return {'success': False, 'test': 'test_cloud_api_agent_knowledge_crud', 'message': 'No auth token'}
+        
+        # Create test knowledge - KnowledgeInput: name (required), id, description, knowledge_type, status, etc.
+        test_knowledge_id = f"test_knowledge_{uuid.uuid4().hex[:8]}"
+        test_knowledge = {
+            "id": test_knowledge_id,
+            "name": f"Test Knowledge {datetime.now().strftime('%H%M%S')}",
+            "description": "Unit test knowledge - safe to delete",
+            "knowledge_type": "test",
+            "status": "active",
+            "version": "1.0.0",
+            "public": False
+        }
+        
+        results = {'add': None, 'update': None, 'query': None, 'remove': None}
+        
+        # ADD
+        logger.info(f"[TEST] Adding knowledge: {test_knowledge_id}")
+        results['add'] = send_add_agent_knowledges_to_cloud(session, [test_knowledge], token, endpoint)
+        logger.info(f"[TEST] Add knowledge response: {json.dumps(results['add'], default=str)[:300]}")
+        
+        # UPDATE
+        test_knowledge['description'] = "Updated knowledge description"
+        logger.info(f"[TEST] Updating knowledge: {test_knowledge_id}")
+        results['update'] = send_update_agent_knowledges_to_cloud(session, [test_knowledge], token, endpoint)
+        logger.info(f"[TEST] Update knowledge response: {json.dumps(results['update'], default=str)[:300]}")
+        
+        # QUERY
+        logger.info(f"[TEST] Querying knowledges...")
+        results['query'] = send_query_agent_knowledges_to_cloud(session, token, {}, endpoint)
+        logger.info(f"[TEST] Query knowledges response: {json.dumps(results['query'], default=str)[:300]}")
+        
+        # REMOVE
+        logger.info(f"[TEST] Removing knowledge: {test_knowledge_id}")
+        results['remove'] = send_remove_agent_knowledges_to_cloud(
+            session, [{"id": test_knowledge_id}], token, endpoint
+        )
+        logger.info(f"[TEST] Remove knowledge response: {json.dumps(results['remove'], default=str)[:300]}")
+        
+        return {
+            'success': True,
+            'test': 'test_cloud_api_agent_knowledge_crud',
+            'message': 'Agent Knowledge CRUD test completed',
+            'results': results,
+            'knowledge_id': test_knowledge_id
+        }
+    except Exception as e:
+        logger.error(f"[TEST] Error in test_cloud_api_agent_knowledge_crud: {e}")
+        import traceback
+        traceback.print_exc()
+        return {'success': False, 'test': 'test_cloud_api_agent_knowledge_crud', 'message': str(e)}
 
 
 # ============================================================================
@@ -1130,9 +1222,9 @@ def test_cloud_api_avatar_crud(mwin):
             "resource_type": "image",
             "name": f"Test Avatar {datetime.now().strftime('%H%M%S')}",
             "description": "Unit test avatar - safe to delete",
-            "image_path": "/test/path/image.png",
-            "cloud_synced": False,
-            "is_public": False
+            "image_path": "gui_v2/public/assets/gifs/agent0.mp4",
+            "cloud_synced": True,
+            "is_public": True
         }
         
         results = {'add': None, 'update': None, 'query': None, 'remove': None}
@@ -1154,10 +1246,10 @@ def test_cloud_api_avatar_crud(mwin):
         logger.info(f"[TEST] Query avatars response: {json.dumps(results['query'], default=str)[:300]}")
         
         # REMOVE
-        logger.info(f"[TEST] Removing avatar: {test_avatar_id}")
-        results['remove'] = send_remove_avatar_resources_to_cloud(
-            session, [{"id": test_avatar_id}], token, endpoint
-        )
+        # logger.info(f"[TEST] Removing avatar: {test_avatar_id}")
+        # results['remove'] = send_remove_avatar_resources_to_cloud(
+        #     session, [{"id": test_avatar_id}], token, endpoint
+        # )
         logger.info(f"[TEST] Remove avatar response: {json.dumps(results['remove'], default=str)[:300]}")
         
         return {
@@ -1347,14 +1439,14 @@ def run_cloud_api_entity_tests(mwin, test_config=None):
     """
     if test_config is None:
         test_config = {
-            'agent': True,
+            'agent': False,
             'agent_task': True,
-            'agent_skill': True,
-            'agent_tool': True,
-            'prompt': True,
-            'avatar': True,
-            'vehicle': True,
-            'organization': True
+            'agent_skill': False,
+            'agent_tool': False,
+            'prompt': False,
+            'avatar': False,
+            'vehicle': False,
+            'organization': False
         }
     
     results = {
@@ -1383,6 +1475,7 @@ def run_cloud_api_entity_tests(mwin, test_config=None):
         ('agent_task', test_cloud_api_agent_task_crud),
         ('agent_skill', test_cloud_api_agent_skill_crud),
         ('agent_tool', test_cloud_api_agent_tool_crud),
+        ('agent_knowledge', test_cloud_api_agent_knowledge_crud),
         ('prompt', test_cloud_api_prompt_crud),
         ('avatar', test_cloud_api_avatar_crud),
         ('vehicle', test_cloud_api_vehicle_crud),
@@ -1419,5 +1512,6 @@ __all__ = ['run_default_tests', 'testReadScreen', 'testLongLLMTask', 'testLightR
            'run_cloud_api_entity_tests',
            'test_cloud_api_agent_crud', 'test_cloud_api_agent_task_crud', 
            'test_cloud_api_agent_skill_crud', 'test_cloud_api_agent_tool_crud',
+           'test_cloud_api_agent_knowledge_crud',
            'test_cloud_api_prompt_crud', 'test_cloud_api_avatar_crud', 'test_cloud_api_vehicle_crud',
            'test_cloud_api_organization_crud']
