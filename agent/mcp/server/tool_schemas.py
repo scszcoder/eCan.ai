@@ -1,4 +1,4 @@
-﻿import mcp.types as types
+import mcp.types as types
 from agent.mcp.server.scrapers.amazon_seller.amazon_orders_scrape import (
     add_get_amazon_summary_tool_schema,
     add_amazon_fullfill_next_order_tool_schema,
@@ -120,6 +120,18 @@ from agent.ec_skills.rag.local_rag_mcp import (
     add_ragify_async_tool_schema,
 )
 from agent.mcp.server.extern_tools_schemas import add_extern_tools_schemas
+from agent.mcp.server.aws_utils.aws_tools import (
+    add_aws_read_billing_tool_schema,
+    add_aws_shutdown_tool_schema,
+)
+from agent.mcp.server.azure_utils.azure_tools import (
+    add_azure_read_billing_tool_schema,
+    add_azure_shutdown_tool_schema,
+)
+from agent.mcp.server.gcloud_utils.gcloud_tools import (
+    add_gcloud_read_billing_tool_schema,
+    add_gcloud_shutdown_tool_schema,
+)
 
 tool_schemas = []
 
@@ -2149,5 +2161,17 @@ def build_agent_mcp_tools_schemas():
     add_get_chat_history_tool_schema(tool_schemas)
 
     add_extern_tools_schemas(tool_schemas)
+
+    # AWS cost monitoring and emergency shutdown tools
+    add_aws_read_billing_tool_schema(tool_schemas)
+    add_aws_shutdown_tool_schema(tool_schemas)
+
+    # Azure cost monitoring and emergency shutdown tools
+    add_azure_read_billing_tool_schema(tool_schemas)
+    add_azure_shutdown_tool_schema(tool_schemas)
+
+    # GCP cost monitoring and emergency shutdown tools
+    add_gcloud_read_billing_tool_schema(tool_schemas)
+    add_gcloud_shutdown_tool_schema(tool_schemas)
 
     return tool_schemas
