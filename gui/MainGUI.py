@@ -632,6 +632,8 @@ class MainWindow:
             self.llm_sub_task = loop.create_task(self._async_start_llm_subscription())
             # self.cloud_show_sub_task = loop.create_task(self._async_start_cloud_show_subscription())
             self.account_notification_sub_task = loop.create_task(self._async_start_account_notification_subscription())
+            self.scene_sub_task = loop.create_task(self._async_start_scene_subscriptions())
+            self.puzzle_sub_task = loop.create_task(self._async_start_puzzle_subscription())
             logger.info("[MainWindow] ✅ All final background service tasks created successfully")
         except RuntimeError as e:
             logger.error(f"[MainWindow] ⚠️ No running event loop for final background services: {e}")
@@ -1789,6 +1791,134 @@ class MainWindow:
             logger.error(f"[MainWindow] ❌ Account Notification Subscription failed: {e}")
             logger.error(f"[MainWindow] Account notification error details: {traceback.format_exc()}")
             # Don't crash the app if subscription fails
+
+    async def _async_start_scene_subscriptions(self):
+        """
+        Asynchronously start scene and story related subscriptions.
+        Includes: onAgentSceneEvent, onSceneComplete, onStoryUpdate
+        """
+        from agent.cloud_api.cloud_api import (
+            subscribe_agent_scene_events, handle_agent_scene_event,
+            subscribe_scene_complete, handle_scene_complete,
+            subscribe_story_updates, handle_story_update
+        )
+        try:
+            if hasattr(self, '_shutting_down') and self._shutting_down:
+                logger.info("[MainWindow] System is shutting down, skipping scene subscriptions")
+                return
+
+            await asyncio.sleep(1.5)
+            logger.info("[MainWindow] Starting Scene & Story Subscriptions...")
+
+            ws_endpoint = self.getWSApiEndpoint()
+            token = self.get_auth_token()
+            
+            if not token:
+                logger.warning("[MainWindow] No auth token available, skipping scene subscriptions")
+                return
+
+            acct_site_id = None
+            try:
+                tokens = self.auth_manager.get_tokens()
+                if tokens:
+                    acct_site_id = tokens.get('email') or tokens.get('username')
+                    if not acct_site_id and hasattr(self, 'user'):
+                        acct_site_id = self.user
+            except Exception as e:
+                logger.warning(f"[MainWindow] Could not get acctSiteID: {e}")
+            
+            if not acct_site_id:
+                logger.warning("[MainWindow] No acctSiteID available, skipping scene subscriptions")
+                return
+
+            default_agent_id = "default_agent"
+            logger.info(f"[MainWindow] Scene subscriptions: acctSiteID={acct_site_id}")
+
+            ws1, t1 = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: subscribe_scene_complete(
+                    acct_site_id=acct_site_id,
+                    id_token=token,
+                    ws_url=ws_endpoint,
+                    on_scene_complete_callback=handle_scene_complete
+                )
+            )
+            self.scene_complete_ws = ws1
+            self.scene_complete_thread = t1
+            logger.info("[MainWindow] onSceneComplete subscription started")
+
+            ws2, t2 = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: subscribe_story_updates(
+                    acct_site_id=acct_site_id,
+                    id_token=token,
+                    ws_url=ws_endpoint,
+                    on_story_callback=handle_story_update
+                )
+            )
+            self.story_update_ws = ws2
+            self.story_update_thread = t2
+            logger.info("[MainWindow] onStoryUpdate subscription started")
+
+            ws3, t3 = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: subscribe_agent_scene_events(
+                    acct_site_id=acct_site_id,
+                    agent_id=default_agent_id,
+                    id_token=token,
+                    ws_url=ws_endpoint,
+                    on_scene_callback=handle_agent_scene_event
+                )
+            )
+            self.agent_scene_ws = ws3
+            self.agent_scene_thread = t3
+            logger.info("[MainWindow] onAgentSceneEvent subscription started")
+
+            logger.info("[MainWindow] All Scene & Story Subscriptions initialized!")
+
+        except Exception as e:
+            logger.error(f"[MainWindow] Scene subscriptions failed: {e}")
+            logger.error(f"[MainWindow] Scene subscription error details: {traceback.format_exc()}")
+
+    async def _async_start_puzzle_subscription(self):
+        """
+        Asynchronously start puzzle result subscription.
+        GraphQL: onPuzzleResultReceived
+        """
+        from agent.cloud_api.cloud_api import subscribe_puzzle_results, handle_puzzle_result
+        try:
+            if hasattr(self, '_shutting_down') and self._shutting_down:
+                logger.info("[MainWindow] System is shutting down, skipping puzzle subscription")
+                return
+
+            await asyncio.sleep(2.0)
+            logger.info("[MainWindow] Starting Puzzle Result Subscription...")
+
+            ws_endpoint = self.getWSApiEndpoint()
+            token = self.get_auth_token()
+            
+            if not token:
+                logger.warning("[MainWindow] No auth token available, skipping puzzle subscription")
+                return
+
+            ws, thread = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: subscribe_puzzle_results(
+                    id_token=token,
+                    ws_url=ws_endpoint,
+                    on_puzzle_callback=handle_puzzle_result
+                )
+            )
+
+            self.puzzle_result_ws = ws
+            self.puzzle_result_thread = thread
+
+            logger.info("[MainWindow] Puzzle Result Subscription initialized!")
+
+        except Exception as e:
+            logger.error(f"[MainWindow] Puzzle subscription failed: {e}")
+            logger.error(f"[MainWindow] Puzzle subscription error details: {traceback.format_exc()}")
+
 
     def get_auth_token(self):
         """Return a valid JWT for AppSync Authorization header.
@@ -3255,6 +3385,7 @@ class MainWindow:
     def getAcctSiteID(self):
         site = self.machine_name
         user = self.user.replace("@", "_").replace(".", "_")
+        logger.info(f"[AcctSiteID]:{user}_{site}")
         return f"{user}_{site}"
 
     def setMILANServer(self, ip, port="8848"):
