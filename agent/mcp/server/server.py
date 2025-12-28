@@ -133,6 +133,18 @@ from agent.mcp.server.chat_utils.chat_tools import (
     async_list_chat_agents,
     async_get_chat_history,
 )
+from agent.mcp.server.aws_utils.aws_tools import (
+    aws_read_billing,
+    aws_shutdown,
+)
+from agent.mcp.server.azure_utils.azure_tools import (
+    azure_read_billing,
+    azure_shutdown,
+)
+from agent.mcp.server.gcloud_utils.gcloud_tools import (
+    gcloud_read_billing,
+    gcloud_shutdown,
+)
 from agent.ec_skills.label_utils.print_label import reformat_labels, print_labels
 from agent.ec_skills.browser_use_extension.extension_tools_service import *
 from app_context import AppContext
@@ -2850,6 +2862,15 @@ tool_function_mapping = {
         "send_chat": async_send_chat,
         "list_chat_agents": async_list_chat_agents,
         "get_chat_history": async_get_chat_history,
+        # AWS cost monitoring and emergency shutdown tools
+        "aws_read_billing": aws_read_billing,
+        "aws_shutdown": aws_shutdown,
+        # Azure cost monitoring and emergency shutdown tools
+        "azure_read_billing": azure_read_billing,
+        "azure_shutdown": azure_shutdown,
+        # GCP cost monitoring and emergency shutdown tools
+        "gcloud_read_billing": gcloud_read_billing,
+        "gcloud_shutdown": gcloud_shutdown,
     }
 
 def set_server_main_win(mw):
