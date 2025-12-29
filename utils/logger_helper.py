@@ -4,6 +4,7 @@
 import logging
 import colorlog
 from logging.handlers import RotatingFileHandler
+import time
 import os
 import sys
 import signal
@@ -21,6 +22,27 @@ def trace(self, message, *args, **kws):
         self._log(TRACE_LEVEL_NUM, message, args, **kws)
 logging.Logger.trace = trace
 # ====== END ======
+
+
+class WindowsSafeRotatingFileHandler(RotatingFileHandler):
+    """A RotatingFileHandler that handles Windows file locking gracefully."""
+    
+    def doRollover(self):
+        """Perform rollover with retry logic for Windows file locking issues."""
+        if sys.platform != "win32":
+            return super().doRollover()
+        
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                super().doRollover()
+                return
+            except PermissionError:
+                if attempt < max_retries - 1:
+                    import time
+                    time.sleep(0.1)
+            except Exception:
+                pass
 
 
 class LoggerHelper:
@@ -92,7 +114,7 @@ class LoggerHelper:
         if not any(isinstance(h, RotatingFileHandler) for h in self.logger.handlers):
             file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
             # 确保文件处理器使用 UTF-8 编码
-            file_handler = RotatingFileHandler(
+            file_handler = WindowsSafeRotatingFileHandler(
                 log_file,
                 maxBytes=1024 * 1024 * 10,
                 backupCount=5,
