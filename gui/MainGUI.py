@@ -1819,11 +1819,7 @@ class MainWindow:
 
             acct_site_id = None
             try:
-                tokens = self.auth_manager.get_tokens()
-                if tokens:
-                    acct_site_id = tokens.get('email') or tokens.get('username')
-                    if not acct_site_id and hasattr(self, 'user'):
-                        acct_site_id = self.user
+                acct_site_id = self.getAcctSiteID()
             except Exception as e:
                 logger.warning(f"[MainWindow] Could not get acctSiteID: {e}")
             
@@ -1864,10 +1860,10 @@ class MainWindow:
                 None,
                 lambda: subscribe_agent_scene_events(
                     acct_site_id=acct_site_id,
-                    agent_id=default_agent_id,
                     id_token=token,
                     ws_url=ws_endpoint,
-                    on_scene_callback=handle_agent_scene_event
+                    on_scene_callback=handle_agent_scene_event,
+                    agent_id_filter=default_agent_id
                 )
             )
             self.agent_scene_ws = ws3
