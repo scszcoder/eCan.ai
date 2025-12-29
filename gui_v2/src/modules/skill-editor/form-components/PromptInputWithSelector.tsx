@@ -72,25 +72,25 @@ export const PromptInputWithSelector: React.FC<PromptInputWithSelectorProps> = (
         {({ field: promptIdField }) => {
           const promptId = promptIdField.value?.content || promptIdField.value || IN_LINE_PROMPT_ID;
           const showPromptEditor = promptId === IN_LINE_PROMPT_ID;
-          
-          if (!showPromptEditor) return null;
 
           return (
-            <FormItem name={label} vertical type="string" required={required}>
-              <Field<any> name={promptFieldName}>
-                {({ field, fieldState }) => (
-                  <>
-                    <PromptEditorWithVariables
-                      value={sanitizeFlowValue(field.value, schema)}
-                      onChange={field.onChange}
-                      readonly={readonly}
-                      hasError={Object.keys(fieldState?.errors || {}).length > 0}
-                    />
-                    <Feedback errors={fieldState?.errors} warnings={fieldState?.warnings} />
-                  </>
-                )}
-              </Field>
-            </FormItem>
+            <div style={{ display: showPromptEditor ? 'block' : 'none' }}>
+              <FormItem name={label} vertical type="string" required={required}>
+                <Field<any> name={promptFieldName}>
+                  {({ field, fieldState }) => (
+                    <>
+                      <PromptEditorWithVariables
+                        value={sanitizeFlowValue(field.value, schema)}
+                        onChange={field.onChange}
+                        readonly={readonly}
+                        hasError={Object.keys(fieldState?.errors || {}).length > 0}
+                      />
+                      <Feedback errors={fieldState?.errors} warnings={fieldState?.warnings} />
+                    </>
+                  )}
+                </Field>
+              </FormItem>
+            </div>
           );
         }}
       </Field>
