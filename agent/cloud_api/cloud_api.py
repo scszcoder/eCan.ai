@@ -4206,35 +4206,34 @@ def handle_account_notification(notification: dict):
 # Scene & Story Subscriptions (WebSocket)
 # ============================================================================
 
-def subscribe_agent_scene_events(acct_site_id: str, agent_id: str, id_token: str, ws_url: Optional[str] = None,
-                                  on_scene_callback=None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
+def subscribe_agent_scene_events(acct_site_id: str, id_token: str, ws_url: Optional[str] = None,
+                                  on_scene_callback=None, agent_id_filter: str = None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
     """Subscribe to agent scene events over WebSocket.
     
-    GraphQL: onAgentSceneEvent(acctSiteID: String!, agent_id: String!): Scene
+    GraphQL: onAgentSceneEvent(acctSiteID: String!): Scene
     
     Parameters:
         acct_site_id: Account site ID for the subscription filter.
-        agent_id: Agent ID for the subscription filter.
         id_token: Cognito/AppSync ID token (Authorization header).
         ws_url: Optional AppSync GraphQL endpoint; if https, auto-converted to realtime wss.
         on_scene_callback: Optional callback function(scene_data) to handle received scene events.
+        agent_id_filter: Optional agent ID to filter events client-side (not sent to AppSync).
     """
 
     def on_message(ws, message):
-        logger.debug("[AgentSceneEvent] Received WebSocket message")
+        logger.info("[AgentSceneEvent] Received WebSocket message")
         try:
             data = json.loads(message)
         except Exception:
             data = {"raw": message}
-        logger.debug("[AgentSceneEvent] Subscription update: %s", json.dumps(data, indent=2))
-        
         msg_type = data.get("type")
+        logger.info(f"[AgentSceneEvent] Message type: {msg_type}, full data: {json.dumps(data, indent=2)}")
 
         if msg_type == "connection_ack":
             try:
                 subscription = """
-                    subscription OnAgentSceneEvent($acctSiteID: String!, $agent_id: String!) {
-                      onAgentSceneEvent(acctSiteID: $acctSiteID, agent_id: $agent_id) {
+                    subscription OnAgentSceneEvent($acctSiteID: String!) {
+                      onAgentSceneEvent(acctSiteID: $acctSiteID) {
                         id
                         scene_id
                         acctSiteID
@@ -4260,7 +4259,7 @@ def subscribe_agent_scene_events(acct_site_id: str, agent_id: str, id_token: str
                 data_obj = {
                     "query": subscription,
                     "operationName": "OnAgentSceneEvent",
-                    "variables": {"acctSiteID": acct_site_id, "agent_id": agent_id},
+                    "variables": {"acctSiteID": acct_site_id},
                 }
                 start_payload = {
                     "id": "AgentSceneEvent1",
@@ -4275,11 +4274,17 @@ def subscribe_agent_scene_events(acct_site_id: str, agent_id: str, id_token: str
                         },
                     },
                 }
-                logger.info("[AgentSceneEvent] connection_ack received, sending start subscription")
+                logger.info(f"[AgentSceneEvent] connection_ack received, sending start subscription with acctSiteID='{acct_site_id}'")
                 ws.send(json.dumps(start_payload))
             except Exception as e:
                 logger.error(f"[AgentSceneEvent] Failed to send start payload: {e}")
 
+        elif msg_type == "start_ack":
+            logger.info(f"[AgentSceneEvent] Subscription started successfully (start_ack received)")
+            return
+        elif msg_type == "error":
+            logger.error(f"[AgentSceneEvent] Subscription error: {json.dumps(data, indent=2)}")
+            return
         elif msg_type in ("ka", "keepalive"):
             return
         elif msg_type == "data" and isinstance(data.get("payload"), dict) and data.get("id") == "AgentSceneEvent1":
@@ -4288,6 +4293,13 @@ def subscribe_agent_scene_events(acct_site_id: str, agent_id: str, id_token: str
             if isinstance(payload_data, dict):
                 scene = payload_data.get("onAgentSceneEvent")
                 logger.info(f"[AgentSceneEvent] Received scene event: {json.dumps(scene, indent=2, ensure_ascii=False)}")
+                
+                # Client-side filtering by agent_id if specified
+                if agent_id_filter and scene:
+                    scene_agent_ids = scene.get("agent_ids", [])
+                    if agent_id_filter not in scene_agent_ids:
+                        logger.debug(f"[AgentSceneEvent] Skipping scene - agent_id_filter '{agent_id_filter}' not in {scene_agent_ids}")
+                        return
                 
                 if on_scene_callback and scene:
                     try:
