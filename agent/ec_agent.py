@@ -931,6 +931,7 @@ class EC_Agent(Agent):
 			# Get the traceback information
 			err_msg = get_traceback(e, "ErrorLaunchDevRunTask")
 			logger.error(err_msg)
+			return {"success": False, "error": err_msg}
 
 	def step_dev_run_task(self):
 		logger.info("launching dev run task!")
@@ -942,6 +943,7 @@ class EC_Agent(Agent):
 			# Get the traceback information
 			err_msg = get_traceback(e, "ErrorLaunchDevRunTask")
 			logger.error(err_msg)
+			return {"success": False, "error": err_msg}
 
 	def pause_dev_run_task(self):
 		logger.info("launching dev run task!")
@@ -953,6 +955,7 @@ class EC_Agent(Agent):
 			# Get the traceback information
 			err_msg = get_traceback(e, "ErrorLaunchDevRunTask")
 			logger.error(err_msg)
+			return {"success": False, "error": err_msg}
 
 	def cancel_dev_run_task(self):
 		logger.info("launching dev run task!")
@@ -964,6 +967,7 @@ class EC_Agent(Agent):
 			# Get the traceback information
 			err_msg = get_traceback(e, "ErrorLaunchDevRunTask")
 			logger.error(err_msg)
+			return {"success": False, "error": err_msg}
 
 
 	def set_checkpointer(self, checkpointer):
