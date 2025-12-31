@@ -112,7 +112,10 @@ from agent.ec_skills.label_utils.print_label import (
     add_print_labels_tool_schema,
     add_reformat_labels_tool_schema,
 )
-from agent.mcp.server.api.ecan_ai.ecan_ai_api import add_ecan_ai_api_get_agent_status_tool_schema
+from agent.mcp.server.api.ecan_ai.ecan_ai_api import (
+    add_ecan_ai_api_get_agent_status_tool_schema,
+    add_ecan_ai_api_req_create_scene_tool_schema,
+)
 from agent.ec_skills.rag.local_rag_mcp import (
     add_ragify_tool_schema,
     add_rag_query_tool_schema,
@@ -2105,6 +2108,7 @@ def build_agent_mcp_tools_schemas():
     add_reformat_labels_tool_schema(tool_schemas)
 
     add_ecan_ai_api_get_agent_status_tool_schema(tool_schemas)
+    add_ecan_ai_api_req_create_scene_tool_schema(tool_schemas)
 
     add_gmail_read_titles_tool_schema(tool_schemas)
     add_gmail_read_full_email_tool_schema(tool_schemas)

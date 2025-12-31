@@ -116,6 +116,258 @@ def test_flowgram2langgraph():
         }
 
 
+def run_mmodal_gen_tests(mwin, test_config=None):
+    """
+    Run multi-modal generation tests (text2image, image2image, image2video).
+    
+    These tests call the ecan_ai_api_req_create_scene API which handles:
+    1. initReqScene -> get presigned upload URLs
+    2. Upload files to S3 (if refs provided)
+    3. readyReqScene -> confirm uploads and start processing
+    
+    Args:
+        mwin: Main window instance with session, token, endpoints
+        test_config: Optional config dict with:
+            - test_text2image: bool (default True)
+            - test_image2image: bool (default True)
+            - test_image2video: bool (default True)
+            - agent_id: str (default "test_agent")
+            - ref_image_path: str - path to reference image for image2image/image2video tests
+        
+    Returns:
+        dict: Test results with success, passed, total, and individual test details
+    """
+    from agent.mcp.server.api.ecan_ai.ecan_ai_api import ecan_ai_api_req_create_scene
+    
+    print("[TEST] ============================================================")
+    print("[TEST] Starting Multi-Modal Generation Tests (run_mmodal_gen_tests)")
+    print("[TEST] ============================================================")
+    
+    # Default config
+    config = {
+        'test_text2image': True,
+        'test_image2image': False,
+        'test_image2video': False,
+        'agent_id': 'test_agent',
+        'ref_image_path': "animations/agent5.png",  # User should provide a valid path for image tests
+    }
+    if test_config:
+        config.update(test_config)
+    
+    results = {
+        'success': True,
+        'passed': 0,
+        'total': 0,
+        'tests': []
+    }
+    
+    # Test 1: Text-to-Image Generation
+    if config.get('test_text2image', True):
+        print("\n[TEST] --- Test 1: Text-to-Image Generation ---")
+        results['total'] += 1
+        try:
+            test_input = {
+                "agent_id": config.get('agent_id', 'test_agent'),
+                "description": "A serene mountain landscape at sunset with golden light reflecting off a calm lake",
+                "output_format": "IMAGE",
+                "output_resolution": [1920, 1080],
+                "style": "CINEMATIC",
+            }
+            print(f"[TEST] Text2Image input: {json.dumps(test_input, indent=2)}")
+            
+            response = ecan_ai_api_req_create_scene(mwin, test_input)
+            
+            print(f"[TEST] Text2Image response: {json.dumps(response, indent=2, default=str)}")
+            
+            # Check for success - should get request_id and Processing/AwaitingUpload status
+            if response.get('request_id') and response.get('status') not in ['Error']:
+                print(f"[TEST] ✅ Text2Image PASSED - request_id: {response.get('request_id')}")
+                results['passed'] += 1
+                results['tests'].append({
+                    'test': 'text2image',
+                    'success': True,
+                    'request_id': response.get('request_id'),
+                    'status': response.get('status'),
+                    'message': response.get('message')
+                })
+            else:
+                print(f"[TEST] ❌ Text2Image FAILED - {response.get('message', 'Unknown error')}")
+                results['success'] = False
+                results['tests'].append({
+                    'test': 'text2image',
+                    'success': False,
+                    'error': response.get('message', 'No request_id returned')
+                })
+        except Exception as e:
+            print(f"[TEST] ❌ Text2Image EXCEPTION: {e}")
+            import traceback
+            traceback.print_exc()
+            results['success'] = False
+            results['tests'].append({
+                'test': 'text2image',
+                'success': False,
+                'error': str(e)
+            })
+    
+    # Test 2: Image-to-Image Generation
+    if config.get('test_image2image', True):
+        print("\n[TEST] --- Test 2: Image-to-Image Generation ---")
+        results['total'] += 1
+        
+        ref_image_path = config.get('ref_image_path')
+        if not ref_image_path or not os.path.exists(ref_image_path):
+            print(f"[TEST] ⚠️ Image2Image SKIPPED - No valid ref_image_path provided: {ref_image_path}")
+            results['tests'].append({
+                'test': 'image2image',
+                'success': False,
+                'skipped': True,
+                'error': f'No valid ref_image_path provided: {ref_image_path}'
+            })
+        else:
+            try:
+                test_input = {
+                    "agent_id": config.get('agent_id', 'test_agent'),
+                    "description": "Transform this image into a watercolor painting style with soft edges and vibrant colors",
+                    "output_format": "IMAGE",
+                    "output_resolution": [1920, 1080],
+                    "style": "ARTISTIC",
+                    "refs": [
+                        {"type": "image", "file_path": ref_image_path, "mime_type": "image/jpeg"}
+                    ],
+                }
+                print(f"[TEST] Image2Image input: {json.dumps(test_input, indent=2)}")
+                
+                response = ecan_ai_api_req_create_scene(mwin, test_input)
+                
+                print(f"[TEST] Image2Image response: {json.dumps(response, indent=2, default=str)}")
+                
+                # Check for success
+                if response.get('request_id') and response.get('status') not in ['Error']:
+                    # Check upload results if any
+                    upload_results = response.get('upload_results', [])
+                    uploads_ok = all(r.get('success', False) for r in upload_results) if upload_results else True
+                    
+                    if uploads_ok:
+                        print(f"[TEST] ✅ Image2Image PASSED - request_id: {response.get('request_id')}")
+                        results['passed'] += 1
+                        results['tests'].append({
+                            'test': 'image2image',
+                            'success': True,
+                            'request_id': response.get('request_id'),
+                            'status': response.get('status'),
+                            'upload_results': upload_results
+                        })
+                    else:
+                        print(f"[TEST] ❌ Image2Image FAILED - Upload errors: {upload_results}")
+                        results['success'] = False
+                        results['tests'].append({
+                            'test': 'image2image',
+                            'success': False,
+                            'error': 'Upload failed',
+                            'upload_results': upload_results
+                        })
+                else:
+                    print(f"[TEST] ❌ Image2Image FAILED - {response.get('message', 'Unknown error')}")
+                    results['success'] = False
+                    results['tests'].append({
+                        'test': 'image2image',
+                        'success': False,
+                        'error': response.get('message', 'No request_id returned')
+                    })
+            except Exception as e:
+                print(f"[TEST] ❌ Image2Image EXCEPTION: {e}")
+                import traceback
+                traceback.print_exc()
+                results['success'] = False
+                results['tests'].append({
+                    'test': 'image2image',
+                    'success': False,
+                    'error': str(e)
+                })
+    
+    # Test 3: Image-to-Video Generation
+    if config.get('test_image2video', True):
+        print("\n[TEST] --- Test 3: Image-to-Video Generation ---")
+        results['total'] += 1
+        
+        ref_image_path = config.get('ref_image_path')
+        if not ref_image_path or not os.path.exists(ref_image_path):
+            print(f"[TEST] ⚠️ Image2Video SKIPPED - No valid ref_image_path provided: {ref_image_path}")
+            results['tests'].append({
+                'test': 'image2video',
+                'success': False,
+                'skipped': True,
+                'error': f'No valid ref_image_path provided: {ref_image_path}'
+            })
+        else:
+            try:
+                test_input = {
+                    "agent_id": config.get('agent_id', 'test_agent'),
+                    "description": "Animate this image with gentle camera movement, subtle parallax effect, and atmospheric motion",
+                    "output_format": "VIDEO",
+                    "output_resolution": [1920, 1080],
+                    "duration_hint_ms": 5000,  # 5 second video
+                    "style": "CINEMATIC",
+                    "refs": [
+                        {"type": "image", "file_path": ref_image_path, "mime_type": "image/jpeg"}
+                    ],
+                }
+                print(f"[TEST] Image2Video input: {json.dumps(test_input, indent=2)}")
+                
+                response = ecan_ai_api_req_create_scene(mwin, test_input)
+                
+                print(f"[TEST] Image2Video response: {json.dumps(response, indent=2, default=str)}")
+                
+                # Check for success
+                if response.get('request_id') and response.get('status') not in ['Error']:
+                    upload_results = response.get('upload_results', [])
+                    uploads_ok = all(r.get('success', False) for r in upload_results) if upload_results else True
+                    
+                    if uploads_ok:
+                        print(f"[TEST] ✅ Image2Video PASSED - request_id: {response.get('request_id')}")
+                        results['passed'] += 1
+                        results['tests'].append({
+                            'test': 'image2video',
+                            'success': True,
+                            'request_id': response.get('request_id'),
+                            'status': response.get('status'),
+                            'upload_results': upload_results
+                        })
+                    else:
+                        print(f"[TEST] ❌ Image2Video FAILED - Upload errors: {upload_results}")
+                        results['success'] = False
+                        results['tests'].append({
+                            'test': 'image2video',
+                            'success': False,
+                            'error': 'Upload failed',
+                            'upload_results': upload_results
+                        })
+                else:
+                    print(f"[TEST] ❌ Image2Video FAILED - {response.get('message', 'Unknown error')}")
+                    results['success'] = False
+                    results['tests'].append({
+                        'test': 'image2video',
+                        'success': False,
+                        'error': response.get('message', 'No request_id returned')
+                    })
+            except Exception as e:
+                print(f"[TEST] ❌ Image2Video EXCEPTION: {e}")
+                import traceback
+                traceback.print_exc()
+                results['success'] = False
+                results['tests'].append({
+                    'test': 'image2video',
+                    'success': False,
+                    'error': str(e)
+                })
+    
+    print("\n[TEST] ============================================================")
+    print(f"[TEST] Multi-Modal Generation Tests Complete: {results['passed']}/{results['total']} passed")
+    print("[TEST] ============================================================")
+    
+    return results
+
+
 def run_default_tests(mwin, test_setup=None):
     """
     Run default tests
@@ -186,6 +438,16 @@ def run_default_tests(mwin, test_setup=None):
             if test_setup.get('test_flowgram'):
                 flowgram_result = test_flowgram2langgraph()
                 results['tests_run'].append(flowgram_result)
+
+            if test_setup.get('test_mmodal_gen'):
+                mmodal_config = test_setup.get('mmodal_gen_config', {})
+                mmodal_result = run_mmodal_gen_tests(mwin, mmodal_config)
+                results['tests_run'].append({
+                    'test': 'mmodal_gen_tests',
+                    'success': mmodal_result['success'],
+                    'details': mmodal_result
+                })
+                logger.info(f"[TEST] Multi-Modal Gen tests: {mmodal_result['passed']}/{mmodal_result['total']} passed")
         
         # Check if any test failed
         failed_tests = [t for t in results['tests_run'] if not t.get('success', False)]

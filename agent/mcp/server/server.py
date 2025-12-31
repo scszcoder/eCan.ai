@@ -2569,6 +2569,51 @@ async def api_ecan_ai_show_status(mainwin, args):
         return [TextContent(type="text", text=err_trace)]
 
 
+async def api_ecan_ai_req_create_scene(mainwin, args):
+    """Handle ecan_ai_api_req_create_scene MCP tool call.
+    
+    Request cloud-side multi-modal scene generation (text2image, text2video, etc.).
+    Complete flow: initReqScene -> upload files -> readyReqScene in single call.
+    """
+    from agent.mcp.server.api.ecan_ai.ecan_ai_api import ecan_ai_api_req_create_scene
+    import json
+    try:
+        logger.info(f"api_ecan_ai_req_create_scene args: {args['input']}")
+        response = ecan_ai_api_req_create_scene(mainwin, args['input'])
+        
+        request_id = response.get("request_id", "")
+        status = response.get("status", "Error")
+        message = response.get("message", "")
+        upload_results = response.get("upload_results", [])
+        
+        # Build response message
+        if status == "Error":
+            msg = f"Scene generation request failed: {message}"
+        elif status == "UploadFailed":
+            failed_count = sum(1 for r in upload_results if not r.get("success"))
+            msg = f"Scene generation request partially failed (request_id: {request_id}). " \
+                  f"{failed_count} upload(s) failed. Check upload_results for details."
+        elif status == "Processing":
+            msg = f"Scene generation started (request_id: {request_id}). {message}"
+        else:
+            msg = f"Scene generation request submitted (request_id: {request_id}). Status: {status}. {message}"
+        
+        result = TextContent(type="text", text=msg)
+        result.meta = {
+            "request_id": request_id,
+            "status": status,
+            "message": message,
+            "estimated_time_ms": response.get("estimated_time_ms", 0),
+            "upload_results": upload_results,
+        }
+        logger.info(f"api_ecan_ai_req_create_scene result: {result}")
+        return [result]
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorAPIECANAIReqCreateScene")
+        logger.error(err_trace)
+        return [TextContent(type="text", text=err_trace)]
+
+
 
 
 async def ecan_local_search_components(mainwin, args):
@@ -2777,6 +2822,7 @@ tool_function_mapping = {
         "api_ecan_ai_cloud_search": api_ecan_ai_cloud_search,
         "api_ecan_ai_rerank_results": api_ecan_ai_rerank_results,
         "api_ecan_ai_show_status": api_ecan_ai_show_status,
+        "ecan_ai_api_req_create_scene": api_ecan_ai_req_create_scene,
         "mouse_act_on_screen": mouse_act_on_screen,
         "ecan_local_search_components": ecan_local_search_components,
         "ecan_local_sort_search_results": ecan_local_sort_search_results,
