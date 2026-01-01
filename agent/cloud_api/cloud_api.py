@@ -3395,6 +3395,216 @@ def send_start_long_llm_task_to_cloud(session, token, rank_data_inut, endpoint):
     return jresponse
 
 
+def gen_init_req_scene_string(req_scene_input: dict) -> str:
+    """Generate GraphQL mutation string for initReqScene.
+    
+    GraphQL schema:
+        initReqScene(input: ReqSceneInput!): ReqSceneResponse!
+        
+    ReqSceneInput:
+        acctSiteID: String!
+        agent_id: String!
+        context: AWSJSON
+        description: String
+        duration_hint_ms: Int
+        emotion: String
+        mind_state: String
+        output_format: OutputFormat
+        output_resolution: [Int]
+        style: SceneStyle
+        refs: [AWSJSON!]
+    """
+    try:
+        acct_site_id = req_scene_input.get("acctSiteID", "")
+        agent_id = req_scene_input.get("agent_id", "")
+        description = req_scene_input.get("description", "")
+        duration_hint_ms = req_scene_input.get("duration_hint_ms")
+        emotion = req_scene_input.get("emotion")
+        mind_state = req_scene_input.get("mind_state")
+        output_format = req_scene_input.get("output_format")  # IMAGE or VIDEO
+        output_resolution = req_scene_input.get("output_resolution", [])
+        style = req_scene_input.get("style")
+        refs = req_scene_input.get("refs", [])
+        context = req_scene_input.get("context", {})
+        
+        # Build input fields
+        input_parts = [
+            f'acctSiteID: "{acct_site_id}"',
+            f'agent_id: "{agent_id}"',
+        ]
+        
+        if description:
+            # Escape quotes and newlines in description
+            escaped_desc = description.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
+            input_parts.append(f'description: "{escaped_desc}"')
+        
+        if duration_hint_ms is not None:
+            input_parts.append(f'duration_hint_ms: {duration_hint_ms}')
+        
+        if emotion:
+            escaped_emotion = emotion.replace('"', '\\"')
+            input_parts.append(f'emotion: "{escaped_emotion}"')
+        
+        if mind_state:
+            escaped_mind = mind_state.replace('"', '\\"')
+            input_parts.append(f'mind_state: "{escaped_mind}"')
+        
+        if output_format:
+            input_parts.append(f'output_format: {output_format}')  # Enum, no quotes
+        
+        if output_resolution:
+            res_str = "[" + ", ".join(str(r) for r in output_resolution) + "]"
+            input_parts.append(f'output_resolution: {res_str}')
+        
+        if style:
+            input_parts.append(f'style: {style}')  # Enum, no quotes
+        
+        # context is AWSJSON - needs to be double-encoded
+        if context:
+            context_json = json.dumps(json.dumps(context))
+            input_parts.append(f'context: {context_json}')
+        
+        # refs is [AWSJSON!] - each element needs to be double-encoded
+        if refs:
+            refs_encoded = []
+            for ref in refs:
+                if isinstance(ref, dict):
+                    refs_encoded.append(json.dumps(json.dumps(ref)))
+                elif isinstance(ref, str):
+                    refs_encoded.append(json.dumps(ref))
+            refs_str = "[" + ", ".join(refs_encoded) + "]"
+            input_parts.append(f'refs: {refs_str}')
+        
+        input_str = ", ".join(input_parts)
+        
+        query_string = f"""
+        mutation InitReqScene {{
+          initReqScene(input: {{ {input_str} }}) {{
+            request_id
+            status
+            message
+            estimated_time_ms
+            ref_ul_links
+          }}
+        }}
+        """
+        
+        logger.debug(f"Generated initReqScene mutation: {query_string}")
+        return query_string
+    except Exception as e:
+        logger.error(f"Error generating initReqScene string: {e}")
+        raise
+
+
+def gen_ready_req_scene_string(ready_input: dict) -> str:
+    """Generate GraphQL mutation string for readyReqScene.
+    
+    GraphQL schema:
+        readyReqScene(input: ReadyReqSceneInput!): ReqSceneResponse!
+        
+    ReadyReqSceneInput:
+        acctSiteID: String!
+        request_id: ID!
+        status: String
+    """
+    try:
+        acct_site_id = ready_input.get("acctSiteID", "")
+        request_id = ready_input.get("request_id", "")
+        status = ready_input.get("status", "Completed")
+        
+        query_string = f"""
+        mutation ReadyReqScene {{
+          readyReqScene(input: {{ acctSiteID: "{acct_site_id}", request_id: "{request_id}", status: "{status}" }}) {{
+            request_id
+            status
+            message
+            estimated_time_ms
+            ref_ul_links
+          }}
+        }}
+        """
+        
+        logger.debug(f"Generated readyReqScene mutation: {query_string}")
+        return query_string
+    except Exception as e:
+        logger.error(f"Error generating readyReqScene string: {e}")
+        raise
+
+
+def send_init_req_scene_to_cloud(session, token, req_scene_input: dict, endpoint: str) -> dict:
+    """Send initReqScene mutation to cloud.
+    
+    Args:
+        session: HTTP session
+        token: Auth token
+        req_scene_input: ReqSceneInput dict
+        endpoint: GraphQL endpoint
+        
+    Returns:
+        ReqSceneResponse dict with request_id, status, message, estimated_time_ms, ref_ul_links
+    """
+    logger.info(f"[CloudAPI] send_init_req_scene_to_cloud - endpoint: {endpoint}")
+    logger.debug(f"[CloudAPI] initReqScene input: {req_scene_input}")
+    
+    query_string = gen_init_req_scene_string(req_scene_input)
+    logger.debug(f"[CloudAPI] initReqScene query string generated, length: {len(query_string)}")
+    
+    logger.info("[CloudAPI] Sending initReqScene HTTP request to AppSync...")
+    jresp = appsync_http_request(query_string, session, token, endpoint)
+    logger.info(f"[CloudAPI] initReqScene raw response received, keys: {list(jresp.keys()) if isinstance(jresp, dict) else 'N/A'}")
+    logger.debug(f"[CloudAPI] initReqScene full response: {jresp}")
+    
+    if "errors" in jresp:
+        error = jresp["errors"][0] if jresp["errors"] else {}
+        error_type = error.get("errorType", "Unknown")
+        error_msg = error.get("message", str(error))
+        logger.error(f"[CloudAPI] initReqScene ERROR Type: {error_type}")
+        logger.error(f"[CloudAPI] initReqScene ERROR Info: {error_msg}")
+        logger.error(f"[CloudAPI] initReqScene Full errors: {jresp['errors']}")
+        return {"errors": jresp["errors"], "request_id": "", "status": "Error", "message": error_msg}
+    
+    result = jresp.get("data", {}).get("initReqScene", {})
+    logger.info(f"[CloudAPI] initReqScene SUCCESS - request_id: {result.get('request_id', 'N/A')}, status: {result.get('status', 'N/A')}")
+    return result
+
+
+def send_ready_req_scene_to_cloud(session, token, ready_input: dict, endpoint: str) -> dict:
+    """Send readyReqScene mutation to cloud.
+    
+    Args:
+        session: HTTP session
+        token: Auth token
+        ready_input: ReadyReqSceneInput dict with acctSiteID, request_id, status
+        endpoint: GraphQL endpoint
+        
+    Returns:
+        ReqSceneResponse dict
+    """
+    logger.info(f"[CloudAPI] send_ready_req_scene_to_cloud - endpoint: {endpoint}")
+    logger.info(f"[CloudAPI] readyReqScene input: {ready_input}")
+    
+    query_string = gen_ready_req_scene_string(ready_input)
+    logger.debug(f"[CloudAPI] readyReqScene query string generated, length: {len(query_string)}")
+    
+    logger.info("[CloudAPI] Sending readyReqScene HTTP request to AppSync...")
+    jresp = appsync_http_request(query_string, session, token, endpoint)
+    logger.info(f"[CloudAPI] readyReqScene raw response received, keys: {list(jresp.keys()) if isinstance(jresp, dict) else 'N/A'}")
+    logger.debug(f"[CloudAPI] readyReqScene full response: {jresp}")
+    
+    if "errors" in jresp:
+        error = jresp["errors"][0] if jresp["errors"] else {}
+        error_type = error.get("errorType", "Unknown")
+        error_msg = error.get("message", str(error))
+        logger.error(f"[CloudAPI] readyReqScene ERROR Type: {error_type}")
+        logger.error(f"[CloudAPI] readyReqScene ERROR Info: {error_msg}")
+        logger.error(f"[CloudAPI] readyReqScene Full errors: {jresp['errors']}")
+        return {"errors": jresp["errors"], "request_id": "", "status": "Error", "message": error_msg}
+    
+    result = jresp.get("data", {}).get("readyReqScene", {})
+    logger.info(f"[CloudAPI] readyReqScene SUCCESS - request_id: {result.get('request_id', 'N/A')}, status: {result.get('status', 'N/A')}")
+    return result
+
+
 def convert_cloud_result_to_task_send_params(result_obj: dict, work_type: str) -> dict:
     """
     Convert cloud API result object to TaskSendParams-compatible format for _build_resume_payload().
@@ -4206,35 +4416,34 @@ def handle_account_notification(notification: dict):
 # Scene & Story Subscriptions (WebSocket)
 # ============================================================================
 
-def subscribe_agent_scene_events(acct_site_id: str, agent_id: str, id_token: str, ws_url: Optional[str] = None,
-                                  on_scene_callback=None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
+def subscribe_agent_scene_events(acct_site_id: str, id_token: str, ws_url: Optional[str] = None,
+                                  on_scene_callback=None, agent_id_filter: str = None) -> Tuple[websocket.WebSocketApp, threading.Thread]:
     """Subscribe to agent scene events over WebSocket.
     
-    GraphQL: onAgentSceneEvent(acctSiteID: String!, agent_id: String!): Scene
+    GraphQL: onAgentSceneEvent(acctSiteID: String!): Scene
     
     Parameters:
         acct_site_id: Account site ID for the subscription filter.
-        agent_id: Agent ID for the subscription filter.
         id_token: Cognito/AppSync ID token (Authorization header).
         ws_url: Optional AppSync GraphQL endpoint; if https, auto-converted to realtime wss.
         on_scene_callback: Optional callback function(scene_data) to handle received scene events.
+        agent_id_filter: Optional agent ID to filter events client-side (not sent to AppSync).
     """
 
     def on_message(ws, message):
-        logger.debug("[AgentSceneEvent] Received WebSocket message")
+        logger.info("[AgentSceneEvent] Received WebSocket message")
         try:
             data = json.loads(message)
         except Exception:
             data = {"raw": message}
-        logger.debug("[AgentSceneEvent] Subscription update: %s", json.dumps(data, indent=2))
-        
         msg_type = data.get("type")
+        logger.info(f"[AgentSceneEvent] Message type: {msg_type}, full data: {json.dumps(data, indent=2)}")
 
         if msg_type == "connection_ack":
             try:
                 subscription = """
-                    subscription OnAgentSceneEvent($acctSiteID: String!, $agent_id: String!) {
-                      onAgentSceneEvent(acctSiteID: $acctSiteID, agent_id: $agent_id) {
+                    subscription OnAgentSceneEvent($acctSiteID: String!) {
+                      onAgentSceneEvent(acctSiteID: $acctSiteID) {
                         id
                         scene_id
                         acctSiteID
@@ -4260,7 +4469,7 @@ def subscribe_agent_scene_events(acct_site_id: str, agent_id: str, id_token: str
                 data_obj = {
                     "query": subscription,
                     "operationName": "OnAgentSceneEvent",
-                    "variables": {"acctSiteID": acct_site_id, "agent_id": agent_id},
+                    "variables": {"acctSiteID": acct_site_id},
                 }
                 start_payload = {
                     "id": "AgentSceneEvent1",
@@ -4275,11 +4484,17 @@ def subscribe_agent_scene_events(acct_site_id: str, agent_id: str, id_token: str
                         },
                     },
                 }
-                logger.info("[AgentSceneEvent] connection_ack received, sending start subscription")
+                logger.info(f"[AgentSceneEvent] connection_ack received, sending start subscription with acctSiteID='{acct_site_id}'")
                 ws.send(json.dumps(start_payload))
             except Exception as e:
                 logger.error(f"[AgentSceneEvent] Failed to send start payload: {e}")
 
+        elif msg_type == "start_ack":
+            logger.info(f"[AgentSceneEvent] Subscription started successfully (start_ack received)")
+            return
+        elif msg_type == "error":
+            logger.error(f"[AgentSceneEvent] Subscription error: {json.dumps(data, indent=2)}")
+            return
         elif msg_type in ("ka", "keepalive"):
             return
         elif msg_type == "data" and isinstance(data.get("payload"), dict) and data.get("id") == "AgentSceneEvent1":
@@ -4288,6 +4503,13 @@ def subscribe_agent_scene_events(acct_site_id: str, agent_id: str, id_token: str
             if isinstance(payload_data, dict):
                 scene = payload_data.get("onAgentSceneEvent")
                 logger.info(f"[AgentSceneEvent] Received scene event: {json.dumps(scene, indent=2, ensure_ascii=False)}")
+                
+                # Client-side filtering by agent_id if specified
+                if agent_id_filter and scene:
+                    scene_agent_ids = scene.get("agent_ids", [])
+                    if agent_id_filter not in scene_agent_ids:
+                        logger.debug(f"[AgentSceneEvent] Skipping scene - agent_id_filter '{agent_id_filter}' not in {scene_agent_ids}")
+                        return
                 
                 if on_scene_callback and scene:
                     try:
@@ -4613,10 +4835,185 @@ def subscribe_scene_complete(acct_site_id: str, id_token: str, ws_url: Optional[
     return ws, t
 
 
-def handle_scene_complete(scene_result: dict):
-    """Placeholder handler for scene completion events."""
-    logger.info(f"[SceneComplete] Handler called with scene: {scene_result.get('scene_id', 'unknown')}")
-    # TODO: Wire up actual scene completion handling logic
+def handle_scene_complete(scene_result: dict, download_dir: str = "generated_medias"):
+    """Handle scene completion events by downloading generated media.
+    
+    Downloads the generated media from presigned S3 URLs to local directory.
+    
+    Args:
+        scene_result: Scene completion result dict containing:
+            - id/request_id: Unique identifier for the scene request
+            - status: COMPLETED, FAILED, etc.
+            - downloadUrl: Presigned S3 URL for the generated media
+            - video: URL for video output (if applicable)
+            - thumbnail: URL for thumbnail (if applicable)
+            - outputS3Uri: S3 URI of the output file
+            - payload: Additional job details
+        download_dir: Local directory to save downloaded files (default: "generated_medias")
+        
+    Returns:
+        dict: Result with downloaded file paths and status
+    """
+    import requests
+    from urllib.parse import urlparse, unquote
+    
+    logger.info("=" * 60)
+    logger.info("[SceneComplete] Handler called")
+    logger.info(f"[SceneComplete] Scene result: {json.dumps(scene_result, indent=2, default=str)}")
+    
+    result = {
+        "success": False,
+        "request_id": "",
+        "downloaded_files": [],
+        "errors": []
+    }
+    
+    try:
+        # Extract identifiers
+        request_id = scene_result.get("request_id") or scene_result.get("id") or "unknown"
+        result["request_id"] = request_id
+        
+        status = scene_result.get("status", "")
+        logger.info(f"[SceneComplete] Request ID: {request_id}, Status: {status}")
+        
+        # Check if generation was successful
+        if status.upper() not in ["COMPLETED", "SUCCESS"]:
+            error_msg = scene_result.get("error", f"Scene generation failed with status: {status}")
+            logger.error(f"[SceneComplete] Generation failed: {error_msg}")
+            result["errors"].append(error_msg)
+            return result
+        
+        # Create download directory if it doesn't exist
+        os.makedirs(download_dir, exist_ok=True)
+        logger.info(f"[SceneComplete] Download directory: {os.path.abspath(download_dir)}")
+        
+        # Collect all download URLs
+        download_urls = []
+        
+        # Primary download URL (can be string or list)
+        download_url = scene_result.get("downloadUrl")
+        if download_url:
+            if isinstance(download_url, list):
+                for i, url in enumerate(download_url):
+                    download_urls.append((f"output_{i}" if len(download_url) > 1 else "output", url))
+            else:
+                download_urls.append(("output", download_url))
+        
+        # Video URL (can be string or list)
+        video_url = scene_result.get("video")
+        if video_url:
+            if isinstance(video_url, list):
+                for i, url in enumerate(video_url):
+                    download_urls.append((f"video_{i}" if len(video_url) > 1 else "video", url))
+            else:
+                download_urls.append(("video", video_url))
+        
+        # Thumbnail URL (can be string or list)
+        thumbnail_url = scene_result.get("thumbnail")
+        if thumbnail_url:
+            if isinstance(thumbnail_url, list):
+                for i, url in enumerate(thumbnail_url):
+                    download_urls.append((f"thumbnail_{i}" if len(thumbnail_url) > 1 else "thumbnail", url))
+            else:
+                download_urls.append(("thumbnail", thumbnail_url))
+        
+        if not download_urls:
+            logger.warning("[SceneComplete] No download URLs found in scene result")
+            result["errors"].append("No download URLs found in scene result")
+            return result
+        
+        logger.info(f"[SceneComplete] Found {len(download_urls)} file(s) to download")
+        
+        # Download each file
+        for file_type, url in download_urls:
+            try:
+                logger.info(f"[SceneComplete] Downloading {file_type}: {url[:100]}...")
+                
+                # Extract filename from URL or generate one
+                parsed_url = urlparse(url)
+                url_path = unquote(parsed_url.path)
+                original_filename = os.path.basename(url_path)
+                
+                # Generate a unique filename with request_id prefix
+                if original_filename:
+                    # Keep original extension
+                    _, ext = os.path.splitext(original_filename)
+                    if not ext:
+                        # Try to guess extension from content-type later
+                        ext = ".bin"
+                    filename = f"{request_id}_{file_type}{ext}"
+                else:
+                    filename = f"{request_id}_{file_type}.bin"
+                
+                local_path = os.path.join(download_dir, filename)
+                
+                # Download the file
+                response = requests.get(url, stream=True, timeout=120)
+                response.raise_for_status()
+                
+                # Get content type to determine extension if needed
+                content_type = response.headers.get("Content-Type", "")
+                if filename.endswith(".bin"):
+                    # Update extension based on content type
+                    ext_map = {
+                        "image/png": ".png",
+                        "image/jpeg": ".jpg",
+                        "image/gif": ".gif",
+                        "image/webp": ".webp",
+                        "video/mp4": ".mp4",
+                        "video/webm": ".webm",
+                        "audio/mpeg": ".mp3",
+                        "audio/wav": ".wav",
+                    }
+                    for ct, ext in ext_map.items():
+                        if ct in content_type:
+                            filename = filename.replace(".bin", ext)
+                            local_path = os.path.join(download_dir, filename)
+                            break
+                
+                # Write to file
+                total_size = 0
+                with open(local_path, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                            total_size += len(chunk)
+                
+                logger.info(f"[SceneComplete] ✅ Downloaded {file_type}: {local_path} ({total_size} bytes)")
+                result["downloaded_files"].append({
+                    "type": file_type,
+                    "path": local_path,
+                    "size": total_size,
+                    "content_type": content_type
+                })
+                
+            except requests.exceptions.RequestException as e:
+                error_msg = f"Failed to download {file_type}: {str(e)}"
+                logger.error(f"[SceneComplete] ❌ {error_msg}")
+                result["errors"].append(error_msg)
+            except Exception as e:
+                error_msg = f"Error processing {file_type}: {str(e)}"
+                logger.error(f"[SceneComplete] ❌ {error_msg}")
+                result["errors"].append(error_msg)
+        
+        # Mark success if at least one file was downloaded
+        if result["downloaded_files"]:
+            result["success"] = True
+            logger.info(f"[SceneComplete] ✅ Successfully downloaded {len(result['downloaded_files'])} file(s)")
+        else:
+            logger.error("[SceneComplete] ❌ No files were downloaded")
+        
+    except Exception as e:
+        error_msg = f"handle_scene_complete error: {str(e)}"
+        logger.error(f"[SceneComplete] ❌ {error_msg}")
+        import traceback
+        logger.error(traceback.format_exc())
+        result["errors"].append(error_msg)
+    
+    logger.info(f"[SceneComplete] Final result: {json.dumps(result, indent=2, default=str)}")
+    logger.info("=" * 60)
+    
+    return result
 
 
 def subscribe_story_updates(acct_site_id: str, id_token: str, ws_url: Optional[str] = None,

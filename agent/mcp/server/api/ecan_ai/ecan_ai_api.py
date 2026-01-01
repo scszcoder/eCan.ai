@@ -6,7 +6,11 @@ from agent.cloud_api.cloud_api import (
     send_query_components_request_to_cloud,
     send_get_nodes_prompts_request_to_cloud,
     send_query_fom_request_to_cloud,
-    send_rank_results_request_to_cloud, send_start_long_llm_task_to_cloud
+    send_rank_results_request_to_cloud,
+    send_start_long_llm_task_to_cloud,
+    send_init_req_scene_to_cloud,
+    send_ready_req_scene_to_cloud,
+    upload_file_to_presigned_url,
 )
 import json
 
@@ -328,5 +332,377 @@ def ecan_ai_api_get_agent_status(mainwin, config):
         logger.error(err_trace)
         status = err_trace
     return status
+
+
+def add_ecan_ai_api_req_create_scene_tool_schema(tool_schemas):
+    """Add tool schema for ecan_ai_api_req_create_scene."""
+    import mcp.types as types
+
+    tool_schema = types.Tool(
+        name="ecan_ai_api_req_create_scene",
+        description="""Request cloud-side multi-modal scene generation (text2image, text2video, image2image, image2video, video2video).
+
+Complete flow handled in a single call:
+1. Sends initReqScene to cloud to get presigned upload URLs (if refs needed)
+2. Automatically uploads reference files to S3 using presigned URLs
+3. Sends readyReqScene to confirm uploads and start processing
+
+For text-only prompts (no refs), cloud starts processing immediately.
+Results are delivered via pub/sub subscription when generation completes.""",
+        inputSchema={
+            "type": "object",
+            "required": ["input"],
+            "properties": {
+                "input": {
+                    "type": "object",
+                    "required": ["agent_id", "description", "output_format"],
+                    "properties": {
+                        "agent_id": {
+                            "type": "string",
+                            "description": "Agent ID requesting the scene generation"
+                        },
+                        "description": {
+                            "type": "string",
+                            "description": "Text prompt describing the desired scene/image/video"
+                        },
+                        "output_format": {
+                            "type": "string",
+                            "enum": ["IMAGE", "VIDEO"],
+                            "description": "Output format: IMAGE or VIDEO"
+                        },
+                        "output_resolution": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "description": "Output resolution as [width, height], e.g. [1920, 1080]"
+                        },
+                        "duration_hint_ms": {
+                            "type": "integer",
+                            "description": "Hint for video duration in milliseconds"
+                        },
+                        "emotion": {
+                            "type": "string",
+                            "description": "Emotional tone for the scene (e.g., 'happy', 'sad', 'neutral')"
+                        },
+                        "mind_state": {
+                            "type": "string",
+                            "description": "Mental state context for the scene"
+                        },
+                        "style": {
+                            "type": "string",
+                            "enum": ["REALISTIC", "CARTOON", "ANIME", "ARTISTIC", "CINEMATIC"],
+                            "description": "Visual style for the generated content"
+                        },
+                        "context": {
+                            "type": "object",
+                            "description": "Additional context for generation (gemini_job spec, etc.)"
+                        },
+                        "refs": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "file_path": {
+                                        "type": "string",
+                                        "description": "Local file path to the reference image/video"
+                                    },
+                                    "type": {
+                                        "type": "string",
+                                        "enum": ["image", "video"],
+                                        "description": "Type of reference asset"
+                                    },
+                                    "mime_type": {
+                                        "type": "string",
+                                        "description": "MIME type (e.g., 'image/jpeg', 'video/mp4')"
+                                    }
+                                }
+                            },
+                            "description": "Reference assets with local file_path for upload (images/videos to use as input)"
+                        }
+                    }
+                }
+            }
+        },
+    )
+
+    tool_schemas.append(tool_schema)
+
+
+def ecan_ai_api_req_create_scene(mainwin, config: dict) -> dict:
+    """Request cloud-side multi-modal scene generation.
+    
+    Complete flow handled in a single call:
+    1. Send initReqScene to cloud to get presigned upload URLs (if refs needed)
+    2. If refs with local file paths are provided, upload them to S3
+    3. Send readyReqScene to confirm uploads complete and start processing
+    
+    For text-only generation (no refs), cloud starts processing immediately after initReqScene.
+    Results are delivered via pub/sub subscription when generation completes.
+    
+    Args:
+        mainwin: Main window instance with session, token, endpoints
+        config: Request configuration dict with:
+            - agent_id: Agent ID requesting generation
+            - description: Text prompt
+            - output_format: IMAGE or VIDEO
+            - refs: List of reference assets with 'file_path' for local files
+            - output_resolution, duration_hint_ms, emotion, mind_state, style, context (optional)
+        
+    Returns:
+        dict with request_id, status, message, estimated_time_ms, upload_results
+    """
+    logger.info("=" * 60)
+    logger.info("[ReqCreateScene] Starting scene generation request")
+    logger.info(f"[ReqCreateScene] Input config: {json.dumps(config, indent=2, default=str)}")
+    
+    result = {
+        "request_id": "",
+        "status": "Error",
+        "message": "",
+        "estimated_time_ms": 0,
+        "upload_results": []
+    }
+    
+    try:
+        session = mainwin.session
+        token = mainwin.get_auth_token()
+        acct_site_id = mainwin.getAcctSiteID()
+        
+        logger.info(f"[ReqCreateScene] acctSiteID: {acct_site_id}")
+        logger.debug(f"[ReqCreateScene] Token present: {bool(token)}, Token length: {len(token) if token else 0}")
+        
+        # Get endpoint
+        network_api_engine = mainwin.getNetworkApiEngine()
+        if network_api_engine == "lan":
+            endpoint = mainwin.getLanApiEndpoint()
+        else:
+            endpoint = mainwin.getWanApiEndpoint()
+        
+        logger.info(f"[ReqCreateScene] Network engine: {network_api_engine}, Endpoint: {endpoint}")
+        
+        # Extract config parameters
+        agent_id = config.get("agent_id", "")
+        description = config.get("description", "")
+        output_format = config.get("output_format", "IMAGE")
+        output_resolution = config.get("output_resolution", [])
+        duration_hint_ms = config.get("duration_hint_ms")
+        emotion = config.get("emotion")
+        mind_state = config.get("mind_state")
+        style = config.get("style")
+        context = config.get("context", {})
+        refs = config.get("refs", [])
+        
+        logger.info(f"[ReqCreateScene] Parsed params - agent_id: {agent_id}, output_format: {output_format}")
+        logger.info(f"[ReqCreateScene] Description: {description[:100]}..." if len(description) > 100 else f"[ReqCreateScene] Description: {description}")
+        logger.info(f"[ReqCreateScene] Refs count: {len(refs)}, Has context: {bool(context)}")
+        if refs:
+            for i, ref in enumerate(refs):
+                logger.debug(f"[ReqCreateScene] Ref[{i}]: {ref}")
+        
+        # Build context with gemini_job if not already present
+        if not context:
+            context = {}
+        if not any(k in context for k in ["gemini_job", "geminiJob", "media_job"]):
+            # Auto-construct gemini_job from parameters
+            operation = None
+            if output_format == "IMAGE":
+                if refs:
+                    operation = "image_editing"
+                else:
+                    operation = "text_to_image"
+            elif output_format == "VIDEO":
+                if refs:
+                    operation = "image_to_video"
+                else:
+                    operation = "text_to_video"
+            
+            logger.info(f"[ReqCreateScene] Auto-detected operation: {operation}")
+            
+            if operation:
+                gemini_job = {
+                    "operation": operation,
+                    "prompt": description,
+                }
+                if refs:
+                    gemini_job["reference_assets"] = refs
+                if output_resolution and len(output_resolution) >= 2:
+                    w, h = output_resolution[0], output_resolution[1]
+                    if w > h:
+                        gemini_job["aspect_ratio"] = "16:9"
+                    elif h > w:
+                        gemini_job["aspect_ratio"] = "9:16"
+                    else:
+                        gemini_job["aspect_ratio"] = "1:1"
+                if duration_hint_ms:
+                    gemini_job["duration_seconds"] = max(1, duration_hint_ms // 1000)
+                
+                context["gemini_job"] = gemini_job
+                logger.info(f"[ReqCreateScene] Auto-constructed gemini_job: {json.dumps(gemini_job, indent=2)}")
+        
+        # Step 1: Send initReqScene to cloud
+        logger.info("=" * 40)
+        logger.info("[ReqCreateScene] STEP 1: Sending initReqScene to cloud")
+        
+        req_scene_input = {
+            "acctSiteID": acct_site_id,
+            "agent_id": agent_id,
+            "description": description,
+            "output_format": output_format,
+            "context": context,
+        }
+        
+        # Add optional fields
+        if output_resolution:
+            req_scene_input["output_resolution"] = output_resolution
+        if duration_hint_ms is not None:
+            req_scene_input["duration_hint_ms"] = duration_hint_ms
+        if emotion:
+            req_scene_input["emotion"] = emotion
+        if mind_state:
+            req_scene_input["mind_state"] = mind_state
+        if style:
+            req_scene_input["style"] = style
+        if refs:
+            req_scene_input["refs"] = refs
+        
+        logger.info(f"[ReqCreateScene] initReqScene payload: {json.dumps(req_scene_input, indent=2, default=str)}")
+        
+        init_response = send_init_req_scene_to_cloud(session, token, req_scene_input, endpoint)
+        
+        logger.info(f"[ReqCreateScene] initReqScene response status: {'ERROR' if 'errors' in init_response else 'OK'}")
+        logger.info(f"[ReqCreateScene] initReqScene full response: {json.dumps(init_response, indent=2, default=str)}")
+        
+        if "errors" in init_response:
+            error_msg = init_response.get("message", "initReqScene failed")
+            logger.error(f"[ReqCreateScene] initReqScene FAILED: {error_msg}")
+            logger.error(f"[ReqCreateScene] Errors: {init_response.get('errors', [])}")
+            result["message"] = error_msg
+            return result
+        
+        request_id = init_response.get("request_id", "")
+        result["request_id"] = request_id
+        result["estimated_time_ms"] = init_response.get("estimated_time_ms", 30000)
+        
+        ref_ul_links = init_response.get("ref_ul_links", [])
+        logger.info(f"[ReqCreateScene] Got request_id: {request_id}")
+        logger.info(f"[ReqCreateScene] Got {len(ref_ul_links)} presigned upload URLs")
+        
+        # Step 2: If we have upload links and local files, upload them
+        if ref_ul_links and refs:
+            logger.info("=" * 40)
+            logger.info(f"[ReqCreateScene] STEP 2: Uploading {len(ref_ul_links)} reference files to S3")
+            upload_results = []
+            all_uploads_success = True
+            
+            for i, upload_url in enumerate(ref_ul_links):
+                logger.info(f"[ReqCreateScene] Processing upload {i+1}/{len(ref_ul_links)}")
+                logger.debug(f"[ReqCreateScene] Upload URL: {upload_url[:100]}..." if len(upload_url) > 100 else f"[ReqCreateScene] Upload URL: {upload_url}")
+                
+                # Find corresponding ref with file_path
+                file_path = None
+                if i < len(refs):
+                    ref = refs[i]
+                    logger.debug(f"[ReqCreateScene] Ref[{i}] type: {type(ref)}, value: {ref}")
+                    if isinstance(ref, dict):
+                        file_path = ref.get("file_path") or ref.get("path") or ref.get("local_path")
+                    elif isinstance(ref, str):
+                        # ref might be a file path directly
+                        file_path = ref
+                
+                if file_path:
+                    import os
+                    file_exists = os.path.exists(file_path)
+                    file_size = os.path.getsize(file_path) if file_exists else 0
+                    logger.info(f"[ReqCreateScene] Uploading ref {i+1}/{len(ref_ul_links)}: {file_path}")
+                    logger.info(f"[ReqCreateScene] File exists: {file_exists}, Size: {file_size} bytes")
+                    
+                    if not file_exists:
+                        logger.error(f"[ReqCreateScene] File NOT FOUND: {file_path}")
+                        upload_results.append({
+                            "index": i,
+                            "file_path": file_path,
+                            "success": False,
+                            "error": f"File not found: {file_path}"
+                        })
+                        all_uploads_success = False
+                        continue
+                    
+                    upload_result = upload_file_to_presigned_url(file_path, upload_url)
+                    logger.info(f"[ReqCreateScene] Upload result for ref {i+1}: {upload_result}")
+                    
+                    upload_results.append({
+                        "index": i,
+                        "file_path": file_path,
+                        "success": upload_result.get("success", False),
+                        "error": upload_result.get("error", "")
+                    })
+                    if not upload_result.get("success"):
+                        all_uploads_success = False
+                        logger.error(f"[ReqCreateScene] ❌ UPLOAD FAILED for {file_path}: {upload_result.get('error')}")
+                    else:
+                        logger.info(f"[ReqCreateScene] ✅ Upload SUCCESS for {file_path}")
+                else:
+                    logger.warning(f"[ReqCreateScene] ⚠️ No file_path found for ref {i}, skipping upload")
+                    logger.warning(f"[ReqCreateScene] Ref content: {refs[i] if i < len(refs) else 'N/A'}")
+                    upload_results.append({
+                        "index": i,
+                        "file_path": None,
+                        "success": False,
+                        "error": "No file_path provided in ref"
+                    })
+                    all_uploads_success = False
+            
+            result["upload_results"] = upload_results
+            logger.info(f"[ReqCreateScene] Upload summary: {len([r for r in upload_results if r['success']])}/{len(upload_results)} succeeded")
+            
+            # Step 3: Send readyReqScene to confirm uploads
+            logger.info("=" * 40)
+            logger.info("[ReqCreateScene] STEP 3: Sending readyReqScene to confirm uploads")
+            
+            upload_status = "Completed" if all_uploads_success else "Error"
+            ready_input = {
+                "acctSiteID": acct_site_id,
+                "request_id": request_id,
+                "status": upload_status
+            }
+            
+            logger.info(f"[ReqCreateScene] readyReqScene payload: {json.dumps(ready_input, indent=2)}")
+            
+            ready_response = send_ready_req_scene_to_cloud(session, token, ready_input, endpoint)
+            
+            logger.info(f"[ReqCreateScene] readyReqScene response status: {'ERROR' if 'errors' in ready_response else 'OK'}")
+            logger.info(f"[ReqCreateScene] readyReqScene full response: {json.dumps(ready_response, indent=2, default=str)}")
+            
+            if "errors" in ready_response:
+                error_msg = ready_response.get("message", "readyReqScene failed")
+                logger.error(f"[ReqCreateScene] readyReqScene FAILED: {error_msg}")
+                logger.error(f"[ReqCreateScene] Errors: {ready_response.get('errors', [])}")
+                result["status"] = "Error"
+                result["message"] = error_msg
+                return result
+            
+            if all_uploads_success:
+                result["status"] = ready_response.get("status", "Processing")
+                result["message"] = ready_response.get("message", "Generation started. Results will be delivered via subscription.")
+                logger.info(f"[ReqCreateScene] ✅ All uploads successful, generation started")
+            else:
+                result["status"] = "UploadFailed"
+                result["message"] = "Some uploads failed. Check upload_results for details."
+                logger.warning(f"[ReqCreateScene] ⚠️ Some uploads failed, notified cloud with Error status")
+        else:
+            # No refs or no upload links - text-only generation starts immediately
+            logger.info("[ReqCreateScene] No refs to upload - text-only generation, skipping Steps 2 & 3")
+            result["status"] = init_response.get("status", "Processing")
+            result["message"] = init_response.get("message", "Generation started. Results will be delivered via subscription.")
+        
+        logger.info("=" * 40)
+        logger.info(f"[ReqCreateScene] COMPLETED - Final result: {json.dumps(result, indent=2, default=str)}")
+        logger.info("=" * 60)
+        
+    except Exception as e:
+        err_trace = get_traceback(e, "ErrorEcanAiApiReqCreateScene")
+        logger.error(err_trace)
+        result["message"] = str(e)
+    
+    return result
 
 
