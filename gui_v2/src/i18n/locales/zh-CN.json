@@ -1939,7 +1939,8 @@
     "signupSuccessMessage": "注册成功！请使用新账号登录。",
     "forgotResetError": "重置密码失败",
     "lastError": "上次错误：",
-    "retryHint": "请检查您的凭据并重试。"
+    "retryHint": "请检查您的凭据并重试。",
+    "sessionExpired": "会话已过期，请重新登录"
   },
   "agents": {
     "addAgent": "添加代理"
