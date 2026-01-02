@@ -1858,8 +1858,7 @@ jobs:
     if: |
       always() &&
       needs.validate-tag.outputs.tag-valid == 'true' &&
-      (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped') &&
-      (needs.build-macos.result == 'success' || needs.build-macos.result == 'skipped')
+      (needs.build-windows.result == 'success' || needs.build-macos.result == 'success')
     uses: ./.github/workflows/shared-s3-upload.yml
     with:
       version: ${{ needs.validate-tag.outputs.version }}
