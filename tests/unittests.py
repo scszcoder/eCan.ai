@@ -145,8 +145,8 @@ def run_mmodal_gen_tests(mwin, test_config=None):
     
     # Default config
     config = {
-        'test_text2image': True,
-        'test_image2image': False,
+        'test_text2image': False,
+        'test_image2image': True,
         'test_image2video': False,
         'agent_id': 'test_agent',
         'ref_image_path': "animations/agent5.png",  # User should provide a valid path for image tests
@@ -169,9 +169,10 @@ def run_mmodal_gen_tests(mwin, test_config=None):
             test_input = {
                 "agent_id": config.get('agent_id', 'test_agent'),
                 "description": "A serene mountain landscape at sunset with golden light reflecting off a calm lake",
-                "output_format": "IMAGE",
+                # Note: output_format and style are optional - omit if cloud schema doesn't have IMAGE/CINEMATIC
+                # "output_format": "IMAGE",  # Requires cloud schema to have IMAGE in OutputFormat enum
+                # "style": "CINEMATIC",  # Requires cloud schema to have CINEMATIC in SceneStyle enum
                 "output_resolution": [1920, 1080],
-                "style": "CINEMATIC",
             }
             print(f"[TEST] Text2Image input: {json.dumps(test_input, indent=2)}")
             
@@ -228,11 +229,11 @@ def run_mmodal_gen_tests(mwin, test_config=None):
                 test_input = {
                     "agent_id": config.get('agent_id', 'test_agent'),
                     "description": "Transform this image into a watercolor painting style with soft edges and vibrant colors",
-                    "output_format": "IMAGE",
+                    # output_format omitted - cloud schema doesn't have IMAGE enum value
                     "output_resolution": [1920, 1080],
-                    "style": "ARTISTIC",
+                    # style omitted - cloud schema doesn't have ARTISTIC enum value
                     "refs": [
-                        {"type": "image", "file_path": ref_image_path, "mime_type": "image/jpeg"}
+                        {"type": "image", "file_path": ref_image_path, "mime_type": "image/png"}
                     ],
                 }
                 print(f"[TEST] Image2Image input: {json.dumps(test_input, indent=2)}")
@@ -304,12 +305,12 @@ def run_mmodal_gen_tests(mwin, test_config=None):
                 test_input = {
                     "agent_id": config.get('agent_id', 'test_agent'),
                     "description": "Animate this image with gentle camera movement, subtle parallax effect, and atmospheric motion",
-                    "output_format": "VIDEO",
+                    # output_format omitted - cloud schema doesn't have VIDEO enum value
                     "output_resolution": [1920, 1080],
                     "duration_hint_ms": 5000,  # 5 second video
-                    "style": "CINEMATIC",
+                    # style omitted - cloud schema doesn't have CINEMATIC enum value
                     "refs": [
-                        {"type": "image", "file_path": ref_image_path, "mime_type": "image/jpeg"}
+                        {"type": "image", "file_path": ref_image_path, "mime_type": "image/png"}
                     ],
                 }
                 print(f"[TEST] Image2Video input: {json.dumps(test_input, indent=2)}")

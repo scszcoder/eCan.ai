@@ -63,7 +63,8 @@ def upload_file_to_presigned_url(file_path, presigned_url, content_type=None):
     Args:
         file_path: Local path to the file to upload
         presigned_url: The presigned PUT URL from the server
-        content_type: Optional content type (auto-detected if not provided)
+        content_type: Optional content type. If None, tries without Content-Type first,
+                      then with auto-detected Content-Type as fallback.
     
     Returns:
         dict with success status and any error message
@@ -75,34 +76,56 @@ def upload_file_to_presigned_url(file_path, presigned_url, content_type=None):
         return {"success": False, "error": f"File not found: {file_path}"}
     
     try:
-        # Auto-detect content type if not provided
-        if not content_type:
-            ext = os.path.splitext(file_path)[1].lower()
-            content_types = {
-                '.png': 'image/png',
-                '.jpg': 'image/jpeg',
-                '.jpeg': 'image/jpeg',
-                '.gif': 'image/gif',
-                '.webp': 'image/webp',
-                '.mp4': 'video/mp4',
-                '.webm': 'video/webm',
-                '.mov': 'video/quicktime',
-                '.avi': 'video/x-msvideo',
-            }
-            content_type = content_types.get(ext, 'application/octet-stream')
-        
         with open(file_path, 'rb') as f:
             file_data = f.read()
         
-        headers = {'Content-Type': content_type}
-        response = requests.put(presigned_url, data=file_data, headers=headers, timeout=300)
+        # Strategy: Try multiple approaches since presigned URL may or may not include Content-Type
+        # 1. If content_type provided, try with that first
+        # 2. Try without Content-Type header (for presigned URLs generated without it)
+        # 3. Try with auto-detected Content-Type as fallback
         
-        if response.status_code in [200, 204]:
-            logger.info(f"✅ Successfully uploaded {file_path} to S3")
-            return {"success": True}
-        else:
-            logger.error(f"❌ Failed to upload {file_path}: {response.status_code} - {response.text}")
-            return {"success": False, "error": f"Upload failed: {response.status_code}"}
+        attempts = []
+        
+        if content_type:
+            # Try with provided content_type first
+            attempts.append(('provided', {'Content-Type': content_type}))
+        
+        # Try without Content-Type (presigned URL may not have included it in signature)
+        attempts.append(('no-content-type', {}))
+        
+        # Auto-detect content type for fallback
+        ext = os.path.splitext(file_path)[1].lower()
+        content_types_map = {
+            '.png': 'image/png',
+            '.jpg': 'image/jpeg',
+            '.jpeg': 'image/jpeg',
+            '.gif': 'image/gif',
+            '.webp': 'image/webp',
+            '.mp4': 'video/mp4',
+            '.webm': 'video/webm',
+            '.mov': 'video/quicktime',
+            '.avi': 'video/x-msvideo',
+        }
+        auto_content_type = content_types_map.get(ext, 'application/octet-stream')
+        
+        if not content_type or content_type != auto_content_type:
+            attempts.append(('auto-detected', {'Content-Type': auto_content_type}))
+        
+        last_error = None
+        for attempt_name, headers in attempts:
+            logger.debug(f"[S3Upload] Trying upload with {attempt_name}: headers={headers}")
+            response = requests.put(presigned_url, data=file_data, headers=headers, timeout=300)
+            
+            if response.status_code in [200, 204]:
+                logger.info(f"✅ Successfully uploaded {file_path} to S3 (attempt: {attempt_name})")
+                return {"success": True}
+            else:
+                last_error = f"{response.status_code} - {response.text[:200]}"
+                logger.debug(f"[S3Upload] Attempt {attempt_name} failed: {response.status_code}")
+        
+        # All attempts failed
+        logger.error(f"❌ Failed to upload {file_path}: {last_error}")
+        return {"success": False, "error": f"Upload failed: {last_error}"}
     except Exception as e:
         logger.error(f"❌ Exception uploading {file_path}: {e}")
         return {"success": False, "error": str(e)}

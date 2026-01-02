@@ -624,8 +624,73 @@ class LLMManager:
             # The frontend may want to change models for non-default providers for preview
             logger.info(f"Model '{model_name}' selected for '{provider_config.name}' (not saved since it's not the default provider)")
 
+
+    def set_provider_enable_thinking(self, provider_key: str, enable_thinking: bool) -> Tuple[bool, Optional[str]]:
+        """Set enable_thinking option for Qwen/DashScope providers"""
+        provider_key_normalized = (provider_key or "").strip().lower()
+        if not provider_key_normalized:
+            return False, "Provider key cannot be empty"
+        
+        # Use get_provider to find the provider (handles multiple lookup methods)
+        provider_dict = self.get_provider(provider_key_normalized)
+        if not provider_dict:
+            return False, f"Provider '{provider_key}' not found"
+
+        provider_type = (provider_dict.get('provider') or '').lower()
+        is_qwen = 'qwen' in provider_type or 'dashscope' in provider_type
+        if not is_qwen:
+            return False, "enable_thinking is only supported for Qwen/DashScope providers"
+
+        from app_context import AppContext
+        main_window = AppContext.get_main_window()
+        if not main_window:
+            return False, "Main window not available"
+        
+        general_settings = main_window.config_manager.general_settings
+        
+        # Get current settings dict (or create new one)
+        current_settings = general_settings.llm_provider_settings or {}
+        
+        provider_identifier = provider_dict.get('provider') or provider_key_normalized
+        if provider_identifier not in current_settings:
+            current_settings[provider_identifier] = {}
+        
+        current_settings[provider_identifier]['enable_thinking'] = enable_thinking
+        
+        # Assign back to trigger the setter and persist changes
+        general_settings.llm_provider_settings = current_settings
+        
+        if not general_settings.save():
+            return False, "Failed to save enable_thinking setting"
+        
+        logger.info(f"[LLMManager] Set enable_thinking={enable_thinking} for provider '{provider_dict.get('name', provider_key)}'")
         return True, None
     
+    def get_provider_enable_thinking(self, provider_key: str) -> bool:
+        """Get enable_thinking setting for a provider"""
+        try:
+            from app_context import AppContext
+            main_window = AppContext.get_main_window()
+            if not main_window:
+                return False
+            
+            general_settings = main_window.config_manager.general_settings
+            
+            if not hasattr(general_settings, 'llm_provider_settings') or not general_settings.llm_provider_settings:
+                return False
+            
+            provider_key_normalized = (provider_key or "").strip().lower()
+            
+            for provider_id, settings in general_settings.llm_provider_settings.items():
+                if provider_id.lower() == provider_key_normalized:
+                    return settings.get('enable_thinking', False)
+            
+            return False
+        except Exception as e:
+            logger.warning(f"[LLMManager] Error getting enable_thinking for {provider_key}: {e}")
+            return False
+
+
     def get_model(self, provider_name: str, model_name: str) -> Optional[Dict[str, Any]]:
         """Get a specific model configuration"""
         models = self.get_models_for_provider(provider_name)
