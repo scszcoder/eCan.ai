@@ -482,7 +482,7 @@ def ecan_ai_api_req_create_scene(mainwin, config: dict) -> dict:
         # Extract config parameters
         agent_id = config.get("agent_id", "")
         description = config.get("description", "")
-        output_format = config.get("output_format", "IMAGE")
+        output_format = config.get("output_format")  # Optional - don't default, let cloud handle it
         output_resolution = config.get("output_resolution", [])
         duration_hint_ms = config.get("duration_hint_ms")
         emotion = config.get("emotion")
@@ -504,16 +504,24 @@ def ecan_ai_api_req_create_scene(mainwin, config: dict) -> dict:
         if not any(k in context for k in ["gemini_job", "geminiJob", "media_job"]):
             # Auto-construct gemini_job from parameters
             operation = None
-            if output_format == "IMAGE":
+            # Determine operation based on output_format or infer from refs
+            if output_format == "IMAGE" or output_format in ["PNG", "JPEG"]:
                 if refs:
                     operation = "image_editing"
                 else:
                     operation = "text_to_image"
-            elif output_format == "VIDEO":
+            elif output_format == "VIDEO" or output_format in ["MP4", "WEBM", "GIF"]:
                 if refs:
                     operation = "image_to_video"
                 else:
                     operation = "text_to_video"
+            elif not output_format:
+                # No output_format specified - infer from context
+                # Default to text_to_image for text-only, image_editing if refs provided
+                if refs:
+                    operation = "image_editing"
+                else:
+                    operation = "text_to_image"
             
             logger.info(f"[ReqCreateScene] Auto-detected operation: {operation}")
             
@@ -546,9 +554,12 @@ def ecan_ai_api_req_create_scene(mainwin, config: dict) -> dict:
             "acctSiteID": acct_site_id,
             "agent_id": agent_id,
             "description": description,
-            "output_format": output_format,
             "context": context,
         }
+        
+        # Only include output_format if explicitly provided (it's an enum that must match cloud schema)
+        if output_format:
+            req_scene_input["output_format"] = output_format
         
         # Add optional fields
         if output_resolution:
@@ -593,17 +604,52 @@ def ecan_ai_api_req_create_scene(mainwin, config: dict) -> dict:
             upload_results = []
             all_uploads_success = True
             
-            for i, upload_url in enumerate(ref_ul_links):
+            for i, upload_link_data in enumerate(ref_ul_links):
                 logger.info(f"[ReqCreateScene] Processing upload {i+1}/{len(ref_ul_links)}")
+                logger.debug(f"[ReqCreateScene] Upload link data: {str(upload_link_data)[:150]}...")
+                
+                # Parse upload_url from the ref_ul_links entry
+                # Cloud may return: 
+                # 1. A dict with 'upload_url' key
+                # 2. A string like "{ref={...}, upload_url=https://..., s3_key=...}"
+                # 3. Just the URL string directly
+                upload_url = None
+                if isinstance(upload_link_data, dict):
+                    upload_url = upload_link_data.get("upload_url") or upload_link_data.get("url")
+                elif isinstance(upload_link_data, str):
+                    # Try to extract upload_url from string format
+                    if upload_link_data.startswith("http"):
+                        upload_url = upload_link_data
+                    elif "upload_url=" in upload_link_data:
+                        # Parse from format: "{ref={...}, upload_url=https://..., s3_key=...}"
+                        import re
+                        match = re.search(r'upload_url=(https?://[^,}]+)', upload_link_data)
+                        if match:
+                            upload_url = match.group(1).strip()
+                            logger.info(f"[ReqCreateScene] Extracted upload_url from string: {upload_url[:80]}...")
+                
+                if not upload_url:
+                    logger.error(f"[ReqCreateScene] Could not extract upload_url from: {str(upload_link_data)[:200]}")
+                    upload_results.append({
+                        "index": i,
+                        "file_path": None,
+                        "success": False,
+                        "error": "Could not extract upload_url from response"
+                    })
+                    all_uploads_success = False
+                    continue
+                
                 logger.debug(f"[ReqCreateScene] Upload URL: {upload_url[:100]}..." if len(upload_url) > 100 else f"[ReqCreateScene] Upload URL: {upload_url}")
                 
-                # Find corresponding ref with file_path
+                # Find corresponding ref with file_path and mime_type
                 file_path = None
+                mime_type = None
                 if i < len(refs):
                     ref = refs[i]
                     logger.debug(f"[ReqCreateScene] Ref[{i}] type: {type(ref)}, value: {ref}")
                     if isinstance(ref, dict):
                         file_path = ref.get("file_path") or ref.get("path") or ref.get("local_path")
+                        mime_type = ref.get("mime_type") or ref.get("content_type")
                     elif isinstance(ref, str):
                         # ref might be a file path directly
                         file_path = ref
@@ -614,6 +660,8 @@ def ecan_ai_api_req_create_scene(mainwin, config: dict) -> dict:
                     file_size = os.path.getsize(file_path) if file_exists else 0
                     logger.info(f"[ReqCreateScene] Uploading ref {i+1}/{len(ref_ul_links)}: {file_path}")
                     logger.info(f"[ReqCreateScene] File exists: {file_exists}, Size: {file_size} bytes")
+                    if mime_type:
+                        logger.info(f"[ReqCreateScene] Using mime_type from ref: {mime_type}")
                     
                     if not file_exists:
                         logger.error(f"[ReqCreateScene] File NOT FOUND: {file_path}")
@@ -626,7 +674,8 @@ def ecan_ai_api_req_create_scene(mainwin, config: dict) -> dict:
                         all_uploads_success = False
                         continue
                     
-                    upload_result = upload_file_to_presigned_url(file_path, upload_url)
+                    # Pass mime_type to match what presigned URL was generated with
+                    upload_result = upload_file_to_presigned_url(file_path, upload_url, content_type=mime_type)
                     logger.info(f"[ReqCreateScene] Upload result for ref {i+1}: {upload_result}")
                     
                     upload_results.append({
