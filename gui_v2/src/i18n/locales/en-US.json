@@ -1939,7 +1939,8 @@
     "signupSuccessMessage": "Registration successful! Please login with your new account.",
     "forgotResetError": "Failed to reset password",
     "lastError": "Last error:",
-    "retryHint": "Please check your credentials and try again."
+    "retryHint": "Please check your credentials and try again.",
+    "sessionExpired": "Session expired, please login again"
   },
   "agents": {
     "addAgent": "Add Agent"
