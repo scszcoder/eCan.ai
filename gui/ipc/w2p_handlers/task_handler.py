@@ -1,5 +1,5 @@
-import traceback
 from typing import TYPE_CHECKING, Any, Optional, Dict
+import traceback
 from app_context import AppContext
 if TYPE_CHECKING:
     from gui.MainGUI import MainWindow
@@ -49,7 +49,7 @@ def _get_agent_task_service():
     Returns:
         task_service: Database agent task service instance, or None if not available
     """
-    main_window = AppContext.get_ctx()
+    ctx = AppContext.get_main_window()
     if ctx:
         return ctx.get_ec_db_mgr().task_service
     else:
@@ -167,7 +167,7 @@ def _get_task_skill_info(task_id: str) -> Optional[Dict[str, Any]]:
                 skill_id = skill_rel.get('skill_id')
                 
                 if skill_id:
-                    main_window = AppContext.get_ctx()
+                    ctx = AppContext.get_main_window()
                     
                     if ctx:
                         skill_service = ctx.get_ec_db_mgr().get_skill_service()
@@ -199,7 +199,7 @@ def _update_agent_task_in_memory(agent_task_id: str, agent_task_data: Dict[str, 
         bool: True if successful, False otherwise
     """
     try:
-        main_window = AppContext.get_ctx()
+        ctx = AppContext.get_main_window()
         if not ctx or not hasattr(ctx, 'agent_tasks'):
             logger.warning("[task_handler] mainwin.agent_tasks not available")
             return False
@@ -209,7 +209,8 @@ def _update_agent_task_in_memory(agent_task_id: str, agent_task_data: Dict[str, 
 
         # Check if agent task already exists in memory
         existing_index = None
-        for i, agent_task in enumerate(ctx.get_agent_tasks() or []):
+        agent_tasks_list = ctx.agent_tasks if hasattr(ctx, 'agent_tasks') else []
+        for i, agent_task in enumerate(agent_tasks_list):
             if hasattr(agent_task, 'id') and agent_task.id == agent_task_id:
                 existing_index = i
                 break
@@ -253,15 +254,13 @@ def _update_agent_task_in_memory(agent_task_id: str, agent_task_data: Dict[str, 
 
         if existing_index is not None:
             # Update existing agent task
-            agent_tasks = ctx.get_agent_tasks()
-            if agent_tasks is not None:
-                agent_tasks[existing_index] = agent_task_obj
-            logger.info(f"[task_handler] Updated agent task in memory: {agent_task_data['name']}")
+            if hasattr(ctx, 'agent_tasks') and ctx.agent_tasks is not None:
+                ctx.agent_tasks[existing_index] = agent_task_obj
+                logger.info(f"[task_handler] Updated agent task in memory: {agent_task_data['name']}")
         else:
             # Add new agent task
-            agent_tasks = ctx.get_agent_tasks()
-            if agent_tasks is not None:
-                agent_tasks.append(agent_task_obj)
+            if hasattr(ctx, 'agent_tasks') and ctx.agent_tasks is not None:
+                ctx.agent_tasks.append(agent_task_obj)
                 logger.info(f"[task_handler] Added new agent task to memory: {agent_task_data['name']}")
 
         return True
@@ -338,8 +337,8 @@ def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]
         # Get tasks from memory (mainwin.agent_tasks is the single source of truth)
         # Tasks are loaded from database during startup
         try:
-            main_window = AppContext.get_ctx()
-            memory_agent_tasks = ctx.get_agent_tasks() or []
+            ctx = AppContext.get_main_window()
+            memory_agent_tasks = ctx.agent_tasks if ctx and hasattr(ctx, 'agent_tasks') else []
             logger.info(f"Found {len(memory_agent_tasks)} agent tasks in memory (mainwin.agent_tasks)")
 
             # Convert tasks to dictionary format
@@ -404,6 +403,7 @@ def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]
 
         except Exception as e:
             logger.error(f"Failed to get agent tasks from memory: {e}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
             # Return empty list as fallback
             return create_success_response(request, {
                 'tasks': [],
@@ -657,9 +657,10 @@ def handle_delete_agent_task(request: IPCRequest, params: Optional[Dict[str, Any
 
         # ⚠️ Prevent deleting code-generated tasks from database
         # First check if this is a code-generated task by checking memory
-        main_window = AppContext.get_ctx()
-        if ctx:
-            existing_task = next((t for t in ctx.get_agent_tasks() if getattr(t, 'id', None) == agent_task_id), None)
+        ctx = AppContext.get_main_window()
+        if ctx and hasattr(ctx, 'agent_tasks'):
+            agent_tasks_list = ctx.agent_tasks if ctx.agent_tasks is not None else []
+            existing_task = next((t for t in agent_tasks_list if getattr(t, 'id', None) == agent_task_id), None)
             if existing_task and getattr(existing_task, 'source', 'ui') == 'code':
                 logger.warning(f"Blocked attempt to delete code-generated task '{getattr(existing_task, 'name', 'Unknown')}' from database")
                 return create_error_response(
@@ -683,14 +684,13 @@ def handle_delete_agent_task(request: IPCRequest, params: Optional[Dict[str, Any
 
             # Step 2: Remove from memory after database deletion succeeds
             try:
-                agent_tasks = ctx.get_agent_tasks()
-                if agent_tasks is not None:
-                    original_count = len(agent_tasks)
-                    agent_tasks[:] = [
-                        agent_task for agent_task in agent_tasks
+                if ctx and hasattr(ctx, 'agent_tasks') and ctx.agent_tasks is not None:
+                    original_count = len(ctx.agent_tasks)
+                    ctx.agent_tasks[:] = [
+                        agent_task for agent_task in ctx.agent_tasks
                         if not (hasattr(agent_task, 'id') and agent_task.id == agent_task_id)
                     ]
-                    new_count = len(agent_tasks)
+                    new_count = len(ctx.agent_tasks)
                     logger.info(f"[task_handler] Removed agent task from memory: {agent_task_id} (count: {original_count} → {new_count})")
             except Exception as e:
                 logger.warning(f"[task_handler] Failed to remove agent task from memory: {e}")
@@ -783,7 +783,7 @@ def _sync_task_skill_relations(task_id: str, skill_ids: list, operation: 'Operat
     from app_context import AppContext
     
     manager = get_sync_manager()
-    main_window = AppContext.get_ctx()
+    ctx = AppContext.get_main_window()
     owner = ctx.get_username() if ctx else 'unknown'
     
     logger.info(f"[task_handler] Syncing {len(skill_ids)} skill relationships for task: {task_id}")

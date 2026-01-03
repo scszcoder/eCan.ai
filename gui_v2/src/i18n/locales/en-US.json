@@ -943,7 +943,40 @@
       "local_user_db_name": "User DB Name",
       "local_agent_db_name": "Agent DB Name",
       "ws_api_host": "WebSocket API Host",
-      "ecan_cloud_searcher_url": "eCan Cloud Searcher URL"
+      "ecan_cloud_searcher_url": "eCan Cloud Searcher URL",
+      "ryoais": {
+        "tab_title": "ryoais Discovery",
+        "scan_button": "Scan Devices",
+        "scan_success": "Found {{count}} device(s)",
+        "no_devices_found": "No devices found",
+        "scan_failed": "Failed to scan devices",
+        "scan_error": "Error scanning devices",
+        "scan_timeout": "Scan Timeout",
+        "filter_environment": "Filter Environment",
+        "all_environments": "All Environments",
+        "devices_found": "{{count}} device(s) found",
+        "total_devices": "Total {{total}} device(s)",
+        "no_devices": "No devices discovered",
+        "scan_hint": "Click 'Scan Devices' to discover ryoais servers on your network",
+        "column_device": "Device",
+        "column_address": "Address",
+        "column_environment": "Environment",
+        "column_version": "Version",
+        "column_apis": "APIs",
+        "column_status": "Status",
+        "column_actions": "Actions",
+        "status_online": "Online",
+        "action_open": "Open in Browser",
+        "action_info": "Get Device Info",
+        "opened_device": "Device opened in browser",
+        "open_error": "Failed to open device",
+        "info_failed": "Failed to get device info",
+        "info_error": "Error getting device info",
+        "about_title": "About ryoais Discovery",
+        "about_description": "Automatically discover ryoais AI inference servers on your local network using mDNS/DNS-SD protocol.",
+        "protocol": "Protocol",
+        "service_type": "Service Type"
+      }
     },
     "skills": {
       "title": "Skills List",
@@ -1939,7 +1972,8 @@
     "signupSuccessMessage": "Registration successful! Please login with your new account.",
     "forgotResetError": "Failed to reset password",
     "lastError": "Last error:",
-    "retryHint": "Please check your credentials and try again."
+    "retryHint": "Please check your credentials and try again.",
+    "sessionExpired": "Session expired, please login again"
   },
   "agents": {
     "addAgent": "Add Agent"

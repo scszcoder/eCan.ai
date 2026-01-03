@@ -47,8 +47,16 @@ class TokenManager:
         logger.info(f"[TokenManager] Generated token for user: {username}, role: {role}")
         return token
 
-    def validate_token(self, token: str) -> Optional[Dict]:
-        """Validate token validity"""
+    def validate_token(self, token: str, auto_extend: bool = True) -> Optional[Dict]:
+        """Validate token validity with optional auto-extension
+        
+        Args:
+            token: Token to validate
+            auto_extend: If True, automatically extend token if it's about to expire
+        
+        Returns:
+            Token info dict if valid, None if invalid or expired
+        """
         if not token or token not in self._tokens:
             return None
 
@@ -60,6 +68,13 @@ class TokenManager:
             logger.warning(f"[TokenManager] Token expired for user: {token_info['username']}")
             self.revoke_token(token)
             return None
+
+        # Auto-extend token if it's about to expire (less than 1 hour remaining)
+        if auto_extend:
+            time_remaining = token_info['expires_at'] - current_time
+            if time_remaining < 3600:  # Less than 1 hour
+                self.extend_token(token)
+                logger.info(f"[TokenManager] Auto-extended token for user: {token_info['username']}, remaining time was {time_remaining:.0f}s")
 
         # Update last used time
         token_info['last_used'] = current_time
@@ -120,7 +135,15 @@ class TokenManager:
         return len(expired_tokens)
 
     def extend_token(self, token: str, additional_seconds: int = None) -> bool:
-        """Extend token validity period"""
+        """Extend token validity period
+        
+        Args:
+            token: Token to extend
+            additional_seconds: Seconds to extend (default: full token expiry period)
+        
+        Returns:
+            True if extended successfully, False if token not found
+        """
         if token not in self._tokens:
             return False
 
@@ -130,6 +153,30 @@ class TokenManager:
         self._tokens[token]['expires_at'] = time.time() + additional_seconds
         logger.debug(f"[TokenManager] Extended token expiry by {additional_seconds} seconds")
         return True
+    
+    def refresh_token(self, token: str) -> Optional[str]:
+        """Refresh token - generate new token with same user info
+        
+        Args:
+            token: Current token to refresh
+        
+        Returns:
+            New token if successful, None if current token invalid
+        """
+        token_info = self.validate_token(token, auto_extend=False)
+        if not token_info:
+            logger.warning("[TokenManager] Cannot refresh invalid or expired token")
+            return None
+        
+        # Generate new token with same user info
+        new_token = self.generate_token(
+            username=token_info['username'],
+            role=token_info['role'],
+            permissions=token_info['permissions']
+        )
+        
+        logger.info(f"[TokenManager] Refreshed token for user: {token_info['username']}")
+        return new_token
 
     def get_active_tokens_count(self) -> int:
         """Get active token count"""

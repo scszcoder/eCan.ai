@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, Form, Select, Switch, Button, App, Input, Row, Col, Tooltip, Divider, Tabs, theme } from 'antd';
-import { ReloadOutlined, FolderOpenOutlined, GlobalOutlined, SettingOutlined, RobotOutlined, BlockOutlined, SortAscendingOutlined, SaveOutlined } from '@ant-design/icons';
+import { ReloadOutlined, FolderOpenOutlined, GlobalOutlined, SettingOutlined, RobotOutlined, BlockOutlined, SortAscendingOutlined, SaveOutlined, CloudServerOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useEffectOnActive } from 'keepalive-for-react';
 import { useLocation } from 'react-router-dom';
@@ -10,7 +10,7 @@ import { useUserStore } from '../../stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
 
 import type { Settings } from './types';
-import { LLMManagement, EmbeddingManagement, RerankManagement } from './components';
+import { LLMManagement, EmbeddingManagement, RerankManagement, RyoaisManagement } from './components';
 
 // Suppress Ant Design useForm warning (form is properly connected in Tab children)
 const originalError = console.error;
@@ -199,6 +199,7 @@ const Settings: React.FC = () => {
   const [settingsData, setSettingsData] = useState<Settings | null>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [activeTab, setActiveTab] = useState<string>('general');
+  const [ryoaisDevices, setRyoaisDevices] = useState<any[]>([]);
   const username = useUserStore((state) => state.username);
 
   const isMountedRef = useRef(false);
@@ -695,6 +696,7 @@ const Settings: React.FC = () => {
         <Tabs
           activeKey={activeTab}
           onChange={handleTabChange}
+          destroyInactiveTabPane={true}
           items={[
             {
               key: 'general',
@@ -1517,6 +1519,22 @@ const Settings: React.FC = () => {
                   settingsLoaded={settingsLoaded}
                   onDefaultRerankChange={handleDefaultRerankChange}
                   onSharedProviderUpdate={handleSharedProviderUpdate}
+                />
+              ),
+            },
+            {
+              key: 'ryoais',
+              label: (
+                <span>
+                  <CloudServerOutlined style={{ marginRight: 8 }} />
+                  {t('pages.settings.ryoais.tab_title') || 'ryoais Discovery'}
+                </span>
+              ),
+              children: (
+                <RyoaisManagement
+                  username={username || undefined}
+                  devices={ryoaisDevices}
+                  onDevicesChange={setRyoaisDevices}
                 />
               ),
             },
