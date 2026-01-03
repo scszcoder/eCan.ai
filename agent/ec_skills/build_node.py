@@ -18,7 +18,7 @@ from utils.env.secure_store import secure_store, get_current_username
 # REMOVED: from agent.ec_skills.llm_utils.llm_utils import _create_no_proxy_http_client  # Moved to lazy import to avoid circular dependency
 from langchain_openai import ChatOpenAI, AzureChatOpenAI
 from langchain_community.chat_models import ChatAnthropic
-from langchain_community.chat_models import ChatOllama
+from langchain_ollama import ChatOllama
 from langchain_deepseek import ChatDeepSeek
 from gui.ipc.w2p_handlers import prompt_handler
 from app_context import AppContext
