@@ -45,6 +45,14 @@ def handle_show_open_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
     Returns:
         IPCResponse: Response with selected file path or cancellation info
     """
+    # File dialogs are not available in web mode (headless)
+    if os.getenv('ECAN_MODE') == 'web':
+        return create_error_response(
+            request,
+            'NOT_SUPPORTED',
+            'File dialogs are not available in web/headless mode. Use file path parameters instead.'
+        )
+    
     try:
         logger.debug(f"Show open dialog handler called with request: {request}")
 
@@ -168,6 +176,14 @@ def handle_show_open_dialog(request: IPCRequest, params: Optional[Dict[str, Any]
 @IPCHandlerRegistry.handler('show_save_dialog')
 def handle_show_save_dialog(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Handle the file save dialog request."""
+    # File dialogs are not available in web mode (headless)
+    if os.getenv('ECAN_MODE') == 'web':
+        return create_error_response(
+            request,
+            'NOT_SUPPORTED',
+            'File dialogs are not available in web/headless mode. Use file path parameters instead.'
+        )
+    
     try:
         logger.debug(f"Show save dialog handler called with request: {request}")
 
