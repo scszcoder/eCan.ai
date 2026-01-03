@@ -561,7 +561,7 @@ def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict
                 try:
                     # Note: Cannot directly set via ctx.get_llm(), use ctx for desktop mode
                     from app_context import AppContext
-                    mw = AppContext.get_ctx()
+                    mw = AppContext.get_main_window()
                     if mw:
                         mw.llm = None
                     logger.info("Cleared LLM instance because no providers are configured")

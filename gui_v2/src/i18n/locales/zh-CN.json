@@ -943,7 +943,40 @@
       "local_user_db_name": "用户数据库名",
       "local_agent_db_name": "代理数据库名",
       "ws_api_host": "WebSocket API主机",
-      "ecan_cloud_searcher_url": "eCan云搜索服务URL"
+      "ecan_cloud_searcher_url": "eCan云搜索服务URL",
+      "ryoais": {
+        "tab_title": "ryoais 设备发现",
+        "scan_button": "扫描设备",
+        "scan_success": "发现 {{count}} 个设备",
+        "no_devices_found": "未发现设备",
+        "scan_failed": "扫描设备失败",
+        "scan_error": "扫描设备时出错",
+        "scan_timeout": "扫描超时",
+        "filter_environment": "筛选环境",
+        "all_environments": "所有环境",
+        "devices_found": "已发现 {{count}} 个设备",
+        "total_devices": "共 {{total}} 个设备",
+        "no_devices": "未发现任何设备",
+        "scan_hint": "点击'扫描设备'按钮以发现网络中的 ryoais 服务器",
+        "column_device": "设备",
+        "column_address": "地址",
+        "column_environment": "环境",
+        "column_version": "版本",
+        "column_apis": "API类型",
+        "column_status": "状态",
+        "column_actions": "操作",
+        "status_online": "在线",
+        "action_open": "在浏览器中打开",
+        "action_info": "获取设备信息",
+        "opened_device": "已在浏览器中打开设备",
+        "open_error": "打开设备失败",
+        "info_failed": "获取设备信息失败",
+        "info_error": "获取设备信息时出错",
+        "about_title": "关于 ryoais 设备发现",
+        "about_description": "使用 mDNS/DNS-SD 协议自动发现局域网中的 ryoais AI 推理服务器。",
+        "protocol": "协议",
+        "service_type": "服务类型"
+      }
     },
     "skills": {
       "title": "技能列表",
@@ -1939,7 +1972,8 @@
     "signupSuccessMessage": "注册成功！请使用新账号登录。",
     "forgotResetError": "重置密码失败",
     "lastError": "上次错误：",
-    "retryHint": "请检查您的凭据并重试。"
+    "retryHint": "请检查您的凭据并重试。",
+    "sessionExpired": "会话已过期，请重新登录"
   },
   "agents": {
     "addAgent": "添加代理"
