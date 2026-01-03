@@ -619,10 +619,12 @@ class LLMManager:
                 return False, "Failed to save model selection to settings"
             
             logger.info(f"Updated default_llm_model to {model_name} for current default provider '{provider_config.name}'")
+            return True, None
         else:
             # Not the default provider, just return success without saving
             # The frontend may want to change models for non-default providers for preview
             logger.info(f"Model '{model_name}' selected for '{provider_config.name}' (not saved since it's not the default provider)")
+            return True, None
 
 
     def set_provider_enable_thinking(self, provider_key: str, enable_thinking: bool) -> Tuple[bool, Optional[str]]:
