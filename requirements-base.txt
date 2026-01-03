@@ -35,7 +35,7 @@ dashscope==1.25.0
 # ============================================================================
 mem0ai==1.0.1
 langmem==0.0.30
-chroma-hnswlib==0.7.6
+# chroma-hnswlib==0.7.6  # Commented out - no Python 3.14 wheels available
 
 # ============================================================================
 # AI & MACHINE LEARNING - LLM PROVIDERS & MODELS
@@ -60,7 +60,7 @@ threadpoolctl==3.6.0
 # COMPUTER VISION & IMAGE PROCESSING
 # ============================================================================
 opencv-python==4.11.0.86
-pillow==11.2.1
+pillow==12.1.0
 pdf2image==1.17.0
 imutils==0.5.4
 pytesseract==0.3.13
@@ -71,7 +71,7 @@ pytesseract==0.3.13
 selenium==4.32.0
 playwright==1.54.0
 browser-use==0.11.2
-crawl4ai==0.7.8
+# crawl4ai==0.7.8  # Commented out - no Python 3.14 wheels (requires lxml~=5.3 which lacks cp314 support)
 webdriver-manager==4.0.2
 fake-useragent==2.2.0
 beautifulsoup4==4.13.3
@@ -347,7 +347,7 @@ puremagic==1.28
 pycparser==2.22
 pyperclip==1.9.0
 pyreadline3==3.5.4
-pyzmq==26.3.0
+pyzmq==27.1.0
 rpds-py==0.30.0
 shellingham==1.5.4
 sniffio==1.3.1
@@ -366,6 +366,7 @@ asteval==1.0.6
 markdown==3.5.1
 fastuuid==0.14.0
 brotli==1.2.0
+lxml>=6.0.0
 
 # ============================================================================
 # LIGHTRAG CORE DEPENDENCIES
