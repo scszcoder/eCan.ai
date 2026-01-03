@@ -59,6 +59,8 @@ class IPCHandlerRegistry:
         'update_user_preferences',
         # Label config operations
         'label_config.get_all', 'label_config.save', 'label_config.delete', 'label_config.check_name',
+        # Token management operations - these handlers validate tokens themselves
+        'auth.getTokenInfo', 'auth.refreshToken', 'auth.extendToken',
     }
 
     @classmethod

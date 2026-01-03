@@ -696,7 +696,7 @@ const Settings: React.FC = () => {
         <Tabs
           activeKey={activeTab}
           onChange={handleTabChange}
-          destroyInactiveTabPane={true}
+          destroyOnHidden={true}
           items={[
             {
               key: 'general',
