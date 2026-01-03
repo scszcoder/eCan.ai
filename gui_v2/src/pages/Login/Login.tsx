@@ -8,6 +8,7 @@ import { get_ipc_api } from '../../services/ipc_api';
 import { userStorageManager, type LoginSession } from '../../services/storage/UserStorageManager';
 import { pageRefreshManager } from '../../services/events/PageRefreshManager';
 import { useInitializationProgress } from '../../hooks/useInitializationProgress';
+import { tokenRefreshService } from '../../services/auth/tokenRefreshService';
 import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
 import logo from '../../assets/logoWhite22.png';
 import googleIcon from '../../assets/Google_Icons.png';
@@ -223,6 +224,23 @@ const Login: React.FC = () => {
 				userStorageManager.saveLoginSession(loginSession);
 				// LoginSuccess后EnabledPageRefreshListen
 				pageRefreshManager.enable();
+
+				// Start token refresh service with callback to update localStorage
+				tokenRefreshService.start(token, {
+					checkInterval: 30 * 60 * 1000, // Check every 30 minutes
+					refreshThreshold: 60 * 60, // Refresh when less than 1 hour remaining
+					onTokenRefreshed: (newToken: string) => {
+						console.log('[Login] Token refreshed, updating localStorage');
+						userStorageManager.setToken(newToken);
+						// ipcClient will automatically use the updated token from userStorageManager
+					},
+					onTokenExpired: () => {
+						console.warn('[Login] Token expired, redirecting to login');
+						messageApi.warning(t('login.sessionExpired'));
+						userStorageManager.logout();
+						navigate('/login');
+					}
+				});
 
 				messageApi.success(t('login.success'));
 				setLoginSuccessful(true);
@@ -454,6 +472,23 @@ const Login: React.FC = () => {
 
         // Enable page refresh monitoring
         pageRefreshManager.enable();
+
+		// Start token refresh service with callback to update localStorage
+		tokenRefreshService.start(token, {
+			checkInterval: 30 * 60 * 1000, // Check every 30 minutes
+			refreshThreshold: 60 * 60, // Refresh when less than 1 hour remaining
+			onTokenRefreshed: (newToken: string) => {
+				console.log('[Login] Token refreshed (Google), updating localStorage');
+				userStorageManager.setToken(newToken);
+				// ipcClient will automatically use the updated token from userStorageManager
+			},
+			onTokenExpired: () => {
+				console.warn('[Login] Token expired (Google), redirecting to login');
+				messageApi.warning(t('login.sessionExpired'));
+				userStorageManager.logout();
+				navigate('/login');
+			}
+		});
 
         messageApi.success(message || t('login.googleSuccess') || 'Google login successful');
         setLoginSuccessful(true);

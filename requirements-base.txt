@@ -10,18 +10,19 @@ sse-starlette==2.2.1
 # ============================================================================
 # AI & MACHINE LEARNING - LANGCHAIN ECOSYSTEM
 # ============================================================================
-langchain==0.3.27
+langchain==1.2.0
 langchain-core==0.3.75
 langchain-text-splitters==0.3.11
-langchain-openai==0.3.32
+langchain-ollama==1.0.1
+langchain-openai==1.1.6
 langchain-community==0.3.29
 langchain-anthropic==0.3.19
-langchain-deepseek==0.1.4
-langchain-qwq==0.2.1
+langchain-deepseek==1.0.1
+langchain-qwq==0.3.1
 langchain-google-genai==2.1.10
 langchain-mcp-adapters==0.1.9
 langsmith==0.4.25
-langgraph==0.6.5
+langgraph==1.0.5
 
 # ============================================================================
 # AI & MACHINE LEARNING - EMBEDDING PROVIDERS (Optional Dependencies)
@@ -111,6 +112,7 @@ h11==0.14.0
 trio-websocket==0.11.1
 wsproto==1.2.0
 ping3==4.0.8
+zeroconf==0.136.2
 
 # ============================================================================
 # ASYNC & CONCURRENCY

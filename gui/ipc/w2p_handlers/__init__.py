@@ -8,15 +8,11 @@ try:
     from . import token_handler  # noqa: F401 - Token refresh handlers
     from . import settings_handler  # noqa: F401 - Settings handlers
     from . import lightrag_handler  # noqa: F401 - LightRAG handlers (needed for progress tracking)
-except Exception:
-    pass
-
-# Import label_config_handler separately with error logging
-try:
+    from . import ryoais_handler  # noqa: F401 - ryoais device discovery handlers
     from . import label_config_handler  # noqa: F401 - Label config handlers (whitelisted)
 except Exception as e:
     import traceback
-    print(f"[w2p_handlers] Failed to import label_config_handler: {e}")
+    print(f"[w2p_handlers] Failed to import handlers: {e}")
     print(traceback.format_exc())
 
 # Lazy import function for other handlers
