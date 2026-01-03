@@ -50,9 +50,9 @@ safetensors==0.5.3
 # ============================================================================
 # DATA SCIENCE & COMPUTATION
 # ============================================================================
-numpy==1.26.4
-pandas==2.2.3
-scipy==1.15.2
+numpy==2.4.0
+pandas==2.3.3
+scipy==1.16.3
 joblib==1.4.2
 threadpoolctl==3.6.0
 
@@ -80,8 +80,8 @@ soupsieve==2.5
 # ============================================================================
 # GUI & DESKTOP AUTOMATION
 # ============================================================================
-PySide6==6.9.1
-shiboken6==6.9.1
+PySide6==6.10.1
+shiboken6==6.10.1
 PyAutoGUI==0.9.54
 pynput==1.7.7
 keyboard==0.13.5
@@ -96,7 +96,7 @@ pytweening==1.2.0
 # ============================================================================
 # HTTP & NETWORKING
 # ============================================================================
-aiohttp==3.12.15
+aiohttp==3.13.2
 httpx==0.28.1
 httpx-sse==0.4.0
 httpcore==1.0.7
@@ -112,7 +112,7 @@ h11==0.14.0
 trio-websocket==0.11.1
 wsproto==1.2.0
 ping3==4.0.8
-zeroconf==0.136.2
+zeroconf==0.148.0
 
 # ============================================================================
 # ASYNC & CONCURRENCY
@@ -124,7 +124,7 @@ aiolimiter==1.2.1
 aiosignal==1.4.0
 anyio==4.9.0
 asgiref==3.8.1
-gevent==24.2.1
+gevent==25.9.1
 greenlet==3.2.4
 trio==0.26.0
 qasync==0.27.1
@@ -159,7 +159,7 @@ rsa==4.9
 # DATABASE & STORAGE
 # ============================================================================
 SQLAlchemy==2.0.41
-PyPika==0.48.9
+pypika-tortoise==0.6.3
 
 # ============================================================================
 # MONITORING & TELEMETRY
@@ -318,7 +318,7 @@ acres==0.3.0
 altgraph==0.17.4
 asttokens==3.0.0
 backcall==0.2.0
-cffi==1.16.0
+cffi==2.0.0
 deepdiff==8.0.1
 defusedxml==0.7.1
 docopt==0.6.2
@@ -332,7 +332,7 @@ itsdangerous==2.2.0
 jiter==0.12.0
 jmespath==1.0.1
 looseversion==1.3.0
-mmh3==5.1.0
+mmh3==5.2.0
 mpmath==1.3.0
 multidict==6.0.5
 orderly-set==5.2.2
@@ -348,7 +348,7 @@ pycparser==2.22
 pyperclip==1.9.0
 pyreadline3==3.5.4
 pyzmq==26.3.0
-rpds-py==0.24.0
+rpds-py==0.30.0
 shellingham==1.5.4
 sniffio==1.3.1
 sortedcontainers==2.4.0
