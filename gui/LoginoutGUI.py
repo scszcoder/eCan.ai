@@ -3,7 +3,15 @@ from utils.logger_helper import logger_helper as logger
 from utils.time_util import TimeUtil
 from typing import Dict, Any, Optional, Callable
 from enum import Enum
-from PySide6.QtCore import QTimer
+import asyncio
+import os
+
+# Conditionally import PySide6 - not needed in web mode
+_ECAN_MODE = os.getenv('ECAN_MODE', 'desktop')
+if _ECAN_MODE != 'web':
+    from PySide6.QtCore import QTimer
+else:
+    QTimer = None  # Placeholder for web mode
 
 print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui start...")
 
@@ -11,8 +19,6 @@ from auth.auth_manager import AuthManager
 from config.app_info import app_info
 from config.envi import getECBotDataHome
 from agent.network.network import commanderIP
-import asyncio
-import os
 
 
 print(TimeUtil.formatted_now_with_ms() + " load LoginoutGui finished...")
@@ -249,7 +255,11 @@ class Login:
                 
                 # Close progress dialog and return to login screen
                 logger.info("[AsyncLogin] Scheduling return to login screen...")
-                QTimer.singleShot(1000, self._close_progress_and_show_login)
+                if QTimer is not None:
+                    QTimer.singleShot(1000, self._close_progress_and_show_login)
+                else:
+                    # Web mode: call directly (no Qt event loop)
+                    self._close_progress_and_show_login()
                 
         except Exception as e:
             logger.error(f"[AsyncLogin] ❌ Async {request.login_type.value} login exception: {e}")
@@ -259,7 +269,11 @@ class Login:
             
             # Close progress dialog and return to login screen
             logger.info("[AsyncLogin] Scheduling return to login screen after exception...")
-            QTimer.singleShot(1000, self._close_progress_and_show_login)
+            if QTimer is not None:
+                QTimer.singleShot(1000, self._close_progress_and_show_login)
+            else:
+                # Web mode: call directly (no Qt event loop)
+                self._close_progress_and_show_login()
         finally:
             self._login_in_progress = False
     
@@ -402,6 +416,11 @@ class Login:
 
     def _launch_main_window(self, schedule_mode: str):
         """Launch the main application window after successful login."""
+        # Skip MainWindow launch in web mode
+        if os.getenv('ECAN_MODE', 'desktop') == 'web':
+            logger.info("[Login] Web mode - skipping MainWindow launch")
+            return True
+        
         try:
             # Ensure execution in main thread
             from PySide6.QtWidgets import QApplication

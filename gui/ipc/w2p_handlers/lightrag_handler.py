@@ -591,6 +591,14 @@ def handle_select_files(request: IPCRequest, params: Optional[Dict[str, Any]]) -
     - multiple: bool - Allow multiple file selection
     - filters: List[Dict] - File type filters (optional)
     """
+    # File dialogs are not available in web mode (headless)
+    if os.getenv('ECAN_MODE') == 'web':
+        return create_error_response(
+            request,
+            'NOT_SUPPORTED',
+            'File dialogs are not available in web/headless mode. Use file path parameters instead.'
+        )
+    
     try:
         from PySide6.QtWidgets import QFileDialog, QApplication
         
@@ -648,6 +656,14 @@ def handle_select_directory(request: IPCRequest, params: Optional[Dict[str, Any]
     """
     Handle directory selection dialog.
     """
+    # File dialogs are not available in web mode (headless)
+    if os.getenv('ECAN_MODE') == 'web':
+        return create_error_response(
+            request,
+            'NOT_SUPPORTED',
+            'File dialogs are not available in web/headless mode. Use directory path parameters instead.'
+        )
+    
     try:
         from PySide6.QtWidgets import QFileDialog, QApplication
         
