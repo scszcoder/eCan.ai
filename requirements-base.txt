@@ -40,7 +40,7 @@ chroma-hnswlib==0.7.6
 # ============================================================================
 # AI & MACHINE LEARNING - LLM PROVIDERS & MODELS
 # ============================================================================
-openai==1.99.9
+openai==2.14.0
 ollama>=0.1.0,<1.0.0        # Required by mem0, browser_use, langchain
 anthropic>=0.18.0,<1.0.0    # Anthropic Claude (optional LLM provider)
 voyageai>=0.2.0,<1.0.0      # Voyage AI embeddings (optional)
