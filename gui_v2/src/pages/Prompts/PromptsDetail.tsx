@@ -123,6 +123,31 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
 
   const clonePrompt = useCallback((value: Prompt): Prompt => JSON.parse(JSON.stringify(value)), []);
 
+  // Handle TAB key to insert tab character instead of moving focus
+  const handleTabKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const target = e.currentTarget;
+      const start = target.selectionStart;
+      const end = target.selectionEnd;
+      const value = target.value;
+      // Insert tab character at cursor position
+      const newValue = value.substring(0, start) + '\t' + value.substring(end);
+      // Update the textarea value via native setter to trigger React's onChange
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+      if (nativeInputValueSetter) {
+        nativeInputValueSetter.call(target, newValue);
+        // Dispatch input event to trigger React's onChange
+        const inputEvent = new Event('input', { bubbles: true });
+        target.dispatchEvent(inputEvent);
+        // Restore cursor position after the inserted tab
+        requestAnimationFrame(() => {
+          target.selectionStart = target.selectionEnd = start + 1;
+        });
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (username) {
       fetchTools(username).catch(() => {});
@@ -835,6 +860,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
             rows={autoSizeEnabled && editing ? undefined : 2}
             value={safeString(editing ? active.title : (exampleSlug ? lx(`pages.prompts.examples.${exampleSlug}.title`, active.title) : active.title))}
             onChange={(e) => updateFields({ title: e.target.value })}
+            onKeyDown={handleTabKeyDown}
             placeholder={t('pages.prompts.placeholders.title', { defaultValue: 'Title' })}
             disabled={isReadOnly}
             style={{ lineHeight: '20px', fontSize: 14 }}
@@ -846,6 +872,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
             rows={autoSizeEnabled && editing ? undefined : 2}
             value={safeString(active.topic)}
             onChange={(e) => updateFields({ topic: e.target.value })}
+            onKeyDown={handleTabKeyDown}
             placeholder={t('pages.prompts.placeholders.topic', { defaultValue: 'Topic / short description' })}
             disabled={isReadOnly}
             style={{ lineHeight: '20px', fontSize: 14 }}
@@ -1041,6 +1068,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                               defaultValue: SECTION_PLACEHOLDERS[section.type] || t('pages.prompts.sectionPlaceholders.default', { defaultValue: 'Enter text…' }),
                             })}
                             onChange={(e) => handleSectionItemUpdate(section.id, idx, e.target.value)}
+                            onKeyDown={handleTabKeyDown}
                             disabled={isReadOnly}
                             style={{ lineHeight: '20px', fontSize: 14 }}
                           />
@@ -1262,6 +1290,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                             placeholder={SECTION_PLACEHOLDERS[section.type] || t('pages.prompts.placeholders.addItem', { defaultValue: 'Add an item' })}
                             disabled={isReadOnly}
                             onChange={(e) => handleUserSectionItemUpdate(section.id, idx, e.target.value)}
+                            onKeyDown={handleTabKeyDown}
                           />
                           <Button
                             danger
