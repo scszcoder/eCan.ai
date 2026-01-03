@@ -56,6 +56,10 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
             type: 'constant',
             content: 0.5,
           },
+          useThinking: {
+            type: 'constant',
+            content: false,
+          },
           systemPrompt: {
             type: 'template',
             content: '# Role\nYou are an AI assistant.\n',
@@ -103,6 +107,10 @@ export const LLMNodeRegistry: FlowNodeRegistry = {
             },
             temperature: {
               type: 'number',
+            },
+            useThinking: {
+              type: 'boolean',
+              extra: { formComponent: 'checkbox' },
             },
             systemPrompt: {
               type: 'string',

@@ -19,6 +19,7 @@ export interface LLMProvider {
   preferred_model: string | null;
   custom_parameters: any;
   api_key_configured: boolean;  // 使用Backend的Field名
+  enable_thinking?: boolean;  // For Qwen3 models - controls thinking mode
 
   // Validation status
   is_valid: boolean;

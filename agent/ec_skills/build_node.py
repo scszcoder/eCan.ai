@@ -601,6 +601,15 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         temperature = float(((inputs.get("temperature") or {}).get("content") or 0.5))
     except Exception:
         temperature = 0.5
+    
+    # Extract useThinking setting from node editor (for Qwen/reasoning models)
+    node_use_thinking = False
+    try:
+        use_thinking_val = (inputs.get("useThinking") or {}).get("content")
+        node_use_thinking = str(use_thinking_val).lower() in ('true', '1', 'yes', 'on') if use_thinking_val is not None else False
+    except Exception:
+        node_use_thinking = False
+    
     inputs = (config_metadata or {}).get("inputsValues", {}) or {}
 
     prompt_selection = ((inputs.get("promptSelection") or {}).get("content") or "inline").strip()
@@ -1034,6 +1043,10 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         kw["http_client"] = sync_client
                     if async_client:
                         kw["http_async_client"] = async_client
+                    # Pass enable_thinking via extra_body for Qwen3 models
+                    if node_use_thinking:
+                        kw["extra_body"] = {"enable_thinking": True}
+                        logger.info(f"[LLM] Qwen enable_thinking=True (from node useThinking setting)")
                     llm = ChatQwQ(**kw)
                 elif prov in ("bytedance", "doubao"):
                     if not key:
@@ -2886,7 +2899,15 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                        or (inputs.get("model") or {}).get("content")
                        or None)
     
-    logger.info(f"[BrowserAutomation] Extracted from node editor: provider={node_llm_provider}, model={node_model_name}")
+    # Extract useThinking setting from node editor (for browser_use Agent)
+    node_use_thinking = False
+    try:
+        use_thinking_val = (inputs.get("useThinking") or {}).get("content")
+        node_use_thinking = str(use_thinking_val).lower() in ('true', '1', 'yes', 'on') if use_thinking_val is not None else False
+    except Exception:
+        node_use_thinking = False
+    
+    logger.info(f"[BrowserAutomation] Extracted from node editor: provider={node_llm_provider}, model={node_model_name}, use_thinking={node_use_thinking}")
     web_gui.get_ipc_api().send_skill_editor_log("log", f"[BrowserAutomation] Node LLM settings: provider={node_llm_provider}, model={node_model_name}")
     
     # Extract shop_name and build downloads_path
@@ -3041,15 +3062,20 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         config = extract_provider_config(provider_dict, config_manager=config_manager)
                         api_key = config.get('api_key')
                         base_url = config.get('base_url')
+                        
+                        # Get enable_thinking from provider settings for Qwen providers
+                        provider_enable_thinking = config_manager.llm_manager.get_provider_enable_thinking(node_llm_provider.lower())
+                        
                         # Use node-selected model, not the default from config
                         llm = create_browser_use_llm_by_provider_type(
                             provider_type=node_llm_provider.lower(),
                             model_name=node_model_name,
                             api_key=api_key,
                             base_url=base_url,
-                            mainwin=mainwin
+                            mainwin=mainwin,
+                            enable_thinking=provider_enable_thinking
                         )
-                        logger.info(f"[BrowserAutomation] Created LLM with node settings: provider={node_llm_provider}, model={node_model_name}")
+                        logger.info(f"[BrowserAutomation] Created LLM with node settings: provider={node_llm_provider}, model={node_model_name}, enable_thinking={provider_enable_thinking}")
                     else:
                         logger.warning(f"[BrowserAutomation] Provider '{node_llm_provider}' not found in config, falling back to default")
                 except Exception as e:
@@ -3068,7 +3094,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             
             # Auto-detect model vision support and set use_vision accordingly to avoid warnings
             from agent.ec_skills.llm_utils.llm_utils import get_use_vision_from_llm
-            agent_kwargs = {'use_vision': get_use_vision_from_llm(llm, context="build_browser_automation_node")}
+            agent_kwargs = {
+                'use_vision': get_use_vision_from_llm(llm, context="build_browser_automation_node"),
+                'use_thinking': node_use_thinking,  # Pass use_thinking from node config to browser_use Agent
+            }
+            logger.info(f"[BrowserAutomation] Agent kwargs: use_thinking={node_use_thinking}")
             
             # Get or create browser session based on node editor settings
             browser_session = await _get_or_create_browser_session(mainwin)

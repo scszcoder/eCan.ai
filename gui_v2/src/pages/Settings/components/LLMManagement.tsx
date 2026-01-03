@@ -8,6 +8,7 @@ import {
   Tooltip,
   App,
   Select,
+  Checkbox,
 } from "antd";
 import {
   EditOutlined,
@@ -77,6 +78,9 @@ const LLMManagement = React.forwardRef<
   const [editingOllamaHost, setEditingOllamaHost] = useState(false);
   const [tempOllamaHost, setTempOllamaHost] = useState('');
   const [ollamaApiKey, setOllamaApiKey] = useState('');
+
+  // Enable thinking state for Qwen providers
+  const [enableThinkingMap, setEnableThinkingMap] = useState<Record<string, boolean>>({});
 
   // Fetch Ollama models and save to backend
   const fetchOllamaModels = useCallback(async (host?: string) => {
@@ -284,6 +288,56 @@ const LLMManagement = React.forwardRef<
       window.open(url, "_blank", "noopener,noreferrer");
     },
     [message, t]
+  );
+
+  // Check if provider is Qwen-based (supports enable_thinking option)
+  const isQwenProvider = useCallback((provider: LLMProvider) => {
+    const name = (provider.name || '').toLowerCase();
+    const displayName = (provider.display_name || '').toLowerCase();
+    const providerType = (provider.provider || '').toLowerCase();
+    return name.includes('qwen') || name.includes('dashscope') || 
+           displayName.includes('qwen') || displayName.includes('dashscope') ||
+           providerType.includes('qwen') || providerType.includes('dashscope');
+  }, []);
+
+  // Handle enable_thinking toggle for Qwen providers
+  const handleEnableThinkingChange = useCallback(
+    async (providerName: string, enabled: boolean) => {
+      const provider = providers.find((p) => p.name === providerName);
+      if (!provider) {
+        message.error(`Provider ${providerName} not found`);
+        return;
+      }
+
+      const providerIdentifier = provider.provider;
+      if (!providerIdentifier) {
+        message.error(`Provider ${providerName} has no identifier`);
+        return;
+      }
+
+      // Update local state immediately for responsive UI
+      setEnableThinkingMap((prev) => ({ ...prev, [providerName]: enabled }));
+
+      try {
+        const response = await get_ipc_api().setLLMProviderEnableThinking<{ message: string }>(
+          providerIdentifier,
+          enabled
+        );
+        if (response.success) {
+          message.success(`${providerName} enable_thinking set to ${enabled}`);
+        } else {
+          message.error(`Failed to update enable_thinking: ${response.error?.message}`);
+          // Revert on failure
+          setEnableThinkingMap((prev) => ({ ...prev, [providerName]: !enabled }));
+        }
+      } catch (error) {
+        console.error("Error updating enable_thinking:", error);
+        message.error("Failed to update enable_thinking setting");
+        // Revert on failure
+        setEnableThinkingMap((prev) => ({ ...prev, [providerName]: !enabled }));
+      }
+    },
+    [providers, message]
   );
 
   // Set default LLM
@@ -1119,33 +1173,50 @@ const LLMManagement = React.forwardRef<
           ? currentValue
           : options[0]?.value;
 
+        // Check if this is a Qwen provider to show enable_thinking option
+        const showEnableThinking = isQwenProvider(record);
+        const enableThinkingValue = enableThinkingMap[record.name] ?? record.enable_thinking ?? false;
+
         return (
-          <Select
-            size="small"
-            style={{ width: 180 }}
-            value={effectiveValue}
-            onChange={(value) => handleModelSelection(record.name, value)}
-            loading={!!modelLoadingMap[record.name]}
-            placeholder={t("pages.settings.select_model")}
-            optionLabelProp="label"
-            popupMatchSelectWidth={false}
-          >
-            {options.map((option) => (
-              <Select.Option
-                key={option.value}
-                value={option.value}
-                label={option.label}
-              >
-                {option.description ? (
-                  <Tooltip title={option.description}>
-                    <span>{option.label}</span>
-                  </Tooltip>
-                ) : (
-                  option.label
-                )}
-              </Select.Option>
-            ))}
-          </Select>
+          <Space direction="vertical" size={4}>
+            <Select
+              size="small"
+              style={{ width: 180 }}
+              value={effectiveValue}
+              onChange={(value) => handleModelSelection(record.name, value)}
+              loading={!!modelLoadingMap[record.name]}
+              placeholder={t("pages.settings.select_model")}
+              optionLabelProp="label"
+              popupMatchSelectWidth={false}
+            >
+              {options.map((option) => (
+                <Select.Option
+                  key={option.value}
+                  value={option.value}
+                  label={option.label}
+                >
+                  {option.description ? (
+                    <Tooltip title={option.description}>
+                      <span>{option.label}</span>
+                    </Tooltip>
+                  ) : (
+                    option.label
+                  )}
+                </Select.Option>
+              ))}
+            </Select>
+            {showEnableThinking && (
+              <Tooltip title="Enable Qwen3 thinking mode (chain-of-thought reasoning)">
+                <Checkbox
+                  checked={enableThinkingValue}
+                  onChange={(e) => handleEnableThinkingChange(record.name, e.target.checked)}
+                  style={{ fontSize: '12px' }}
+                >
+                  Enable Thinking
+                </Checkbox>
+              </Tooltip>
+            )}
+          </Space>
         );
       },
     },
