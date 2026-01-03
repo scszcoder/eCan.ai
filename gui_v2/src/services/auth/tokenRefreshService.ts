@@ -24,6 +24,8 @@ class TokenRefreshService {
   private currentToken: string | null = null;
   private onTokenRefreshed: ((newToken: string) => void) | null = null;
   private onTokenExpired: (() => void) | null = null;
+  private consecutiveFailures = 0;
+  private maxConsecutiveFailures = 3; // Allow 3 consecutive failures before triggering logout
 
   /**
    * Start automatic token refresh service
@@ -57,12 +59,12 @@ class TokenRefreshService {
       this.checkAndRefreshToken();
     }, this.checkInterval);
 
-    // Do initial check
-    this.checkAndRefreshToken();
-
+    // Don't do immediate check - wait for first interval
+    // This prevents premature logout if token check fails right after login
     logger.info('[TokenRefresh] Service started', {
       checkInterval: this.checkInterval / 1000 / 60,
-      refreshThreshold: this.refreshThreshold / 60
+      refreshThreshold: this.refreshThreshold / 60,
+      note: 'First check will occur after first interval'
     });
   }
 
@@ -91,10 +93,22 @@ class TokenRefreshService {
       const tokenInfo = await this.getTokenInfo(this.currentToken);
 
       if (!tokenInfo) {
-        logger.error('[TokenRefresh] Failed to get token info');
-        this.handleTokenExpired();
+        this.consecutiveFailures++;
+        logger.error('[TokenRefresh] Failed to get token info', {
+          consecutiveFailures: this.consecutiveFailures,
+          maxAllowed: this.maxConsecutiveFailures
+        });
+        
+        // Only trigger logout after multiple consecutive failures
+        if (this.consecutiveFailures >= this.maxConsecutiveFailures) {
+          logger.error('[TokenRefresh] Max consecutive failures reached, triggering logout');
+          this.handleTokenExpired();
+        }
         return;
       }
+      
+      // Reset failure counter on success
+      this.consecutiveFailures = 0;
 
       logger.debug('[TokenRefresh] Token status', {
         username: tokenInfo.username,

@@ -293,7 +293,7 @@ def handle_update_user_preferences(request: IPCRequest, params: Optional[Dict[st
 from gui.ollama_utils import get_ollama_tags_path, save_ollama_tags, load_ollama_tags, fetch_ollama_models
 
 
-@IPCHandlerRegistry.handler('settings.getOllamaModels')
+@IPCHandlerRegistry.background_handler('settings.getOllamaModels')
 def handle_get_ollama_models(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """
     Fetch available models from Ollama API and save to local file.
