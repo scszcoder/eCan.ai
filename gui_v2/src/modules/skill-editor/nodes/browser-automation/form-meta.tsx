@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
-import { Divider, Select, Button, Tooltip } from '@douyinfe/semi-ui';
+import { Divider, Select, Button, Tooltip, Checkbox } from '@douyinfe/semi-ui';
 import { IconEdit } from '@douyinfe/semi-icons';
 import { defaultFormMeta } from '../default-form-meta';
 import { FormContent, FormHeader, FormItem, FormInputs } from '../../form-components';
@@ -292,6 +292,20 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                   );
                 }}
               </Field>
+            )}
+          </Field>
+        </FormItem>
+
+        {/* Use Thinking checkbox */}
+        <FormItem name="useThinking" type="boolean" vertical>
+          <Field<boolean> name="inputsValues.useThinking.content">
+            {({ field }) => (
+              <Checkbox
+                checked={!!field.value}
+                onChange={(e) => field.onChange(e.target.checked)}
+              >
+                Use Thinking (for reasoning models like Qwen3, DeepSeek-R1)
+              </Checkbox>
             )}
           </Field>
         </FormItem>

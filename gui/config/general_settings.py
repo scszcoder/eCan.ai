@@ -493,6 +493,15 @@ class GeneralSettings:
     def ollama_llm_base_url(self, value: str):
         self._data["ollama_llm_base_url"] = value
 
+    @property
+    def llm_provider_settings(self) -> dict:
+        """Per-provider LLM settings (e.g., enable_thinking for Qwen)"""
+        return self._data.get("llm_provider_settings", {})
+
+    @llm_provider_settings.setter
+    def llm_provider_settings(self, value: dict):
+        self._data["llm_provider_settings"] = value
+
     # ==================== Embedding Settings ====================
     
     @property

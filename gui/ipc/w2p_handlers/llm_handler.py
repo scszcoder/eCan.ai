@@ -390,6 +390,64 @@ def handle_set_llm_provider_model(request: IPCRequest, params: Optional[Dict[str
         return create_error_response(request, 'LLM_ERROR', f"Failed to set default model: {str(e)}")
 
 
+@IPCHandlerRegistry.handler('set_llm_provider_enable_thinking')
+def handle_set_llm_provider_enable_thinking(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Set enable_thinking option for Qwen providers (controls thinking mode)"""
+    try:
+        is_valid, data, error = validate_params(params, ['name', 'enable_thinking'])
+        if not is_valid:
+            return create_error_response(request, 'INVALID_PARAMS', error)
+
+        provider_name = data['name']
+        enable_thinking = bool(data['enable_thinking'])
+        
+        logger.info(f"[set_llm_provider_enable_thinking] Starting: provider_name={provider_name}, enable_thinking={enable_thinking}")
+
+        llm_manager = get_llm_manager(request, params)
+        ctx = get_handler_context(request, params)
+        
+        logger.info(f"[set_llm_provider_enable_thinking] Got llm_manager: {llm_manager is not None}")
+        
+        # Get provider to verify it exists
+        provider = llm_manager.get_provider(provider_name)
+        logger.info(f"[set_llm_provider_enable_thinking] Got provider: {provider is not None}, type={type(provider)}")
+        
+        if not provider:
+            return create_error_response(request, 'LLM_ERROR', f"Provider {provider_name} not found")
+
+        # Verify this is a Qwen/DashScope provider
+        provider_type = (provider.get('provider') or '').lower()
+        provider_display = (provider.get('name') or '').lower()
+        is_qwen = 'qwen' in provider_type or 'dashscope' in provider_type or 'qwen' in provider_display or 'dashscope' in provider_display
+        
+        logger.info(f"[set_llm_provider_enable_thinking] provider_type={provider_type}, is_qwen={is_qwen}")
+        
+        if not is_qwen:
+            return create_error_response(request, 'LLM_ERROR', f"enable_thinking is only supported for Qwen/DashScope providers")
+
+        # Update the provider's enable_thinking setting
+        logger.info(f"[set_llm_provider_enable_thinking] Calling set_provider_enable_thinking...")
+        success, error_msg = llm_manager.set_provider_enable_thinking(provider_name, enable_thinking)
+        logger.info(f"[set_llm_provider_enable_thinking] Result: success={success}, error_msg={error_msg}")
+        
+        if not success:
+            return create_error_response(request, 'LLM_ERROR', error_msg or 'Failed to update enable_thinking')
+
+        updated_provider = llm_manager.get_provider(provider_name)
+        
+        logger.info(f"Set enable_thinking={enable_thinking} for provider {provider_name}")
+
+        return create_success_response(request, {
+            'message': f'enable_thinking for {provider_name} set to {enable_thinking}',
+            'provider': updated_provider
+        })
+
+    except Exception as e:
+        import traceback
+        logger.error(f"Error setting enable_thinking for provider {params}: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'LLM_ERROR', f"Failed to set enable_thinking: {str(e)}")
+
+
 @IPCHandlerRegistry.handler('delete_llm_provider_config')
 def handle_delete_llm_provider_config(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Delete LLM provider configuration"""

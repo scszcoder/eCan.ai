@@ -335,6 +335,10 @@ export class IPCAPI {
         return this.executeRequest<T>('set_llm_provider_model', { name, model });
     }
 
+    public async setLLMProviderEnableThinking<T>(name: string, enableThinking: boolean): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('set_llm_provider_enable_thinking', { name, enable_thinking: enableThinking });
+    }
+
     public async deleteLLMProviderConfig<T>(name: string, username: string): Promise<APIResponse<T>> {
         return this.executeRequest<T>('delete_llm_provider_config', { name, username });
     }
