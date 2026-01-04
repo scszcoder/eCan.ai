@@ -137,8 +137,8 @@ def parrot(state: NodeState) -> NodeState:
                 # Register the recipient in unified messenger for LAN routing
                 if recipient_agent.card.url:
                     a2a_url = recipient_agent.card.url
-                    if not a2a_url.endswith('/a2a/'):
-                        a2a_url = a2a_url.rstrip('/') + '/a2a/'
+                    # New a2a-sdk serves at root, not /a2a/
+                    a2a_url = a2a_url.rstrip('/')
                     agent.unified_messenger.register_lan_agent(recipient_id, a2a_url)
             else:
                 logger.error("[my_twin_chatter_skill] parrot recipient agent not found!")

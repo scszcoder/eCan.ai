@@ -2259,10 +2259,25 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
                 llm_result = state["result"].get("llm_result", {})
                 if isinstance(llm_result, str):
                     next_msg = llm_result
+                elif isinstance(llm_result, dict):
+                    # Try multiple keys: "message", "next_prompt", "content", "text"
+                    next_msg = (
+                        llm_result.get("message") or 
+                        llm_result.get("next_prompt") or 
+                        llm_result.get("content") or 
+                        llm_result.get("text") or 
+                        ""
+                    )
                 else:
-                    next_msg = state["result"].get("llm_result", {}).get("next_prompt", "")
+                    next_msg = ""
             else:
                 next_msg = "sorry, I was lost, could you rephrase your question?"
+
+        # A2A SDK rejects empty TextPart content - skip sending if message is empty
+        # This can happen when skill pauses at pend_event_node before any LLM response
+        if not next_msg or (isinstance(next_msg, str) and not next_msg.strip()):
+            logger.debug("[send_response_back] Skipping send: message text is empty")
+            return state
 
         # Use standardized message builder
         agent_response_message = build_a2a_response_message(

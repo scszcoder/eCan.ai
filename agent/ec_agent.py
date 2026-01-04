@@ -1,6 +1,7 @@
 from __future__ import annotations
 import traceback
 import asyncio
+import uuid
 from typing import Dict, List, Optional
 from dotenv import load_dotenv
 from queue import Queue
@@ -481,7 +482,7 @@ class EC_Agent(Agent):
 		logger.info("client card:", self.get_card().name.lower())
 		if helper:
 			self.a2a_client.set_recipient(helper.get_card())
-			help_msg = Message(role="user", parts=[TextPart(type="text", text="Summarize this report")], metadata={"type": "send_task"})
+			help_msg = Message(role="user", parts=[TextPart(type="text", text="Summarize this report")], metadata={"type": "send_task"}, message_id=str(uuid.uuid4()))
 			payload = {
 				"id": "task-001X",
 				"sessionId": "sess-abc",
@@ -501,7 +502,7 @@ class EC_Agent(Agent):
 		logger.info("[ec_agent] recipient card:", recipient_agent.get_card().name.lower())
 		logger.info("[ec_agent] sending message:", message)
 		try:
-			a2a_end_point = recipient_agent.get_card().url + "/a2a/"
+			a2a_end_point = recipient_agent.get_card().url.rstrip('/')
 			logger.info("[ec_agent] a2a end point: ", a2a_end_point)
 			self.a2a_client.set_recipient(url=a2a_end_point)
 			if isinstance(message["attributes"]['params']['content'], str):
@@ -531,7 +532,7 @@ class EC_Agent(Agent):
 			else:
 				mtype = "send_chat"
 
-			chat_msg = Message(role="user", parts=msg_parts, metadata={"mtype": mtype})
+			chat_msg = Message(role="user", parts=msg_parts, metadata={"mtype": mtype}, message_id=str(uuid.uuid4()))
 
 			# Extract IDs for trace/tracking:
 			# messages = [agent_id, chat_id, msg_id, task_id, msg_txt]
@@ -652,7 +653,7 @@ class EC_Agent(Agent):
 				mtype = "send_chat"
 			
 			# Build A2A Message
-			chat_msg = Message(role="user", parts=msg_parts, metadata={"mtype": mtype})
+			chat_msg = Message(role="user", parts=msg_parts, metadata={"mtype": mtype}, message_id=str(uuid.uuid4()))
 			
 			# Extract session info
 			sess_id = message['messages'][1]  # chat_id
@@ -713,11 +714,13 @@ class EC_Agent(Agent):
 				msg_parts.append(FilePart(type="file", file=fc))
 			
 			mtype = "dev_send_chat" if msg_text.lstrip().lower().startswith("dev>") else "send_chat"
-			return Message(role="user", parts=msg_parts, metadata={"mtype": mtype})
+			import uuid
+			return Message(role="user", parts=msg_parts, metadata={"mtype": mtype}, message_id=str(uuid.uuid4()))
 			
 		except Exception as e:
 			logger.error(f"[_build_a2a_message] Error: {e}")
-			return Message(role="user", parts=[TextPart(type="text", text="")], metadata={})
+			import uuid
+			return Message(role="user", parts=[TextPart(type="text", text="")], metadata={}, message_id=str(uuid.uuid4()))
 
 	def register_lan_agent(self, agent_id: str, a2a_url: str):
 		"""Register an agent as reachable on LAN."""

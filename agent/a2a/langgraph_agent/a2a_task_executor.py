@@ -89,7 +89,8 @@ class A2ATaskExecutor(AgentExecutor):
         
         t_start = time.time()
         logger.info(f"[A2A] Receiving incoming request to agent: {self._agent.card.name}")
-        
+        logger.info(f"[A2A] Receiving incoming request: {context.message}")
+
         # Get or create task
         task = context.current_task
         if not task:
@@ -118,6 +119,10 @@ class A2ATaskExecutor(AgentExecutor):
             
             # Build a request-like object for TaskRunner compatibility
             request = self._build_request_object(context, task_id)
+            
+            # Add async_response to metadata so prep_skills_run can extract it
+            if "params" in request and "metadata" in request["params"]:
+                request["params"]["metadata"]["async_response"] = async_response
             
             # Record task start time
             self._task_start_times[task_id] = time.time()
@@ -301,9 +306,9 @@ class A2ATaskExecutor(AgentExecutor):
         """
         async_response = None
         
-        # Check explicit metadata
-        if context.params and hasattr(context.params, 'metadata') and context.params.metadata:
-            async_response = context.params.metadata.get("async_response")
+        # Check explicit metadata - new a2a-sdk uses context.metadata directly
+        if hasattr(context, 'metadata') and context.metadata:
+            async_response = context.metadata.get("async_response")
         
         # Default based on message type
         if async_response is None:
@@ -315,28 +320,39 @@ class A2ATaskExecutor(AgentExecutor):
         logger.debug(f"[A2A] async_response={async_response} (mtype={mtype})")
         return async_response
     
-    def _build_request_object(self, context: RequestContext, task_id: str) -> Any:
+    def _build_request_object(self, context: RequestContext, task_id: str) -> dict:
         """
-        Build a request-like object compatible with TaskRunner.
+        Build a request-like dict compatible with TaskRunner.
         
-        Creates a simple object that mimics the old SendTaskRequest structure.
+        Returns a serializable dict that mimics the old SendTaskRequest structure.
+        LangGraph's checkpointer requires all state values to be msgpack-serializable.
         """
-        class RequestParams:
-            def __init__(self, ctx: RequestContext, tid: str):
-                self.id = tid
-                self.sessionId = ctx.context_id or tid
-                self.message = ctx.message
-                self.metadata = ctx.params.metadata if ctx.params else {}
-                self.acceptedOutputModes = SUPPORTED_CONTENT_TYPES
-                self.pushNotification = None
-                self.historyLength = None
+        # Convert message to dict if it's a Pydantic model
+        message_data = None
+        if context.message:
+            if hasattr(context.message, 'model_dump'):
+                message_data = context.message.model_dump()
+            elif hasattr(context.message, 'dict'):
+                message_data = context.message.dict()
+            else:
+                message_data = str(context.message)
         
-        class Request:
-            def __init__(self, ctx: RequestContext, tid: str):
-                self.id = tid
-                self.params = RequestParams(ctx, tid)
+        # Build serializable params dict
+        params = {
+            "id": task_id,
+            "sessionId": context.context_id or task_id,
+            "message": message_data,
+            "metadata": context.metadata if hasattr(context, 'metadata') else {},
+            "acceptedOutputModes": SUPPORTED_CONTENT_TYPES,
+            "pushNotification": None,
+            "historyLength": None,
+        }
         
-        return Request(context, task_id)
+        # Return serializable request dict
+        return {
+            "id": task_id,
+            "params": params,
+        }
     
     def _extract_result_text(self, result: Any) -> str:
         """Extract text content from execution result."""

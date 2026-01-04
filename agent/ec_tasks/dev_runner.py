@@ -163,7 +163,7 @@ class DevRunner:
         
         if hasattr(task, "status"):
             try:
-                task.status.state = TaskState.WORKING
+                task.status.state = TaskState.working
             except Exception:
                 pass
         
@@ -210,7 +210,7 @@ class DevRunner:
             # Update task status
             if hasattr(self._dev_task, "status"):
                 try:
-                    self._dev_task.status.state = TaskState.WORKING
+                    self._dev_task.status.state = TaskState.working
                 except Exception:
                     pass
             
@@ -264,7 +264,7 @@ class DevRunner:
             
             if hasattr(self._dev_task, "status"):
                 try:
-                    self._dev_task.status.state = TaskState.INPUT_REQUIRED
+                    self._dev_task.status.state = TaskState.input_required
                 except Exception:
                     pass
             
@@ -311,7 +311,7 @@ class DevRunner:
             # Update task status
             if hasattr(self._dev_task, "status"):
                 try:
-                    self._dev_task.status.state = TaskState.WORKING
+                    self._dev_task.status.state = TaskState.working
                 except Exception:
                     pass
             
