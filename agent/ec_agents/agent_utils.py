@@ -1,6 +1,6 @@
 import json
 
-from agent.a2a.langgraph_agent.agent import ECRPAHelperAgent
+from agent.a2a.langgraph_agent.utils import SUPPORTED_CONTENT_TYPES, AgentCard
 # Use unified CloudAPIService instead of directly importing cloud_api functions
 from agent.cloud_api.cloud_api_service import get_cloud_service
 from agent.cloud_api.constants import DataType, Operation
@@ -24,7 +24,7 @@ import traceback
 from agent.ec_skill import EC_Skill
 from utils.logger_helper import logger_helper as logger
 from agent.a2a.langgraph_agent.utils import get_a2a_server_url
-from agent.a2a.common.types import AgentCard, AgentCapabilities
+from a2a.types import AgentCapabilities
 import json
 from agent.playwright import create_browser_use_llm
 
@@ -426,8 +426,8 @@ def gen_new_agent(mainwin, ajs):
             description=ajs['description'],
             url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
-            defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
-            defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
+            defaultInputModes=SUPPORTED_CONTENT_TYPES,
+            defaultOutputModes=SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
             skills=agent_skills,
         )
@@ -640,8 +640,8 @@ def gen_agent_skill_from_cloud_data(mainwin, askjs):
             description=askjs['description'],
             url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
-            defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
-            defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
+            defaultInputModes=SUPPORTED_CONTENT_TYPES,
+            defaultOutputModes=SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
             skills=agent_skills,
         )
@@ -690,8 +690,8 @@ def gen_new_agent_skill(mainwin, askjs):
             description=askjs['description'],
             url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
-            defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
-            defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
+            defaultInputModes=SUPPORTED_CONTENT_TYPES,
+            defaultOutputModes=SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
             skills=agent_skills,
         )
@@ -870,8 +870,8 @@ def gen_agent_tools_from_cloud_data(mainwin, taskjs):
             description=taskjs['description'],
             url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
-            defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
-            defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
+            defaultInputModes=SUPPORTED_CONTENT_TYPES,
+            defaultOutputModes=SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
             skills=agent_skills,
         )
@@ -917,8 +917,8 @@ def gen_new_agent_tools(mainwin, tooljs):
             description=tooljs['description'],
             url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
-            defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
-            defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
+            defaultInputModes=SUPPORTED_CONTENT_TYPES,
+            defaultOutputModes=SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
             skills=agent_skills,
         )
@@ -1112,8 +1112,8 @@ def gen_agent_tasks_from_cloud_data(mainwin, taskjs):
             description=taskjs['description'],
             url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
-            defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
-            defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
+            defaultInputModes=SUPPORTED_CONTENT_TYPES,
+            defaultOutputModes=SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
             skills=agent_skills,
         )
@@ -1159,8 +1159,8 @@ def gen_new_agent_tasks(mainwin, taskjs):
             description=taskjs['description'],
             url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
-            defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
-            defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
+            defaultInputModes=SUPPORTED_CONTENT_TYPES,
+            defaultOutputModes=SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
             skills=agent_skills,
         )
@@ -1332,8 +1332,8 @@ def gen_knowledge_from_cloud_data(mainwin, kjs):
             description=kjs['description'],
             url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
-            defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
-            defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
+            defaultInputModes=SUPPORTED_CONTENT_TYPES,
+            defaultOutputModes=SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
             skills=agent_skills,
         )
@@ -1380,8 +1380,8 @@ def gen_new_knowledge(mainwin, kjs):
             description=kjs['description'],
             url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
-            defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
-            defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
+            defaultInputModes=SUPPORTED_CONTENT_TYPES,
+            defaultOutputModes=SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
             skills=agent_skills,
         )

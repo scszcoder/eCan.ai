@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from langgraph.types import Command
 
-from agent.a2a.common.types import TaskState
+from a2a.types import TaskState
 from agent.ec_skills.dev_defs import BreakpointManager
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback

@@ -58,14 +58,14 @@ except ImportError:
     DBAgentVehicle = None
     DBAgentKnowledge = None
 
-# A2A Task Manager (still from agent/a2a/ - will be migrated in later phase)
+# A2A Task Executor (new a2a-sdk based implementation)
 try:
-    from agent.a2a.common.server.task_manager import TaskManager, InMemoryTaskManager
-    from agent.a2a.langgraph_agent.task_manager import AgentTaskManager
+    from a2a.server.tasks import InMemoryTaskStore, TaskStore
+    from agent.a2a.langgraph_agent.a2a_task_executor import A2ATaskExecutor
 except ImportError:
-    TaskManager = None
-    InMemoryTaskManager = None
-    AgentTaskManager = None
+    InMemoryTaskStore = None
+    TaskStore = None
+    A2ATaskExecutor = None
 
 # =============================================================================
 # Public API - will be expanded in later phases
@@ -95,8 +95,8 @@ __all__ = [
     "DBAgentVehicle",
     "DBAgentKnowledge",
     
-    # Task managers (advanced)
-    "TaskManager",
-    "InMemoryTaskManager",
-    "AgentTaskManager",
+    # Task stores and executor (advanced)
+    "InMemoryTaskStore",
+    "TaskStore",
+    "A2ATaskExecutor",
 ]

@@ -398,7 +398,7 @@ def stop_task_using_skill(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             logger.info(f"[stop_task_using_skill] Called cancel() for task {task_id}")
         
         # Update task state
-        from agent.a2a.common.types import TaskState
+        from a2a.types import TaskState
         if task_status and hasattr(task_status, 'state'):
             task_status.state = TaskState.CANCELED
         
@@ -607,10 +607,11 @@ def schedule_task(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         import uuid
         task_id = str(uuid.uuid4())[:8]
         task_state = initial_state or {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
+        status = TaskStatus(state=TaskState.submitted)
         
         new_task = ManagedTask(
             id=task_id,
+            context_id=task_id,  # Required by a2a-sdk Task
             name=task_name,
             description=f"Scheduled task using skill '{skill_name}'",
             source="mcp_tool",

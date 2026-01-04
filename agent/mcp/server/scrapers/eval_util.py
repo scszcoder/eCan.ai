@@ -14,7 +14,7 @@ _ALLOWED_FUNCS = {
     "cos": math.cos, "tan": math.tan, "pi": math.pi, "e": math.e
 }
 _ALLOWED_NODES = {
-    ast.Expression, ast.BinOp, ast.UnaryOp, ast.Num, ast.Name, ast.Load, ast.Call,
+    ast.Expression, ast.BinOp, ast.UnaryOp, ast.Name, ast.Load, ast.Call,
     ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Pow, ast.Mod, ast.FloorDiv,
     ast.USub, ast.UAdd, ast.Constant, ast.Tuple
 }

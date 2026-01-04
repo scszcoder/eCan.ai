@@ -173,7 +173,7 @@ def parse_a2a_message_params(params) -> dict:
             "attachments": list,    # file attachments
         }
     """
-    from agent.a2a.common.types import TaskSendParams
+    from agent.a2a.langgraph_agent.utils import TaskSendParams
     
     result = {
         "dtype": "text",

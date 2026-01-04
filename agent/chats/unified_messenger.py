@@ -29,15 +29,14 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Any, Callable, Set
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
 
-from agent.a2a.common.client import A2AClient
-from agent.a2a.common.types import (
-    TaskSendParams,
+from agent.a2a.langgraph_agent.a2a_client_wrapper import A2AClientWrapper
+from a2a.types import (
+    MessageSendParams,
     Message,
     TextPart,
     FilePart,
     DataPart,
-    FileContent,
-    SendTaskResponse,
+    SendMessageResponse,
     Part
 )
 from agent.chats.wan_a2a_chat import (
@@ -96,8 +95,8 @@ class UnifiedMessenger:
         # Subscription callbacks: channel_id -> callback function
         self._subscriptions: Dict[str, Callable] = {}
         
-        # A2A client for LAN communication
-        self._a2a_client = A2AClient(url="http://localhost:5000/a2a/")  # Default, will be set per-request
+        # A2A client wrapper for LAN communication
+        self._a2a_client = A2AClientWrapper(url="http://localhost:5000/a2a/")  # Default, will be set per-request
         
         logger.info(f"[UnifiedMessenger] Initialized for agent: {agent.card.id if agent.card else 'unknown'}")
     
@@ -497,18 +496,18 @@ class UnifiedMessenger:
             if not url:
                 raise ValueError(f"No LAN URL for agent: {recipient_id}")
             
-            # Build TaskSendParams
-            payload = TaskSendParams(
-                id=str(uuid4()),
-                sessionId=session_id,
-                message=message,
-                acceptedOutputModes=accepted_output_modes or ["text", "json"],
-                metadata=metadata
-            )
+            # Build message payload dict (compatible with A2AClientWrapper)
+            payload = {
+                "id": str(uuid4()),
+                "sessionId": session_id,
+                "message": message.model_dump() if hasattr(message, 'model_dump') else message,
+                "acceptedOutputModes": accepted_output_modes or ["text", "json"],
+                "metadata": metadata
+            }
             
-            # Send via A2A client
+            # Send via A2A client wrapper
             self._a2a_client.set_recipient(url=url)
-            response = await self._a2a_client.send_task(payload.model_dump())
+            response = await self._a2a_client.send_task(payload)
             
             logger.debug(f"[UnifiedMessenger] LAN send success to {recipient_id}")
             return {"transport": "lan", "response": response}
@@ -531,16 +530,17 @@ class UnifiedMessenger:
             if not url:
                 raise ValueError(f"No LAN URL for agent: {recipient_id}")
             
-            payload = TaskSendParams(
-                id=str(uuid4()),
-                sessionId=session_id,
-                message=message,
-                acceptedOutputModes=accepted_output_modes or ["text", "json"],
-                metadata=metadata
-            )
+            # Build message payload dict (compatible with A2AClientWrapper)
+            payload = {
+                "id": str(uuid4()),
+                "sessionId": session_id,
+                "message": message.model_dump() if hasattr(message, 'model_dump') else message,
+                "acceptedOutputModes": accepted_output_modes or ["text", "json"],
+                "metadata": metadata
+            }
             
             self._a2a_client.set_recipient(url=url)
-            response = self._a2a_client.sync_send_task(payload.model_dump())
+            response = self._a2a_client.sync_send_task(payload)
             
             logger.debug(f"[UnifiedMessenger] LAN send (sync) success to {recipient_id}")
             return {"transport": "lan", "response": response}

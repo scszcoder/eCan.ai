@@ -7,7 +7,7 @@ from langgraph.graph import END, StateGraph, START
 from agent.ec_skill import *
 import json
 import time
-from agent.a2a.common.types import Message, TextPart
+from a2a.types import Message, TextPart
 
 async def create_rpa_helper_chatter_skill(mainwin):
     try:

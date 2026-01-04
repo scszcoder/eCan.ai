@@ -12,7 +12,7 @@ from mcp.client.session import ClientSession
 
 from agent.ec_skill import *
 from agent.agent_service import get_agent_by_id
-from agent.a2a.common.types import Message, TextPart
+from a2a.types import Message, TextPart
 from telemetry.views import AgentStepTelemetryEvent
 import traceback
 import asyncio
