@@ -6,14 +6,21 @@ This package provides the core library for building and running AI agents.
 Example usage:
     from ecan_ai import EcanAI
     
-    ecan = EcanAI()
+    ecan = EcanAI(db_path="path/to/data")
     agents = ecan.agents.list()
+    agent = ecan.agents.create(name="MyAgent", description="An AI agent")
 """
 
 __version__ = "0.1.0"
 
 # =============================================================================
-# Phase 2: Import from ecan_ai.db subpackage (migrated from agent/db/)
+# Main API - EcanAI facade class
+# =============================================================================
+
+from .core import EcanAI
+
+# =============================================================================
+# Database layer (advanced usage)
 # =============================================================================
 
 # Database services (from ecan_ai.db.services/)
@@ -65,10 +72,13 @@ except ImportError:
 # =============================================================================
 
 __all__ = [
+    # Main API
+    "EcanAI",
+    
     # Version
     "__version__",
     
-    # Database services
+    # Database services (advanced)
     "DBAgentService",
     "DBSkillService", 
     "DBTaskService",
@@ -78,14 +88,14 @@ __all__ = [
     "BaseService",
     "SingletonMeta",
     
-    # Database models
+    # Database models (advanced)
     "DBAgent",
     "DBAgentSkill",
     "DBAgentTask",
     "DBAgentVehicle",
     "DBAgentKnowledge",
     
-    # Task managers
+    # Task managers (advanced)
     "TaskManager",
     "InMemoryTaskManager",
     "AgentTaskManager",
