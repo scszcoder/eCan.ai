@@ -17,27 +17,111 @@ pip install ecan-ai[full]
 ## Quick Start
 
 ```python
-from ecan_ai import get_db_service
+from ecan_ai import EcanAI
 
-# Get database service
-db = get_db_service()
+# Initialize
+ecan = EcanAI(db_path="path/to/data")
 
 # List agents
-agents = db.agent_service.query_agents()
-print(agents)
+agents = ecan.agents.list()
+print(f"Found {len(agents)} agents")
+
+# Create an agent
+agent = ecan.agents.create(
+    name="WebScraper",
+    description="Scrapes websites for data"
+)
+print(f"Created agent: {agent['name']}")
+
+# Get agent by ID
+agent = ecan.agents.get(agent['id'])
+
+# Update agent
+ecan.agents.update(agent['id'], description="Updated description")
+
+# Delete agent
+ecan.agents.delete(agent['id'])
+```
+
+## API Reference
+
+### EcanAI
+
+The main entry point for the library.
+
+```python
+from ecan_ai import EcanAI
+
+ecan = EcanAI(db_path="path/to/data", auto_migrate=True)
+```
+
+### Agents
+
+```python
+# List all agents
+agents = ecan.agents.list()
+agents = ecan.agents.list(name="search", owner="user1", limit=10)
+
+# Get agent by ID
+agent = ecan.agents.get("agent_id")
+
+# Create agent
+agent = ecan.agents.create(name="MyAgent", description="...", owner="user1")
+
+# Update agent
+ecan.agents.update("agent_id", name="NewName", status="inactive")
+
+# Delete agent
+ecan.agents.delete("agent_id")
+```
+
+### Skills
+
+```python
+skills = ecan.skills.list()
+skill = ecan.skills.get("skill_id")
+skill = ecan.skills.create(name="MySkill", skill_type="custom")
+ecan.skills.delete("skill_id")
+```
+
+### Tasks
+
+```python
+tasks = ecan.tasks.list()
+task = ecan.tasks.get("task_id")
+task = ecan.tasks.create(name="MyTask", task_type="general")
+ecan.tasks.delete("task_id")
+```
+
+### Vehicles
+
+```python
+vehicles = ecan.vehicles.list()
+vehicle = ecan.vehicles.get("vehicle_id")
+vehicle = ecan.vehicles.create(name="MyVehicle", vehicle_type="computer")
+ecan.vehicles.delete("vehicle_id")
+```
+
+## Advanced Usage
+
+For advanced usage, you can access the underlying database services directly:
+
+```python
+from ecan_ai import DBAgentService, DBSkillService
+
+# Or access via EcanAI
+ecan = EcanAI(db_path="path/to/data")
+db_manager = ecan.db_manager  # Access ECDBMgr directly
 ```
 
 ## Features
 
-- **Agent Management**: Create, configure, and run AI agents
+- **Agent Management**: Create, configure, and manage AI agents
 - **Skill System**: Modular skills that agents can use
-- **Task Execution**: Run tasks with monitoring and control
+- **Task Execution**: Define and track tasks
 - **Vehicle Support**: Deploy agents on different platforms
 - **Knowledge Base**: Store and retrieve agent knowledge
-
-## Documentation
-
-See the [full documentation](https://docs.ecan.ai) for more details.
+- **Database Migrations**: Automatic schema migrations
 
 ## License
 
