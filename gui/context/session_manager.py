@@ -163,6 +163,13 @@ class SessionManager:
         if context:
             logger.info(f"[SessionManager] Destroyed session {session_id}")
             
+            # Clear ContextProvider cache for this session
+            try:
+                from gui.ipc.context_bridge import clear_provider_cache
+                clear_provider_cache(session_id)
+            except Exception as e:
+                logger.warning(f"[SessionManager] Error clearing provider cache: {e}")
+            
             # Notify callback
             if self._on_session_destroyed:
                 try:

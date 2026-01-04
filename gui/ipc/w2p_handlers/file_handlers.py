@@ -718,8 +718,10 @@ def handle_skills_rename(request: IPCRequest, params: Optional[Dict[str, Any]]) 
             
             # Get skill service to check if old skill exists in database
             ctx = get_handler_context(request, params)
-            if ctx and ctx.get_ec_db_mgr() and hasattr(ctx.get_ec_db_mgr(), 'ec_db_mgr') and ctx.get_ec_db_mgr():
-                skill_service = ctx.get_ec_db_mgr().skill_service
+            if ctx:
+                ec_db_mgr = ctx.get_ec_db_mgr()
+                if ec_db_mgr:
+                    skill_service = ec_db_mgr.skill_service
                 if skill_service:
                     # Check if skill exists by old path
                     existing_skill = skill_service.get_skill_by_path(old_skill_file)
@@ -862,8 +864,9 @@ def handle_skills_copy_to(request: IPCRequest, params: Optional[Dict[str, Any]])
             ctx = get_handler_context(request, params)
             if ctx:
                 # Update database: find existing skill and update its path
-                if hasattr(ctx, 'ec_db_mgr'):
-                    skill_service = ctx.get_ec_db_mgr().get_skill_service()
+                ec_db_mgr = ctx.get_ec_db_mgr()
+                if ec_db_mgr:
+                    skill_service = ec_db_mgr.get_skill_service()
                     if skill_service:
                         old_skill_name = old_skill_root.name  # e.g., "ff_skill"
                         all_skills = skill_service.search_skills()

@@ -492,10 +492,11 @@ def _get_skill_service(request=None, params=None):
     """
     ctx = get_handler_context(request, params)
     if ctx:
-        return ctx.get_ec_db_mgr().skill_service
-    else:
-        logger.error("[skill_handler] mainwin.ec_db_mgr not available - cannot access database")
-        return None
+        ec_db_mgr = ctx.get_ec_db_mgr()
+        if ec_db_mgr:
+            return ec_db_mgr.skill_service
+    logger.error("[skill_handler] Database manager not available - cannot access database")
+    return None
 
 
 def _prepare_skill_data(skill_info: Dict[str, Any], username: str, skill_id: Optional[str] = None) -> Dict[str, Any]:
