@@ -68,11 +68,14 @@ def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, 
             if raw_params:
                 msg_parts = msg.params.message.parts
                 for part in msg_parts:
-                    if part.type == "text":
-                        msg_txt = part.text
-                    elif part.type == "file":
-                        attachments.append({"filename": part.file.name, "file_url": part.file.uri, "mime_type": part.file.mimeType,
-                                    "file_data": part.file.bytes})
+                    # New a2a-sdk uses 'kind' instead of 'type'
+                    part_type = getattr(part, 'kind', None) or getattr(part, 'type', None)
+                    if part_type == "text":
+                        msg_txt = getattr(part, 'text', '')
+                    elif part_type == "file":
+                        file_obj = getattr(part, 'file', part)
+                        attachments.append({"filename": getattr(file_obj, 'name', ''), "file_url": getattr(file_obj, 'uri', ''), "mime_type": getattr(file_obj, 'mimeType', getattr(file_obj, 'mime_type', '')),
+                                    "file_data": getattr(file_obj, 'bytes', '')})
                 meta_params = msg.params.metadata.get("params", {}) if msg.params.metadata else {}
                 if not msg.params.metadata:
                     missing_fields.append("metadata")
@@ -98,19 +101,56 @@ def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, 
         else:
             # Dict message
             if "params" in msg:
-                if "content" in msg["params"]:
-                    msg_txt = msg['params']['content']
+                params = msg["params"]
+                # Handle new A2A SDK dict structure (from _build_request_object)
+                # Structure: {"id": ..., "params": {"message": {...}, "metadata": {...}, ...}}
+                if "message" in params and isinstance(params["message"], dict):
+                    # New A2A SDK format - extract from message dict
+                    message_data = params["message"]
+                    # Extract text from parts
+                    msg_txt = ""
                     atts = []
-                    if msg['params']['attachments']:
-                        for att in msg['params']['attachments']:
-                            # Local import to avoid circular dependency at module import time
-                            from agent.ec_skill import FileAttachment  # type: ignore
+                    parts = message_data.get("parts", [])
+                    for part in parts:
+                        part_kind = part.get("kind") or part.get("type")
+                        if part_kind == "text":
+                            msg_txt = part.get("text", "")
+                        elif part_kind == "file":
+                            from agent.ec_skill import FileAttachment
+                            file_data = part.get("file", part)
+                            atts.append(FileAttachment(
+                                name=file_data.get("name", ""),
+                                type=file_data.get("mimeType", file_data.get("mime_type", "")),
+                                url=file_data.get("uri", ""),
+                                data=""
+                            ))
+                    
+                    # Extract metadata
+                    metadata = params.get("metadata", {})
+                    meta_params = metadata.get("params", {})
+                    chat_id = meta_params.get("chatId", params.get("sessionId", ""))
+                    msg_id = msg.get("id", "")
+                    human = meta_params.get("human", False)
+                    method = metadata.get("mtype", msg.get("method", ""))
+                    form = metadata.get("form", {})
+                    attachments = atts
+                    
+                    if not chat_id: missing_fields.append("chatId")
+                    if not msg_id: missing_fields.append("msg_id")
+                    if not method: missing_fields.append("method")
+                    
+                elif "content" in params:
+                    # Legacy format
+                    msg_txt = params['content']
+                    atts = []
+                    if params.get('attachments'):
+                        for att in params['attachments']:
+                            from agent.ec_skill import FileAttachment
                             atts.append(FileAttachment(name=att['name'], type=att['type'], url=att['url'], data=""))
 
-                    chat_id = msg['params'].get('chatId', '')
+                    chat_id = params.get('chatId', '')
                     msg_id = msg.get('id', '')
-                    human = msg['params'].get('human', False)
-                    params = msg['params']
+                    human = params.get('human', False)
                     method = msg.get("method", "")
                     
                     if not chat_id: missing_fields.append("chatId")
@@ -148,10 +188,14 @@ def _node_state_baseline(agent, task_id, msg, current_state: Optional[Dict[str, 
         # This controls whether send_response_back sends via A2A or skips (sync mode)
         async_response = None
         try:
-            if msg and hasattr(msg, 'params') and msg.params and msg.params.metadata:
+            if msg and hasattr(msg, 'params') and msg.params and hasattr(msg.params, 'metadata') and msg.params.metadata:
                 async_response = msg.params.metadata.get("async_response")
-            elif isinstance(msg, dict) and "metadata" in msg:
-                async_response = msg["metadata"].get("async_response")
+            elif isinstance(msg, dict):
+                # New A2A SDK format: msg["params"]["metadata"]["async_response"]
+                if "params" in msg and isinstance(msg["params"], dict) and "metadata" in msg["params"]:
+                    async_response = msg["params"]["metadata"].get("async_response")
+                elif "metadata" in msg:
+                    async_response = msg["metadata"].get("async_response")
         except Exception:
             pass
 

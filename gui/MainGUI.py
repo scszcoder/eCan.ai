@@ -38,6 +38,7 @@ from typing import List, Optional
 # ============================================================================
 from utils.time_util import TimeUtil
 from utils.logger_helper import logger_helper as logger
+from utils.logger_helper import get_traceback
 from utils.port_allocator import get_port_allocator
 from config.envi import getECBotDataHome
 
@@ -1684,7 +1685,7 @@ class MainWindow:
         """
         Asynchronously start eCan's own cloud side LLM service subscription
         """
-        from agent.story.story_gen import subscribe_cloud_show
+        from agent.ec_skills.story.story_gen import subscribe_cloud_show
         try:
             # Check if shutting down before starting
             if hasattr(self, '_shutting_down') and self._shutting_down:
@@ -1788,8 +1789,8 @@ class MainWindow:
             logger.info("[MainWindow] ✅ Account Notification Subscription initialized successfully!")
 
         except Exception as e:
-            logger.error(f"[MainWindow] ❌ Account Notification Subscription failed: {e}")
-            logger.error(f"[MainWindow] Account notification error details: {traceback.format_exc()}")
+            err_msg = get_traceback(e, "ErrorStartAccountNotificationSubcription")
+            logger.error(f"[MainWindow] ❌ {err_msg}")
             # Don't crash the app if subscription fails
 
     async def _async_start_scene_subscriptions(self):
@@ -1873,8 +1874,8 @@ class MainWindow:
             logger.info("[MainWindow] All Scene & Story Subscriptions initialized!")
 
         except Exception as e:
-            logger.error(f"[MainWindow] Scene subscriptions failed: {e}")
-            logger.error(f"[MainWindow] Scene subscription error details: {traceback.format_exc()}")
+            err_msg = get_traceback(e, "ErrorStartSceneSubcription")
+            logger.error(f"[MainWindow]  ❌ {err_msg}")
 
     async def _async_start_puzzle_subscription(self):
         """
@@ -1912,8 +1913,8 @@ class MainWindow:
             logger.info("[MainWindow] Puzzle Result Subscription initialized!")
 
         except Exception as e:
-            logger.error(f"[MainWindow] Puzzle subscription failed: {e}")
-            logger.error(f"[MainWindow] Puzzle subscription error details: {traceback.format_exc()}")
+            err_msg = get_traceback(e, "ErrorStartPuzzleSubcription")
+            logger.error(f"[MainWindow]  ❌ {err_msg}")
 
 
     def get_auth_token(self):
@@ -1939,7 +1940,8 @@ class MainWindow:
                         return ar[k]
             return None
         except Exception as e:
-            logger.error(f"Error getting auth token: {e}")
+            err_msg = get_traceback(e, "ErrorGetAuthToken")
+            logger.error(f"[MainWindow]  ❌ {err_msg}")
             return None
 
 
@@ -2245,9 +2247,8 @@ class MainWindow:
             return skills or []
 
         except Exception as e:
-            logger.warning(f"[MainWindow] ⚠️ Agent skills building failed: {e}")
-            import traceback
-            logger.debug(f"[MainWindow] Skills building traceback: {traceback.format_exc()}")
+            err_msg = get_traceback(e, "ErrorBuildAgentSkillsAsync")
+            logger.warning(f"[MainWindow] ⚠️ {err_msg}")
             return []
 
     async def _build_agent_tasks_async(self):
@@ -2263,9 +2264,8 @@ class MainWindow:
             return agent_tasks or []
 
         except Exception as e:
-            logger.warning(f"[MainWindow] ⚠️ Agent tasks building failed: {e}")
-            import traceback
-            logger.debug(f"[MainWindow] Agent tasks building traceback: {traceback.format_exc()}")
+            err_msg = get_traceback(e, "ErrorBuildAgentTasksAsync")
+            logger.warning(f"[MainWindow] ⚠️ {err_msg}")
             return []
 
     async def _obtain_agent_tools_async(self):
@@ -2504,9 +2504,8 @@ class MainWindow:
             return len(self.agents) > 0
             
         except Exception as e:
-            logger.error(f"[MainWindow] ❌ Ultra-parallel process failed: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
+            err_msg = get_traceback(e, "ErrorBuildLaunchAgentUltraParallel")
+            logger.error(f"[MainWindow] ❌ {err_msg}")
             return False
 
     async def _build_code_agents_async(self):
@@ -3855,12 +3854,9 @@ class MainWindow:
                 except RuntimeError as e:
                     # This is expected during startup when event loop is not running yet
                     logger.debug(f"[MainWindow] ⏳ Event loop not running yet for vehicle metrics update: {e}")
-                    # Use QTimer for delayed execution, waiting for event loop to be available
-                    from PySide6.QtCore import QTimer
-                    timer = QTimer()
-                    timer.timeout.connect(lambda v=newVehicle: self._schedule_delayed_metrics_update(v))
-                    timer.setSingleShot(True)
-                    timer.start(2000)  # Retry after 2 seconds
+                    # Use threading.Timer for delayed execution, waiting for event loop to be available
+                    timer = threading.Timer(2.0, lambda v=newVehicle: self._schedule_delayed_metrics_update(v))
+                    timer.start()  # Retry after 2 seconds
                     logger.info(f"[MainWindow] 📊 Scheduled delayed metrics update for vehicle: {newVehicle.getName()}")
                 
                 self.saveVehicle(newVehicle)

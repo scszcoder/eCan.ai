@@ -258,7 +258,8 @@ async def supervisor_task_scheduler(state: NodeState) -> NodeState:
             vehicle_operator_agent = this_agent.mainwin.get_vehicle_ecbot_op_agent(v)
             # setup a2a client to send the work to this agent.
             req_data = {"msg_type": "rpa_tasks", "rpa_tasks": per_vehicle_works[v]}
-            rpa_task_request = Message(role="user", parts=[TextPart(type="text", text="Here are the RPA work to run")], metadata=req_data)
+            import uuid
+            rpa_task_request = Message(role="user", parts=[TextPart(type="text", text="Here are the RPA work to run")], metadata=req_data, message_id=str(uuid.uuid4()))
             rpa_task_reponse = await this_agent.a2a_send_message(vehicle_operator_agent, rpa_task_request)
             print("a2a send response:", rpa_task_reponse)
             if "error" in rpa_task_reponse:

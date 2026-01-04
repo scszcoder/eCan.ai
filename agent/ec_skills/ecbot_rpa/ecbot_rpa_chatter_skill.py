@@ -2,8 +2,10 @@ import traceback
 from mcp.client.session import ClientSession
 from langchain_core.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
 from langgraph.graph import END, StateGraph, START
+from agent.ec_skills.dev_defs import BreakpointManager
+from agent.ec_skills.build_node import build_pend_event_node, build_llm_node, build_chat_node
 from agent.ec_skill import *
 import json
 import time
@@ -28,7 +30,7 @@ async def create_rpa_helper_chatter_skill(mainwin):
         # print("helper # tools ", len(all_tools), type(all_tools[-1]), all_tools[-1])
         # Use mainwin's llm object instead of hardcoded ChatOpenAI
         helper_tools = []
-        helper_agent = create_react_agent(llm, helper_tools)
+        helper_agent = create_agent(llm, helper_tools)
         # Prompt Template
         prompt = ChatPromptTemplate.from_messages([
             ("system", """
@@ -52,37 +54,6 @@ async def create_rpa_helper_chatter_skill(mainwin):
             return {"input": input_text, "messages": [HumanMessage(content=input_text)], "retries": 0,
                     "resolved": False}
 
-        def make_llm_tool_node(session: ClientSession):
-            async def node(state: NodeState) -> NodeState:
-                result = await session.invoke(
-                    input=state["input"],
-                    messages=state["messages"][-1],
-                    tool_choice="auto"  # let the LLM decide
-                )
-                state["messages"].append(result)
-                return state
-
-            return node
-
-        async def planner_with_image(state: NodeState):
-            # Call your screenshot tool
-            # REMOTE call over SSE → MCP tool
-            image_b64: str = await helper_skill.mcp_session.call_tool(
-                "screen_capture", arguments={"params": {}, "context_id": ""}
-            )
-
-            # Build prompt inputs with image
-            inputs = {
-                "input": state["input"],
-                "image_b64": image_b64,
-                "messages": state["messages"]
-            }
-            response = await (prompt | llm).ainvoke(inputs)
-
-            # Append response to messages
-            state["messages"].append(response)
-            return state
-
 
         # Verify node (simple check)
         def verify_resolved(state: NodeState) -> NodeState:
@@ -102,17 +73,101 @@ async def create_rpa_helper_chatter_skill(mainwin):
             return "llm_loop"
 
         # Graph construction
-        # graph = StateGraph(State, config_schema=ConfigSchema)
         workflow = StateGraph(NodeState, WorkFlowContext)
-        workflow.add_node("llm_loop", helper_agent)
-        workflow.add_node("verify", verify_resolved)
 
-        workflow.set_entry_point("llm_loop")
-        workflow.add_edge("llm_loop", "verify")
-        workflow.add_conditional_edges("verify", route_logic, {
-            "llm_loop": "llm_loop",
-            END: END
-        })
+        # graph = StateGraph(State, config_schema=ConfigSchema)
+        owner = mainwin.owner
+        skill_name = "chatter for ecbot rpa helper"
+        bp_manager = BreakpointManager()
+
+        config_metadata = {
+            "prompt": "Action required to continue.",
+            "tag": "pen_listen0",
+            "inputsValues": {
+                "eventType": {
+                    "content": "unknown_event"
+                },
+                "pendingSources": {
+                    "content": []
+                }
+            }
+        }
+        node_name = "listen0"
+        raw_callable = build_pend_event_node(config_metadata, node_name, skill_name, owner, bp_manager)
+        # Wrap with node_builder to add retries/context/breakpoints
+        pend_event_node = node_builder(raw_callable, node_name, skill_name, owner, bp_manager)
+        workflow.add_node(node_name, pend_event_node)
+        workflow.set_entry_point(node_name)
+
+        config_metadata = {
+            "inputsValues": {
+                "enable_guardrail_timer": {
+                    "content": "true"
+                },
+                "timeout_seconds": {
+                    "content": "60"
+                },
+                "hard_timeout": {
+                    "content": "true"
+                },
+                "modelProvider": {
+                    "content": "openai"
+                },
+                "modelName": {
+                    "content": "gpt-5"
+                },
+                "apiKey": {
+                    "content": ""
+                },
+                "apiHost": {
+                    "content": "https://api.openai.com/v1"
+                },
+                "temperature": {
+                    "content": "0.5"
+                },
+                "useThinking": {
+                    "content": "true"
+                },
+                "promptSelection": {
+                    "content": "pr-454780"
+                },
+                "systemPromptId": {
+                    "content": ""
+                },
+                "promptId": {
+                    "content": ""
+                },
+                "systemPrompt": {
+                    "content": ""
+                },
+                "prompt": {
+                    "content": ""
+                },
+            }
+        }
+        node_name = "react0"
+        raw_callable = build_llm_node(config_metadata, node_name, skill_name, owner, bp_manager)
+        llm_node = node_builder(raw_callable, node_name, skill_name, owner, bp_manager)
+        workflow.add_node(node_name, llm_node)
+
+
+        config_metadata = {
+            "role": "",
+            "message": "",
+            "wait_for_reply": True
+        }
+        node_name = "talk_back0"
+        raw_callable = build_chat_node(config_metadata, node_name, skill_name, owner, bp_manager)
+        chat_node = node_builder(raw_callable, node_name, skill_name, owner, bp_manager)
+        workflow.add_node(node_name, chat_node)
+
+        workflow.add_edge("listen0", "react0")
+        workflow.add_edge("react0", "talk_back0")
+        workflow.add_edge("talk_back0", "listen0")
+        # workflow.add_conditional_edges("verify", route_logic, {
+        #     "llm_loop": "llm_loop",
+        #     END: END
+        # })
 
         helper_skill.set_work_flow(workflow)
         # Store manager so caller can close it after using the skill
@@ -248,7 +303,8 @@ async def supervisor_task_scheduler(state: NodeState) -> NodeState:
             vehicle_operator_agent = this_agent.mainwin.get_vehicle_ecbot_op_agent(v)
             # setup a2a client to send the work to this agent.
             req_data = {"msg_type": "rpa_tasks", "rpa_tasks": per_vehicle_works[v]}
-            rpa_task_request = Message(role="user", parts=[TextPart(type="text", text="Here are the RPA work to run")], metadata=req_data)
+            import uuid
+            rpa_task_request = Message(role="user", parts=[TextPart(type="text", text="Here are the RPA work to run")], metadata=req_data, message_id=str(uuid.uuid4()))
             rpa_task_reponse = await this_agent.a2a_send_message(vehicle_operator_agent, rpa_task_request)
             print("a2a send response:", rpa_task_reponse)
             if "error" in rpa_task_reponse:

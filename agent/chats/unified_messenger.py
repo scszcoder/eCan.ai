@@ -206,9 +206,8 @@ class UnifiedMessenger:
                         agent_id = agent.card.id
                         agent_url = agent.card.url
                         if agent_url:
-                            # Ensure URL ends with /a2a/
-                            if not agent_url.endswith('/a2a/'):
-                                agent_url = agent_url.rstrip('/') + '/a2a/'
+                            # New a2a-sdk serves at root, not /a2a/
+                            agent_url = agent_url.rstrip('/')
                             self.register_lan_agent(agent_id, agent_url)
                 
                 logger.info(f"[UnifiedMessenger] Synced {len(self.lan_registry)} agents from MainWindow")
