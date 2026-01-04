@@ -43,18 +43,24 @@ def _serialize_task_status(status) -> str:
     return str(status)
 
 
-def _get_agent_task_service():
-    """Get agent task service from mainwin (uses correct user-specific database path)
+def _get_agent_task_service(request: Optional[Dict] = None, params: Optional[Dict] = None):
+    """Get agent task service from context (uses correct user-specific database path)
+
+    Args:
+        request: IPC request (optional, for context)
+        params: IPC params (optional, for context)
 
     Returns:
         task_service: Database agent task service instance, or None if not available
     """
-    ctx = AppContext.get_main_window()
+    from gui.ipc.context_bridge import get_handler_context
+    ctx = get_handler_context(request, params)
     if ctx:
-        return ctx.get_ec_db_mgr().task_service
-    else:
-        logger.error("[task_handler] mainwin.ec_db_mgr not available - cannot access database")
-        return None
+        ec_db_mgr = ctx.get_ec_db_mgr()
+        if ec_db_mgr:
+            return ec_db_mgr.task_service
+    logger.error("[task_handler] Database manager not available - cannot access database")
+    return None
 
 
 def _prepare_agent_task_data(agent_task_info: Dict[str, Any], username: str, agent_task_id: Optional[str] = None) -> Dict[str, Any]:
@@ -143,11 +149,13 @@ def _manage_task_skill_relationship(task_id: str, skill_id: Optional[str]) -> bo
         return False
 
 
-def _get_task_skill_info(task_id: str) -> Optional[Dict[str, Any]]:
+def _get_task_skill_info(task_id: str, request: Optional[Dict] = None, params: Optional[Dict] = None) -> Optional[Dict[str, Any]]:
     """Get skill information from task-skill relationship using task service
     
     Args:
         task_id: Task ID
+        request: IPC request (optional, for context)
+        params: IPC params (optional, for context)
         
     Returns:
         Dict with skill info (id, name) or None
@@ -167,19 +175,24 @@ def _get_task_skill_info(task_id: str) -> Optional[Dict[str, Any]]:
                 skill_id = skill_rel.get('skill_id')
                 
                 if skill_id:
-                    ctx = AppContext.get_main_window()
+                    # Use get_handler_context to get the correct context provider
+                    from gui.ipc.context_bridge import get_handler_context
+                    ctx = get_handler_context(request, params)
                     
                     if ctx:
-                        skill_service = ctx.get_ec_db_mgr().get_skill_service()
-                        
-                        if skill_service:
-                            skill_result = skill_service.get_skill_by_id(skill_id)
-                            if skill_result.get('success') and skill_result.get('data'):
-                                skill_data = skill_result['data']
-                                return {
-                                    'id': skill_data.get('id'),
-                                    'name': skill_data.get('name')
-                                }
+                        # Use get_ec_db_mgr() method from ContextProvider
+                        ec_db_mgr = ctx.get_ec_db_mgr()
+                        if ec_db_mgr:
+                            skill_service = ec_db_mgr.get_skill_service()
+                            
+                            if skill_service:
+                                skill_result = skill_service.get_skill_by_id(skill_id)
+                                if skill_result.get('success') and skill_result.get('data'):
+                                    skill_data = skill_result['data']
+                                    return {
+                                        'id': skill_data.get('id'),
+                                        'name': skill_data.get('name')
+                                    }
         
         return None
         
@@ -199,9 +212,16 @@ def _update_agent_task_in_memory(agent_task_id: str, agent_task_data: Dict[str, 
         bool: True if successful, False otherwise
     """
     try:
-        ctx = AppContext.get_main_window()
-        if not ctx or not hasattr(ctx, 'agent_tasks'):
-            logger.warning("[task_handler] mainwin.agent_tasks not available")
+        from gui.ipc.context_bridge import get_handler_context
+        ctx = get_handler_context()
+        if not ctx:
+            logger.warning("[task_handler] Context not available")
+            return False
+        
+        # Get agent_tasks from context
+        agent_tasks = ctx.get_agent_tasks()
+        if agent_tasks is None:
+            logger.warning("[task_handler] agent_tasks not available")
             return False
 
         from agent.ec_tasks import ManagedTask
@@ -236,7 +256,7 @@ def _update_agent_task_in_memory(agent_task_id: str, agent_task_data: Dict[str, 
             metadata = {}
         
         # Get skill from task-skill relationship table
-        skill_info = _get_task_skill_info(agent_task_id)
+        skill_info = _get_task_skill_info(agent_task_id, request=None, params=None)
         skill_name = skill_info['name'] if skill_info else ''
         
         agent_task_obj = ManagedTask(
@@ -286,7 +306,7 @@ def _create_clean_agent_task_response(agent_task_id: str, agent_task_data: Dict[
         metadata = {}
     
     # Get skill info from task-skill relationship table
-    skill_info = _get_task_skill_info(agent_task_id)
+    skill_info = _get_task_skill_info(agent_task_id, request=None, params=None)
     skill_name = skill_info['name'] if skill_info else ''
     
     return {
@@ -334,11 +354,12 @@ def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]
         username = data['username']
         logger.info(f"Getting agent tasks for user: {username}")
 
-        # Get tasks from memory (mainwin.agent_tasks is the single source of truth)
+        # Get tasks from memory (agent_tasks is the single source of truth)
         # Tasks are loaded from database during startup
         try:
-            ctx = AppContext.get_main_window()
-            memory_agent_tasks = ctx.agent_tasks if ctx and hasattr(ctx, 'agent_tasks') else []
+            from gui.ipc.context_bridge import get_handler_context
+            ctx = get_handler_context(request, params)
+            memory_agent_tasks = ctx.get_agent_tasks() if ctx else []
             logger.info(f"Found {len(memory_agent_tasks)} agent tasks in memory (mainwin.agent_tasks)")
 
             # Convert tasks to dictionary format
@@ -657,9 +678,10 @@ def handle_delete_agent_task(request: IPCRequest, params: Optional[Dict[str, Any
 
         # ⚠️ Prevent deleting code-generated tasks from database
         # First check if this is a code-generated task by checking memory
-        ctx = AppContext.get_main_window()
-        if ctx and hasattr(ctx, 'agent_tasks'):
-            agent_tasks_list = ctx.agent_tasks if ctx.agent_tasks is not None else []
+        from gui.ipc.context_bridge import get_handler_context
+        ctx = get_handler_context(request, params)
+        if ctx:
+            agent_tasks_list = ctx.get_agent_tasks() or []
             existing_task = next((t for t in agent_tasks_list if getattr(t, 'id', None) == agent_task_id), None)
             if existing_task and getattr(existing_task, 'source', 'ui') == 'code':
                 logger.warning(f"Blocked attempt to delete code-generated task '{getattr(existing_task, 'name', 'Unknown')}' from database")
@@ -780,10 +802,10 @@ def _sync_task_skill_relations(task_id: str, skill_ids: list, operation: 'Operat
     
     from agent.cloud_api.offline_sync_manager import get_sync_manager
     from agent.cloud_api.constants import DataType
-    from app_context import AppContext
+    from gui.ipc.context_bridge import get_handler_context
     
     manager = get_sync_manager()
-    ctx = AppContext.get_main_window()
+    ctx = get_handler_context()
     owner = ctx.get_username() if ctx else 'unknown'
     
     logger.info(f"[task_handler] Syncing {len(skill_ids)} skill relationships for task: {task_id}")

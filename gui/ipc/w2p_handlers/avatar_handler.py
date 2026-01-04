@@ -53,6 +53,9 @@ class AvatarHandler:
                 ec_db_mgr = ctx.get_ec_db_mgr()
                 if ec_db_mgr:
                     avatar_service = ec_db_mgr.avatar_service
+                else:
+                    avatar_service = None
+                    logger.warning("[AvatarHandler] DB manager not available")
             else:
                 avatar_service = None
                 logger.warning("[AvatarHandler] No context found for avatar manager")

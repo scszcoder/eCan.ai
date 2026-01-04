@@ -23,6 +23,10 @@ from threading import local
 
 from utils.logger_helper import logger_helper as logger
 
+# Cache for ContextProvider instances to avoid repeated creation
+_desktop_provider_instance: Optional['ContextProvider'] = None
+_web_provider_cache: Dict[str, 'ContextProvider'] = {}  # session_id -> WebContextProvider
+
 if TYPE_CHECKING:
     from gui.context.provider import ContextProvider
 
@@ -65,6 +69,49 @@ def clear_request_session_id() -> None:
         del _request_context.session_id
 
 
+def clear_provider_cache(session_id: Optional[str] = None) -> None:
+    """
+    Clear cached ContextProvider instances.
+    
+    Args:
+        session_id: If provided, only clear the provider for this session.
+                   If None, clear all web providers (desktop provider is kept as singleton).
+    
+    Usage:
+        - Call when user logs out: clear_provider_cache(session_id)
+        - Call when session expires: clear_provider_cache(session_id)
+        - Call on server shutdown: clear_provider_cache()
+    """
+    global _web_provider_cache
+    
+    if session_id:
+        # Clear specific session
+        if session_id in _web_provider_cache:
+            del _web_provider_cache[session_id]
+            logger.info(f"[context_bridge] Cleared provider cache for session: {session_id}")
+    else:
+        # Clear all web providers
+        cleared_count = len(_web_provider_cache)
+        _web_provider_cache.clear()
+        if cleared_count > 0:
+            logger.info(f"[context_bridge] Cleared {cleared_count} web provider(s) from cache")
+
+
+def reset_desktop_provider() -> None:
+    """
+    Reset the desktop provider singleton.
+    
+    Usage:
+        - Call when MainWindow is recreated (e.g., after logout/login)
+        - Call on application restart
+    """
+    global _desktop_provider_instance
+    
+    if _desktop_provider_instance is not None:
+        _desktop_provider_instance = None
+        logger.info("[context_bridge] Reset desktop provider singleton")
+
+
 def get_handler_context(
     request: Optional[Dict[str, Any]] = None,
     params: Optional[Dict[str, Any]] = None
@@ -74,6 +121,10 @@ def get_handler_context(
     
     This is the main function handlers should use to access user context.
     It automatically detects the deployment mode and returns the right provider.
+    
+    Performance optimization:
+    - Desktop mode: Returns cached singleton DesktopContextProvider
+    - Web mode: Returns cached WebContextProvider per session_id
     
     In desktop mode:
         Returns DesktopContextProvider (wraps MainWindow)
@@ -90,16 +141,22 @@ def get_handler_context(
         params: The request params (optional, used to extract session_id in web mode)
         
     Returns:
-        ContextProvider instance
+        ContextProvider instance (cached)
         
     Raises:
         RuntimeError: If in web mode and no session can be determined
     """
+    global _desktop_provider_instance, _web_provider_cache
+    
     mode = get_deployment_mode()
     
     if mode == "desktop":
-        from gui.context.provider import DesktopContextProvider
-        return DesktopContextProvider()
+        # Desktop mode: use singleton pattern
+        if _desktop_provider_instance is None:
+            from gui.context.provider import DesktopContextProvider
+            _desktop_provider_instance = DesktopContextProvider()
+            logger.debug("[context_bridge] Created singleton DesktopContextProvider")
+        return _desktop_provider_instance
     
     # Web mode - need to find session_id
     session_id = _find_session_id(request, params)
@@ -112,8 +169,13 @@ def get_handler_context(
             "Ensure the WebSocket server sets the session_id before invoking handlers."
         )
     
-    from gui.context.provider import get_context_provider
-    return get_context_provider(session_id)
+    # Web mode: use per-session cache
+    if session_id not in _web_provider_cache:
+        from gui.context.provider import get_context_provider
+        _web_provider_cache[session_id] = get_context_provider(session_id)
+        logger.debug(f"[context_bridge] Created WebContextProvider for session: {session_id}")
+    
+    return _web_provider_cache[session_id]
 
 
 def _find_session_id(

@@ -997,8 +997,9 @@ def handle_save_editor_cache(request: IPCRequest, params: Optional[Dict[str, Any
                                     
                                     # Update database
                                     db_updated = False
-                                    if ctx.get_ec_db_mgr():
-                                        skill_service = ctx.get_ec_db_mgr().get_skill_service()
+                                    ec_db_mgr = ctx.get_ec_db_mgr()
+                                    if ec_db_mgr:
+                                        skill_service = ec_db_mgr.get_skill_service()
                                         if skill_service:
                                             # Find skill by old path using search_skills
                                             all_skills = skill_service.search_skills()  # Returns list directly
