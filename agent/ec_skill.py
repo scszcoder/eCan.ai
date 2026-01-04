@@ -21,7 +21,7 @@ from langgraph.store.base import BaseStore
 
 from typing_extensions import TypedDict
 from agent.mcp.server.tool_schemas import tool_schemas
-from agent.a2a.common.types import AgentSkill
+from a2a.types import AgentSkill
 import json
 import time
 import random

@@ -6,12 +6,28 @@ from dotenv import load_dotenv
 from queue import Queue
 from concurrent.futures import ThreadPoolExecutor
 
-from agent.a2a.common.client import A2AClient
-from agent.a2a.common.server import A2AServer
-from agent.a2a.common.types import AgentCard
-from agent.a2a.common.utils.push_notification_auth import PushNotificationSenderAuth
-from agent.a2a.langgraph_agent.task_manager import AgentTaskManager
-from agent.a2a.common.types import Message, TextPart, FilePart, FileContent, TaskSendParams
+import httpx
+
+# A2A SDK imports
+from a2a.server.apps import A2AStarletteApplication
+from a2a.server.request_handlers import DefaultRequestHandler
+from a2a.server.tasks import (
+    BasePushNotificationSender,
+    InMemoryPushNotificationConfigStore,
+    InMemoryTaskStore,
+)
+from agent.a2a.langgraph_agent.utils import FileContent, TaskSendParams, AgentCard
+from a2a.types import (
+    AgentCapabilities,
+    Message,
+    TextPart,
+    FilePart,
+    MessageSendParams,
+)
+
+# Local A2A adapter
+from agent.a2a.langgraph_agent.a2a_task_executor import A2ATaskExecutor
+from agent.a2a.langgraph_agent.a2a_client_wrapper import A2AClientWrapper
 from agent.chats.unified_messenger import UnifiedMessenger, create_unified_messenger
 
 from browser_use.agent.service import Agent
@@ -124,17 +140,11 @@ class EC_Agent(Agent):
 		self.card = card
 		server_host = "0.0.0.0"  # Bind to all interfaces for both local and remote access
 
-		self.a2a_client = A2AClient(self.card)
-		notification_sender_auth = PushNotificationSenderAuth()
-		notification_sender_auth.generate_jwk()
-		self.a2a_server = A2AServer(
-			agent_card=self.card,
-			task_manager=AgentTaskManager(notification_sender_auth=notification_sender_auth),
-			host=server_host,
-			port=a2a_server_port,
-			endpoint="/a2a/",
-		)
-		self.a2a_server.attach_agent(self)
+		# Initialize A2A client wrapper (backward-compatible interface)
+		self.a2a_client = A2AClientWrapper(url=self.card.url)
+		
+		# Initialize A2A server using official a2a-sdk
+		self._init_a2a_server(server_host, a2a_server_port)
 		self.a2a_msg_queue = Queue()
 
 		self.runner = TaskRunner(self)
@@ -216,18 +226,19 @@ class EC_Agent(Agent):
 		}
 
 	def card_to_dict(self, card):
+		# New a2a-sdk uses snake_case field names
 		cardJS = {
 			"name": card.name,
 			"id": card.id,
 			"description": card.description,
 			"url": card.url,
-			"provider": card.provider,
+			"provider": getattr(card, 'provider', None),
 			"version": card.version,
-			"documentationUrl": card.documentationUrl,
-			"capabilities": card.capabilities.dict(),
-			"authentication": card.authentication,
-			"defaultInputModes": card.defaultInputModes,
-			"defaultOutputModes": card.defaultOutputModes,
+			"documentationUrl": getattr(card, 'documentation_url', None),
+			"capabilities": card.capabilities.model_dump() if hasattr(card.capabilities, 'model_dump') else card.capabilities.dict() if hasattr(card.capabilities, 'dict') else {},
+			"authentication": getattr(card, 'security', None),
+			"defaultInputModes": getattr(card, 'default_input_modes', None),
+			"defaultOutputModes": getattr(card, 'default_output_modes', None),
 			# "skills": card.skills
 		}
 		return cardJS
@@ -279,7 +290,7 @@ class EC_Agent(Agent):
 
 	def get_a2a_server_port(self):
 		"""Get the A2A server port number"""
-		return int(self.a2a_server.agent_card.url.split(":")[-1])
+		return self._a2a_port
 
 	def get_vehicle(self):
 		return self.vehicle
@@ -288,11 +299,78 @@ class EC_Agent(Agent):
 		busy = False
 		return busy
 
+	def _init_a2a_server(self, host: str, port: int):
+		"""
+		Initialize A2A server using official a2a-sdk.
+		
+		Creates:
+		- A2ATaskExecutor (adapter to TaskRunner)
+		- DefaultRequestHandler (handles JSON-RPC routing)
+		- A2AStarletteApplication (HTTP server)
+		"""
+		# Create the task executor adapter
+		self.a2a_task_executor = A2ATaskExecutor(agent=self)
+		
+		# Create stores for tasks and push notifications
+		self._a2a_task_store = InMemoryTaskStore()
+		self._a2a_push_config_store = InMemoryPushNotificationConfigStore()
+		
+		# Create push notification sender
+		self._a2a_httpx_client = httpx.AsyncClient()
+		self._a2a_push_sender = BasePushNotificationSender(
+			httpx_client=self._a2a_httpx_client,
+			config_store=self._a2a_push_config_store,
+		)
+		
+		# Create the request handler
+		self._a2a_request_handler = DefaultRequestHandler(
+			agent_executor=self.a2a_task_executor,
+			task_store=self._a2a_task_store,
+			push_config_store=self._a2a_push_config_store,
+			push_sender=self._a2a_push_sender,
+		)
+		
+		# Create the Starlette application
+		self._a2a_app = A2AStarletteApplication(
+			agent_card=self.card,
+			http_handler=self._a2a_request_handler,
+		)
+		
+		# Store server config for later startup
+		self._a2a_host = host
+		self._a2a_port = port
+		
+		# Build the Starlette app
+		self.a2a_server = self._a2a_app.build()
+		
+		# For backward compatibility - expose task_manager-like interface
+		# TaskRunner calls self.a2a_server.task_manager.resolve_waiter()
+		self.a2a_server.task_manager = self.a2a_task_executor
+
 	def start_a2a_server_in_thread(self, a2a_server):
-		"""Start A2A server in a daemon thread"""
+		"""Start A2A server in a daemon thread using uvicorn"""
+		import uvicorn
+		
 		def run_server():
 			try:
-				a2a_server.start()
+				config = uvicorn.Config(
+					a2a_server,
+					host=self._a2a_host or '127.0.0.1',
+					port=self._a2a_port,
+					log_level="warning",
+					log_config=None,
+				)
+				server = uvicorn.Server(config)
+				
+				# Disable signal handlers for daemon threads
+				if hasattr(server, "install_signal_handlers"):
+					server.install_signal_handlers = lambda: None
+				
+				# Run server with dedicated event loop
+				loop = asyncio.new_event_loop()
+				asyncio.set_event_loop(loop)
+				loop.run_until_complete(server.serve())
+				
 			except Exception as e:
 				logger.error(f"[{self.card.name}] A2A server error: {e}")
 				import traceback
@@ -465,22 +543,21 @@ class EC_Agent(Agent):
 			sess_id = message['messages'][1]      # chat_id for session
 			trace_task_id = message['messages'][3]  # task_id for trace linkage
 				
-			payload = TaskSendParams(
-				id=trace_task_id,
-				sessionId=sess_id,
-				message=chat_msg,
-				acceptedOutputModes=["text", "json", "image/png"],
-				pushNotification=None,
-				historyLength=0,
-				metadata={
+			# Build message payload dict (compatible with A2AClientWrapper)
+			payload = {
+				"id": trace_task_id,
+				"sessionId": sess_id,
+				"message": chat_msg.model_dump() if hasattr(chat_msg, 'model_dump') else chat_msg,
+				"acceptedOutputModes": ["text", "json", "image/png"],
+				"pushNotification": None,
+				"historyLength": 0,
+				"metadata": {
 					"params": message['attributes']["params"]
 				}
-			)
-
+			}
 
 			logger.info("[ec_agent] client payload:", payload)
-			# response = await self.a2a_client.send_task(payload)
-			response = self.a2a_client.sync_send_task(payload.model_dump())
+			response = self.a2a_client.sync_send_task(payload)
 			logger.info("[ec_agent] A2A RESPONSE:", response)
 			return response
 		except Exception as e:
@@ -762,7 +839,7 @@ class EC_Agent(Agent):
 		"""
 		from datetime import datetime
 		from agent.chats.wan_a2a_chat import wan_a2a_send_message_sync
-		from agent.a2a.common.types import Message, TextPart
+		from a2a.types import Message, TextPart
 		
 		try:
 			agent_id = self.card.id if self.card else "unknown"
@@ -805,7 +882,7 @@ class EC_Agent(Agent):
 		"""
 		from datetime import datetime
 		from agent.chats.wan_a2a_chat import wan_a2a_send_message
-		from agent.a2a.common.types import Message, TextPart
+		from a2a.types import Message, TextPart
 		
 		try:
 			agent_id = self.card.id if self.card else "unknown"

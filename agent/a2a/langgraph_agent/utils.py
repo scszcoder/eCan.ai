@@ -1,8 +1,73 @@
 
 import traceback
 import socket
-
+from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, ConfigDict, model_validator
+from typing_extensions import Self
 from utils.logger_helper import logger_helper as logger
+
+SUPPORTED_CONTENT_TYPES = ["text", "text/plain", "json", "file"]
+
+
+class FileContent(BaseModel):
+    """File content for A2A messages - local compatibility class."""
+    name: str | None = None
+    mimeType: str | None = None
+    bytes: str | None = None
+    uri: str | None = None
+
+    @model_validator(mode="after")
+    def check_content(self) -> Self:
+        if not (self.bytes or self.uri):
+            raise ValueError("Either 'bytes' or 'uri' must be present in the file data")
+        if self.bytes and self.uri:
+            raise ValueError(
+                "Only one of 'bytes' or 'uri' can be present in the file data"
+            )
+        return self
+
+
+class TaskSendParams(BaseModel):
+    """
+    Backward-compatible TaskSendParams for WAN A2A messaging.
+    
+    This class maintains compatibility with the GraphQL schema used for
+    WAN communication while the codebase transitions to the new a2a-sdk.
+    
+    The new a2a-sdk uses MessageSendParams with a different structure,
+    but WAN communication still uses this format.
+    """
+    model_config = ConfigDict(extra="allow")
+    
+    id: str
+    sessionId: str
+    message: Any  # Message object or dict
+    acceptedOutputModes: Optional[List[str]] = None
+    pushNotification: Optional[Any] = None
+    historyLength: Optional[int] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+# Import a2a-sdk AgentCard for extension
+try:
+    from a2a.types import AgentCard as _BaseAgentCard, AgentCapabilities
+except ImportError:
+    _BaseAgentCard = None
+    AgentCapabilities = None
+
+
+class AgentCard(_BaseAgentCard if _BaseAgentCard else BaseModel):
+    """
+    Extended AgentCard with 'id' field for backward compatibility.
+    
+    The new a2a-sdk (0.3.x) removed the 'id' field from AgentCard,
+    but our codebase uses card.id extensively as the agent identifier.
+    This class adds it back while maintaining compatibility with the SDK.
+    """
+    model_config = ConfigDict(extra="allow")
+    
+    # Add the id field that was removed in new a2a-sdk
+    id: Optional[str] = None
 
 def get_lan_ip():
     try:

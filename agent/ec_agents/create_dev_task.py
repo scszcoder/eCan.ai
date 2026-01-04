@@ -1,5 +1,5 @@
 import uuid
-from agent.a2a.common.types import TaskStatus, TaskState
+from a2a.types import TaskStatus, TaskState
 from agent.ec_tasks import ManagedTask, TaskSchedule, RepeatType
 
 def create_skill_dev_task(mainwin):
@@ -23,9 +23,10 @@ def create_skill_dev_task(mainwin):
         session_id = ""
         resume_from = ""
         state = {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
+        status = TaskStatus(state=TaskState.submitted)
         run_task = ManagedTask(
             id=task_id,
+            context_id=task_id,  # Required by a2a-sdk Task
             name="dev:run task for skill under development",
             description="a holder for the skill under development.",
             source="code",  # Mark as code-generated task

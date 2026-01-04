@@ -2292,7 +2292,7 @@ class MainWindow:
 
     async def wait_for_server_async(self, agent, timeout: float = 5.0):
         """Asynchronously wait for Agent server startup"""
-        url = agent.get_card().url+'/ping'
+        url = agent.get_card().url+'/.well-known/agent.json'
         start = time.time()
         
         try:

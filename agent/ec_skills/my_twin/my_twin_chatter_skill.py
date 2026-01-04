@@ -8,7 +8,7 @@ from langgraph.constants import START, END
 from langgraph.graph import StateGraph
 from langgraph.types import interrupt, Command
 from langgraph.checkpoint.memory import MemorySaver
-from agent.a2a.common.types import SendTaskRequest, TaskSendParams
+from a2a.types import SendMessageRequest, MessageSendParams
 
 from agent.ec_skill import *
 from app_context import AppContext

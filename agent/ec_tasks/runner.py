@@ -22,7 +22,7 @@ from pathlib import Path
 from queue import Queue, Empty
 from typing import Any, Dict, Generic, List, Optional, Tuple, TypeVar, TYPE_CHECKING
 
-from agent.a2a.common.types import TaskState, Message, TextPart, TaskSendParams
+from a2a.types import TaskState, Message, TextPart, MessageSendParams
 from agent.ec_skills.llm_utils.llm_utils import send_response_back
 from agent.ec_skills.prep_skills_run import prep_skills_run
 from langgraph.types import Command
@@ -43,7 +43,7 @@ from .timer_service import get_timer_service, TimerService
 if TYPE_CHECKING:
     from agent.ec_agent import EC_Agent
     from agent.ec_skill import EC_Skill
-    from agent.a2a.common.types import Task
+    from a2a.types import Task
 
 Context = TypeVar('Context')
 
@@ -301,7 +301,7 @@ class TaskRunner(Generic[Context]):
                     if not t:
                         continue
                     st = getattr(getattr(t, "status", None), "state", None)
-                    if st in (TaskState.SUBMITTED, TaskState.WORKING):
+                    if st in (TaskState.submitted, TaskState.working):
                         q = getattr(t, "queue", None)
                         if q is not None:
                             try:
@@ -545,7 +545,7 @@ class TaskRunner(Generic[Context]):
         if not raw.strip():
             raise ValueError(f"Task file is empty: {task_id}")
         
-        from agent.a2a.common.types import Task
+        from a2a.types import Task
         base_task = TypeAdapter(Task).validate_json(raw)
         task = ManagedTask(**base_task.model_dump(), skill=skill)
         
@@ -1455,7 +1455,7 @@ class TaskRunner(Generic[Context]):
     
     async def resume_on_external_event(self, task_id: str, injected_state: dict):
         """Resume task with external event data."""
-        from agent.a2a.common.types import Part
+        from a2a.types import Part
         task = self.tasks[task_id]
         if task.status.message:
             task.status.message.parts.append(Part(type="text", text=str(injected_state)))

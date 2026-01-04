@@ -205,7 +205,7 @@ def _update_agent_task_in_memory(agent_task_id: str, agent_task_data: Dict[str, 
             return False
 
         from agent.ec_tasks import ManagedTask
-        from agent.a2a.common.types import TaskStatus, TaskState
+        from a2a.types import TaskStatus, TaskState
 
         # Check if agent task already exists in memory
         existing_index = None

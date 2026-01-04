@@ -398,7 +398,7 @@ class TaskExecutor:
         Returns:
             Run result dictionary.
         """
-        from agent.a2a.common.types import TaskState, Message, TextPart
+        from a2a.types import TaskState, Message, TextPart
         
         logger.debug(f"in_msg: {in_msg}, config: {config}, kwargs: {kwargs}")
         logger.debug(f"self.task.metadata: {self.task.metadata}")
@@ -541,7 +541,7 @@ class TaskExecutor:
         Returns:
             Run result dictionary.
         """
-        from agent.a2a.common.types import TaskState, Message, TextPart
+        from a2a.types import TaskState, Message, TextPart
         
         # Step 1: Prepare config
         effective_config, _ = self.prepare_config(config)
