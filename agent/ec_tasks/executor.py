@@ -26,6 +26,16 @@ if TYPE_CHECKING:
 DEFAULT_PENDING_EVENTS_TIMEOUT = 300  # 5 minutes
 
 
+def _create_message(role: str, text: str) -> "Message":
+    """Create an A2A Message with required message_id field."""
+    from a2a.types import Message, TextPart
+    return Message(
+        role=role,
+        parts=[TextPart(type="text", text=text)],
+        message_id=str(uuid.uuid4())
+    )
+
+
 class TaskExecutor:
     """
     Executor for ManagedTask instances.
@@ -398,7 +408,7 @@ class TaskExecutor:
         Returns:
             Run result dictionary.
         """
-        from agent.a2a.common.types import TaskState, Message, TextPart
+        from a2a.types import TaskState, Message, TextPart
         
         logger.debug(f"in_msg: {in_msg}, config: {config}, kwargs: {kwargs}")
         logger.debug(f"self.task.metadata: {self.task.metadata}")
@@ -457,35 +467,26 @@ class TaskExecutor:
                 # Check for cancellation
                 if self.task.cancellation_event.is_set():
                     logger.info(f"Task {self.task.name} ({self.task.run_id}) received cancellation signal. Stopping.")
-                    self.task.status.state = TaskState.CANCELED
+                    self.task.status.state = TaskState.canceled
                     break
                 
                 # Guardrail: Check max steps limit
                 self.task.increment_step()
                 if self.task.is_max_steps_reached():
                     logger.warning(f"[GUARDRAIL] Task {self.task.name} reached max_steps={self.task.max_steps}. Stopping.")
-                    self.task.status.state = TaskState.COMPLETED
-                    self.task.status.message = Message(
-                        role="agent",
-                        parts=[TextPart(type="text", text=f"Reached maximum steps limit ({self.task.max_steps})")]
-                    )
+                    self.task.status.state = TaskState.completed
+                    self.task.status.message = _create_message("agent", f"Reached maximum steps limit ({self.task.max_steps})")
                     break
                 
                 # Guardrail: Check max consecutive failures
                 if self.task.is_max_failures_reached():
                     logger.error(f"[GUARDRAIL] Task {self.task.name} reached max_failures={self.task.max_failures}. Stopping.")
-                    self.task.status.state = TaskState.FAILED
-                    self.task.status.message = Message(
-                        role="agent",
-                        parts=[TextPart(type="text", text=f"Stopped due to {self.task.max_failures} consecutive failures")]
-                    )
+                    self.task.status.state = TaskState.failed
+                    self.task.status.message = _create_message("agent", f"Stopped due to {self.task.max_failures} consecutive failures")
                     break
                 
                 # Update status message
-                self.task.status.message = Message(
-                    role="agent",
-                    parts=[TextPart(type="text", text=str(step))]
-                )
+                self.task.status.message = _create_message("agent", str(step))
                 
                 # Emit running status with current node
                 node_name = self.get_node_name_from_step(step, effective_config)
@@ -494,7 +495,7 @@ class TaskExecutor:
                 
                 # Check for interrupt/input required
                 if step.get("require_user_input") or step.get("await_agent") or step.get("__interrupt__"):
-                    self.task.status.state = TaskState.INPUT_REQUIRED
+                    self.task.status.state = TaskState.input_required
                     logger.debug(f"input required... {step}")
                     
                     if step.get("__interrupt__"):
@@ -503,11 +504,11 @@ class TaskExecutor:
                     break
             
             # Step 8: Determine success and finalize
-            if self.task.status.state == TaskState.INPUT_REQUIRED:
+            if self.task.status.state == TaskState.input_required:
                 success = False
             else:
                 success = True
-                self.task.status.state = TaskState.COMPLETED
+                self.task.status.state = TaskState.completed
                 logger.info("task completed...")
             
             run_result = self.finalize_run(success, step, current_checkpoint, effective_config)
@@ -521,7 +522,7 @@ class TaskExecutor:
         
         finally:
             if self.task.cancellation_event.is_set():
-                self.task.status.state = TaskState.CANCELED
+                self.task.status.state = TaskState.canceled
     
     async def astream_run(
         self,
@@ -541,24 +542,24 @@ class TaskExecutor:
         Returns:
             Run result dictionary.
         """
-        from agent.a2a.common.types import TaskState, Message, TextPart
+        from a2a.types import TaskState, Message, TextPart
         
-        # Step 1: Prepare config
-        effective_config, _ = self.prepare_config(config)
+        # Step 1: Prepare config and context
+        effective_config, context = self.prepare_config(config)
         
         # Step 2: Sync state identifiers
-        self.sync_state_identifiers(effective_config)
+        self.sync_state_identifiers(effective_config, context)
         
         # Step 3: Normalize form data for resume scenarios
         self.normalize_form_data()
         
         # Step 4: Create async stream generator
         if isinstance(in_msg, Command):
-            agen = self.task.skill.runnable.astream(in_msg, config=effective_config, **kwargs)
+            agen = self.task.skill.runnable.astream(in_msg, config=effective_config, context=context, **kwargs)
         else:
             in_args = self.task.metadata.get("state", {})
             logger.debug(f"in_args: {in_args}")
-            agen = self.task.skill.runnable.astream(in_args, config=effective_config, **kwargs)
+            agen = self.task.skill.runnable.astream(in_args, config=effective_config, context=context, **kwargs)
         
         try:
             logger.debug(f"astream running skill: {self.task.skill.name}, {in_msg}")
@@ -586,35 +587,26 @@ class TaskExecutor:
                 # Check for cancellation
                 if self.task.cancellation_event.is_set():
                     logger.info(f"Task {self.task.name} ({self.task.run_id}) received cancellation signal. Stopping.")
-                    self.task.status.state = TaskState.CANCELED
+                    self.task.status.state = TaskState.canceled
                     break
                 
                 # Guardrail: Check max steps limit
                 self.task.increment_step()
                 if self.task.is_max_steps_reached():
                     logger.warning(f"[GUARDRAIL] Task {self.task.name} reached max_steps={self.task.max_steps}. Stopping.")
-                    self.task.status.state = TaskState.COMPLETED
-                    self.task.status.message = Message(
-                        role="agent",
-                        parts=[TextPart(type="text", text=f"Reached maximum steps limit ({self.task.max_steps})")]
-                    )
+                    self.task.status.state = TaskState.completed
+                    self.task.status.message = _create_message("agent", f"Reached maximum steps limit ({self.task.max_steps})")
                     break
                 
                 # Guardrail: Check max consecutive failures
                 if self.task.is_max_failures_reached():
                     logger.error(f"[GUARDRAIL] Task {self.task.name} reached max_failures={self.task.max_failures}. Stopping.")
-                    self.task.status.state = TaskState.FAILED
-                    self.task.status.message = Message(
-                        role="agent",
-                        parts=[TextPart(type="text", text=f"Stopped due to {self.task.max_failures} consecutive failures")]
-                    )
+                    self.task.status.state = TaskState.failed
+                    self.task.status.message = _create_message("agent", f"Stopped due to {self.task.max_failures} consecutive failures")
                     break
                 
                 # Update status message
-                self.task.status.message = Message(
-                    role="agent",
-                    parts=[TextPart(type="text", text=str(step))]
-                )
+                self.task.status.message = _create_message("agent", str(step))
                 
                 # Emit running status with current node
                 node_name = self.get_node_name_from_step(step, effective_config)
@@ -623,7 +615,7 @@ class TaskExecutor:
                 
                 # Check for interrupt/input required
                 if step.get("require_user_input") or step.get("await_agent") or step.get("__interrupt__"):
-                    self.task.status.state = TaskState.INPUT_REQUIRED
+                    self.task.status.state = TaskState.input_required
                     logger.debug(f"input required... {step}")
                     
                     if step.get("__interrupt__"):
@@ -631,11 +623,11 @@ class TaskExecutor:
                     break
             
             # Step 7: Determine success and finalize
-            if self.task.status.state == TaskState.INPUT_REQUIRED:
+            if self.task.status.state == TaskState.input_required:
                 success = False
             else:
                 success = True
-                self.task.status.state = TaskState.COMPLETED
+                self.task.status.state = TaskState.completed
                 logger.info("task completed...")
             
             run_result = self.finalize_run(success, step, current_checkpoint, effective_config)
@@ -649,7 +641,7 @@ class TaskExecutor:
         
         finally:
             if self.task.cancellation_event.is_set():
-                self.task.status.state = TaskState.CANCELED
+                self.task.status.state = TaskState.canceled
             try:
                 await agen.aclose()
             except Exception:

@@ -3,7 +3,7 @@ import typing
 import uuid
 import asyncio
 from agent.ec_agents.agent_utils import load_agent_tasks_from_cloud
-from agent.a2a.common.types import TaskStatus, TaskState
+from a2a.types import TaskStatus, TaskState
 from agent.ec_tasks import ManagedTask, TaskSchedule, RepeatType
 
 from utils.logger_helper import logger_helper as logger
@@ -101,13 +101,14 @@ def _get_or_create_task(
         task_schedule = TaskSchedule(**default_schedule)
         
         task_state = state or {"top": "ready"}
-        status = TaskStatus(state=TaskState.SUBMITTED)
+        status = TaskStatus(state=TaskState.submitted)
         
         # Generate stable ID for code-generated task
         task_id_final = task_id if task_id else _generate_stable_task_id(task_name, "code")
         
         new_task = ManagedTask(
             id=task_id_final,
+            context_id=task_id_final,  # Required by a2a-sdk Task
             name=task_name,
             description=description,
             source="code",  # Mark as code-generated task
@@ -351,7 +352,7 @@ def _convert_db_agent_task_to_object(db_agent_task_dict):
     """Convert database agent task dictionary to ManagedTask object"""
     try:
         # Create agent task status
-        status = TaskStatus(state=TaskState.SUBMITTED)
+        status = TaskStatus(state=TaskState.submitted)
 
         # Create agent task schedule if available
         schedule_data = db_agent_task_dict.get('schedule', {})
@@ -394,8 +395,10 @@ def _convert_db_agent_task_to_object(db_agent_task_dict):
         skill_info = _get_task_skill_info(db_agent_task_dict.get('id'), request=None, params=None)
         skill_name = skill_info['name'] if skill_info else ''
         
+        task_id = db_agent_task_dict.get('id', f"agent_task_{uuid.uuid4().hex[:16]}")
         agent_task = ManagedTask(
-            id=db_agent_task_dict.get('id', f"agent_task_{uuid.uuid4().hex[:16]}"),
+            id=task_id,
+            context_id=task_id,  # Required by a2a-sdk Task
             name=db_agent_task_dict.get('name', 'Unnamed Agent Task'),
             description=db_agent_task_dict.get('description', ''),
             source=db_agent_task_dict.get('source', 'ui'),  # Preserve source from database

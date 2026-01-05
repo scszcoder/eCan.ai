@@ -22,7 +22,7 @@ from pathlib import Path
 from queue import Queue, Empty
 from typing import Any, Dict, Generic, List, Optional, Tuple, TypeVar, TYPE_CHECKING
 
-from agent.a2a.common.types import TaskState, Message, TextPart, TaskSendParams
+from a2a.types import TaskState, Message, TextPart, MessageSendParams
 from agent.ec_skills.llm_utils.llm_utils import send_response_back
 from agent.ec_skills.prep_skills_run import prep_skills_run
 from langgraph.types import Command
@@ -43,7 +43,7 @@ from .timer_service import get_timer_service, TimerService
 if TYPE_CHECKING:
     from agent.ec_agent import EC_Agent
     from agent.ec_skill import EC_Skill
-    from agent.a2a.common.types import Task
+    from a2a.types import Task
 
 Context = TypeVar('Context')
 
@@ -301,7 +301,7 @@ class TaskRunner(Generic[Context]):
                     if not t:
                         continue
                     st = getattr(getattr(t, "status", None), "state", None)
-                    if st in (TaskState.SUBMITTED, TaskState.WORKING):
+                    if st in (TaskState.submitted, TaskState.working):
                         q = getattr(t, "queue", None)
                         if q is not None:
                             try:
@@ -379,7 +379,7 @@ class TaskRunner(Generic[Context]):
         """Run a task by ID."""
         tbr_task = next((task for task in self.agent.tasks if task and task.id == task_id), None)
         if tbr_task:
-            if tbr_task.status.state not in (TaskState.WORKING, TaskState.INPUT_REQUIRED):
+            if tbr_task.status.state not in (TaskState.working, TaskState.input_required):
                 logger.info(f"Starting task: {tbr_task.status.state}")
                 executor = TaskExecutor(tbr_task)
                 await executor.astream_run()
@@ -423,13 +423,13 @@ class TaskRunner(Generic[Context]):
         """Pause a task."""
         task = self.tasks[task_id]
         task.pause()
-        task.status.state = TaskState.INPUT_REQUIRED
+        task.status.state = TaskState.input_required
     
     async def resume_task(self, task_id: str):
         """Resume a paused task."""
         task = self.tasks[task_id]
         task.resume()
-        task.status.state = TaskState.WORKING
+        task.status.state = TaskState.working
     
     async def cancel_task(self, task_id: str, timeout: float = 5.0):
         """Cancel a task and clean up resources."""
@@ -439,7 +439,7 @@ class TaskRunner(Generic[Context]):
         task = self.tasks[task_id]
         
         # Check terminal state
-        terminal_states = (TaskState.COMPLETED, TaskState.FAILED, TaskState.CANCELED)
+        terminal_states = (TaskState.completed, TaskState.failed, TaskState.canceled)
         if task.status.state in terminal_states:
             return
         
@@ -457,7 +457,7 @@ class TaskRunner(Generic[Context]):
             cancel_task_async_operations(task)
             
             # Update status
-            task.status.state = TaskState.CANCELED
+            task.status.state = TaskState.canceled
             task.status.message = "Task cancelled by user"
             
             # Cleanup
@@ -487,7 +487,7 @@ class TaskRunner(Generic[Context]):
                 await asyncio.sleep(delay)
                 if task_id in self.tasks:
                     task = self.tasks[task_id]
-                    if task.status.state != TaskState.CANCELED:
+                    if task.status.state != TaskState.canceled:
                         await self.run_task(task_id)
             except asyncio.CancelledError:
                 logger.info(f"Scheduled task {task_id} cancelled")
@@ -545,7 +545,7 @@ class TaskRunner(Generic[Context]):
         if not raw.strip():
             raise ValueError(f"Task file is empty: {task_id}")
         
-        from agent.a2a.common.types import Task
+        from a2a.types import Task
         base_task = TypeAdapter(Task).validate_json(raw)
         task = ManagedTask(**base_task.model_dump(), skill=skill)
         
@@ -1133,13 +1133,13 @@ class TaskRunner(Generic[Context]):
                     msg = f"[DEV] Timeout after {DEV_EVENT_TIMEOUT_SEC}s"
                     logger.error(msg)
                     ipc.send_skill_editor_log("error", msg)
-                    task.status.state = TaskState.FAILED
+                    task.status.state = TaskState.failed
                     state['last_response'] = {"success": False, "error": "TimeoutWaitingForEvent"}
                     self._dev_exit_requested = True
             else:
                 if elapsed > RUN_EVENT_TIMEOUT_SEC:
                     logger.error(f"[RUN] Timeout after {RUN_EVENT_TIMEOUT_SEC}s")
-                    task.status.state = TaskState.FAILED
+                    task.status.state = TaskState.failed
                     state['justStarted'] = True
                     state['pending_since'] = None
                     
@@ -1424,13 +1424,13 @@ class TaskRunner(Generic[Context]):
     async def step_task(self, task_id: str):
         """Step through a task one node at a time."""
         task = self.tasks[task_id]
-        task.status.state = TaskState.WORKING
+        task.status.state = TaskState.working
         task.pause_event.set()
         
         async def one_step():
             async for step in task.graph.astream(task.state):
                 task.metadata["state"] = step
-                task.status.state = TaskState.UNKNOWN
+                task.status.state = TaskState.unknown
                 task.pause_event.clear()
                 break
         
@@ -1439,23 +1439,23 @@ class TaskRunner(Generic[Context]):
     async def run_until_node(self, task_id: str, target_node: str):
         """Run task until reaching a specific node."""
         task = self.tasks[task_id]
-        task.status.state = TaskState.WORKING
+        task.status.state = TaskState.working
         
         async def runner():
             async for step in task.graph.astream(task.state):
                 await task.pause_event.wait()
                 task.state = step
                 if step.get("current_node") == target_node:
-                    task.status.state = TaskState.INPUT_REQUIRED
+                    task.status.state = TaskState.input_required
                     task.pause_event.clear()
                     return
-            task.status.state = TaskState.COMPLETED
+            task.status.state = TaskState.completed
         
         task.task = asyncio.create_task(runner())
     
     async def resume_on_external_event(self, task_id: str, injected_state: dict):
         """Resume task with external event data."""
-        from agent.a2a.common.types import Part
+        from a2a.types import Part
         task = self.tasks[task_id]
         if task.status.message:
             task.status.message.parts.append(Part(type="text", text=str(injected_state)))

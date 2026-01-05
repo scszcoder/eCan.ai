@@ -24,14 +24,13 @@ import certifi
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from uuid import uuid4
+from agent.a2a.langgraph_agent.utils import FileContent, TaskSendParams
 
-from agent.a2a.common.types import (
-    TaskSendParams, 
+from a2a.types import (
     Message, 
     TextPart, 
     FilePart, 
     DataPart,
-    FileContent,
     Part
 )
 from agent.cloud_api.cloud_api import get_appsync_endpoint

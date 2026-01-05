@@ -1,6 +1,6 @@
 from agent.ec_agent import EC_Agent
-from agent.a2a.common.types import AgentCard, AgentCapabilities
-from agent.a2a.langgraph_agent.agent import ECRPAHelperAgent
+from a2a.types import AgentCapabilities
+from agent.a2a.langgraph_agent.utils import SUPPORTED_CONTENT_TYPES, AgentCard
 from agent.a2a.langgraph_agent.utils import get_a2a_server_url
 from agent.ec_agents.create_agent_tasks import create_ec_self_tester_chat_task, create_ec_self_tester_work_task
 from utils.logger_helper import logger_helper as logger
@@ -41,15 +41,14 @@ def set_up_ec_tester_agent(mainwin):
             return None
 
         agent_card = AgentCard(
+            id="ec_tester_agent",
             name="Self Tester Agent",
             description="Self Test eCan.ai",
             url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
-            defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
-            defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
+            default_input_modes=SUPPORTED_CONTENT_TYPES,
+            default_output_modes=SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
-            organization="research and development",
-            title = "test engineer",
             skills=skills_for_card,
         )
         logger.info("ec_tester agent card created:", agent_card.name, agent_card.url)

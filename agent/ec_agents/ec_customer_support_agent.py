@@ -1,6 +1,6 @@
 from agent.ec_agent import EC_Agent
-from agent.a2a.common.types import AgentCard, AgentCapabilities
-from agent.a2a.langgraph_agent.agent import ECRPAHelperAgent
+from a2a.types import AgentCapabilities
+from agent.a2a.langgraph_agent.utils import SUPPORTED_CONTENT_TYPES, AgentCard
 from agent.a2a.langgraph_agent.utils import get_a2a_server_url
 from agent.ec_agents.create_agent_tasks import create_ec_customer_support_chat_task, create_ec_customer_support_work_task
 from utils.logger_helper import logger_helper as logger
@@ -25,12 +25,13 @@ def set_up_ec_customer_support_agent(mainwin):
             return None
 
         agent_card = AgentCard(
+            id="ec_customer_support_agent",
             name="ECBot Helper Agent",
             description="Helps with ECBot RPA works",
             url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
-            defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
-            defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
+            default_input_modes=SUPPORTED_CONTENT_TYPES,
+            default_output_modes=SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
             skills=[worker_skill, chatter_skill],
         )

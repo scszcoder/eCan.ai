@@ -13,7 +13,8 @@ from typing import Dict, Any, Optional, TYPE_CHECKING
 from agent.ec_agent import EC_Agent
 from agent.ec_skill import EC_Skill
 from agent.ec_tasks.models import ManagedTask
-from agent.a2a.common.types import AgentCard, AgentCapabilities
+from a2a.types import AgentCapabilities
+from agent.a2a.langgraph_agent.utils import AgentCard
 from agent.ec_agents.agent_utils import get_a2a_server_url
 from utils.logger_helper import logger_helper as logger
 from agent.db.services.db_avatar_service import DBAvatarService
@@ -66,16 +67,18 @@ def _convert_dict_to_task(task_dict: Dict[str, Any]) -> ManagedTask:
     Returns:
         ManagedTask object
     """
-    from agent.a2a.common.types import TaskStatus, TaskState
+    from a2a.types import TaskStatus, TaskState
     
     try:
         # Create required status object
-        status = TaskStatus(state=TaskState.SUBMITTED)
+        status = TaskStatus(state=TaskState.submitted)
         
         # Pass all fields to ManagedTask, let Pydantic validators handle conversion
         # Invalid values will be normalized by field_validator
+        task_id = task_dict.get('id', str(uuid.uuid4()))
         return ManagedTask(
-            id=task_dict.get('id', str(uuid.uuid4())),
+            id=task_id,
+            context_id=task_id,  # Required by a2a-sdk Task
             name=task_dict.get('name', 'Unnamed Task'),
             description=task_dict.get('description', ''),
             source=task_dict.get('source', 'ui'),
@@ -86,9 +89,11 @@ def _convert_dict_to_task(task_dict: Dict[str, Any]) -> ManagedTask:
         logger.error(f"[AgentConverter] Failed to convert task dict to object: {e}")
         # Return a minimal task object with required fields
         try:
-            status = TaskStatus(state=TaskState.SUBMITTED)
+            status = TaskStatus(state=TaskState.submitted)
+            fallback_id = str(uuid.uuid4())
             return ManagedTask(
-                id=str(uuid.uuid4()),
+                id=fallback_id,
+                context_id=fallback_id,  # Required by a2a-sdk Task
                 name=task_dict.get('name', 'Error Task'),
                 description=f"Failed to load: {e}",
                 status=status,
