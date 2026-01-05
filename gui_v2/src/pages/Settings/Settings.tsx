@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card, Form, Select, Switch, Button, App, Input, Row, Col, Tooltip, Divider, Tabs, theme } from 'antd';
-import { ReloadOutlined, FolderOpenOutlined, GlobalOutlined, SettingOutlined, RobotOutlined, BlockOutlined, SortAscendingOutlined, SaveOutlined, CloudServerOutlined } from '@ant-design/icons';
+import { ReloadOutlined, FolderOpenOutlined, GlobalOutlined, SettingOutlined, RobotOutlined, BlockOutlined, SortAscendingOutlined, SaveOutlined, CloudServerOutlined, ChromeOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useEffectOnActive } from 'keepalive-for-react';
 import { useLocation } from 'react-router-dom';
@@ -10,7 +10,7 @@ import { useUserStore } from '../../stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
 
 import type { Settings } from './types';
-import { LLMManagement, EmbeddingManagement, RerankManagement, RyoaisManagement } from './components';
+import { LLMManagement, EmbeddingManagement, RerankManagement, RyoaisManagement, BrowserUseSettings } from './components';
 
 // Suppress Ant Design useForm warning (form is properly connected in Tab children)
 const originalError = console.error;
@@ -1535,6 +1535,21 @@ const Settings: React.FC = () => {
                   username={username || undefined}
                   devices={ryoaisDevices}
                   onDevicesChange={setRyoaisDevices}
+                />
+              ),
+            },
+            {
+              key: 'browser-use',
+              label: (
+                <span>
+                  <ChromeOutlined style={{ marginRight: 8 }} />
+                  {t('pages.settings.browser_use.tab_title')}
+                </span>
+              ),
+              children: (
+                <BrowserUseSettings
+                  username={username || undefined}
+                  settingsLoaded={settingsLoaded}
                 />
               ),
             },

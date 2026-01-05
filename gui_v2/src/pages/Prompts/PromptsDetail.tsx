@@ -44,38 +44,15 @@ const SectionContainer: React.FC<{
   </Card>
 );
 
-const SECTION_LABELS: Record<PromptSectionType, string> = {
-  role: 'Role / Character',
-  tone: 'Tone',
-  background: 'Background',
-  goals: 'Goals',
-  guidelines: 'Guidelines',
-  rules: 'Rules',
-  instructions: 'Instructions',
-  examples: 'Examples',
-  variables: 'Variables',
-  additional: 'Additional Text',
-  tools_to_use: 'Tools To Use',
-  custom: 'Custom Section',
-};
+// Section labels are now loaded from translations - see getSectionLabel function below
 
-const SECTION_PLACEHOLDERS: Partial<Record<PromptSectionType, string>> = {
-  role: 'Describe the assistant persona, responsibilities, seniority…',
-  tone: 'Specify desired tone/mood…',
-  background: 'Provide contextual background for the assistant…',
-  goals: 'Add a goal…',
-  guidelines: 'Add a guideline…',
-  rules: 'Add a rule or constraint…',
-  examples: 'Add an example instruction/output…',
-  instructions: 'Add a numbered instruction…',
-  variables: 'Add a variable placeholder, e.g. {{customer_name}}…',
-  additional: 'Add additional text or context…',
-  custom: 'Add custom content…',
-};
+// Section placeholders are now loaded from translations - see getSectionPlaceholder function below
 
-const AVAILABLE_SECTION_TYPES: { value: PromptSectionType; label: string }[] = (
-  Object.entries(SECTION_LABELS) as Array<[PromptSectionType, string]>
-).map(([value, label]) => ({ value, label }));
+// Available section types - labels will be loaded from translations
+const SECTION_TYPE_KEYS: PromptSectionType[] = [
+  'role', 'tone', 'background', 'goals', 'guidelines', 'rules',
+  'instructions', 'examples', 'variables', 'additional', 'tools_to_use', 'custom'
+];
 
 const DEFAULT_PROMPT: Prompt = {
   id: '',
@@ -96,6 +73,21 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
   const username = useUserStore((s) => s.username);
   const { tools, fetchTools } = useToolStore();
   const [editing, setEditing] = useState(false);
+
+  // Translation helpers for section labels and placeholders
+  const getSectionLabel = useCallback((type: PromptSectionType): string => {
+    return t(`pages.prompts.sections.${type}`) || type;
+  }, [t]);
+
+  const getSectionPlaceholder = useCallback((type: PromptSectionType): string => {
+    return t(`pages.prompts.placeholders.${type}`) || '';
+  }, [t]);
+
+  // Build available section types with translated labels
+  const availableSectionTypes = useMemo(() => 
+    SECTION_TYPE_KEYS.map(type => ({ value: type, label: getSectionLabel(type) })),
+    [getSectionLabel]
+  );
 
   // Handle initialEditMode from URL navigation
   useEffect(() => {
@@ -755,7 +747,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
       sectionsToRender.forEach((section) => {
         if (!section.items.length) return;
         // Use customLabel if available, otherwise use standard label
-        const label = section.customLabel || SECTION_LABELS[section.type] || section.type;
+        const label = section.customLabel || getSectionLabel(section.type);
         // Convert label to valid XML tag name (lowercase, replace spaces/special chars with underscore)
         const tagName = label.toLowerCase().replace(/[^a-z0-9_]/g, '_');
         
@@ -889,10 +881,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                 size="small"
                 value={sectionToAdd}
                 onChange={(value: PromptSectionType) => setSectionToAdd(value)}
-                options={AVAILABLE_SECTION_TYPES.map(({ value, label }) => ({
-                  value,
-                  label: t(`pages.prompts.sectionLabels.${value}`, { defaultValue: label }),
-                }))}
+                options={availableSectionTypes}
                 style={{ minWidth: 180 }}
                 disabled={!isEditable}
               />
@@ -937,9 +926,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
               </Typography.Text>
             )}
             {sortedSections.map((section, index) => {
-              const label = section.customLabel || t(`pages.prompts.sectionLabels.${section.type}`, {
-                defaultValue: SECTION_LABELS[section.type] || section.type,
-              });
+              const label = section.customLabel || getSectionLabel(section.type);
               return (
                 <Card
                   key={section.id}
@@ -1064,9 +1051,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                             autoSize={autoSizeEnabled && editing ? { minRows: 2, maxRows: 6 } : undefined}
                             rows={autoSizeEnabled && editing ? undefined : 2}
                             value={item}
-                            placeholder={t(`pages.prompts.sectionPlaceholders.${section.type}`, {
-                              defaultValue: SECTION_PLACEHOLDERS[section.type] || t('pages.prompts.sectionPlaceholders.default', { defaultValue: 'Enter text…' }),
-                            })}
+                            placeholder={getSectionPlaceholder(section.type) || t('pages.prompts.placeholders.addItem', { defaultValue: 'Enter text…' })}
                             onChange={(e) => handleSectionItemUpdate(section.id, idx, e.target.value)}
                             onKeyDown={handleTabKeyDown}
                             disabled={isReadOnly}
@@ -1112,10 +1097,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                 size="small"
                 value={userSectionToAdd}
                 onChange={(value: PromptSectionType) => setUserSectionToAdd(value)}
-                options={AVAILABLE_SECTION_TYPES.map(({ value, label }) => ({
-                  value,
-                  label: t(`pages.prompts.sectionLabels.${value}`, { defaultValue: label }),
-                }))}
+                options={availableSectionTypes}
                 style={{ minWidth: 180 }}
                 disabled={!isEditable}
               />
@@ -1160,9 +1142,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
               </Typography.Text>
             )}
             {(active.userSections ?? []).map((section, index) => {
-              const label = section.customLabel || t(`pages.prompts.sectionLabels.${section.type}`, {
-                defaultValue: SECTION_LABELS[section.type] || section.type,
-              });
+              const label = section.customLabel || getSectionLabel(section.type);
               return (
                 <Card
                   key={section.id}
@@ -1287,7 +1267,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                             autoSize={autoSizeEnabled && editing ? { minRows: 2, maxRows: 6 } : undefined}
                             rows={autoSizeEnabled && editing ? undefined : 2}
                             value={item}
-                            placeholder={SECTION_PLACEHOLDERS[section.type] || t('pages.prompts.placeholders.addItem', { defaultValue: 'Add an item' })}
+                            placeholder={getSectionPlaceholder(section.type) || t('pages.prompts.placeholders.addItem', { defaultValue: 'Add an item' })}
                             disabled={isReadOnly}
                             onChange={(e) => handleUserSectionItemUpdate(section.id, idx, e.target.value)}
                             onKeyDown={handleTabKeyDown}
