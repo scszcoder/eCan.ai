@@ -100,8 +100,12 @@ def fetch_ollama_models(host: str, username: str = None) -> tuple:
         Tuple of (success: bool, models: list, error_message: str)
     """
     import requests
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     
     try:
+        import time
+        start_time = time.time()
+        
         # Normalize host - remove trailing slash
         host = host.rstrip('/')
         
@@ -110,7 +114,10 @@ def fetch_ollama_models(host: str, username: str = None) -> tuple:
         
         logger.info(f"[Ollama] Fetching models from: {api_url}")
         
+        tags_start = time.time()
         response = requests.get(api_url, timeout=10)
+        tags_duration = time.time() - tags_start
+        logger.info(f"[Ollama] /api/tags request took {tags_duration:.2f}s")
         
         if response.status_code != 200:
             error_msg = f"Ollama API returned status {response.status_code}"
@@ -120,8 +127,10 @@ def fetch_ollama_models(host: str, username: str = None) -> tuple:
         data = response.json()
         models = data.get('models', [])
         
-        # Extract model names and fetch detailed info for each
+        # Extract basic model info
         model_list = []
+        model_names = []
+        
         for model in models:
             model_name = model.get('name', '')
             if model_name:
@@ -134,50 +143,107 @@ def fetch_ollama_models(host: str, username: str = None) -> tuple:
                     'details': model.get('details', {})
                 }
                 
-                # Fetch detailed model info from /api/show
-                try:
-                    show_url = f"{host}/api/show"
-                    show_response = requests.post(
-                        show_url,
-                        json={"name": model_name},
-                        timeout=5
-                    )
-                    
-                    if show_response.status_code == 200:
-                        show_data = show_response.json()
-                        model_info_data = show_data.get('model_info', {})
-                        
-                        # Extract useful information from model_info
-                        # Try to find embedding dimension
-                        embedding_dim = None
-                        context_length = None
-                        
-                        for key, value in model_info_data.items():
-                            # Find embedding dimension
-                            if 'embedding' in key.lower() and ('length' in key.lower() or 'dim' in key.lower()):
-                                embedding_dim = value
-                            # Find context length
-                            elif 'context' in key.lower() and 'length' in key.lower():
-                                context_length = value
-                        
-                        # Add to model_info
-                        if embedding_dim:
-                            model_info['embedding_dim'] = embedding_dim
-                        if context_length:
-                            model_info['context_length'] = context_length
-                            model_info['max_tokens'] = context_length  # Use context_length as max_tokens
-                        
-                        # Store full model_info for advanced use
-                        model_info['model_info'] = model_info_data
-                        
-                        logger.debug(f"[Ollama] Model {model_name}: embedding_dim={embedding_dim}, context_length={context_length}")
-                    
-                except Exception as e:
-                    logger.debug(f"[Ollama] Failed to get detailed info for {model_name}: {e}")
+                # Extract embedding_dim and context_length directly from /api/tags
+                if model.get('embedding_dim'):
+                    model_info['embedding_dim'] = model.get('embedding_dim')
+                if model.get('context_length'):
+                    model_info['context_length'] = model.get('context_length')
+                if model.get('max_tokens'):
+                    model_info['max_tokens'] = model.get('max_tokens')
                 
                 model_list.append(model_info)
+                model_names.append(model_name)
         
-        logger.info(f"[Ollama] Found {len(model_list)} models with detailed info")
+        # Fetch detailed info for all models in parallel
+        def fetch_model_details(model_name: str) -> tuple:
+            """Fetch detailed info for a single model"""
+            try:
+                show_url = f"{host}/api/show"
+                show_response = requests.post(
+                    show_url,
+                    json={"name": model_name},
+                    timeout=5
+                )
+                
+                embedding_dim = None
+                context_length = None
+                model_info_data = {}
+                
+                if show_response.status_code == 200:
+                    show_data = show_response.json()
+                    model_info_data = show_data.get('model_info', {})
+                    
+                    # Extract useful information from model_info
+                    for key, value in model_info_data.items():
+                        # Find embedding dimension
+                        if 'embedding' in key.lower() and ('length' in key.lower() or 'dim' in key.lower()):
+                            embedding_dim = value
+                        # Find context length
+                        elif 'context' in key.lower() and 'length' in key.lower():
+                            context_length = value
+                
+                # If /api/show didn't return embedding_dim, try to detect it by calling /api/embeddings
+                # This is useful for OpenAI-compatible servers that don't support /api/show
+                if embedding_dim is None and 'embed' in model_name.lower():
+                    try:
+                        embed_url = f"{host}/api/embeddings"
+                        embed_response = requests.post(
+                            embed_url,
+                            json={"model": model_name, "prompt": "test"},
+                            timeout=5
+                        )
+                        if embed_response.status_code == 200:
+                            embed_data = embed_response.json()
+                            if 'embedding' in embed_data:
+                                embedding_dim = len(embed_data['embedding'])
+                                logger.info(f"[Ollama] Detected embedding dimension for {model_name}: {embedding_dim}")
+                    except Exception as e:
+                        logger.debug(f"[Ollama] Failed to detect embedding dimension for {model_name}: {e}")
+                
+                return model_name, embedding_dim, context_length, model_info_data
+            except Exception as e:
+                logger.debug(f"[Ollama] Failed to get detailed info for {model_name}: {e}")
+                return model_name, None, None, {}
+        
+        # Use ThreadPoolExecutor for parallel requests (max 5 concurrent)
+        logger.info(f"[Ollama] Starting parallel fetch for {len(model_names)} models (max 5 concurrent)")
+        parallel_start = time.time()
+        details_map = {}
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_model = {executor.submit(fetch_model_details, name): name for name in model_names}
+            
+            for future in as_completed(future_to_model):
+                try:
+                    model_name, embedding_dim, context_length, model_info_data = future.result()
+                    details_map[model_name] = {
+                        'embedding_dim': embedding_dim,
+                        'context_length': context_length,
+                        'model_info': model_info_data
+                    }
+                except Exception as e:
+                    logger.debug(f"[Ollama] Error processing model details: {e}")
+        
+        parallel_duration = time.time() - parallel_start
+        logger.info(f"[Ollama] Parallel fetch completed in {parallel_duration:.2f}s")
+        
+        # Merge detailed info into model_list
+        for model_info in model_list:
+            model_name = model_info['name']
+            if model_name in details_map:
+                details = details_map[model_name]
+                
+                if details['embedding_dim']:
+                    model_info['embedding_dim'] = details['embedding_dim']
+                if details['context_length']:
+                    model_info['context_length'] = details['context_length']
+                    model_info['max_tokens'] = details['context_length']
+                if details['model_info']:
+                    model_info['model_info'] = details['model_info']
+                
+                logger.debug(f"[Ollama] Model {model_name}: embedding_dim={details['embedding_dim']}, context_length={details['context_length']}")
+        
+        total_duration = time.time() - start_time
+        logger.info(f"[Ollama] Found {len(model_list)} models with detailed info (total time: {total_duration:.2f}s)")
         
         # Save to local file for later use by providers
         save_ollama_tags(model_list, host, username)
@@ -247,8 +313,15 @@ def merge_ollama_models_to_dict_provider(provider: Dict[str, Any], ollama_tags: 
                 new_model['size'] = model.get('size')
             if model.get('embedding_dim'):
                 new_model['embedding_dim'] = model.get('embedding_dim')
+                new_model['dimensions'] = model.get('embedding_dim')  # Map to 'dimensions' for frontend
             if model.get('context_length'):
                 new_model['context_length'] = model.get('context_length')
+                new_model['max_tokens'] = model.get('context_length')
+            elif model.get('max_tokens'):
+                new_model['max_tokens'] = model.get('max_tokens')
+            elif model.get('embedding_dim'):
+                # For embedding models without context_length, use a reasonable default
+                new_model['max_tokens'] = 8192
             if model.get('modified_at'):
                 new_model['modified_at'] = model.get('modified_at')
             

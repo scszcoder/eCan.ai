@@ -392,7 +392,7 @@ def _convert_db_agent_task_to_object(db_agent_task_dict):
         
         # Get skill from task-skill relationship table
         from gui.ipc.w2p_handlers.task_handler import _get_task_skill_info
-        skill_info = _get_task_skill_info(db_agent_task_dict.get('id'))
+        skill_info = _get_task_skill_info(db_agent_task_dict.get('id'), request=None, params=None)
         skill_name = skill_info['name'] if skill_info else ''
         
         task_id = db_agent_task_dict.get('id', f"agent_task_{uuid.uuid4().hex[:16]}")

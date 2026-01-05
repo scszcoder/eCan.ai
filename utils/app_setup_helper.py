@@ -257,8 +257,24 @@ def _setup_macos_app_info(app, logger=None):
                 # Ensure application name is set correctly
                 # This helps avoid menu duplication issues
                 if hasattr(ns_app, 'setApplicationIconImage_'):
-                    # If there's an icon, set application icon
-                    pass
+                    # Set macOS Dock icon
+                    try:
+                        from utils.icon_manager import get_icon_manager
+                        icon_mgr = get_icon_manager()
+                        if icon_mgr.icon_path and os.path.exists(icon_mgr.icon_path):
+                            ns_image = AppKit.NSImage.alloc().initWithContentsOfFile_(icon_mgr.icon_path)
+                            if ns_image:
+                                ns_app.setApplicationIconImage_(ns_image)
+                                if logger:
+                                    logger.info(f"[macOS] ✅ Dock icon set: {icon_mgr.icon_path}")
+                                else:
+                                    print(f"[macOS] ✅ Dock icon set: {icon_mgr.icon_path}")
+                            else:
+                                if logger:
+                                    logger.warning(f"[macOS] ❌ Failed to load icon: {icon_mgr.icon_path}")
+                    except Exception as e:
+                        if logger:
+                            logger.warning(f"[macOS] ❌ Failed to set Dock icon: {e}")
                 
                 if logger:
                     logger.info("macOS native application info setup completed")

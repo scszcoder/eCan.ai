@@ -1243,5 +1243,46 @@ html, body {
     background-color: rgba(var(--primary-color-rgb), 0.1) !important;
 }
 
+/* Dark theme modal fixes for Select and Input components */
+.dark-theme-modal .ant-modal-title {
+    color: rgba(248, 250, 252, 0.95) !important;
+}
 
+.dark-theme-modal .ant-select-selector {
+    color: rgba(248, 250, 252, 0.95) !important;
+}
+
+.dark-theme-modal .ant-select-selection-item {
+    color: rgba(248, 250, 252, 0.95) !important;
+}
+
+.dark-theme-modal .ant-select-selection-placeholder {
+    color: rgba(148, 163, 184, 0.6) !important;
+}
+
+.dark-theme-modal .ant-input {
+    color: rgba(248, 250, 252, 0.95) !important;
+}
+
+.dark-theme-modal .ant-input::placeholder {
+    color: rgba(148, 163, 184, 0.6) !important;
+}
+
+/* Fix Select dropdown positioning to prevent overflow */
+.dark-select .ant-select-dropdown {
+    z-index: 1060 !important;
+}
+
+/* Dark theme select dropdown options */
+.dark-select-dropdown .ant-select-item {
+    color: rgba(248, 250, 252, 0.95) !important;
+}
+
+.dark-select-dropdown .ant-select-item-option-content {
+    color: rgba(248, 250, 252, 0.95) !important;
+}
+
+.dark-select-dropdown .ant-select-item-option-selected {
+    color: white !important;
+}
 
