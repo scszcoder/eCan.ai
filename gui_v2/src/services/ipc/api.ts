@@ -719,6 +719,14 @@ export class IPCAPI {
         return this.executeRequest<T>('get_available_agents_for_binding', { username, organization_id: org_id });
     }
 
+    // Browser Use Settings APIs
+    public async getBrowserUseSettings<T>(): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_browser_use_settings', {});
+    }
+
+    public async saveBrowserUseSettings<T>(settings: any): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('save_browser_use_settings', { settings });
+    }
 
 }
 

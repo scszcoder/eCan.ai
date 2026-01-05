@@ -1,7 +1,7 @@
 /**
  * Browser Automation node custom form
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
 import { Divider, Select, Button, Tooltip, Checkbox } from '@douyinfe/semi-ui';
@@ -13,6 +13,13 @@ import { DisplayOutputs, createInferInputsPlugin } from '@flowgram.ai/form-mater
 import { get_ipc_api } from '../../../../services/ipc_api';
 import { usePromptStore } from '../../../../stores/promptStore';
 import { useUserStore } from '../../../../stores/userStore';
+
+// Browser profile interface
+interface BrowserProfile {
+  id: string;
+  name: string;
+  isDefault: boolean;
+}
 
 const TOOL_OPTIONS = [
   { label: 'browser-use', value: 'browser-use' },
@@ -79,10 +86,24 @@ export const FormRender = (_props: FormRenderProps<any>) => {
   const username = useUserStore((s) => s.username || 'user');
   const { prompts, fetch, fetched } = usePromptStore();
   const [llmProviders, setLlmProviders] = useState<Map<string, any>>(new Map());
+  const [browserProfiles, setBrowserProfiles] = useState<BrowserProfile[]>([]);
+
+  // Fetch browser profiles from backend
+  const fetchBrowserProfiles = useCallback(async () => {
+    try {
+      const response = await get_ipc_api().getBrowserUseSettings<{ profiles: BrowserProfile[] }>();
+      if (response.success && response.data?.profiles) {
+        setBrowserProfiles(response.data.profiles);
+      }
+    } catch (error) {
+      console.error('[Browser Automation] Failed to fetch browser profiles:', error);
+    }
+  }, []);
 
   useEffect(() => {
     fetchLLMProviders().then(setLlmProviders);
-  }, []);
+    fetchBrowserProfiles();
+  }, [fetchBrowserProfiles]);
 
   useEffect(() => {
     if (!fetched && username) {
@@ -307,6 +328,32 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                 Use Thinking (for reasoning models like Qwen3, DeepSeek-R1)
               </Checkbox>
             )}
+          </Field>
+        </FormItem>
+
+        {/* Browser Profile selector */}
+        <FormItem name="profile" type="string" vertical>
+          <Field<string> name="inputsValues.profile.content">
+            {({ field }) => {
+              const profileOptions = [
+                { label: '(Default Profile)', value: '' },
+                ...browserProfiles.map(p => ({
+                  label: p.isDefault ? `${p.name} ★` : p.name,
+                  value: p.name,
+                }))
+              ];
+              return (
+                <Select
+                  value={(field.value as string) || ''}
+                  onChange={(val) => field.onChange(val as string)}
+                  optionList={profileOptions}
+                  style={{ width: '100%' }}
+                  dropdownMatchSelectWidth
+                  size="small"
+                  placeholder="Select browser profile"
+                />
+              );
+            }}
           </Field>
         </FormItem>
 

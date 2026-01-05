@@ -2924,7 +2924,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     except Exception:
         node_use_thinking = False
     
-    logger.info(f"[BrowserAutomation] Extracted from node editor: provider={node_llm_provider}, model={node_model_name}, use_thinking={node_use_thinking}")
+    # Extract browser profile setting from node editor
+    node_profile = ((inputs.get("profile") or {}).get("content") or "").strip()
+    
+    logger.info(f"[BrowserAutomation] Extracted from node editor: provider={node_llm_provider}, model={node_model_name}, use_thinking={node_use_thinking}, profile={node_profile}")
     web_gui.get_ipc_api().send_skill_editor_log("log", f"[BrowserAutomation] Node LLM settings: provider={node_llm_provider}, model={node_model_name}")
     
     # Extract shop_name and build downloads_path
@@ -2981,9 +2984,34 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         if prompt_parts:
             task_text = "\n\n".join(prompt_parts)
 
+    def _get_browser_profile_settings(profile_name: str) -> dict:
+        """Load browser profile settings from backend configuration."""
+        try:
+            from gui.ipc.w2p_handlers.browser_use_handler import get_profile_by_name, get_default_profile
+            
+            if profile_name:
+                profile = get_profile_by_name(profile_name)
+            else:
+                profile = get_default_profile()
+            
+            if profile:
+                logger.debug(f"[BrowserAutomation] Loaded profile settings: {profile.get('name', 'unknown')}")
+                return profile
+        except Exception as e:
+            logger.warning(f"[BrowserAutomation] Failed to load browser profile settings: {e}")
+        
+        return {}
+
     async def _get_or_create_browser_session(mainwin):
         """Get or create browser session based on node editor settings."""
         from gui.manager.browser_manager import BrowserManager, BrowserType, BrowserStatus
+        
+        # Load profile settings if a profile is specified
+        profile_settings = _get_browser_profile_settings(node_profile)
+        if profile_settings:
+            log_msg = f"[BrowserAutomation] Using profile: {profile_settings.get('name', node_profile)}"
+            logger.info(log_msg)
+            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
         
         log_msg = f"[BrowserAutomation] Getting browser session: browser={browser_type_setting}, driver={browser_driver_setting}, cdp_port={cdp_port_setting}"
         logger.debug(log_msg)
@@ -3016,6 +3044,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             cdp_port=cdp_port,
             webdriver_path=mainwin.getWebDriverPath(),
             downloads_path=downloads_path,
+            profile=node_profile,  # Pass profile from node editor
         )
         
         if auto_browser and auto_browser.status != BrowserStatus.ERROR:

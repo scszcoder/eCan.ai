@@ -195,7 +195,7 @@ def _create_webdriver_for_cdp(webdriver_path: str, cdp_address: str) -> Any:
     return driver
 
 
-def _create_browser_session_for_cdp(cdp_url: str, session_id_prefix: str = "br", downloads_path: Optional[str] = None) -> Any:
+def _create_browser_session_for_cdp(cdp_url: str, session_id_prefix: str = "br", downloads_path: Optional[str] = None, profile_name: Optional[str] = None) -> Any:
     """
     Create a browser_use BrowserSession connected to existing Chrome via CDP.
     
@@ -203,6 +203,7 @@ def _create_browser_session_for_cdp(cdp_url: str, session_id_prefix: str = "br",
         cdp_url: Full CDP URL (e.g., "http://127.0.0.1:9228")
         session_id_prefix: Prefix for session ID
         downloads_path: Path for browser downloads (optional)
+        profile_name: Browser profile name to use (optional)
     
     Returns:
         BrowserSession instance
@@ -210,10 +211,125 @@ def _create_browser_session_for_cdp(cdp_url: str, session_id_prefix: str = "br",
     from browser_use import BrowserSession
     from browser_use.browser.profile import BrowserProfile
     
-    profile = BrowserProfile(headless=False, cdp_url=cdp_url)
-    profile.is_local = False
+    # Try to load profile settings from backend if profile_name is provided
+    profile_settings = {}
+    if profile_name:
+        try:
+            from gui.ipc.w2p_handlers.browser_use_handler import get_profile_by_name
+            profile_settings = get_profile_by_name(profile_name) or {}
+            logger.debug(f"[BrowserManager] Loaded profile settings for '{profile_name}': {list(profile_settings.keys())}")
+        except Exception as e:
+            logger.warning(f"[BrowserManager] Failed to load profile settings: {e}")
+    
+    # Build BrowserProfile with settings
+    profile_kwargs = {
+        'headless': profile_settings.get('headless', False),
+        'cdp_url': profile_settings.get('cdp_url') or cdp_url,
+    }
+    
+    # Apply profile settings if available
+    if profile_settings.get('user_data_dir'):
+        profile_kwargs['user_data_dir'] = profile_settings['user_data_dir']
+    if profile_settings.get('user_agent'):
+        profile_kwargs['user_agent'] = profile_settings['user_agent']
+    if profile_settings.get('viewport_width') and profile_settings.get('viewport_height'):
+        profile_kwargs['viewport'] = {
+            'width': profile_settings['viewport_width'],
+            'height': profile_settings['viewport_height']
+        }
+    if profile_settings.get('args'):
+        profile_kwargs['args'] = profile_settings['args']
+    if profile_settings.get('disable_security'):
+        profile_kwargs['disable_security'] = profile_settings['disable_security']
+    if profile_settings.get('deterministic_rendering'):
+        profile_kwargs['deterministic_rendering'] = profile_settings['deterministic_rendering']
+    
+    # Domain restrictions
+    if profile_settings.get('allowed_domains'):
+        profile_kwargs['allowed_domains'] = profile_settings['allowed_domains']
+    if profile_settings.get('prohibited_domains'):
+        profile_kwargs['prohibited_domains'] = profile_settings['prohibited_domains']
+    if profile_settings.get('block_ip_addresses'):
+        profile_kwargs['block_ip_addresses'] = profile_settings['block_ip_addresses']
+    
+    # Session settings
+    if profile_settings.get('keep_alive') is not None:
+        profile_kwargs['keep_alive'] = profile_settings['keep_alive']
+    if profile_settings.get('enable_default_extensions') is not None:
+        profile_kwargs['enable_default_extensions'] = profile_settings['enable_default_extensions']
+    if profile_settings.get('demo_mode'):
+        profile_kwargs['demo_mode'] = profile_settings['demo_mode']
+    if profile_settings.get('cookie_whitelist_domains'):
+        profile_kwargs['cookie_whitelist_domains'] = profile_settings['cookie_whitelist_domains']
+    
+    # Window settings
+    if profile_settings.get('window_width') and profile_settings.get('window_height'):
+        profile_kwargs['window_size'] = {
+            'width': profile_settings['window_width'],
+            'height': profile_settings['window_height']
+        }
+    if profile_settings.get('window_position_x') is not None and profile_settings.get('window_position_y') is not None:
+        profile_kwargs['window_position'] = {
+            'width': profile_settings['window_position_x'],
+            'height': profile_settings['window_position_y']
+        }
+    
+    # iFrame settings
+    if profile_settings.get('cross_origin_iframes') is not None:
+        profile_kwargs['cross_origin_iframes'] = profile_settings['cross_origin_iframes']
+    if profile_settings.get('max_iframes'):
+        profile_kwargs['max_iframes'] = profile_settings['max_iframes']
+    if profile_settings.get('max_iframe_depth'):
+        profile_kwargs['max_iframe_depth'] = profile_settings['max_iframe_depth']
+    
+    # Timing settings
+    if profile_settings.get('minimum_wait_page_load_time') is not None:
+        profile_kwargs['minimum_wait_page_load_time'] = profile_settings['minimum_wait_page_load_time']
+    if profile_settings.get('wait_for_network_idle_page_load_time') is not None:
+        profile_kwargs['wait_for_network_idle_page_load_time'] = profile_settings['wait_for_network_idle_page_load_time']
+    if profile_settings.get('wait_between_actions') is not None:
+        profile_kwargs['wait_between_actions'] = profile_settings['wait_between_actions']
+    
+    # UI/DOM settings
+    if profile_settings.get('highlight_elements') is not None:
+        profile_kwargs['highlight_elements'] = profile_settings['highlight_elements']
+    if profile_settings.get('dom_highlight_elements') is not None:
+        profile_kwargs['dom_highlight_elements'] = profile_settings['dom_highlight_elements']
+    if profile_settings.get('filter_highlight_ids') is not None:
+        profile_kwargs['filter_highlight_ids'] = profile_settings['filter_highlight_ids']
+    if profile_settings.get('paint_order_filtering') is not None:
+        profile_kwargs['paint_order_filtering'] = profile_settings['paint_order_filtering']
+    if profile_settings.get('interaction_highlight_color'):
+        profile_kwargs['interaction_highlight_color'] = profile_settings['interaction_highlight_color']
+    if profile_settings.get('interaction_highlight_duration') is not None:
+        profile_kwargs['interaction_highlight_duration'] = profile_settings['interaction_highlight_duration']
+    
+    # Downloads
+    if profile_settings.get('auto_download_pdfs') is not None:
+        profile_kwargs['auto_download_pdfs'] = profile_settings['auto_download_pdfs']
+    
+    # Recording
+    if profile_settings.get('record_video_dir'):
+        profile_kwargs['record_video_dir'] = profile_settings['record_video_dir']
+    if profile_settings.get('record_video_framerate'):
+        profile_kwargs['record_video_framerate'] = profile_settings['record_video_framerate']
+    
+    profile = BrowserProfile(**profile_kwargs)
+    profile.is_local = profile_settings.get('is_local', False)
+    profile.use_cloud = profile_settings.get('use_cloud', False)
+    
+    # Override downloads_path if provided as parameter
     if downloads_path:
         profile.downloads_path = downloads_path
+    elif profile_settings.get('downloads_path'):
+        profile.downloads_path = profile_settings['downloads_path']
+    
+    # Set profile_directory
+    if profile_settings.get('profile_directory'):
+        profile.profile_directory = profile_settings['profile_directory']
+    elif profile_name:
+        profile.profile_directory = profile_name
+    
     return BrowserSession(browser_profile=profile, id=f"{session_id_prefix}_{uuid7str()}")
 
 
@@ -488,7 +604,7 @@ class BrowserManager:
             if connect_browser_session and final_cdp_url:
                 session_prefix = "ap" if browser_type == BrowserType.ADSPOWER else "ec"
                 logger.debug(f"[BrowserManager] Creating BrowserSession for {final_cdp_url}")
-                session = _create_browser_session_for_cdp(final_cdp_url, session_prefix, downloads_path=downloads_path)
+                session = _create_browser_session_for_cdp(final_cdp_url, session_prefix, downloads_path=downloads_path, profile_name=profile)
                 logger.info(f"[BrowserManager] BrowserSession created: {session.id}")
             
             # =================================================================
@@ -541,6 +657,7 @@ class BrowserManager:
         webdriver_path: Optional[str] = None,
         create_if_not_found: bool = True,
         downloads_path: Optional[str] = None,
+        profile: Optional[str] = None,
     ) -> Optional[AutoBrowser]:
         """
         Acquire a browser for an agent's use.
@@ -558,6 +675,7 @@ class BrowserManager:
             webdriver_path: Path to chromedriver (for creating new browsers)
             create_if_not_found: Whether to create a new browser if none available
             downloads_path: Path for browser downloads (optional, updates existing browser profile if found)
+            profile: Browser profile name to use (optional, for browser_use BrowserProfile)
             
         Returns:
             Acquired AutoBrowser instance or None
@@ -592,6 +710,7 @@ class BrowserManager:
                 adspower_api_key=adspower_api_key,
                 webdriver_path=webdriver_path,
                 downloads_path=downloads_path,
+                profile=profile,
             )
             
             # Only mark in use if browser was created successfully
