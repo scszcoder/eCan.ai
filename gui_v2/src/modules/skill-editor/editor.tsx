@@ -4,6 +4,7 @@
  */
 
 import { EditorRenderer, FreeLayoutEditorProvider, useService, WorkflowDocument, WorkflowLinesManager, CommandService, usePlayground } from '@flowgram.ai/free-layout-editor';
+import { EditorBridge } from './components/EditorBridge';
 // import { DockedPanelLayer } from '@flowgram.ai/panel-manager-plugin';
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import React from 'react';
@@ -231,6 +232,7 @@ export const Editor = () => {
           <div className="doc-free-feature-overview">
             <SkillEditorErrorBoundary>
               <FreeLayoutEditorProvider {...editorProps}>
+                <EditorBridge />
                 <AnchorProbe />
                 {/* Auto-load recent file on startup (must be inside provider for useClientContext) */}
                 <AutoLoadHandler />

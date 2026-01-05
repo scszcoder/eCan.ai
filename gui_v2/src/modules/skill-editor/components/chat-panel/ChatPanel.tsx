@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Input, Tooltip, Upload } from 'antd';
+import { Input, Tooltip, Upload, Spin } from 'antd';
 import {
   SendOutlined,
   AudioOutlined,
@@ -12,9 +12,12 @@ import {
   UpOutlined,
   PlusOutlined,
   HistoryOutlined,
+  LoadingOutlined,
 } from '@ant-design/icons';
 import styled from 'styled-components';
 import { CuteRobotIcon } from './CuteRobotIcon';
+import { skillEditorChatService } from '../../services/skill-editor-chat-service';
+import { canvasController } from '../../services/canvas-controller';
 
 const { TextArea } = Input;
 
@@ -101,13 +104,10 @@ const HeaderButton = styled.button`
   }
 `;
 
-const SessionHistoryContainer = styled.div<{ $expanded: boolean }>`
+const SessionHistoryContainer = styled.div`
   display: flex;
   flex-direction: column;
-  max-height: ${props => props.$expanded ? '200px' : '0px'};
-  overflow: hidden;
-  transition: max-height 0.3s ease;
-  border-bottom: ${props => props.$expanded ? '1px solid rgba(148, 163, 184, 0.2)' : 'none'};
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
 `;
 
 const SessionHistoryHeader = styled.div`
@@ -136,9 +136,15 @@ const SessionHistoryTitle = styled.span`
   }
 `;
 
+const SessionListWrapper = styled.div<{ $expanded: boolean }>`
+  max-height: ${props => props.$expanded ? '160px' : '0px'};
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+`;
+
 const SessionList = styled.div`
-  flex: 1;
   overflow-y: auto;
+  max-height: 160px;
   padding: 4px 8px;
   background: rgba(15, 23, 42, 0.5);
 `;
@@ -336,6 +342,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isRecording, setIsRecording] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const chatThreadRef = useRef<HTMLDivElement>(null);
 
   // Get active session
@@ -381,17 +388,19 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
     setHistoryExpanded(prev => !prev);
   }, []);
 
-  const handleSend = useCallback(() => {
-    if (!inputValue.trim()) return;
+  const handleSend = useCallback(async () => {
+    if (!inputValue.trim() || isLoading) return;
 
+    console.log('[ChatPanel] Sending message...');
+    const userContent = inputValue.trim();
     const newMessage: ChatMessage = {
       id: `msg-${Date.now()}`,
       role: 'user',
-      content: inputValue.trim(),
+      content: userContent,
       timestamp: new Date(),
     };
 
-    // If no active session, create one
+    // If no active session, create one locally first
     let currentSessionId = activeSessionId;
     if (!currentSessionId) {
       const newSession: ChatSession = {
@@ -406,7 +415,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
       setActiveSessionId(currentSessionId);
     }
 
-    // Update messages locally
+    // Update messages locally (optimistic update)
     const updatedMessages = [...messages, newMessage];
     setMessages(updatedMessages);
     setInputValue('');
@@ -425,30 +434,79 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
       return s;
     }));
 
-    // TODO: Send to backend and handle response
-    // For now, simulate an assistant response
-    setTimeout(() => {
-      const assistantMessage: ChatMessage = {
-        id: `msg-${Date.now()}`,
+    // Send to backend via IPC
+    setIsLoading(true);
+    console.log('[ChatPanel] Getting canvas context and sending to backend...');
+    try {
+      // Get current canvas context for the AI
+      const canvasState = canvasController.getCanvasState();
+      const canvasContext = {
+        nodes: canvasState.nodes.map(n => ({
+          id: n.id,
+          type: n.type,
+          label: n.label,
+          position: n.position,
+        })),
+        edges: canvasState.edges.map(e => ({
+          id: e.id,
+          source: e.source,
+          target: e.target,
+        })),
+      };
+
+      const response = await skillEditorChatService.sendMessage(
+        currentSessionId!,
+        userContent,
+        undefined, // attachments
+        canvasContext
+      );
+
+      if (response) {
+        console.log('[ChatPanel] Received response from backend');
+        const assistantMessage: ChatMessage = {
+          id: response.message.id,
+          role: 'assistant',
+          content: response.message.content,
+          timestamp: new Date(response.message.timestamp),
+        };
+        
+        setMessages(prev => [...prev, assistantMessage]);
+        
+        // Update session with response
+        setSessions(prev => prev.map(s => {
+          if (s.id === currentSessionId) {
+            return {
+              ...s,
+              messages: [...s.messages, assistantMessage],
+              topic: response.sessionName || s.topic,
+              updatedAt: new Date(),
+            };
+          }
+          return s;
+        }));
+      } else {
+        // Handle error - add error message
+        const errorMessage: ChatMessage = {
+          id: `msg-error-${Date.now()}`,
+          role: 'assistant',
+          content: 'Sorry, I encountered an error processing your message. Please try again.',
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, errorMessage]);
+      }
+    } catch (error) {
+      console.error('[ChatPanel] Error sending message:', error);
+      const errorMessage: ChatMessage = {
+        id: `msg-error-${Date.now()}`,
         role: 'assistant',
-        content: 'I received your message. This is a placeholder response. The chat functionality will be connected to the backend soon.',
+        content: 'Sorry, I encountered an error. Please check if the backend is running.',
         timestamp: new Date(),
       };
-      
-      setMessages(prev => [...prev, assistantMessage]);
-      
-      setSessions(prev => prev.map(s => {
-        if (s.id === currentSessionId) {
-          return {
-            ...s,
-            messages: [...s.messages, assistantMessage],
-            updatedAt: new Date(),
-          };
-        }
-        return s;
-      }));
-    }, 1000);
-  }, [inputValue, activeSessionId, messages]);
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [inputValue, activeSessionId, messages, isLoading]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -498,7 +556,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
       </ChatHeader>
 
       {/* Collapsible Session History Panel */}
-      <SessionHistoryContainer $expanded={historyExpanded}>
+      <SessionHistoryContainer>
         <SessionHistoryHeader onClick={handleToggleHistory}>
           <SessionHistoryTitle>
             <HistoryOutlined />
@@ -506,24 +564,26 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
           </SessionHistoryTitle>
           {historyExpanded ? <UpOutlined style={{ fontSize: 10, color: 'rgba(148, 163, 184, 0.6)' }} /> : <DownOutlined style={{ fontSize: 10, color: 'rgba(148, 163, 184, 0.6)' }} />}
         </SessionHistoryHeader>
-        <SessionList>
-          {sessions.length === 0 ? (
-            <div style={{ padding: '12px', textAlign: 'center', color: 'rgba(148, 163, 184, 0.5)', fontSize: 11 }}>
-              No chat history yet
-            </div>
-          ) : (
-            sessions.map(session => (
-              <SessionItem
-                key={session.id}
-                $active={session.id === activeSessionId}
-                onClick={() => handleSelectSession(session.id)}
-              >
-                <SessionTopic>{session.topic}</SessionTopic>
-                <SessionDate>{formatSessionDate(session.updatedAt)}</SessionDate>
-              </SessionItem>
-            ))
-          )}
-        </SessionList>
+        <SessionListWrapper $expanded={historyExpanded}>
+          <SessionList>
+            {sessions.length === 0 ? (
+              <div style={{ padding: '12px', textAlign: 'center', color: 'rgba(148, 163, 184, 0.5)', fontSize: 11 }}>
+                No chat history yet
+              </div>
+            ) : (
+              sessions.map(session => (
+                <SessionItem
+                  key={session.id}
+                  $active={session.id === activeSessionId}
+                  onClick={() => handleSelectSession(session.id)}
+                >
+                  <SessionTopic>{session.topic}</SessionTopic>
+                  <SessionDate>{formatSessionDate(session.updatedAt)}</SessionDate>
+                </SessionItem>
+              ))
+            )}
+          </SessionList>
+        </SessionListWrapper>
       </SessionHistoryContainer>
 
       {/* Chat Content Area */}
@@ -538,16 +598,26 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
               </div>
             </EmptyState>
           ) : (
-            messages.map(msg => (
-              <MessageBubble key={msg.id} $isUser={msg.role === 'user'}>
-                <MessageContent $isUser={msg.role === 'user'}>
-                  {msg.content}
-                </MessageContent>
-                <MessageMeta>
-                  {msg.role === 'user' ? 'You' : 'Assistant'} • {formatTime(msg.timestamp)}
-                </MessageMeta>
-              </MessageBubble>
-            ))
+            <>
+              {messages.map(msg => (
+                <MessageBubble key={msg.id} $isUser={msg.role === 'user'}>
+                  <MessageContent $isUser={msg.role === 'user'}>
+                    {msg.content}
+                  </MessageContent>
+                  <MessageMeta>
+                    {msg.role === 'user' ? 'You' : 'Assistant'} • {formatTime(msg.timestamp)}
+                  </MessageMeta>
+                </MessageBubble>
+              ))}
+              {isLoading && (
+                <MessageBubble $isUser={false}>
+                  <MessageContent $isUser={false} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <LoadingOutlined spin style={{ fontSize: 14 }} />
+                    <span>Thinking...</span>
+                  </MessageContent>
+                </MessageBubble>
+              )}
+            </>
           )}
         </ChatThread>
 
@@ -589,9 +659,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
             />
             <SendButton
               onClick={handleSend}
-              disabled={!inputValue.trim()}
+              disabled={!inputValue.trim() || isLoading}
             >
-              <SendOutlined />
+              {isLoading ? <LoadingOutlined spin /> : <SendOutlined />}
             </SendButton>
           </InputRow>
         </InputWrapper>
