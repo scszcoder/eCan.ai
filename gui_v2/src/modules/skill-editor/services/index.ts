@@ -7,3 +7,6 @@ export * from './custom-service';
 export * from './validate-service';
 export * from './schema-migration';
 export * from './skill-loader';
+export * from './canvas-controller';
+export * from './skill-editor-chat-service';
+export * from './canvas-event-handler';

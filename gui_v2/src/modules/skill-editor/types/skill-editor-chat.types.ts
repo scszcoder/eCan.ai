@@ -1,0 +1,543 @@
+/**
+ * Skill Editor Chat API Types
+ * 
+ * Defines the contracts for bidirectional communication between
+ * the frontend skill editor and the backend LLM agent.
+ * 
+ * Communication flows:
+ * 1. Frontend → Backend: Chat messages, user commands
+ * 2. Backend → Frontend: Canvas control commands, chat responses, run controls
+ */
+
+// ============================================================
+// Common Types
+// ============================================================
+
+/** Position on the canvas */
+export interface CanvasPosition {
+  x: number;
+  y: number;
+}
+
+/** Node configuration for creating/updating nodes */
+export interface NodeConfig {
+  /** Node type (e.g., 'llm', 'code', 'http', 'condition', etc.) */
+  nodeType: string;
+  /** Node display label */
+  label?: string;
+  /** Node-specific input values */
+  inputsValues?: Record<string, unknown>;
+  /** Node-specific configuration */
+  config?: Record<string, unknown>;
+}
+
+/** Edge definition for connecting nodes */
+export interface EdgeDefinition {
+  /** Source node ID */
+  sourceNodeId: string;
+  /** Source handle/port ID (optional) */
+  sourceHandle?: string;
+  /** Target node ID */
+  targetNodeId: string;
+  /** Target handle/port ID (optional) */
+  targetHandle?: string;
+  /** Edge label (optional) */
+  label?: string;
+}
+
+/** File attachment in chat */
+export interface ChatAttachment {
+  /** Unique attachment ID */
+  id: string;
+  /** File name */
+  name: string;
+  /** MIME type */
+  type: string;
+  /** File size in bytes */
+  size: number;
+  /** Base64 encoded content or URL */
+  content: string;
+}
+
+// ============================================================
+// Frontend → Backend Messages
+// ============================================================
+
+/** Base interface for all frontend-to-backend messages */
+export interface SkillEditorRequest {
+  /** Unique request ID */
+  requestId: string;
+  /** Request type */
+  type: SkillEditorRequestType;
+  /** Timestamp */
+  timestamp: number;
+  /** Session ID for the chat */
+  sessionId: string;
+  /** Current flowgram ID being edited (if any) */
+  flowgramId?: string;
+}
+
+export type SkillEditorRequestType =
+  | 'chat.send_message'
+  | 'chat.create_session'
+  | 'chat.get_history'
+  | 'chat.cancel_generation';
+
+/** Send a chat message to the backend */
+export interface SendChatMessageRequest extends SkillEditorRequest {
+  type: 'chat.send_message';
+  payload: {
+    /** The user's message content */
+    content: string;
+    /** Optional file attachments */
+    attachments?: ChatAttachment[];
+    /** Current canvas state for context */
+    canvasContext?: {
+      /** List of existing nodes */
+      nodes: Array<{
+        id: string;
+        type: string;
+        label: string;
+        position: CanvasPosition;
+      }>;
+      /** List of existing edges */
+      edges: Array<{
+        id: string;
+        source: string;
+        target: string;
+      }>;
+    };
+  };
+}
+
+/** Create a new chat session */
+export interface CreateSessionRequest extends SkillEditorRequest {
+  type: 'chat.create_session';
+  payload: {
+    /** Optional initial flowgram to associate */
+    flowgramId?: string;
+    /** Optional session name */
+    name?: string;
+  };
+}
+
+/** Get chat history for a session */
+export interface GetHistoryRequest extends SkillEditorRequest {
+  type: 'chat.get_history';
+  payload: {
+    /** Number of messages to retrieve (default: all) */
+    limit?: number;
+    /** Offset for pagination */
+    offset?: number;
+  };
+}
+
+/** Cancel ongoing LLM generation */
+export interface CancelGenerationRequest extends SkillEditorRequest {
+  type: 'chat.cancel_generation';
+  payload: Record<string, never>;
+}
+
+// ============================================================
+// Backend → Frontend Messages
+// ============================================================
+
+/** Base interface for all backend-to-frontend messages */
+export interface SkillEditorEvent {
+  /** Unique event ID */
+  eventId: string;
+  /** Event type */
+  type: SkillEditorEventType;
+  /** Timestamp */
+  timestamp: number;
+  /** Session ID */
+  sessionId: string;
+  /** Associated request ID (if responding to a request) */
+  requestId?: string;
+}
+
+export type SkillEditorEventType =
+  // Chat events
+  | 'chat.message'
+  | 'chat.stream_chunk'
+  | 'chat.stream_end'
+  | 'chat.error'
+  // Canvas control events
+  | 'canvas.open_flowgram'
+  | 'canvas.close_flowgram'
+  | 'canvas.create_flowgram'
+  | 'canvas.rename_flowgram'
+  | 'canvas.add_node'
+  | 'canvas.remove_node'
+  | 'canvas.update_node'
+  | 'canvas.add_edge'
+  | 'canvas.remove_edge'
+  | 'canvas.clear_canvas'
+  | 'canvas.layout_nodes'
+  // Run control events (backend-initiated)
+  | 'run.start'
+  | 'run.step'
+  | 'run.pause'
+  | 'run.resume'
+  | 'run.stop'
+  | 'run.status_update'
+  | 'run.node_status';
+
+// -------------------- Chat Events --------------------
+
+/** Complete chat message from assistant */
+export interface ChatMessageEvent extends SkillEditorEvent {
+  type: 'chat.message';
+  payload: {
+    /** Message ID */
+    messageId: string;
+    /** Message role */
+    role: 'assistant' | 'system';
+    /** Message content */
+    content: string;
+    /** Optional metadata */
+    metadata?: Record<string, unknown>;
+  };
+}
+
+/** Streaming chunk for real-time response */
+export interface ChatStreamChunkEvent extends SkillEditorEvent {
+  type: 'chat.stream_chunk';
+  payload: {
+    /** Message ID being streamed */
+    messageId: string;
+    /** Chunk content */
+    chunk: string;
+    /** Chunk index */
+    index: number;
+  };
+}
+
+/** End of streaming */
+export interface ChatStreamEndEvent extends SkillEditorEvent {
+  type: 'chat.stream_end';
+  payload: {
+    /** Message ID that finished streaming */
+    messageId: string;
+    /** Final complete content */
+    fullContent: string;
+  };
+}
+
+/** Chat error event */
+export interface ChatErrorEvent extends SkillEditorEvent {
+  type: 'chat.error';
+  payload: {
+    /** Error code */
+    code: string;
+    /** Error message */
+    message: string;
+    /** Additional details */
+    details?: unknown;
+  };
+}
+
+// -------------------- Canvas Control Events --------------------
+
+/** Open an existing flowgram */
+export interface CanvasOpenFlowgramEvent extends SkillEditorEvent {
+  type: 'canvas.open_flowgram';
+  payload: {
+    /** Flowgram file path or ID */
+    flowgramPath: string;
+  };
+}
+
+/** Close current flowgram */
+export interface CanvasCloseFlowgramEvent extends SkillEditorEvent {
+  type: 'canvas.close_flowgram';
+  payload: {
+    /** Whether to save before closing */
+    save?: boolean;
+  };
+}
+
+/** Create a new flowgram */
+export interface CanvasCreateFlowgramEvent extends SkillEditorEvent {
+  type: 'canvas.create_flowgram';
+  payload: {
+    /** Name for the new flowgram */
+    name: string;
+    /** Optional description */
+    description?: string;
+    /** Optional initial nodes */
+    initialNodes?: Array<{
+      nodeType: string;
+      position: CanvasPosition;
+      config?: NodeConfig;
+    }>;
+  };
+}
+
+/** Rename current flowgram */
+export interface CanvasRenameFlowgramEvent extends SkillEditorEvent {
+  type: 'canvas.rename_flowgram';
+  payload: {
+    /** New name */
+    newName: string;
+  };
+}
+
+/** Add a node to the canvas */
+export interface CanvasAddNodeEvent extends SkillEditorEvent {
+  type: 'canvas.add_node';
+  payload: {
+    /** Temporary ID for reference (backend may assign final ID) */
+    tempId?: string;
+    /** Node type */
+    nodeType: string;
+    /** Position on canvas */
+    position: CanvasPosition;
+    /** Node configuration */
+    config?: NodeConfig;
+  };
+}
+
+/** Remove a node from the canvas */
+export interface CanvasRemoveNodeEvent extends SkillEditorEvent {
+  type: 'canvas.remove_node';
+  payload: {
+    /** Node ID to remove */
+    nodeId: string;
+  };
+}
+
+/** Update an existing node */
+export interface CanvasUpdateNodeEvent extends SkillEditorEvent {
+  type: 'canvas.update_node';
+  payload: {
+    /** Node ID to update */
+    nodeId: string;
+    /** Updated configuration (partial) */
+    config: Partial<NodeConfig>;
+    /** Updated position (optional) */
+    position?: CanvasPosition;
+  };
+}
+
+/** Add an edge between nodes */
+export interface CanvasAddEdgeEvent extends SkillEditorEvent {
+  type: 'canvas.add_edge';
+  payload: EdgeDefinition;
+}
+
+/** Remove an edge */
+export interface CanvasRemoveEdgeEvent extends SkillEditorEvent {
+  type: 'canvas.remove_edge';
+  payload: {
+    /** Edge ID to remove */
+    edgeId: string;
+  };
+}
+
+/** Clear all nodes and edges from canvas */
+export interface CanvasClearCanvasEvent extends SkillEditorEvent {
+  type: 'canvas.clear_canvas';
+  payload: {
+    /** Confirmation flag */
+    confirmed: boolean;
+  };
+}
+
+/** Auto-layout nodes on canvas */
+export interface CanvasLayoutNodesEvent extends SkillEditorEvent {
+  type: 'canvas.layout_nodes';
+  payload: {
+    /** Layout algorithm to use */
+    algorithm?: 'dagre' | 'elk' | 'force';
+  };
+}
+
+// -------------------- Run Control Events --------------------
+
+/** Start running the flowgram */
+export interface RunStartEvent extends SkillEditorEvent {
+  type: 'run.start';
+  payload: {
+    /** Run ID */
+    runId: string;
+    /** Input data for the run */
+    input?: Record<string, unknown>;
+  };
+}
+
+/** Single step execution */
+export interface RunStepEvent extends SkillEditorEvent {
+  type: 'run.step';
+  payload: {
+    /** Run ID */
+    runId: string;
+    /** Node to step to (optional, defaults to next) */
+    targetNodeId?: string;
+  };
+}
+
+/** Pause execution */
+export interface RunPauseEvent extends SkillEditorEvent {
+  type: 'run.pause';
+  payload: {
+    /** Run ID */
+    runId: string;
+  };
+}
+
+/** Resume execution */
+export interface RunResumeEvent extends SkillEditorEvent {
+  type: 'run.resume';
+  payload: {
+    /** Run ID */
+    runId: string;
+    /** Optional modified state to resume with */
+    modifiedState?: Record<string, unknown>;
+  };
+}
+
+/** Stop execution */
+export interface RunStopEvent extends SkillEditorEvent {
+  type: 'run.stop';
+  payload: {
+    /** Run ID */
+    runId: string;
+    /** Reason for stopping */
+    reason?: string;
+  };
+}
+
+/** Run status update */
+export interface RunStatusUpdateEvent extends SkillEditorEvent {
+  type: 'run.status_update';
+  payload: {
+    /** Run ID */
+    runId: string;
+    /** Current status */
+    status: 'running' | 'paused' | 'completed' | 'failed' | 'cancelled';
+    /** Current node being executed */
+    currentNodeId?: string;
+    /** Progress percentage (0-100) */
+    progress?: number;
+    /** Status message */
+    message?: string;
+  };
+}
+
+/** Individual node status during run */
+export interface RunNodeStatusEvent extends SkillEditorEvent {
+  type: 'run.node_status';
+  payload: {
+    /** Run ID */
+    runId: string;
+    /** Node ID */
+    nodeId: string;
+    /** Node status */
+    status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+    /** Node output (if completed) */
+    output?: unknown;
+    /** Error message (if failed) */
+    error?: string;
+    /** Execution time in ms */
+    executionTimeMs?: number;
+  };
+}
+
+// ============================================================
+// Union Types for Type Guards
+// ============================================================
+
+export type SkillEditorRequestUnion =
+  | SendChatMessageRequest
+  | CreateSessionRequest
+  | GetHistoryRequest
+  | CancelGenerationRequest;
+
+export type SkillEditorEventUnion =
+  | ChatMessageEvent
+  | ChatStreamChunkEvent
+  | ChatStreamEndEvent
+  | ChatErrorEvent
+  | CanvasOpenFlowgramEvent
+  | CanvasCloseFlowgramEvent
+  | CanvasCreateFlowgramEvent
+  | CanvasRenameFlowgramEvent
+  | CanvasAddNodeEvent
+  | CanvasRemoveNodeEvent
+  | CanvasUpdateNodeEvent
+  | CanvasAddEdgeEvent
+  | CanvasRemoveEdgeEvent
+  | CanvasClearCanvasEvent
+  | CanvasLayoutNodesEvent
+  | RunStartEvent
+  | RunStepEvent
+  | RunPauseEvent
+  | RunResumeEvent
+  | RunStopEvent
+  | RunStatusUpdateEvent
+  | RunNodeStatusEvent;
+
+// ============================================================
+// Type Guards
+// ============================================================
+
+export function isSkillEditorEvent(obj: unknown): obj is SkillEditorEvent {
+  return (
+    typeof obj === 'object' &&
+    obj !== null &&
+    'eventId' in obj &&
+    'type' in obj &&
+    'timestamp' in obj &&
+    'sessionId' in obj
+  );
+}
+
+export function isChatEvent(event: SkillEditorEvent): event is 
+  | ChatMessageEvent 
+  | ChatStreamChunkEvent 
+  | ChatStreamEndEvent 
+  | ChatErrorEvent {
+  return event.type.startsWith('chat.');
+}
+
+export function isCanvasEvent(event: SkillEditorEvent): event is
+  | CanvasOpenFlowgramEvent
+  | CanvasCloseFlowgramEvent
+  | CanvasCreateFlowgramEvent
+  | CanvasRenameFlowgramEvent
+  | CanvasAddNodeEvent
+  | CanvasRemoveNodeEvent
+  | CanvasUpdateNodeEvent
+  | CanvasAddEdgeEvent
+  | CanvasRemoveEdgeEvent
+  | CanvasClearCanvasEvent
+  | CanvasLayoutNodesEvent {
+  return event.type.startsWith('canvas.');
+}
+
+export function isRunEvent(event: SkillEditorEvent): event is
+  | RunStartEvent
+  | RunStepEvent
+  | RunPauseEvent
+  | RunResumeEvent
+  | RunStopEvent
+  | RunStatusUpdateEvent
+  | RunNodeStatusEvent {
+  return event.type.startsWith('run.');
+}
+
+// ============================================================
+// IPC Method Names (for use with existing IPC infrastructure)
+// ============================================================
+
+export const SKILL_EDITOR_IPC_METHODS = {
+  // Frontend → Backend
+  SEND_CHAT_MESSAGE: 'skill_editor.chat.send_message',
+  CREATE_SESSION: 'skill_editor.chat.create_session',
+  GET_HISTORY: 'skill_editor.chat.get_history',
+  CANCEL_GENERATION: 'skill_editor.chat.cancel_generation',
+  
+  // Backend → Frontend (event channel)
+  EVENT_CHANNEL: 'skill_editor.event',
+} as const;
