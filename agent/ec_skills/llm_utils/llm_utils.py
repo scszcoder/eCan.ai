@@ -1450,6 +1450,10 @@ def _get_logging_browser_use_class():
         class LoggingBrowserUseChatOpenAI(BrowserUseChatOpenAI):
             """BrowserUseChatOpenAI with custom logging for all LLM responses."""
             
+            def __init__(self, *args, **kwargs):
+                """Initialize with all parent class parameters."""
+                super().__init__(*args, **kwargs)
+            
             def get_client(self):
                 client = super().get_client()
                 original_create = client.chat.completions.create
