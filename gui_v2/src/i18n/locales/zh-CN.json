@@ -92,7 +92,9 @@
     "description": "描述",
     "priority": "优先级",
     "status": "状态",
-    "continue": "继续"
+    "continue": "继续",
+    "valid": "有效",
+    "invalid": "无效"
   },
   "personality": {
     "friendly": "友好",
@@ -1665,6 +1667,24 @@
         "knowledgeGraph": "知识图谱",
         "retrieval": "检索",
         "settings": "设置"
+      },
+      "lightrag": {
+        "dimension_conflict_title": "向量维度冲突",
+        "dimension_conflict_message": "检测到向量维度不匹配！当前向量数据库使用 {{current}} 维，新模型使用 {{new}} 维。",
+        "vector_storage_type": "向量存储类型",
+        "dimension_conflict_options": "您有以下选择",
+        "dimension_conflict_option1": "切换到其他 workspace（推荐）- 保留现有数据",
+        "dimension_conflict_option2": "继续使用并清空现有向量数据（数据将丢失）",
+        "switch_workspace": "切换 Workspace",
+        "select_workspace": "选择 Workspace",
+        "select_workspace_message": "请选择要切换到的 workspace（维度：{{dimension}}）：",
+        "create_new_workspace": "创建新 Workspace",
+        "enter_workspace_name": "请输入新 workspace 名称",
+        "workspace_name_placeholder": "例如：project_v2, test_1024d",
+        "workspace_name_hint": "新 workspace 将使用 {{dimension}} 维的向量索引",
+        "workspace_name_required": "Workspace 名称不能为空",
+        "workspace_switched": "已切换到 workspace：{{name}}",
+        "workspace_switch_failed": "切换 workspace 失败"
       },
       "graph": {
         "title": "知识图谱",

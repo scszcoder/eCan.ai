@@ -92,7 +92,9 @@
     "description": "Description",
     "priority": "Priority",
     "status": "Status",
-    "continue": "Continue"
+    "continue": "Continue",
+    "valid": "Valid",
+    "invalid": "Invalid"
   },
   "personality": {
     "friendly": "Friendly",
@@ -1662,6 +1664,24 @@
         "knowledgeGraph": "Knowledge Graph",
         "retrieval": "Retrieval",
         "settings": "Settings"
+      },
+      "lightrag": {
+        "dimension_conflict_title": "Vector Dimension Conflict",
+        "dimension_conflict_message": "Dimension mismatch detected! Current vector database uses {{current}} dimensions, new model uses {{new}} dimensions.",
+        "vector_storage_type": "Vector Storage Type",
+        "dimension_conflict_options": "You have the following options",
+        "dimension_conflict_option1": "Switch to another workspace (recommended) - Keep existing data",
+        "dimension_conflict_option2": "Continue and clear existing vector data (data will be lost)",
+        "switch_workspace": "Switch Workspace",
+        "select_workspace": "Select Workspace",
+        "select_workspace_message": "Please select a workspace to switch to (dimension: {{dimension}}):",
+        "create_new_workspace": "Create New Workspace",
+        "enter_workspace_name": "Please enter new workspace name",
+        "workspace_name_placeholder": "e.g., project_v2, test_1024d",
+        "workspace_name_hint": "New workspace will use {{dimension}}-dimensional vector index",
+        "workspace_name_required": "Workspace name cannot be empty",
+        "workspace_switched": "Switched to workspace: {{name}}",
+        "workspace_switch_failed": "Failed to switch workspace"
       },
       "graph": {
         "title": "Knowledge Graph",

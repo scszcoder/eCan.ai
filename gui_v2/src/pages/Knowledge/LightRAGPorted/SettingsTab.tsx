@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { theme, App, Tabs, Tooltip, Input, InputNumber, Select, Switch, Button } from 'antd';
+import { theme, App, Tabs, Tooltip, Input, InputNumber, Select, Switch, Button, Modal, message } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { get_ipc_api } from '@/services/ipc_api';
 import { 
@@ -14,7 +14,8 @@ import {
   ExperimentOutlined,
   QuestionCircleOutlined,
   DeleteOutlined,
-  ReloadOutlined
+  ReloadOutlined,
+  ExclamationCircleOutlined
 } from '@ant-design/icons';
 import { useTheme } from '@/contexts/ThemeContext';
 import { FIELDS_BY_TAB, FieldConfig, PROVIDER_BASED_TABS } from './settingsConfig';
@@ -101,9 +102,282 @@ const SettingsTab: React.FC = () => {
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const savedScrollPosition = useRef<number>(0);
   const restoringRef = useRef(false);
+  const initialLoadRef = useRef(true);
+  const lastCheckedDimRef = useRef<number | null>(null);
+  const pendingSettingsRef = useRef<Record<string, string>>({});
 
   const storagePrefix = 'lightrag-ported:tabs';
   const settingsScrollKey = `${storagePrefix}:innerScroll:settings`;
+
+  // Check embedding dimension conflict with existing vector database
+  const checkDimensionConflict = async (newDimension: number, pendingSettings?: Record<string, string>) => {
+    // Store pending settings to apply after workspace switch
+    if (pendingSettings) {
+      console.log('[DimensionCheck] Storing pending settings:', pendingSettings);
+      pendingSettingsRef.current = pendingSettings;
+    } else {
+      console.log('[DimensionCheck] No pending settings provided');
+    }
+    try {
+      // Use WORKSPACE config instead of extracting from WORKING_DIR path
+      const currentWorkspace = settings['WORKSPACE'] || 'default';
+      const api = get_ipc_api();
+      const result = await api.executeRequest<{
+        hasConflict: boolean;
+        currentDimension: number | null;
+        newDimension: number;
+        vectorStorage: string;
+        workspaceName: string;
+        workspaces: Workspace[];
+      }>('lightrag.checkEmbeddingDimension', {
+        newDimension,
+        workspaceName: currentWorkspace
+      });
+
+      // Debug log - raw response
+      console.log('[DimensionCheck] Raw API response:', result);
+      
+      // Debug log - parsed data
+      console.log('[DimensionCheck] API result:', {
+        success: result.success,
+        hasConflict: result.data?.hasConflict,
+        currentDimension: result.data?.currentDimension,
+        newDimension: result.data?.newDimension,
+        vectorStorage: result.data?.vectorStorage,
+        workspaceName: result.data?.workspaceName
+      });
+
+      if (result.success && result.data?.hasConflict) {
+        const { currentDimension, vectorStorage, workspaces } = result.data;
+        
+        Modal.confirm({
+          title: t('pages.knowledge.lightrag.dimension_conflict_title'),
+          icon: <ExclamationCircleOutlined style={{ color: '#faad14' }} />,
+          width: 600,
+          content: (
+            <div style={{ fontSize: '15px', lineHeight: '1.6', color: isDark ? '#fff' : 'inherit' }}>
+              <p style={{ fontSize: '15px', marginBottom: '12px', color: isDark ? '#fff' : 'inherit' }}>
+                {t('pages.knowledge.lightrag.dimension_conflict_message', { 
+                  current: currentDimension, 
+                  new: newDimension 
+                })}
+              </p>
+              <p style={{ 
+                marginTop: '12px', 
+                padding: '10px', 
+                backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
+                borderRadius: '4px',
+                fontSize: '14px',
+                color: isDark ? '#fff' : 'inherit'
+              }}>
+                {t('pages.knowledge.lightrag.vector_storage_type')}: <strong style={{ fontSize: '15px', color: isDark ? '#fff' : 'inherit' }}>{vectorStorage}</strong>
+              </p>
+              <p style={{ marginTop: '16px', fontWeight: 'bold', fontSize: '15px', color: isDark ? '#fff' : 'inherit' }}>
+                {t('pages.knowledge.lightrag.dimension_conflict_options')}:
+              </p>
+              <ul style={{ 
+                marginTop: '10px', 
+                paddingLeft: '24px',
+                fontSize: '14px',
+                lineHeight: '1.8',
+                color: isDark ? '#fff' : 'inherit'
+              }}>
+                <li style={{ marginBottom: '6px' }}>{t('pages.knowledge.lightrag.dimension_conflict_option1')}</li>
+                <li>{t('pages.knowledge.lightrag.dimension_conflict_option2')}</li>
+              </ul>
+            </div>
+          ),
+          okText: t('pages.knowledge.lightrag.switch_workspace'),
+          cancelText: t('common.cancel'),
+          onOk: () => {
+            // Show workspace selection
+            showWorkspaceSelection(workspaces, newDimension);
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Failed to check dimension conflict:', error);
+    }
+  };
+
+  // Show workspace selection modal
+  const showWorkspaceSelection = (availableWorkspaces: Workspace[], newDimension: number) => {
+    const workspaceOptions = availableWorkspaces.map(ws => ({
+      label: `${ws.name} (${ws.is_valid ? t('common.valid') : t('common.invalid')})`,
+      value: ws.name
+    }));
+
+    // Add option to create new workspace
+    workspaceOptions.push({
+      label: t('pages.knowledge.lightrag.create_new_workspace'),
+      value: '__new__'
+    });
+
+    let selectedWorkspace = workspaceOptions[0]?.value;
+
+    Modal.confirm({
+      title: t('pages.knowledge.lightrag.select_workspace'),
+      width: 550,
+      className: isDark ? 'dark-theme-modal' : '',
+      content: (
+        <div style={{ fontSize: '15px', lineHeight: '1.6', color: isDark ? '#fff' : 'inherit' }}>
+          <p style={{ fontSize: '15px', marginBottom: '16px', lineHeight: '1.6', color: isDark ? '#fff' : 'inherit' }}>
+            {t('pages.knowledge.lightrag.select_workspace_message', { dimension: newDimension })}
+          </p>
+          <Select
+            style={{ width: '100%', fontSize: '15px' }}
+            size="large"
+            defaultValue={selectedWorkspace}
+            options={workspaceOptions}
+            onChange={(value) => { selectedWorkspace = value; }}
+            getPopupContainer={(trigger) => trigger.parentElement || document.body}
+            className={isDark ? 'dark-select' : ''}
+          />
+        </div>
+      ),
+      okText: t('common.confirm'),
+      cancelText: t('common.cancel'),
+      onOk: async () => {
+        if (selectedWorkspace === '__new__') {
+          // Show custom modal for new workspace name
+          showCreateWorkspaceModal(newDimension);
+        } else {
+          await switchToWorkspace(selectedWorkspace);
+        }
+      }
+    });
+  };
+
+  // Show create new workspace modal
+  const showCreateWorkspaceModal = (newDimension: number) => {
+    let workspaceName = '';
+    
+    Modal.confirm({
+      title: t('pages.knowledge.lightrag.create_new_workspace'),
+      width: 500,
+      className: isDark ? 'dark-theme-modal' : '',
+      content: (
+        <div style={{ fontSize: '15px', lineHeight: '1.6', color: isDark ? '#fff' : 'inherit' }}>
+          <p style={{ fontSize: '15px', marginBottom: '16px', lineHeight: '1.6', color: isDark ? '#fff' : 'inherit' }}>
+            {t('pages.knowledge.lightrag.enter_workspace_name')}
+          </p>
+          <Input
+            size="large"
+            placeholder={t('pages.knowledge.lightrag.workspace_name_placeholder')}
+            defaultValue=""
+            onChange={(e) => { workspaceName = e.target.value; }}
+            style={{ fontSize: '15px' }}
+            className={isDark ? 'dark-input' : ''}
+          />
+          <p style={{ 
+            marginTop: '12px', 
+            fontSize: '13px', 
+            color: isDark ? 'rgba(255, 255, 255, 0.65)' : '#999',
+            lineHeight: '1.5'
+          }}>
+            {t('pages.knowledge.lightrag.workspace_name_hint', { dimension: newDimension })}
+          </p>
+        </div>
+      ),
+      okText: t('common.create'),
+      cancelText: t('common.cancel'),
+      onOk: async () => {
+        if (workspaceName && workspaceName.trim()) {
+          await switchToWorkspace(workspaceName.trim());
+        } else {
+          message.error(t('pages.knowledge.lightrag.workspace_name_required'));
+          return Promise.reject();
+        }
+      }
+    });
+  };
+
+  // Switch to a different workspace
+  const switchToWorkspace = async (workspaceName: string) => {
+    try {
+      setLoading(true);
+      
+      // Update both WORKSPACE and WORKING_DIR settings
+      // Ensure we get the rag_storage directory path
+      let baseWorkingDir = settings['WORKING_DIR'] || '';
+      
+      // If WORKING_DIR contains 'rag_storage', extract up to and including 'rag_storage'
+      if (baseWorkingDir.includes('rag_storage')) {
+        const parts = baseWorkingDir.split('/');
+        const ragStorageIndex = parts.findIndex(p => p === 'rag_storage');
+        if (ragStorageIndex >= 0) {
+          baseWorkingDir = parts.slice(0, ragStorageIndex + 1).join('/');
+        } else {
+          // Fallback: remove last component
+          baseWorkingDir = baseWorkingDir.replace(/\/[^/]+$/, '');
+        }
+      } else {
+        // Fallback: remove last component
+        baseWorkingDir = baseWorkingDir.replace(/\/[^/]+$/, '');
+      }
+      
+      // IMPORTANT: WORKING_DIR should only point to rag_storage directory
+      // LightRAG will append workspace name automatically: working_dir/workspace
+      // So we should NOT include workspace name in WORKING_DIR
+      const newWorkingDir = baseWorkingDir;  // Fixed: Don't append workspace name
+      
+      console.log('[Workspace Switch] Switching to workspace:', workspaceName);
+      console.log('[Workspace Switch] Original WORKING_DIR:', settings['WORKING_DIR']);
+      console.log('[Workspace Switch] Base working dir:', baseWorkingDir);
+      console.log('[Workspace Switch] New working dir (rag_storage only):', newWorkingDir);
+      console.log('[Workspace Switch] LightRAG will create:', `${newWorkingDir}/${workspaceName}`);
+      console.log('[Workspace Switch] Pending settings:', pendingSettingsRef.current);
+      
+      // Build new settings object
+      const newSettings = {
+        ...settings,
+        'WORKSPACE': workspaceName,
+        'WORKING_DIR': newWorkingDir  // Only rag_storage path, no workspace name
+      };
+      
+      // Apply pending settings if any
+      if (Object.keys(pendingSettingsRef.current).length > 0) {
+        console.log('[Workspace Switch] Applying pending settings:', pendingSettingsRef.current);
+        Object.assign(newSettings, pendingSettingsRef.current);
+        // Clear pending settings
+        pendingSettingsRef.current = {};
+      }
+      
+      console.log('[Workspace Switch] Saving settings:', newSettings);
+      
+      // Save all settings to backend
+      const response = await get_ipc_api().lightragApi.saveSettings(newSettings);
+      
+      if (!response.success) {
+        throw new Error('Failed to save settings');
+      }
+      
+      console.log('[Workspace Switch] Settings saved successfully');
+      
+      // Update local state
+      setSettings(newSettings);
+      
+      // Reload workspaces list
+      await loadWorkspaces();
+      
+      // Close all open modals after all operations complete
+      setTimeout(() => {
+        Modal.destroyAll();
+      }, 100);
+      
+      message.success(t('pages.knowledge.lightrag.workspace_switched', { name: workspaceName }));
+      
+      // Reset dimension check state
+      lastCheckedDimRef.current = null;
+      initialLoadRef.current = true;
+      
+    } catch (error) {
+      console.error('[Workspace Switch] Failed to switch workspace:', error);
+      message.error(t('pages.knowledge.lightrag.workspace_switch_failed'));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const readSaved = () => {
     const raw = sessionStorage.getItem(settingsScrollKey);
@@ -238,6 +512,50 @@ const SettingsTab: React.FC = () => {
     initializeSettings();
   }, []);
 
+  // Auto-check dimension conflict when user manually changes dimension
+  useEffect(() => {
+    const checkDimensionChange = async () => {
+      const embeddingDim = settings['EMBEDDING_DIM'];
+      if (!embeddingDim) return;
+      
+      const dimension = parseInt(embeddingDim);
+      if (isNaN(dimension) || dimension <= 0) return;
+      
+      console.log('[DimensionCheck] useEffect triggered:', {
+        dimension,
+        initialLoad: initialLoadRef.current,
+        lastChecked: lastCheckedDimRef.current,
+        workspace: settings['WORKING_DIR']
+      });
+      
+      // Skip initial load
+      if (initialLoadRef.current) {
+        console.log('[DimensionCheck] Skipping initial load, setting initialLoadRef to false');
+        initialLoadRef.current = false;
+        lastCheckedDimRef.current = dimension;
+        return;
+      }
+      
+      // Skip if dimension hasn't changed
+      if (lastCheckedDimRef.current === dimension) {
+        console.log('[DimensionCheck] Dimension unchanged, skipping check');
+        return;
+      }
+      
+      // Update last checked dimension
+      lastCheckedDimRef.current = dimension;
+      
+      console.log('[DimensionCheck] Triggering conflict check from useEffect for dimension:', dimension);
+      // Check for conflict
+      await checkDimensionConflict(dimension);
+    };
+    
+    // Only check if settings are loaded
+    if (Object.keys(settings).length > 0) {
+      checkDimensionChange();
+    }
+  }, [settings['EMBEDDING_DIM'], settings['WORKING_DIR']]);
+
   // Validate and clean up mismatched provider fields after providers are loaded
   useEffect(() => {
     if (llmProviders.length === 0 || embeddingProviders.length === 0) {
@@ -348,8 +666,21 @@ const SettingsTab: React.FC = () => {
              if (currentModel && embeddingProvider.modelMetadata[currentModel]) {
                  const meta = embeddingProvider.modelMetadata[currentModel];
                  if (meta.dimensions && prev['EMBEDDING_DIM'] !== meta.dimensions.toString()) {
-                     updates['EMBEDDING_DIM'] = meta.dimensions.toString();
+                     const newDim = meta.dimensions.toString();
+                     updates['EMBEDDING_DIM'] = newDim;
                      hasChanges = true;
+                     
+                     console.log('[DimensionCheck] Auto-sync detected dimension change:', {
+                       oldDim: prev['EMBEDDING_DIM'],
+                       newDim: newDim,
+                       model: currentModel,
+                       initialLoad: initialLoadRef.current,
+                       lastChecked: lastCheckedDimRef.current
+                     });
+                     
+                     // Don't trigger dimension conflict check here
+                     // It will be triggered by createSettingChangeHandler when provider changes
+                     console.log('[DimensionCheck] Auto-sync dimension change, will be checked by provider change handler');
                  }
                  if (meta.max_tokens && prev['EMBEDDING_TOKEN_LIMIT'] !== meta.max_tokens.toString()) {
                      updates['EMBEDDING_TOKEN_LIMIT'] = meta.max_tokens.toString();
@@ -451,6 +782,21 @@ const SettingsTab: React.FC = () => {
         if (value === 'false') {
           // Disabling default rerank -> Clear provider
           newSettings['RERANK_BINDING'] = 'null';
+        }
+      }
+      
+      // Check dimension conflict when EMBEDDING_DIM changes
+      if (key === 'EMBEDDING_DIM') {
+        const newDim = parseInt(value);
+        if (!isNaN(newDim) && newDim > 0) {
+          // Skip initial load
+          if (!initialLoadRef.current && lastCheckedDimRef.current !== newDim) {
+            lastCheckedDimRef.current = newDim;
+            // Use setTimeout to avoid blocking the state update
+            setTimeout(() => {
+              checkDimensionConflict(newDim);
+            }, 100);
+          }
         }
       }
       
@@ -942,7 +1288,18 @@ const SettingsTab: React.FC = () => {
           if (defaultModel && newProvider.modelMetadata && newProvider.modelMetadata[defaultModel]) {
             const meta = newProvider.modelMetadata[defaultModel];
             if (meta.dimensions) {
+              const newDimension = parseInt(meta.dimensions.toString());
+              const pendingSettings: Record<string, string> = {
+                'EMBEDDING_BINDING': value,
+                'EMBEDDING_MODEL': defaultModel,
+                'EMBEDDING_DIM': meta.dimensions.toString()
+              };
+              if (meta.max_tokens) {
+                pendingSettings['EMBEDDING_TOKEN_LIMIT'] = meta.max_tokens.toString();
+              }
               updateSetting('EMBEDDING_DIM', meta.dimensions.toString());
+              // Check dimension conflict with pending settings
+              checkDimensionConflict(newDimension, pendingSettings);
             }
             if (meta.max_tokens) {
               updateSetting('EMBEDDING_TOKEN_LIMIT', meta.max_tokens.toString());
@@ -958,14 +1315,46 @@ const SettingsTab: React.FC = () => {
           const currentProviderId = settings[bindingKey] || providers[0]?.id;
           const provider = providers.find(p => p.id === currentProviderId);
           
+          console.log('[Model Change] Embedding model changed to:', value);
+          console.log('[Model Change] Current provider ID:', currentProviderId);
+          console.log('[Model Change] Provider found:', provider?.name);
+          console.log('[Model Change] Has modelMetadata:', !!provider?.modelMetadata);
+          console.log('[Model Change] Metadata for this model:', provider?.modelMetadata?.[value]);
+          
           if (provider && provider.modelMetadata && provider.modelMetadata[value]) {
               const meta = provider.modelMetadata[value];
+              console.log('[Model Change] ✅ Found metadata:', meta);
               if (meta.dimensions) {
+                  const newDimension = parseInt(meta.dimensions.toString());
+                  const pendingSettings: Record<string, string> = {
+                    'EMBEDDING_MODEL': value,
+                    'EMBEDDING_DIM': meta.dimensions.toString()
+                  };
+                  if (meta.max_tokens) {
+                    pendingSettings['EMBEDDING_TOKEN_LIMIT'] = meta.max_tokens.toString();
+                  }
+                  console.log('[Model Change] ✅ Updating EMBEDDING_DIM to:', meta.dimensions);
                   updateSetting('EMBEDDING_DIM', meta.dimensions.toString());
+                  // Check dimension conflict with pending settings
+                  checkDimensionConflict(newDimension, pendingSettings);
+              } else {
+                  console.warn('[Model Change] ⚠️ No dimensions in metadata');
               }
               if (meta.max_tokens) {
+                  console.log('[Model Change] ✅ Updating EMBEDDING_TOKEN_LIMIT to:', meta.max_tokens);
                   updateSetting('EMBEDDING_TOKEN_LIMIT', meta.max_tokens.toString());
               }
+          } else {
+              console.warn('[Model Change] ⚠️ No metadata found for model:', value);
+              console.warn('[Model Change] Available metadata keys:', Object.keys(provider?.modelMetadata || {}));
+          }
+      }
+      
+      // Handle direct EMBEDDING_DIM change
+      if (key === 'EMBEDDING_DIM' && value) {
+          const newDimension = parseInt(value);
+          if (!isNaN(newDimension) && newDimension > 0) {
+              checkDimensionConflict(newDimension);
           }
       }
     };
