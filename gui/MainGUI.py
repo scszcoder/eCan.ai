@@ -3642,6 +3642,14 @@ class MainWindow:
             logger.debug("[MainWindow] ✅ IPC registry system ready cache cleared")
         except Exception as e:
             logger.debug(f"[MainWindow] ❌ Error clearing IPC registry cache: {e}")
+        
+        # Reset ContextProvider cache (Desktop mode)
+        try:
+            from gui.ipc.context_bridge import reset_desktop_provider
+            reset_desktop_provider()
+            logger.info("[MainWindow] ✅ Desktop ContextProvider cache reset")
+        except Exception as e:
+            logger.warning(f"[MainWindow] ❌ Error resetting ContextProvider cache: {e}")
 
         # Close database manager and clean up database connections
         try:
