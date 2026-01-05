@@ -5,8 +5,9 @@
 
 import { EditorRenderer, FreeLayoutEditorProvider, useService, WorkflowDocument, WorkflowLinesManager, CommandService, usePlayground } from '@flowgram.ai/free-layout-editor';
 // import { DockedPanelLayer } from '@flowgram.ai/panel-manager-plugin';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import React from 'react';
+import { ChatPanel, FloatingToggleButton, ResizableDivider } from './components/chat-panel';
 
 import '@flowgram.ai/free-layout-editor/index.css';
 import './styles/index.css';
@@ -43,6 +44,25 @@ const EditorContainer = styled.div`
   height: 100%;
 `;
 
+const SplitLayoutContainer = styled.div`
+  display: flex;
+  width: 100%;
+  height: 100%;
+  position: relative;
+`;
+
+const RightPanelContainer = styled.div`
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  position: relative;
+`;
+
+const DEFAULT_CHAT_WIDTH = 360;
+const MIN_CHAT_WIDTH = 280;
+const MAX_CHAT_WIDTH = 600;
+
 export const Editor = () => {
   const emptyData: FlowDocumentJSON = emptyFlowData;
 
@@ -54,6 +74,21 @@ export const Editor = () => {
   // Editor ready state
   const [editorReady, setEditorReady] = React.useState(false);
   const editorReadyRef = useRef(false);
+
+  // Chat panel state
+  const [chatCollapsed, setChatCollapsed] = useState(true);
+  const [chatWidth, setChatWidth] = useState(DEFAULT_CHAT_WIDTH);
+
+  const handleChatToggle = useCallback(() => {
+    setChatCollapsed(prev => !prev);
+  }, []);
+
+  const handleChatResize = useCallback((delta: number) => {
+    setChatWidth(prev => {
+      const newWidth = prev + delta;
+      return Math.max(MIN_CHAT_WIDTH, Math.min(MAX_CHAT_WIDTH, newWidth));
+    });
+  }, []);
 
   useEffect(() => {
     if (editorReadyRef.current) return;
@@ -174,47 +209,73 @@ export const Editor = () => {
     emptySelectionIds
   );
 
+
   return (
     <EditorContainer>
-      <div className="doc-free-feature-overview">
-        <SkillEditorErrorBoundary>
-          <FreeLayoutEditorProvider {...editorProps}>
-            <AnchorProbe />
-            {/* Auto-load recent file on startup (must be inside provider for useClientContext) */}
-            <AutoLoadHandler />
-            {/* Load file from route state if present */}
-            <RouteFileLoader />
-            {/* Sync the active sheet's document with the editor's WorkflowDocument */}
-            <ActiveSheetBinder />
-            {/* Ensure breakpoint-stalled nodes still show visuals when no running node is set */}
-            <BreakpointBinder />
-            <RunningNodeNavigator />
-            <SidebarProvider>
-              <NodeInfoDisplay />
-              <div className="demo-container">
-                {/* Sheets toolbar: tab bar and sheets menu */}
-                <div style={{ display: 'flex', alignItems: 'center', padding: '4px 8px', gap: 8, flexShrink: 0, minHeight: 48 }}>
-                  <SheetsTabBar />
-                  <div style={{ marginLeft: 'auto' }}>
-                    <SheetsMenu />
+      <SplitLayoutContainer>
+        {/* Left side: Collapsible Chat Panel */}
+        <ChatPanel
+          isCollapsed={chatCollapsed}
+          onToggle={handleChatToggle}
+          width={chatWidth}
+        />
+        
+        {/* Resizable divider between chat and editor */}
+        <ResizableDivider
+          onResize={handleChatResize}
+          isVisible={!chatCollapsed}
+        />
+        
+        {/* Right side: Canvas + Console */}
+        <RightPanelContainer>
+          <div className="doc-free-feature-overview">
+            <SkillEditorErrorBoundary>
+              <FreeLayoutEditorProvider {...editorProps}>
+                <AnchorProbe />
+                {/* Auto-load recent file on startup (must be inside provider for useClientContext) */}
+                <AutoLoadHandler />
+                {/* Load file from route state if present */}
+                <RouteFileLoader />
+                {/* Sync the active sheet's document with the editor's WorkflowDocument */}
+                <ActiveSheetBinder />
+                {/* Ensure breakpoint-stalled nodes still show visuals when no running node is set */}
+                <BreakpointBinder />
+                <RunningNodeNavigator />
+                <SidebarProvider>
+                  <NodeInfoDisplay />
+                  <div className="demo-container">
+                    {/* Sheets toolbar: tab bar and sheets menu */}
+                    <div style={{ display: 'flex', alignItems: 'center', padding: '4px 8px', gap: 8, flexShrink: 0, minHeight: 48 }}>
+                      <SheetsTabBar />
+                      <div style={{ marginLeft: 'auto' }}>
+                        <SheetsMenu />
+                      </div>
+                    </div>
+                    
+                    {/* DockedPanelLayer for ProblemPanel etc - needs flex:1 to fill remaining space */}
+                    <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+                      {/* <DockedPanelLayer> */}
+                      <EditorRenderer className="demo-editor">
+                        <FilePathDisplay />
+                      </EditorRenderer>
+                      {/* </DockedPanelLayer> */}
+                    </div>
                   </div>
-                </div>
-                
-                  {/* DockedPanelLayer for ProblemPanel etc - needs flex:1 to fill remaining space */}
-                <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
-                  {/* <DockedPanelLayer> */}
-                    <EditorRenderer className="demo-editor">
-                    <FilePathDisplay />
-                  </EditorRenderer>
-                  {/* </DockedPanelLayer> */}
-                </div>
-              </div>
-              <Tools />
-              <SidebarRenderer />
-            </SidebarProvider>
-          </FreeLayoutEditorProvider>
-        </SkillEditorErrorBoundary>
-      </div>
+                  <Tools />
+                  <SidebarRenderer />
+                </SidebarProvider>
+              </FreeLayoutEditorProvider>
+            </SkillEditorErrorBoundary>
+          </div>
+          
+          {/* Floating toggle button on the left edge of the right panel */}
+          <FloatingToggleButton
+            isCollapsed={chatCollapsed}
+            onClick={handleChatToggle}
+            leftOffset={0}
+          />
+        </RightPanelContainer>
+      </SplitLayoutContainer>
     </EditorContainer>
   );
 };
