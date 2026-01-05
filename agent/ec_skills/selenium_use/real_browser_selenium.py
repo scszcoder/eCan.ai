@@ -24,6 +24,10 @@ except ImportError:
     from agent.mcp.server.ads_power.ads_power import startAdspowerProfile
 
 class LoggingChatOpenAI(ChatOpenAI):
+    def __init__(self, *args, **kwargs):
+        """Initialize with all parent class parameters."""
+        super().__init__(*args, **kwargs)
+    
     def get_client(self):
         client = super().get_client()
         original_create = client.chat.completions.create

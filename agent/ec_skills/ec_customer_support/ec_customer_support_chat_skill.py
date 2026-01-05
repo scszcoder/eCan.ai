@@ -20,7 +20,6 @@ from langmem.short_term import SummarizationNode
 from langchain_core.prompts import ChatPromptTemplate
 
 from prompt_toolkit import prompt
-from scipy.stats import chatterjeexi
 import base64
 from agent.ec_skill import *
 from agent.agent_service import get_agent_by_id

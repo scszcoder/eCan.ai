@@ -10,6 +10,7 @@ import sys
 import os
 import asyncio
 from threading import Lock
+from functools import wraps
 
 from agent.playwright import get_playwright_manager
 from utils.logger_helper import get_traceback
@@ -42,6 +43,10 @@ except ImportError:
 
 
 class LoggingChatOpenAI(ChatOpenAI):
+    def __init__(self, *args, **kwargs):
+        """Initialize with all parent class parameters."""
+        super().__init__(*args, **kwargs)
+    
     def get_client(self):
         client = super().get_client()
         original_create = client.chat.completions.create
