@@ -485,20 +485,23 @@ def _process_with_agent(
 
 def _send_canvas_commands(session_id: str, commands: list) -> None:
     """Send canvas commands to frontend via IPC"""
+    logger.info(f"[SkillEditorChat] _send_canvas_commands called with {len(commands)} commands for session={session_id}")
     try:
         from gui.ipc.api import IPCAPI
         ipc = IPCAPI.get_instance()
         
-        for cmd in commands:
+        for idx, cmd in enumerate(commands):
             cmd_dict = cmd.to_dict() if hasattr(cmd, 'to_dict') else cmd
+            logger.debug(f"[SkillEditorChat] Sending command {idx+1}/{len(commands)}: {cmd_dict.get('type')}")
             ipc.push_skill_editor_canvas_command(
                 session_id=session_id,
                 command_type=cmd_dict.get('type', 'unknown'),
                 payload=cmd_dict.get('payload', {})
             )
             logger.info(f"[SkillEditorChat] Sent canvas command: {cmd_dict.get('type')}")
+        logger.info(f"[SkillEditorChat] All {len(commands)} canvas commands sent successfully")
     except Exception as e:
-        logger.error(f"[SkillEditorChat] Failed to send canvas commands: {e}")
+        logger.error(f"[SkillEditorChat] Failed to send canvas commands: {e}\n{traceback.format_exc()}")
 
 
 def _process_fallback(
@@ -506,12 +509,15 @@ def _process_fallback(
     canvas_context: Optional[Dict[str, Any]]
 ) -> str:
     """Fallback processing with basic pattern matching (no LLM)"""
+    logger.info(f"[SkillEditorChat] _process_fallback called - using pattern matching (no LLM)")
     content = message.content.lower()
     
     if "hello" in content or "hi" in content:
+        logger.debug("[SkillEditorChat] Fallback matched: greeting")
         return "Hello! I'm your AI assistant for building workflows. Describe what you'd like to create, and I'll help you build it step by step."
     
     if "create" in content or "build" in content or "make" in content:
+        logger.debug("[SkillEditorChat] Fallback matched: create/build/make")
         return (
             "I understand you want to create a workflow. To help you better, could you describe:\n\n"
             "1. **What is the main goal** of this workflow?\n"
@@ -521,6 +527,7 @@ def _process_fallback(
         )
     
     if "node" in content or "add" in content:
+        logger.debug("[SkillEditorChat] Fallback matched: node/add")
         return (
             "I can help you add nodes to your workflow. Available node types include:\n\n"
             "- **LLM Node**: For AI/language model processing\n"
@@ -534,11 +541,13 @@ def _process_fallback(
     if canvas_context:
         node_count = len(canvas_context.get("nodes", []))
         edge_count = len(canvas_context.get("edges", []))
+        logger.debug(f"[SkillEditorChat] Fallback matched: canvas context ({node_count} nodes, {edge_count} edges)")
         return (
             f"I can see your current workflow has **{node_count} nodes** and **{edge_count} connections**. "
             "What would you like to modify or add?"
         )
     
+    logger.debug("[SkillEditorChat] Fallback matched: default response")
     return (
         "I'm here to help you build and edit workflows through conversation. "
         "You can ask me to:\n\n"
