@@ -142,6 +142,15 @@ def fetch_ollama_models(host: str, username: str = None) -> tuple:
                     'digest': model.get('digest', ''),
                     'details': model.get('details', {})
                 }
+                
+                # Extract embedding_dim and context_length directly from /api/tags
+                if model.get('embedding_dim'):
+                    model_info['embedding_dim'] = model.get('embedding_dim')
+                if model.get('context_length'):
+                    model_info['context_length'] = model.get('context_length')
+                if model.get('max_tokens'):
+                    model_info['max_tokens'] = model.get('max_tokens')
+                
                 model_list.append(model_info)
                 model_names.append(model_name)
         
@@ -156,14 +165,15 @@ def fetch_ollama_models(host: str, username: str = None) -> tuple:
                     timeout=5
                 )
                 
+                embedding_dim = None
+                context_length = None
+                model_info_data = {}
+                
                 if show_response.status_code == 200:
                     show_data = show_response.json()
                     model_info_data = show_data.get('model_info', {})
                     
                     # Extract useful information from model_info
-                    embedding_dim = None
-                    context_length = None
-                    
                     for key, value in model_info_data.items():
                         # Find embedding dimension
                         if 'embedding' in key.lower() and ('length' in key.lower() or 'dim' in key.lower()):
@@ -171,10 +181,26 @@ def fetch_ollama_models(host: str, username: str = None) -> tuple:
                         # Find context length
                         elif 'context' in key.lower() and 'length' in key.lower():
                             context_length = value
-                    
-                    return model_name, embedding_dim, context_length, model_info_data
                 
-                return model_name, None, None, {}
+                # If /api/show didn't return embedding_dim, try to detect it by calling /api/embeddings
+                # This is useful for OpenAI-compatible servers that don't support /api/show
+                if embedding_dim is None and 'embed' in model_name.lower():
+                    try:
+                        embed_url = f"{host}/api/embeddings"
+                        embed_response = requests.post(
+                            embed_url,
+                            json={"model": model_name, "prompt": "test"},
+                            timeout=5
+                        )
+                        if embed_response.status_code == 200:
+                            embed_data = embed_response.json()
+                            if 'embedding' in embed_data:
+                                embedding_dim = len(embed_data['embedding'])
+                                logger.info(f"[Ollama] Detected embedding dimension for {model_name}: {embedding_dim}")
+                    except Exception as e:
+                        logger.debug(f"[Ollama] Failed to detect embedding dimension for {model_name}: {e}")
+                
+                return model_name, embedding_dim, context_length, model_info_data
             except Exception as e:
                 logger.debug(f"[Ollama] Failed to get detailed info for {model_name}: {e}")
                 return model_name, None, None, {}
@@ -287,8 +313,15 @@ def merge_ollama_models_to_dict_provider(provider: Dict[str, Any], ollama_tags: 
                 new_model['size'] = model.get('size')
             if model.get('embedding_dim'):
                 new_model['embedding_dim'] = model.get('embedding_dim')
+                new_model['dimensions'] = model.get('embedding_dim')  # Map to 'dimensions' for frontend
             if model.get('context_length'):
                 new_model['context_length'] = model.get('context_length')
+                new_model['max_tokens'] = model.get('context_length')
+            elif model.get('max_tokens'):
+                new_model['max_tokens'] = model.get('max_tokens')
+            elif model.get('embedding_dim'):
+                # For embedding models without context_length, use a reasonable default
+                new_model['max_tokens'] = 8192
             if model.get('modified_at'):
                 new_model['modified_at'] = model.get('modified_at')
             
