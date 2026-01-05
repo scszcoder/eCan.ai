@@ -14,8 +14,9 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
 from xml.etree import ElementTree as ET
@@ -37,9 +38,170 @@ except ImportError:
     sys.exit(1)
 
 
+def get_git_commits_since_days(days: int = 5, version: str = None) -> List[Dict[str, str]]:
+    """
+    Get Git commit history from the last N days
+    
+    Args:
+        days: Number of days to look back (default: 5)
+        version: Version tag to use as reference point (optional)
+    
+    Returns:
+        List of commit dictionaries with 'hash', 'date', 'author', 'message'
+    """
+    try:
+        # Calculate date threshold
+        since_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+        
+        # Build git log command
+        # Format: hash|date|author|message
+        cmd = [
+            'git', 'log',
+            f'--since="{since_date}"',
+            '--pretty=format:%h|%ad|%an|%s',
+            '--date=short',
+            '--no-merges'  # Skip merge commits
+        ]
+        
+        # If version tag exists, get commits since previous tag
+        if version:
+            try:
+                # Try to find previous tag
+                prev_tag_cmd = ['git', 'describe', '--tags', '--abbrev=0', f'v{version}^']
+                result = subprocess.run(prev_tag_cmd, capture_output=True, text=True, cwd=project_root)
+                if result.returncode == 0:
+                    prev_tag = result.stdout.strip()
+                    cmd = [
+                        'git', 'log',
+                        f'{prev_tag}..v{version}',
+                        '--pretty=format:%h|%ad|%an|%s',
+                        '--date=short',
+                        '--no-merges'
+                    ]
+            except:
+                pass  # Fall back to date-based filtering
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=project_root)
+        
+        if result.returncode != 0:
+            return []
+        
+        commits = []
+        for line in result.stdout.strip().split('\n'):
+            if not line:
+                continue
+            parts = line.split('|', 3)
+            if len(parts) == 4:
+                commits.append({
+                    'hash': parts[0],
+                    'date': parts[1],
+                    'author': parts[2],
+                    'message': parts[3]
+                })
+        
+        return commits
+    
+    except Exception as e:
+        print(f"[WARN] Failed to get Git commits: {e}")
+        return []
+
+
+def generate_changelog_from_commits(version: str, commits: List[Dict[str, str]], language: str = 'en-US') -> str:
+    """
+    Generate CHANGELOG-style HTML from Git commits
+    
+    Args:
+        version: Version number
+        commits: List of commit dictionaries
+        language: Language code
+    
+    Returns:
+        HTML formatted changelog
+    """
+    if not commits:
+        if language == 'zh-CN':
+            return f"<h2>eCan.ai {version}</h2><p>暂无更新说明。</p>"
+        else:
+            return f"<h2>eCan.ai {version}</h2><p>Release notes not available.</p>"
+    
+    # Categorize commits by type (conventional commits)
+    categorized = {
+        'feat': [],
+        'fix': [],
+        'docs': [],
+        'style': [],
+        'refactor': [],
+        'perf': [],
+        'test': [],
+        'chore': [],
+        'other': []
+    }
+    
+    for commit in commits:
+        msg = commit['message']
+        # Extract commit type (e.g., "feat:", "fix:")
+        type_match = re.match(r'^(\w+)(?:\([^)]+\))?:\s*(.+)', msg)
+        if type_match:
+            commit_type = type_match.group(1).lower()
+            commit_msg = type_match.group(2)
+        else:
+            commit_type = 'other'
+            commit_msg = msg
+        
+        if commit_type in categorized:
+            categorized[commit_type].append(commit_msg)
+        else:
+            categorized['other'].append(commit_msg)
+    
+    # Build HTML
+    html_parts = [f"<h2>eCan.ai {version}</h2>"]
+    
+    # Add auto-generated notice
+    if language == 'zh-CN':
+        html_parts.append('<p style="color: #666; font-style: italic;">📝 以下内容由最近 Git 提交自动生成</p>')
+    else:
+        html_parts.append('<p style="color: #666; font-style: italic;">📝 Auto-generated from recent Git commits</p>')
+    
+    # Category labels
+    category_labels = {
+        'en-US': {
+            'feat': 'Added',
+            'fix': 'Fixed',
+            'docs': 'Documentation',
+            'refactor': 'Refactored',
+            'perf': 'Performance',
+            'other': 'Other Changes'
+        },
+        'zh-CN': {
+            'feat': '新增功能',
+            'fix': '问题修复',
+            'docs': '文档更新',
+            'refactor': '代码重构',
+            'perf': '性能优化',
+            'other': '其他变更'
+        }
+    }
+    
+    labels = category_labels.get(language, category_labels['en-US'])
+    
+    # Add categorized commits
+    for category in ['feat', 'fix', 'docs', 'refactor', 'perf', 'other']:
+        items = categorized[category]
+        if items:
+            label = labels.get(category, category.title())
+            html_parts.append(f'<h3>{label}</h3>')
+            html_parts.append('<ul>')
+            for item in items:
+                html_parts.append(f'  <li>{item}</li>')
+            html_parts.append('</ul>')
+    
+    return '\n'.join(html_parts)
+
+
 def get_release_notes_from_changelog(version: str, changelog_path: Optional[Path] = None, language: str = 'en-US') -> str:
     """
     Read release notes from CHANGELOG.md for specified version (with i18n support)
+    Falls back to auto-generating from Git commits if version not found
     
     Args:
         version: Version number (e.g., "1.0.1", "1.0.0-sim", "1.0.0-gui-v2-eefbe438")
@@ -62,42 +224,57 @@ def get_release_notes_from_changelog(version: str, changelog_path: Optional[Path
             changelog_path = project_root / "CHANGELOG.md"
     
     try:
-        if not changelog_path.exists():
-            return f"<h2>eCan.ai {version}</h2><p>Release notes not available.</p>"
-        
-        with open(changelog_path, 'r', encoding='utf-8') as f:
-            content = f.read()
-        
         # Extract base version number (remove suffixes like -sim, -gui-v2-eefbe438)
-        # Examples:
-        #   1.0.0 → 1.0.0
-        #   1.0.0-sim → 1.0.0
-        #   1.0.0-gui-v2-eefbe438 → 1.0.0
         base_version_match = re.match(r'(\d+\.\d+\.\d+)', version)
         if base_version_match:
             base_version = base_version_match.group(1)
         else:
             base_version = version
         
-        # Parse Markdown and extract content for the base version
-        # Match format: ## [1.0.1] - 2025-11-21
-        pattern = rf'## \[{re.escape(base_version)}\].*?\n(.*?)(?=\n## \[|\Z)'
-        match = re.search(pattern, content, re.DOTALL)
+        # Try to read from CHANGELOG.md first
+        if changelog_path.exists():
+            with open(changelog_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Parse Markdown and extract content for the base version
+            # Match format: ## [1.0.1] - 2025-11-21
+            pattern = rf'## \[{re.escape(base_version)}\].*?\n(.*?)(?=\n## \[|\Z)'
+            match = re.search(pattern, content, re.DOTALL)
+            
+            if match:
+                notes_markdown = match.group(1).strip()
+                html = markdown_to_html(notes_markdown)
+                return f"<h2>eCan.ai {version}</h2>{html}"
         
-        if not match:
-            return f"<h2>eCan.ai {version}</h2><p>Release notes not available.</p>"
+        # CHANGELOG not found or version not in CHANGELOG
+        # Fall back to auto-generating from Git commits
+        print(f"[INFO] Version {base_version} not found in CHANGELOG, auto-generating from Git commits...")
+        commits = get_git_commits_since_days(days=5, version=base_version)
         
-        notes_markdown = match.group(1).strip()
-        
-        # Simple Markdown to HTML conversion
-        html = markdown_to_html(notes_markdown)
-        
-        # Display full version in title, but use base version's changelog
-        return f"<h2>eCan.ai {version}</h2>{html}"
+        if commits:
+            print(f"[INFO] Found {len(commits)} commits in the last 5 days")
+            return generate_changelog_from_commits(version, commits, language)
+        else:
+            print(f"[WARN] No Git commits found for auto-generation")
+            if language == 'zh-CN':
+                return f"<h2>eCan.ai {version}</h2><p>暂无更新说明。</p>"
+            else:
+                return f"<h2>eCan.ai {version}</h2><p>Release notes not available.</p>"
     
     except Exception as e:
         print(f"[WARN] Could not read release notes from CHANGELOG: {e}")
-        return f"<h2>eCan.ai {version}</h2><p>Release notes not available.</p>"
+        # Try Git fallback even on error
+        try:
+            commits = get_git_commits_since_days(days=5)
+            if commits:
+                return generate_changelog_from_commits(version, commits, language)
+        except:
+            pass
+        
+        if language == 'zh-CN':
+            return f"<h2>eCan.ai {version}</h2><p>暂无更新说明。</p>"
+        else:
+            return f"<h2>eCan.ai {version}</h2><p>Release notes not available.</p>"
 
 
 def markdown_to_html(markdown_text: str) -> str:
