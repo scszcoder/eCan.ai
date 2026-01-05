@@ -3,14 +3,18 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Input, Button, Tooltip, Upload } from 'antd';
+import { Input, Tooltip, Upload } from 'antd';
 import {
   SendOutlined,
   AudioOutlined,
   PaperClipOutlined,
-  RobotOutlined,
+  DownOutlined,
+  UpOutlined,
+  PlusOutlined,
+  HistoryOutlined,
 } from '@ant-design/icons';
 import styled from 'styled-components';
+import { CuteRobotIcon } from './CuteRobotIcon';
 
 const { TextArea } = Input;
 
@@ -20,6 +24,14 @@ interface ChatMessage {
   content: string;
   timestamp: Date;
   attachments?: string[];
+}
+
+interface ChatSession {
+  id: string;
+  topic: string;
+  messages: ChatMessage[];
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 interface ChatPanelProps {
@@ -45,6 +57,7 @@ const PanelContainer = styled.div<{ $width: number; $collapsed: boolean }>`
 const ChatHeader = styled.div`
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 12px 16px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.2);
   background: rgba(30, 41, 59, 0.8);
@@ -57,6 +70,115 @@ const HeaderTitle = styled.span`
   display: flex;
   align-items: center;
   gap: 8px;
+`;
+
+const HeaderActions = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 4px;
+`;
+
+const HeaderButton = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(148, 163, 184, 0.8);
+  cursor: pointer;
+  border-radius: 4px;
+  
+  .anticon {
+    font-size: 12px;
+  }
+  
+  &:hover {
+    color: #3b82f6;
+    background: rgba(59, 130, 246, 0.1);
+  }
+`;
+
+const SessionHistoryContainer = styled.div<{ $expanded: boolean }>`
+  display: flex;
+  flex-direction: column;
+  max-height: ${props => props.$expanded ? '200px' : '0px'};
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+  border-bottom: ${props => props.$expanded ? '1px solid rgba(148, 163, 184, 0.2)' : 'none'};
+`;
+
+const SessionHistoryHeader = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: rgba(30, 41, 59, 0.6);
+  cursor: pointer;
+  
+  &:hover {
+    background: rgba(30, 41, 59, 0.8);
+  }
+`;
+
+const SessionHistoryTitle = styled.span`
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(148, 163, 184, 0.8);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  
+  .anticon {
+    font-size: 11px;
+  }
+`;
+
+const SessionList = styled.div`
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 8px;
+  background: rgba(15, 23, 42, 0.5);
+`;
+
+const SessionItem = styled.div<{ $active: boolean }>`
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  margin: 2px 0;
+  border-radius: 6px;
+  cursor: pointer;
+  background: ${props => props.$active ? 'rgba(59, 130, 246, 0.2)' : 'transparent'};
+  border: 1px solid ${props => props.$active ? 'rgba(59, 130, 246, 0.4)' : 'transparent'};
+  
+  &:hover {
+    background: ${props => props.$active ? 'rgba(59, 130, 246, 0.2)' : 'rgba(51, 65, 85, 0.5)'};
+  }
+`;
+
+const SessionTopic = styled.span`
+  font-size: 12px;
+  color: #e2e8f0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+
+const SessionDate = styled.span`
+  font-size: 10px;
+  color: rgba(148, 163, 184, 0.6);
+  margin-left: 8px;
+  flex-shrink: 0;
+`;
+
+const ChatContentArea = styled.div`
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 `;
 
 const ChatThread = styled.div`
@@ -111,41 +233,59 @@ const InputRow = styled.div`
 
 const ActionButtons = styled.div`
   display: flex;
-  gap: 4px;
+  align-items: center;
+  gap: 2px;
 `;
 
-const IconButton = styled(Button)`
-  &.ant-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: rgba(148, 163, 184, 0.8);
-    
-    &:hover {
-      color: #3b82f6;
-      background: rgba(59, 130, 246, 0.1);
-    }
+const IconButton = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(148, 163, 184, 0.8);
+  cursor: pointer;
+  border-radius: 2px;
+  
+  .anticon {
+    font-size: 10px;
+    line-height: 1;
+  }
+  
+  &:hover {
+    color: #3b82f6;
+    background: rgba(59, 130, 246, 0.1);
   }
 `;
 
-const SendButton = styled(Button)`
-  &.ant-btn {
-    height: 32px;
-    background: #3b82f6;
-    border: none;
-    
-    &:hover {
-      background: #2563eb;
-    }
-    
-    &:disabled {
-      background: rgba(59, 130, 246, 0.4);
-    }
+const SendButton = styled.button`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: #3b82f6;
+  color: white;
+  cursor: pointer;
+  border-radius: 2px;
+  
+  .anticon {
+    font-size: 10px;
+    line-height: 1;
+  }
+  
+  &:hover {
+    background: #2563eb;
+  }
+  
+  &:disabled {
+    background: rgba(59, 130, 246, 0.4);
+    cursor: not-allowed;
   }
 `;
 
@@ -166,11 +306,40 @@ const EmptyState = styled.div`
   }
 `;
 
+// Helper to generate topic from first message
+const generateTopic = (messages: ChatMessage[]): string => {
+  if (messages.length === 0) return 'New Chat';
+  const firstUserMsg = messages.find(m => m.role === 'user');
+  if (!firstUserMsg) return 'New Chat';
+  const content = firstUserMsg.content;
+  return content.length > 30 ? content.substring(0, 30) + '...' : content;
+};
+
+// Helper to format date
+const formatSessionDate = (date: Date): string => {
+  const now = new Date();
+  const diff = now.getTime() - date.getTime();
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return `${days}d ago`;
+  return date.toLocaleDateString();
+};
+
 export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
+  // Session management state
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  
+  // Current chat state
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const chatThreadRef = useRef<HTMLDivElement>(null);
+
+  // Get active session
+  const activeSession = sessions.find(s => s.id === activeSessionId);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -178,6 +347,39 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
       chatThreadRef.current.scrollTop = chatThreadRef.current.scrollHeight;
     }
   }, [messages]);
+
+  // Sync messages with active session
+  useEffect(() => {
+    if (activeSession) {
+      setMessages(activeSession.messages);
+    } else {
+      setMessages([]);
+    }
+  }, [activeSessionId]);
+
+  // Create new session
+  const handleNewSession = useCallback(() => {
+    const newSession: ChatSession = {
+      id: `session-${Date.now()}`,
+      topic: 'New Chat',
+      messages: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    setSessions(prev => [newSession, ...prev]);
+    setActiveSessionId(newSession.id);
+    setMessages([]);
+  }, []);
+
+  // Select session
+  const handleSelectSession = useCallback((sessionId: string) => {
+    setActiveSessionId(sessionId);
+  }, []);
+
+  // Toggle history panel
+  const handleToggleHistory = useCallback(() => {
+    setHistoryExpanded(prev => !prev);
+  }, []);
 
   const handleSend = useCallback(() => {
     if (!inputValue.trim()) return;
@@ -189,8 +391,39 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
       timestamp: new Date(),
     };
 
-    setMessages(prev => [...prev, newMessage]);
+    // If no active session, create one
+    let currentSessionId = activeSessionId;
+    if (!currentSessionId) {
+      const newSession: ChatSession = {
+        id: `session-${Date.now()}`,
+        topic: 'New Chat',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      setSessions(prev => [newSession, ...prev]);
+      currentSessionId = newSession.id;
+      setActiveSessionId(currentSessionId);
+    }
+
+    // Update messages locally
+    const updatedMessages = [...messages, newMessage];
+    setMessages(updatedMessages);
     setInputValue('');
+
+    // Update session in sessions list
+    setSessions(prev => prev.map(s => {
+      if (s.id === currentSessionId) {
+        const newMessages = [...s.messages, newMessage];
+        return {
+          ...s,
+          messages: newMessages,
+          topic: generateTopic(newMessages),
+          updatedAt: new Date(),
+        };
+      }
+      return s;
+    }));
 
     // TODO: Send to backend and handle response
     // For now, simulate an assistant response
@@ -201,9 +434,21 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
         content: 'I received your message. This is a placeholder response. The chat functionality will be connected to the backend soon.',
         timestamp: new Date(),
       };
+      
       setMessages(prev => [...prev, assistantMessage]);
+      
+      setSessions(prev => prev.map(s => {
+        if (s.id === currentSessionId) {
+          return {
+            ...s,
+            messages: [...s.messages, assistantMessage],
+            updatedAt: new Date(),
+          };
+        }
+        return s;
+      }));
     }, 1000);
-  }, [inputValue]);
+  }, [inputValue, activeSessionId, messages]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -235,36 +480,97 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
     <PanelContainer $width={width} $collapsed={false}>
       <ChatHeader>
         <HeaderTitle>
-          <RobotOutlined />
+          <CuteRobotIcon size={18} />
           AI Assistant
         </HeaderTitle>
+        <HeaderActions>
+          <Tooltip title="New chat">
+            <HeaderButton onClick={handleNewSession}>
+              <PlusOutlined />
+            </HeaderButton>
+          </Tooltip>
+          <Tooltip title={historyExpanded ? 'Hide history' : 'Show history'}>
+            <HeaderButton onClick={handleToggleHistory}>
+              <HistoryOutlined />
+            </HeaderButton>
+          </Tooltip>
+        </HeaderActions>
       </ChatHeader>
 
-      <ChatThread ref={chatThreadRef}>
-        {messages.length === 0 ? (
-          <EmptyState>
-            <RobotOutlined />
-            <div>Start a conversation</div>
-            <div style={{ fontSize: 12, marginTop: 4 }}>
-              Ask questions about your workflow or get help building nodes
+      {/* Collapsible Session History Panel */}
+      <SessionHistoryContainer $expanded={historyExpanded}>
+        <SessionHistoryHeader onClick={handleToggleHistory}>
+          <SessionHistoryTitle>
+            <HistoryOutlined />
+            Chat History ({sessions.length})
+          </SessionHistoryTitle>
+          {historyExpanded ? <UpOutlined style={{ fontSize: 10, color: 'rgba(148, 163, 184, 0.6)' }} /> : <DownOutlined style={{ fontSize: 10, color: 'rgba(148, 163, 184, 0.6)' }} />}
+        </SessionHistoryHeader>
+        <SessionList>
+          {sessions.length === 0 ? (
+            <div style={{ padding: '12px', textAlign: 'center', color: 'rgba(148, 163, 184, 0.5)', fontSize: 11 }}>
+              No chat history yet
             </div>
-          </EmptyState>
-        ) : (
-          messages.map(msg => (
-            <MessageBubble key={msg.id} $isUser={msg.role === 'user'}>
-              <MessageContent $isUser={msg.role === 'user'}>
-                {msg.content}
-              </MessageContent>
-              <MessageMeta>
-                {msg.role === 'user' ? 'You' : 'Assistant'} • {formatTime(msg.timestamp)}
-              </MessageMeta>
-            </MessageBubble>
-          ))
-        )}
-      </ChatThread>
+          ) : (
+            sessions.map(session => (
+              <SessionItem
+                key={session.id}
+                $active={session.id === activeSessionId}
+                onClick={() => handleSelectSession(session.id)}
+              >
+                <SessionTopic>{session.topic}</SessionTopic>
+                <SessionDate>{formatSessionDate(session.updatedAt)}</SessionDate>
+              </SessionItem>
+            ))
+          )}
+        </SessionList>
+      </SessionHistoryContainer>
+
+      {/* Chat Content Area */}
+      <ChatContentArea>
+        <ChatThread ref={chatThreadRef}>
+          {messages.length === 0 ? (
+            <EmptyState>
+              <CuteRobotIcon size={48} />
+              <div>Start a conversation</div>
+              <div style={{ fontSize: 12, marginTop: 4 }}>
+                Ask questions about your workflow or get help building nodes
+              </div>
+            </EmptyState>
+          ) : (
+            messages.map(msg => (
+              <MessageBubble key={msg.id} $isUser={msg.role === 'user'}>
+                <MessageContent $isUser={msg.role === 'user'}>
+                  {msg.content}
+                </MessageContent>
+                <MessageMeta>
+                  {msg.role === 'user' ? 'You' : 'Assistant'} • {formatTime(msg.timestamp)}
+                </MessageMeta>
+              </MessageBubble>
+            ))
+          )}
+        </ChatThread>
 
       <InputContainer>
         <InputWrapper>
+          <ActionButtons>
+            <Tooltip title="Voice input">
+              <IconButton onClick={handleVoiceInput}>
+                <AudioOutlined style={{ color: isRecording ? '#ef4444' : undefined }} />
+              </IconButton>
+            </Tooltip>
+            <Upload
+              showUploadList={false}
+              beforeUpload={() => false}
+              onChange={handleFileUpload}
+            >
+              <Tooltip title="Attach file">
+                <IconButton>
+                  <PaperClipOutlined />
+                </IconButton>
+              </Tooltip>
+            </Upload>
+          </ActionButtons>
           <InputRow>
             <TextArea
               value={inputValue}
@@ -282,31 +588,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
               }}
             />
             <SendButton
-              type="primary"
-              icon={<SendOutlined />}
               onClick={handleSend}
               disabled={!inputValue.trim()}
-            />
-          </InputRow>
-          <ActionButtons>
-            <Tooltip title="Voice input">
-              <IconButton
-                icon={<AudioOutlined style={{ color: isRecording ? '#ef4444' : undefined }} />}
-                onClick={handleVoiceInput}
-              />
-            </Tooltip>
-            <Upload
-              showUploadList={false}
-              beforeUpload={() => false}
-              onChange={handleFileUpload}
             >
-              <Tooltip title="Attach file">
-                <IconButton icon={<PaperClipOutlined />} />
-              </Tooltip>
-            </Upload>
-          </ActionButtons>
+              <SendOutlined />
+            </SendButton>
+          </InputRow>
         </InputWrapper>
       </InputContainer>
+      </ChatContentArea>
     </PanelContainer>
   );
 };
