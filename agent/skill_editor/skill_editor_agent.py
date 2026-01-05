@@ -316,6 +316,7 @@ class SkillEditorAgent:
         Returns:
             Classified intent type
         """
+        logger.debug(f"[SkillEditorAgent] Classifying intent for message: {message[:50]}...")
         try:
             prompt = INTENT_CLASSIFICATION_PROMPT.format(
                 user_message=message,
@@ -323,8 +324,10 @@ class SkillEditorAgent:
             )
             
             # Use LLM to classify intent
+            logger.debug("[SkillEditorAgent] Invoking LLM for intent classification")
             response = await self._invoke_llm_async(prompt)
             intent_str = response.strip().lower()
+            logger.debug(f"[SkillEditorAgent] LLM returned intent: {intent_str}")
             
             # Map to IntentType
             intent_map = {
@@ -347,41 +350,57 @@ class SkillEditorAgent:
     
     async def _invoke_llm_async(self, prompt: str) -> str:
         """Invoke LLM asynchronously"""
+        logger.debug(f"[SkillEditorAgent] _invoke_llm_async called, prompt length: {len(prompt)}")
         try:
             # Try async invoke first
             if hasattr(self.llm, 'ainvoke'):
+                logger.debug("[SkillEditorAgent] Using async LLM invocation (ainvoke)")
                 response = await self.llm.ainvoke(prompt)
-                return response.content if hasattr(response, 'content') else str(response)
+                result = response.content if hasattr(response, 'content') else str(response)
+                logger.debug(f"[SkillEditorAgent] LLM response length: {len(result)}")
+                return result
             else:
                 # Fallback to sync
+                logger.debug("[SkillEditorAgent] Falling back to sync LLM invocation")
                 from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
                 response = self.llm.invoke(prompt)
-                return response.content if hasattr(response, 'content') else str(response)
+                result = response.content if hasattr(response, 'content') else str(response)
+                logger.debug(f"[SkillEditorAgent] LLM response length: {len(result)}")
+                return result
         except Exception as e:
             logger.error(f"[SkillEditorAgent] LLM invocation failed: {e}")
             raise
     
     async def _stream_llm_async(self, prompt: str):
         """Stream LLM response asynchronously, yielding chunks"""
+        logger.debug(f"[SkillEditorAgent] _stream_llm_async called, prompt length: {len(prompt)}")
+        chunk_count = 0
         try:
             # Try async streaming first
             if hasattr(self.llm, 'astream'):
+                logger.debug("[SkillEditorAgent] Using async LLM streaming (astream)")
                 async for chunk in self.llm.astream(prompt):
                     content = chunk.content if hasattr(chunk, 'content') else str(chunk)
                     if content:
+                        chunk_count += 1
                         yield content
+                logger.debug(f"[SkillEditorAgent] Streaming complete, yielded {chunk_count} chunks")
             elif hasattr(self.llm, 'stream'):
                 # Fallback to sync streaming
+                logger.debug("[SkillEditorAgent] Falling back to sync LLM streaming")
                 for chunk in self.llm.stream(prompt):
                     content = chunk.content if hasattr(chunk, 'content') else str(chunk)
                     if content:
+                        chunk_count += 1
                         yield content
+                logger.debug(f"[SkillEditorAgent] Streaming complete, yielded {chunk_count} chunks")
             else:
                 # No streaming support, yield full response
+                logger.warning("[SkillEditorAgent] LLM does not support streaming, falling back to full response")
                 response = await self._invoke_llm_async(prompt)
                 yield response
         except Exception as e:
-            logger.error(f"[SkillEditorAgent] LLM streaming failed: {e}")
+            logger.error(f"[SkillEditorAgent] LLM streaming failed after {chunk_count} chunks: {e}")
             raise
     
     def _invoke_llm_sync(self, prompt: str) -> str:
@@ -395,18 +414,24 @@ class SkillEditorAgent:
     
     def _extract_flowgram_from_response(self, response: str) -> Optional[Dict]:
         """Extract flowgram JSON from LLM response"""
+        logger.debug(f"[SkillEditorAgent] Extracting flowgram from response (length: {len(response)})")
         try:
             # Look for JSON block in response
             import re
             json_match = re.search(r'```json\s*([\s\S]*?)\s*```', response)
             if json_match:
-                return json.loads(json_match.group(1))
+                flowgram = json.loads(json_match.group(1))
+                logger.info(f"[SkillEditorAgent] Extracted flowgram from JSON block: {len(flowgram.get('nodes', []))} nodes, {len(flowgram.get('edges', []))} edges")
+                return flowgram
             
             # Try to find raw JSON
             json_match = re.search(r'\{[\s\S]*"nodes"[\s\S]*\}', response)
             if json_match:
-                return json.loads(json_match.group(0))
+                flowgram = json.loads(json_match.group(0))
+                logger.info(f"[SkillEditorAgent] Extracted flowgram from raw JSON: {len(flowgram.get('nodes', []))} nodes, {len(flowgram.get('edges', []))} edges")
+                return flowgram
             
+            logger.debug("[SkillEditorAgent] No flowgram JSON found in response")
             return None
         except json.JSONDecodeError as e:
             logger.warning(f"[SkillEditorAgent] Failed to parse flowgram JSON: {e}")
@@ -414,6 +439,7 @@ class SkillEditorAgent:
     
     def _generate_canvas_commands(self, flowgram: Dict) -> List[CanvasCommand]:
         """Generate canvas commands from a flowgram structure"""
+        logger.debug(f"[SkillEditorAgent] Generating canvas commands from flowgram")
         commands = []
         
         # Add nodes
@@ -671,6 +697,7 @@ def get_skill_editor_agent() -> SkillEditorAgent:
     """Get or create the singleton skill editor agent instance"""
     global _agent_instance
     if _agent_instance is None:
+        logger.info("[SkillEditorAgent] Creating new singleton instance")
         _agent_instance = SkillEditorAgent()
     return _agent_instance
 
@@ -678,6 +705,7 @@ def get_skill_editor_agent() -> SkillEditorAgent:
 def reset_skill_editor_agent():
     """Reset the singleton instance (useful for testing)"""
     global _agent_instance
+    logger.info("[SkillEditorAgent] Resetting singleton instance")
     if _agent_instance:
         _agent_instance.clear_history()
     _agent_instance = None
