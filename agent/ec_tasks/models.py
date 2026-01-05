@@ -16,7 +16,7 @@ from typing import Any, Callable, ClassVar, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from agent.a2a.common.types import Task, TaskState, Message, TextPart
+from a2a.types import Task, TaskState, Message, TextPart
 
 
 # ==================== Utility Functions ====================

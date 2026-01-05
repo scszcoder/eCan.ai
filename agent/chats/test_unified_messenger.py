@@ -40,7 +40,8 @@ logger = SimpleLogger()
 # Try to import real types, fall back to mocks if dependencies missing
 _MOCK_MODE = False
 try:
-    from agent.a2a.common.types import Message, TextPart, FilePart, DataPart, FileContent, TaskSendParams
+    from a2a.types import Message, TextPart, FilePart, DataPart, MessageSendParams
+    from agent.a2a.langgraph_agent.utils import FileContent
 except ImportError as e:
     print(f"[WARN] Running in MOCK MODE (missing dependency: {e})")
     _MOCK_MODE = True

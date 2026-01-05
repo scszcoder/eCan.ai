@@ -13,9 +13,11 @@ def prep_search_parts_chatter_skill(agent, task_id, msg, current_state=None):
         attachments = []
         msg_txt = ""
         for part in msg_parts:
-            if part.type == "text":
+            # New a2a-sdk uses 'kind' instead of 'type'
+                    part_type = getattr(part, 'kind', None) or getattr(part, 'type', None)
+                    if part_type == "text":
                 msg_txt = part.text
-            elif part.type == "file":
+            elif part_type == "file":
                 attachments.append({"filename": part.file.name, "file_url": part.file.uri, "mime_type": part.file.mimeType,
                                     "file_data": part.file.bytes})
 

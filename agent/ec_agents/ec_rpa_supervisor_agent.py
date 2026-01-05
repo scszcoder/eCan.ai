@@ -1,6 +1,6 @@
 from agent.ec_agent import EC_Agent
-from agent.a2a.common.types import AgentCard, AgentCapabilities
-from agent.a2a.langgraph_agent.agent import ECRPAHelperAgent
+from a2a.types import AgentCapabilities
+from agent.a2a.langgraph_agent.utils import SUPPORTED_CONTENT_TYPES, AgentCard
 from agent.a2a.langgraph_agent.utils import get_a2a_server_url
 from agent.ec_agents.create_agent_tasks import create_ec_rpa_supervisor_chat_task, create_ec_rpa_supervisor_daily_task, create_ec_rpa_supervisor_on_request_task
 from utils.logger_helper import logger_helper as logger
@@ -36,12 +36,13 @@ def set_up_ec_rpa_supervisor_agent(mainwin):
             return None
 
         agent_card = AgentCard(
+            id="ec_rpa_supervisor_agent",
             name="ECBot RPA Supervisor Agent",
             description="Obtain Daily Run Task Schedule and Dispatches Tasks To Operators To Run",
             url=get_a2a_server_url(mainwin) or "http://localhost:3600",
             version="1.0.0",
-            defaultInputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
-            defaultOutputModes=ECRPAHelperAgent.SUPPORTED_CONTENT_TYPES,
+            default_input_modes=SUPPORTED_CONTENT_TYPES,
+            default_output_modes=SUPPORTED_CONTENT_TYPES,
             capabilities=capabilities,
             skills=[schedule_skill, serve_request_skill],
         )

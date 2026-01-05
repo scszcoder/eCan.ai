@@ -1,6 +1,6 @@
 from agent.ec_skill import FileAttachment
 from agent.ec_skill import NodeState
-from agent.a2a.common.types import SendTaskRequest
+from a2a.types import SendMessageRequest
 from agent.ec_skills.my_twin.my_twin_chatter_skill import human_message
 from utils.logger_helper import logger_helper as logger
 

@@ -546,6 +546,8 @@ def _escape_positional_placeholders(template: str) -> str:
             rebuilt.append("}")
 
     return "".join(rebuilt)
+
+
 def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manager):
     """
     Builds a callable function for a LangGraph node that interacts with an LLM.
@@ -981,7 +983,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 host = (api_host or "").strip()
                 prov = llm_provider
 
-                key_preview = "" if not key else f"{key[:4]}..."
+                key_preview = "" if not key else f"{key[:6]}...{key[-6:]}"
                 logger.debug(f"real llm settings: api_key={key_preview} host={host} llm_provider={prov}")
                 # Provider-specific construction
                 if prov in ("azure", "azure_openai"):
@@ -1173,8 +1175,8 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
                 async def _invoke_async(llm_to_use, timeout_sec: float):
                     """Async LLM invocation using ainvoke with timeout."""
-                    log_msg = "🔄 LLM async invocation started"
-                    logger.debug(log_msg)
+                    log_msg = "LLM async invocation started"
+                    logger.debug(f"🔄{log_msg}")
                     web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
                     
                     start_time = time.time()
@@ -2721,6 +2723,21 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
                 state["metadata"]["filled_fom_form"] = data
                 logger.debug(f"[{node_name}] saving filled fom form......",
                              state["metadata"]["filled_fom_form"])
+
+        # Add human message to history for LLM context
+        # Extract the actual text content from human_text
+        human_text_content = None
+        if isinstance(raw_ht, str) and raw_ht.strip():
+            human_text_content = raw_ht.strip()
+        elif isinstance(data, dict) and data.get("content"):
+            human_text_content = data.get("content")
+        
+        if human_text_content:
+            # Set state["input"] so _get_human_input() in pre_llm_hook can find it
+            state["input"] = human_text_content
+            state.setdefault("history", [])
+            state["history"].append(HumanMessage(content=human_text_content))
+            logger.debug(f"[{node_name}] added human message to history and input: {human_text_content[:100]}...")
 
         logger.debug(f"[{node_name}] exit state: {state}")
         return state

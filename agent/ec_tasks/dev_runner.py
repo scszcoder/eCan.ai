@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from langgraph.types import Command
 
-from agent.a2a.common.types import TaskState
+from a2a.types import TaskState
 from agent.ec_skills.dev_defs import BreakpointManager
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
@@ -163,7 +163,7 @@ class DevRunner:
         
         if hasattr(task, "status"):
             try:
-                task.status.state = TaskState.WORKING
+                task.status.state = TaskState.working
             except Exception:
                 pass
         
@@ -210,7 +210,7 @@ class DevRunner:
             # Update task status
             if hasattr(self._dev_task, "status"):
                 try:
-                    self._dev_task.status.state = TaskState.WORKING
+                    self._dev_task.status.state = TaskState.working
                 except Exception:
                     pass
             
@@ -264,7 +264,7 @@ class DevRunner:
             
             if hasattr(self._dev_task, "status"):
                 try:
-                    self._dev_task.status.state = TaskState.INPUT_REQUIRED
+                    self._dev_task.status.state = TaskState.input_required
                 except Exception:
                     pass
             
@@ -311,7 +311,7 @@ class DevRunner:
             # Update task status
             if hasattr(self._dev_task, "status"):
                 try:
-                    self._dev_task.status.state = TaskState.WORKING
+                    self._dev_task.status.state = TaskState.working
                 except Exception:
                     pass
             

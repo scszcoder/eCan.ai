@@ -12,7 +12,7 @@ import threading
 from urllib.parse import urlparse, urlencode, urlunparse, parse_qsl
 from typing import Optional, Tuple
 from utils.logger_helper import logger_helper
-from agent.a2a.common.types import TaskSendParams, Message, TextPart
+from a2a.types import MessageSendParams, Message, TextPart
 from agent.cloud_api.constants import cloud_api, DataType, Operation
 import aiohttp
 # Import new generic GraphQL builder
