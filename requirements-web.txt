@@ -175,7 +175,7 @@ PyPDF2==3.0.1
 openpyxl==3.1.2
 xlrd==2.0.1
 markdown==3.5.1
-lxml>=6.0.0
+lxml~=5.3
 
 # ============================================================================
 # TESTING (Optional - for development)

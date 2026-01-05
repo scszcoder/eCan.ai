@@ -374,7 +374,6 @@ asteval==1.0.6
 markdown==3.5.1
 fastuuid==0.14.0
 brotli==1.2.0
-lxml>=6.0.0
 
 # ============================================================================
 # LIGHTRAG CORE DEPENDENCIES
