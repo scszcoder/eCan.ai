@@ -320,24 +320,31 @@ const RetrievalTab: React.FC = () => {
     const handleChunk = (data: any) => {
       const { id: streamId, chunk } = data;
       const messageId = streamMapRef.current.get(streamId);
-      if (!messageId) return;
-
-      // Handle references data (sent as first chunk in streaming mode)
-      if (chunk?.references && Array.isArray(chunk.references)) {
-        setMessages(prev => prev.map(m => {
-          if (m.id !== messageId) return m;
-          return { ...m, references: chunk.references };
-        }));
-        // Don't return - there might be other data in this chunk
+      if (!messageId) {
+        console.warn('[RetrievalTab] Received chunk for unknown stream:', streamId);
+        return;
       }
 
-      // Handle confidence data (sent as final chunk)
+      // Handle confidence data (can come with or without references)
       if (chunk?.confidence) {
-        const shouldAnswer = chunk?.confidence?.decision?.should_answer;
+        console.log('[RetrievalTab] 🎯 Received confidence data:', chunk.confidence);
         
-        // Trust backend's confidence calculation directly
-        // The backend confidence scorer already handles quality assessment properly
-        const adjustedConfidence = { ...chunk.confidence };
+        // Normalize confidence data to support different model formats
+        const rawConfidence = chunk.confidence;
+        const adjustedConfidence = {
+          ...rawConfidence,
+          // Support multiple field names for overall score
+          overall_score: rawConfidence.overall_score ?? rawConfidence.score ?? rawConfidence.confidence ?? 0,
+          // Support multiple field names for confidence level
+          confidence_level: rawConfidence.confidence_level ?? rawConfidence.level ?? 'unknown',
+          // Preserve decision if exists
+          decision: rawConfidence.decision ?? {}
+        };
+        
+        const shouldAnswer = adjustedConfidence?.decision?.should_answer;
+        
+        console.log('[RetrievalTab] 🎯 Normalized overall_score:', adjustedConfidence.overall_score);
+        console.log('[RetrievalTab] 🎯 Should answer:', shouldAnswer);
         
         setMessages(prev => prev.map(m => {
           if (m.id !== messageId) return m;
@@ -348,6 +355,20 @@ const RetrievalTab: React.FC = () => {
           }
           return next;
         }));
+      }
+      
+      // Store references if present in chunk
+      if (chunk?.references) {
+        console.log('[RetrievalTab] 📚 Received references:', chunk.references);
+        console.log('[RetrievalTab] 📊 First reference structure:', chunk.references[0]);
+        
+        setMessages(prev => prev.map(m => 
+          m.id === messageId ? { ...m, references: chunk.references } : m
+        ));
+      }
+      
+      // If this chunk only contains confidence/references, don't process as text
+      if (chunk?.confidence || chunk?.references) {
         return;
       }
 
@@ -396,12 +417,21 @@ const RetrievalTab: React.FC = () => {
       const { id: streamId } = data;
       const messageId = streamMapRef.current.get(streamId);
       if (messageId) {
+        console.log('[RetrievalTab] ✅ Stream done, processing references...');
         // Append references to content when streaming is done
         setMessages(prev => prev.map(m => {
           if (m.id !== messageId) return m;
           
+          console.log('[RetrievalTab] 📄 Final message content length:', m.content?.length);
+          console.log('[RetrievalTab] 📄 Final message content preview:', m.content?.substring(0, 200));
+          
           const refs = (m as any).references;
-          if (!refs || !Array.isArray(refs) || refs.length === 0) return m;
+          if (!refs || !Array.isArray(refs) || refs.length === 0) {
+            console.log('[RetrievalTab] ⚠️ No references found in message');
+            return m;
+          }
+          
+          console.log('[RetrievalTab] 📚 Processing', refs.length, 'references');
           
           // Build reference list with download buttons
           const refLines = refs.map((r: any, idx: number) => {
@@ -413,6 +443,15 @@ const RetrievalTab: React.FC = () => {
             const title = (r.title || r.name || filePath) as string | undefined;
             const source = (r.source || r.doc_id || r.document_id) as string | undefined;
             const score = (r.score ?? r.similarity) as number | undefined;
+            
+            console.log(`[RetrievalTab] 📊 Reference ${idx + 1}:`, JSON.stringify({
+              filePath,
+              title,
+              source,
+              score,
+              rawKeys: Object.keys(r),
+              fullObject: r
+            }, null, 2));
 
             // Use file_path as the primary label, fallback to title or source
             let label = filePath || title || source || JSON.stringify(r).slice(0, 80) + '...';
@@ -434,9 +473,17 @@ const RetrievalTab: React.FC = () => {
           });
 
           // Remove existing references section from LLM response and add our version with download links
-          // Match "References", "参考文献", etc. followed by optional colon and everything after
-          const referenceSectionRegex = /(\n+\s*)?(#{1,3}\s*)?(参考文献|参考文档|参考资料|references?)\s*([:：])?[\s\S]*$/i;
+          // Match "References", "参考文献", etc. ONLY when it's on its own line as a heading
+          // Use \n to ensure it's at the start of a new line, and require it to be followed by newline or colon
+          const referenceSectionRegex = /\n+(#{1,3}\s*)?(参考文献|参考文档|参考资料|References?)\s*([:：])?\s*\n[\s\S]*$/i;
+          
+          console.log('[RetrievalTab] 📝 Original content length:', m.content?.length);
+          console.log('[RetrievalTab] 📝 Content has </think>:', m.content?.includes('</think>'));
+          
           let baseContent = (m.content || '').replace(referenceSectionRegex, '').trim();
+          
+          console.log('[RetrievalTab] 📝 After regex, content length:', baseContent.length);
+          console.log('[RetrievalTab] 📝 After regex, has </think>:', baseContent.includes('</think>'));
           
           const newContent = `${baseContent}\n\n${t('pages.knowledge.retrieval.referenceDocs')}\n${refLines.join('\n')}`;
           return { ...m, content: newContent };
@@ -634,14 +681,20 @@ const RetrievalTab: React.FC = () => {
               content = JSON.stringify(resultData);
             }
 
-            // Extract confidence if present
+            // Extract and normalize confidence if present (same as streaming mode)
             let confidence = resultData?.confidence;
-            
-            // Adjust confidence based on actual references data and response content (non-streaming mode)
             if (confidence) {
-              // Trust backend's confidence calculation directly
-              // The backend confidence scorer already handles quality assessment properly
-              // No frontend adjustments needed
+              // Normalize confidence data to support different model formats
+              const rawConfidence = confidence;
+              confidence = {
+                ...rawConfidence,
+                // Support multiple field names for overall score
+                overall_score: rawConfidence.overall_score ?? rawConfidence.score ?? rawConfidence.confidence ?? 0,
+                // Support multiple field names for confidence level
+                confidence_level: rawConfidence.confidence_level ?? rawConfidence.level ?? 'unknown',
+                // Preserve decision if exists
+                decision: rawConfidence.decision ?? {}
+              };
             }
 
             const shouldAnswer = confidence?.decision?.should_answer;
