@@ -412,8 +412,12 @@ def handle_delete_session(request: IPCRequest, params: Optional[Dict[str, Any]])
 
 
 # ============================================================
-# LLM Processing (placeholder - to be replaced with actual agent)
+# LLM Processing
 # ============================================================
+
+# Flag to control whether to use the full LLM agent or fallback responses
+USE_LLM_AGENT = True
+
 
 def _process_chat_message(
     session: ChatSession,
@@ -422,12 +426,8 @@ def _process_chat_message(
 ) -> str:
     """Process a chat message with the LLM agent
     
-    This is a placeholder that will be replaced with actual LangGraph agent integration.
-    The agent will:
-    1. Understand the user's intent
-    2. Generate flowgram modifications
-    3. Send canvas commands to frontend
-    4. Return a helpful response
+    Uses the SkillEditorAgent for LLM-powered responses when available,
+    falls back to basic pattern matching otherwise.
     
     Args:
         session: Current chat session
@@ -437,9 +437,75 @@ def _process_chat_message(
     Returns:
         Assistant response text
     """
-    # TODO: Replace with actual LLM agent integration
-    # This placeholder provides basic responses for testing
-    
+    if USE_LLM_AGENT:
+        try:
+            return _process_with_agent(session, message, canvas_context)
+        except Exception as e:
+            logger.warning(f"[SkillEditorChat] Agent processing failed, using fallback: {e}")
+            return _process_fallback(message, canvas_context)
+    else:
+        return _process_fallback(message, canvas_context)
+
+
+def _process_with_agent(
+    session: ChatSession,
+    message: ChatMessage,
+    canvas_context: Optional[Dict[str, Any]]
+) -> str:
+    """Process message using the SkillEditorAgent with LLM"""
+    try:
+        from agent.skill_editor import get_skill_editor_agent
+        
+        agent = get_skill_editor_agent()
+        logger.info(f"[SkillEditorChat] Processing with SkillEditorAgent")
+        
+        # Process message synchronously
+        response = agent.process_message_sync(
+            message=message.content,
+            canvas_context=canvas_context,
+            session_id=session.id
+        )
+        
+        logger.info(f"[SkillEditorChat] Agent response intent: {response.intent.value}")
+        
+        # If agent generated canvas commands, send them to frontend via IPC
+        if response.commands:
+            logger.info(f"[SkillEditorChat] Agent generated {len(response.commands)} canvas commands")
+            _send_canvas_commands(session.id, response.commands)
+        
+        return response.message
+        
+    except ImportError as e:
+        logger.error(f"[SkillEditorChat] Failed to import SkillEditorAgent: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"[SkillEditorChat] Agent processing error: {e}\n{traceback.format_exc()}")
+        raise
+
+
+def _send_canvas_commands(session_id: str, commands: list) -> None:
+    """Send canvas commands to frontend via IPC"""
+    try:
+        from gui.ipc.api import IPCAPI
+        ipc = IPCAPI.get_instance()
+        
+        for cmd in commands:
+            cmd_dict = cmd.to_dict() if hasattr(cmd, 'to_dict') else cmd
+            ipc.push_skill_editor_canvas_command(
+                session_id=session_id,
+                command_type=cmd_dict.get('type', 'unknown'),
+                payload=cmd_dict.get('payload', {})
+            )
+            logger.info(f"[SkillEditorChat] Sent canvas command: {cmd_dict.get('type')}")
+    except Exception as e:
+        logger.error(f"[SkillEditorChat] Failed to send canvas commands: {e}")
+
+
+def _process_fallback(
+    message: ChatMessage,
+    canvas_context: Optional[Dict[str, Any]]
+) -> str:
+    """Fallback processing with basic pattern matching (no LLM)"""
     content = message.content.lower()
     
     if "hello" in content or "hi" in content:
