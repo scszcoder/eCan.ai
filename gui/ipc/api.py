@@ -640,3 +640,94 @@ class IPCAPI:
             'id': stream_id,
             'error': error
         }, callback=callback)
+
+    # ============================================================
+    # Skill Editor Chat Streaming
+    # ============================================================
+
+    def push_skill_editor_chat_chunk(
+        self,
+        session_id: str,
+        message_id: str,
+        chunk: str,
+        chunk_index: int,
+        callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        Push skill editor chat stream chunk to frontend
+        Args:
+            session_id: Chat session ID
+            message_id: Message ID being streamed
+            chunk: Chunk content
+            chunk_index: Chunk index
+            callback: Callback function
+        """
+        self._send_request('skill_editor.chat.stream_chunk', {
+            'sessionId': session_id,
+            'messageId': message_id,
+            'chunk': chunk,
+            'index': chunk_index
+        }, callback=callback)
+
+    def push_skill_editor_chat_done(
+        self,
+        session_id: str,
+        message_id: str,
+        full_content: str,
+        callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        Push skill editor chat stream done event
+        Args:
+            session_id: Chat session ID
+            message_id: Message ID that finished streaming
+            full_content: Complete message content
+            callback: Callback function
+        """
+        self._send_request('skill_editor.chat.stream_end', {
+            'sessionId': session_id,
+            'messageId': message_id,
+            'fullContent': full_content
+        }, callback=callback)
+
+    def push_skill_editor_chat_error(
+        self,
+        session_id: str,
+        error_code: str,
+        error_message: str,
+        callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        Push skill editor chat error event
+        Args:
+            session_id: Chat session ID
+            error_code: Error code
+            error_message: Error message
+            callback: Callback function
+        """
+        self._send_request('skill_editor.chat.error', {
+            'sessionId': session_id,
+            'code': error_code,
+            'message': error_message
+        }, callback=callback)
+
+    def push_skill_editor_canvas_command(
+        self,
+        session_id: str,
+        command_type: str,
+        payload: Dict[str, Any],
+        callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        Push canvas command to frontend skill editor
+        Args:
+            session_id: Chat session ID
+            command_type: Command type (e.g., 'canvas.add_node')
+            payload: Command payload
+            callback: Callback function
+        """
+        self._send_request('skill_editor.canvas.command', {
+            'sessionId': session_id,
+            'type': command_type,
+            'payload': payload
+        }, callback=callback)
