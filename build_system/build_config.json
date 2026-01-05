@@ -380,8 +380,6 @@
         "pandas.*.*.tests.*",
         "pip",
         "pysqlite2",
-        "scipy.testing",
-        "scipy.tests",
         "setuptools.tests",
         "test",
         "testing",
@@ -523,7 +521,6 @@
       "dylib_fixes": [
         "cv2",
         "numpy",
-        "scipy",
         "cryptography"
       ],
       "permissions": [
@@ -699,7 +696,6 @@
       "dylib_fixes": [
         "cv2",
         "numpy",
-        "scipy",
         "cryptography"
       ],
       "permissions": [

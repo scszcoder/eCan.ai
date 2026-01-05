@@ -2,7 +2,6 @@ import os
 import threading
 import time
 
-from scipy.stats import weibull_min
 
 import main
 from envi import getECBotDataHome
