@@ -14,8 +14,7 @@ from agent.ec_agent import EC_Agent
 from agent.ec_skill import EC_Skill
 from agent.ec_tasks.models import ManagedTask
 from a2a.types import AgentCapabilities
-from agent.a2a.langgraph_agent.utils import AgentCard
-from agent.ec_agents.agent_utils import get_a2a_server_url
+from agent.a2a.langgraph_agent.utils import AgentCard, SUPPORTED_CONTENT_TYPES, get_a2a_server_url
 from utils.logger_helper import logger_helper as logger
 from agent.db.services.db_avatar_service import DBAvatarService
 
@@ -208,6 +207,8 @@ def convert_agent_dict_to_ec_agent(
             url=agent_data.get('url') or get_a2a_server_url(main_window),
             version=agent_data.get('version') or '1.0.0',
             capabilities=capabilities,
+            default_input_modes=agent_data.get('default_input_modes', SUPPORTED_CONTENT_TYPES),
+            default_output_modes=agent_data.get('default_output_modes', SUPPORTED_CONTENT_TYPES),
             skills=[]  # DB agents don't have skills initially
         )
         

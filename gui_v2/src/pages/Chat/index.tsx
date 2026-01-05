@@ -1046,8 +1046,14 @@ const ChatPage: React.FC = () => {
     const handleFilterSelect = useCallback((selectedAgentId: string | null) => {
         setShowFilterModal(false);
 
+        // Save or clear the agentId in ChatStateManager
         if (username) {
-            chatStateManager.saveAgentId(username, selectedAgentId);
+            if (selectedAgentId) {
+                chatStateManager.saveAgentId(username, selectedAgentId);
+            } else {
+                // Clear the saved agentId when filter is cleared
+                chatStateManager.saveAgentId(username, null);
+            }
         }
         
         // Update URL Parameter

@@ -46,16 +46,22 @@ class IconManager:
         self.logger = logger
     
     def _log(self, message: str, level: str = 'info'):
-        """Internal logging helper"""
+        """Internal logging helper - falls back to print if logger not available"""
+        prefix = "[IconManager] "
+        full_message = f"{prefix}{message}"
+        
         if self.logger:
             if level == 'debug':
-                self.logger.debug(f"[IconManager] {message}")
+                self.logger.debug(full_message)
             elif level == 'warning':
-                self.logger.warning(f"[IconManager] {message}")
+                self.logger.warning(full_message)
             elif level == 'error':
-                self.logger.error(f"[IconManager] {message}")
+                self.logger.error(full_message)
             else:
-                self.logger.info(f"[IconManager] {message}")
+                self.logger.info(full_message)
+        else:
+            # Fallback to print during early startup when logger is not yet available
+            print(full_message)
     
     def _find_icon_path(self) -> Optional[str]:
         """
@@ -132,6 +138,7 @@ class IconManager:
             app.setWindowIcon(app_icon)
             IconManager._icon_set = True
             self._log(f"Application icon set: {self.icon_path}")
+            
             return True
         except Exception as e:
             self._log(f"Failed to set application icon: {e}", 'error')

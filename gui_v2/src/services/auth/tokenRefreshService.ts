@@ -139,7 +139,12 @@ class TokenRefreshService {
       if (response.status === 'success') {
         return response.data as TokenInfo;
       } else {
-        logger.error('[TokenRefresh] Failed to get token info:', response.message);
+        logger.error('[TokenRefresh] Failed to get token info:', {
+          status: response.status,
+          message: response.message,
+          error: response.error,
+          code: response.error?.code
+        });
         return null;
       }
     } catch (error) {

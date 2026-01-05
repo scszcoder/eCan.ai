@@ -1148,42 +1148,80 @@ def handle_restart_server(request: IPCRequest, params: Optional[Dict[str, Any]])
 
 @IPCHandlerRegistry.handler('lightrag.getWorkspaces')
 def handle_get_workspaces(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Get list of available LightRAG workspaces by scanning workspace folders.
+    """Get list of available LightRAG workspaces by scanning rag_storage subdirectories.
     
-    Workspace folders follow the pattern: {user_data_path}/lightrag_{workspace_name}/
+    Workspaces are subdirectories under rag_storage (e.g., rag_storage/test2, rag_storage/test3)
+    Only actual workspace directories are included, not system directories like inputs.
     """
     try:
-        from utils.path_manager import get_user_data_path
-        from gui.ipc.context_bridge import get_handler_context
+        config_manager = get_config_manager()
         
-        # Get current user from context
-        ctx = get_handler_context(request, params)
-        user = ctx.main_window.log_user if ctx and ctx.main_window else None
+        # Get base working directory from config
+        base_working_dir = config_manager.get_value('WORKING_DIR')
         
-        # Get user's data directory
-        user_data_path = get_user_data_path(user)
+        if not base_working_dir:
+            logger.warning("[LightRAG] WORKING_DIR not configured")
+            return create_success_response(request, {
+                'workspaces': [],
+                'current': config_manager.get_value('WORKSPACE', 'default')
+            })
         
-        # Scan for workspace folders (lightrag_*)
+        # Extract the rag_storage directory path
+        # WORKING_DIR format: /path/to/lightrag/rag_storage/workspace_name
+        # We need: /path/to/lightrag/rag_storage
+        
+        # First, check if WORKING_DIR already ends with rag_storage
+        if base_working_dir.endswith('rag_storage'):
+            rag_storage_dir = base_working_dir
+        elif 'rag_storage' in base_working_dir:
+            # Find the rag_storage directory
+            parts = base_working_dir.split('/')
+            rag_storage_index = -1
+            for i, part in enumerate(parts):
+                if part == 'rag_storage':
+                    rag_storage_index = i
+                    break
+            
+            if rag_storage_index >= 0:
+                # Reconstruct path up to and including rag_storage
+                rag_storage_dir = '/'.join(parts[:rag_storage_index + 1])
+            else:
+                # Fallback: remove last component
+                rag_storage_dir = base_working_dir.rsplit('/', 1)[0]
+        else:
+            # Fallback: remove last component
+            rag_storage_dir = base_working_dir.rsplit('/', 1)[0] if '/' in base_working_dir else base_working_dir
+        
+        logger.info(f"[LightRAG] Base WORKING_DIR: {base_working_dir}")
+        logger.info(f"[LightRAG] Extracted rag_storage_dir: {rag_storage_dir}")
+        
+        # Scan for workspace subdirectories in rag_storage
         workspaces = []
-        if os.path.exists(user_data_path):
-            for item in os.listdir(user_data_path):
-                if item.startswith('lightrag_'):
-                    workspace_name = item[len('lightrag_'):]  # Remove 'lightrag_' prefix
-                    item_path = os.path.join(user_data_path, item)
+        if os.path.exists(rag_storage_dir):
+            logger.info(f"[LightRAG] Scanning workspaces in: {rag_storage_dir}")
+            for item in os.listdir(rag_storage_dir):
+                # Skip system directories and files
+                if item in ['inputs', 'outputs', 'logs', '.git', '__pycache__', 'rag_storage', 'tiktoken', 'cache']:
+                    logger.debug(f"[LightRAG] Skipping system directory: {item}")
+                    continue
+                
+                # Skip hidden files and directories
+                if item.startswith('.'):
+                    continue
                     
-                    if os.path.isdir(item_path):
-                        # Check if it has typical workspace structure
-                        has_storage = os.path.exists(os.path.join(item_path, 'rag_storage')) or \
-                                    os.path.exists(os.path.join(item_path, 'inputs'))
-                        
-                        workspaces.append({
-                            'name': workspace_name,
-                            'is_valid': has_storage
-                        })
+                item_path = os.path.join(rag_storage_dir, item)
+                if os.path.isdir(item_path):
+                    logger.debug(f"[LightRAG] Found workspace candidate: {item}")
+                    workspaces.append({
+                        'name': item,
+                        'is_valid': True
+                    })
+            logger.info(f"[LightRAG] Found {len(workspaces)} workspaces: {[w['name'] for w in workspaces]}")
+        else:
+            logger.warning(f"[LightRAG] rag_storage directory does not exist: {rag_storage_dir}")
         
         # Get current workspace from config
-        config_manager = get_config_manager()
-        current_workspace = config_manager.get_value('WORKSPACE', 'space1')
+        current_workspace = config_manager.get_value('WORKSPACE', 'default')
         
         # If no workspaces found, add the current workspace as default
         if not workspaces:
@@ -1659,6 +1697,202 @@ def handle_prune_node(request: IPCRequest, params: Optional[Dict[str, Any]]) -> 
     except Exception as e:
         logger.error(f"Error in prune_node handler: {e}\n{traceback.format_exc()}")
         return create_error_response(request, 'PRUNE_NODE_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('lightrag.checkEmbeddingDimension')
+def handle_check_embedding_dimension(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """
+    Check if the new embedding dimension conflicts with existing vector database.
+    
+    Expected params:
+    - newDimension: int - The new embedding dimension
+    - workspaceName: str - Current workspace name
+    
+    Returns:
+    - hasConflict: bool - Whether there's a dimension conflict
+    - currentDimension: int|None - Current dimension in vector database (if exists)
+    - vectorStorage: str - Type of vector storage being used
+    - workspaces: List[Dict] - Available workspaces
+    """
+    try:
+        is_valid, data, error = validate_params(params, ['newDimension', 'workspaceName'])
+        if not is_valid:
+            return create_error_response(request, 'INVALID_PARAMS', error)
+        
+        new_dimension = data['newDimension']
+        workspace_name = data['workspaceName']
+        
+        if not isinstance(new_dimension, int) or new_dimension <= 0:
+            return create_error_response(request, 'INVALID_PARAMS', 'newDimension must be a positive integer')
+        
+        config_manager = get_config_manager()
+        base_working_dir = config_manager.get_value('WORKING_DIR')
+        
+        if not base_working_dir or not os.path.exists(base_working_dir):
+            # No existing workspace, no conflict
+            return create_success_response(request, {
+                'hasConflict': False,
+                'currentDimension': None,
+                'newDimension': new_dimension,
+                'vectorStorage': 'unknown',
+                'workspaceName': workspace_name,
+                'workspaces': []
+            })
+        
+        # Construct the full workspace directory path
+        # WORKING_DIR is the base directory, workspace files are in subdirectories
+        working_dir = os.path.join(base_working_dir, workspace_name)
+        
+        logger.info(f"Checking workspace directory: {working_dir}")
+        
+        if not os.path.exists(working_dir):
+            # Workspace directory doesn't exist yet, no conflict
+            logger.info(f"Workspace directory does not exist: {working_dir}")
+            return create_success_response(request, {
+                'hasConflict': False,
+                'currentDimension': None,
+                'newDimension': new_dimension,
+                'vectorStorage': config_manager.get_value('LIGHTRAG_VECTOR_STORAGE') or 'FaissVectorDBStorage',
+                'workspaceName': workspace_name,
+                'workspaces': []
+            })
+        
+        # Get vector storage type from config
+        vector_storage = config_manager.get_value('LIGHTRAG_VECTOR_STORAGE') or 'FaissVectorDBStorage'
+        logger.info(f"Checking dimension for vector storage: {vector_storage}")
+        
+        # Check dimension based on vector storage type
+        current_dimension = None
+        
+        if 'Faiss' in vector_storage or 'FAISS' in vector_storage:
+            # Check FAISS index files
+            faiss_files = [
+                'faiss_index_chunks.index',
+                'faiss_index_entities.index',
+                'faiss_index_relationships.index'
+            ]
+            
+            for faiss_file in faiss_files:
+                faiss_path = os.path.join(working_dir, faiss_file)
+                if os.path.exists(faiss_path):
+                    try:
+                        import faiss
+                        index = faiss.read_index(faiss_path)
+                        current_dimension = index.d
+                        logger.info(f"Detected FAISS index dimension: {current_dimension} from {faiss_file}")
+                        break
+                    except Exception as e:
+                        logger.warning(f"Failed to read FAISS index {faiss_file}: {e}")
+                        continue
+        
+        elif 'Milvus' in vector_storage:
+            # Check Milvus collection schema
+            try:
+                from pymilvus import MilvusClient
+                milvus_uri = config_manager.get_value('MILVUS_URI') or 'http://localhost:19530'
+                milvus_db = config_manager.get_value('MILVUS_DB_NAME') or 'lightrag'
+                
+                client = MilvusClient(uri=milvus_uri, db_name=milvus_db)
+                
+                # Check chunks collection
+                collection_name = f"{workspace_name}_chunks"
+                if client.has_collection(collection_name):
+                    schema = client.describe_collection(collection_name)
+                    for field in schema.get('fields', []):
+                        if field.get('name') == 'embedding':
+                            current_dimension = field.get('params', {}).get('dim')
+                            logger.info(f"Detected Milvus collection dimension: {current_dimension}")
+                            break
+                client.close()
+            except Exception as e:
+                logger.warning(f"Failed to check Milvus dimension: {e}")
+        
+        elif 'Qdrant' in vector_storage:
+            # Check Qdrant collection config
+            try:
+                from qdrant_client import QdrantClient
+                qdrant_url = config_manager.get_value('QDRANT_URL') or 'http://localhost:6333'
+                
+                client = QdrantClient(url=qdrant_url)
+                
+                # Check chunks collection
+                collection_name = f"{workspace_name}_chunks"
+                try:
+                    collection_info = client.get_collection(collection_name)
+                    current_dimension = collection_info.config.params.vectors.size
+                    logger.info(f"Detected Qdrant collection dimension: {current_dimension}")
+                except Exception:
+                    pass
+            except Exception as e:
+                logger.warning(f"Failed to check Qdrant dimension: {e}")
+        
+        elif 'Chroma' in vector_storage:
+            # Check ChromaDB collection
+            try:
+                import chromadb
+                chroma_path = config_manager.get_value('CHROMA_PATH') or os.path.join(working_dir, 'chroma')
+                
+                if os.path.exists(chroma_path):
+                    client = chromadb.PersistentClient(path=chroma_path)
+                    
+                    # Check chunks collection
+                    collection_name = f"{workspace_name}_chunks"
+                    try:
+                        collection = client.get_collection(collection_name)
+                        # ChromaDB doesn't store dimension explicitly, try to get from metadata
+                        metadata = collection.metadata
+                        if metadata and 'dimension' in metadata:
+                            current_dimension = int(metadata['dimension'])
+                            logger.info(f"Detected ChromaDB collection dimension: {current_dimension}")
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.warning(f"Failed to check ChromaDB dimension: {e}")
+        
+        else:
+            logger.warning(f"Unsupported vector storage type for dimension check: {vector_storage}")
+        
+        # Get available workspaces by scanning base_working_dir subdirectories
+        workspaces = []
+        try:
+            if os.path.exists(base_working_dir):
+                for item in os.listdir(base_working_dir):
+                    item_path = os.path.join(base_working_dir, item)
+                    if os.path.isdir(item_path):
+                        # Check if it has typical workspace structure (has index files or is a valid directory)
+                        workspaces.append({
+                            'name': item,
+                            'is_valid': True
+                        })
+                logger.info(f"Found {len(workspaces)} workspaces in {base_working_dir}")
+        except Exception as e:
+            logger.warning(f"Failed to scan workspaces: {e}")
+        
+        # Log detection result
+        logger.info(f"Dimension check result: current={current_dimension}, new={new_dimension}, storage={vector_storage}, working_dir={working_dir}")
+        
+        # Check for conflict
+        has_conflict = False
+        if current_dimension is not None and current_dimension != new_dimension:
+            has_conflict = True
+            logger.warning(f"⚠️  Embedding dimension conflict detected: current={current_dimension}, new={new_dimension}, storage={vector_storage}")
+        elif current_dimension is None:
+            logger.info(f"No existing vector index found, no conflict (new dimension: {new_dimension})")
+        else:
+            logger.info(f"Dimensions match: {current_dimension} == {new_dimension}, no conflict")
+        
+        return create_success_response(request, {
+            'hasConflict': has_conflict,
+            'currentDimension': current_dimension,
+            'newDimension': new_dimension,
+            'vectorStorage': vector_storage,
+            'workspaceName': workspace_name,
+            'workspaces': workspaces
+        })
+        
+    except Exception as e:
+        logger.error(f"Error checking embedding dimension: {e}\n{traceback.format_exc()}")
+        return create_error_response(request, 'DIMENSION_CHECK_ERROR', str(e))
 
 
 @IPCHandlerRegistry.handler('lightrag.downloadFile')

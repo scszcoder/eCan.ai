@@ -38,6 +38,12 @@ class DBAgent(BaseModel, TimestampMixin, ExtensibleMixin):
     personalities = Column(JSON)  # List[str] - personality traits (concise naming)
     capabilities = Column(JSON)   # List[str] - agent capabilities
 
+    # A2A SDK compatibility fields
+    # Note: Default values are set by migration_307_to_308 for existing records
+    # New records will get defaults from agent_converter.py code layer
+    default_input_modes = Column(JSON)   # List[str] - supported input modes (text, audio, video, etc.)
+    default_output_modes = Column(JSON)  # List[str] - supported output modes (text, audio, video, etc.)
+
     # Agent configuration
     status = Column(String(32), default='active')    # active, inactive, suspended
     version = Column(String(64))                     # agent version
@@ -60,7 +66,7 @@ class DBAgent(BaseModel, TimestampMixin, ExtensibleMixin):
         d = super().to_dict()
         
         # Parse JSON string fields back to arrays/objects for frontend
-        json_fields = ['personalities', 'title', 'extra_data']  # Use personalities (unified naming)
+        json_fields = ['personalities', 'title', 'extra_data', 'default_input_modes', 'default_output_modes']  # Use personalities (unified naming)
         for field in json_fields:
             if field in d and isinstance(d[field], str):
                 try:

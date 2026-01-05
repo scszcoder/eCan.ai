@@ -255,7 +255,8 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
             return create_error_response(request, 'MAIN_WINDOW_ERROR', 'User session not available - please login again')
 
         # This ensures we get all agents including newly created ones
-        if not ctx.get_ec_db_mgr() or not ctx.get_ec_db_mgr().agent_service:
+        ec_db_mgr = ctx.get_ec_db_mgr()
+        if not ec_db_mgr or not ec_db_mgr.agent_service:
             logger.error(f"[agent_handler] Database service not available")
             return create_error_response(request, 'DB_ERROR', 'Database service not available')
 
@@ -266,7 +267,7 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
         # If specific agent IDs are requested, query from database with relations to get tasks/skills
         if agent_ids and len(agent_ids) > 0:
             logger.info(f"[agent_handler] Querying agents from database with relations for IDs: {agent_ids}")
-            agent_service = ctx.get_ec_db_mgr().agent_service
+            agent_service = ec_db_mgr.agent_service
             
             agents_data = []
             for agent_id in agent_ids:
@@ -346,11 +347,12 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
             return create_error_response(request, 'MAIN_WINDOW_ERROR', 'MainWindow not available')
 
         # Get database service
-        if not ctx.get_ec_db_mgr() or not ctx.get_ec_db_mgr().agent_service:
+        ec_db_mgr = ctx.get_ec_db_mgr()
+        if not ec_db_mgr or not ec_db_mgr.agent_service:
             logger.error(f"[agent_handler] Database service not available")
             return create_error_response(request, 'DB_ERROR', 'Database service not available')
         
-        agent_service = ctx.get_ec_db_mgr().agent_service
+        agent_service = ec_db_mgr.agent_service
         
         # Process each agent
         saved_count = 0
@@ -514,11 +516,12 @@ def handle_delete_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPC
             return create_error_response(request, 'MAIN_WINDOW_ERROR', 'MainWindow not available')
         
         # Get database service
-        if not ctx.get_ec_db_mgr() or not ctx.get_ec_db_mgr().agent_service:
+        ec_db_mgr = ctx.get_ec_db_mgr()
+        if not ec_db_mgr or not ec_db_mgr.agent_service:
             logger.error(f"[agent_handler] Database service not available")
             return create_error_response(request, 'DB_ERROR', 'Database service not available')
         
-        agent_service = ctx.get_ec_db_mgr().agent_service
+        agent_service = ec_db_mgr.agent_service
         
         # Delete each agent from database and memory
         deleted_count = 0
@@ -644,11 +647,12 @@ def handle_new_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
             return create_error_response(request, 'MAIN_WINDOW_ERROR', 'MainWindow not available')
 
         # Get database service
-        if not ctx.get_ec_db_mgr():
+        ec_db_mgr = ctx.get_ec_db_mgr()
+        if not ec_db_mgr:
             logger.error(f"[agent_handler] Database manager not available")
             return create_error_response(request, 'DB_ERROR', 'Database manager not available')
 
-        agent_service = ctx.get_ec_db_mgr().agent_service
+        agent_service = ec_db_mgr.agent_service
         if not agent_service:
             logger.error(f"[agent_handler] Agent service not available")
             return create_error_response(request, 'DB_ERROR', 'Agent service not available')
@@ -769,7 +773,8 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
             return create_error_response(request, 'MAIN_WINDOW_ERROR', 'User session not available - please login again')
         
         # In web mode we may not have DB/config wired yet; fall back to empty structures
-        if not ctx.get_ec_db_mgr() or not ctx.get_ec_db_mgr().agent_service:
+        ec_db_mgr = ctx.get_ec_db_mgr()
+        if not ec_db_mgr or not ec_db_mgr.agent_service:
             logger.error(f"[agent_handler] Database service not available")
             empty_tree = {
                 'id': '__virtual_root__',
@@ -802,12 +807,12 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
             # Memory empty, sync from database (ensure data availability)
             logger.warning(f"[agent_handler] Memory cache empty, syncing from database...")
             try:
-                # Get database service from ctx
-                if not ctx.get_ec_db_mgr() or not ctx.get_ec_db_mgr().agent_service:
+                # Get database service from ctx (ec_db_mgr already retrieved above)
+                if not ec_db_mgr or not ec_db_mgr.agent_service:
                     logger.error(f"[agent_handler] Database service not available")
                     return create_error_response(request, 'DB_ERROR', 'Database service not available')
                 
-                db_service = ctx.get_ec_db_mgr().agent_service
+                db_service = ec_db_mgr.agent_service
                 db_result = db_service.get_agents_by_owner(username)
                 
                 # Improved error handling - check if db_result is valid
@@ -1067,13 +1072,18 @@ def _sync_agent_avatar_to_cloud(agent_data: Dict[str, Any], operation: 'Operatio
     
     try:
         ctx = get_handler_context(request, params)
-        if not ctx or not ctx.get_ec_db_mgr():
-            logger.warning("[agent_handler] MainWindow or DB manager not available for avatar sync")
+        if not ctx:
+            logger.warning("[agent_handler] Context not available for avatar sync")
+            return
+        
+        ec_db_mgr = ctx.get_ec_db_mgr()
+        if not ec_db_mgr:
+            logger.warning("[agent_handler] DB manager not available for avatar sync")
             return
         
         # Get avatar resource from database
         from agent.db.models.avatar_model import DBAvatarResource
-        db_session = ctx.get_ec_db_mgr().get_session()
+        db_session = ec_db_mgr.get_session()
         
         avatar_resource = db_session.query(DBAvatarResource).filter_by(id=avatar_id).first()
         
@@ -1129,7 +1139,7 @@ def _sync_agent_avatar_to_cloud(agent_data: Dict[str, Any], operation: 'Operatio
                 )
                 if has_local_files:
                     from agent.avatar.avatar_cloud_sync import upload_avatar_to_cloud_async
-                    upload_avatar_to_cloud_async(avatar_resource, db_service=ctx.get_ec_db_mgr().avatar_service)
+                    upload_avatar_to_cloud_async(avatar_resource, db_service=ec_db_mgr.avatar_service)
                 else:
                     logger.debug(f"[agent_handler] No local files to upload for avatar: {avatar_id}")
             else:
@@ -1162,11 +1172,16 @@ def _check_and_cleanup_orphaned_avatar(avatar_id: str, deleted_agent_id: str, us
     """
     try:
         ctx = get_handler_context(request, params)
-        if not ctx or not ctx.get_ec_db_mgr():
-            logger.warning("[agent_handler] MainWindow or DB manager not available for avatar cleanup")
+        if not ctx:
+            logger.warning("[agent_handler] Context not available for avatar cleanup")
             return False
         
-        agent_service = ctx.get_ec_db_mgr().agent_service
+        ec_db_mgr = ctx.get_ec_db_mgr()
+        if not ec_db_mgr:
+            logger.warning("[agent_handler] DB manager not available for avatar cleanup")
+            return False
+        
+        agent_service = ec_db_mgr.agent_service
         
         # Query all agents with this avatar_id (excluding the one being deleted)
         result = agent_service.query_agents_with_relations(
@@ -1192,7 +1207,7 @@ def _check_and_cleanup_orphaned_avatar(avatar_id: str, deleted_agent_id: str, us
         
         # Delete from database
         from agent.db.models.avatar_model import DBAvatarResource
-        db_session = ctx.get_ec_db_mgr().get_session()
+        db_session = ec_db_mgr.get_session()
         
         avatar_resource = db_session.query(DBAvatarResource).filter_by(id=avatar_id).first()
         

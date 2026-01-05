@@ -32,14 +32,22 @@ const parseCOTContent = (content: string) => {
 
   if (startIndex !== -1) {
     if (endIndex !== -1 && endIndex > startIndex) {
-      // Complete thinking block
+      // Complete thinking block - extract both parts
       thinkingContent = content.substring(startIndex + thinkStartTag.length, endIndex).trim();
-      displayContent = content.substring(endIndex + thinkEndTag.length).trim();
+      // IMPORTANT: Extract content AFTER </think> tag as the final answer
+      const afterThinkEnd = content.substring(endIndex + thinkEndTag.length).trim();
+      displayContent = afterThinkEnd;
+      
+      console.log('[ChatMessage] Parsed COT - thinking:', thinkingContent.substring(0, 50) + '...', 
+                  'display:', afterThinkEnd.substring(0, 50) + '...');
     } else {
-      // Still thinking or incomplete block
+      // Still thinking or incomplete block (no </think> yet)
       thinkingContent = content.substring(startIndex + thinkStartTag.length);
-      displayContent = ''; // Hide main content while thinking if it's strictly inside the block
+      // While thinking, don't show any display content yet
+      displayContent = '';
       isThinkingProcess = true;
+      
+      console.log('[ChatMessage] Still thinking...', thinkingContent.substring(0, 50) + '...');
     }
   }
 
