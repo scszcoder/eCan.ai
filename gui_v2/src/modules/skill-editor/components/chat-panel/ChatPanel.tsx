@@ -16,8 +16,16 @@ import {
 } from '@ant-design/icons';
 import styled from 'styled-components';
 import { CuteRobotIcon } from './CuteRobotIcon';
+import { ClarificationCard } from './ClarificationCard';
+import { PlanCard } from './PlanCard';
 import { skillEditorChatService } from '../../services/skill-editor-chat-service';
 import { canvasController } from '../../services/canvas-controller';
+import type { 
+  ClarificationQuestion, 
+  ImplementationPlan,
+  PipelineState,
+  ChatMessageResponse,
+} from '../../types/skill-editor-chat.types';
 
 const { TextArea } = Input;
 
@@ -27,6 +35,9 @@ interface ChatMessage {
   content: string;
   timestamp: Date;
   attachments?: string[];
+  clarification?: ClarificationQuestion[];
+  plan?: ImplementationPlan;
+  state?: PipelineState;
 }
 
 interface ChatSession {
@@ -343,6 +354,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
   const [inputValue, setInputValue] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [pendingClarification, setPendingClarification] = useState<ClarificationQuestion[] | null>(null);
+  const [pendingPlan, setPendingPlan] = useState<ImplementationPlan | null>(null);
+  const [pipelineState, setPipelineState] = useState<PipelineState>('idle');
   const chatThreadRef = useRef<HTMLDivElement>(null);
 
   // Get active session
@@ -462,15 +476,39 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
       );
 
       if (response) {
-        console.log('[ChatPanel] Received response from backend');
+        console.log('[ChatPanel] Received response from backend, state:', response.state);
         const assistantMessage: ChatMessage = {
           id: response.message.id,
           role: 'assistant',
           content: response.message.content,
           timestamp: new Date(response.message.timestamp),
+          clarification: response.clarification,
+          plan: response.plan,
+          state: response.state,
         };
         
         setMessages(prev => [...prev, assistantMessage]);
+        
+        // Update pipeline state
+        setPipelineState(response.state || 'complete');
+        
+        // Handle clarification questions
+        if (response.clarification && response.clarification.length > 0) {
+          console.log('[ChatPanel] Received clarification questions:', response.clarification.length);
+          setPendingClarification(response.clarification);
+          setPendingPlan(null);
+        }
+        // Handle implementation plan
+        else if (response.plan) {
+          console.log('[ChatPanel] Received implementation plan');
+          setPendingPlan(response.plan);
+          setPendingClarification(null);
+        }
+        // Clear pending states on completion
+        else {
+          setPendingClarification(null);
+          setPendingPlan(null);
+        }
         
         // Update session with response
         setSessions(prev => prev.map(s => {
@@ -514,6 +552,177 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
       handleSend();
     }
   }, [handleSend]);
+
+  // Handle clarification submission
+  const handleClarificationSubmit = useCallback(async (answers: Record<string, string[]>) => {
+    if (!activeSessionId || isLoading) return;
+    
+    console.log('[ChatPanel] Submitting clarification answers:', answers);
+    setIsLoading(true);
+    setPendingClarification(null);
+    
+    try {
+      const canvasState = canvasController.getCanvasState();
+      const canvasContext = {
+        nodes: canvasState.nodes.map(n => ({
+          id: n.id,
+          type: n.type,
+          label: n.label,
+          position: n.position,
+        })),
+        edges: canvasState.edges.map(e => ({
+          id: e.id,
+          source: e.source,
+          target: e.target,
+        })),
+      };
+      
+      // Send clarification responses
+      const response = await skillEditorChatService.sendMessageWithClarification(
+        activeSessionId,
+        'Clarification answers submitted',
+        answers,
+        canvasContext
+      );
+      
+      if (response) {
+        console.log('[ChatPanel] Clarification response received:', {
+          state: response.state,
+          hasClarification: !!response.clarification?.length,
+          hasPlan: !!response.plan,
+        });
+        
+        const assistantMessage: ChatMessage = {
+          id: response.message.id,
+          role: 'assistant',
+          content: response.message.content,
+          timestamp: new Date(response.message.timestamp),
+          clarification: response.clarification,
+          plan: response.plan,
+          state: response.state,
+        };
+        
+        setMessages(prev => [...prev, assistantMessage]);
+        setPipelineState(response.state || 'complete');
+        console.log('[ChatPanel] Pipeline state updated to:', response.state || 'complete');
+        
+        if (response.clarification && response.clarification.length > 0) {
+          console.log('[ChatPanel] Setting pending clarification:', response.clarification.length, 'questions');
+          setPendingClarification(response.clarification);
+        } else if (response.plan) {
+          console.log('[ChatPanel] Setting pending plan:', response.plan.summary);
+          setPendingPlan(response.plan);
+        }
+      } else {
+        console.warn('[ChatPanel] No response received from clarification submission');
+      }
+    } catch (error) {
+      console.error('[ChatPanel] Error submitting clarification:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [activeSessionId, isLoading]);
+  
+  // Handle plan approval
+  const handlePlanApprove = useCallback(async () => {
+    if (!activeSessionId || isLoading) return;
+    
+    console.log('[ChatPanel] Approving plan');
+    setIsLoading(true);
+    setPendingPlan(null);
+    
+    try {
+      const canvasState = canvasController.getCanvasState();
+      const canvasContext = {
+        nodes: canvasState.nodes.map(n => ({
+          id: n.id,
+          type: n.type,
+          label: n.label,
+          position: n.position,
+        })),
+        edges: canvasState.edges.map(e => ({
+          id: e.id,
+          source: e.source,
+          target: e.target,
+        })),
+      };
+      
+      const response = await skillEditorChatService.sendMessage(
+        activeSessionId,
+        'Yes, proceed with the plan',
+        undefined,
+        canvasContext
+      );
+      
+      if (response) {
+        console.log('[ChatPanel] Plan approval response received:', {
+          state: response.state,
+          hasFlowgram: !!response.flowgram,
+          hasValidation: !!response.validation,
+        });
+        
+        const assistantMessage: ChatMessage = {
+          id: response.message.id,
+          role: 'assistant',
+          content: response.message.content,
+          timestamp: new Date(response.message.timestamp),
+          state: response.state,
+        };
+        
+        setMessages(prev => [...prev, assistantMessage]);
+        setPipelineState(response.state || 'complete');
+        console.log('[ChatPanel] Pipeline state updated to:', response.state || 'complete');
+      } else {
+        console.warn('[ChatPanel] No response received from plan approval');
+      }
+    } catch (error) {
+      console.error('[ChatPanel] Error approving plan:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [activeSessionId, isLoading]);
+  
+  // Handle plan rejection
+  const handlePlanReject = useCallback(async () => {
+    if (!activeSessionId || isLoading) return;
+    
+    console.log('[ChatPanel] Rejecting plan');
+    setIsLoading(true);
+    setPendingPlan(null);
+    
+    try {
+      const response = await skillEditorChatService.sendMessage(
+        activeSessionId,
+        'No, I want to revise the plan',
+        undefined,
+        undefined
+      );
+      
+      if (response) {
+        console.log('[ChatPanel] Plan rejection response received:', {
+          state: response.state,
+        });
+        
+        const assistantMessage: ChatMessage = {
+          id: response.message.id,
+          role: 'assistant',
+          content: response.message.content,
+          timestamp: new Date(response.message.timestamp),
+          state: response.state,
+        };
+        
+        setMessages(prev => [...prev, assistantMessage]);
+        setPipelineState(response.state || 'idle');
+        console.log('[ChatPanel] Pipeline state reset to:', response.state || 'idle');
+      } else {
+        console.warn('[ChatPanel] No response received from plan rejection');
+      }
+    } catch (error) {
+      console.error('[ChatPanel] Error rejecting plan:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [activeSessionId, isLoading]);
 
   const handleVoiceInput = useCallback(() => {
     setIsRecording(prev => !prev);
@@ -609,11 +818,31 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
                   </MessageMeta>
                 </MessageBubble>
               ))}
-              {isLoading && (
+              
+              {/* Render pending clarification questions */}
+              {pendingClarification && pendingClarification.length > 0 && (
+                <ClarificationCard
+                  questions={pendingClarification}
+                  onSubmit={handleClarificationSubmit}
+                  isSubmitting={isLoading}
+                />
+              )}
+              
+              {/* Render pending implementation plan */}
+              {pendingPlan && (
+                <PlanCard
+                  plan={pendingPlan}
+                  onApprove={handlePlanApprove}
+                  onReject={handlePlanReject}
+                  isSubmitting={isLoading}
+                />
+              )}
+              
+              {isLoading && !pendingClarification && !pendingPlan && (
                 <MessageBubble $isUser={false}>
                   <MessageContent $isUser={false} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <LoadingOutlined spin style={{ fontSize: 14 }} />
-                    <span>Thinking...</span>
+                    <span>{pipelineState === 'planning' ? 'Planning...' : pipelineState === 'generating' ? 'Generating workflow...' : 'Thinking...'}</span>
                   </MessageContent>
                 </MessageBubble>
               )}

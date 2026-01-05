@@ -10,6 +10,12 @@ import { IPCResponse } from '../../../services/ipc/types';
 import {
   ChatAttachment,
   CanvasPosition,
+  ClarificationQuestion,
+  ImplementationPlan,
+  Flowgram,
+  ValidationResult,
+  PipelineState,
+  ChatMessageResponse,
 } from '../types';
 
 // ============================================================
@@ -141,7 +147,7 @@ class SkillEditorChatService {
     content: string,
     attachments?: ChatAttachment[],
     canvasContext?: CanvasContext
-  ): Promise<{ message: ChatMessage; sessionId: string; sessionName: string } | null> {
+  ): Promise<ChatMessageResponse | null> {
     console.log('[SkillEditorChat] Sending message:', { sessionId, contentLength: content.length, hasAttachments: !!attachments?.length, hasCanvasContext: !!canvasContext });
     try {
       const response: IPCResponse = await ipcClient.invoke('skill_editor.chat.send_message', {
@@ -149,17 +155,52 @@ class SkillEditorChatService {
         content,
         attachments,
         canvasContext,
-      }, { timeout: 60000 }); // 60 second timeout for LLM responses
+      }, { timeout: 120000 }); // 120 second timeout for LLM responses (planning + generation)
       console.log('[SkillEditorChat] Message response received:', { status: response.status });
       
       if (response.status === 'success' && response.result) {
-        return response.result as { message: ChatMessage; sessionId: string; sessionName: string };
+        return response.result as ChatMessageResponse;
       }
       
       console.error('[SkillEditorChat] Failed to send message:', response.error);
       return null;
     } catch (error) {
       console.error('[SkillEditorChat] Error sending message:', error);
+      return null;
+    }
+  }
+  
+  /**
+   * Send a message with clarification responses
+   */
+  async sendMessageWithClarification(
+    sessionId: string,
+    content: string,
+    clarificationResponses: Record<string, string[]>,
+    canvasContext?: CanvasContext
+  ): Promise<ChatMessageResponse | null> {
+    console.log('[SkillEditorChat] Sending message with clarification:', { 
+      sessionId, 
+      contentLength: content.length, 
+      numResponses: Object.keys(clarificationResponses).length 
+    });
+    try {
+      const response: IPCResponse = await ipcClient.invoke('skill_editor.chat.send_message', {
+        sessionId,
+        content,
+        canvasContext,
+        clarificationResponses,
+      }, { timeout: 120000 });
+      console.log('[SkillEditorChat] Clarification response received:', { status: response.status });
+      
+      if (response.status === 'success' && response.result) {
+        return response.result as ChatMessageResponse;
+      }
+      
+      console.error('[SkillEditorChat] Failed to send clarification:', response.error);
+      return null;
+    } catch (error) {
+      console.error('[SkillEditorChat] Error sending clarification:', error);
       return null;
     }
   }
