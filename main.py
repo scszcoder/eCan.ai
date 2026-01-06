@@ -8,6 +8,12 @@ import subprocess
 import time
 
 # ============================================================================
+# CRITICAL: Force UTF-8 encoding for all file operations (Windows compatibility)
+# This must be set BEFORE any imports to prevent GBK encoding errors
+# ============================================================================
+os.environ['PYTHONUTF8'] = '1'
+
+# ============================================================================
 # CRITICAL: Configure browser_use timeouts BEFORE any browser_use imports
 # These environment variables must be set before browser_use.browser.events is imported
 # ============================================================================
