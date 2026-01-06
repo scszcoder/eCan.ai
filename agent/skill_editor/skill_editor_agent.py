@@ -1,206 +1,71 @@
 """
-Skill Editor Agent
+Skill Editor Agent (Orchestrator)
 
-A LangGraph-based agent that processes chat messages for skill editing.
-It can:
-1. Understand user intent from natural language
-2. Generate flowgram structures (nodes, edges)
-3. Issue canvas commands to manipulate the editor
-4. Run/debug flowgrams through chat
+Orchestrates the skill editing pipeline by coordinating:
+1. PlannerAgent - for clarification and planning
+2. CodeAgent - for flowgram generation and editing
 
-This agent uses the existing LLM infrastructure and can be extended
-with MCP tools for canvas control.
+This agent provides a unified interface for the chat handler while
+delegating specialized tasks to the appropriate sub-agents.
 """
 
 import json
-import time
-import uuid
 import traceback
-from typing import Any, Dict, List, Optional, Tuple
-from dataclasses import dataclass, field, asdict
+from typing import Any, Dict, List, Optional, Callable
 from enum import Enum
 
-from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 from utils.logger_helper import logger_helper as logger
 
+# Import from schemas
+from .schemas import (
+    IntentType,
+    PlannerAction,
+    AgentResponse,
+    CanvasCommand,
+    ClarificationQuestion,
+    ImplementationPlan,
+    Flowgram,
+    NODE_TYPES,
+    get_node_types_description,
+)
 
-# ============================================================
-# Types and Constants
-# ============================================================
-
-class IntentType(str, Enum):
-    """Types of user intents the agent can recognize"""
-    CREATE_FLOWGRAM = "create_flowgram"
-    ADD_NODE = "add_node"
-    REMOVE_NODE = "remove_node"
-    CONNECT_NODES = "connect_nodes"
-    MODIFY_NODE = "modify_node"
-    RUN_FLOWGRAM = "run_flowgram"
-    DEBUG_FLOWGRAM = "debug_flowgram"
-    EXPLAIN = "explain"
-    GENERAL_CHAT = "general_chat"
-    UNKNOWN = "unknown"
-
-
-@dataclass
-class CanvasCommand:
-    """A command to be sent to the frontend canvas"""
-    type: str  # e.g., "canvas.add_node", "canvas.remove_node", etc.
-    payload: Dict[str, Any]
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {"type": self.type, "payload": self.payload}
-
-
-@dataclass
-class AgentResponse:
-    """Response from the skill editor agent"""
-    message: str
-    commands: List[CanvasCommand] = field(default_factory=list)
-    intent: IntentType = IntentType.GENERAL_CHAT
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "message": self.message,
-            "commands": [cmd.to_dict() for cmd in self.commands],
-            "intent": self.intent.value,
-            "metadata": self.metadata,
-        }
-
-
-# Node type definitions for the skill editor
-NODE_TYPES = {
-    "start": {
-        "description": "Entry point of the workflow",
-        "has_inputs": False,
-        "has_outputs": True,
-    },
-    "end": {
-        "description": "Exit point of the workflow",
-        "has_inputs": True,
-        "has_outputs": False,
-    },
-    "llm": {
-        "description": "LLM node for AI processing with prompts",
-        "has_inputs": True,
-        "has_outputs": True,
-        "config_schema": {
-            "model": "string",
-            "system_prompt": "string",
-            "user_prompt": "string",
-            "temperature": "number",
-        }
-    },
-    "mcp_tool": {
-        "description": "MCP tool node for external tool calls",
-        "has_inputs": True,
-        "has_outputs": True,
-        "config_schema": {
-            "tool_name": "string",
-            "tool_input": "object",
-        }
-    },
-    "condition": {
-        "description": "Conditional branching node",
-        "has_inputs": True,
-        "has_outputs": True,
-        "config_schema": {
-            "condition": "string",
-            "true_branch": "string",
-            "false_branch": "string",
-        }
-    },
-    "loop": {
-        "description": "Loop node for iterative processing",
-        "has_inputs": True,
-        "has_outputs": True,
-        "config_schema": {
-            "max_iterations": "number",
-            "condition": "string",
-        }
-    },
-}
+# Import sub-agents
+from .planner_agent import PlannerAgent, get_planner_agent
+from .code_agent import CodeAgent, get_code_agent
+from .node_config_agent import NodeConfigAgent, NodeConfigAction, get_node_config_agent
 
 
 # ============================================================
-# System Prompts
+# Pipeline State
 # ============================================================
 
-SYSTEM_PROMPT = """You are an AI assistant specialized in helping users create and edit flowgram workflows.
-
-A flowgram is a visual workflow consisting of nodes and edges:
-- **Nodes** represent actions (LLM calls, tool calls, conditions, etc.)
-- **Edges** connect nodes to define the flow of execution
-
-Available node types:
-{node_types}
-
-Current canvas state:
-{canvas_context}
-
-Your capabilities:
-1. **Create flowgrams**: Design complete workflows based on user descriptions
-2. **Add nodes**: Add specific nodes to the canvas
-3. **Connect nodes**: Create edges between nodes
-4. **Modify nodes**: Update node configurations
-5. **Explain**: Explain what a workflow does or how to build one
-6. **Run/Debug**: Help users run and debug their workflows
-
-When generating flowgram structures, output them in this JSON format:
-```json
-{{
-  "nodes": [
-    {{"id": "node_1", "type": "start", "label": "Start", "position": {{"x": 100, "y": 100}}}},
-    {{"id": "node_2", "type": "llm", "label": "Process", "position": {{"x": 100, "y": 200}}, "config": {{...}}}}
-  ],
-  "edges": [
-    {{"source": "node_1", "target": "node_2"}}
-  ]
-}}
-```
-
-Be helpful, concise, and provide actionable suggestions. When users describe what they want to build, 
-translate that into concrete flowgram structures they can use.
-"""
-
-INTENT_CLASSIFICATION_PROMPT = """Classify the user's intent from their message.
-
-User message: {user_message}
-
-Canvas context (current state):
-{canvas_context}
-
-Classify into one of these intents:
-- create_flowgram: User wants to create a new workflow from scratch
-- add_node: User wants to add a specific node
-- remove_node: User wants to remove a node
-- connect_nodes: User wants to connect existing nodes
-- modify_node: User wants to change a node's configuration
-- run_flowgram: User wants to run/execute the workflow
-- debug_flowgram: User wants to debug or step through the workflow
-- explain: User wants explanation about workflows or nodes
-- general_chat: General conversation or questions
-
-Respond with ONLY the intent name, nothing else.
-"""
+class PipelineState(str, Enum):
+    """State of the skill editor pipeline"""
+    IDLE = "idle"
+    PLANNING = "planning"
+    AWAITING_CLARIFICATION = "awaiting_clarification"
+    AWAITING_PLAN_APPROVAL = "awaiting_plan_approval"
+    GENERATING = "generating"
+    EDITING = "editing"
+    CONFIGURING_NODE = "configuring_node"  # Node configuration mode
+    COMPLETE = "complete"
 
 
 # ============================================================
-# Skill Editor Agent Class
+# Skill Editor Agent Class (Orchestrator)
 # ============================================================
 
 class SkillEditorAgent:
     """
-    Agent for processing skill editor chat messages.
+    Orchestrator agent for the skill editor pipeline.
     
-    This agent:
-    1. Classifies user intent
-    2. Generates appropriate responses
-    3. Creates canvas commands when needed
-    4. Maintains conversation context
+    This agent coordinates:
+    1. PlannerAgent for clarification and planning
+    2. CodeAgent for flowgram generation and editing
+    3. Pipeline state management
+    4. Conversation history
     """
     
     def __init__(self, llm=None):
@@ -208,326 +73,531 @@ class SkillEditorAgent:
         Initialize the skill editor agent.
         
         Args:
-            llm: LangChain LLM instance. If None, will use default from settings.
+            llm: LangChain LLM instance. If None, sub-agents will use default from settings.
         """
         self._llm = llm
+        self._planner: Optional[PlannerAgent] = None
+        self._code_agent: Optional[CodeAgent] = None
+        self._node_config_agent: Optional[NodeConfigAgent] = None
         self._conversation_history: List[Dict[str, str]] = []
+        self._pipeline_state = PipelineState.IDLE
+        self._pending_clarification: Optional[List[ClarificationQuestion]] = None
+        self._current_plan: Optional[ImplementationPlan] = None
+        self._current_request: Optional[str] = None
+        self._selected_node: Optional[Dict[str, Any]] = None  # Currently selected node for configuration
         logger.info("[SkillEditorAgent] Initialized")
     
     @property
-    def llm(self):
-        """Lazy load LLM from settings if not provided"""
-        if self._llm is None:
-            try:
-                self._llm = self._load_llm_from_settings()
-                logger.info("[SkillEditorAgent] Loaded LLM from settings")
-            except Exception as e:
-                logger.error(f"[SkillEditorAgent] Failed to load LLM: {e}")
-                raise
-        return self._llm
+    def planner(self) -> PlannerAgent:
+        """Get or create the planner agent"""
+        if self._planner is None:
+            self._planner = PlannerAgent(llm=self._llm)
+            logger.debug("[SkillEditorAgent] Created PlannerAgent")
+        return self._planner
     
-    def _load_llm_from_settings(self):
-        """Load LLM instance from application settings"""
-        try:
-            from app_context import AppContext
-            from agent.ec_skills.llm_utils.llm_utils import select_or_create_llm
-            
-            mainwin = AppContext.get_main_window()
-            if mainwin is None:
-                raise RuntimeError("Main window not available")
-            
-            # Get LLM providers and default from settings
-            llm_providers = getattr(mainwin, 'llm_providers', [])
-            default_llm = getattr(mainwin, 'default_llm', None)
-            config_manager = getattr(mainwin, 'config_manager', None)
-            
-            if not llm_providers:
-                raise RuntimeError("No LLM providers configured")
-            
-            # Use the standard LLM selection logic
-            llm_instance = select_or_create_llm(
-                default_llm=default_llm,
-                llm_providers=llm_providers,
-                config_manager=config_manager,
-                allow_fallback=True
-            )
-            
-            if llm_instance is None:
-                raise RuntimeError("Failed to create LLM instance")
-            
-            return llm_instance
-            
-        except Exception as e:
-            logger.error(f"[SkillEditorAgent] Error loading LLM: {e}")
-            # Try fallback to a simple ChatOpenAI if available
-            try:
-                from langchain_openai import ChatOpenAI
-                import os
-                api_key = os.environ.get("OPENAI_API_KEY")
-                if api_key:
-                    logger.info("[SkillEditorAgent] Using fallback OpenAI LLM")
-                    return ChatOpenAI(model="gpt-4o-mini", api_key=api_key)
-            except Exception:
-                pass
-            raise
+    @property
+    def code_agent(self) -> CodeAgent:
+        """Get or create the code agent"""
+        if self._code_agent is None:
+            self._code_agent = CodeAgent(llm=self._llm)
+            logger.debug("[SkillEditorAgent] Created CodeAgent")
+        return self._code_agent
     
-    def _format_node_types(self) -> str:
-        """Format node types for the system prompt"""
-        lines = []
-        for name, info in NODE_TYPES.items():
-            lines.append(f"- **{name}**: {info['description']}")
-        return "\n".join(lines)
+    @property
+    def node_config_agent(self) -> NodeConfigAgent:
+        """Get or create the node config agent"""
+        if self._node_config_agent is None:
+            self._node_config_agent = NodeConfigAgent(llm=self._llm)
+            logger.debug("[SkillEditorAgent] Created NodeConfigAgent")
+        return self._node_config_agent
     
-    def _format_canvas_context(self, canvas_context: Optional[Dict]) -> str:
-        """Format canvas context for prompts"""
+    @property
+    def pipeline_state(self) -> PipelineState:
+        """Get current pipeline state"""
+        return self._pipeline_state
+    
+    def _classify_intent_simple(self, message: str) -> IntentType:
+        """Simple rule-based intent classification"""
+        msg_lower = message.lower()
+        
+        # Creation intents
+        if any(word in msg_lower for word in ["create", "build", "make", "generate", "new workflow"]):
+            return IntentType.CREATE_FLOWGRAM
+        
+        # Node operations
+        if "add" in msg_lower and "node" in msg_lower:
+            return IntentType.ADD_NODE
+        if "remove" in msg_lower or "delete" in msg_lower:
+            return IntentType.REMOVE_NODE
+        if "connect" in msg_lower or "link" in msg_lower:
+            return IntentType.CONNECT_NODES
+        if "modify" in msg_lower or "change" in msg_lower or "update" in msg_lower:
+            return IntentType.MODIFY_NODE
+        
+        # Execution intents
+        if "run" in msg_lower or "execute" in msg_lower:
+            return IntentType.RUN_FLOWGRAM
+        if "debug" in msg_lower or "step" in msg_lower:
+            return IntentType.DEBUG_FLOWGRAM
+        
+        # Explanation
+        if any(word in msg_lower for word in ["explain", "what", "how", "why", "help"]):
+            return IntentType.EXPLAIN
+        
+        return IntentType.GENERAL_CHAT
+    
+    def _should_use_planner(self, intent: IntentType) -> bool:
+        """Determine if the planner should be used for this intent"""
+        # Use planner for complex creation tasks
+        return intent in [
+            IntentType.CREATE_FLOWGRAM,
+        ]
+    
+    def _is_node_config_request(self, message: str, canvas_context: Optional[Dict]) -> bool:
+        """Check if the message is a node configuration request"""
         if not canvas_context:
-            return "Empty canvas (no nodes or edges)"
+            return False
         
-        nodes = canvas_context.get("nodes", [])
-        edges = canvas_context.get("edges", [])
+        msg_lower = message.lower()
         
-        if not nodes:
-            return "Empty canvas (no nodes or edges)"
+        # Check for configuration-related keywords
+        config_keywords = ["configure", "set", "change", "update", "modify", "edit"]
+        has_config_keyword = any(kw in msg_lower for kw in config_keywords)
         
-        lines = [f"Nodes ({len(nodes)}):"]
-        for node in nodes[:10]:  # Limit to first 10 nodes
-            lines.append(f"  - {node.get('id')}: {node.get('type')} ({node.get('label', 'unnamed')})")
+        # Check if a specific node is mentioned or selected
+        selected_nodes = canvas_context.get("selectedNodes", [])
+        if selected_nodes and has_config_keyword:
+            return True
         
-        if len(nodes) > 10:
-            lines.append(f"  ... and {len(nodes) - 10} more nodes")
+        # Check for node type mentions with config intent
+        node_types = ["llm", "code", "http", "condition", "loop", "mcp"]
+        for node_type in node_types:
+            if node_type in msg_lower and has_config_keyword:
+                return True
         
-        lines.append(f"\nEdges ({len(edges)}):") 
-        for edge in edges[:10]:
-            lines.append(f"  - {edge.get('source')} → {edge.get('target')}")
-        
-        if len(edges) > 10:
-            lines.append(f"  ... and {len(edges) - 10} more edges")
-        
-        return "\n".join(lines)
+        return False
     
-    async def classify_intent(self, message: str, canvas_context: Optional[Dict] = None) -> IntentType:
-        """
-        Classify the user's intent from their message.
-        
-        Args:
-            message: User's chat message
-            canvas_context: Current canvas state
-            
-        Returns:
-            Classified intent type
-        """
-        try:
-            prompt = INTENT_CLASSIFICATION_PROMPT.format(
-                user_message=message,
-                canvas_context=self._format_canvas_context(canvas_context)
-            )
-            
-            # Use LLM to classify intent
-            response = await self._invoke_llm_async(prompt)
-            intent_str = response.strip().lower()
-            
-            # Map to IntentType
-            intent_map = {
-                "create_flowgram": IntentType.CREATE_FLOWGRAM,
-                "add_node": IntentType.ADD_NODE,
-                "remove_node": IntentType.REMOVE_NODE,
-                "connect_nodes": IntentType.CONNECT_NODES,
-                "modify_node": IntentType.MODIFY_NODE,
-                "run_flowgram": IntentType.RUN_FLOWGRAM,
-                "debug_flowgram": IntentType.DEBUG_FLOWGRAM,
-                "explain": IntentType.EXPLAIN,
-                "general_chat": IntentType.GENERAL_CHAT,
-            }
-            
-            return intent_map.get(intent_str, IntentType.UNKNOWN)
-            
-        except Exception as e:
-            logger.error(f"[SkillEditorAgent] Intent classification failed: {e}")
-            return IntentType.UNKNOWN
-    
-    async def _invoke_llm_async(self, prompt: str) -> str:
-        """Invoke LLM asynchronously"""
-        try:
-            # Try async invoke first
-            if hasattr(self.llm, 'ainvoke'):
-                response = await self.llm.ainvoke(prompt)
-                return response.content if hasattr(response, 'content') else str(response)
-            else:
-                # Fallback to sync
-                from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
-                response = self.llm.invoke(prompt)
-                return response.content if hasattr(response, 'content') else str(response)
-        except Exception as e:
-            logger.error(f"[SkillEditorAgent] LLM invocation failed: {e}")
-            raise
-    
-    async def _stream_llm_async(self, prompt: str):
-        """Stream LLM response asynchronously, yielding chunks"""
-        try:
-            # Try async streaming first
-            if hasattr(self.llm, 'astream'):
-                async for chunk in self.llm.astream(prompt):
-                    content = chunk.content if hasattr(chunk, 'content') else str(chunk)
-                    if content:
-                        yield content
-            elif hasattr(self.llm, 'stream'):
-                # Fallback to sync streaming
-                for chunk in self.llm.stream(prompt):
-                    content = chunk.content if hasattr(chunk, 'content') else str(chunk)
-                    if content:
-                        yield content
-            else:
-                # No streaming support, yield full response
-                response = await self._invoke_llm_async(prompt)
-                yield response
-        except Exception as e:
-            logger.error(f"[SkillEditorAgent] LLM streaming failed: {e}")
-            raise
-    
-    def _invoke_llm_sync(self, prompt: str) -> str:
-        """Invoke LLM synchronously"""
-        try:
-            response = self.llm.invoke(prompt)
-            return response.content if hasattr(response, 'content') else str(response)
-        except Exception as e:
-            logger.error(f"[SkillEditorAgent] LLM invocation failed: {e}")
-            raise
-    
-    def _extract_flowgram_from_response(self, response: str) -> Optional[Dict]:
-        """Extract flowgram JSON from LLM response"""
-        try:
-            # Look for JSON block in response
-            import re
-            json_match = re.search(r'```json\s*([\s\S]*?)\s*```', response)
-            if json_match:
-                return json.loads(json_match.group(1))
-            
-            # Try to find raw JSON
-            json_match = re.search(r'\{[\s\S]*"nodes"[\s\S]*\}', response)
-            if json_match:
-                return json.loads(json_match.group(0))
-            
+    def _get_selected_node_from_context(self, canvas_context: Optional[Dict]) -> Optional[Dict[str, Any]]:
+        """Extract the selected node from canvas context"""
+        if not canvas_context:
             return None
-        except json.JSONDecodeError as e:
-            logger.warning(f"[SkillEditorAgent] Failed to parse flowgram JSON: {e}")
-            return None
-    
-    def _generate_canvas_commands(self, flowgram: Dict) -> List[CanvasCommand]:
-        """Generate canvas commands from a flowgram structure"""
-        commands = []
         
-        # Add nodes
-        for node in flowgram.get("nodes", []):
-            commands.append(CanvasCommand(
-                type="canvas.add_node",
-                payload={
-                    "nodeType": node.get("type", "llm"),
-                    "position": node.get("position", {"x": 100, "y": 100}),
-                    "config": {
-                        "id": node.get("id"),
-                        "label": node.get("label", node.get("id")),
-                        **node.get("config", {})
-                    }
-                }
-            ))
+        selected_nodes = canvas_context.get("selectedNodes", [])
+        if selected_nodes:
+            # Return the first selected node
+            node_id = selected_nodes[0]
+            nodes = canvas_context.get("nodes", [])
+            for node in nodes:
+                if node.get("id") == node_id:
+                    return node
         
-        # Add edges
-        for edge in flowgram.get("edges", []):
-            commands.append(CanvasCommand(
-                type="canvas.add_edge",
-                payload={
-                    "sourceNodeId": edge.get("source"),
-                    "targetNodeId": edge.get("target"),
-                    "sourceHandle": edge.get("sourceHandle"),
-                    "targetHandle": edge.get("targetHandle"),
-                }
-            ))
-        
-        return commands
+        return None
     
     async def process_message(
         self,
         message: str,
         canvas_context: Optional[Dict] = None,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        clarification_responses: Optional[Dict[str, List[str]]] = None,
+        on_event: Optional[Callable] = None
     ) -> AgentResponse:
         """
-        Process a chat message and generate a response.
+        Process a chat message through the planning and code generation pipeline.
         
         Args:
             message: User's chat message
             canvas_context: Current canvas state (nodes, edges)
             session_id: Chat session ID for context
+            clarification_responses: Answers to previous clarification questions
+            on_event: Callback for streaming events
             
         Returns:
-            AgentResponse with message and optional commands
+            AgentResponse with message, commands, and optional clarification/plan
         """
         logger.info(f"[SkillEditorAgent] Processing message: {message[:100]}...")
+        logger.info(f"[SkillEditorAgent] Pipeline state: {self._pipeline_state.value}")
         
         try:
+            # Handle node configuration clarification responses
+            if clarification_responses and self._pipeline_state == PipelineState.CONFIGURING_NODE:
+                logger.info("[SkillEditorAgent] Processing node config clarification responses")
+                return await self._handle_node_config_clarification(
+                    clarification_responses, canvas_context, session_id, on_event
+                )
+            
+            # Handle clarification responses
+            if clarification_responses and self._pipeline_state == PipelineState.AWAITING_CLARIFICATION:
+                logger.info("[SkillEditorAgent] Processing clarification responses")
+                return await self._handle_clarification_response(
+                    clarification_responses, canvas_context, session_id, on_event
+                )
+            
+            # Handle plan approval
+            if self._pipeline_state == PipelineState.AWAITING_PLAN_APPROVAL:
+                if any(word in message.lower() for word in ["yes", "ok", "approve", "proceed", "go ahead"]):
+                    logger.info("[SkillEditorAgent] Plan approved, proceeding to code generation")
+                    return await self._generate_from_plan(canvas_context, session_id, on_event)
+                elif any(word in message.lower() for word in ["no", "cancel", "revise", "change"]):
+                    logger.info("[SkillEditorAgent] Plan rejected, resetting")
+                    self._pipeline_state = PipelineState.IDLE
+                    self._current_plan = None
+                    return AgentResponse(
+                        message="Understood. Please describe what you'd like to change about the plan.",
+                        intent=IntentType.GENERAL_CHAT,
+                        metadata={"session_id": session_id}
+                    )
+            
             # Classify intent
-            intent = await self.classify_intent(message, canvas_context)
+            intent = self._classify_intent_simple(message)
             logger.info(f"[SkillEditorAgent] Classified intent: {intent.value}")
             
-            # Build system prompt
-            system_prompt = SYSTEM_PROMPT.format(
-                node_types=self._format_node_types(),
-                canvas_context=self._format_canvas_context(canvas_context)
-            )
+            # Store current request
+            self._current_request = message
             
-            # Build conversation messages
-            messages = [
-                SystemMessage(content=system_prompt),
-            ]
+            # Check if user wants to configure a specific node
+            if intent == IntentType.MODIFY_NODE and self._is_node_config_request(message, canvas_context):
+                return await self._run_node_configuration(message, canvas_context, session_id, on_event)
             
-            # Add conversation history (last 5 exchanges)
-            for hist in self._conversation_history[-10:]:
-                if hist["role"] == "user":
-                    messages.append(HumanMessage(content=hist["content"]))
-                else:
-                    messages.append(AIMessage(content=hist["content"]))
-            
-            # Add current message
-            messages.append(HumanMessage(content=message))
-            
-            # Generate response
-            response_text = await self._invoke_llm_async(
-                "\n".join([f"{m.type}: {m.content}" for m in messages])
-            )
-            
-            # Update conversation history
-            self._conversation_history.append({"role": "user", "content": message})
-            self._conversation_history.append({"role": "assistant", "content": response_text})
-            
-            # Extract flowgram and generate commands if applicable
-            commands = []
-            if intent in [IntentType.CREATE_FLOWGRAM, IntentType.ADD_NODE, IntentType.CONNECT_NODES]:
-                flowgram = self._extract_flowgram_from_response(response_text)
-                if flowgram:
-                    commands = self._generate_canvas_commands(flowgram)
-                    logger.info(f"[SkillEditorAgent] Generated {len(commands)} canvas commands")
-            
-            return AgentResponse(
-                message=response_text,
-                commands=commands,
-                intent=intent,
-                metadata={"session_id": session_id}
-            )
+            # Decide whether to use planner or go directly to code
+            if self._should_use_planner(intent):
+                return await self._run_planning_phase(message, canvas_context, session_id, on_event)
+            else:
+                # For simpler intents, go directly to code agent
+                return await self._run_code_generation(message, canvas_context, session_id, intent, on_event)
             
         except Exception as e:
             error_msg = f"I encountered an error processing your request: {str(e)}"
             logger.error(f"[SkillEditorAgent] Error: {e}\n{traceback.format_exc()}")
+            self._pipeline_state = PipelineState.IDLE
             return AgentResponse(
                 message=error_msg,
                 intent=IntentType.UNKNOWN,
-                metadata={"error": str(e)}
+                metadata={"error": str(e), "session_id": session_id}
             )
+    
+    async def _run_node_configuration(
+        self,
+        message: str,
+        canvas_context: Optional[Dict],
+        session_id: Optional[str],
+        on_event: Optional[Callable]
+    ) -> AgentResponse:
+        """Run node configuration with NodeConfigAgent"""
+        logger.info("[SkillEditorAgent] Running node configuration")
+        self._pipeline_state = PipelineState.CONFIGURING_NODE
+        
+        # Get the selected node
+        selected_node = self._get_selected_node_from_context(canvas_context)
+        if not selected_node:
+            self._pipeline_state = PipelineState.IDLE
+            return AgentResponse(
+                message="Please select a node on the canvas first, then tell me how you'd like to configure it.",
+                intent=IntentType.MODIFY_NODE,
+                metadata={"session_id": session_id}
+            )
+        
+        self._selected_node = selected_node
+        node_id = selected_node.get("id", "")
+        node_type = selected_node.get("type", "")
+        current_config = selected_node.get("config", {}).get("inputsValues", {})
+        
+        logger.info(f"[SkillEditorAgent] Configuring node {node_id} of type {node_type}")
+        
+        # Run node config agent
+        config_output = await self.node_config_agent.configure_node(
+            node_id=node_id,
+            node_type=node_type,
+            user_request=message,
+            current_config=current_config,
+            available_context=canvas_context
+        )
+        
+        if config_output.action == NodeConfigAction.ASK_CLARIFICATION:
+            # Need clarification
+            self._pending_clarification = config_output.clarification
+            return AgentResponse(
+                message=config_output.message,
+                intent=IntentType.MODIFY_NODE,
+                clarification=config_output.clarification,
+                metadata={"session_id": session_id, "state": "configuring_node", "node_id": node_id}
+            )
+        
+        elif config_output.action == NodeConfigAction.REJECT:
+            self._pipeline_state = PipelineState.IDLE
+            self._selected_node = None
+            return AgentResponse(
+                message=config_output.message,
+                intent=IntentType.MODIFY_NODE,
+                metadata={"session_id": session_id}
+            )
+        
+        else:  # CONFIGURE or VALIDATE
+            self._pipeline_state = PipelineState.COMPLETE
+            self._selected_node = None
+            
+            commands = [CanvasCommand(type=c.type, payload=c.payload) for c in config_output.commands]
+            
+            return AgentResponse(
+                message=config_output.message,
+                commands=commands,
+                intent=IntentType.MODIFY_NODE,
+                validation=config_output.validation,
+                metadata={"session_id": session_id, "state": "complete", "node_config": config_output.node_config}
+            )
+    
+    async def _handle_node_config_clarification(
+        self,
+        responses: Dict[str, List[str]],
+        canvas_context: Optional[Dict],
+        session_id: Optional[str],
+        on_event: Optional[Callable]
+    ) -> AgentResponse:
+        """Handle clarification responses for node configuration"""
+        logger.info("[SkillEditorAgent] Handling node config clarification response")
+        
+        if not self._selected_node:
+            self._pipeline_state = PipelineState.IDLE
+            return AgentResponse(
+                message="I lost track of which node we were configuring. Please select the node again.",
+                intent=IntentType.MODIFY_NODE,
+                metadata={"session_id": session_id}
+            )
+        
+        node_id = self._selected_node.get("id", "")
+        node_type = self._selected_node.get("type", "")
+        current_config = self._selected_node.get("config", {}).get("inputsValues", {})
+        
+        # Continue configuration with responses
+        config_output = await self.node_config_agent.configure_node(
+            node_id=node_id,
+            node_type=node_type,
+            user_request=self._current_request or "",
+            current_config=current_config,
+            clarification_responses=responses,
+            available_context=canvas_context
+        )
+        
+        if config_output.action == NodeConfigAction.ASK_CLARIFICATION:
+            self._pending_clarification = config_output.clarification
+            return AgentResponse(
+                message=config_output.message,
+                intent=IntentType.MODIFY_NODE,
+                clarification=config_output.clarification,
+                metadata={"session_id": session_id, "state": "configuring_node", "node_id": node_id}
+            )
+        
+        else:
+            self._pipeline_state = PipelineState.COMPLETE
+            self._selected_node = None
+            
+            commands = [CanvasCommand(type=c.type, payload=c.payload) for c in config_output.commands]
+            
+            return AgentResponse(
+                message=config_output.message,
+                commands=commands,
+                intent=IntentType.MODIFY_NODE,
+                validation=config_output.validation,
+                metadata={"session_id": session_id, "state": "complete", "node_config": config_output.node_config}
+            )
+    
+    async def _run_planning_phase(
+        self,
+        message: str,
+        canvas_context: Optional[Dict],
+        session_id: Optional[str],
+        on_event: Optional[Callable]
+    ) -> AgentResponse:
+        """Run the planning phase with PlannerAgent"""
+        logger.info("[SkillEditorAgent] Running planning phase")
+        self._pipeline_state = PipelineState.PLANNING
+        
+        # Run planner
+        planner_output = await self.planner.plan(
+            user_message=message,
+            canvas_context=canvas_context,
+            on_event=on_event
+        )
+        
+        logger.info(f"[SkillEditorAgent] Planner action: {planner_output.action.value}")
+        
+        if planner_output.action == PlannerAction.ASK_CLARIFICATION:
+            # Need clarification from user
+            self._pipeline_state = PipelineState.AWAITING_CLARIFICATION
+            self._pending_clarification = planner_output.questions
+            
+            return AgentResponse(
+                message=planner_output.message or "I have some questions to better understand your requirements:",
+                intent=IntentType.CREATE_FLOWGRAM,
+                clarification=planner_output.questions,
+                metadata={"session_id": session_id, "state": "awaiting_clarification"}
+            )
+        
+        elif planner_output.action == PlannerAction.GENERATE_PLAN:
+            # Plan generated, ask for approval
+            self._pipeline_state = PipelineState.AWAITING_PLAN_APPROVAL
+            self._current_plan = planner_output.plan
+            
+            # Format plan for display
+            plan_text = self._format_plan_for_display(planner_output.plan)
+            
+            return AgentResponse(
+                message=f"{planner_output.message or 'Here is my implementation plan:'}\n\n{plan_text}\n\nWould you like me to proceed with this plan?",
+                intent=IntentType.CREATE_FLOWGRAM,
+                plan=planner_output.plan,
+                metadata={"session_id": session_id, "state": "awaiting_plan_approval"}
+            )
+        
+        else:  # PROCEED_TO_CODE
+            # Request is clear enough, proceed directly
+            return await self._generate_from_plan(canvas_context, session_id, on_event)
+    
+    async def _handle_clarification_response(
+        self,
+        responses: Dict[str, List[str]],
+        canvas_context: Optional[Dict],
+        session_id: Optional[str],
+        on_event: Optional[Callable]
+    ) -> AgentResponse:
+        """Handle user's clarification responses"""
+        logger.info("[SkillEditorAgent] Handling clarification response")
+        
+        # Continue planning with responses
+        planner_output = await self.planner.plan(
+            user_message=self._current_request or "",
+            canvas_context=canvas_context,
+            clarification_responses=responses,
+            on_event=on_event
+        )
+        
+        if planner_output.action == PlannerAction.ASK_CLARIFICATION:
+            # More clarification needed
+            self._pending_clarification = planner_output.questions
+            return AgentResponse(
+                message=planner_output.message or "I have a few more questions:",
+                intent=IntentType.CREATE_FLOWGRAM,
+                clarification=planner_output.questions,
+                metadata={"session_id": session_id, "state": "awaiting_clarification"}
+            )
+        
+        elif planner_output.action == PlannerAction.GENERATE_PLAN:
+            self._pipeline_state = PipelineState.AWAITING_PLAN_APPROVAL
+            self._current_plan = planner_output.plan
+            plan_text = self._format_plan_for_display(planner_output.plan)
+            
+            return AgentResponse(
+                message=f"Based on your answers, here's my plan:\n\n{plan_text}\n\nShall I proceed?",
+                intent=IntentType.CREATE_FLOWGRAM,
+                plan=planner_output.plan,
+                metadata={"session_id": session_id, "state": "awaiting_plan_approval"}
+            )
+        
+        else:
+            return await self._generate_from_plan(canvas_context, session_id, on_event)
+    
+    async def _generate_from_plan(
+        self,
+        canvas_context: Optional[Dict],
+        session_id: Optional[str],
+        on_event: Optional[Callable]
+    ) -> AgentResponse:
+        """Generate flowgram from the current plan"""
+        logger.info("[SkillEditorAgent] Generating flowgram from plan")
+        self._pipeline_state = PipelineState.GENERATING
+        
+        # Generate with code agent
+        code_output = await self.code_agent.generate(
+            user_message=self._current_request or "",
+            canvas_context=canvas_context,
+            plan=self._current_plan,
+            on_event=on_event
+        )
+        
+        self._pipeline_state = PipelineState.COMPLETE
+        
+        # Generate canvas commands if flowgram was created
+        commands = []
+        if code_output.flowgram:
+            commands = self.code_agent.generate_canvas_commands(code_output.flowgram)
+        
+        return AgentResponse(
+            message=code_output.message or "I've generated the workflow for you.",
+            commands=[CanvasCommand(type=c.type, payload=c.payload) for c in commands],
+            intent=IntentType.CREATE_FLOWGRAM,
+            flowgram=code_output.flowgram,
+            validation=code_output.validation,
+            metadata={"session_id": session_id, "state": "complete"}
+        )
+    
+    async def _run_code_generation(
+        self,
+        message: str,
+        canvas_context: Optional[Dict],
+        session_id: Optional[str],
+        intent: IntentType,
+        on_event: Optional[Callable]
+    ) -> AgentResponse:
+        """Run direct code generation without planning"""
+        logger.info(f"[SkillEditorAgent] Direct code generation for intent: {intent.value}")
+        self._pipeline_state = PipelineState.GENERATING
+        
+        # For edit operations, use edit method
+        if intent in [IntentType.ADD_NODE, IntentType.REMOVE_NODE, IntentType.MODIFY_NODE, IntentType.CONNECT_NODES]:
+            code_output = await self.code_agent.edit(
+                edit_request=message,
+                on_event=on_event
+            )
+        else:
+            code_output = await self.code_agent.generate(
+                user_message=message,
+                canvas_context=canvas_context,
+                on_event=on_event
+            )
+        
+        self._pipeline_state = PipelineState.COMPLETE
+        
+        commands = []
+        if code_output.flowgram:
+            commands = self.code_agent.generate_canvas_commands(code_output.flowgram)
+        
+        return AgentResponse(
+            message=code_output.message,
+            commands=[CanvasCommand(type=c.type, payload=c.payload) for c in commands],
+            intent=intent,
+            flowgram=code_output.flowgram,
+            validation=code_output.validation,
+            metadata={"session_id": session_id}
+        )
+    
+    def _format_plan_for_display(self, plan: Optional[ImplementationPlan]) -> str:
+        """Format implementation plan for user display"""
+        if not plan:
+            return "No plan available."
+        
+        lines = [
+            f"**Summary:** {plan.summary}",
+            f"**Complexity:** {plan.complexity}",
+            "",
+            "**Steps:**"
+        ]
+        
+        for i, step in enumerate(plan.steps, 1):
+            lines.append(f"{i}. **{step.title}**")
+            lines.append(f"   {step.description}")
+            if step.node_types:
+                lines.append(f"   _Nodes: {', '.join(step.node_types)}_")
+        
+        lines.append("")
+        lines.append(f"**Estimated nodes:** {', '.join(plan.estimated_nodes)}")
+        
+        return "\n".join(lines)
     
     def process_message_sync(
         self,
         message: str,
         canvas_context: Optional[Dict] = None,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        clarification_responses: Optional[Dict[str, List[str]]] = None,
+        on_event: Optional[Callable] = None
     ) -> AgentResponse:
         """
         Synchronous version of process_message.
@@ -536,6 +606,8 @@ class SkillEditorAgent:
             message: User's chat message
             canvas_context: Current canvas state
             session_id: Chat session ID
+            clarification_responses: Answers to clarification questions
+            on_event: Callback for streaming events
             
         Returns:
             AgentResponse with message and optional commands
@@ -543,22 +615,19 @@ class SkillEditorAgent:
         import asyncio
         
         try:
-            # Try to get existing event loop
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                # We're in an async context, use run_async_in_sync
                 from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
                 return run_async_in_sync(
-                    self.process_message(message, canvas_context, session_id)
+                    self.process_message(message, canvas_context, session_id, clarification_responses, on_event)
                 )
             else:
                 return loop.run_until_complete(
-                    self.process_message(message, canvas_context, session_id)
+                    self.process_message(message, canvas_context, session_id, clarification_responses, on_event)
                 )
         except RuntimeError:
-            # No event loop, create one
             return asyncio.run(
-                self.process_message(message, canvas_context, session_id)
+                self.process_message(message, canvas_context, session_id, clarification_responses, on_event)
             )
     
     async def process_message_streaming(
@@ -566,7 +635,8 @@ class SkillEditorAgent:
         message: str,
         canvas_context: Optional[Dict] = None,
         session_id: Optional[str] = None,
-        on_chunk: Optional[callable] = None
+        on_chunk: Optional[Callable] = None,
+        on_event: Optional[Callable] = None
     ) -> AgentResponse:
         """
         Process a chat message with streaming response.
@@ -575,89 +645,217 @@ class SkillEditorAgent:
             message: User's chat message
             canvas_context: Current canvas state
             session_id: Chat session ID
-            on_chunk: Callback function called with each chunk (chunk: str, index: int)
+            on_chunk: Callback for text chunks (chunk: str, index: int)
+            on_event: Callback for structured events
             
         Returns:
             AgentResponse with complete message and optional commands
         """
         logger.info(f"[SkillEditorAgent] Processing message (streaming): {message[:100]}...")
         
-        try:
-            # Classify intent
-            intent = await self.classify_intent(message, canvas_context)
-            logger.info(f"[SkillEditorAgent] Classified intent: {intent.value}")
+        # Create a combined event handler
+        def combined_event_handler(event: Dict):
+            if on_event:
+                on_event(event)
+            # Also send chunks if it's a chunk event
+            if event.get("type") == "chunk" and on_chunk:
+                on_chunk(event.get("data", {}).get("content", ""), event.get("data", {}).get("index", 0))
+        
+        # Use the standard process_message with event handler
+        return await self.process_message(
+            message=message,
+            canvas_context=canvas_context,
+            session_id=session_id,
+            on_event=combined_event_handler
+        )
+    
+    def clear_history(self):
+        """Clear conversation history and reset pipeline state"""
+        self._conversation_history = []
+        self._pipeline_state = PipelineState.IDLE
+        self._pending_clarification = None
+        self._current_plan = None
+        self._current_request = None
+        self._selected_node = None
+        if self._planner:
+            self._planner.clear_history()
+        if self._code_agent:
+            self._code_agent.clear()
+        logger.info("[SkillEditorAgent] History and state cleared")
+    
+    def get_pending_clarification(self) -> Optional[List[ClarificationQuestion]]:
+        """Get pending clarification questions"""
+        return self._pending_clarification
+    
+    def get_current_plan(self) -> Optional[ImplementationPlan]:
+        """Get the current implementation plan"""
+        return self._current_plan
+    
+    def get_current_flowgram(self) -> Optional[Flowgram]:
+        """Get the current flowgram from code agent"""
+        if self._code_agent:
+            return self._code_agent.get_current_flowgram()
+        return None
+    
+    async def edit_flowgram(
+        self,
+        edit_request: str,
+        canvas_context: Optional[Dict] = None,
+        session_id: Optional[str] = None,
+        on_event: Optional[Callable] = None
+    ) -> AgentResponse:
+        """
+        Pearl-like iterative flowgram editing.
+        
+        This method allows iterative refinement of the current flowgram through
+        natural language requests. It validates changes and provides feedback.
+        
+        Args:
+            edit_request: Natural language description of the edit
+            canvas_context: Current canvas state
+            session_id: Chat session ID
+            on_event: Callback for streaming events
             
-            # Build system prompt
-            system_prompt = SYSTEM_PROMPT.format(
-                node_types=self._format_node_types(),
-                canvas_context=self._format_canvas_context(canvas_context)
+        Returns:
+            AgentResponse with updated flowgram and validation
+        """
+        logger.info(f"[SkillEditorAgent] Edit flowgram request: {edit_request[:100]}...")
+        self._pipeline_state = PipelineState.EDITING
+        
+        try:
+            # Use code agent's edit method
+            code_output = await self.code_agent.edit(
+                edit_request=edit_request,
+                on_event=on_event
             )
             
-            # Build conversation messages
-            messages = [
-                SystemMessage(content=system_prompt),
-            ]
+            self._pipeline_state = PipelineState.COMPLETE
             
-            # Add conversation history (last 5 exchanges)
-            for hist in self._conversation_history[-10:]:
-                if hist["role"] == "user":
-                    messages.append(HumanMessage(content=hist["content"]))
-                else:
-                    messages.append(AIMessage(content=hist["content"]))
-            
-            # Add current message
-            messages.append(HumanMessage(content=message))
-            
-            # Build prompt string
-            prompt = "\n".join([f"{m.type}: {m.content}" for m in messages])
-            
-            # Stream response
-            full_response = []
-            chunk_index = 0
-            
-            async for chunk in self._stream_llm_async(prompt):
-                full_response.append(chunk)
-                if on_chunk:
-                    try:
-                        on_chunk(chunk, chunk_index)
-                    except Exception as e:
-                        logger.warning(f"[SkillEditorAgent] Chunk callback error: {e}")
-                chunk_index += 1
-            
-            response_text = "".join(full_response)
-            
-            # Update conversation history
-            self._conversation_history.append({"role": "user", "content": message})
-            self._conversation_history.append({"role": "assistant", "content": response_text})
-            
-            # Extract flowgram and generate commands if applicable
+            # Generate canvas commands
             commands = []
-            if intent in [IntentType.CREATE_FLOWGRAM, IntentType.ADD_NODE, IntentType.CONNECT_NODES]:
-                flowgram = self._extract_flowgram_from_response(response_text)
-                if flowgram:
-                    commands = self._generate_canvas_commands(flowgram)
-                    logger.info(f"[SkillEditorAgent] Generated {len(commands)} canvas commands")
+            if code_output.flowgram:
+                commands = self.code_agent.generate_canvas_commands(code_output.flowgram)
+            
+            # Check validation
+            if code_output.validation and not code_output.validation.valid:
+                # Validation failed - provide feedback
+                error_messages = [e.message for e in code_output.validation.errors]
+                message = f"{code_output.message}\n\n⚠️ **Validation Issues:**\n- " + "\n- ".join(error_messages)
+                message += "\n\nWould you like me to fix these issues?"
+            else:
+                message = code_output.message
             
             return AgentResponse(
-                message=response_text,
-                commands=commands,
-                intent=intent,
-                metadata={"session_id": session_id, "streamed": True}
+                message=message,
+                commands=[CanvasCommand(type=c.type, payload=c.payload) for c in commands],
+                intent=IntentType.MODIFY_NODE,
+                flowgram=code_output.flowgram,
+                validation=code_output.validation,
+                metadata={"session_id": session_id, "state": "complete"}
             )
             
         except Exception as e:
-            error_msg = f"I encountered an error processing your request: {str(e)}"
-            logger.error(f"[SkillEditorAgent] Error: {e}\n{traceback.format_exc()}")
+            logger.error(f"[SkillEditorAgent] Edit flowgram error: {e}\n{traceback.format_exc()}")
+            self._pipeline_state = PipelineState.IDLE
             return AgentResponse(
-                message=error_msg,
+                message=f"I encountered an error editing the workflow: {str(e)}",
                 intent=IntentType.UNKNOWN,
-                metadata={"error": str(e)}
+                metadata={"error": str(e), "session_id": session_id}
             )
     
-    def clear_history(self):
-        """Clear conversation history"""
-        self._conversation_history = []
-        logger.info("[SkillEditorAgent] Conversation history cleared")
+    def edit_flowgram_sync(
+        self,
+        edit_request: str,
+        canvas_context: Optional[Dict] = None,
+        session_id: Optional[str] = None,
+        on_event: Optional[Callable] = None
+    ) -> AgentResponse:
+        """Synchronous version of edit_flowgram"""
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
+                return run_async_in_sync(
+                    self.edit_flowgram(edit_request, canvas_context, session_id, on_event)
+                )
+            else:
+                return loop.run_until_complete(
+                    self.edit_flowgram(edit_request, canvas_context, session_id, on_event)
+                )
+        except RuntimeError:
+            return asyncio.run(
+                self.edit_flowgram(edit_request, canvas_context, session_id, on_event)
+            )
+    
+    async def configure_node(
+        self,
+        node_id: str,
+        node_type: str,
+        config_request: str,
+        current_config: Optional[Dict[str, Any]] = None,
+        canvas_context: Optional[Dict] = None,
+        session_id: Optional[str] = None,
+        on_event: Optional[Callable] = None
+    ) -> AgentResponse:
+        """
+        Direct node configuration API (Pearl-like).
+        
+        Allows configuring a specific node through natural language.
+        
+        Args:
+            node_id: ID of the node to configure
+            node_type: Type of the node
+            config_request: Natural language configuration request
+            current_config: Current node configuration
+            canvas_context: Current canvas state
+            session_id: Chat session ID
+            on_event: Callback for streaming events
+            
+        Returns:
+            AgentResponse with configuration result
+        """
+        logger.info(f"[SkillEditorAgent] Configure node {node_id} ({node_type})")
+        self._pipeline_state = PipelineState.CONFIGURING_NODE
+        
+        try:
+            config_output = await self.node_config_agent.configure_node(
+                node_id=node_id,
+                node_type=node_type,
+                user_request=config_request,
+                current_config=current_config,
+                available_context=canvas_context
+            )
+            
+            if config_output.action == NodeConfigAction.ASK_CLARIFICATION:
+                self._selected_node = {"id": node_id, "type": node_type, "config": {"inputsValues": current_config or {}}}
+                self._pending_clarification = config_output.clarification
+                return AgentResponse(
+                    message=config_output.message,
+                    intent=IntentType.MODIFY_NODE,
+                    clarification=config_output.clarification,
+                    metadata={"session_id": session_id, "state": "configuring_node", "node_id": node_id}
+                )
+            
+            self._pipeline_state = PipelineState.COMPLETE
+            commands = [CanvasCommand(type=c.type, payload=c.payload) for c in config_output.commands]
+            
+            return AgentResponse(
+                message=config_output.message,
+                commands=commands,
+                intent=IntentType.MODIFY_NODE,
+                validation=config_output.validation,
+                metadata={"session_id": session_id, "state": "complete", "node_config": config_output.node_config}
+            )
+            
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] Configure node error: {e}\n{traceback.format_exc()}")
+            self._pipeline_state = PipelineState.IDLE
+            return AgentResponse(
+                message=f"I encountered an error configuring the node: {str(e)}",
+                intent=IntentType.UNKNOWN,
+                metadata={"error": str(e), "session_id": session_id}
+            )
 
 
 # ============================================================
@@ -671,6 +869,7 @@ def get_skill_editor_agent() -> SkillEditorAgent:
     """Get or create the singleton skill editor agent instance"""
     global _agent_instance
     if _agent_instance is None:
+        logger.info("[SkillEditorAgent] Creating new singleton instance")
         _agent_instance = SkillEditorAgent()
     return _agent_instance
 
@@ -678,6 +877,7 @@ def get_skill_editor_agent() -> SkillEditorAgent:
 def reset_skill_editor_agent():
     """Reset the singleton instance (useful for testing)"""
     global _agent_instance
+    logger.info("[SkillEditorAgent] Resetting singleton instance")
     if _agent_instance:
         _agent_instance.clear_history()
     _agent_instance = None
