@@ -18,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 import subprocess
 import sys
+import re
 
 # Project root directory
 project_root = Path(__file__).parent.parent.parent
@@ -127,6 +128,39 @@ def inject_version_file(version: str):
     return version_file
 
 
+def inject_ota_config(environment: str):
+    """
+    Update OTA configuration file environment field
+    
+    Args:
+        environment: Target environment (development, test, staging, production, simulation)
+    """
+    ota_config_file = project_root / 'ota' / 'config' / 'ota_config.yaml'
+    
+    if not ota_config_file.exists():
+        print(f"[WARN] OTA config file not found: {ota_config_file}")
+        return None
+    
+    # Read current content
+    with open(ota_config_file, 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    # Replace environment field using regex
+    # Match: environment: <any_value>
+    pattern = r'^(environment:\s*)\w+\s*$'
+    replacement = f'\\1{environment}'
+    
+    new_content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
+    
+    # Write back
+    with open(ota_config_file, 'w', encoding='utf-8') as f:
+        f.write(new_content)
+    
+    print(f"[OK] Updated OTA config: {ota_config_file}")
+    print(f"     Environment set to: {environment}")
+    return ota_config_file
+
+
 def get_version_from_file() -> str:
     """
     Read version number from VERSION file
@@ -190,6 +224,7 @@ def main():
     # Inject configuration files
     inject_python_config(version, args.environment, git_info, build_time)
     inject_version_file(version)
+    inject_ota_config(args.environment)
     
     print()
     print("=" * 60)
