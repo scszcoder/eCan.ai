@@ -324,6 +324,57 @@ NODE_TYPES = {
             "body": "object",
         }
     },
+    "browser_automation": {
+        "description": "Browser automation node using browser-use agent for web interactions, this sub-agent can run {max_steps} steps to read anyu url page, understand it and then interact with it, including clicking, typing, scrolling, etc. The input will a text prompt describing what to do with with the browser.",
+        "has_inputs": True,
+        "has_outputs": True,
+        "config_schema": {
+            "provider": "string",  # 'browser-use' | 'browsebase' | 'crawl4ai'
+            "task": "string",  # High-level instruction text for the agent
+            "browser": "string",  # Browser type (e.g., 'new chromium')
+            "browserDriver": "string",  # Driver type ('native', 'selenium', etc.)
+            "cdpPort": "string",  # CDP port for browser connection
+            "modelProvider": "string",  # LLM provider for browser-use agent
+            "modelName": "string",  # LLM model name
+            "useThinking": "boolean",  # Enable thinking mode for browser-use
+            "profile": "string",  # Browser profile name
+            "promptSelection": "string",  # 'inline' or 'saved'
+            "systemPrompt": "string",  # System prompt for the agent
+            "prompt": "string",  # User prompt/task instruction
+            "timeout_seconds": "number",  # Max time for browser automation
+            "enable_guardrail_timer": "boolean",  # Enable timeout tracking
+            "wait_for_done": "boolean",  # Whether to interrupt when external completion is needed
+        }
+    },
+    "pend_event": {
+        "description": "Interrupt node that pauses workflow and waits for external event or human input",
+        "has_inputs": True,
+        "has_outputs": True,
+        "config_schema": {
+            "prompt": "string",  # Message to present to human/agent
+            "tag": "string",  # Business tag for the interrupt (defaults to node_name)
+            "eventType": "string",  # Main event type to wait for
+            "pendingSources": "array",  # Additional event sources to listen for
+        }
+    },
+    "chat_node": {
+        "description": "Chat node that sends messages to the user via TaskRunner GUI",
+        "has_inputs": True,
+        "has_outputs": True,
+        "config_schema": {
+            "role": "string",  # Message role ('assistant', 'user', 'system')
+            "message": "string",  # Message template to send
+            "wait_for_reply": "boolean",  # Whether to wait for user reply
+        }
+    },
+    "rag": {
+        "description": "RAG (Retrieval Augmented Generation) node for knowledge retrieval",
+        "has_inputs": True,
+        "has_outputs": True,
+        "config_schema": {
+            "query_path": "string",  # Dotted path to extract query from state
+        }
+    },
 }
 
 
