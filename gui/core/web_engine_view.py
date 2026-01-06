@@ -16,12 +16,123 @@ from pathlib import Path
 import os
 import sys
 import shutil
+import logging
+from logging.handlers import RotatingFileHandler
+from config.app_info import app_info
 
 
 class CustomWebEnginePage(QWebEnginePage):
+    # Class-level browser console logger
+    _browser_console_logger = None
+    
+    @classmethod
+    def _setup_browser_console_logger(cls):
+        """Setup a separate logger for browser console messages (development only)"""
+        if cls._browser_console_logger is not None:
+            return cls._browser_console_logger
+        
+        try:
+            from config.app_settings import app_settings
+            if not app_settings.is_dev_mode:
+                logger.info("[WebEngine] Browser console logging disabled (not in dev mode)")
+                return None
+        except Exception as e:
+            logger.warning(f"[WebEngine] Failed to check dev mode, disabling browser console logging: {e}")
+            return None
+        
+        try:
+            # Get log directory from app_info (same as ecan.log)
+            appdata_path = app_info.appdata_path
+            runlogs_dir = os.path.join(appdata_path, "runlogs")
+            if not os.path.isdir(runlogs_dir):
+                os.makedirs(runlogs_dir, exist_ok=True)
+            
+            log_file = os.path.join(runlogs_dir, "browser_console.log")
+            
+            # Create dedicated logger for browser console
+            browser_logger = logging.getLogger("BrowserConsole")
+            browser_logger.setLevel(logging.DEBUG)
+            browser_logger.propagate = False  # Don't propagate to root logger
+            
+            # Remove existing handlers if any
+            browser_logger.handlers.clear()
+            
+            # Add file handler with rotation (same settings as ecan.log)
+            file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            file_handler = RotatingFileHandler(
+                log_file,
+                maxBytes=1024 * 1024 * 10,  # 10MB
+                backupCount=5,
+                encoding='utf-8',
+                errors='replace'
+            )
+            file_handler.setFormatter(file_formatter)
+            browser_logger.addHandler(file_handler)
+            
+            cls._browser_console_logger = browser_logger
+            logger.info(f"[WebEngine] Browser console logger initialized: {log_file}")
+            return browser_logger
+            
+        except Exception as e:
+            logger.error(f"[WebEngine] Failed to setup browser console logger: {e}")
+            return None
+    
     def __init__(self, profile=None, parent=None):
         super().__init__(profile, parent)
         self.featurePermissionRequested.connect(self.onFeaturePermissionRequested)
+        self._enable_console_capture = False
+        self._browser_logger = None
+
+    def enable_console_capture(self, enable: bool = True):
+        """Enable or disable console message capture (for development)"""
+        self._enable_console_capture = enable
+        if enable:
+            # Setup browser console logger when enabling capture
+            self._browser_logger = self._setup_browser_console_logger()
+            logger.info("[WebEngine] Console message capture enabled")
+        else:
+            self._browser_logger = None
+            logger.info("[WebEngine] Console message capture disabled")
+
+    def javaScriptConsoleMessage(self, level, message, lineNumber, sourceID):
+        """
+        Capture JavaScript console messages from the web page.
+        This method is called whenever console.log/warn/error is used in the frontend.
+        
+        Args:
+            level: QWebEnginePage.JavaScriptConsoleMessageLevel (InfoMessageLevel, WarningMessageLevel, ErrorMessageLevel)
+            message: The console message string
+            lineNumber: Line number where the message originated
+            sourceID: Source file/URL where the message originated
+        """
+        if not self._enable_console_capture:
+            return
+        
+        # Map Qt console levels to logger levels
+        level_map = {
+            QWebEnginePage.JavaScriptConsoleMessageLevel.InfoMessageLevel: "INFO",
+            QWebEnginePage.JavaScriptConsoleMessageLevel.WarningMessageLevel: "WARNING",
+            QWebEnginePage.JavaScriptConsoleMessageLevel.ErrorMessageLevel: "ERROR"
+        }
+        
+        level_str = level_map.get(level, "INFO")
+        
+        # Format the console message with source information
+        source_info = f"{sourceID}:{lineNumber}" if sourceID else f"line {lineNumber}"
+        formatted_msg = f"[WebConsole/{level_str}] {message} ({source_info})"
+        
+        # Log to browser console log file (development only)
+        if self._browser_logger:
+            if level == QWebEnginePage.JavaScriptConsoleMessageLevel.ErrorMessageLevel:
+                self._browser_logger.error(formatted_msg)
+            elif level == QWebEnginePage.JavaScriptConsoleMessageLevel.WarningMessageLevel:
+                self._browser_logger.warning(formatted_msg)
+            else:
+                self._browser_logger.info(formatted_msg)
+        
+        # Also log ERROR level to main ecan.log
+        if level == QWebEnginePage.JavaScriptConsoleMessageLevel.ErrorMessageLevel:
+            logger.error(formatted_msg)
 
     def onFeaturePermissionRequested(self, url, feature):
         # Uncomment to debug
@@ -218,6 +329,15 @@ class WebEngineView(QWebEngineView):
 
             custom_page = CustomWebEnginePage(profile, self)
             self.setPage(custom_page)
+            
+            # Enable console capture in development mode
+            try:
+                from config.app_settings import app_settings
+                if app_settings.is_dev_mode:
+                    custom_page.enable_console_capture(True)
+                    logger.info("[WebEngine] Console capture enabled for development mode")
+            except Exception as e:
+                logger.warning(f"[WebEngine] Failed to check dev mode for console capture: {e}")
 
             self._interceptor: Optional[RequestInterceptor] = None
             self._is_loading: bool = False

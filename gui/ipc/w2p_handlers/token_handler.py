@@ -133,8 +133,9 @@ def handle_get_token_info(request: IPCRequest, params: Optional[Dict[str, Any]])
         
         current_token = params['token']
         
-        # Get token info without auto-extend
-        token_info = token_manager.validate_token(current_token, auto_extend=False)
+        # Get token info with auto-extend to prevent premature expiration
+        # This allows the token to be automatically extended if it's about to expire
+        token_info = token_manager.validate_token(current_token, auto_extend=True)
         
         if not token_info:
             return create_error_response(

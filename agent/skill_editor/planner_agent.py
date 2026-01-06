@@ -176,20 +176,24 @@ class PlannerAgent:
         """Load LLM instance from application settings"""
         try:
             from app_context import AppContext
-            from agent.ec_skills.llm_utils.llm_utils import select_or_create_llm
+            from agent.ec_skills.llm_utils.llm_utils import pick_llm
             
             mainwin = AppContext.get_main_window()
             if mainwin is None:
                 raise RuntimeError("Main window not available")
             
-            llm_providers = getattr(mainwin, 'llm_providers', [])
-            default_llm = getattr(mainwin, 'default_llm', None)
             config_manager = getattr(mainwin, 'config_manager', None)
+            if config_manager is None:
+                raise RuntimeError("Config manager not available")
+            
+            # Get LLM providers and default LLM from config_manager
+            llm_providers = config_manager.llm_manager.get_all_providers()
+            default_llm = config_manager.general_settings.default_llm
             
             if not llm_providers:
                 raise RuntimeError("No LLM providers configured")
             
-            llm_instance = select_or_create_llm(
+            llm_instance = pick_llm(
                 default_llm=default_llm,
                 llm_providers=llm_providers,
                 config_manager=config_manager,
