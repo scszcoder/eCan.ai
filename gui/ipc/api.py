@@ -662,6 +662,7 @@ class IPCAPI:
             chunk_index: Chunk index
             callback: Callback function
         """
+        logger.debug(f"[IPCAPI] push_skill_editor_chat_chunk: session={session_id}, msg={message_id}, chunk_idx={chunk_index}, chunk_len={len(chunk)}")
         self._send_request('skill_editor.chat.stream_chunk', {
             'sessionId': session_id,
             'messageId': message_id,
@@ -684,6 +685,7 @@ class IPCAPI:
             full_content: Complete message content
             callback: Callback function
         """
+        logger.info(f"[IPCAPI] push_skill_editor_chat_done: session={session_id}, msg={message_id}, content_len={len(full_content)}")
         self._send_request('skill_editor.chat.stream_end', {
             'sessionId': session_id,
             'messageId': message_id,
@@ -705,6 +707,7 @@ class IPCAPI:
             error_message: Error message
             callback: Callback function
         """
+        logger.error(f"[IPCAPI] push_skill_editor_chat_error: session={session_id}, code={error_code}, message={error_message}")
         self._send_request('skill_editor.chat.error', {
             'sessionId': session_id,
             'code': error_code,
@@ -726,6 +729,8 @@ class IPCAPI:
             payload: Command payload
             callback: Callback function
         """
+        logger.info(f"[IPCAPI] push_skill_editor_canvas_command: session={session_id}, type={command_type}")
+        logger.debug(f"[IPCAPI] Canvas command payload: {payload}")
         self._send_request('skill_editor.canvas.command', {
             'sessionId': session_id,
             'type': command_type,

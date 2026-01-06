@@ -257,9 +257,9 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
     This is the main entry point for chat-based skill editing.
     The handler will:
     1. Store the user message
-    2. Process with LLM agent
+    2. Process with LLM agent (planning + code generation)
     3. Send canvas commands as needed
-    4. Return assistant response
+    4. Return assistant response with optional clarification/plan/flowgram
     
     Args:
         request: IPC request object
@@ -268,18 +268,20 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
             "content": str - Message content
             "attachments": Optional[List] - File attachments
             "canvasContext": Optional[Dict] - Current canvas state
+            "clarificationResponses": Optional[Dict] - Answers to clarification questions
         }
     
     Returns:
-        Assistant response message
+        Assistant response with message, clarification, plan, flowgram, validation
     """
     try:
         session_id = (params or {}).get("sessionId")
         content = (params or {}).get("content", "")
         attachments = (params or {}).get("attachments", [])
         canvas_context = (params or {}).get("canvasContext")
+        clarification_responses = (params or {}).get("clarificationResponses")
         
-        logger.info(f"[SkillEditorChat] send_message called - sessionId={session_id}, content_length={len(content)}, has_canvas_context={canvas_context is not None}")
+        logger.info(f"[SkillEditorChat] send_message called - sessionId={session_id}, content_length={len(content)}, has_canvas_context={canvas_context is not None}, has_clarification_responses={clarification_responses is not None}")
         
         if not session_id:
             return create_error_response(request, 'INVALID_PARAMS', "sessionId is required")
@@ -299,7 +301,10 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
             content=content,
             timestamp=int(time.time() * 1000),
             attachments=attachments,
-            metadata={"canvasContext": canvas_context} if canvas_context else {}
+            metadata={
+                "canvasContext": canvas_context if canvas_context else None,
+                "clarificationResponses": clarification_responses if clarification_responses else None
+            }
         )
         _chat_store.add_message(session_id, user_message)
         
@@ -308,27 +313,57 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         
         try:
             # Process with LLM agent
-            # TODO: Integrate with actual LLM agent for flowgram generation
-            # For now, return a placeholder response
             logger.info(f"[SkillEditorChat] Processing message with LLM agent...")
-            assistant_content = _process_chat_message(session, user_message, canvas_context)
-            logger.info(f"[SkillEditorChat] LLM response generated, length={len(assistant_content)}")
+            agent_result = _process_chat_message(session, user_message, canvas_context, clarification_responses)
+            logger.info(f"[SkillEditorChat] LLM response generated, state={agent_result.get('state')}")
             
             # Create and store assistant message
             assistant_message = ChatMessage(
                 id=str(uuid.uuid4()),
                 role=ChatRole.ASSISTANT,
-                content=assistant_content,
+                content=agent_result.get("message", ""),
                 timestamp=int(time.time() * 1000),
+                metadata={
+                    "state": agent_result.get("state"),
+                    "intent": agent_result.get("intent"),
+                    "hasClarification": "clarification" in agent_result,
+                    "hasPlan": "plan" in agent_result,
+                    "hasFlowgram": "flowgram" in agent_result,
+                }
             )
             _chat_store.add_message(session_id, assistant_message)
             
-            logger.info(f"[SkillEditorChat] Returning response for session {session_id}")
-            return create_success_response(request, {
+            # Build response
+            response_data = {
                 "message": asdict(assistant_message),
                 "sessionId": session_id,
-                "sessionName": session.name
-            })
+                "sessionName": session.name,
+                "state": agent_result.get("state", "complete"),
+                "intent": agent_result.get("intent"),
+            }
+            
+            # Include clarification questions if present
+            if "clarification" in agent_result:
+                response_data["clarification"] = agent_result["clarification"]
+                logger.info(f"[SkillEditorChat] Including {len(agent_result['clarification'])} clarification questions")
+            
+            # Include plan if present
+            if "plan" in agent_result:
+                response_data["plan"] = agent_result["plan"]
+                logger.info(f"[SkillEditorChat] Including implementation plan")
+            
+            # Include flowgram if present
+            if "flowgram" in agent_result:
+                response_data["flowgram"] = agent_result["flowgram"]
+                logger.info(f"[SkillEditorChat] Including flowgram")
+            
+            # Include validation if present
+            if "validation" in agent_result:
+                response_data["validation"] = agent_result["validation"]
+                logger.info(f"[SkillEditorChat] Including validation result")
+            
+            logger.info(f"[SkillEditorChat] Returning response for session {session_id}")
+            return create_success_response(request, response_data)
             
         finally:
             _chat_store.set_generation_active(session_id, False)
@@ -422,8 +457,9 @@ USE_LLM_AGENT = True
 def _process_chat_message(
     session: ChatSession,
     message: ChatMessage,
-    canvas_context: Optional[Dict[str, Any]]
-) -> str:
+    canvas_context: Optional[Dict[str, Any]],
+    clarification_responses: Optional[Dict[str, List[str]]] = None
+) -> Dict[str, Any]:
     """Process a chat message with the LLM agent
     
     Uses the SkillEditorAgent for LLM-powered responses when available,
@@ -433,47 +469,92 @@ def _process_chat_message(
         session: Current chat session
         message: User message to process
         canvas_context: Current state of the canvas
+        clarification_responses: Answers to previous clarification questions
     
     Returns:
-        Assistant response text
+        Dict with message, clarification, plan, flowgram, validation, state
     """
     if USE_LLM_AGENT:
         try:
-            return _process_with_agent(session, message, canvas_context)
+            return _process_with_agent(session, message, canvas_context, clarification_responses)
         except Exception as e:
             logger.warning(f"[SkillEditorChat] Agent processing failed, using fallback: {e}")
-            return _process_fallback(message, canvas_context)
+            fallback_msg = _process_fallback(message, canvas_context)
+            return {"message": fallback_msg, "state": "complete"}
     else:
-        return _process_fallback(message, canvas_context)
+        fallback_msg = _process_fallback(message, canvas_context)
+        return {"message": fallback_msg, "state": "complete"}
 
 
 def _process_with_agent(
     session: ChatSession,
     message: ChatMessage,
-    canvas_context: Optional[Dict[str, Any]]
-) -> str:
-    """Process message using the SkillEditorAgent with LLM"""
+    canvas_context: Optional[Dict[str, Any]],
+    clarification_responses: Optional[Dict[str, List[str]]] = None
+) -> Dict[str, Any]:
+    """Process message using the SkillEditorAgent with LLM
+    
+    Returns a dict with:
+    - message: str - The response text
+    - clarification: Optional[List] - Clarification questions if needed
+    - plan: Optional[Dict] - Implementation plan if generated
+    - flowgram: Optional[Dict] - Generated flowgram
+    - validation: Optional[Dict] - Validation result
+    - state: str - Pipeline state
+    """
     try:
         from agent.skill_editor import get_skill_editor_agent
         
         agent = get_skill_editor_agent()
         logger.info(f"[SkillEditorChat] Processing with SkillEditorAgent")
+        logger.info(f"[SkillEditorChat] Pipeline state: {agent.pipeline_state.value}")
         
         # Process message synchronously
         response = agent.process_message_sync(
             message=message.content,
             canvas_context=canvas_context,
-            session_id=session.id
+            session_id=session.id,
+            clarification_responses=clarification_responses
         )
         
         logger.info(f"[SkillEditorChat] Agent response intent: {response.intent.value}")
+        logger.info(f"[SkillEditorChat] Has clarification: {response.clarification is not None}")
+        logger.info(f"[SkillEditorChat] Has plan: {response.plan is not None}")
+        logger.info(f"[SkillEditorChat] Has flowgram: {response.flowgram is not None}")
         
         # If agent generated canvas commands, send them to frontend via IPC
         if response.commands:
             logger.info(f"[SkillEditorChat] Agent generated {len(response.commands)} canvas commands")
             _send_canvas_commands(session.id, response.commands)
         
-        return response.message
+        # Build result dict
+        result = {
+            "message": response.message,
+            "intent": response.intent.value,
+            "state": response.metadata.get("state", "complete"),
+        }
+        
+        # Include clarification questions if present
+        if response.clarification:
+            result["clarification"] = [q.model_dump() for q in response.clarification]
+            logger.info(f"[SkillEditorChat] Returning {len(response.clarification)} clarification questions")
+        
+        # Include plan if present
+        if response.plan:
+            result["plan"] = response.plan.model_dump()
+            logger.info(f"[SkillEditorChat] Returning implementation plan")
+        
+        # Include flowgram if present
+        if response.flowgram:
+            result["flowgram"] = response.flowgram.model_dump()
+            logger.info(f"[SkillEditorChat] Returning flowgram with {len(response.flowgram.nodes)} nodes")
+        
+        # Include validation if present
+        if response.validation:
+            result["validation"] = response.validation.model_dump()
+            logger.info(f"[SkillEditorChat] Returning validation result: valid={response.validation.valid}")
+        
+        return result
         
     except ImportError as e:
         logger.error(f"[SkillEditorChat] Failed to import SkillEditorAgent: {e}")
@@ -485,20 +566,23 @@ def _process_with_agent(
 
 def _send_canvas_commands(session_id: str, commands: list) -> None:
     """Send canvas commands to frontend via IPC"""
+    logger.info(f"[SkillEditorChat] _send_canvas_commands called with {len(commands)} commands for session={session_id}")
     try:
         from gui.ipc.api import IPCAPI
         ipc = IPCAPI.get_instance()
         
-        for cmd in commands:
+        for idx, cmd in enumerate(commands):
             cmd_dict = cmd.to_dict() if hasattr(cmd, 'to_dict') else cmd
+            logger.debug(f"[SkillEditorChat] Sending command {idx+1}/{len(commands)}: {cmd_dict.get('type')}")
             ipc.push_skill_editor_canvas_command(
                 session_id=session_id,
                 command_type=cmd_dict.get('type', 'unknown'),
                 payload=cmd_dict.get('payload', {})
             )
             logger.info(f"[SkillEditorChat] Sent canvas command: {cmd_dict.get('type')}")
+        logger.info(f"[SkillEditorChat] All {len(commands)} canvas commands sent successfully")
     except Exception as e:
-        logger.error(f"[SkillEditorChat] Failed to send canvas commands: {e}")
+        logger.error(f"[SkillEditorChat] Failed to send canvas commands: {e}\n{traceback.format_exc()}")
 
 
 def _process_fallback(
@@ -506,12 +590,15 @@ def _process_fallback(
     canvas_context: Optional[Dict[str, Any]]
 ) -> str:
     """Fallback processing with basic pattern matching (no LLM)"""
+    logger.info(f"[SkillEditorChat] _process_fallback called - using pattern matching (no LLM)")
     content = message.content.lower()
     
     if "hello" in content or "hi" in content:
+        logger.debug("[SkillEditorChat] Fallback matched: greeting")
         return "Hello! I'm your AI assistant for building workflows. Describe what you'd like to create, and I'll help you build it step by step."
     
     if "create" in content or "build" in content or "make" in content:
+        logger.debug("[SkillEditorChat] Fallback matched: create/build/make")
         return (
             "I understand you want to create a workflow. To help you better, could you describe:\n\n"
             "1. **What is the main goal** of this workflow?\n"
@@ -521,6 +608,7 @@ def _process_fallback(
         )
     
     if "node" in content or "add" in content:
+        logger.debug("[SkillEditorChat] Fallback matched: node/add")
         return (
             "I can help you add nodes to your workflow. Available node types include:\n\n"
             "- **LLM Node**: For AI/language model processing\n"
@@ -534,11 +622,13 @@ def _process_fallback(
     if canvas_context:
         node_count = len(canvas_context.get("nodes", []))
         edge_count = len(canvas_context.get("edges", []))
+        logger.debug(f"[SkillEditorChat] Fallback matched: canvas context ({node_count} nodes, {edge_count} edges)")
         return (
             f"I can see your current workflow has **{node_count} nodes** and **{edge_count} connections**. "
             "What would you like to modify or add?"
         )
     
+    logger.debug("[SkillEditorChat] Fallback matched: default response")
     return (
         "I'm here to help you build and edit workflows through conversation. "
         "You can ask me to:\n\n"
