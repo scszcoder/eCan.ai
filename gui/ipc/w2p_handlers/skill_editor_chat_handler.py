@@ -250,7 +250,7 @@ def handle_get_history(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
         )
 
 
-@IPCHandlerRegistry.handler('skill_editor.chat.send_message')
+@IPCHandlerRegistry.background_handler('skill_editor.chat.send_message')
 def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Send a chat message and get AI response
     
