@@ -599,36 +599,18 @@ class SkillEditorAgent:
         clarification_responses: Optional[Dict[str, List[str]]] = None,
         on_event: Optional[Callable] = None
     ) -> AgentResponse:
-        """
-        Synchronous version of process_message.
+        """Synchronous wrapper for process_message.
         
-        Args:
-            message: User's chat message
-            canvas_context: Current canvas state
-            session_id: Chat session ID
-            clarification_responses: Answers to clarification questions
-            on_event: Callback for streaming events
-            
-        Returns:
-            AgentResponse with message and optional commands
+        This is called from a background_handler thread, so we use asyncio.run()
+        which handles event loop creation and cleanup automatically.
         """
         import asyncio
         
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
-                return run_async_in_sync(
-                    self.process_message(message, canvas_context, session_id, clarification_responses, on_event)
-                )
-            else:
-                return loop.run_until_complete(
-                    self.process_message(message, canvas_context, session_id, clarification_responses, on_event)
-                )
-        except RuntimeError:
-            return asyncio.run(
-                self.process_message(message, canvas_context, session_id, clarification_responses, on_event)
-            )
+        # asyncio.run() is the recommended way to run async code from sync context
+        # It automatically creates a new event loop, runs the coroutine, and cleans up
+        return asyncio.run(
+            self.process_message(message, canvas_context, session_id, clarification_responses, on_event)
+        )
     
     async def process_message_streaming(
         self,
