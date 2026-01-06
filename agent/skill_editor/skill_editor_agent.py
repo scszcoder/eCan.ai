@@ -4,9 +4,13 @@ Skill Editor Agent (Orchestrator)
 Orchestrates the skill editing pipeline by coordinating:
 1. PlannerAgent - for clarification and planning
 2. CodeAgent - for flowgram generation and editing
+3. NodeConfigAgent - for single-node configuration
 
 This agent provides a unified interface for the chat handler while
 delegating specialized tasks to the appropriate sub-agents.
+
+Inspired by BubbleLab's Pearl agent - an AI Builder Agent that helps users
+build complete workflows with multiple integrations.
 """
 
 import json
@@ -38,6 +42,161 @@ from .node_config_agent import NodeConfigAgent, NodeConfigAction, get_node_confi
 
 
 # ============================================================
+# System Prompt Builder (Pearl-style)
+# ============================================================
+
+def build_skill_editor_system_prompt(
+    user_name: str = "User",
+    available_node_types: Optional[List[str]] = None,
+    current_flowgram_summary: Optional[str] = None,
+    additional_context: Optional[str] = None,
+) -> str:
+    """
+    Build the system prompt for the SkillEditorAgent.
+    
+    Similar to BubbleLab's Pearl agent buildSystemPrompt function.
+    This prompt defines the agent's role, capabilities, decision process,
+    and output format.
+    
+    Args:
+        user_name: Name of the user
+        available_node_types: List of available node types
+        current_flowgram_summary: Summary of current workflow state
+        additional_context: Any additional context to include
+        
+    Returns:
+        System prompt string
+    """
+    # Get node types description
+    if available_node_types is None:
+        available_node_types = list(NODE_TYPES.keys())
+    
+    node_types_desc = get_node_types_description()
+    
+    # Build current workflow context
+    workflow_context = ""
+    if current_flowgram_summary:
+        workflow_context = f"""
+CURRENT WORKFLOW:
+{current_flowgram_summary}
+"""
+    
+    # Build additional context section
+    extra_context = ""
+    if additional_context:
+        extra_context = f"""
+ADDITIONAL CONTEXT:
+{additional_context}
+"""
+    
+    return f"""You are Sam, an AI Builder Agent specializing in creating and editing eCan.ai workflows (called Flowgrams).
+You reside inside the eCan.ai Skill Editor, a visual workflow builder for automation.
+
+YOUR ROLE:
+- Expert in building end-to-end workflows with multiple nodes and integrations
+- Good at explaining your thinking process to the user in a clear and concise manner
+- Expert in automation, logic, loops, conditions, and data manipulation
+- Understand user's high-level goals and translate them into complete workflow configurations
+- Ask clarifying questions when requirements are unclear
+- Help users build workflows that can include multiple nodes and complex logic
+- Configure individual nodes with proper parameters
+
+AVAILABLE NODE TYPES:
+{node_types_desc}
+
+DECISION PROCESS:
+1. Analyze the user's request carefully
+2. Determine the user's intent:
+   - Are they asking for information/guidance? → Use ANSWER
+   - Are they requesting workflow creation? → Use CODE (with planning if complex)
+   - Are they requesting workflow edits? → Use EDIT
+   - Are they configuring a specific node? → Use CONFIGURE
+   - Is critical information missing? → Use QUESTION
+   - Is the request infeasible? → Use REJECT
+3. For workflow generation:
+   - Identify all the nodes/integrations needed
+   - Check if all required information is provided
+   - If ANY critical information is missing → ASK QUESTION immediately
+   - DO NOT make assumptions or use placeholder values
+   - If request is clear and feasible → GENERATE workflow and validate it
+
+OUTPUT FORMAT (JSON):
+You MUST respond in JSON format with one of these structures:
+
+Question (when you need MORE information from user):
+{{
+  "type": "question",
+  "message": "Specific question to ask the user to clarify their requirements"
+}}
+
+Answer (when providing information or guidance WITHOUT generating code):
+{{
+  "type": "answer",
+  "message": "Detailed explanation, guidance, or answer to the user's question"
+}}
+
+Code (when generating or editing workflow):
+{{
+  "type": "code",
+  "message": "Brief explanation of what was created/modified",
+  "flowgram": {{ ... }}  // The flowgram JSON structure
+}}
+
+Configure (when configuring a specific node):
+{{
+  "type": "configure",
+  "message": "Explanation of the configuration",
+  "node_id": "node_id",
+  "config": {{ ... }}  // Node configuration
+}}
+
+Rejection (when infeasible):
+{{
+  "type": "reject",
+  "message": "Clear explanation of why this request cannot be fulfilled"
+}}
+
+WHEN TO USE EACH TYPE:
+- Use "question" when you need MORE information from the user to proceed
+- Use "answer" when providing helpful information, explanations, or guidance WITHOUT generating workflow
+  Examples: explaining features, listing available nodes, providing usage guidance, answering how-to questions
+- Use "code" when you have enough information to generate or edit a complete workflow
+- Use "configure" when the user wants to configure a specific node's parameters
+- Use "reject" when the request is infeasible or outside your capabilities
+
+CRITICAL WORKFLOW GENERATION RULES:
+1. Each node must have a unique ID
+2. Nodes must be properly connected with edges
+3. Apply proper logic: use condition nodes for branching, loop nodes for iteration
+4. Access data from upstream nodes using template syntax: {{{{node_id.output_field}}}}
+5. Validate the workflow structure before returning
+6. If validation fails, fix the errors iteratively
+7. Keep edits minimal - only change what's necessary
+
+CRITICAL EDITING RULES (Pearl-style iterative editing):
+- When editing, highlight the changes necessary
+- Use comments to indicate where unchanged parts have been skipped
+- KEEP THE EDIT MINIMAL - only modify what's necessary
+- Validate after each edit and fix any errors
+
+NODE CONFIGURATION RULES:
+- Each node type has specific required and optional parameters
+- Use the node's schema to understand what parameters are needed
+- For LLM nodes: model, system_prompt, user_prompt are key parameters
+- For Code nodes: language and code are required
+- For HTTP nodes: url and method are required
+- For Condition nodes: condition expression is required
+- For Loop nodes: items source and loop variable are required
+
+CONTEXT:
+User: {user_name}
+{workflow_context}{extra_context}
+
+Remember: You are an expert builder. Apply logic and transformations to make the workflow work correctly!
+Respond in the user's language when possible, but default to English for technical terms."""
+
+
+# ============================================================
 # Pipeline State
 # ============================================================
 
@@ -61,21 +220,27 @@ class SkillEditorAgent:
     """
     Orchestrator agent for the skill editor pipeline.
     
+    Inspired by BubbleLab's Pearl agent - coordinates multiple sub-agents
+    to help users build complete workflows through conversation.
+    
     This agent coordinates:
     1. PlannerAgent for clarification and planning
     2. CodeAgent for flowgram generation and editing
-    3. Pipeline state management
-    4. Conversation history
+    3. NodeConfigAgent for single-node configuration
+    4. Pipeline state management
+    5. Conversation history
     """
     
-    def __init__(self, llm=None):
+    def __init__(self, llm=None, user_name: str = "User"):
         """
         Initialize the skill editor agent.
         
         Args:
             llm: LangChain LLM instance. If None, sub-agents will use default from settings.
+            user_name: Name of the user for personalized responses.
         """
         self._llm = llm
+        self._user_name = user_name
         self._planner: Optional[PlannerAgent] = None
         self._code_agent: Optional[CodeAgent] = None
         self._node_config_agent: Optional[NodeConfigAgent] = None
@@ -86,6 +251,77 @@ class SkillEditorAgent:
         self._current_request: Optional[str] = None
         self._selected_node: Optional[Dict[str, Any]] = None  # Currently selected node for configuration
         logger.info("[SkillEditorAgent] Initialized")
+    
+    def get_system_prompt(self, canvas_context: Optional[Dict] = None) -> str:
+        """
+        Get the Pearl-style system prompt for the agent.
+        
+        Args:
+            canvas_context: Current canvas state for workflow summary
+            
+        Returns:
+            System prompt string
+        """
+        # Build workflow summary from canvas context
+        workflow_summary = None
+        if canvas_context:
+            nodes = canvas_context.get("nodes", [])
+            edges = canvas_context.get("edges", [])
+            if nodes:
+                node_types = [n.get("type", "unknown") for n in nodes]
+                workflow_summary = f"Nodes: {len(nodes)} ({', '.join(set(node_types))}), Connections: {len(edges)}"
+        
+        return build_skill_editor_system_prompt(
+            user_name=self._user_name,
+            current_flowgram_summary=workflow_summary,
+        )
+    
+    def build_messages(self, user_message: str, canvas_context: Optional[Dict] = None) -> List:
+        """
+        Build the message list for LLM invocation (Pearl-style).
+        
+        Args:
+            user_message: Current user message
+            canvas_context: Current canvas state
+            
+        Returns:
+            List of LangChain messages
+        """
+        messages = []
+        
+        # Add system prompt
+        system_prompt = self.get_system_prompt(canvas_context)
+        messages.append(SystemMessage(content=system_prompt))
+        
+        # Add conversation history (last 10 messages)
+        for msg in self._conversation_history[-10:]:
+            if msg.get("role") == "user":
+                messages.append(HumanMessage(content=msg.get("content", "")))
+            elif msg.get("role") == "assistant":
+                messages.append(AIMessage(content=msg.get("content", "")))
+        
+        # Add current user message with context
+        context_info = ""
+        if canvas_context:
+            nodes = canvas_context.get("nodes", [])
+            edges = canvas_context.get("edges", [])
+            selected = canvas_context.get("selectedNodes", [])
+            if nodes or selected:
+                context_info = f"\n\n[Canvas: {len(nodes)} nodes, {len(edges)} edges"
+                if selected:
+                    context_info += f", selected: {selected}"
+                context_info += "]"
+        
+        messages.append(HumanMessage(content=f"{user_message}{context_info}"))
+        
+        return messages
+    
+    def add_to_history(self, role: str, content: str):
+        """Add a message to conversation history"""
+        self._conversation_history.append({"role": role, "content": content})
+        # Keep history manageable
+        if len(self._conversation_history) > 50:
+            self._conversation_history = self._conversation_history[-40:]
     
     @property
     def planner(self) -> PlannerAgent:
@@ -234,7 +470,7 @@ class SkillEditorAgent:
             
             # Handle plan approval
             if self._pipeline_state == PipelineState.AWAITING_PLAN_APPROVAL:
-                if any(word in message.lower() for word in ["yes", "ok", "approve", "proceed", "go ahead"]):
+                if any(word in message.lower() for word in ["yes", "ok", "approve", "proceed", "do it", "do them", "go ahead"]):
                     logger.info("[SkillEditorAgent] Plan approved, proceeding to code generation")
                     return await self._generate_from_plan(canvas_context, session_id, on_event)
                 elif any(word in message.lower() for word in ["no", "cancel", "revise", "change"]):
