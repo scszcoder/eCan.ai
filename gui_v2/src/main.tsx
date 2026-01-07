@@ -4,22 +4,24 @@ import App from './App';
 // Configure Monaco Editor to use local files (must be imported before any Monaco usage)
 import './modules/skill-editor/components/code-editor/monaco-config';
 
-// Suppress React deprecation warnings from third-party libraries
+// Suppress React deprecation warnings from third-party libraries in production
 // These warnings come from bundled code (rc-util/antd/@flowgram.ai) and cannot be fixed externally
-// Filter them at console.error level to keep the console clean
-const originalConsoleError = console.error;
-console.error = (...args: any[]) => {
-  const msg = typeof args[0] === 'string' ? args[0] : '';
-  // Suppress findDOMNode deprecation warning
-  if (msg.includes('findDOMNode is deprecated')) {
-    return;
-  }
-  // Suppress ReactDOM.render deprecation warning (backup filter)
-  if (msg.includes('ReactDOM.render is no longer supported')) {
-    return;
-  }
-  originalConsoleError.apply(console, args);
-};
+// Filter them at console.error level to keep the console clean for users
+if (process.env.NODE_ENV === 'production') {
+  const originalConsoleError = console.error;
+  console.error = (...args: any[]) => {
+    const msg = typeof args[0] === 'string' ? args[0] : '';
+    // Suppress findDOMNode deprecation warning
+    if (msg.includes('findDOMNode is deprecated')) {
+      return;
+    }
+    // Suppress ReactDOM.render deprecation warning (backup filter)
+    if (msg.includes('ReactDOM.render is no longer supported')) {
+      return;
+    }
+    originalConsoleError.apply(console, args);
+  };
+}
 
 // 预设深色主题，避免白色闪烁
 const setInitialTheme = () => {

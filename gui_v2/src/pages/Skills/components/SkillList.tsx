@@ -20,7 +20,7 @@ import {
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
-import type { Skill } from '@/stores';
+import type { Skill } from '@/types/domain/skill';
 import { SkillFilters, SkillFilterOptions } from './SkillFilters';
 
 const { Text } = Typography;

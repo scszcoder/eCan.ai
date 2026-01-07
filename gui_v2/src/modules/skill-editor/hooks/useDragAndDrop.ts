@@ -10,6 +10,7 @@ import { useRecentFilesStore, createRecentFile } from '../stores/recent-files-st
 import { hasIPCSupport, hasFullFilePaths } from '../../../config/platform';
 import { SkillInfo } from '../typings/skill-info';
 import '../../../services/ipc/file-api'; // Import file API extensions
+import { IPCAPI } from '../../../services/ipc/api';
 
 interface DragAndDropOptions {
   enabled?: boolean;
@@ -43,8 +44,7 @@ export function useDragAndDrop(options: DragAndDropOptions = {}) {
     }
 
     try {
-      // Import IPC API dynamically
-      const { IPCAPI } = await import('../../../services/ipc/api');
+      // Use IPC API
       const ipcApi = IPCAPI.getInstance();
 
       // Read the dropped file

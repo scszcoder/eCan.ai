@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { IPCAPI, type APIResponse } from '../services/ipc';
+import { IPCAPI, type APIResponse } from '../services/ipc/api';
 import type { Prompt } from '../pages/Prompts/types';
 
 interface PromptStoreState {
