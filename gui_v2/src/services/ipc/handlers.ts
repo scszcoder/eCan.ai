@@ -1,6 +1,6 @@
 ﻿/**
- * IPC Process器
- * Implementation了与 Python Backend通信的RequestProcess器
+ * IPC Process?
+ * Implementation?? Python Backend???RequestProcess?
  */
 import { IPCRequest } from './types';
 import { IPCWCClient } from './ipcWCClient';
@@ -9,12 +9,10 @@ import { useSheetsStore } from '@/modules/skill-editor/stores/sheets-store';
 import { useSkillInfoStore } from '@/modules/skill-editor/stores/skill-info-store';
 import { useAgentStore } from '../../stores/agentStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import {
-  useTaskStore,
-  useSkillStore,
-  useKnowledgeStore,
-  useChatStore,
-} from '../../stores';
+import { useTaskStore } from '../../stores/domain/taskStore';
+import { useSkillStore } from '../../stores/domain/skillStore';
+import { useKnowledgeStore } from '../../stores/domain/knowledgeStore';
+import { useChatStore } from '../../stores/domain/chatStore';
 import { eventBus } from '@/utils/eventBus';
 import { useRunningNodeStore } from '@/modules/skill-editor/stores/running-node-store';
 import { useAvatarSceneStore } from '../../stores/avatarSceneStore';
@@ -25,8 +23,10 @@ import { handleSendAllContexts, handleUpdateContexts } from './contextHandlers';
 import { handleOnboardingRequest, type OnboardingContext } from '../onboarding/onboardingService';
 import { avatarSceneOrchestrator } from '../avatarSceneOrchestrator';
 import type { SceneClip } from '@/types/avatarScene';
+import { useAdStore } from '../../stores/adStore';
+import { useAccountStore } from '../../stores/accountStore';
 
-// Process器TypeDefinition
+// Process?TypeDefinition
 type Handler = (request: IPCRequest) => Promise<unknown>;
 type HandlerMap = Record<string, Handler>;
 
@@ -46,7 +46,7 @@ function validateParams(request: IPCRequest, requiredParams: string[]): void {
     }
 }
 
-// Process器类
+// Process??
 export class IPCHandlers {
     private handlers: HandlerMap = {};
 
@@ -80,6 +80,9 @@ export class IPCHandlers {
 
         // Account info push from backend
         this.registerHandler('push_account_info', this.pushAccountInfo);
+        
+        // Skill editor events from backend (canvas commands, etc.)
+        this.registerHandler('skill_editor.event', this.handleSkillEditorEvent.bind(this));
     }
     private registerHandler(method: string, handler: Handler): void {
         this.handlers[method] = handler;
@@ -144,7 +147,7 @@ export class IPCHandlers {
     async updateOrgAgents(request: IPCRequest): Promise<unknown> {
         logger.info('Received update_org_agents request:', request.params);
         
-        // SimpleSendEvent，让 agents Component自己决定如何Process
+        // SimpleSendEvent,? agents Component??????Process
         eventBus.emit('org-agents-update', {
             timestamp: Date.now(),
             source: 'backend_notification',
@@ -184,7 +187,7 @@ export class IPCHandlers {
         logger.info('Received update_agents request:', request.params);
         const agents = request.params as any;
         
-        // 只Update专用的 agentStore，Remove重复Update
+        // ?Update??? agentStore,Remove??Update
         useAgentStore.getState().setAgents(agents);
         
         logger.info('Updated agentStore with agents:', agents?.length || 0);
@@ -195,7 +198,7 @@ export class IPCHandlers {
         logger.info('Received update_agents_scenes request:', request.params);
         const agents = request.params as any;
         
-        // 只Update专用的 agentStore，Remove重复Update
+        // ?Update??? agentStore,Remove??Update
         useAgentStore.getState().setAgents(agents);
         
         logger.info('Updated agentStore with agents scenes:', agents?.length || 0);
@@ -206,7 +209,7 @@ export class IPCHandlers {
         logger.info('Received update_skills request:', request.params);
         const skills = request.params as any;
 
-        // 使用新的 skillStore
+        // ???? skillStore
         if (Array.isArray(skills)) {
             useSkillStore.getState().setItems(skills);
             logger.info('[IPC] Updated skills in skillStore:', skills.length);
@@ -219,7 +222,7 @@ export class IPCHandlers {
         logger.info('Received update_tasks request:', request.params);
         const tasks = request.params as any;
 
-        // 使用新的 taskStore
+        // ???? taskStore
         if (Array.isArray(tasks)) {
             useTaskStore.getState().setItems(tasks);
             logger.info('[IPC] Updated tasks in taskStore:', tasks.length);
@@ -232,7 +235,7 @@ export class IPCHandlers {
         logger.info('Received update_settings request:', request.params);
         const settings = request.params as any;
 
-        // Update settingsStore 中的应用级settings（application-level configuration）
+        // Update settingsStore ?????settings(application-level configuration)
         if (settings) {
             useSettingsStore.getState().setSettings(settings);
             logger.info('[IPC] Updated application settings in settingsStore');
@@ -245,7 +248,7 @@ export class IPCHandlers {
         logger.info('Received update_knowledges request:', request.params);
         const knowledges = request.params as any;
 
-        // 使用新的 knowledgeStore
+        // ???? knowledgeStore
         if (Array.isArray(knowledges)) {
             useKnowledgeStore.getState().setItems(knowledges);
             logger.info('[IPC] Updated knowledges in knowledgeStore:', knowledges.length);
@@ -258,7 +261,7 @@ export class IPCHandlers {
         logger.info('Received update_chats request:', request.params);
         const chats = request.params as any;
 
-        // 使用新的 chatStore
+        // ???? chatStore
         if (Array.isArray(chats)) {
             useChatStore.getState().setItems(chats);
             logger.info('[IPC] Updated chats in chatStore:', chats.length);
@@ -285,7 +288,7 @@ export class IPCHandlers {
     //     if (!chatId || !content) {
     //         throw new Error('pushChatNotification: chatId and notification are required');
     //     }
-    //     // 自动Parse字符串 JSON
+    //     // ??Parse??? JSON
     //     if (typeof content === 'string') {
     //         try {
     //             content = JSON.parse(content);
@@ -382,7 +385,7 @@ export class IPCHandlers {
         if (typeof g.__runningNodeLastTs !== 'number') g.__runningNodeLastTs = 0;
         const incomingTs = typeof timestamp === 'number' ? timestamp : Date.now();
         if (incomingTs < g.__runningNodeLastTs) {
-            console.log(`[RunningNode] ⤳ Ignoring stale update ts=${incomingTs} < lastTs=${g.__runningNodeLastTs}`);
+            console.log(`[RunningNode] ? Ignoring stale update ts=${incomingTs} < lastTs=${g.__runningNodeLastTs}`);
             return { success: true };
         }
         g.__runningNodeLastTs = incomingTs;
@@ -456,7 +459,7 @@ export class IPCHandlers {
         const MAX_STUCK_EXTRA_MS = 2000; // fail-safe: if timers get throttled, advance after this extra time
 
         const showNode = (nodeId: string) => {
-            if (RUN_TRACE) console.log(`[RunningNode] → Show '${nodeId}'`);
+            if (RUN_TRACE) console.log(`[RunningNode] ? Show '${nodeId}'`);
             runningNodeStore.setRunningNodeId(nodeId);
             q.showing = nodeId;
             q.shownAt = Date.now();
@@ -481,7 +484,7 @@ export class IPCHandlers {
             if (q.queue.length === 0 && q.showing) {
                 const remaining = Math.max(0, MIN_VISIBLE_MS - elapsed);
                 const delay = Math.max(remaining, 450);
-                if (RUN_TRACE) console.log(`[RunningNode] ✓ Queue drained after completion, clearing after ${delay} ms`);
+                if (RUN_TRACE) console.log(`[RunningNode] ? Queue drained after completion, clearing after ${delay} ms`);
                 // Record end status overlay
                 try {
                     const st = useNodeStatusStore.getState();
@@ -565,7 +568,7 @@ export class IPCHandlers {
             if (elapsed >= MIN_VISIBLE_MS + MAX_STUCK_EXTRA_MS && q.queue.length > 0) {
                 const next = q.queue.shift();
                 if (next) {
-                    console.warn(`[RunningNode] ⚠ Forcing advance due to potential timer stall (elapsed=${elapsed}ms) to '${next}'`);
+                    console.warn(`[RunningNode] ? Forcing advance due to potential timer stall (elapsed=${elapsed}ms) to '${next}'`);
                     showNode(next);
                     if (q.queue.length > 0 || q.completed) scheduleTick();
                 }
@@ -665,7 +668,7 @@ export class IPCHandlers {
             (!q.shownSet?.has(nodeId) || isFreshStart);
 
           if (canEnqueue) {
-            if (RUN_TRACE) console.log(`[RunningNode] ≈ Enqueue '${nodeId}'`);
+            if (RUN_TRACE) console.log(`[RunningNode] � Enqueue '${nodeId}'`);
             if (!q.showing && q.queue.length === 0 && !q.completed) {
               try { useNodeStatusStore.getState().clear(); } catch {}
             }
@@ -673,10 +676,10 @@ export class IPCHandlers {
             try { q.pendingSet?.add(nodeId); } catch {}
             processQueue();
           } else {
-            if (RUN_TRACE) console.log(`[RunningNode] ⊘ Skipping enqueue '${nodeId}' (dup or cooldown)`);
+            if (RUN_TRACE) console.log(`[RunningNode] ? Skipping enqueue '${nodeId}' (dup or cooldown)`);
           }
         } else if (current_node === null || current_node === undefined) {
-          if (RUN_TRACE) console.log('[RunningNode] ⏸ Received update without current_node; preserving previous running node');
+          if (RUN_TRACE) console.log('[RunningNode] ? Received update without current_node; preserving previous running node');
         }
 
         if (
@@ -689,7 +692,7 @@ export class IPCHandlers {
           // Do not schedule draining here; wait for subsequent updates
           return { success: true };
         } else if (current_node === null || current_node === undefined) {
-          if (RUN_TRACE) console.log('[RunningNode] ⏸ Received update without current_node; preserving previous running node');
+          if (RUN_TRACE) console.log('[RunningNode] ? Received update without current_node; preserving previous running node');
         }
 
         // Handle terminal statuses
@@ -697,7 +700,7 @@ export class IPCHandlers {
             // Mark as completed and let the queue drain naturally to honor MIN_VISIBLE_MS per node
             q.completed = true;
             q.endStatus = status === 'failed' ? 'failed' : 'completed';
-            if (RUN_TRACE) console.log(`[RunningNode] ◷ Workflow ${status}, allowing queue to drain before clear`);
+            if (RUN_TRACE) console.log(`[RunningNode] ? Workflow ${status}, allowing queue to drain before clear`);
             processQueue();
         }
         // Handle cancel events by clearing overlays and running icon immediately
@@ -708,7 +711,7 @@ export class IPCHandlers {
             q.queue.length = 0; q.showing = null; q.shownAt = 0; q.completed = false; q.endStatus = null;
             const rs = useRunningNodeStore.getState();
             if (rs.runningNodeId !== null) rs.setRunningNodeId(null);
-            if (RUN_TRACE) console.log('[RunningNode] ◼ Run canceled, cleared running state and overlays');
+            if (RUN_TRACE) console.log('[RunningNode] ? Run canceled, cleared running state and overlays');
         }
 
         // Capture runtime state even if current_node is empty, using effectiveNode
@@ -860,7 +863,6 @@ export class IPCHandlers {
             durationMs?: number;
         };
         
-        const { useAdStore } = await import('../../stores/adStore');
         const store = useAdStore.getState();
         const durationMs = params.durationMs || 60000;
         const expiresAt = Date.now() + durationMs;
@@ -898,7 +900,6 @@ export class IPCHandlers {
             return { success: false };
         }
         
-        const { useAccountStore } = await import('../../stores/accountStore');
         const store = useAccountStore.getState();
         
         store.setAccountData(params.accountInfo);
@@ -910,6 +911,28 @@ export class IPCHandlers {
     /**
      * Get window fullscreen state
      */
+    /**
+     * Handle skill editor events from backend (canvas commands, etc.)
+     */
+    async handleSkillEditorEvent(request: IPCRequest): Promise<{ success: boolean }> {
+        const params = request.params as {
+            sessionId?: string;
+            type?: string;
+            payload?: any;
+        };
+        
+        console.log('[IPC] Skill editor event received:', params.type, params);
+        logger.info('[IPC] Skill editor event received:', params.type);
+        
+        // Emit event via eventBus for canvas event handler to pick up
+        eventBus.emit('skill_editor:event', {
+            sessionId: params.sessionId,
+            type: params.type,
+            payload: params.payload,
+        });
+        
+        return { success: true };
+    }
     async windowGetFullscreenState(): Promise<boolean> {
         logger.debug('[IPC] Window get fullscreen state called');
         const response = await IPCWCClient.getInstance().invoke('window_get_fullscreen_state', {});

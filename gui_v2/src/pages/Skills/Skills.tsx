@@ -3,12 +3,12 @@ import { Button, message, Tooltip, Space } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import DetailLayout from '../../components/Layout/DetailLayout';
 import { useTranslation } from 'react-i18next';
-import { useSkillStore } from '../../stores';
+import { useSkillStore } from '../../stores/domain/skillStore';
 import { useUserStore } from '../../stores/userStore';
 import SkillList from './components/SkillList';
 import SkillDetails from './components/SkillDetails';
 import { logger } from '@/utils/logger';
-import type { Skill } from '@/stores';
+import type { Skill } from '@/types/domain/skill';
 import './Skills.css';
 
 const Skills: React.FC = () => {

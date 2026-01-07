@@ -90,8 +90,16 @@ def handle_get_schedules(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         logger.info(f"📊 Processing {len(all_tasks)} tasks for deduplication...")  # 添加任务处理开始日志
         
         invalid_schedules = []  # Track invalid schedules for logging
+        code_generated_count = 0  # Track filtered code-generated tasks
         
         for task in all_tasks:
+            # Filter out code-generated tasks
+            task_source = getattr(task, 'source', 'ui')  # Default to 'ui' if not specified
+            if task_source == 'code':
+                code_generated_count += 1
+                logger.debug(f"🔧 Filtered code-generated task: '{task.name}' (id={task.id})")
+                continue
+            
             if task.schedule:
                 schedule_data = task.schedule.model_dump(mode='json')
                 start_time = schedule_data.get('start_date_time', '')
@@ -174,6 +182,7 @@ def handle_get_schedules(request: IPCRequest, params: Optional[Dict[str, Any]]) 
         
         # Add all recurring tasks to the result
         logger.info(f"📊 Deduplication results:")
+        logger.info(f"  - Code-generated tasks filtered: {code_generated_count}")
         logger.info(f"  - Recurring tasks (unique by name): {len(seen_recurring_tasks)}")
         logger.info(f"  - One-time tasks (unique by name+time): {len(seen_onetime_keys)}")
         logger.info(f"  - Total tasks after deduplication: {len(seen_recurring_tasks) + len(seen_onetime_keys)}")

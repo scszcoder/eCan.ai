@@ -129,14 +129,18 @@ def handle_get_token_info(request: IPCRequest, params: Optional[Dict[str, Any]])
     """
     try:
         if not params or 'token' not in params:
+            logger.warning("[token_handler] Missing token parameter in getTokenInfo request")
             return create_error_response(request, 'MISSING_TOKEN', 'Token is required')
         
         current_token = params['token']
+        logger.debug(f"[token_handler] Getting token info for token: {current_token[:8]}...")
         
-        # Get token info without auto-extend
-        token_info = token_manager.validate_token(current_token, auto_extend=False)
+        # Get token info with auto-extend to prevent premature expiration
+        # This allows the token to be automatically extended if it's about to expire
+        token_info = token_manager.validate_token(current_token, auto_extend=True)
         
         if not token_info:
+            logger.warning(f"[token_handler] Token validation failed for token: {current_token[:8]}...")
             return create_error_response(
                 request, 
                 'INVALID_TOKEN', 
@@ -148,7 +152,7 @@ def handle_get_token_info(request: IPCRequest, params: Optional[Dict[str, Any]])
         time_remaining = token_info['expires_at'] - current_time
         hours_remaining = time_remaining / 3600
         
-        return create_success_response(request, {
+        response_data = {
             'username': token_info['username'],
             'role': token_info['role'],
             'created_at': token_info['created_at'],
@@ -157,7 +161,12 @@ def handle_get_token_info(request: IPCRequest, params: Optional[Dict[str, Any]])
             'time_remaining_seconds': int(time_remaining),
             'time_remaining_hours': round(hours_remaining, 1),
             'is_expiring_soon': time_remaining < 3600  # Less than 1 hour
-        })
+        }
+        
+        logger.info(f"[token_handler] Token info retrieved successfully for user: {token_info['username']}, "
+                   f"remaining: {hours_remaining:.1f}h, expiring_soon: {response_data['is_expiring_soon']}")
+        
+        return create_success_response(request, response_data)
         
     except Exception as e:
         logger.error(f"[token_handler] Error getting token info: {e}")

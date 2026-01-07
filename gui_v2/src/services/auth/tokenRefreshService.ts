@@ -62,8 +62,9 @@ class TokenRefreshService {
     // Don't do immediate check - wait for first interval
     // This prevents premature logout if token check fails right after login
     logger.info('[TokenRefresh] Service started', {
-      checkInterval: this.checkInterval / 1000 / 60,
-      refreshThreshold: this.refreshThreshold / 60,
+      checkIntervalMinutes: this.checkInterval / 1000 / 60,
+      refreshThresholdMinutes: this.refreshThreshold / 60,
+      maxConsecutiveFailures: this.maxConsecutiveFailures,
       note: 'First check will occur after first interval'
     });
   }
@@ -88,6 +89,12 @@ class TokenRefreshService {
       return;
     }
 
+    const checkTime = new Date().toISOString();
+    logger.info('[TokenRefresh] Starting token check', {
+      checkTime,
+      tokenPrefix: this.currentToken.substring(0, 8)
+    });
+
     try {
       // Get current token info
       const tokenInfo = await this.getTokenInfo(this.currentToken);
@@ -96,12 +103,16 @@ class TokenRefreshService {
         this.consecutiveFailures++;
         logger.error('[TokenRefresh] Failed to get token info', {
           consecutiveFailures: this.consecutiveFailures,
-          maxAllowed: this.maxConsecutiveFailures
+          maxAllowed: this.maxConsecutiveFailures,
+          checkTime
         });
         
         // Only trigger logout after multiple consecutive failures
         if (this.consecutiveFailures >= this.maxConsecutiveFailures) {
-          logger.error('[TokenRefresh] Max consecutive failures reached, triggering logout');
+          logger.error('[TokenRefresh] Max consecutive failures reached, triggering logout', {
+            totalFailures: this.consecutiveFailures,
+            checkTime
+          });
           this.handleTokenExpired();
         }
         return;
@@ -110,10 +121,13 @@ class TokenRefreshService {
       // Reset failure counter on success
       this.consecutiveFailures = 0;
 
-      logger.debug('[TokenRefresh] Token status', {
+      logger.info('[TokenRefresh] Token check successful', {
         username: tokenInfo.username,
-        time_remaining_hours: tokenInfo.time_remaining_hours,
-        is_expiring_soon: tokenInfo.is_expiring_soon
+        timeRemainingHours: tokenInfo.time_remaining_hours,
+        timeRemainingSeconds: tokenInfo.time_remaining_seconds,
+        isExpiringSoon: tokenInfo.is_expiring_soon,
+        expiresAt: new Date(tokenInfo.expires_at * 1000).toISOString(),
+        checkTime
       });
 
       // Refresh if expiring soon
@@ -134,21 +148,40 @@ class TokenRefreshService {
    */
   async getTokenInfo(token: string): Promise<TokenInfo | null> {
     try {
+      logger.debug('[TokenRefresh] Requesting token info from backend', {
+        tokenPrefix: token.substring(0, 8)
+      });
+      
       const response = await ipcClient.invoke('auth.getTokenInfo', { token });
       
+      logger.debug('[TokenRefresh] Received response from backend', {
+        status: response.status,
+        hasData: !!response.data,
+        hasError: !!response.error
+      });
+      
       if (response.status === 'success') {
+        logger.debug('[TokenRefresh] Token info retrieved successfully', {
+          username: response.data?.username,
+          timeRemaining: response.data?.time_remaining_hours
+        });
         return response.data as TokenInfo;
       } else {
-        logger.error('[TokenRefresh] Failed to get token info:', {
+        logger.error('[TokenRefresh] Backend returned error response', {
           status: response.status,
           message: response.message,
           error: response.error,
-          code: response.error?.code
+          errorCode: response.error?.code,
+          fullResponse: JSON.stringify(response)
         });
         return null;
       }
     } catch (error) {
-      logger.error('[TokenRefresh] Error getting token info:', error);
+      logger.error('[TokenRefresh] Exception while getting token info', {
+        error: error,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        errorStack: error instanceof Error ? error.stack : undefined
+      });
       return null;
     }
   }
@@ -162,32 +195,55 @@ class TokenRefreshService {
       return null;
     }
 
+    logger.info('[TokenRefresh] Attempting to refresh token', {
+      tokenPrefix: this.currentToken.substring(0, 8)
+    });
+
     try {
       const response = await ipcClient.invoke('auth.refreshToken', { 
         token: this.currentToken 
       });
       
+      logger.debug('[TokenRefresh] Refresh response received', {
+        status: response.status,
+        hasData: !!response.data
+      });
+      
       if (response.status === 'success') {
         const newToken = response.data.token;
+        const oldTokenPrefix = this.currentToken.substring(0, 8);
         this.currentToken = newToken;
         
         logger.info('[TokenRefresh] Token refreshed successfully', {
-          username: response.data.username
+          username: response.data.username,
+          oldTokenPrefix,
+          newTokenPrefix: newToken.substring(0, 8),
+          expiresAt: response.data.expires_at ? new Date(response.data.expires_at * 1000).toISOString() : 'unknown'
         });
 
         // Notify callback
         if (this.onTokenRefreshed) {
+          logger.debug('[TokenRefresh] Notifying token refresh callback');
           this.onTokenRefreshed(newToken);
         }
 
         return newToken;
       } else {
-        logger.error('[TokenRefresh] Failed to refresh token:', response.message);
+        logger.error('[TokenRefresh] Failed to refresh token', {
+          status: response.status,
+          message: response.message,
+          error: response.error,
+          fullResponse: JSON.stringify(response)
+        });
         this.handleTokenExpired();
         return null;
       }
     } catch (error) {
-      logger.error('[TokenRefresh] Error refreshing token:', error);
+      logger.error('[TokenRefresh] Exception while refreshing token', {
+        error: error,
+        errorMessage: error instanceof Error ? error.message : String(error),
+        errorStack: error instanceof Error ? error.stack : undefined
+      });
       this.handleTokenExpired();
       return null;
     }
@@ -227,11 +283,18 @@ class TokenRefreshService {
    * Handle token expiration
    */
   private handleTokenExpired() {
-    logger.warn('[TokenRefresh] Token expired or invalid');
+    logger.warn('[TokenRefresh] Handling token expiration', {
+      consecutiveFailures: this.consecutiveFailures,
+      hasExpiredCallback: !!this.onTokenExpired
+    });
+    
     this.stop();
     
     if (this.onTokenExpired) {
+      logger.info('[TokenRefresh] Triggering token expired callback');
       this.onTokenExpired();
+    } else {
+      logger.warn('[TokenRefresh] No token expired callback registered');
     }
   }
 

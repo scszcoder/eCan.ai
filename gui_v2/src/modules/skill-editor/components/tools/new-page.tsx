@@ -6,6 +6,7 @@ import emptyFlow from '../../data/empty-flow.json';
 import { usePlaygroundTools } from '@flowgram.ai/free-layout-editor';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { createSkillInfo } from '../../typings/skill-info';
+import { IPCAPI } from '../../../../services/ipc/api';
 
 interface NewPageProps {
   disabled?: boolean;
@@ -44,7 +45,6 @@ export const NewPage = ({ disabled }: NewPageProps) => {
           lastModified: new Date().toISOString(),
         };
 
-        const { IPCAPI } = await import('../../../../services/ipc/api');
         const ipcApi = IPCAPI.getInstance();
         const jsonString = JSON.stringify(updatedSkillInfo, null, 2);
         await ipcApi.writeSkillFile(currentFilePath, jsonString);
@@ -119,7 +119,6 @@ export const NewPage = ({ disabled }: NewPageProps) => {
 
     // 3. Check if skill already exists
     try {
-      const { IPCAPI } = await import('../../../../services/ipc/api');
       const ipcApi = IPCAPI.getInstance();
       
       const checkResult = await ipcApi.checkSkillExists(skillBaseName);
@@ -144,7 +143,6 @@ export const NewPage = ({ disabled }: NewPageProps) => {
     let diagramJsonPath: string | null = null;
     
     try {
-      const { IPCAPI } = await import('../../../../services/ipc/api');
       const ipcApi = IPCAPI.getInstance();
       
       // Generate skill JSON and bundle JSON with correct skillName (no _skill suffix)

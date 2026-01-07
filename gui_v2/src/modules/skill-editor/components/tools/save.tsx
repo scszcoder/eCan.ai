@@ -168,7 +168,6 @@ export async function saveFile(dataToSave: SkillInfo, _username?: string, curren
     if (ENABLE_LOCAL_DOWNLOAD) {
       // Try IPC first regardless of platform flags
       try {
-        const { IPCAPI } = await import('../../../../services/ipc/api');
         const ipcApi = IPCAPI.getInstance();
         console.log('[SKILL_IO][FRONTEND][IPC_ATTEMPT] showSaveDialog');
         let filePath = currentFilePath;

@@ -2,7 +2,7 @@ import React, { useRef } from 'react';
 import { useEffectOnActive } from 'keepalive-for-react';
 import { Space, Button, Statistic } from 'antd';
 import { ClusterOutlined, CheckCircleOutlined, EnvironmentOutlined, ThunderboltOutlined, ToolOutlined, ClockCircleOutlined, PlusOutlined, HistoryOutlined } from '@ant-design/icons';
-import type { Vehicle } from '@/stores';
+import type { Vehicle } from '@/types/domain/vehicle';
 import StatusTag from '../../components/Common/StatusTag';
 import DetailCard from '../../components/Common/DetailCard';
 import styled from '@emotion/styled';

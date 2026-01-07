@@ -6,6 +6,19 @@ import os
 import traceback
 import subprocess
 import time
+import warnings
+
+# ============================================================================
+# Suppress known third-party deprecation/compatibility warnings
+# These are library issues (langchain, pydantic) not fixable in our code
+# ============================================================================
+warnings.filterwarnings("ignore", message=".*Pydantic V1.*Python 3.14.*", category=UserWarning)
+
+# ============================================================================
+# CRITICAL: Force UTF-8 encoding for all file operations (Windows compatibility)
+# This must be set BEFORE any imports to prevent GBK encoding errors
+# ============================================================================
+os.environ['PYTHONUTF8'] = '1'
 
 # ============================================================================
 # CRITICAL: Configure browser_use timeouts BEFORE any browser_use imports
@@ -334,7 +347,13 @@ try:
         try:
             _asyncio = _import_asyncio_safely()
             if sys.platform.startswith('win'):
-                _asyncio.set_event_loop_policy(_asyncio.WindowsSelectorEventLoopPolicy())
+                # Suppress deprecation warnings for WindowsSelectorEventLoopPolicy
+                # This is intentional for Qt/qasync compatibility on Windows
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=DeprecationWarning, 
+                                          message=".*WindowsSelectorEventLoopPolicy.*|.*set_event_loop_policy.*")
+                    _asyncio.set_event_loop_policy(_asyncio.WindowsSelectorEventLoopPolicy())
                 # Apply subprocess patch for Windows SelectorEventLoop
                 # This allows browser-use/Playwright to launch Chrome despite SelectorEventLoop limitations
                 try:

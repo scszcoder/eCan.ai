@@ -608,6 +608,82 @@ def handle_write_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]
 logger.info("File operation handlers registered successfully")
 
 
+@IPCHandlerRegistry.handler('skills.load')
+def handle_skills_load(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Load a skill from disk by path.
+
+    Params:
+      - skillPath: path to the skill root directory (e.g., my_skills/ebay000_skill)
+      - skillName: skill name (optional, inferred from path if not provided)
+    Returns: skill JSON data including workFlow, metadata, etc.
+    """
+    try:
+        p = params or {}
+        skill_path = p.get('skillPath')
+        skill_name = p.get('skillName')
+        
+        if not skill_path:
+            return create_error_response(request, 'INVALID_PARAMS', 'skillPath is required')
+        
+        from pathlib import Path
+        skill_path = Path(skill_path)
+        
+        # Infer skill name from path if not provided
+        if not skill_name:
+            # Extract from path like "my_skills/ebay000_skill" -> "ebay000"
+            dir_name = skill_path.name
+            if dir_name.endswith('_skill'):
+                skill_name = dir_name[:-6]
+            else:
+                skill_name = dir_name
+        
+        # Look for the skill JSON file
+        diagram_dir = skill_path / "diagram_dir"
+        skill_json_path = diagram_dir / f"{skill_name}_skill.json"
+        
+        if not skill_json_path.exists():
+            # Try alternative naming
+            json_files = list(diagram_dir.glob("*_skill.json")) if diagram_dir.exists() else []
+            if json_files:
+                skill_json_path = json_files[0]
+            else:
+                logger.warning(f"[IPC] skills.load: skill JSON not found at {skill_json_path}")
+                return create_error_response(request, 'FILE_NOT_FOUND', f'Skill JSON not found: {skill_json_path}')
+        
+        # Read and parse the skill JSON
+        with open(skill_json_path, 'r', encoding='utf-8') as f:
+            skill_data = json.load(f)
+        
+        # Also try to load bundle if it exists
+        bundle_path = diagram_dir / f"{skill_name}_skill_bundle.json"
+        bundle_data = None
+        if bundle_path.exists():
+            try:
+                with open(bundle_path, 'r', encoding='utf-8') as f:
+                    bundle_data = json.load(f)
+            except Exception as e:
+                logger.warning(f"[IPC] skills.load: failed to load bundle: {e}")
+        
+        logger.info(f"[IPC] skills.load: loaded skill '{skill_name}' from {skill_json_path}")
+        
+        return create_success_response(request, {
+            'skillName': skill_data.get('skillName', skill_name),
+            'description': skill_data.get('description', ''),
+            'workFlow': skill_data.get('workFlow', {'nodes': [], 'edges': []}),
+            'metadata': skill_data.get('metadata', {}),
+            'bundle': bundle_data,
+            'skillPath': str(skill_path),
+            'diagramPath': str(skill_json_path),
+        })
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"[IPC] skills.load: invalid JSON: {e}")
+        return create_error_response(request, 'INVALID_JSON', f'Invalid JSON: {e}')
+    except Exception as e:
+        logger.error(f"[IPC] skills.load error: {e}")
+        return create_error_response(request, 'LOAD_ERROR', str(e))
+
+
 @IPCHandlerRegistry.handler('skills.scaffold')
 def handle_skills_scaffold(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Scaffold a new skill directory under the per-user skills root.

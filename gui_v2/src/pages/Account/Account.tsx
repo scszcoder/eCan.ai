@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Button, Card, Col, Divider, InputNumber, Row, Space, Typography, message } from 'antd';
 import { ReloadOutlined, DollarOutlined, ArrowRightOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { useAccountStore } from '../../stores';
-import { ipcApi } from '../../services/ipc';
+import { useAccountStore } from '../../stores/accountStore';
+import { ipcApi } from '../../services/ipc/api';
 
 const { Title, Text } = Typography;
 

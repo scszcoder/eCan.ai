@@ -4,19 +4,27 @@ Skill Editor Agent (Orchestrator)
 Orchestrates the skill editing pipeline by coordinating:
 1. PlannerAgent - for clarification and planning
 2. CodeAgent - for flowgram generation and editing
+3. NodeConfigAgent - for single-node configuration
 
 This agent provides a unified interface for the chat handler while
 delegating specialized tasks to the appropriate sub-agents.
+
+Inspired by BubbleLab's Pearl agent - an AI Builder Agent that helps users
+build complete workflows with multiple integrations.
 """
 
 import json
 import traceback
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Callable
 from enum import Enum
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 from utils.logger_helper import logger_helper as logger
+
+# Import skill scaffolding utility
+from agent.ec_skills.extern_skills.extern_skills import scaffold_skill, user_skills_root
 
 # Import from schemas
 from .schemas import (
@@ -27,6 +35,9 @@ from .schemas import (
     ClarificationQuestion,
     ImplementationPlan,
     Flowgram,
+    FlowgramNode,
+    FlowgramEdge,
+    NodePosition,
     NODE_TYPES,
     get_node_types_description,
 )
@@ -35,6 +46,161 @@ from .schemas import (
 from .planner_agent import PlannerAgent, get_planner_agent
 from .code_agent import CodeAgent, get_code_agent
 from .node_config_agent import NodeConfigAgent, NodeConfigAction, get_node_config_agent
+
+
+# ============================================================
+# System Prompt Builder (Pearl-style)
+# ============================================================
+
+def build_skill_editor_system_prompt(
+    user_name: str = "User",
+    available_node_types: Optional[List[str]] = None,
+    current_flowgram_summary: Optional[str] = None,
+    additional_context: Optional[str] = None,
+) -> str:
+    """
+    Build the system prompt for the SkillEditorAgent.
+    
+    Similar to BubbleLab's Pearl agent buildSystemPrompt function.
+    This prompt defines the agent's role, capabilities, decision process,
+    and output format.
+    
+    Args:
+        user_name: Name of the user
+        available_node_types: List of available node types
+        current_flowgram_summary: Summary of current workflow state
+        additional_context: Any additional context to include
+        
+    Returns:
+        System prompt string
+    """
+    # Get node types description
+    if available_node_types is None:
+        available_node_types = list(NODE_TYPES.keys())
+    
+    node_types_desc = get_node_types_description()
+    
+    # Build current workflow context
+    workflow_context = ""
+    if current_flowgram_summary:
+        workflow_context = f"""
+CURRENT WORKFLOW:
+{current_flowgram_summary}
+"""
+    
+    # Build additional context section
+    extra_context = ""
+    if additional_context:
+        extra_context = f"""
+ADDITIONAL CONTEXT:
+{additional_context}
+"""
+    
+    return f"""You are Sam, an AI Builder Agent specializing in creating and editing eCan.ai workflows (called Flowgrams).
+You reside inside the eCan.ai Skill Editor, a visual workflow builder for automation.
+
+YOUR ROLE:
+- Expert in building end-to-end workflows with multiple nodes and integrations
+- Good at explaining your thinking process to the user in a clear and concise manner
+- Expert in automation, logic, loops, conditions, and data manipulation
+- Understand user's high-level goals and translate them into complete workflow configurations
+- Ask clarifying questions when requirements are unclear
+- Help users build workflows that can include multiple nodes and complex logic
+- Configure individual nodes with proper parameters
+
+AVAILABLE NODE TYPES:
+{node_types_desc}
+
+DECISION PROCESS:
+1. Analyze the user's request carefully
+2. Determine the user's intent:
+   - Are they asking for information/guidance? → Use ANSWER
+   - Are they requesting workflow creation? → Use CODE (with planning if complex)
+   - Are they requesting workflow edits? → Use EDIT
+   - Are they configuring a specific node? → Use CONFIGURE
+   - Is critical information missing? → Use QUESTION
+   - Is the request infeasible? → Use REJECT
+3. For workflow generation:
+   - Identify all the nodes/integrations needed
+   - Check if all required information is provided
+   - If ANY critical information is missing → ASK QUESTION immediately
+   - DO NOT make assumptions or use placeholder values
+   - If request is clear and feasible → GENERATE workflow and validate it
+
+OUTPUT FORMAT (JSON):
+You MUST respond in JSON format with one of these structures:
+
+Question (when you need MORE information from user):
+{{
+  "type": "question",
+  "message": "Specific question to ask the user to clarify their requirements"
+}}
+
+Answer (when providing information or guidance WITHOUT generating code):
+{{
+  "type": "answer",
+  "message": "Detailed explanation, guidance, or answer to the user's question"
+}}
+
+Code (when generating or editing workflow):
+{{
+  "type": "code",
+  "message": "Brief explanation of what was created/modified",
+  "flowgram": {{ ... }}  // The flowgram JSON structure
+}}
+
+Configure (when configuring a specific node):
+{{
+  "type": "configure",
+  "message": "Explanation of the configuration",
+  "node_id": "node_id",
+  "config": {{ ... }}  // Node configuration
+}}
+
+Rejection (when infeasible):
+{{
+  "type": "reject",
+  "message": "Clear explanation of why this request cannot be fulfilled"
+}}
+
+WHEN TO USE EACH TYPE:
+- Use "question" when you need MORE information from the user to proceed
+- Use "answer" when providing helpful information, explanations, or guidance WITHOUT generating workflow
+  Examples: explaining features, listing available nodes, providing usage guidance, answering how-to questions
+- Use "code" when you have enough information to generate or edit a complete workflow
+- Use "configure" when the user wants to configure a specific node's parameters
+- Use "reject" when the request is infeasible or outside your capabilities
+
+CRITICAL WORKFLOW GENERATION RULES:
+1. Each node must have a unique ID
+2. Nodes must be properly connected with edges
+3. Apply proper logic: use condition nodes for branching, loop nodes for iteration
+4. Access data from upstream nodes using template syntax: {{{{node_id.output_field}}}}
+5. Validate the workflow structure before returning
+6. If validation fails, fix the errors iteratively
+7. Keep edits minimal - only change what's necessary
+
+CRITICAL EDITING RULES (Pearl-style iterative editing):
+- When editing, highlight the changes necessary
+- Use comments to indicate where unchanged parts have been skipped
+- KEEP THE EDIT MINIMAL - only modify what's necessary
+- Validate after each edit and fix any errors
+
+NODE CONFIGURATION RULES:
+- Each node type has specific required and optional parameters
+- Use the node's schema to understand what parameters are needed
+- For LLM nodes: model, system_prompt, user_prompt are key parameters
+- For Code nodes: language and code are required
+- For HTTP nodes: url and method are required
+- For Condition nodes: condition expression is required
+- For Loop nodes: items source and loop variable are required
+
+CONTEXT:
+User: {user_name}
+{workflow_context}{extra_context}
+
+Remember: You are an expert builder. Apply logic and transformations to make the workflow work correctly!
+Respond in the user's language when possible, but default to English for technical terms."""
 
 
 # ============================================================
@@ -61,21 +227,27 @@ class SkillEditorAgent:
     """
     Orchestrator agent for the skill editor pipeline.
     
+    Inspired by BubbleLab's Pearl agent - coordinates multiple sub-agents
+    to help users build complete workflows through conversation.
+    
     This agent coordinates:
     1. PlannerAgent for clarification and planning
     2. CodeAgent for flowgram generation and editing
-    3. Pipeline state management
-    4. Conversation history
+    3. NodeConfigAgent for single-node configuration
+    4. Pipeline state management
+    5. Conversation history
     """
     
-    def __init__(self, llm=None):
+    def __init__(self, llm=None, user_name: str = "User"):
         """
         Initialize the skill editor agent.
         
         Args:
             llm: LangChain LLM instance. If None, sub-agents will use default from settings.
+            user_name: Name of the user for personalized responses.
         """
         self._llm = llm
+        self._user_name = user_name
         self._planner: Optional[PlannerAgent] = None
         self._code_agent: Optional[CodeAgent] = None
         self._node_config_agent: Optional[NodeConfigAgent] = None
@@ -86,6 +258,77 @@ class SkillEditorAgent:
         self._current_request: Optional[str] = None
         self._selected_node: Optional[Dict[str, Any]] = None  # Currently selected node for configuration
         logger.info("[SkillEditorAgent] Initialized")
+    
+    def get_system_prompt(self, canvas_context: Optional[Dict] = None) -> str:
+        """
+        Get the Pearl-style system prompt for the agent.
+        
+        Args:
+            canvas_context: Current canvas state for workflow summary
+            
+        Returns:
+            System prompt string
+        """
+        # Build workflow summary from canvas context
+        workflow_summary = None
+        if canvas_context:
+            nodes = canvas_context.get("nodes", [])
+            edges = canvas_context.get("edges", [])
+            if nodes:
+                node_types = [n.get("type", "unknown") for n in nodes]
+                workflow_summary = f"Nodes: {len(nodes)} ({', '.join(set(node_types))}), Connections: {len(edges)}"
+        
+        return build_skill_editor_system_prompt(
+            user_name=self._user_name,
+            current_flowgram_summary=workflow_summary,
+        )
+    
+    def build_messages(self, user_message: str, canvas_context: Optional[Dict] = None) -> List:
+        """
+        Build the message list for LLM invocation (Pearl-style).
+        
+        Args:
+            user_message: Current user message
+            canvas_context: Current canvas state
+            
+        Returns:
+            List of LangChain messages
+        """
+        messages = []
+        
+        # Add system prompt
+        system_prompt = self.get_system_prompt(canvas_context)
+        messages.append(SystemMessage(content=system_prompt))
+        
+        # Add conversation history (last 10 messages)
+        for msg in self._conversation_history[-10:]:
+            if msg.get("role") == "user":
+                messages.append(HumanMessage(content=msg.get("content", "")))
+            elif msg.get("role") == "assistant":
+                messages.append(AIMessage(content=msg.get("content", "")))
+        
+        # Add current user message with context
+        context_info = ""
+        if canvas_context:
+            nodes = canvas_context.get("nodes", [])
+            edges = canvas_context.get("edges", [])
+            selected = canvas_context.get("selectedNodes", [])
+            if nodes or selected:
+                context_info = f"\n\n[Canvas: {len(nodes)} nodes, {len(edges)} edges"
+                if selected:
+                    context_info += f", selected: {selected}"
+                context_info += "]"
+        
+        messages.append(HumanMessage(content=f"{user_message}{context_info}"))
+        
+        return messages
+    
+    def add_to_history(self, role: str, content: str):
+        """Add a message to conversation history"""
+        self._conversation_history.append({"role": role, "content": content})
+        # Keep history manageable
+        if len(self._conversation_history) > 50:
+            self._conversation_history = self._conversation_history[-40:]
     
     @property
     def planner(self) -> PlannerAgent:
@@ -234,7 +477,7 @@ class SkillEditorAgent:
             
             # Handle plan approval
             if self._pipeline_state == PipelineState.AWAITING_PLAN_APPROVAL:
-                if any(word in message.lower() for word in ["yes", "ok", "approve", "proceed", "go ahead"]):
+                if any(word in message.lower() for word in ["yes", "ok", "approve", "proceed", "do it", "do them", "go ahead"]):
                     logger.info("[SkillEditorAgent] Plan approved, proceeding to code generation")
                     return await self._generate_from_plan(canvas_context, session_id, on_event)
                 elif any(word in message.lower() for word in ["no", "cancel", "revise", "change"]):
@@ -494,6 +737,254 @@ class SkillEditorAgent:
         else:
             return await self._generate_from_plan(canvas_context, session_id, on_event)
     
+    def _canvas_context_to_flowgram(self, canvas_context: Optional[Dict]) -> Optional[Flowgram]:
+        """
+        Convert canvas context (from frontend) to a Flowgram object for editing.
+        
+        The canvas_context contains the current state of the canvas including nodes and edges.
+        """
+        logger.info(f"[SkillEditorAgent] _canvas_context_to_flowgram called with canvas_context: {canvas_context is not None}")
+        if canvas_context:
+            logger.info(f"[SkillEditorAgent] Canvas context keys: {list(canvas_context.keys())}")
+        
+        if not canvas_context:
+            logger.warning("[SkillEditorAgent] No canvas context provided for edit operation")
+            return None
+        
+        try:
+            nodes_data = canvas_context.get("nodes", [])
+            edges_data = canvas_context.get("edges", [])
+            logger.info(f"[SkillEditorAgent] Canvas context has {len(nodes_data)} nodes, {len(edges_data)} edges")
+            
+            if not nodes_data:
+                # Try to load from disk if skill name is provided
+                skill_name = canvas_context.get("skillName")
+                if skill_name:
+                    logger.info(f"[SkillEditorAgent] Canvas has no nodes but has skillName: {skill_name}, trying to load from disk")
+                    return self._load_flowgram_from_disk(skill_name)
+                logger.warning("[SkillEditorAgent] Canvas context has no nodes and no skillName")
+                return None
+            
+            # Convert nodes - handle both frontend schema (meta.position) and backend schema (position)
+            nodes = []
+            for n in nodes_data:
+                node_id = n.get("id", f"node_{len(nodes)}")
+                node_type = n.get("type", "llm")
+                
+                # Get position from either meta.position or position
+                pos = n.get("meta", {}).get("position") or n.get("position") or {"x": 100, "y": 100}
+                
+                # Get label from data.title or label
+                label = n.get("data", {}).get("title") or n.get("label") or node_id
+                
+                # Get config from data or config
+                config = n.get("data", {}) or n.get("config", {})
+                
+                nodes.append(FlowgramNode(
+                    id=node_id,
+                    type=node_type,
+                    label=label,
+                    position=NodePosition(x=pos.get("x", 100), y=pos.get("y", 100)),
+                    config=config
+                ))
+            
+            # Convert edges - handle both frontend schema (sourceNodeID) and backend schema (source)
+            edges = []
+            for e in edges_data:
+                source = e.get("sourceNodeID") or e.get("source", "")
+                target = e.get("targetNodeID") or e.get("target", "")
+                source_handle = e.get("sourcePortID") or e.get("sourceHandle") or e.get("source_handle")
+                target_handle = e.get("targetPortID") or e.get("targetHandle") or e.get("target_handle")
+                
+                if source and target:
+                    edges.append(FlowgramEdge(
+                        source=source,
+                        target=target,
+                        source_handle=source_handle,
+                        target_handle=target_handle
+                    ))
+            
+            # Get metadata from canvas context
+            metadata = canvas_context.get("metadata", {})
+            if not metadata.get("skillName"):
+                metadata["skillName"] = canvas_context.get("skillName") or "edited_skill"
+            
+            flowgram = Flowgram(
+                nodes=nodes,
+                edges=edges,
+                metadata=metadata
+            )
+            
+            logger.info(f"[SkillEditorAgent] Converted canvas context to flowgram: {len(nodes)} nodes, {len(edges)} edges")
+            return flowgram
+            
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] Failed to convert canvas context to flowgram: {e}")
+            return None
+    
+    def _load_flowgram_from_disk(self, skill_name: str) -> Optional[Flowgram]:
+        """
+        Load a flowgram from disk given the skill name.
+        
+        Args:
+            skill_name: Name of the skill (e.g., "ebay000")
+            
+        Returns:
+            Flowgram object if found, None otherwise
+        """
+        try:
+            # Construct skill file path
+            # Handle both "skill_name" and "skill_name_skill" formats
+            if not skill_name.endswith("_skill"):
+                skill_dir_name = f"{skill_name}_skill"
+            else:
+                skill_dir_name = skill_name
+                skill_name = skill_name.replace("_skill", "")
+            
+            skill_file_path = user_skills_root / skill_dir_name / "diagram_dir" / f"{skill_dir_name}.json"
+            
+            logger.info(f"[SkillEditorAgent] Loading flowgram from disk: {skill_file_path}")
+            
+            if not skill_file_path.exists():
+                logger.warning(f"[SkillEditorAgent] Skill file not found: {skill_file_path}")
+                return None
+            
+            with open(skill_file_path, 'r', encoding='utf-8') as f:
+                skill_json = json.load(f)
+            
+            # Extract workflow data
+            workflow = skill_json.get("workFlow", {})
+            nodes_data = workflow.get("nodes", [])
+            edges_data = workflow.get("edges", [])
+            
+            if not nodes_data:
+                logger.warning(f"[SkillEditorAgent] Skill file has no nodes: {skill_file_path}")
+                return None
+            
+            # Convert nodes - handle frontend schema (meta.position)
+            nodes = []
+            for n in nodes_data:
+                node_id = n.get("id", f"node_{len(nodes)}")
+                node_type = n.get("type", "llm")
+                
+                # Get position from meta.position (frontend schema)
+                pos = n.get("meta", {}).get("position") or {"x": 100, "y": 100}
+                
+                # Get label from data.title
+                label = n.get("data", {}).get("title") or node_id
+                
+                # Get config from data
+                config = n.get("data", {})
+                
+                nodes.append(FlowgramNode(
+                    id=node_id,
+                    type=node_type,
+                    label=label,
+                    position=NodePosition(x=pos.get("x", 100), y=pos.get("y", 100)),
+                    config=config
+                ))
+            
+            # Convert edges - handle frontend schema (sourceNodeID/targetNodeID)
+            edges = []
+            for e in edges_data:
+                source = e.get("sourceNodeID") or e.get("source", "")
+                target = e.get("targetNodeID") or e.get("target", "")
+                source_handle = e.get("sourcePortID") or e.get("sourceHandle")
+                target_handle = e.get("targetPortID") or e.get("targetHandle")
+                
+                if source and target:
+                    edges.append(FlowgramEdge(
+                        source=source,
+                        target=target,
+                        source_handle=source_handle,
+                        target_handle=target_handle
+                    ))
+            
+            # Build metadata
+            metadata = {
+                "skillName": skill_name,
+                "description": skill_json.get("description", ""),
+            }
+            
+            flowgram = Flowgram(
+                nodes=nodes,
+                edges=edges,
+                metadata=metadata
+            )
+            
+            logger.info(f"[SkillEditorAgent] Loaded flowgram from disk: {len(nodes)} nodes, {len(edges)} edges")
+            return flowgram
+            
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] Failed to load flowgram from disk: {e}")
+            return None
+    
+    def _scaffold_skill_to_disk(self, flowgram: Flowgram) -> Optional[str]:
+        """
+        Scaffold skill files to disk based on the generated flowgram.
+        Returns the skill path if successful, None otherwise.
+        """
+        try:
+            metadata = flowgram.metadata or {}
+            skill_name = metadata.get("skillName") or metadata.get("name") or "generated_skill"
+            description = metadata.get("description") or "Workflow generated via Skill Editor"
+            
+            # Convert flowgram to JSON-serializable dict
+            # IMPORTANT: Frontend uses "meta.position" schema, not "position"
+            skill_json = {
+                "skillName": skill_name,
+                "description": description,
+                "workFlow": {
+                    "nodes": [
+                        {
+                            "id": n.id,
+                            "type": n.type,
+                            "data": {
+                                "title": n.label or n.id,
+                                **(n.config or {})
+                            },
+                            "meta": {
+                                "position": {"x": n.position.x, "y": n.position.y} if n.position else {"x": 100, "y": 100}
+                            }
+                        }
+                        for n in flowgram.nodes
+                    ],
+                    "edges": [
+                        {
+                            "sourceNodeID": e.source,
+                            "targetNodeID": e.target,
+                            "sourcePortID": e.source_handle,
+                            "targetPortID": e.target_handle,
+                        }
+                        for e in flowgram.edges
+                    ]
+                },
+                "metadata": metadata
+            }
+            
+            # Bundle JSON (empty for now, can be extended)
+            bundle_json = {
+                "sheets": [],
+                "order": [],
+                "activeSheetId": None
+            }
+            
+            # Scaffold the skill directory and files
+            skill_path = scaffold_skill(
+                skill_name=skill_name,
+                description=description,
+                kind="diagram",
+                skill_json=skill_json,
+                bundle_json=bundle_json
+            )
+            
+            logger.info(f"[SkillEditorAgent] Scaffolded skill to disk: {skill_path}")
+            return str(skill_path)
+            
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] Failed to scaffold skill: {e}\n{traceback.format_exc()}")
+            return None
+
     async def _generate_from_plan(
         self,
         canvas_context: Optional[Dict],
@@ -516,8 +1007,22 @@ class SkillEditorAgent:
         
         # Generate canvas commands if flowgram was created
         commands = []
+        skill_path = None
         if code_output.flowgram:
-            commands = self.code_agent.generate_canvas_commands(code_output.flowgram)
+            # Scaffold skill to disk
+            skill_path = self._scaffold_skill_to_disk(code_output.flowgram)
+            
+            # If skill was scaffolded to disk, only send load_flowgram command
+            # The frontend will load the nodes from disk via loadSkillFile
+            # This avoids race conditions between load_flowgram and individual node commands
+            if skill_path:
+                commands = [CanvasCommand(
+                    type="canvas.load_flowgram",
+                    payload={"skillPath": skill_path, "skillName": code_output.flowgram.metadata.get("skillName", "generated_skill")}
+                )]
+            else:
+                # No disk scaffold - send individual node commands for in-memory editing
+                commands = self.code_agent.generate_canvas_commands(code_output.flowgram)
         
         return AgentResponse(
             message=code_output.message or "I've generated the workflow for you.",
@@ -525,7 +1030,7 @@ class SkillEditorAgent:
             intent=IntentType.CREATE_FLOWGRAM,
             flowgram=code_output.flowgram,
             validation=code_output.validation,
-            metadata={"session_id": session_id, "state": "complete"}
+            metadata={"session_id": session_id, "state": "complete", "skillPath": skill_path}
         )
     
     async def _run_code_generation(
@@ -540,10 +1045,13 @@ class SkillEditorAgent:
         logger.info(f"[SkillEditorAgent] Direct code generation for intent: {intent.value}")
         self._pipeline_state = PipelineState.GENERATING
         
-        # For edit operations, use edit method
+        # For edit operations, use edit method with current canvas state
         if intent in [IntentType.ADD_NODE, IntentType.REMOVE_NODE, IntentType.MODIFY_NODE, IntentType.CONNECT_NODES]:
+            # Convert canvas_context to Flowgram for editing
+            current_flowgram = self._canvas_context_to_flowgram(canvas_context)
             code_output = await self.code_agent.edit(
                 edit_request=message,
+                current_flowgram=current_flowgram,
                 on_event=on_event
             )
         else:
@@ -556,8 +1064,22 @@ class SkillEditorAgent:
         self._pipeline_state = PipelineState.COMPLETE
         
         commands = []
+        skill_path = None
         if code_output.flowgram:
-            commands = self.code_agent.generate_canvas_commands(code_output.flowgram)
+            # Always scaffold to disk for both create and edit operations
+            # This ensures the skill file is updated and the frontend can reload it
+            skill_path = self._scaffold_skill_to_disk(code_output.flowgram)
+            
+            # Send load_flowgram command to reload the updated skill
+            # The frontend will load the nodes from disk via loadSkillFile
+            if skill_path:
+                commands = [CanvasCommand(
+                    type="canvas.load_flowgram",
+                    payload={"skillPath": skill_path, "skillName": code_output.flowgram.metadata.get("skillName", "generated_skill")}
+                )]
+            else:
+                # Fallback: send individual node commands for in-memory editing
+                commands = self.code_agent.generate_canvas_commands(code_output.flowgram)
         
         return AgentResponse(
             message=code_output.message,
@@ -565,7 +1087,7 @@ class SkillEditorAgent:
             intent=intent,
             flowgram=code_output.flowgram,
             validation=code_output.validation,
-            metadata={"session_id": session_id}
+            metadata={"session_id": session_id, "skillPath": skill_path}
         )
     
     def _format_plan_for_display(self, plan: Optional[ImplementationPlan]) -> str:
@@ -599,36 +1121,18 @@ class SkillEditorAgent:
         clarification_responses: Optional[Dict[str, List[str]]] = None,
         on_event: Optional[Callable] = None
     ) -> AgentResponse:
-        """
-        Synchronous version of process_message.
+        """Synchronous wrapper for process_message.
         
-        Args:
-            message: User's chat message
-            canvas_context: Current canvas state
-            session_id: Chat session ID
-            clarification_responses: Answers to clarification questions
-            on_event: Callback for streaming events
-            
-        Returns:
-            AgentResponse with message and optional commands
+        This is called from a background_handler thread, so we use asyncio.run()
+        which handles event loop creation and cleanup automatically.
         """
         import asyncio
         
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
-                return run_async_in_sync(
-                    self.process_message(message, canvas_context, session_id, clarification_responses, on_event)
-                )
-            else:
-                return loop.run_until_complete(
-                    self.process_message(message, canvas_context, session_id, clarification_responses, on_event)
-                )
-        except RuntimeError:
-            return asyncio.run(
-                self.process_message(message, canvas_context, session_id, clarification_responses, on_event)
-            )
+        # asyncio.run() is the recommended way to run async code from sync context
+        # It automatically creates a new event loop, runs the coroutine, and cleans up
+        return asyncio.run(
+            self.process_message(message, canvas_context, session_id, clarification_responses, on_event)
+        )
     
     async def process_message_streaming(
         self,

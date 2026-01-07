@@ -30,6 +30,7 @@ from .schemas import (
     NODE_TYPES,
     get_node_types_description,
 )
+from .placement import place_nodes
 
 
 # ============================================================
@@ -60,6 +61,19 @@ Your role is to translate user requests and implementation plans into concrete f
 ## IMPLEMENTATION PLAN (if provided):
 {plan_context}
 
+## SKILL DIRECTORY STRUCTURE:
+Skills are stored in `my_skills/` under the application's data directory.
+Each skill follows this structure:
+  my_skills/<skill_name>_skill/
+    diagram_dir/
+      <skill_name>_skill.json        # Main flowgram definition
+      <skill_name>_skill_bundle.json # Additional sheets/data
+
+When you generate a flowgram, the system will automatically:
+1. Create the skill directory structure
+2. Save the flowgram JSON files
+3. Load the skill into the canvas for editing
+
 ## FLOWGRAM GENERATION RULES:
 1. Every flowgram MUST have a "start" node and an "end" node
 2. All nodes must be connected - no orphan nodes
@@ -69,13 +83,17 @@ Your role is to translate user requests and implementation plans into concrete f
 6. For LLM nodes, include system_prompt and user_prompt in config
 7. For MCP tool nodes, include tool_name and tool_input in config
 8. For condition nodes, include the condition expression
+9. Populate flowgram.metadata with `skillName` (snake_case), `description`, and helpful tags/owner info
+10. Infer a concise snake_case skill name when the user does not provide one explicitly (e.g., "ebay000" → "ebay000")
+11. ALWAYS write the `message` field as a short, human-readable summary of what you built (do not echo raw JSON)
+12. Include where the skill was saved in your message (e.g., "Created 'ebay000' skill with start→end flow. Saved to my_skills/ebay000_skill/")
 
 ## OUTPUT FORMAT:
 You MUST respond with valid JSON containing the flowgram:
 
 {{
   "action": "generate_flowgram",
-  "message": "Brief description of the generated workflow",
+  "message": "Brief, human-readable summary of what was created (e.g. 'Created ebay order triage flow with 5 nodes')",
   "flowgram": {{
     "nodes": [
       {{
@@ -119,7 +137,7 @@ You MUST respond with valid JSON containing the flowgram:
 For simple answers without code generation:
 {{
   "action": "answer",
-  "message": "Your explanation or answer here"
+  "message": "Your explanation or answer here (human readable)"
 }}
 
 For requests that cannot be fulfilled:
@@ -212,20 +230,24 @@ class CodeAgent:
         """Load LLM instance from application settings"""
         try:
             from app_context import AppContext
-            from agent.ec_skills.llm_utils.llm_utils import select_or_create_llm
+            from agent.ec_skills.llm_utils.llm_utils import pick_llm
             
             mainwin = AppContext.get_main_window()
             if mainwin is None:
                 raise RuntimeError("Main window not available")
             
-            llm_providers = getattr(mainwin, 'llm_providers', [])
-            default_llm = getattr(mainwin, 'default_llm', None)
             config_manager = getattr(mainwin, 'config_manager', None)
+            if config_manager is None:
+                raise RuntimeError("Config manager not available")
+            
+            # Get LLM providers and default LLM from config_manager
+            llm_providers = config_manager.llm_manager.get_all_providers()
+            default_llm = config_manager.general_settings.default_llm
             
             if not llm_providers:
                 raise RuntimeError("No LLM providers configured")
             
-            llm_instance = select_or_create_llm(
+            llm_instance = pick_llm(
                 default_llm=default_llm,
                 llm_providers=llm_providers,
                 config_manager=config_manager,
@@ -370,7 +392,147 @@ class CodeAgent:
         except json.JSONDecodeError as e:
             logger.warning(f"[CodeAgent] JSON parse error: {e}")
             return None
+
+    def _ensure_start_end_nodes(self, flowgram: Optional[Flowgram]) -> None:
+        """Ensure the flowgram has start/end nodes, minimal connectivity, and metadata defaults."""
+        if not flowgram:
+            return
+
+        if flowgram.metadata is None:
+            flowgram.metadata = {}
+
+        metadata = flowgram.metadata
+
+        if not metadata.get("skillName"):
+            base_name = metadata.get("name") or "generated skill"
+            slug = re.sub(r"[^a-z0-9]+", "_", base_name.lower()).strip("_")
+            metadata["skillName"] = slug or "generated_skill"
+
+        if not metadata.get("description"):
+            metadata["description"] = metadata.get("summary") or "Workflow generated via Skill Editor"
+
+        start_node = next((node for node in flowgram.nodes if node.type == "start"), None)
+        if not start_node:
+            start_node = FlowgramNode(
+                id="start",
+                type="start",
+                label="Start",
+                position=NodePosition(x=START_POSITION_X, y=START_POSITION_Y),
+                config={}
+            )
+            flowgram.nodes.insert(0, start_node)
+
+        end_node = next((node for node in flowgram.nodes if node.type == "end"), None)
+        if not end_node:
+            end_node = FlowgramNode(
+                id="end",
+                type="end",
+                label="End",
+                position=NodePosition(x=START_POSITION_X, y=START_POSITION_Y),  # Will be repositioned by layout
+                config={}
+            )
+            flowgram.nodes.append(end_node)
+
+        def edge_exists(src: str, dst: str) -> bool:
+            return any(edge.source == src and edge.target == dst for edge in flowgram.edges)
+
+        if not any(edge.source == start_node.id for edge in flowgram.edges):
+            next_node = next((node for node in flowgram.nodes if node.id != start_node.id), None)
+            target_id = next_node.id if next_node else end_node.id
+            if not edge_exists(start_node.id, target_id):
+                flowgram.edges.insert(0, FlowgramEdge(source=start_node.id, target=target_id))
+
+        if not any(edge.target == end_node.id for edge in flowgram.edges):
+            candidate = next((node for node in reversed(flowgram.nodes) if node.id not in {start_node.id, end_node.id}), None)
+            source_id = candidate.id if candidate else start_node.id
+            if not edge_exists(source_id, end_node.id):
+                flowgram.edges.append(FlowgramEdge(source=source_id, target=end_node.id))
+
+        flowgram.metadata = metadata
+        
+        # Apply automatic layout to avoid overlapping nodes
+        self._apply_layout(flowgram)
     
+    def _apply_layout(self, flowgram: Flowgram) -> None:
+        """
+        Apply automatic layout algorithm to position nodes.
+        Uses Sugiyama-style layered DAG placement to avoid overlapping
+        and tangled edges.
+        """
+        if not flowgram or not flowgram.nodes:
+            return
+        
+        try:
+            # Extract node IDs and edge tuples
+            node_ids = [node.id for node in flowgram.nodes]
+            edge_tuples = [(edge.source, edge.target) for edge in flowgram.edges]
+            
+            # Compute placement using the placement algorithm
+            placement = place_nodes(node_ids, edge_tuples)
+            
+            # Apply placement to nodes
+            for node in flowgram.nodes:
+                if node.id in placement:
+                    x, y = placement[node.id]
+                    node.position = NodePosition(x=x, y=y)
+            
+            logger.debug(f"[CodeAgent] Applied layout to {len(flowgram.nodes)} nodes")
+        except Exception as e:
+            logger.warning(f"[CodeAgent] Layout failed, using default positions: {e}")
+            # Fallback: simple vertical layout
+            for i, node in enumerate(flowgram.nodes):
+                if not node.position:
+                    node.position = NodePosition(
+                        x=START_POSITION_X,
+                        y=START_POSITION_Y + i * DEFAULT_NODE_SPACING_Y
+                    )
+
+    def _summarize_flowgram(self, flowgram: Optional[Flowgram]) -> str:
+        """Generate a concise human-readable summary of the flowgram."""
+        if not flowgram or not flowgram.nodes:
+            return "Created a starter workflow."
+
+        metadata = flowgram.metadata or {}
+        skill_name = metadata.get("skillName") or metadata.get("name")
+        total_nodes = len(flowgram.nodes)
+        unique_types = sorted({node.type for node in flowgram.nodes if node.type})
+
+        ordered_nodes = sorted(
+            flowgram.nodes,
+            key=lambda n: (
+                n.position.x if n.position else 0,
+                n.position.y if n.position else 0,
+            )
+        )
+        labels = [node.label or node.id for node in ordered_nodes]
+        path_preview = " → ".join(labels[:6])
+        if len(labels) > 6:
+            path_preview += " → …"
+
+        type_text = ", ".join(unique_types) if unique_types else "mixed nodes"
+        prefix = f"Created '{skill_name}' workflow" if skill_name else "Created workflow"
+        summary = f"{prefix} with {total_nodes} nodes ({type_text})."
+        if path_preview:
+            summary += f" Primary path: {path_preview}."
+        return summary
+
+    def _finalize_message(self, raw_message: Any, flowgram: Optional[Flowgram]) -> str:
+        """Ensure the message returned to the user is human-friendly."""
+        if isinstance(raw_message, str):
+            text = raw_message.strip()
+            if text:
+                return text
+
+        if isinstance(raw_message, dict):
+            for key in ("summary", "description"):
+                value = raw_message.get(key)
+                if isinstance(value, str):
+                    text = value.strip()
+                    if text:
+                        return text
+
+        return self._summarize_flowgram(flowgram)
+
     def _parse_code_agent_output(self, response: str) -> CodeAgentOutput:
         """Parse LLM response into CodeAgentOutput"""
         data = self._parse_flowgram_from_response(response)
@@ -419,13 +581,16 @@ class CodeAgent:
                     edges=edges,
                     metadata=flowgram_data.get("metadata", {})
                 )
-                logger.info(f"[CodeAgent] Parsed flowgram: {len(nodes)} nodes, {len(edges)} edges")
+                self._ensure_start_end_nodes(flowgram)
+                logger.info(f"[CodeAgent] Parsed flowgram: {len(flowgram.nodes)} nodes, {len(flowgram.edges)} edges")
             except Exception as e:
                 logger.warning(f"[CodeAgent] Error parsing flowgram: {e}")
-        
+
+        message = self._finalize_message(data.get("message"), flowgram)
+
         return CodeAgentOutput(
             action=action,
-            message=data.get("message", ""),
+            message=message,
             flowgram=flowgram
         )
     
