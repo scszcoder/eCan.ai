@@ -30,6 +30,7 @@ from .schemas import (
     NODE_TYPES,
     get_node_types_description,
 )
+from .placement import place_nodes
 
 
 # ============================================================
@@ -423,13 +424,11 @@ class CodeAgent:
 
         end_node = next((node for node in flowgram.nodes if node.type == "end"), None)
         if not end_node:
-            max_x = max((node.position.x for node in flowgram.nodes if node.position), default=START_POSITION_X)
-            max_y = max((node.position.y for node in flowgram.nodes if node.position), default=START_POSITION_Y)
             end_node = FlowgramNode(
                 id="end",
                 type="end",
                 label="End",
-                position=NodePosition(x=max_x + DEFAULT_NODE_SPACING_X, y=max_y + DEFAULT_NODE_SPACING_Y),
+                position=NodePosition(x=START_POSITION_X, y=START_POSITION_Y),  # Will be repositioned by layout
                 config={}
             )
             flowgram.nodes.append(end_node)
@@ -450,6 +449,43 @@ class CodeAgent:
                 flowgram.edges.append(FlowgramEdge(source=source_id, target=end_node.id))
 
         flowgram.metadata = metadata
+        
+        # Apply automatic layout to avoid overlapping nodes
+        self._apply_layout(flowgram)
+    
+    def _apply_layout(self, flowgram: Flowgram) -> None:
+        """
+        Apply automatic layout algorithm to position nodes.
+        Uses Sugiyama-style layered DAG placement to avoid overlapping
+        and tangled edges.
+        """
+        if not flowgram or not flowgram.nodes:
+            return
+        
+        try:
+            # Extract node IDs and edge tuples
+            node_ids = [node.id for node in flowgram.nodes]
+            edge_tuples = [(edge.source, edge.target) for edge in flowgram.edges]
+            
+            # Compute placement using the placement algorithm
+            placement = place_nodes(node_ids, edge_tuples)
+            
+            # Apply placement to nodes
+            for node in flowgram.nodes:
+                if node.id in placement:
+                    x, y = placement[node.id]
+                    node.position = NodePosition(x=x, y=y)
+            
+            logger.debug(f"[CodeAgent] Applied layout to {len(flowgram.nodes)} nodes")
+        except Exception as e:
+            logger.warning(f"[CodeAgent] Layout failed, using default positions: {e}")
+            # Fallback: simple vertical layout
+            for i, node in enumerate(flowgram.nodes):
+                if not node.position:
+                    node.position = NodePosition(
+                        x=START_POSITION_X,
+                        y=START_POSITION_Y + i * DEFAULT_NODE_SPACING_Y
+                    )
 
     def _summarize_flowgram(self, flowgram: Optional[Flowgram]) -> str:
         """Generate a concise human-readable summary of the flowgram."""
@@ -464,8 +500,8 @@ class CodeAgent:
         ordered_nodes = sorted(
             flowgram.nodes,
             key=lambda n: (
-                n.position.y if n.position else 0,
                 n.position.x if n.position else 0,
+                n.position.y if n.position else 0,
             )
         )
         labels = [node.label or node.id for node in ordered_nodes]

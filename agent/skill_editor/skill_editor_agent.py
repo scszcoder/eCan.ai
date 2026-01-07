@@ -35,6 +35,9 @@ from .schemas import (
     ClarificationQuestion,
     ImplementationPlan,
     Flowgram,
+    FlowgramNode,
+    FlowgramEdge,
+    NodePosition,
     NODE_TYPES,
     get_node_types_description,
 )
@@ -734,6 +737,188 @@ class SkillEditorAgent:
         else:
             return await self._generate_from_plan(canvas_context, session_id, on_event)
     
+    def _canvas_context_to_flowgram(self, canvas_context: Optional[Dict]) -> Optional[Flowgram]:
+        """
+        Convert canvas context (from frontend) to a Flowgram object for editing.
+        
+        The canvas_context contains the current state of the canvas including nodes and edges.
+        """
+        logger.info(f"[SkillEditorAgent] _canvas_context_to_flowgram called with canvas_context: {canvas_context is not None}")
+        if canvas_context:
+            logger.info(f"[SkillEditorAgent] Canvas context keys: {list(canvas_context.keys())}")
+        
+        if not canvas_context:
+            logger.warning("[SkillEditorAgent] No canvas context provided for edit operation")
+            return None
+        
+        try:
+            nodes_data = canvas_context.get("nodes", [])
+            edges_data = canvas_context.get("edges", [])
+            logger.info(f"[SkillEditorAgent] Canvas context has {len(nodes_data)} nodes, {len(edges_data)} edges")
+            
+            if not nodes_data:
+                # Try to load from disk if skill name is provided
+                skill_name = canvas_context.get("skillName")
+                if skill_name:
+                    logger.info(f"[SkillEditorAgent] Canvas has no nodes but has skillName: {skill_name}, trying to load from disk")
+                    return self._load_flowgram_from_disk(skill_name)
+                logger.warning("[SkillEditorAgent] Canvas context has no nodes and no skillName")
+                return None
+            
+            # Convert nodes - handle both frontend schema (meta.position) and backend schema (position)
+            nodes = []
+            for n in nodes_data:
+                node_id = n.get("id", f"node_{len(nodes)}")
+                node_type = n.get("type", "llm")
+                
+                # Get position from either meta.position or position
+                pos = n.get("meta", {}).get("position") or n.get("position") or {"x": 100, "y": 100}
+                
+                # Get label from data.title or label
+                label = n.get("data", {}).get("title") or n.get("label") or node_id
+                
+                # Get config from data or config
+                config = n.get("data", {}) or n.get("config", {})
+                
+                nodes.append(FlowgramNode(
+                    id=node_id,
+                    type=node_type,
+                    label=label,
+                    position=NodePosition(x=pos.get("x", 100), y=pos.get("y", 100)),
+                    config=config
+                ))
+            
+            # Convert edges - handle both frontend schema (sourceNodeID) and backend schema (source)
+            edges = []
+            for e in edges_data:
+                source = e.get("sourceNodeID") or e.get("source", "")
+                target = e.get("targetNodeID") or e.get("target", "")
+                source_handle = e.get("sourcePortID") or e.get("sourceHandle") or e.get("source_handle")
+                target_handle = e.get("targetPortID") or e.get("targetHandle") or e.get("target_handle")
+                
+                if source and target:
+                    edges.append(FlowgramEdge(
+                        source=source,
+                        target=target,
+                        source_handle=source_handle,
+                        target_handle=target_handle
+                    ))
+            
+            # Get metadata from canvas context
+            metadata = canvas_context.get("metadata", {})
+            if not metadata.get("skillName"):
+                metadata["skillName"] = canvas_context.get("skillName") or "edited_skill"
+            
+            flowgram = Flowgram(
+                nodes=nodes,
+                edges=edges,
+                metadata=metadata
+            )
+            
+            logger.info(f"[SkillEditorAgent] Converted canvas context to flowgram: {len(nodes)} nodes, {len(edges)} edges")
+            return flowgram
+            
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] Failed to convert canvas context to flowgram: {e}")
+            return None
+    
+    def _load_flowgram_from_disk(self, skill_name: str) -> Optional[Flowgram]:
+        """
+        Load a flowgram from disk given the skill name.
+        
+        Args:
+            skill_name: Name of the skill (e.g., "ebay000")
+            
+        Returns:
+            Flowgram object if found, None otherwise
+        """
+        try:
+            # Construct skill file path
+            # Handle both "skill_name" and "skill_name_skill" formats
+            if not skill_name.endswith("_skill"):
+                skill_dir_name = f"{skill_name}_skill"
+            else:
+                skill_dir_name = skill_name
+                skill_name = skill_name.replace("_skill", "")
+            
+            skill_file_path = user_skills_root / skill_dir_name / "diagram_dir" / f"{skill_dir_name}.json"
+            
+            logger.info(f"[SkillEditorAgent] Loading flowgram from disk: {skill_file_path}")
+            
+            if not skill_file_path.exists():
+                logger.warning(f"[SkillEditorAgent] Skill file not found: {skill_file_path}")
+                return None
+            
+            with open(skill_file_path, 'r', encoding='utf-8') as f:
+                skill_json = json.load(f)
+            
+            # Extract workflow data
+            workflow = skill_json.get("workFlow", {})
+            nodes_data = workflow.get("nodes", [])
+            edges_data = workflow.get("edges", [])
+            
+            if not nodes_data:
+                logger.warning(f"[SkillEditorAgent] Skill file has no nodes: {skill_file_path}")
+                return None
+            
+            # Convert nodes - handle frontend schema (meta.position)
+            nodes = []
+            for n in nodes_data:
+                node_id = n.get("id", f"node_{len(nodes)}")
+                node_type = n.get("type", "llm")
+                
+                # Get position from meta.position (frontend schema)
+                pos = n.get("meta", {}).get("position") or {"x": 100, "y": 100}
+                
+                # Get label from data.title
+                label = n.get("data", {}).get("title") or node_id
+                
+                # Get config from data
+                config = n.get("data", {})
+                
+                nodes.append(FlowgramNode(
+                    id=node_id,
+                    type=node_type,
+                    label=label,
+                    position=NodePosition(x=pos.get("x", 100), y=pos.get("y", 100)),
+                    config=config
+                ))
+            
+            # Convert edges - handle frontend schema (sourceNodeID/targetNodeID)
+            edges = []
+            for e in edges_data:
+                source = e.get("sourceNodeID") or e.get("source", "")
+                target = e.get("targetNodeID") or e.get("target", "")
+                source_handle = e.get("sourcePortID") or e.get("sourceHandle")
+                target_handle = e.get("targetPortID") or e.get("targetHandle")
+                
+                if source and target:
+                    edges.append(FlowgramEdge(
+                        source=source,
+                        target=target,
+                        source_handle=source_handle,
+                        target_handle=target_handle
+                    ))
+            
+            # Build metadata
+            metadata = {
+                "skillName": skill_name,
+                "description": skill_json.get("description", ""),
+            }
+            
+            flowgram = Flowgram(
+                nodes=nodes,
+                edges=edges,
+                metadata=metadata
+            )
+            
+            logger.info(f"[SkillEditorAgent] Loaded flowgram from disk: {len(nodes)} nodes, {len(edges)} edges")
+            return flowgram
+            
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] Failed to load flowgram from disk: {e}")
+            return None
+    
     def _scaffold_skill_to_disk(self, flowgram: Flowgram) -> Optional[str]:
         """
         Scaffold skill files to disk based on the generated flowgram.
@@ -745,6 +930,7 @@ class SkillEditorAgent:
             description = metadata.get("description") or "Workflow generated via Skill Editor"
             
             # Convert flowgram to JSON-serializable dict
+            # IMPORTANT: Frontend uses "meta.position" schema, not "position"
             skill_json = {
                 "skillName": skill_name,
                 "description": description,
@@ -753,19 +939,22 @@ class SkillEditorAgent:
                         {
                             "id": n.id,
                             "type": n.type,
-                            "label": n.label,
-                            "position": {"x": n.position.x, "y": n.position.y} if n.position else {"x": 100, "y": 100},
-                            "config": n.config or {}
+                            "data": {
+                                "title": n.label or n.id,
+                                **(n.config or {})
+                            },
+                            "meta": {
+                                "position": {"x": n.position.x, "y": n.position.y} if n.position else {"x": 100, "y": 100}
+                            }
                         }
                         for n in flowgram.nodes
                     ],
                     "edges": [
                         {
-                            "source": e.source,
-                            "target": e.target,
-                            "sourceHandle": e.source_handle,
-                            "targetHandle": e.target_handle,
-                            "label": e.label
+                            "sourceNodeID": e.source,
+                            "targetNodeID": e.target,
+                            "sourcePortID": e.source_handle,
+                            "targetPortID": e.target_handle,
                         }
                         for e in flowgram.edges
                     ]
@@ -856,10 +1045,13 @@ class SkillEditorAgent:
         logger.info(f"[SkillEditorAgent] Direct code generation for intent: {intent.value}")
         self._pipeline_state = PipelineState.GENERATING
         
-        # For edit operations, use edit method
+        # For edit operations, use edit method with current canvas state
         if intent in [IntentType.ADD_NODE, IntentType.REMOVE_NODE, IntentType.MODIFY_NODE, IntentType.CONNECT_NODES]:
+            # Convert canvas_context to Flowgram for editing
+            current_flowgram = self._canvas_context_to_flowgram(canvas_context)
             code_output = await self.code_agent.edit(
                 edit_request=message,
+                current_flowgram=current_flowgram,
                 on_event=on_event
             )
         else:
@@ -874,20 +1066,19 @@ class SkillEditorAgent:
         commands = []
         skill_path = None
         if code_output.flowgram:
-            # For CREATE_FLOWGRAM intent, scaffold skill to disk
-            if intent == IntentType.CREATE_FLOWGRAM:
-                skill_path = self._scaffold_skill_to_disk(code_output.flowgram)
+            # Always scaffold to disk for both create and edit operations
+            # This ensures the skill file is updated and the frontend can reload it
+            skill_path = self._scaffold_skill_to_disk(code_output.flowgram)
             
-            # If skill was scaffolded to disk, only send load_flowgram command
+            # Send load_flowgram command to reload the updated skill
             # The frontend will load the nodes from disk via loadSkillFile
-            # This avoids race conditions between load_flowgram and individual node commands
             if skill_path:
                 commands = [CanvasCommand(
                     type="canvas.load_flowgram",
                     payload={"skillPath": skill_path, "skillName": code_output.flowgram.metadata.get("skillName", "generated_skill")}
                 )]
             else:
-                # No disk scaffold - send individual node commands for in-memory editing
+                # Fallback: send individual node commands for in-memory editing
                 commands = self.code_agent.generate_canvas_commands(code_output.flowgram)
         
         return AgentResponse(

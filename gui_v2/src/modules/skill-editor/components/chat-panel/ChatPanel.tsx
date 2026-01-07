@@ -504,13 +504,24 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
           type: n.type,
           label: n.label,
           position: n.position,
+          data: n.data,
         })),
         edges: canvasState.edges.map(e => ({
           id: e.id,
           source: e.source,
           target: e.target,
+          sourceHandle: e.sourceHandle,
+          targetHandle: e.targetHandle,
         })),
+        // Include skill info so backend can load from disk if canvas is empty
+        skillName: canvasState.flowgramName,
+        skillId: canvasState.flowgramId,
       };
+      console.log('[ChatPanel] Canvas context:', { 
+        nodeCount: canvasContext.nodes.length, 
+        edgeCount: canvasContext.edges.length,
+        skillName: canvasContext.skillName 
+      });
 
       const response = await skillEditorChatService.sendMessage(
         currentSessionId!,

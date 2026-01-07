@@ -213,6 +213,14 @@ class CanvasEventHandler {
             const { loadSkillFile } = await import('./skill-loader');
             const { useSkillInfoStore } = await import('../stores/skill-info-store');
             const { useSheetsStore } = await import('../stores/sheets-store');
+            const { useAutoSaveStore } = await import('../stores/editor-auto-save-store');
+            
+            // IMPORTANT: Disable auto-save while loading to prevent race condition
+            // where old canvas data gets saved to the new skill file
+            const autoSaveStore = useAutoSaveStore.getState();
+            const wasAutoSaveEnabled = autoSaveStore.autoSaveEnabled;
+            autoSaveStore.setAutoSaveEnabled(false);
+            console.log('[CanvasEventHandler] Auto-save disabled during load');
             
             // Construct the skill file path
             const skillFilePath = `${payload.skillPath}/diagram_dir/${payload.skillName}_skill.json`;
@@ -227,14 +235,8 @@ class CanvasEventHandler {
               const skillInfoStore = useSkillInfoStore.getState();
               const sheetsStore = useSheetsStore.getState();
               
-              // Update skill info store
-              skillInfoStore.setSkillInfo(result.skillInfo);
-              skillInfoStore.setCurrentFilePath(skillFilePath);
-              skillInfoStore.setHasUnsavedChanges(false);
-              
-              // Load bundle if available, otherwise create synthetic bundle from workflow
-              // We use loadBundle instead of initMain because initMain has a guard that
-              // prevents updating if 'main' sheet already exists
+              // Load bundle FIRST before updating skillInfo to ensure canvas has new data
+              // before auto-save can trigger
               if (result.bundle) {
                 console.log('[CanvasEventHandler] Loading bundle with', result.bundle.sheets?.length, 'sheets');
                 sheetsStore.loadBundle(result.bundle);
@@ -256,6 +258,11 @@ class CanvasEventHandler {
                 sheetsStore.loadBundle(syntheticBundle as any);
               }
               
+              // Now update skill info store AFTER sheets are loaded
+              skillInfoStore.setSkillInfo(result.skillInfo);
+              skillInfoStore.setCurrentFilePath(skillFilePath);
+              skillInfoStore.setHasUnsavedChanges(false);
+              
               // Set breakpoints if any
               const diagram = result.skillInfo.workFlow;
               if (diagram && Array.isArray(diagram.nodes)) {
@@ -269,8 +276,22 @@ class CanvasEventHandler {
             } else {
               console.error('[CanvasEventHandler] Failed to load skill:', result.error);
             }
+            
+            // Re-enable auto-save after a short delay to let React state settle
+            setTimeout(() => {
+              if (wasAutoSaveEnabled) {
+                useAutoSaveStore.getState().setAutoSaveEnabled(true);
+                console.log('[CanvasEventHandler] Auto-save re-enabled');
+              }
+            }, 2000);
+            
           } catch (err) {
             console.error('[CanvasEventHandler] Failed to load skill:', err);
+            // Re-enable auto-save on error
+            try {
+              const { useAutoSaveStore } = await import('../stores/editor-auto-save-store');
+              useAutoSaveStore.getState().setAutoSaveEnabled(true);
+            } catch {}
           }
         }
         break;
@@ -280,6 +301,85 @@ class CanvasEventHandler {
         // Clear the canvas
         console.log('[CanvasEventHandler] Clearing canvas');
         await canvasController.clearCanvas();
+        break;
+      }
+      
+      case 'canvas.add_node': {
+        // Add a node to the canvas
+        const payload = (event as any).payload;
+        console.log('[CanvasEventHandler] Adding node:', payload);
+        if (payload?.nodeType && payload?.position) {
+          const result = await canvasController.addNode(
+            payload.nodeType,
+            payload.position,
+            payload.config
+          );
+          if (!result.success) {
+            console.error('[CanvasEventHandler] Failed to add node:', result.error);
+          }
+        }
+        break;
+      }
+      
+      case 'canvas.add_edge': {
+        // Add an edge between nodes
+        const payload = (event as any).payload;
+        console.log('[CanvasEventHandler] Adding edge:', payload);
+        if (payload?.sourceNodeId && payload?.targetNodeId) {
+          const result = await canvasController.addEdge({
+            sourceNodeId: payload.sourceNodeId,
+            targetNodeId: payload.targetNodeId,
+            sourceHandle: payload.sourceHandle,
+            targetHandle: payload.targetHandle,
+            label: payload.label,
+          });
+          if (!result.success) {
+            console.error('[CanvasEventHandler] Failed to add edge:', result.error);
+          }
+        }
+        break;
+      }
+      
+      case 'canvas.remove_node': {
+        // Remove a node from the canvas
+        const payload = (event as any).payload;
+        console.log('[CanvasEventHandler] Removing node:', payload);
+        if (payload?.nodeId) {
+          const result = await canvasController.removeNode(payload.nodeId);
+          if (!result.success) {
+            console.error('[CanvasEventHandler] Failed to remove node:', result.error);
+          }
+        }
+        break;
+      }
+      
+      case 'canvas.remove_edge': {
+        // Remove an edge from the canvas
+        const payload = (event as any).payload;
+        console.log('[CanvasEventHandler] Removing edge:', payload);
+        if (payload?.edgeId) {
+          const result = await canvasController.removeEdge(payload.edgeId);
+          if (!result.success) {
+            console.error('[CanvasEventHandler] Failed to remove edge:', result.error);
+          }
+        }
+        break;
+      }
+      
+      case 'canvas.update_node': {
+        // Update a node's configuration or position
+        const payload = (event as any).payload;
+        console.log('[CanvasEventHandler] Updating node:', payload);
+        if (payload?.nodeId) {
+          const result = await canvasController.updateNode(
+            payload.nodeId,
+            payload.config,
+            payload.position
+          );
+          if (!result.success) {
+            console.error('[CanvasEventHandler] Failed to update node:', result.error);
+          }
+        }
         break;
       }
       
