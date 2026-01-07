@@ -329,6 +329,7 @@ export type SkillEditorEventType =
   | 'canvas.close_flowgram'
   | 'canvas.create_flowgram'
   | 'canvas.rename_flowgram'
+  | 'canvas.load_flowgram'
   | 'canvas.add_node'
   | 'canvas.remove_node'
   | 'canvas.update_node'
@@ -433,6 +434,17 @@ export interface CanvasCreateFlowgramEvent extends SkillEditorEvent {
       position: CanvasPosition;
       config?: NodeConfig;
     }>;
+  };
+}
+
+/** Load a flowgram from disk into the canvas */
+export interface CanvasLoadFlowgramEvent extends SkillEditorEvent {
+  type: 'canvas.load_flowgram';
+  payload: {
+    /** Path to the skill directory */
+    skillPath: string;
+    /** Skill name */
+    skillName: string;
   };
 }
 
@@ -667,6 +679,7 @@ export function isCanvasEvent(event: SkillEditorEvent): event is
   | CanvasOpenFlowgramEvent
   | CanvasCloseFlowgramEvent
   | CanvasCreateFlowgramEvent
+  | CanvasLoadFlowgramEvent
   | CanvasRenameFlowgramEvent
   | CanvasAddNodeEvent
   | CanvasRemoveNodeEvent

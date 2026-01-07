@@ -15,12 +15,16 @@ build complete workflows with multiple integrations.
 
 import json
 import traceback
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Callable
 from enum import Enum
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 from utils.logger_helper import logger_helper as logger
+
+# Import skill scaffolding utility
+from agent.ec_skills.extern_skills.extern_skills import scaffold_skill, user_skills_root
 
 # Import from schemas
 from .schemas import (
@@ -730,6 +734,68 @@ class SkillEditorAgent:
         else:
             return await self._generate_from_plan(canvas_context, session_id, on_event)
     
+    def _scaffold_skill_to_disk(self, flowgram: Flowgram) -> Optional[str]:
+        """
+        Scaffold skill files to disk based on the generated flowgram.
+        Returns the skill path if successful, None otherwise.
+        """
+        try:
+            metadata = flowgram.metadata or {}
+            skill_name = metadata.get("skillName") or metadata.get("name") or "generated_skill"
+            description = metadata.get("description") or "Workflow generated via Skill Editor"
+            
+            # Convert flowgram to JSON-serializable dict
+            skill_json = {
+                "skillName": skill_name,
+                "description": description,
+                "workFlow": {
+                    "nodes": [
+                        {
+                            "id": n.id,
+                            "type": n.type,
+                            "label": n.label,
+                            "position": {"x": n.position.x, "y": n.position.y} if n.position else {"x": 100, "y": 100},
+                            "config": n.config or {}
+                        }
+                        for n in flowgram.nodes
+                    ],
+                    "edges": [
+                        {
+                            "source": e.source,
+                            "target": e.target,
+                            "sourceHandle": e.source_handle,
+                            "targetHandle": e.target_handle,
+                            "label": e.label
+                        }
+                        for e in flowgram.edges
+                    ]
+                },
+                "metadata": metadata
+            }
+            
+            # Bundle JSON (empty for now, can be extended)
+            bundle_json = {
+                "sheets": [],
+                "order": [],
+                "activeSheetId": None
+            }
+            
+            # Scaffold the skill directory and files
+            skill_path = scaffold_skill(
+                skill_name=skill_name,
+                description=description,
+                kind="diagram",
+                skill_json=skill_json,
+                bundle_json=bundle_json
+            )
+            
+            logger.info(f"[SkillEditorAgent] Scaffolded skill to disk: {skill_path}")
+            return str(skill_path)
+            
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] Failed to scaffold skill: {e}\n{traceback.format_exc()}")
+            return None
+
     async def _generate_from_plan(
         self,
         canvas_context: Optional[Dict],
@@ -752,8 +818,22 @@ class SkillEditorAgent:
         
         # Generate canvas commands if flowgram was created
         commands = []
+        skill_path = None
         if code_output.flowgram:
-            commands = self.code_agent.generate_canvas_commands(code_output.flowgram)
+            # Scaffold skill to disk
+            skill_path = self._scaffold_skill_to_disk(code_output.flowgram)
+            
+            # If skill was scaffolded to disk, only send load_flowgram command
+            # The frontend will load the nodes from disk via loadSkillFile
+            # This avoids race conditions between load_flowgram and individual node commands
+            if skill_path:
+                commands = [CanvasCommand(
+                    type="canvas.load_flowgram",
+                    payload={"skillPath": skill_path, "skillName": code_output.flowgram.metadata.get("skillName", "generated_skill")}
+                )]
+            else:
+                # No disk scaffold - send individual node commands for in-memory editing
+                commands = self.code_agent.generate_canvas_commands(code_output.flowgram)
         
         return AgentResponse(
             message=code_output.message or "I've generated the workflow for you.",
@@ -761,7 +841,7 @@ class SkillEditorAgent:
             intent=IntentType.CREATE_FLOWGRAM,
             flowgram=code_output.flowgram,
             validation=code_output.validation,
-            metadata={"session_id": session_id, "state": "complete"}
+            metadata={"session_id": session_id, "state": "complete", "skillPath": skill_path}
         )
     
     async def _run_code_generation(
@@ -792,8 +872,23 @@ class SkillEditorAgent:
         self._pipeline_state = PipelineState.COMPLETE
         
         commands = []
+        skill_path = None
         if code_output.flowgram:
-            commands = self.code_agent.generate_canvas_commands(code_output.flowgram)
+            # For CREATE_FLOWGRAM intent, scaffold skill to disk
+            if intent == IntentType.CREATE_FLOWGRAM:
+                skill_path = self._scaffold_skill_to_disk(code_output.flowgram)
+            
+            # If skill was scaffolded to disk, only send load_flowgram command
+            # The frontend will load the nodes from disk via loadSkillFile
+            # This avoids race conditions between load_flowgram and individual node commands
+            if skill_path:
+                commands = [CanvasCommand(
+                    type="canvas.load_flowgram",
+                    payload={"skillPath": skill_path, "skillName": code_output.flowgram.metadata.get("skillName", "generated_skill")}
+                )]
+            else:
+                # No disk scaffold - send individual node commands for in-memory editing
+                commands = self.code_agent.generate_canvas_commands(code_output.flowgram)
         
         return AgentResponse(
             message=code_output.message,
@@ -801,7 +896,7 @@ class SkillEditorAgent:
             intent=intent,
             flowgram=code_output.flowgram,
             validation=code_output.validation,
-            metadata={"session_id": session_id}
+            metadata={"session_id": session_id, "skillPath": skill_path}
         )
     
     def _format_plan_for_display(self, plan: Optional[ImplementationPlan]) -> str:

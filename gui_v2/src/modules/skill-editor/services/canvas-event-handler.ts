@@ -5,7 +5,8 @@
  * This allows the AI agent to control the canvas through chat.
  */
 
-import { ipcClient } from '../../../services/ipc/ipcClient';
+import { ipcClient } from '../../../services/ipc';
+import { eventBus } from '../../../utils/eventBus';
 import { canvasController } from './canvas-controller';
 import {
   SkillEditorEvent,
@@ -90,6 +91,21 @@ class CanvasEventHandler {
       // Register a handler that the backend can call
       (window as any).__skillEditorEventHandler = this.handleBackendEvent.bind(this);
     }
+    
+    // Subscribe to eventBus for skill_editor:event (emitted by handlers.ts)
+    eventBus.on('skill_editor:event', (data: any) => {
+      console.log('[CanvasEventHandler] Received skill_editor:event from eventBus:', data);
+      // Convert eventBus data to SkillEditorEvent format
+      const event: SkillEditorEvent = {
+        eventId: `evt-${Date.now()}`,
+        type: data.type as SkillEditorEventType,
+        timestamp: Date.now(),
+        sessionId: data.sessionId || '',
+        payload: data.payload,
+      } as SkillEditorEvent;
+      
+      this.handleBackendEvent(event);
+    });
   }
   
   /**
@@ -185,6 +201,85 @@ class CanvasEventHandler {
       case 'canvas.create_flowgram': {
         const e = event as CanvasCreateFlowgramEvent;
         await canvasController.createFlowgram(e.payload.name, e.payload.description);
+        break;
+      }
+      
+      case 'canvas.load_flowgram': {
+        // Load a skill from disk into the canvas
+        const payload = (event as any).payload;
+        console.log('[CanvasEventHandler] Loading flowgram:', payload);
+        if (payload?.skillPath && payload?.skillName) {
+          try {
+            const { loadSkillFile } = await import('./skill-loader');
+            const { useSkillInfoStore } = await import('../stores/skill-info-store');
+            const { useSheetsStore } = await import('../stores/sheets-store');
+            
+            // Construct the skill file path
+            const skillFilePath = `${payload.skillPath}/diagram_dir/${payload.skillName}_skill.json`;
+            console.log('[CanvasEventHandler] Loading skill file:', skillFilePath);
+            
+            const result = await loadSkillFile(skillFilePath);
+            
+            if (result.success && result.skillInfo) {
+              console.log('[CanvasEventHandler] Skill loaded successfully, updating stores...');
+              
+              // Get store actions
+              const skillInfoStore = useSkillInfoStore.getState();
+              const sheetsStore = useSheetsStore.getState();
+              
+              // Update skill info store
+              skillInfoStore.setSkillInfo(result.skillInfo);
+              skillInfoStore.setCurrentFilePath(skillFilePath);
+              skillInfoStore.setHasUnsavedChanges(false);
+              
+              // Load bundle if available, otherwise create synthetic bundle from workflow
+              // We use loadBundle instead of initMain because initMain has a guard that
+              // prevents updating if 'main' sheet already exists
+              if (result.bundle) {
+                console.log('[CanvasEventHandler] Loading bundle with', result.bundle.sheets?.length, 'sheets');
+                sheetsStore.loadBundle(result.bundle);
+              } else if (result.skillInfo.workFlow) {
+                console.log('[CanvasEventHandler] Creating synthetic bundle from workflow');
+                // Create a synthetic bundle with just the main sheet
+                const syntheticBundle = {
+                  mainSheetId: 'main',
+                  sheets: [{
+                    id: 'main',
+                    name: 'Main',
+                    document: result.skillInfo.workFlow,
+                    createdAt: Date.now(),
+                    lastOpenedAt: Date.now(),
+                  }],
+                  openTabs: ['main'],
+                  activeSheetId: 'main',
+                };
+                sheetsStore.loadBundle(syntheticBundle as any);
+              }
+              
+              // Set breakpoints if any
+              const diagram = result.skillInfo.workFlow;
+              if (diagram && Array.isArray(diagram.nodes)) {
+                const breakpointIds = diagram.nodes
+                  .filter((node: any) => node.data?.break_point)
+                  .map((node: any) => node.id);
+                skillInfoStore.setBreakpoints(breakpointIds);
+              }
+              
+              console.log('[CanvasEventHandler] Skill loaded and stores updated:', payload.skillName);
+            } else {
+              console.error('[CanvasEventHandler] Failed to load skill:', result.error);
+            }
+          } catch (err) {
+            console.error('[CanvasEventHandler] Failed to load skill:', err);
+          }
+        }
+        break;
+      }
+      
+      case 'canvas.clear': {
+        // Clear the canvas
+        console.log('[CanvasEventHandler] Clearing canvas');
+        await canvasController.clearCanvas();
         break;
       }
       
