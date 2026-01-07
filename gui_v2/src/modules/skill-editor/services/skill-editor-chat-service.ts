@@ -5,7 +5,7 @@
  * Handles sending messages, managing sessions, and receiving responses.
  */
 
-import { ipcClient } from '../../../services/ipc';
+import { ipcClient } from '../../../services/ipc/ipcClient';
 import { IPCResponse } from '../../../services/ipc/types';
 import {
   ChatAttachment,

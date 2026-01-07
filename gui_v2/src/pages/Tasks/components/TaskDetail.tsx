@@ -13,7 +13,7 @@ import { Task } from '../types';
 import dayjs from 'dayjs';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
-import { useSkillStore } from '@/stores';
+import { useSkillStore } from '@/stores/domain/skillStore';
 import { useDeleteConfirm } from '@/components/Common/DeleteConfirmModal';
 import {
   StyledFormItem,
@@ -292,7 +292,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         // 传递新创建的task ID给父组件
         if (onSave) {
           // API返回的task_id在response.data.task_id
-          const newTaskId = isNew ? response.data?.task_id || response.data?.id || response.data?.task?.id || payload.id : undefined;
+          const newTaskId = isNew ? (response as any).data?.task_id || (response as any).data?.id || (response as any).data?.task?.id || payload.id : undefined;
           console.log('[TaskDetail] 保存成功，Task ID:', newTaskId);
           console.log('[TaskDetail] API响应数据:', response.data);
           onSave(newTaskId);

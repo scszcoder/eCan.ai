@@ -1,6 +1,7 @@
 import { hasIPCSupport, hasFullFilePaths } from '../../../config/platform';
 import '../../../services/ipc/file-api';
 import type { SheetsBundle } from '../utils/bundle-utils';
+import { IPCAPI } from '../../../services/ipc/api';
 import { sanitizeNodeApiKeys, sanitizeApiKeysDeep } from '../utils/sanitize-utils';
 // Re-export SheetsBundle for backward compatibility
 export type { SheetsBundle };
@@ -23,7 +24,6 @@ export async function saveSheetsBundleToPath(
   const jsonString = JSON.stringify(sanitizedBundle, null, 2);
   // Try IPC write first; if anything fails, fall back to download method
   try {
-    const { IPCAPI } = await import('../../../services/ipc/api');
     const ipcApi = IPCAPI.getInstance();
     const writeResponse = await ipcApi.writeSkillFile(targetPathOrName, jsonString);
     if (!writeResponse.success) {
@@ -67,7 +67,6 @@ export async function saveSheetsBundle(bundle: SheetsBundle, suggestedName?: str
   const fileName = (suggestedName || 'skill-multisheet') + '.json';
 
   if (hasIPCSupport() && hasFullFilePaths()) {
-    const { IPCAPI } = await import('../../../services/ipc/api');
     const ipcApi = IPCAPI.getInstance();
 
     const dialogResponse = await ipcApi.showSaveDialog(fileName, [
@@ -114,7 +113,6 @@ export async function saveSheetsBundle(bundle: SheetsBundle, suggestedName?: str
 
 export async function loadSheetsBundle(): Promise<SheetsBundle | { cancelled: true }> {
   if (hasIPCSupport() && hasFullFilePaths()) {
-    const { IPCAPI } = await import('../../../services/ipc/api');
     const ipcApi = IPCAPI.getInstance();
     const dialogResponse = await ipcApi.showOpenDialog([
       { name: 'Skill Bundle', extensions: ['json'] },

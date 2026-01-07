@@ -35,10 +35,10 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: process.env.VITE_SOURCEMAP === 'true', // 启用 sourcemap 以便调试
     // 使用更保守的构建选项
-    minify: 'esbuild', // 暂时禁用压缩以避免问题
+    minify: 'esbuild', // 使用 esbuild 进行压缩
     rollupOptions: {
       // 优化并行处理
-      maxParallelFileOps: 1, // 减少并行处理以避免内存问题
+      // maxParallelFileOps: 20, // 恢复默认并行处理 (默认: 20)
       output: {
         manualChunks: (id) => {
           // 将 Monaco Editor 相关代码分离到单独的 chunk
