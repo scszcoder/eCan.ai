@@ -20,7 +20,7 @@ import { useTranslation } from 'react-i18next';
 import type { Skill, SkillRunMode, SkillNeedInput } from '@/types/domain/skill';
 
 import { useNavigate } from 'react-router-dom';
-import { useSkillStore } from '@/stores';
+import { useSkillStore } from '@/stores/domain/skillStore';
 import { get_ipc_api } from '@/services/ipc_api';
 import { useUserStore } from '@/stores/userStore';
 import { IPCWCClient } from '@/services/ipc/ipcWCClient';

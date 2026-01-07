@@ -1,6 +1,6 @@
 // stores/toolStore.ts
 import { create } from 'zustand';
-import { IPCAPI, APIResponse } from '../services/ipc';
+import { IPCAPI, APIResponse } from '../services/ipc/api';
 import { Tool } from '../pages/Tools/types';
 
 // Re-export Tool type for convenience

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useDetailView } from '@/hooks/useDetailView';
-import { useTaskStore } from '@/stores';
+import { useTaskStore } from '@/stores/domain/taskStore';
 import { useUserStore } from '@/stores/userStore';
 import { Task } from '../types';
 import { logger } from '../../../utils/logger';
