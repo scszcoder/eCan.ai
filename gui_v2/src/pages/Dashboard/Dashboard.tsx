@@ -3,13 +3,11 @@ import { Card, Row, Col, Statistic, Typography, Space, Tag, Alert, Skeleton } fr
 import { LaptopOutlined, ThunderboltOutlined, ScheduleOutlined, ToolOutlined, SettingOutlined, TeamOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useAppDataStore } from '../../stores/appDataStore';
-import {
-  useAgentStore,
-  useTaskStore,
-  useSkillStore,
-  useVehicleStore,
-  storeSyncManager
-} from '../../stores';
+import { useAgentStore } from '../../stores/agentStore';
+import { useTaskStore } from '../../stores/domain/taskStore';
+import { useSkillStore } from '../../stores/domain/skillStore';
+import { useVehicleStore } from '../../stores/domain/vehicleStore';
+import { storeSyncManager } from '../../stores/sync/syncManager';
 import { useToolStore } from '../../stores/toolStore';
 import { useUserStore } from '../../stores/userStore';
 import { logger } from '@/utils/logger';
