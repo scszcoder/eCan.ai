@@ -1,7 +1,7 @@
 import React from 'react';
 import { List } from 'antd';
 import styled from '@emotion/styled';
-import type { Vehicle } from '@/stores';
+import type { Vehicle } from '@/types/domain/vehicle';
 import VehicleItem from './VehicleItem';
 import SearchFilter from '../../components/Common/SearchFilter';
 

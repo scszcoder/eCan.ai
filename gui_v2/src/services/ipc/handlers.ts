@@ -9,12 +9,10 @@ import { useSheetsStore } from '@/modules/skill-editor/stores/sheets-store';
 import { useSkillInfoStore } from '@/modules/skill-editor/stores/skill-info-store';
 import { useAgentStore } from '../../stores/agentStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import {
-  useTaskStore,
-  useSkillStore,
-  useKnowledgeStore,
-  useChatStore,
-} from '../../stores';
+import { useTaskStore } from '../../stores/domain/taskStore';
+import { useSkillStore } from '../../stores/domain/skillStore';
+import { useKnowledgeStore } from '../../stores/domain/knowledgeStore';
+import { useChatStore } from '../../stores/domain/chatStore';
 import { eventBus } from '@/utils/eventBus';
 import { useRunningNodeStore } from '@/modules/skill-editor/stores/running-node-store';
 import { useAvatarSceneStore } from '../../stores/avatarSceneStore';
@@ -25,6 +23,8 @@ import { handleSendAllContexts, handleUpdateContexts } from './contextHandlers';
 import { handleOnboardingRequest, type OnboardingContext } from '../onboarding/onboardingService';
 import { avatarSceneOrchestrator } from '../avatarSceneOrchestrator';
 import type { SceneClip } from '@/types/avatarScene';
+import { useAdStore } from '../../stores/adStore';
+import { useAccountStore } from '../../stores/accountStore';
 
 // Process器TypeDefinition
 type Handler = (request: IPCRequest) => Promise<unknown>;
@@ -860,7 +860,6 @@ export class IPCHandlers {
             durationMs?: number;
         };
         
-        const { useAdStore } = await import('../../stores/adStore');
         const store = useAdStore.getState();
         const durationMs = params.durationMs || 60000;
         const expiresAt = Date.now() + durationMs;
@@ -898,7 +897,6 @@ export class IPCHandlers {
             return { success: false };
         }
         
-        const { useAccountStore } = await import('../../stores/accountStore');
         const store = useAccountStore.getState();
         
         store.setAccountData(params.accountInfo);

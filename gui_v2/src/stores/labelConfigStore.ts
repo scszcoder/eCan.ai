@@ -1,6 +1,6 @@
 // stores/labelConfigStore.ts
 import { create } from 'zustand';
-import { IPCAPI } from '../services/ipc';
+import { IPCAPI } from '../services/ipc/api';
 
 export interface LabelConfig {
   name: string;
