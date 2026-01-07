@@ -225,6 +225,21 @@ const MessageContent = styled.div<{ $isUser: boolean }>`
   word-wrap: break-word;
 `;
 
+const JsonBlock = styled.pre`
+  margin: 0;
+  padding: 8px 10px;
+  background: rgba(15, 23, 42, 0.85);
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  font-family: 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #cbd5f5;
+  white-space: pre;
+  max-width: 100%;
+  overflow-x: auto;
+`;
+
 const MessageMeta = styled.span`
   font-size: 11px;
   color: rgba(148, 163, 184, 0.6);
@@ -341,6 +356,35 @@ const formatSessionDate = (date: Date): string => {
   if (days === 1) return 'Yesterday';
   if (days < 7) return `${days}d ago`;
   return date.toLocaleDateString();
+};
+
+const renderMessageContent = (msg: ChatMessage) => {
+  const raw = msg.content ?? '';
+
+  if (msg.role === 'assistant') {
+    const trimmed = raw.trim();
+    if (trimmed.length > 0) {
+      const startsJson = trimmed.startsWith('{') || trimmed.startsWith('[');
+      const endsJson = trimmed.endsWith('}') || trimmed.endsWith(']');
+
+      if (startsJson && endsJson) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          return <JsonBlock>{JSON.stringify(parsed, null, 2)}</JsonBlock>;
+        } catch (err) {
+          // fall through to plain text rendering if JSON.parse fails
+        }
+      }
+    }
+  }
+
+  const lines = raw.split('\n');
+  return lines.map((line, idx) => (
+    <React.Fragment key={idx}>
+      {line}
+      {idx < lines.length - 1 && <br />}
+    </React.Fragment>
+  ));
 };
 
 export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
@@ -811,7 +855,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
               {messages.map(msg => (
                 <MessageBubble key={msg.id} $isUser={msg.role === 'user'}>
                   <MessageContent $isUser={msg.role === 'user'}>
-                    {msg.content}
+                    {renderMessageContent(msg)}
                   </MessageContent>
                   <MessageMeta>
                     {msg.role === 'user' ? 'You' : 'Assistant'} • {formatTime(msg.timestamp)}

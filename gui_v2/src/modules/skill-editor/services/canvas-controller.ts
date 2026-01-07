@@ -17,7 +17,8 @@ import {
   SkillEditorEvent,
   SkillEditorEventType,
 } from '../types';
-import { ipcClient } from '../../../services/ipc/ipcClient';
+import { ipcClient } from '../../../services/ipc';
+import { loadSkillFile } from './skill-loader';
 
 // ============================================================
 // Types

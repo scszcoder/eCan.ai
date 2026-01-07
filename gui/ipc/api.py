@@ -714,6 +714,24 @@ class IPCAPI:
             'message': error_message
         }, callback=callback)
 
+    def _publish_skill_editor_event(
+        self,
+        session_id: str,
+        event_type: str,
+        payload: Dict[str, Any]
+    ) -> None:
+        """Broadcast a skill editor event to frontend listeners."""
+        logger.info(f"[IPCAPI] publish_skill_editor_event: session={session_id}, type={event_type}")
+        logger.debug(f"[IPCAPI] Event payload: {payload}")
+        self._send_request(
+            'skill_editor.event',
+            params={
+                'sessionId': session_id,
+                'type': event_type,
+                'payload': payload,
+            }
+        )
+
     def push_skill_editor_canvas_command(
         self,
         session_id: str,
@@ -731,8 +749,19 @@ class IPCAPI:
         """
         logger.info(f"[IPCAPI] push_skill_editor_canvas_command: session={session_id}, type={command_type}")
         logger.debug(f"[IPCAPI] Canvas command payload: {payload}")
-        self._send_request('skill_editor.canvas.command', {
-            'sessionId': session_id,
-            'type': command_type,
-            'payload': payload
-        }, callback=callback)
+
+        # Broadcast event for V2 frontend
+        try:
+            self._publish_skill_editor_event(session_id, command_type, payload)
+        except Exception as event_err:
+            logger.warning(f"[IPCAPI] Failed to publish skill editor event: {event_err}")
+
+        # Keep legacy request for backward compatibility (older clients)
+        try:
+            self._send_request('skill_editor.canvas.command', {
+                'sessionId': session_id,
+                'type': command_type,
+                'payload': payload
+            }, callback=callback)
+        except Exception as legacy_err:
+            logger.debug(f"[IPCAPI] Legacy canvas command send failed: {legacy_err}")
