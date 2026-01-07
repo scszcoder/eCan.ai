@@ -156,16 +156,16 @@ class TokenRefreshService {
       
       logger.debug('[TokenRefresh] Received response from backend', {
         status: response.status,
-        hasData: !!response.data,
+        hasData: !!response.result,
         hasError: !!response.error
       });
       
       if (response.status === 'success') {
         logger.debug('[TokenRefresh] Token info retrieved successfully', {
-          username: response.data?.username,
-          timeRemaining: response.data?.time_remaining_hours
+          username: (response.result as any)?.username,
+          timeRemaining: (response.result as any)?.time_remaining_hours
         });
-        return response.data as TokenInfo;
+        return response.result as TokenInfo;
       } else {
         logger.error('[TokenRefresh] Backend returned error response', {
           status: response.status,
@@ -206,19 +206,19 @@ class TokenRefreshService {
       
       logger.debug('[TokenRefresh] Refresh response received', {
         status: response.status,
-        hasData: !!response.data
+        hasData: !!response.result
       });
       
       if (response.status === 'success') {
-        const newToken = response.data.token;
+        const newToken = (response.result as any).token;
         const oldTokenPrefix = this.currentToken.substring(0, 8);
         this.currentToken = newToken;
         
         logger.info('[TokenRefresh] Token refreshed successfully', {
-          username: response.data.username,
+          username: (response.result as any).username,
           oldTokenPrefix,
           newTokenPrefix: newToken.substring(0, 8),
-          expiresAt: response.data.expires_at ? new Date(response.data.expires_at * 1000).toISOString() : 'unknown'
+          expiresAt: (response.result as any).expires_at ? new Date((response.result as any).expires_at * 1000).toISOString() : 'unknown'
         });
 
         // Notify callback
@@ -266,7 +266,7 @@ class TokenRefreshService {
       
       if (response.status === 'success') {
         logger.info('[TokenRefresh] Token extended successfully', {
-          time_remaining_hours: response.data.time_remaining_hours
+          time_remaining_hours: (response.result as any).time_remaining_hours
         });
         return true;
       } else {
