@@ -30,7 +30,7 @@ from .schemas import (
     NODE_TYPES,
     get_node_types_description,
 )
-from .placement import place_nodes
+from .placement import place_nodes, LOOP_INTERNAL_CFG
 
 
 # ============================================================
@@ -87,6 +87,91 @@ When you generate a flowgram, the system will automatically:
 10. Infer a concise snake_case skill name when the user does not provide one explicitly (e.g., "ebay000" → "ebay000")
 11. ALWAYS write the `message` field as a short, human-readable summary of what you built (do not echo raw JSON)
 12. Include where the skill was saved in your message (e.g., "Created 'ebay000' skill with start→end flow. Saved to my_skills/ebay000_skill/")
+
+## CONDITION NODE STRUCTURE (IMPORTANT):
+Condition nodes have multiple output branches (if/elseif/else). They require:
+
+1. A `conditions` array in the config with branch definitions
+2. Each condition has a unique `key` (e.g., "if_xxx", "elseif_xxx", "else_xxx") and a `value` object
+3. Order: if branch first, then any elseif branches, then else branch last
+4. By default, only if and else branches (no elseif). Add elseif branches only when needed.
+5. Edges FROM condition nodes MUST use `source_handle` (or `sourcePortID`) matching the condition key
+6. Note: Each elseif branch adds ~27px to the node height
+
+Example condition node (default - no elseif):
+{{
+  "id": "condition_1",
+  "type": "condition",
+  "label": "Check Status",
+  "position": {{"x": 400, "y": 200}},
+  "config": {{
+    "conditions": [
+      {{"key": "if_branch", "value": {{}}}},
+      {{"key": "else_branch", "value": {{}}}}
+    ]
+  }}
+}}
+
+Example condition node with elseif:
+{{
+  "id": "condition_2",
+  "type": "condition",
+  "label": "Multi-way Branch",
+  "position": {{"x": 400, "y": 200}},
+  "config": {{
+    "conditions": [
+      {{"key": "if_high", "value": {{}}}},
+      {{"key": "elseif_medium", "value": {{}}}},
+      {{"key": "elseif_low", "value": {{}}}},
+      {{"key": "else_default", "value": {{}}}}
+    ]
+  }}
+}}
+
+Example edges from condition node:
+{{
+  "source": "condition_1",
+  "target": "success_node",
+  "source_handle": "if_branch"
+}},
+{{
+  "source": "condition_1",
+  "target": "failure_node",
+  "source_handle": "else_branch"
+}}
+
+## LOOP NODE STRUCTURE (IMPORTANT):
+Loop nodes are container nodes that hold internal nodes. They have a special structure:
+
+1. Loop nodes MUST have a `blocks` array containing internal nodes
+2. The `blocks` array MUST include:
+   - A "block-start" node (type: "block-start") at the beginning
+   - A "block-end" node (type: "block-end") at the end
+   - Any content nodes (llm, mcp, code, etc.) between them
+3. Loop nodes MUST have an `internal_edges` array connecting the blocks
+4. Internal node positions are RELATIVE to the loop's internal coordinate system:
+   - block-start: position around (30, 0)
+   - Content nodes: y ~16, x spread between 120 and 450
+   - block-end: position at the right side
+5. Loop node config should include: loopMode ("loopFor", "loopWhile", "loopForEach"), loopCountExpr, loopWhileExpr
+
+Example loop node:
+{{
+  "id": "loop_1",
+  "type": "loop",
+  "label": "Process Items",
+  "position": {{"x": 400, "y": 200}},
+  "config": {{"loopMode": "loopFor", "loopCountExpr": "3", "loopWhileExpr": ""}},
+  "blocks": [
+    {{"id": "block_start_1", "type": "block-start", "label": "Loop Start", "position": {{"x": 30, "y": 0}}, "config": {{}}}},
+    {{"id": "llm_in_loop", "type": "llm", "label": "Process", "position": {{"x": 200, "y": 16}}, "config": {{}}}},
+    {{"id": "block_end_1", "type": "block-end", "label": "Loop End", "position": {{"x": 450, "y": 16}}, "config": {{}}}}
+  ],
+  "internal_edges": [
+    {{"source": "block_start_1", "target": "llm_in_loop"}},
+    {{"source": "llm_in_loop", "target": "block_end_1"}}
+  ]
+}}
 
 ## OUTPUT FORMAT:
 You MUST respond with valid JSON containing the flowgram:
@@ -171,6 +256,39 @@ EDIT_FLOWGRAM_PROMPT = """You are a Code Agent for the Skill Editor, specializin
 3. Maintain valid connections after edits
 4. Update positions if adding/removing nodes to avoid overlap
 5. Keep the start and end nodes
+
+## CONDITION NODE STRUCTURE (IMPORTANT):
+When adding or editing condition nodes:
+1. They MUST have a `conditions` array in config with branch definitions
+2. Each condition has a unique `key` (e.g., "if_xxx", "elseif_xxx", "else_xxx") and a `value` object
+3. Order: if branch first, then any elseif branches, then else branch last
+4. Edges FROM condition nodes MUST include `source_handle` matching the condition key
+
+Example condition node config:
+{{"conditions": [{{"key": "if_branch", "value": {{}}}}, {{"key": "else_branch", "value": {{}}}}]}}
+
+Example edges FROM a condition node (CRITICAL - must include source_handle):
+{{"source": "condition_1", "target": "success_node", "source_handle": "if_branch"}}
+{{"source": "condition_1", "target": "failure_node", "source_handle": "else_branch"}}
+
+## LOOP NODE STRUCTURE (IMPORTANT):
+When adding or editing loop nodes, they MUST have:
+1. A `blocks` array with block-start, content nodes, and block-end
+2. An `internal_edges` array connecting the blocks
+3. Internal positions relative to loop's coordinate system (block-start at x:30, content at x:120-450, block-end at right)
+
+## EDITING NODES INSIDE A LOOP:
+When the user asks to add/remove/update nodes "inside", "in", or "within" a loop:
+1. Find the target loop node in the flowgram
+2. Modify its `blocks` array (add/remove/update nodes)
+3. Update its `internal_edges` array to maintain proper connections
+4. Keep block-start as the first node and block-end as the last node in the chain
+5. Position new internal nodes between x:120-450, y:16
+
+Example requests that target loop internals:
+- "add an llm node inside the loop" → Add to loop's blocks array
+- "remove the mcp node from the loop" → Remove from loop's blocks array
+- "connect the llm to the code node in the loop" → Update loop's internal_edges
 
 ## OUTPUT FORMAT:
 Respond with the complete updated flowgram:
@@ -457,18 +575,19 @@ class CodeAgent:
         """
         Apply automatic layout algorithm to position nodes.
         Uses Sugiyama-style layered DAG placement to avoid overlapping
-        and tangled edges.
+        and tangled edges. Accounts for different node sizes (e.g., loop nodes are larger).
         """
         if not flowgram or not flowgram.nodes:
             return
         
         try:
-            # Extract node IDs and edge tuples
+            # Extract node IDs, edge tuples, and node types
             node_ids = [node.id for node in flowgram.nodes]
             edge_tuples = [(edge.source, edge.target) for edge in flowgram.edges]
+            node_types = {node.id: node.type for node in flowgram.nodes}
             
-            # Compute placement using the placement algorithm
-            placement = place_nodes(node_ids, edge_tuples)
+            # Compute placement using the placement algorithm with node type awareness
+            placement = place_nodes(node_ids, edge_tuples, node_types)
             
             # Apply placement to nodes
             for node in flowgram.nodes:
@@ -533,6 +652,158 @@ class CodeAgent:
 
         return self._summarize_flowgram(flowgram)
 
+    def _apply_internal_layout(self, blocks: List[FlowgramNode]) -> None:
+        """
+        Apply layout to internal nodes of a loop.
+        Positions block-start at left, block-end at right, and content nodes in between.
+        """
+        if not blocks:
+            return
+        
+        x_start = LOOP_INTERNAL_CFG["x_start"]
+        x_end = LOOP_INTERNAL_CFG["x_end"]
+        y_start = LOOP_INTERNAL_CFG["y_start"]
+        spacing_x = LOOP_INTERNAL_CFG["node_spacing_x"]
+        spacing_y = LOOP_INTERNAL_CFG["node_spacing_y"]
+        
+        # Separate block markers from content nodes
+        block_start = None
+        block_end = None
+        content_nodes = []
+        
+        for node in blocks:
+            if node.type == "block-start":
+                block_start = node
+            elif node.type == "block-end":
+                block_end = node
+            else:
+                content_nodes.append(node)
+        
+        # Position block-start
+        if block_start:
+            block_start.position = NodePosition(
+                x=LOOP_INTERNAL_CFG["block_start_x"],
+                y=LOOP_INTERNAL_CFG["block_start_y"]
+            )
+        
+        # Position block-end
+        if block_end:
+            block_end.position = NodePosition(
+                x=LOOP_INTERNAL_CFG["block_end_x"],
+                y=LOOP_INTERNAL_CFG["block_end_y"]
+            )
+        
+        # Position content nodes in the usable area with proper spacing
+        if content_nodes:
+            # Calculate available width for content nodes
+            usable_width = x_end - x_start
+            
+            # Arrange content nodes horizontally with spacing
+            num_nodes = len(content_nodes)
+            if num_nodes == 1:
+                # Single node: center it
+                content_nodes[0].position = NodePosition(
+                    x=x_start + usable_width // 2 - 100,  # Center (assuming ~200px node width)
+                    y=y_start
+                )
+            else:
+                # Multiple nodes: distribute with spacing
+                # Calculate step based on number of nodes
+                total_spacing = (num_nodes - 1) * spacing_x
+                if total_spacing > usable_width:
+                    # Not enough horizontal space, stack vertically
+                    for i, node in enumerate(content_nodes):
+                        node.position = NodePosition(
+                            x=x_start,
+                            y=y_start + i * spacing_y
+                        )
+                else:
+                    # Distribute horizontally
+                    for i, node in enumerate(content_nodes):
+                        node.position = NodePosition(
+                            x=x_start + i * spacing_x,
+                            y=y_start
+                        )
+
+    def _parse_node(self, n: Dict[str, Any], index: int) -> FlowgramNode:
+        """Parse a node dict into FlowgramNode, handling loop and condition nodes."""
+        pos = n.get("position", {"x": 100, "y": 100})
+        node_type = n.get("type", "llm")
+        config = n.get("config", {})
+        
+        # Handle condition nodes - ensure they have conditions array
+        if node_type == "condition":
+            if "conditions" not in config or not config.get("conditions"):
+                # Generate unique branch keys
+                node_id = n.get("id", f"condition_{index}")
+                config["conditions"] = [
+                    {"key": f"if_{node_id[-5:]}", "value": {}},
+                    {"key": f"else_{node_id[-5:]}", "value": {}},
+                ]
+        
+        # Parse blocks for loop nodes
+        blocks = None
+        internal_edges = None
+        
+        if node_type == "loop":
+            blocks_data = n.get("blocks", [])
+            if blocks_data:
+                blocks = [self._parse_node(b, i) for i, b in enumerate(blocks_data)]
+                # Apply internal layout to ensure proper spacing
+                self._apply_internal_layout(blocks)
+            else:
+                # Create default block-start and block-end if not provided
+                block_start_id = f"block_start_{n.get('id', index)}"
+                block_end_id = f"block_end_{n.get('id', index)}"
+                blocks = [
+                    FlowgramNode(
+                        id=block_start_id,
+                        type="block-start",
+                        label="Loop Start",
+                        position=NodePosition(
+                            x=LOOP_INTERNAL_CFG["block_start_x"],
+                            y=LOOP_INTERNAL_CFG["block_start_y"]
+                        ),
+                        config={}
+                    ),
+                    FlowgramNode(
+                        id=block_end_id,
+                        type="block-end",
+                        label="Loop End",
+                        position=NodePosition(
+                            x=LOOP_INTERNAL_CFG["block_end_x"],
+                            y=LOOP_INTERNAL_CFG["block_end_y"]
+                        ),
+                        config={}
+                    )
+                ]
+                internal_edges = [
+                    FlowgramEdge(source=block_start_id, target=block_end_id)
+                ]
+            
+            # Parse internal edges
+            internal_edges_data = n.get("internal_edges", [])
+            if internal_edges_data:
+                internal_edges = [
+                    FlowgramEdge(
+                        source=e.get("source", ""),
+                        target=e.get("target", ""),
+                        source_handle=e.get("source_handle") or e.get("sourceHandle"),
+                        target_handle=e.get("target_handle") or e.get("targetHandle"),
+                    )
+                    for e in internal_edges_data
+                ]
+        
+        return FlowgramNode(
+            id=n.get("id", f"node_{index}"),
+            type=node_type,
+            label=n.get("label", n.get("id", "Node")),
+            position=NodePosition(x=pos.get("x", 100), y=pos.get("y", 100)),
+            config=config,
+            blocks=blocks,
+            internal_edges=internal_edges
+        )
+
     def _parse_code_agent_output(self, response: str) -> CodeAgentOutput:
         """Parse LLM response into CodeAgentOutput"""
         data = self._parse_flowgram_from_response(response)
@@ -557,14 +828,7 @@ class CodeAgent:
             try:
                 nodes = []
                 for n in flowgram_data.get("nodes", []):
-                    pos = n.get("position", {"x": 100, "y": 100})
-                    nodes.append(FlowgramNode(
-                        id=n.get("id", f"node_{len(nodes)}"),
-                        type=n.get("type", "llm"),
-                        label=n.get("label", n.get("id", "Node")),
-                        position=NodePosition(x=pos.get("x", 100), y=pos.get("y", 100)),
-                        config=n.get("config", {})
-                    ))
+                    nodes.append(self._parse_node(n, len(nodes)))
                 
                 edges = []
                 for e in flowgram_data.get("edges", []):
@@ -685,6 +949,51 @@ class CodeAgent:
             warnings=warnings
         )
     
+    def _node_to_canvas_payload(self, node: FlowgramNode) -> Dict[str, Any]:
+        """Convert a FlowgramNode to canvas command payload, handling loop and condition nodes."""
+        payload = {
+            "nodeType": node.type,
+            "position": {"x": node.position.x, "y": node.position.y},
+            "config": {
+                "id": node.id,
+                "label": node.label,
+                **node.config
+            }
+        }
+        
+        # Handle condition nodes - ensure conditions array is in data for frontend
+        if node.type == "condition":
+            conditions = node.config.get("conditions", [])
+            if not conditions:
+                # Generate default conditions if not present
+                conditions = [
+                    {"key": f"if_{node.id[-5:]}", "value": {}},
+                    {"key": f"else_{node.id[-5:]}", "value": {}},
+                ]
+            payload["data"] = {
+                "title": node.label,
+                "conditions": conditions,
+            }
+        
+        # Handle loop nodes with blocks
+        if node.type == "loop" and node.blocks:
+            payload["blocks"] = [
+                {
+                    "id": b.id,
+                    "type": b.type,
+                    "meta": {"position": {"x": b.position.x, "y": b.position.y}},
+                    "data": {"title": b.label, **b.config}
+                }
+                for b in node.blocks
+            ]
+            if node.internal_edges:
+                payload["edges"] = [
+                    {"sourceNodeID": e.source, "targetNodeID": e.target}
+                    for e in node.internal_edges
+                ]
+        
+        return payload
+    
     def generate_canvas_commands(self, flowgram: Flowgram) -> List[CanvasCommand]:
         """Generate canvas commands from a flowgram"""
         logger.debug(f"[CodeAgent] Generating canvas commands for {len(flowgram.nodes)} nodes")
@@ -700,15 +1009,7 @@ class CodeAgent:
         for node in flowgram.nodes:
             commands.append(CanvasCommand(
                 type="canvas.add_node",
-                payload={
-                    "nodeType": node.type,
-                    "position": {"x": node.position.x, "y": node.position.y},
-                    "config": {
-                        "id": node.id,
-                        "label": node.label,
-                        **node.config
-                    }
-                }
+                payload=self._node_to_canvas_payload(node)
             ))
         
         # Add edges
@@ -893,6 +1194,10 @@ Please regenerate the flowgram with these errors fixed.
             
             if output.flowgram:
                 output.action = CodeAgentAction.EDIT_FLOWGRAM
+                
+                # Re-run placement algorithm to avoid overlaps after edit
+                self._apply_layout(output.flowgram)
+                
                 validation = self.validate_flowgram(output.flowgram)
                 output.validation = validation
                 self._current_flowgram = output.flowgram

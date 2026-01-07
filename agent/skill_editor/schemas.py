@@ -18,6 +18,8 @@ from pydantic import BaseModel, Field
 class IntentType(str, Enum):
     """Types of user intents the agent can recognize"""
     CREATE_FLOWGRAM = "create_flowgram"
+    LOAD_SKILL = "load_skill"
+    SAVE_SKILL = "save_skill"
     ADD_NODE = "add_node"
     REMOVE_NODE = "remove_node"
     CONNECT_NODES = "connect_nodes"
@@ -128,6 +130,9 @@ class FlowgramNode(BaseModel):
     label: str = Field(..., description="Display label")
     position: NodePosition = Field(..., description="Canvas position")
     config: Dict[str, Any] = Field(default_factory=dict, description="Node configuration")
+    # For container nodes like loop
+    blocks: Optional[List["FlowgramNode"]] = Field(None, description="Internal nodes for container types (loop)")
+    internal_edges: Optional[List["FlowgramEdge"]] = Field(None, description="Internal edges for container types (loop)")
 
 
 class FlowgramEdge(BaseModel):
@@ -144,6 +149,10 @@ class Flowgram(BaseModel):
     nodes: List[FlowgramNode] = Field(default_factory=list, description="List of nodes")
     edges: List[FlowgramEdge] = Field(default_factory=list, description="List of edges")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+
+
+# Update forward references for self-referential types
+FlowgramNode.model_rebuild()
 
 
 # ============================================================
@@ -265,6 +274,18 @@ NODE_TYPES = {
         "has_inputs": True,
         "has_outputs": False,
     },
+    "block-start": {
+        "description": "Entry point inside a loop node (internal use)",
+        "has_inputs": False,
+        "has_outputs": True,
+        "is_internal": True,
+    },
+    "block-end": {
+        "description": "Exit point inside a loop node (internal use)",
+        "has_inputs": True,
+        "has_outputs": False,
+        "is_internal": True,
+    },
     "llm": {
         "description": "LLM node for AI processing with prompts",
         "has_inputs": True,
@@ -286,23 +307,42 @@ NODE_TYPES = {
         }
     },
     "condition": {
-        "description": "Conditional branching node",
+        "description": "Conditional branching node with if/elseif/else branches. Each branch has a unique key used as sourcePortID in edges.",
         "has_inputs": True,
         "has_outputs": True,
+        "has_multiple_outputs": True,  # Condition nodes have multiple output ports (if/elseif/else branches)
         "config_schema": {
-            "condition": "string",
-            "true_branch": "string",
-            "false_branch": "string",
-        }
+            "conditions": "array",  # Array of {key: "if_xxx"/"elseif_xxx"/"else_xxx", value: {}}
+        },
+        "default_conditions": [
+            {"key": "if_branch", "value": {}},
+            {"key": "else_branch", "value": {}},
+        ],
+        # Note: elseif branches can be added between if and else
+        # Each elseif adds ~1/5 of typical node height (about 27px for 134px node)
+        "size": {"width": 300, "height": 200},  # Base size
+        "height_per_elseif": 27,  # Additional height per elseif branch
     },
     "loop": {
-        "description": "Loop node for iterative processing",
+        "description": "Loop node for iterative processing. Contains internal nodes in a 'blocks' array with block-start and block-end markers.",
         "has_inputs": True,
         "has_outputs": True,
+        "is_container": True,  # Loop nodes contain other nodes
         "config_schema": {
-            "max_iterations": "number",
-            "condition": "string",
-        }
+            "loopMode": "string",  # 'loopFor' | 'loopWhile' | 'loopForEach'
+            "loopCountExpr": "string",  # Expression for loop count (loopFor mode)
+            "loopWhileExpr": "string",  # Expression for while condition (loopWhile mode)
+        },
+        "internal_structure": {
+            "blocks": "array",  # Internal nodes including block-start, block-end, and content nodes
+            "edges": "array",  # Internal edges connecting blocks
+        },
+        "size": {"width": 570, "height": 345},  # Default size
+        "usable_area": {
+            "x_start": 120,  # Left margin not usable
+            "x_end": 450,    # Right margin not usable (570 - 120)
+            "y_start": 178,  # Top area not usable (header)
+        },
     },
     "code": {
         "description": "Custom code execution node",
