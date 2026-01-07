@@ -363,6 +363,14 @@ class SkillEditorAgent:
         """Simple rule-based intent classification"""
         msg_lower = message.lower()
         
+        # Load skill intent - check first as it's specific
+        if any(phrase in msg_lower for phrase in ["load", "open", "load up", "switch to"]) and "skill" in msg_lower:
+            return IntentType.LOAD_SKILL
+        
+        # Save skill intent
+        if any(phrase in msg_lower for phrase in ["save", "save as", "export"]) and ("skill" in msg_lower or "workflow" in msg_lower or "flowgram" in msg_lower):
+            return IntentType.SAVE_SKILL
+        
         # Creation intents
         if any(word in msg_lower for word in ["create", "build", "make", "generate", "new workflow"]):
             return IntentType.CREATE_FLOWGRAM
@@ -497,6 +505,14 @@ class SkillEditorAgent:
             # Store current request
             self._current_request = message
             
+            # Handle LOAD_SKILL intent directly
+            if intent == IntentType.LOAD_SKILL:
+                return await self._run_load_skill(message, session_id, on_event)
+            
+            # Handle SAVE_SKILL intent directly
+            if intent == IntentType.SAVE_SKILL:
+                return await self._run_save_skill(message, canvas_context, session_id, on_event)
+            
             # Check if user wants to configure a specific node
             if intent == IntentType.MODIFY_NODE and self._is_node_config_request(message, canvas_context):
                 return await self._run_node_configuration(message, canvas_context, session_id, on_event)
@@ -517,6 +533,184 @@ class SkillEditorAgent:
                 intent=IntentType.UNKNOWN,
                 metadata={"error": str(e), "session_id": session_id}
             )
+    
+    async def _run_load_skill(
+        self,
+        message: str,
+        session_id: Optional[str],
+        on_event: Optional[Callable]
+    ) -> AgentResponse:
+        """Load an existing skill into the canvas"""
+        logger.info(f"[SkillEditorAgent] Loading skill from message: {message}")
+        
+        # Extract skill name from message
+        skill_name = self._extract_skill_name(message)
+        
+        if not skill_name:
+            return AgentResponse(
+                message="I couldn't determine which skill to load. Please specify the skill name, e.g., 'load ebay000 skill'.",
+                intent=IntentType.LOAD_SKILL,
+                metadata={"session_id": session_id}
+            )
+        
+        # Check if skill exists on disk
+        if not skill_name.endswith("_skill"):
+            skill_dir_name = f"{skill_name}_skill"
+        else:
+            skill_dir_name = skill_name
+            skill_name = skill_name.replace("_skill", "")
+        
+        skill_path = user_skills_root() / skill_dir_name
+        skill_file_path = skill_path / "diagram_dir" / f"{skill_dir_name}.json"
+        
+        logger.info(f"[SkillEditorAgent] Looking for skill at: {skill_file_path}")
+        
+        if not skill_file_path.exists():
+            # List available skills
+            available_skills = []
+            skills_root = user_skills_root()
+            if skills_root.exists():
+                for d in skills_root.iterdir():
+                    if d.is_dir() and d.name.endswith("_skill"):
+                        available_skills.append(d.name.replace("_skill", ""))
+            
+            skills_list = ", ".join(available_skills[:10]) if available_skills else "none found"
+            return AgentResponse(
+                message=f"Skill '{skill_name}' not found. Available skills: {skills_list}",
+                intent=IntentType.LOAD_SKILL,
+                metadata={"session_id": session_id, "available_skills": available_skills}
+            )
+        
+        # Load the flowgram from disk
+        flowgram = self._load_flowgram_from_disk(skill_name)
+        
+        if not flowgram:
+            return AgentResponse(
+                message=f"Failed to load skill '{skill_name}'. The skill file may be corrupted.",
+                intent=IntentType.LOAD_SKILL,
+                metadata={"session_id": session_id}
+            )
+        
+        # Set as current flowgram
+        self.code_agent.set_current_flowgram(flowgram)
+        
+        # Send canvas.load_flowgram command
+        commands = [CanvasCommand(
+            type="canvas.load_flowgram",
+            payload={
+                "skillPath": str(skill_path),
+                "skillName": skill_dir_name
+            }
+        )]
+        
+        node_count = len(flowgram.nodes)
+        edge_count = len(flowgram.edges)
+        
+        logger.info(f"[SkillEditorAgent] Loaded skill '{skill_name}' with {node_count} nodes, {edge_count} edges")
+        
+        return AgentResponse(
+            message=f"Loaded skill **{skill_name}** with {node_count} nodes and {edge_count} edges. You can now edit this workflow.",
+            commands=commands,
+            intent=IntentType.LOAD_SKILL,
+            flowgram=flowgram,
+            metadata={"session_id": session_id, "skillPath": str(skill_path)}
+        )
+    
+    async def _run_save_skill(
+        self,
+        message: str,
+        canvas_context: Optional[Dict],
+        session_id: Optional[str],
+        on_event: Optional[Callable]
+    ) -> AgentResponse:
+        """Save the current workflow to disk"""
+        logger.info(f"[SkillEditorAgent] Saving skill from message: {message}")
+        
+        # Try to get flowgram from canvas context or current flowgram
+        flowgram = self._canvas_context_to_flowgram(canvas_context)
+        
+        if not flowgram:
+            flowgram = self.code_agent.get_current_flowgram()
+        
+        if not flowgram:
+            return AgentResponse(
+                message="No workflow to save. Please create or load a skill first.",
+                intent=IntentType.SAVE_SKILL,
+                metadata={"session_id": session_id}
+            )
+        
+        # Check if user wants to save with a new name (save as)
+        new_skill_name = self._extract_save_as_name(message)
+        if new_skill_name:
+            # Update metadata with new name
+            if flowgram.metadata:
+                flowgram.metadata["skillName"] = new_skill_name
+            else:
+                flowgram.metadata = {"skillName": new_skill_name}
+        
+        # Scaffold to disk
+        skill_path = self._scaffold_skill_to_disk(flowgram)
+        
+        if not skill_path:
+            return AgentResponse(
+                message="Failed to save the skill. Please try again.",
+                intent=IntentType.SAVE_SKILL,
+                metadata={"session_id": session_id}
+            )
+        
+        skill_name = flowgram.metadata.get("skillName", "skill") if flowgram.metadata else "skill"
+        node_count = len(flowgram.nodes)
+        edge_count = len(flowgram.edges)
+        
+        logger.info(f"[SkillEditorAgent] Saved skill '{skill_name}' to {skill_path}")
+        
+        return AgentResponse(
+            message=f"Saved skill **{skill_name}** with {node_count} nodes and {edge_count} edges to `{skill_path}`.",
+            intent=IntentType.SAVE_SKILL,
+            flowgram=flowgram,
+            metadata={"session_id": session_id, "skillPath": skill_path}
+        )
+    
+    def _extract_save_as_name(self, message: str) -> Optional[str]:
+        """Extract new skill name from a 'save as' message"""
+        import re
+        
+        msg_lower = message.lower()
+        
+        # Patterns for "save as X", "save skill as X", "export as X"
+        patterns = [
+            r"(?:save|export)\s+(?:skill\s+)?as\s+([a-zA-Z0-9_-]+)",
+            r"(?:save|export)\s+(?:to|as)\s+([a-zA-Z0-9_-]+)",
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, msg_lower)
+            if match:
+                return match.group(1).strip()
+        
+        return None
+    
+    def _extract_skill_name(self, message: str) -> Optional[str]:
+        """Extract skill name from a load skill message"""
+        import re
+        
+        msg_lower = message.lower()
+        
+        # Common patterns: "load ebay000 skill", "open the ebay000 skill", "load up ebay000"
+        patterns = [
+            r"(?:load|open|switch to|load up)\s+(?:the\s+)?([a-zA-Z0-9_-]+?)(?:\s+skill)?(?:\s|$)",
+            r"skill\s+([a-zA-Z0-9_-]+)",
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, msg_lower)
+            if match:
+                skill_name = match.group(1).strip()
+                # Filter out common words that aren't skill names
+                if skill_name not in ["the", "a", "an", "my", "this", "that", "up"]:
+                    return skill_name
+        
+        return None
     
     async def _run_node_configuration(
         self,
@@ -768,25 +962,7 @@ class SkillEditorAgent:
             # Convert nodes - handle both frontend schema (meta.position) and backend schema (position)
             nodes = []
             for n in nodes_data:
-                node_id = n.get("id", f"node_{len(nodes)}")
-                node_type = n.get("type", "llm")
-                
-                # Get position from either meta.position or position
-                pos = n.get("meta", {}).get("position") or n.get("position") or {"x": 100, "y": 100}
-                
-                # Get label from data.title or label
-                label = n.get("data", {}).get("title") or n.get("label") or node_id
-                
-                # Get config from data or config
-                config = n.get("data", {}) or n.get("config", {})
-                
-                nodes.append(FlowgramNode(
-                    id=node_id,
-                    type=node_type,
-                    label=label,
-                    position=NodePosition(x=pos.get("x", 100), y=pos.get("y", 100)),
-                    config=config
-                ))
+                nodes.append(self._parse_canvas_node(n, len(nodes)))
             
             # Convert edges - handle both frontend schema (sourceNodeID) and backend schema (source)
             edges = []
@@ -822,6 +998,57 @@ class SkillEditorAgent:
             logger.error(f"[SkillEditorAgent] Failed to convert canvas context to flowgram: {e}")
             return None
     
+    def _parse_canvas_node(self, n: Dict[str, Any], index: int) -> FlowgramNode:
+        """
+        Parse a canvas node dict into FlowgramNode, handling loop nodes with blocks.
+        Handles both frontend schema (meta.position, data.title) and backend schema (position, label).
+        """
+        node_id = n.get("id", f"node_{index}")
+        node_type = n.get("type", "llm")
+        
+        # Get position from either meta.position or position
+        pos = n.get("meta", {}).get("position") or n.get("position") or {"x": 100, "y": 100}
+        
+        # Get label from data.title or label
+        label = n.get("data", {}).get("title") or n.get("label") or node_id
+        
+        # Get config from data or config
+        config = n.get("data", {}) or n.get("config", {})
+        
+        # Handle loop nodes with blocks
+        blocks = None
+        internal_edges = None
+        
+        if node_type == "loop":
+            # Parse blocks (internal nodes)
+            blocks_data = n.get("blocks", [])
+            if blocks_data:
+                blocks = [self._parse_canvas_node(b, i) for i, b in enumerate(blocks_data)]
+            
+            # Parse internal edges
+            internal_edges_data = n.get("edges", []) or n.get("internal_edges", [])
+            if internal_edges_data:
+                internal_edges = [
+                    FlowgramEdge(
+                        source=e.get("sourceNodeID") or e.get("source", ""),
+                        target=e.get("targetNodeID") or e.get("target", ""),
+                        source_handle=e.get("sourcePortID") or e.get("sourceHandle") or e.get("source_handle"),
+                        target_handle=e.get("targetPortID") or e.get("targetHandle") or e.get("target_handle"),
+                    )
+                    for e in internal_edges_data
+                    if (e.get("sourceNodeID") or e.get("source")) and (e.get("targetNodeID") or e.get("target"))
+                ]
+        
+        return FlowgramNode(
+            id=node_id,
+            type=node_type,
+            label=label,
+            position=NodePosition(x=pos.get("x", 100), y=pos.get("y", 100)),
+            config=config,
+            blocks=blocks,
+            internal_edges=internal_edges
+        )
+    
     def _load_flowgram_from_disk(self, skill_name: str) -> Optional[Flowgram]:
         """
         Load a flowgram from disk given the skill name.
@@ -841,7 +1068,7 @@ class SkillEditorAgent:
                 skill_dir_name = skill_name
                 skill_name = skill_name.replace("_skill", "")
             
-            skill_file_path = user_skills_root / skill_dir_name / "diagram_dir" / f"{skill_dir_name}.json"
+            skill_file_path = user_skills_root() / skill_dir_name / "diagram_dir" / f"{skill_dir_name}.json"
             
             logger.info(f"[SkillEditorAgent] Loading flowgram from disk: {skill_file_path}")
             
@@ -861,28 +1088,10 @@ class SkillEditorAgent:
                 logger.warning(f"[SkillEditorAgent] Skill file has no nodes: {skill_file_path}")
                 return None
             
-            # Convert nodes - handle frontend schema (meta.position)
+            # Convert nodes - handle frontend schema (meta.position) and loop blocks
             nodes = []
             for n in nodes_data:
-                node_id = n.get("id", f"node_{len(nodes)}")
-                node_type = n.get("type", "llm")
-                
-                # Get position from meta.position (frontend schema)
-                pos = n.get("meta", {}).get("position") or {"x": 100, "y": 100}
-                
-                # Get label from data.title
-                label = n.get("data", {}).get("title") or node_id
-                
-                # Get config from data
-                config = n.get("data", {})
-                
-                nodes.append(FlowgramNode(
-                    id=node_id,
-                    type=node_type,
-                    label=label,
-                    position=NodePosition(x=pos.get("x", 100), y=pos.get("y", 100)),
-                    config=config
-                ))
+                nodes.append(self._parse_canvas_node(n, len(nodes)))
             
             # Convert edges - handle frontend schema (sourceNodeID/targetNodeID)
             edges = []
@@ -919,6 +1128,46 @@ class SkillEditorAgent:
             logger.error(f"[SkillEditorAgent] Failed to load flowgram from disk: {e}")
             return None
     
+    def _node_to_json(self, node: FlowgramNode) -> Dict[str, Any]:
+        """Convert a FlowgramNode to JSON-serializable dict for skill file."""
+        config = node.config or {}
+        
+        # Handle condition nodes - ensure conditions array is present
+        if node.type == "condition":
+            if "conditions" not in config or not config.get("conditions"):
+                config["conditions"] = [
+                    {"key": f"if_{node.id[-5:]}", "value": {}},
+                    {"key": f"else_{node.id[-5:]}", "value": {}},
+                ]
+        
+        node_json = {
+            "id": node.id,
+            "type": node.type,
+            "data": {
+                "title": node.label or node.id,
+                **config
+            },
+            "meta": {
+                "position": {"x": node.position.x, "y": node.position.y} if node.position else {"x": 100, "y": 100}
+            }
+        }
+        
+        # Handle loop nodes with blocks
+        if node.type == "loop" and node.blocks:
+            node_json["blocks"] = [self._node_to_json(block) for block in node.blocks]
+            if node.internal_edges:
+                node_json["edges"] = [
+                    {
+                        "sourceNodeID": e.source,
+                        "targetNodeID": e.target,
+                        "sourcePortID": e.source_handle,
+                        "targetPortID": e.target_handle,
+                    }
+                    for e in node.internal_edges
+                ]
+        
+        return node_json
+    
     def _scaffold_skill_to_disk(self, flowgram: Flowgram) -> Optional[str]:
         """
         Scaffold skill files to disk based on the generated flowgram.
@@ -935,20 +1184,7 @@ class SkillEditorAgent:
                 "skillName": skill_name,
                 "description": description,
                 "workFlow": {
-                    "nodes": [
-                        {
-                            "id": n.id,
-                            "type": n.type,
-                            "data": {
-                                "title": n.label or n.id,
-                                **(n.config or {})
-                            },
-                            "meta": {
-                                "position": {"x": n.position.x, "y": n.position.y} if n.position else {"x": 100, "y": 100}
-                            }
-                        }
-                        for n in flowgram.nodes
-                    ],
+                    "nodes": [self._node_to_json(n) for n in flowgram.nodes],
                     "edges": [
                         {
                             "sourceNodeID": e.source,

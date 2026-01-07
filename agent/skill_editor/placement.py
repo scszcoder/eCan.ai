@@ -18,14 +18,56 @@ PLACEMENT_CFG = {
     # Node dimensions (default canvas node size)
     "node_width": 200,
     "node_height": 134,
-    # Minimum margin between nodes
-    "margin_x": 80,
-    "margin_y": 60,
+    # Minimum margin between nodes (30px on each side = 60px total between nodes)
+    "margin_x": 60,  # 30px margin on each side
+    "margin_y": 60,  # 30px margin on each side
     # Baseline Y for the main/longest path
     "baseline_y": 200,
     # Starting X position
     "start_x": 100,
 }
+
+# Node type specific sizes (width, height)
+NODE_SIZES = {
+    "loop": (570, 345),
+    "condition": (300, 200),  # Base size; add 27px height per elseif branch
+    "start": (100, 50),
+    "end": (100, 50),
+    "block-start": (80, 40),
+    "block-end": (80, 40),
+    # Default for other nodes
+    "default": (200, 134),
+}
+
+# Height added per elseif branch in condition nodes
+CONDITION_ELSEIF_HEIGHT = 27
+
+# Extra margin for container nodes like loop (in addition to base margin)
+CONTAINER_MARGIN = 30
+
+# Minimum margin around all nodes (all 4 sides)
+NODE_MARGIN = 30
+
+# Internal layout config for loop nodes
+LOOP_INTERNAL_CFG = {
+    # Usable area inside loop node (relative to loop's top-left)
+    "x_start": 120,      # Left boundary of usable area
+    "x_end": 450,        # Right boundary of usable area  
+    "y_start": 178,      # Top boundary of usable area
+    # Spacing between internal nodes (node width + 2*margin for both sides)
+    "node_spacing_x": 200 + 2 * 30,  # 260px (node width 200 + 30 margin each side)
+    "node_spacing_y": 134 + 2 * 30,  # 194px (node height 134 + 30 margin each side)
+    # Block marker positions
+    "block_start_x": 30,
+    "block_start_y": 0,
+    "block_end_x": 450,
+    "block_end_y": 16,
+}
+
+
+def get_node_size(node_type: str) -> Tuple[int, int]:
+    """Get the size (width, height) for a node type."""
+    return NODE_SIZES.get(node_type, NODE_SIZES["default"])
 
 
 def compute_horizontal_step() -> int:
@@ -229,7 +271,8 @@ def order_nodes_in_layers(
 
 def place_nodes(
     node_ids: List[str],
-    edge_tuples: List[Tuple[str, str]]
+    edge_tuples: List[Tuple[str, str]],
+    node_types: Optional[Dict[str, str]] = None
 ) -> Dict[str, Tuple[int, int]]:
     """
     The main placement algorithm.
@@ -239,11 +282,12 @@ def place_nodes(
     2. Topological sort
     3. Assign layers (longest-path layering)
     4. Order nodes within layers (barycenter heuristic)
-    5. Assign X/Y coordinates
+    5. Assign X/Y coordinates with variable spacing based on node sizes
     
     Args:
         node_ids: List of node IDs
         edge_tuples: List of (source, target) edge tuples
+        node_types: Optional dict mapping node_id to node type (for size-aware placement)
         
     Returns:
         Dict mapping node_id to (x, y) position tuple
@@ -253,6 +297,7 @@ def place_nodes(
     
     nodes = list(node_ids)
     node_set = set(nodes)
+    node_types = node_types or {}
     
     # Filter edges to only those within our node set
     filtered_edges = [(src, tgt) for src, tgt in edge_tuples 
@@ -283,8 +328,8 @@ def place_nodes(
     main_path = find_longest_path(dag_edges, nodes)
     by_layer = order_nodes_in_layers(nodes, dag_edges, layer_assignment, main_path)
     
-    # Step 5: Assign coordinates
-    hstep = compute_horizontal_step()
+    # Step 5: Assign coordinates with variable spacing based on node sizes
+    margin_x = PLACEMENT_CFG["margin_x"]
     vstep = compute_vertical_step()
     baseline_y = PLACEMENT_CFG["baseline_y"]
     start_x = PLACEMENT_CFG["start_x"]
@@ -294,9 +339,33 @@ def place_nodes(
     x_pos: Dict[str, int] = {}
     y_pos: Dict[str, int] = {}
     
+    # Compute cumulative X positions based on actual node widths in each layer
+    layer_x_start: Dict[int, int] = {}
+    current_x = start_x
+    
+    for layer_idx in sorted(by_layer.keys()):
+        layer_x_start[layer_idx] = current_x
+        
+        # Find the widest node in this layer and check for container nodes
+        layer_nodes = by_layer[layer_idx]
+        max_width = 0
+        has_container = False
+        for n in layer_nodes:
+            ntype = node_types.get(n, "default")
+            width, _ = get_node_size(ntype)
+            max_width = max(max_width, width)
+            if ntype in ("loop", "condition"):
+                has_container = True
+        
+        # Add extra margin for container nodes
+        extra_margin = CONTAINER_MARGIN if has_container else 0
+        
+        # Move to next layer position
+        current_x += max_width + margin_x + extra_margin
+    
     for layer_idx in sorted(by_layer.keys()):
         arr = by_layer[layer_idx]
-        x = start_x + layer_idx * hstep
+        x = layer_x_start[layer_idx]
         
         # Separate main path nodes and others
         main_in_layer = [n for n in arr if n in main_path_set]
