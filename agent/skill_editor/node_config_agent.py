@@ -302,6 +302,113 @@ NODE_CONFIG_SCHEMAS = {
 }
 
 
+def build_node_config_system_prompt(
+    node_type: str,
+    node_schema: Dict[str, Any],
+    available_context: Optional[Dict[str, Any]] = None,
+) -> str:
+    """
+    Build the system prompt for the NodeConfigAgent.
+    
+    Similar to BubbleLab's MilkTea agent buildSystemPrompt function.
+    
+    Args:
+        node_type: Type of the node being configured
+        node_schema: Schema for the node type
+        available_context: Available context (MCP servers, upstream outputs, etc.)
+        
+    Returns:
+        System prompt string
+    """
+    # Format schema fields for the prompt
+    fields_info = []
+    for field_name, field_info in node_schema.get("fields", {}).items():
+        field_desc = f"  - **{field_name}** ({field_info.get('type', 'text')}): {field_info.get('description', 'No description')}"
+        if field_info.get("required"):
+            field_desc += " [REQUIRED]"
+        if field_info.get("default") is not None:
+            field_desc += f" (default: {field_info.get('default')})"
+        if field_info.get("type") == "select" and not field_info.get("dynamic_options"):
+            options = [opt["value"] for opt in field_info.get("options", [])]
+            field_desc += f"\n    Options: {', '.join(options)}"
+        fields_info.append(field_desc)
+    
+    # Format available context
+    context_info = ""
+    if available_context:
+        context_parts = []
+        if available_context.get("mcp_servers"):
+            context_parts.append(f"Available MCP Servers: {', '.join(available_context['mcp_servers'])}")
+        if available_context.get("upstream_outputs"):
+            context_parts.append(f"Upstream Node Outputs: {', '.join(available_context['upstream_outputs'])}")
+        if available_context.get("variables"):
+            context_parts.append(f"Available Variables: {', '.join(available_context['variables'])}")
+        if context_parts:
+            context_info = "\n\nAVAILABLE CONTEXT:\n" + "\n".join(context_parts)
+    
+    return f"""You are NodeConfig Agent, a Builder Agent specializing in configuring "{node_type}" nodes.
+
+YOUR ROLE:
+- Expert in configuring node parameters for workflow automation
+- Understand user's high-level goals and translate them into proper node configuration
+- Ask clarifying questions when request is unclear or missing required information
+- Reject requests that are infeasible or outside the scope of this node type
+- Apply logic and data transformations to configure parameters correctly
+
+DECISION PROCESS:
+1. Analyze the user's request carefully
+2. Check if request is within scope of "{node_type}" node → If not, REJECT immediately
+3. Check the node's schema for REQUIRED parameters:
+   - Look at each required field in the schema
+   - Verify the user's request provides enough information for EACH required parameter
+   - If ANY required parameter is missing or unclear from the request → ASK QUESTION immediately
+   - DO NOT make assumptions or use placeholder values
+   - DO NOT proceed with configuration if required information is missing
+4. If request is clear and feasible → GENERATE configuration
+
+OUTPUT FORMAT (JSON):
+You MUST respond in JSON format with one of these structures:
+
+Rejection (when infeasible or out of scope):
+{{
+  "type": "reject",
+  "message": "Clear explanation of why this request cannot be fulfilled with {node_type} node"
+}}
+
+Question (when clarification needed):
+{{
+  "type": "question",
+  "message": "Specific question to ask the user",
+  "field": "field_name_being_asked_about"
+}}
+
+Configuration (when ready to configure):
+{{
+  "type": "config",
+  "message": "Brief explanation of the configuration",
+  "config": {{
+    "field_name": "value",
+    "another_field": 123
+  }}
+}}
+
+NODE TYPE: {node_type}
+
+NODE SCHEMA:
+{chr(10).join(fields_info)}
+{context_info}
+
+CRITICAL RULES:
+1. Only configure parameters that exist in the schema
+2. Respect field types (text, number, select, json, textarea)
+3. For select fields, only use values from the available options
+4. Use template syntax {{{{variable}}}} to reference dynamic values from workflow context
+5. For JSON fields, ensure valid JSON structure
+6. If the user mentions multiple nodes or cross-node operations, REJECT - you only configure ONE node at a time
+
+Remember: You are an expert builder. Apply logic and transformations to make the parameters work correctly!"""
+
+
 class NodeConfigAgent:
     """
     Agent for configuring individual node parameters.
@@ -322,6 +429,7 @@ class NodeConfigAgent:
         """
         self.llm = llm
         self._context: Dict[str, Any] = {}
+        self._system_prompt_cache: Dict[str, str] = {}
         logger.info("[NodeConfigAgent] Initialized")
         
     def set_llm(self, llm):
@@ -604,7 +712,34 @@ class NodeConfigAgent:
                     node_type, user_request, schema, available_context
                 )
                 logger.debug(f"[NodeConfigAgent] LLM extracted config: {extracted_config}")
-                config.update(extracted_config)
+                
+                # Handle special response types from LLM (MilkTea-style)
+                if extracted_config.get("_rejected"):
+                    logger.info(f"[NodeConfigAgent] LLM rejected the request")
+                    return NodeConfigOutput(
+                        action=NodeConfigAction.REJECT,
+                        message=extracted_config.get("_message", "This request cannot be fulfilled with this node type.")
+                    )
+                
+                if extracted_config.get("_needs_clarification"):
+                    logger.info(f"[NodeConfigAgent] LLM needs clarification")
+                    # Generate a clarification question from LLM's response
+                    llm_question = ClarificationQuestion(
+                        id=f"llm_clarify_{extracted_config.get('_field', 'general')}",
+                        question=extracted_config.get("_message", "Could you provide more details?"),
+                        choices=[],  # Open-ended question
+                        allow_multiple=False,
+                        required=True
+                    )
+                    return NodeConfigOutput(
+                        action=NodeConfigAction.ASK_CLARIFICATION,
+                        message=extracted_config.get("_message", "I need more information:"),
+                        clarification=[llm_question]
+                    )
+                
+                # Filter out special keys and update config
+                clean_config = {k: v for k, v in extracted_config.items() if not k.startswith("_")}
+                config.update(clean_config)
             except Exception as e:
                 logger.warning(f"[NodeConfigAgent] Failed to extract config from request: {e}")
         
@@ -701,6 +836,34 @@ class NodeConfigAgent:
                 )
             )
     
+    def _get_system_prompt(
+        self,
+        node_type: str,
+        schema: Dict[str, Any],
+        available_context: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """
+        Get or build the system prompt for a node type.
+        
+        Args:
+            node_type: Type of the node
+            schema: Node configuration schema
+            available_context: Available context
+            
+        Returns:
+            System prompt string
+        """
+        # Create cache key based on node_type and context
+        cache_key = f"{node_type}_{hash(str(available_context)) if available_context else 'no_ctx'}"
+        
+        if cache_key not in self._system_prompt_cache:
+            self._system_prompt_cache[cache_key] = build_node_config_system_prompt(
+                node_type, schema, available_context
+            )
+            logger.debug(f"[NodeConfigAgent] Built and cached system prompt for {node_type}")
+        
+        return self._system_prompt_cache[cache_key]
+    
     async def _extract_config_from_request(
         self,
         node_type: str,
@@ -710,6 +873,9 @@ class NodeConfigAgent:
     ) -> Dict[str, Any]:
         """
         Use LLM to extract configuration values from user request.
+        
+        Uses a comprehensive system prompt similar to BubbleLab's MilkTea agent
+        to properly understand user intent and extract configuration.
         
         Args:
             node_type: Type of the node
@@ -725,43 +891,56 @@ class NodeConfigAgent:
             logger.debug("[NodeConfigAgent] No LLM available, returning empty config")
             return {}
         
-        # Build prompt for extraction
-        fields_desc = []
-        for field_name, field_info in schema.get("fields", {}).items():
-            field_desc = f"- {field_name}: {field_info.get('description', 'No description')}"
-            if field_info.get("type") == "select" and not field_info.get("dynamic_options"):
-                options = [opt["value"] for opt in field_info.get("options", [])]
-                field_desc += f" (options: {', '.join(options)})"
-            fields_desc.append(field_desc)
+        # Build system prompt (MilkTea-style)
+        system_prompt = self._get_system_prompt(node_type, schema, available_context)
         
-        prompt = f"""Extract configuration values from the user's request for a {node_type} node.
-
-Available fields:
-{chr(10).join(fields_desc)}
-
-User request: "{user_request}"
-
-Return a JSON object with field names as keys and extracted values. Only include fields that are clearly specified in the request. If a value is not mentioned, do not include it.
-
-Example response format:
-{{"field_name": "value", "another_field": 123}}
-
-JSON response:"""
-
+        # Build messages for the LLM
+        from langchain_core.messages import SystemMessage, HumanMessage
+        
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_request)
+        ]
+        
         try:
-            logger.debug("[NodeConfigAgent] Invoking LLM for config extraction")
-            response = await self.llm.ainvoke(prompt)
+            logger.debug("[NodeConfigAgent] Invoking LLM with system prompt for config extraction")
+            logger.debug(f"[NodeConfigAgent] System prompt length: {len(system_prompt)} chars")
+            
+            response = await self.llm.ainvoke(messages)
             response_text = response.content if hasattr(response, 'content') else str(response)
-            logger.debug(f"[NodeConfigAgent] LLM response: {response_text[:200]}...")
+            logger.debug(f"[NodeConfigAgent] LLM response: {response_text[:300]}...")
             
             # Extract JSON from response
             json_start = response_text.find('{')
             json_end = response_text.rfind('}') + 1
             if json_start >= 0 and json_end > json_start:
                 json_str = response_text[json_start:json_end]
-                extracted = json.loads(json_str)
-                logger.info(f"[NodeConfigAgent] Successfully extracted {len(extracted)} config values from LLM")
-                return extracted
+                parsed = json.loads(json_str)
+                
+                # Handle different response types from the agent
+                response_type = parsed.get("type", "config")
+                
+                if response_type == "reject":
+                    logger.info(f"[NodeConfigAgent] LLM rejected request: {parsed.get('message')}")
+                    return {"_rejected": True, "_message": parsed.get("message", "Request rejected")}
+                
+                elif response_type == "question":
+                    logger.info(f"[NodeConfigAgent] LLM needs clarification: {parsed.get('message')}")
+                    return {
+                        "_needs_clarification": True,
+                        "_message": parsed.get("message", "Need more information"),
+                        "_field": parsed.get("field")
+                    }
+                
+                elif response_type == "config":
+                    config = parsed.get("config", {})
+                    logger.info(f"[NodeConfigAgent] Successfully extracted {len(config)} config values from LLM")
+                    return config
+                
+                else:
+                    # Fallback: treat the whole response as config
+                    logger.info(f"[NodeConfigAgent] Treating response as direct config: {len(parsed)} values")
+                    return parsed
             else:
                 logger.warning("[NodeConfigAgent] No JSON found in LLM response")
         except Exception as e:

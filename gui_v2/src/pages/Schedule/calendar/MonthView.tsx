@@ -404,10 +404,10 @@ const MonthView: React.FC<MonthViewProps> = ({
             {monthData.weeks.map((week, weekIndex) => (
               <WeekRow key={`week-${weekIndex}`}>
                 {week.days.map((day, dayIndex) => {
-                  // 性能优化：使用useMemo缓存切片和计数，避免重复计算
-                  const visibleEvents = useMemo(() => day.events.slice(0, maxEventsPerDay), [day.events, maxEventsPerDay]);
-                  const remainingCount = useMemo(() => Math.max(0, day.events.length - maxEventsPerDay), [day.events.length, maxEventsPerDay]);
-                  const dayNumber = useMemo(() => formatDateNumber(day.date), [day.date]);
+                  // 直接计算，不使用 useMemo（避免在循环中使用 hooks）
+                  const visibleEvents = day.events.slice(0, maxEventsPerDay);
+                  const remainingCount = Math.max(0, day.events.length - maxEventsPerDay);
+                  const dayNumber = formatDateNumber(day.date);
                   
                   return (
                     <DayCell

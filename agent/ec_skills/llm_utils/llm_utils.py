@@ -1660,18 +1660,18 @@ def create_browser_use_llm_by_provider_type(
         if provider_type in domestic_apis_need_direct:
             # Create no-proxy httpx clients (sync + async, thread-safe, doesn't modify global env vars)
             # Optimization: Only creates if proxy is configured
-            # Note: BrowserUseChatOpenAI only supports http_client (sync), not http_async_client
-            # For async calls, it will use default async client or create new one, which should be fine
+            # Note: browser-use requires AsyncClient for http_client parameter (despite the name)
+            # This is because browser-use operates in async context
             sync_client, async_client = _create_no_proxy_http_client()
             
-            if sync_client:
-                # Proxy is configured - use no-proxy sync client (bypass proxy for domestic APIs)
+            if async_client:
+                # Proxy is configured - use no-proxy ASYNC client (bypass proxy for domestic APIs)
                 logger.debug(
-                    f"[create_browser_use_llm_by_provider_type] Using no-proxy clients for {provider_type} "
+                    f"[create_browser_use_llm_by_provider_type] Using no-proxy async client for {provider_type} "
                     f"(proxy detected, bypassing for domestic API)"
                 )
-                # BrowserUseChatOpenAI only supports http_client parameter (not http_async_client)
-                bu_config['http_client'] = sync_client
+                # browser-use requires AsyncClient (operates in async context)
+                bu_config['http_client'] = async_client
                 return _create_and_validate_browser_use_llm(bu_config)
             else:
                 # No proxy configured - use default clients (more efficient, direct connection)

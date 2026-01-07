@@ -273,6 +273,26 @@ class LightragServer:
         env['PYTHONLEGACYWINDOWSSTDIO'] = '0'
         env['NO_COLOR'] = '1'
         env['ASCII_COLORS_DISABLE'] = '1'
+        
+        # 3.1 CPU optimization for embedding and LLM inference
+        import multiprocessing
+        cpu_count = multiprocessing.cpu_count()
+        # Use 75% of available CPU cores for optimal performance
+        optimal_threads = max(4, int(cpu_count * 0.75))
+        
+        # OpenMP threads (for numpy, scipy, scikit-learn)
+        env['OMP_NUM_THREADS'] = str(optimal_threads)
+        # Intel MKL threads (for Intel Math Kernel Library)
+        env['MKL_NUM_THREADS'] = str(optimal_threads)
+        # OpenBLAS threads (for linear algebra operations)
+        env['OPENBLAS_NUM_THREADS'] = str(optimal_threads)
+        # PyTorch threads
+        env['TORCH_NUM_THREADS'] = str(optimal_threads)
+        # Disable dynamic thread adjustment for consistent performance
+        env['MKL_DYNAMIC'] = 'FALSE'
+        env['OMP_DYNAMIC'] = 'FALSE'
+        
+        logger.info(f"[LightragServer] 🚀 CPU Optimization: Using {optimal_threads}/{cpu_count} threads for parallel processing")
 
         # 4. Apply extra_env overrides
         if self.extra_env:

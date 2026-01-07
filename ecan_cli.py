@@ -12,6 +12,9 @@ Or after installation:
 import sys
 import os
 
+# Force UTF-8 encoding for all file operations (Windows compatibility)
+os.environ['PYTHONUTF8'] = '1'
+
 # Add project root to path
 project_root = os.path.dirname(os.path.abspath(__file__))
 if project_root not in sys.path:

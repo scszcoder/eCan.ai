@@ -11,6 +11,7 @@ import { SheetsBundle } from '../../services/sheets-persistence';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
 import { loadSkillFile } from '../../services/skill-loader';
 import { migrateBundle } from '../../services/schema-migration';
+import { IPCAPI } from '../../../../services/ipc/api';
 
 interface OpenProps {
   disabled?: boolean;
@@ -32,7 +33,6 @@ export const Open = ({ disabled }: OpenProps) => {
     // Always try IPC first, regardless of hasIPCSupport()
     // The function will detect if IPC is available at runtime
     try {
-        const { IPCAPI } = await import('../../../../services/ipc/api');
         const ipcApi = IPCAPI.getInstance();
         console.log('[SKILL_IO][FRONTEND][IPC_ATTEMPT] showOpenDialog');
         const dialogResponse = await ipcApi.showOpenDialog([
