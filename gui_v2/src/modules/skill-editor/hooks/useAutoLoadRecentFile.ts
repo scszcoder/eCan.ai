@@ -6,6 +6,7 @@
 import { useEffect, useRef } from 'react';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { useSkillInfoStore } from '../stores/skill-info-store';
+import { IPCAPI } from '../../../services/ipc/api';
 import { useRecentFilesStore } from '../stores/recent-files-store';
 import { useSheetsStore } from '../stores/sheets-store';
 import { useNodeFlipStore } from '../stores/node-flip-store';
@@ -73,7 +74,6 @@ export function useAutoLoadRecentFile(options: AutoLoadOptions = {}) {
         PageRefreshManager.consumeSkillEditorReload();
         
         // First, try to get recent files from backend (more reliable than localStorage)
-        const { IPCAPI } = await import('../../../services/ipc/api');
         const ipcApi = IPCAPI.getInstance();
         
         let fileToLoad: { filePath: string; fileName: string; timestamp?: number } | null = null;

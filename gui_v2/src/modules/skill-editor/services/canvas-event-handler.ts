@@ -5,7 +5,7 @@
  * This allows the AI agent to control the canvas through chat.
  */
 
-import { ipcClient } from '../../../services/ipc';
+import { ipcClient } from '../../../services/ipc/ipcClient';
 import { canvasController } from './canvas-controller';
 import {
   SkillEditorEvent,
