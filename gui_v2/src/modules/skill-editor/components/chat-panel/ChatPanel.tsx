@@ -905,51 +905,53 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
           )}
         </ChatThread>
 
-      <InputContainer>
-        <InputWrapper>
-          <ActionButtons>
-            <Tooltip title="Voice input">
-              <IconButton onClick={handleVoiceInput}>
-                <AudioOutlined style={{ color: isRecording ? '#ef4444' : undefined }} />
-              </IconButton>
-            </Tooltip>
-            <Upload
-              showUploadList={false}
-              beforeUpload={() => false}
-              onChange={handleFileUpload}
-            >
-              <Tooltip title="Attach file">
-                <IconButton>
-                  <PaperClipOutlined />
+      {!isCollapsed && (
+        <InputContainer>
+          <InputWrapper>
+            <ActionButtons>
+              <Tooltip title="Voice input">
+                <IconButton onClick={handleVoiceInput}>
+                  <AudioOutlined style={{ color: isRecording ? '#ef4444' : undefined }} />
                 </IconButton>
               </Tooltip>
-            </Upload>
-          </ActionButtons>
-          <InputRow>
-            <TextArea
-              value={inputValue}
-              onChange={e => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Type a message..."
-              autoSize={{ minRows: 1, maxRows: 4 }}
-              style={{
-                flex: 1,
-                background: 'rgba(15, 23, 42, 0.8)',
-                border: '1px solid rgba(148, 163, 184, 0.2)',
-                borderRadius: 8,
-                color: '#e2e8f0',
-                resize: 'none',
-              }}
-            />
-            <SendButton
-              onClick={handleSend}
-              disabled={!inputValue.trim() || isLoading}
-            >
-              {isLoading ? <LoadingOutlined spin /> : <SendOutlined />}
-            </SendButton>
-          </InputRow>
-        </InputWrapper>
-      </InputContainer>
+              <Upload
+                showUploadList={false}
+                beforeUpload={() => false}
+                onChange={handleFileUpload}
+              >
+                <Tooltip title="Attach file">
+                  <IconButton>
+                    <PaperClipOutlined />
+                  </IconButton>
+                </Tooltip>
+              </Upload>
+            </ActionButtons>
+            <InputRow>
+              <TextArea
+                value={inputValue}
+                onChange={e => setInputValue(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Type a message..."
+                autoSize={{ minRows: 1, maxRows: 4 }}
+                style={{
+                  flex: 1,
+                  background: 'rgba(15, 23, 42, 0.8)',
+                  border: '1px solid rgba(148, 163, 184, 0.2)',
+                  borderRadius: 8,
+                  color: '#e2e8f0',
+                  resize: 'none',
+                }}
+              />
+              <SendButton
+                onClick={handleSend}
+                disabled={!inputValue.trim() || isLoading}
+              >
+                {isLoading ? <LoadingOutlined spin /> : <SendOutlined />}
+              </SendButton>
+            </InputRow>
+          </InputWrapper>
+        </InputContainer>
+      )}
       </ChatContentArea>
     </PanelContainer>
   );
