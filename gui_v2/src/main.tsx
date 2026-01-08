@@ -7,7 +7,7 @@ import './modules/skill-editor/components/code-editor/monaco-config';
 // Suppress React deprecation warnings from third-party libraries in production
 // These warnings come from bundled code (rc-util/antd/@flowgram.ai) and cannot be fixed externally
 // Filter them at console.error level to keep the console clean for users
-if (process.env.NODE_ENV === 'production') {
+// if (process.env.NODE_ENV === 'production') {
   const originalConsoleError = console.error;
   console.error = (...args: any[]) => {
     const msg = typeof args[0] === 'string' ? args[0] : '';
@@ -19,9 +19,14 @@ if (process.env.NODE_ENV === 'production') {
     if (msg.includes('ReactDOM.render is no longer supported')) {
       return;
     }
+    // Suppress ResizeObserver loop warning (browser internal optimization, not a real error)
+    if (msg.includes('ResizeObserver loop completed with undelivered notifications') ||
+        msg.includes('ResizeObserver loop limit exceeded')) {
+      return;
+    }
     originalConsoleError.apply(console, args);
   };
-}
+// }
 
 // 预设深色主题，避免白色闪烁
 const setInitialTheme = () => {
