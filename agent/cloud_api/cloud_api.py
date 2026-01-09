@@ -3385,7 +3385,10 @@ def send_get_nodes_prompts_request_to_cloud(session, token, nodes, endpoint):
     logger.debug("send_get_nodes_prompts_request_to_cloud jresp: ", jresp)
     if "errors" in jresp:
         screen_error = True
-        error_msg = f"ERROR Type: {jresp['errors'][0]['errorType']} ERROR Info: {jresp['errors'][0]['message']}"
+        # GraphQL errors may not have errorType field, handle both formats
+        error = jresp['errors'][0]
+        error_type = error.get('errorType', 'GraphQLError')
+        error_msg = f"ERROR Type: {error_type} ERROR Info: {error.get('message', 'Unknown error')}"
         logger.error(error_msg)
         # 返回错误信息而不是抛出异常，让调用者处理
         return {"errors": jresp["errors"], "body": None}
