@@ -583,12 +583,7 @@ const OrgNavigator: React.FC = () => {
 
   return (
     <div ref={navigatorRef} className="org-navigator">
-      {/* 🔧 Optimize：简化 SVG 背景，减少 DOM 节点 */}
-      <svg className="navigator-bg-svg" width="100%" height="100%" viewBox="0 0 1200 800" style={{position:'absolute',left:0,top:0,zIndex:0}}>
-        <ellipse cx="600" cy="700" rx="420" ry="80" fill="var(--ant-primary-1, #e6f4ff)" opacity="0.4" />
-        <ellipse cx="600" cy="700" rx="200" ry="40" fill="none" stroke="var(--ant-primary-2, #91caff)" strokeWidth="1" opacity="0.15" />
-        <ellipse cx="600" cy="700" rx="260" ry="52" fill="none" stroke="var(--ant-primary-2, #91caff)" strokeWidth="1" opacity="0.15" />
-      </svg>
+      {/* 移除 SVG 椭圆背景 - 保持背景干净简洁 */}
       {/* 保留光斑效果 */}
       <div className="navigator-bg-blur navigator-bg-blur1" />
       <div className="navigator-bg-blur navigator-bg-blur2" />
