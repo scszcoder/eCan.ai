@@ -81,18 +81,18 @@ const DataCard: React.FC<DataCardProps> = ({
                 <div style={{ position: 'relative', zIndex: 1 }}>
                     <div style={iconWrapperStyle}>{icon}</div>
                     <div style={{ marginBottom: '8px' }}>
-                        <Text style={{ fontSize: '13px', color: 'rgba(255,255,255,0.65)' }}>
+                        <Text style={{ fontSize: 'var(--font-size-base)', color: 'rgba(255,255,255,0.65)' }}>
                             {title}
                         </Text>
                     </div>
                     <div style={{ marginBottom: '4px' }}>
-                        <Text strong style={{ fontSize: '28px', color: 'rgba(255,255,255,0.95)' }}>
+                        <Text strong style={{ fontSize: 'var(--font-size-3xl)', color: 'rgba(255,255,255,0.95)' }}>
                             {value}
                         </Text>
                     </div>
                     {trend && trendValue && (
                         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                            <Text style={{ fontSize: '12px', color: color }}>
+                            <Text style={{ fontSize: 'var(--font-size-sm)', color: color }}>
                                 {trend === 'up' ? '↑' : trend === 'down' ? '↓' : '→'} {trendValue}
                             </Text>
                         </div>
