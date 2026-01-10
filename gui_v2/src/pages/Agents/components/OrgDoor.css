@@ -4,28 +4,27 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  /* 性能优化：只过渡必要的属性 */
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-              box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-              border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
   z-index: 2;
   width: 260px;
   height: 420px;
-  border-radius: 20px;
-  background: linear-gradient(145deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  /* 性能优化：简化阴影 */
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  border-radius: 16px;
+  /* 与 AgentCard 相同的浅色渐变背景 */
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(147, 51, 234, 0.05) 100%);
+  /* 与 AgentCard 相同的细边框 */
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  /* 简洁阴影 */
+  box-shadow: none;
   position: relative;
   overflow: visible;
   padding: 20px 16px;
 }
 
 .org-door:hover {
-  transform: translateY(-8px) scale(1.02);
-  /* 性能优化：简化阴影层数 */
-  box-shadow: 0 12px 32px rgba(59, 130, 246, 0.3);
-  border-color: rgba(59, 130, 246, 0.6);
+  transform: translateY(-4px);
+  /* 与 AgentCard 相同的 hover 效果 */
+  box-shadow: 0 12px 24px rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.3);
 }
 
 /* 点击动画 */
@@ -97,24 +96,26 @@
   perspective: 1000px;
 }
 
-/* 门框 */
+/* 门框 - 简洁优雅 */
 .door-frame {
   width: 100%;
   height: 100%;
+  /* 柔和的渐变背景 */
   background: linear-gradient(135deg,
-    rgba(71, 85, 105, 0.4) 0%,
-    rgba(51, 65, 85, 0.5) 50%,
-    rgba(30, 41, 59, 0.6) 100%);
-  border-radius: 16px;
+    rgba(71, 85, 105, 0.3) 0%,
+    rgba(51, 65, 85, 0.4) 50%,
+    rgba(30, 41, 59, 0.5) 100%);
+  border-radius: 12px;
   padding: 10px;
   position: relative;
+  /* 简洁阴影 */
   box-shadow:
-    0 4px 20px rgba(0, 0, 0, 0.3),
-    inset 0 2px 8px rgba(148, 163, 184, 0.1);
-  border: 2px solid rgba(100, 116, 139, 0.4);
-  transition: box-shadow 0.6s ease-out, border-color 0.6s ease-out;
+    0 2px 8px rgba(0, 0, 0, 0.15),
+    inset 0 1px 2px rgba(255, 255, 255, 0.05);
+  /* 细边框 */
+  border: 1px solid rgba(100, 116, 139, 0.3);
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
   overflow: hidden;
-  border-radius: 12px;
 }
 
 /* 性能优化：移除门框脉动动画 */
@@ -167,20 +168,22 @@
 }
 
 .org-door:hover .door-frame {
+  /* 柔和的紫色光晕 */
   box-shadow:
-    0 8px 40px rgba(139, 92, 246, 0.5),
-    inset 0 2px 10px rgba(167, 139, 250, 0.4);
-  border-color: rgba(167, 139, 250, 0.8);
+    0 4px 16px rgba(139, 92, 246, 0.2),
+    inset 0 1px 2px rgba(167, 139, 250, 0.1);
+  border-color: rgba(167, 139, 250, 0.4);
 }
 
-/* 门板 */
+/* 门板 - 优雅渐变 */
 .door-panel {
   width: 100%;
   height: 100%;
+  /* 柔和的紫蓝渐变 */
   background: linear-gradient(135deg,
-    rgba(88, 28, 135, 0.4) 0%,
-    rgba(59, 130, 246, 0.35) 50%,
-    rgba(139, 92, 246, 0.4) 100%);
+    rgba(88, 28, 135, 0.35) 0%,
+    rgba(59, 130, 246, 0.3) 50%,
+    rgba(139, 92, 246, 0.35) 100%);
   border-radius: 8px;
   position: relative;
   transition: 
@@ -188,11 +191,13 @@
     opacity 0.4s ease-out,
     box-shadow 0.4s ease-out;
   transform-origin: left center;
-  border: 2px solid rgba(167, 139, 250, 0.7);
+  /* 细边框 */
+  border: 2px solid rgba(167, 139, 250, 0.5);
+  /* 柔和发光 */
   box-shadow:
-    0 4px 20px rgba(139, 92, 246, 0.4),
-    inset 0 0 40px rgba(139, 92, 246, 0.2),
-    0 0 30px rgba(139, 92, 246, 0.3);
+    0 2px 12px rgba(139, 92, 246, 0.25),
+    inset 0 0 20px rgba(139, 92, 246, 0.15),
+    inset 0 1px 2px rgba(255, 255, 255, 0.1);
   z-index: 2;
   -webkit-font-smoothing: subpixel-antialiased;
 }
@@ -233,34 +238,37 @@
   border-right: 3px solid rgba(255, 255, 255, 0.8);
 }
 
-/* 门上的铭牌 */
+/* 门上的铭牌 - 简洁优雅 */
 .door-nameplate {
   position: absolute;
   top: 20px;
   left: 50%;
   transform: translateX(-50%);
   width: 85%;
+  /* 半透明深色背景 */
   background: linear-gradient(135deg, 
-    rgba(30, 41, 59, 0.95) 0%, 
-    rgba(15, 23, 42, 0.98) 100%);
-  border: 2px solid rgba(167, 139, 250, 0.6);
+    rgba(30, 41, 59, 0.9) 0%, 
+    rgba(15, 23, 42, 0.95) 100%);
+  /* 细边框 */
+  border: 2px solid rgba(167, 139, 250, 0.4);
   border-radius: 12px;
   padding: 12px 16px;
+  /* 柔和阴影 */
   box-shadow: 
-    0 4px 16px rgba(0, 0, 0, 0.4),
-    inset 0 1px 3px rgba(196, 181, 253, 0.3),
-    0 0 20px rgba(139, 92, 246, 0.3);
+    0 2px 8px rgba(0, 0, 0, 0.2),
+    inset 0 1px 2px rgba(196, 181, 253, 0.2);
   z-index: 10;
-  transition: all 0.4s ease;
+  transition: all 0.3s ease;
 }
 
 .door-panel.open .door-nameplate {
-  border-color: rgba(196, 181, 253, 0.9);
+  border-color: rgba(196, 181, 253, 0.7);
+  /* 门打开时柔和光晕 */
   box-shadow: 
-    0 6px 24px rgba(139, 92, 246, 0.6),
-    inset 0 2px 6px rgba(255, 255, 255, 0.4),
-    0 0 30px rgba(167, 139, 250, 0.5);
-  transform: translateX(-50%) scale(1.05);
+    0 4px 16px rgba(139, 92, 246, 0.3),
+    0 0 20px rgba(167, 139, 250, 0.2),
+    inset 0 2px 4px rgba(255, 255, 255, 0.3);
+  transform: translateX(-50%) scale(1.02);
 }
 
 /* 铭牌名称 - 清晰手写风格 */
@@ -389,25 +397,26 @@
   text-shadow: 0 0 8px rgba(167, 139, 250, 0.9);
 }
 
-/* 门板装饰区域 */
+/* 门板装饰区域 - 简洁 */
 .door-decoration {
   position: absolute;
   inset: 12px;
   top: 140px;
-  border: 2px solid rgba(167, 139, 250, 0.4);
+  border: 1px solid rgba(167, 139, 250, 0.25);
   border-radius: 6px;
   display: flex;
   flex-direction: column;
   justify-content: space-around;
   padding: 8px 0;
-  box-shadow: inset 0 0 20px rgba(139, 92, 246, 0.2);
+  box-shadow: inset 0 0 10px rgba(139, 92, 246, 0.1);
   transition: opacity 0.6s ease-out;
 }
 
 /* 门打开时装饰保持可见 */
 .door-panel.open .door-decoration {
   opacity: 1;
-  border-color: rgba(196, 181, 253, 0.6);
+  border-color: rgba(196, 181, 253, 0.4);
+  box-shadow: inset 0 0 15px rgba(139, 92, 246, 0.2);
 }
 
 /* 装饰线条 */
