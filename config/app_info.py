@@ -124,11 +124,23 @@ class AppInfo:
         try:
             # Try to read from VERSION file in project root
             version_file = Path(self.app_home_path) / "VERSION"
-            if version_file.exists():
+            
+            # Check if it's a file
+            if version_file.exists() and version_file.is_file():
                 version = version_file.read_text().strip()
                 if version:
                     print(f"App version from VERSION file: {version}")
                     return version
+            
+            # Check if it's a directory containing VERSION file (PyInstaller packaged case)
+            elif version_file.exists() and version_file.is_dir():
+                nested_version_file = version_file / "VERSION"
+                print(f"Found VERSION directory, trying nested path: {nested_version_file}")
+                if nested_version_file.exists() and nested_version_file.is_file():
+                    version = nested_version_file.read_text().strip()
+                    if version:
+                        print(f"App version from nested VERSION file: {version}")
+                        return version
         except Exception as e:
             print(f"Failed to read VERSION file: {e}")
         
