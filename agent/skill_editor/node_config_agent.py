@@ -53,10 +53,76 @@ class NodeConfigOutput:
         self.commands = commands or []
 
 
+# ============================================================
+# E-COMMERCE Q&A HANDLING PATTERN (CRITICAL)
+# ============================================================
+# When workflow involves product/service Q&A (on-site messaging or email):
+# 1. FIRST: Query internal knowledge base using RAG query MCP tools (rag_query)
+# 2. IF RAG unavailable/no answer: Defer to human assistance with 24-hour limit
+#    - Use pend_event node to wait for human response
+#    - Set timeout to 24 hours (86400 seconds)
+# 3. IF human fails to respond within 24 hours: Auto-respond with best knowledge
+#    - Search web for same product/service info, OR
+#    - Search pre-specified local directory for product/service files
+#
+# Workflow pattern: RAG Query → Condition (has answer?) → 
+#   YES: Auto-respond → END
+#   NO: Pend Human (24h) → Condition (human responded?) →
+#       YES: Use human response → END
+#       NO: Web search OR local file search → Auto-respond → END
+# ============================================================
+
 # Node-specific configuration schemas with detailed field info
 NODE_CONFIG_SCHEMAS = {
     "llm": {
+        "description": """LLM node for AI processing. Can act as a sub-agent with its own reasoning.
+- System prompt defines the agent's role and capabilities
+- User prompt provides the specific task with {{variable}} placeholders
+- Use higher temperature (0.7-0.9) for creative reasoning
+- Use lower temperature (0.1-0.3) for deterministic extraction
+
+IMPORTANT: LLM node does NOT have tools integrated. To enable tool usage:
+- Follow LLM node with an mcp_tool node
+- Set mcp_tool's tool_name to "llm auto select" for LLM to pick tools dynamically
+- LLM output goes to node_state["result"]["llm_result"] and node_state["tool_input"]["input"]
+- mcp_tool output goes to node_state["tool_result"]
+- Use code node to move data between node_state fields
+
+LLM+MCP SUB-AGENT PROMPT PATTERN (for multi-step tasks):
+When using LLM with mcp_tool for complex tasks, prompt MUST include these system sections:
+1. role: Agent expertise definition
+2. instructions (task decomposition): Break tasks into sub-tasks, one step at a time
+   - Return JSON: {"work_done": false, "next_tool_name": "...", "next_tool_input": {...}}
+   - When done: {"work_done": true, "next_tool_name": "", "next_tool_input": {}}
+3. instructions (agentic execution): OBSERVE→ACT→VERIFY pattern, iterative problem-solving
+4. instructions (code execution): Prefer shell scripts, use Python for complex data
+5. rules: Only use listed tools, verify after every action
+6. tools_to_use: Available tool names (dynamically injected)
+Reference: my_prompts/test_prompt2_pr-480482.json
+
+ERROR HANDLING (CRITICAL - include in all sub-agent prompts):
+- DON'T GET STUCK: When uncertain or encountering an error, do NOT block or retry indefinitely
+- COLLECT & STORE: Log error details, context, what was attempted to state["human_intervention_needed"]
+- MOVE ON: Continue to the next action item
+- BATCH & REPORT: Accumulate all issues, send consolidated summary at the end for human review
+
+PROMPT MODULARITY: Instead of inline prompts, create a prompt file in my_prompts/ directory:
+- Prompt files are JSON with id, title, sections (system), userSections (user)
+- Set promptSelection to the prompt ID (e.g., "pr-123456") to reference it
+- To modify prompts later, update the prompt JSON file, not the node config
+- Format: {"id": "pr-XXXXXX", "title": "...", "sections": [...], "userSections": [...]}""",
         "fields": {
+            "promptSelection": {
+                "type": "select",
+                "label": "Prompt Selection",
+                "description": "Select a saved prompt or use inline. Prompts stored in my_prompts/ directory.",
+                "required": False,
+                "options": [
+                    {"value": "inline", "label": "Inline (edit below)"},
+                ],
+                "dynamic_options": True,
+                "default": "inline",
+            },
             "model": {
                 "type": "select",
                 "label": "Model",
@@ -105,6 +171,11 @@ NODE_CONFIG_SCHEMAS = {
         },
     },
     "mcp_tool": {
+        "description": """MCP tool node for executing external tools via MCP protocol.
+- Executes a specific tool from an MCP server
+- Tool output is stored in node_state["tool_result"]
+- Set tool_name to "llm auto select" to let the preceding LLM node choose which tool to run
+- When using "llm auto select", the LLM's tool choice from node_state["tool_input"] is used""",
         "fields": {
             "server_name": {
                 "type": "select",
@@ -131,27 +202,38 @@ NODE_CONFIG_SCHEMAS = {
         },
     },
     "condition": {
+        "description": """Condition node for branching workflow based on a predicate.
+
+IF FIELD USAGE:
+- Default: "state.condition" (uses node_state["condition"] attribute)
+- Custom expression: Set "if" to a Python expression that evaluates to True/False
+- Expression accesses node_state via "state" variable
+
+EXPRESSION EXAMPLES:
+- state["result"]["llm_result"]["success"] == True
+- state["tool_result"]["status"] == "completed"
+- len(state["result"]["items"]) > 0
+
+NOTE: Expression syntax is same as loop node's loopWhileExpr.""",
         "fields": {
-            "condition_type": {
+            "if": {
                 "type": "select",
-                "label": "Condition Type",
-                "description": "How to evaluate the condition",
+                "label": "If Condition",
+                "description": "Condition source: use state.condition or custom Python expression",
                 "required": True,
                 "options": [
-                    {"value": "expression", "label": "JavaScript Expression"},
-                    {"value": "contains", "label": "Text Contains"},
-                    {"value": "equals", "label": "Equals"},
-                    {"value": "greater_than", "label": "Greater Than"},
-                    {"value": "less_than", "label": "Less Than"},
+                    {"value": "state.condition", "label": "state.condition (default)"},
+                    {"value": "custom", "label": "Custom Expression"},
                 ],
-                "default": "expression",
+                "default": "state.condition",
             },
-            "condition": {
+            "customExpr": {
                 "type": "text",
-                "label": "Condition",
-                "description": "The condition to evaluate",
-                "required": True,
-                "placeholder": "{{result}}.success === true",
+                "label": "Custom Expression",
+                "description": "Python expression using 'state' variable (node_state)",
+                "required": False,
+                "placeholder": "state['result']['llm_result']['success'] == True",
+                "show_when": {"if": ["custom"]},
             },
             "true_label": {
                 "type": "text",
@@ -170,56 +252,81 @@ NODE_CONFIG_SCHEMAS = {
         },
     },
     "loop": {
+        "description": """Loop node for repeating workflow sections.
+
+LOOP MODES:
+1. loopFor (fixed iterations):
+   - Set loopMode to "loopFor"
+   - Set loopCountExpr to integer or Python variable expression
+   - Example: loopCountExpr = 10 or loopCountExpr = state["batch_count"]
+
+2. loopWhile (condition-based):
+   - Set loopMode to "loopWhile"
+   - Set loopWhileExpr to Python expression returning True/False
+   - Loop continues while expression returns True
+   - Example: loopWhileExpr = state["result"]["llm_result"]["not_yet_finished"]
+
+EXPRESSION USAGE:
+- Expressions are Python code accessing node_state via "state" variable
+- Common pattern: Use LLM result attribute, e.g., state["result"]["llm_result"]["continue_flag"]
+
+IMPORTANT - INITIALIZE LOOP VARIABLES:
+- For loopWhile, the expression variable MUST be initialized before the loop starts
+- Add a code node BEFORE the loop to set initial value:
+  state["result"]["llm_result"]["not_yet_finished"] = True
+- This ensures the loop runs at least once
+
+CODE NODE NOTE:
+- In code nodes, the input parameter "state" IS the node_state throughout the workflow
+- Modify state directly: state["my_field"] = value""",
         "fields": {
-            "loop_type": {
+            "loopMode": {
                 "type": "select",
-                "label": "Loop Type",
-                "description": "Type of loop iteration",
+                "label": "Loop Mode",
+                "description": "Type of loop: fixed count or while condition",
                 "required": True,
                 "options": [
-                    {"value": "for_each", "label": "For Each (iterate over array)"},
-                    {"value": "while", "label": "While (condition-based)"},
-                    {"value": "count", "label": "Count (fixed iterations)"},
+                    {"value": "loopFor", "label": "Loop For (fixed iterations)"},
+                    {"value": "loopWhile", "label": "Loop While (condition-based)"},
                 ],
-                "default": "for_each",
+                "default": "loopFor",
             },
-            "source": {
+            "loopCountExpr": {
                 "type": "text",
-                "label": "Source Array/Variable",
-                "description": "The array or variable to iterate over",
+                "label": "Loop Count Expression",
+                "description": "Integer or Python expression for iteration count",
                 "required": True,
-                "placeholder": "{{items}}",
-                "show_when": {"loop_type": ["for_each"]},
+                "placeholder": "10 or state['batch_count']",
+                "show_when": {"loopMode": ["loopFor"]},
+            },
+            "loopWhileExpr": {
+                "type": "text",
+                "label": "Loop While Expression",
+                "description": "Python expression returning True to continue, False to exit",
+                "required": True,
+                "placeholder": "state['result']['llm_result']['not_yet_finished']",
+                "show_when": {"loopMode": ["loopWhile"]},
             },
             "max_iterations": {
                 "type": "number",
                 "label": "Max Iterations",
-                "description": "Maximum number of iterations (safety limit)",
+                "description": "Safety limit to prevent infinite loops",
                 "required": False,
                 "min": 1,
                 "max": 1000,
                 "default": 100,
             },
-            "condition": {
-                "type": "text",
-                "label": "Continue Condition",
-                "description": "Condition to continue looping",
-                "required": True,
-                "placeholder": "{{index}} < {{total}}",
-                "show_when": {"loop_type": ["while"]},
-            },
-            "count": {
-                "type": "number",
-                "label": "Iteration Count",
-                "description": "Number of times to iterate",
-                "required": True,
-                "min": 1,
-                "default": 10,
-                "show_when": {"loop_type": ["count"]},
-            },
         },
     },
     "code": {
+        "description": """Code node for custom logic and data transformation.
+- The node_state variable is directly accessible in code
+- Use to move data between node_state fields (e.g., from tool_result to a custom field)
+- Common node_state fields:
+  - node_state["result"]["llm_result"]: LLM node output
+  - node_state["tool_input"]["input"]: LLM's tool selection input
+  - node_state["tool_result"]: MCP tool execution result
+- Return a dict to update node_state with new values""",
         "fields": {
             "language": {
                 "type": "select",
@@ -296,6 +403,211 @@ NODE_CONFIG_SCHEMAS = {
                 "min": 1,
                 "max": 120,
                 "default": 30,
+            },
+        },
+    },
+    "browser_automation": {
+        "description": """Browser automation sub-agent for web interaction tasks.
+Use for ANY task involving reading/interacting with web pages via browser.
+- Each DOM extraction + action(click, move, type, scroll, etc.) = 1 step (default max: 100 steps)
+- Estimate steps per task: simple read ~2-3, form fill ~5-7, purchase flow ~10 steps
+- For bulk operations (e.g., 50 orders), put this node inside a loop and batch items
+- Example: 50 orders at 10 steps each → batch 5 orders per call, loop 10 times
+
+IMPORTANT: browser_automation has its own integrated tools (mouse click, keyboard type, scroll, etc.).
+- All you need is a prompt - the browser agent handles tool execution internally
+- For structured output, specify JSON format in the prompt (e.g., "Return results as JSON: {products: [{name, price}]}")
+- Output is stored in node_state["result"] after execution
+
+ERROR HANDLING (CRITICAL - include in browser_automation prompts):
+- DON'T GET STUCK: When uncertain or encountering an error, do NOT block or retry indefinitely
+- COLLECT & STORE: Log error details, context, what was attempted to state["human_intervention_needed"]
+- MOVE ON: Continue to the next action item
+- BATCH & REPORT: Accumulate all issues, send consolidated summary at the end for human review
+
+PROMPT MODULARITY: Instead of inline prompts, create a prompt file in my_prompts/ directory:
+- Prompt files are JSON with id, title, sections (system), userSections (user)
+- Set promptSelection to the prompt ID (e.g., "pr-123456") to reference it
+- To modify prompts later, update the prompt JSON file, not the node config
+- Format: {"id": "pr-XXXXXX", "title": "...", "sections": [...], "userSections": [...]}""",
+        "fields": {
+            "promptSelection": {
+                "type": "select",
+                "label": "Prompt Selection",
+                "description": "Select a saved prompt or use inline. Prompts stored in my_prompts/ directory.",
+                "required": False,
+                "options": [
+                    {"value": "inline", "label": "Inline (edit below)"},
+                ],
+                "dynamic_options": True,
+                "default": "inline",
+            },
+            "provider": {
+                "type": "select",
+                "label": "Provider",
+                "description": "Browser automation provider",
+                "required": True,
+                "options": [
+                    {"value": "browser-use", "label": "Browser-Use (AI Agent)"},
+                    {"value": "browsebase", "label": "BrowseBase"},
+                    {"value": "crawl4ai", "label": "Crawl4AI"},
+                ],
+                "default": "browser-use",
+            },
+            "task": {
+                "type": "textarea",
+                "label": "Task",
+                "description": "High-level instruction for the browser agent. Be specific about what to do on each page. Use {{variable}} for dynamic data.",
+                "required": True,
+                "placeholder": "Navigate to {{url}}, search for '{{query}}', extract all product names and prices from the results page",
+            },
+            "browser": {
+                "type": "select",
+                "label": "Browser",
+                "description": "Browser type to use",
+                "required": False,
+                "options": [
+                    {"value": "new chromium", "label": "New Chromium"},
+                    {"value": "chromium", "label": "Chromium"},
+                    {"value": "firefox", "label": "Firefox"},
+                ],
+                "default": "new chromium",
+            },
+            "browserDriver": {
+                "type": "select",
+                "label": "Browser Driver",
+                "description": "Driver type for browser control",
+                "required": False,
+                "options": [
+                    {"value": "native", "label": "Native"},
+                    {"value": "selenium", "label": "Selenium"},
+                ],
+                "default": "native",
+            },
+            "modelProvider": {
+                "type": "select",
+                "label": "Model Provider",
+                "description": "LLM provider for browser-use agent",
+                "required": False,
+                "options": [
+                    {"value": "openai", "label": "OpenAI"},
+                    {"value": "anthropic", "label": "Anthropic"},
+                ],
+                "default": "openai",
+            },
+            "modelName": {
+                "type": "text",
+                "label": "Model Name",
+                "description": "LLM model name for browser-use agent",
+                "required": False,
+                "default": "gpt-4o",
+            },
+            "useThinking": {
+                "type": "boolean",
+                "label": "Use Thinking Mode",
+                "description": "Enable thinking mode for browser-use agent",
+                "required": False,
+                "default": False,
+            },
+            "timeout_seconds": {
+                "type": "number",
+                "label": "Timeout (seconds)",
+                "description": "Maximum time for browser automation",
+                "required": False,
+                "min": 10,
+                "max": 600,
+                "default": 120,
+            },
+            "systemPrompt": {
+                "type": "textarea",
+                "label": "System Prompt",
+                "description": "System prompt for the browser agent",
+                "required": False,
+                "placeholder": "You are a browser automation agent...",
+            },
+            "prompt": {
+                "type": "textarea",
+                "label": "User Prompt",
+                "description": "User prompt/task instruction",
+                "required": False,
+                "placeholder": "{{task_description}}",
+            },
+        },
+    },
+    "chat_node": {
+        "fields": {
+            "party": {
+                "type": "select",
+                "label": "Party",
+                "description": "Who is sending the message",
+                "required": True,
+                "options": [
+                    {"value": "human", "label": "Human (User)"},
+                    {"value": "assistant", "label": "Assistant (AI)"},
+                    {"value": "system", "label": "System"},
+                ],
+                "default": "human",
+            },
+            "messageTemplate": {
+                "type": "textarea",
+                "label": "Message Template",
+                "description": "Message template with {{variable}} placeholders",
+                "required": True,
+                "placeholder": "Hello, {{user_name}}! How can I help you today?",
+            },
+            "wait_for_reply": {
+                "type": "boolean",
+                "label": "Wait for Reply",
+                "description": "Whether to wait for user reply before continuing",
+                "required": False,
+                "default": False,
+            },
+        },
+    },
+    "pend_event": {
+        "fields": {
+            "prompt": {
+                "type": "textarea",
+                "label": "Prompt",
+                "description": "Message to present to human/agent while waiting",
+                "required": True,
+                "placeholder": "Waiting for user approval...",
+            },
+            "tag": {
+                "type": "text",
+                "label": "Tag",
+                "description": "Business tag for the interrupt (defaults to node name)",
+                "required": False,
+                "placeholder": "approval_required",
+            },
+            "eventType": {
+                "type": "select",
+                "label": "Event Type",
+                "description": "Main event type to wait for",
+                "required": True,
+                "options": [
+                    {"value": "human_input", "label": "Human Input"},
+                    {"value": "external_api", "label": "External API"},
+                    {"value": "timer", "label": "Timer"},
+                    {"value": "custom", "label": "Custom Event"},
+                ],
+                "default": "human_input",
+            },
+            "pendingSources": {
+                "type": "json",
+                "label": "Pending Sources",
+                "description": "Additional event sources to listen for (JSON array)",
+                "required": False,
+                "placeholder": '["email", "webhook"]',
+            },
+            "timeout_seconds": {
+                "type": "number",
+                "label": "Timeout (seconds)",
+                "description": "Maximum time to wait for event (0 = no timeout)",
+                "required": False,
+                "min": 0,
+                "max": 86400,
+                "default": 0,
             },
         },
     },
