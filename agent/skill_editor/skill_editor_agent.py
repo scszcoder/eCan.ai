@@ -115,16 +115,18 @@ DECISION PROCESS:
 1. Analyze the user's request carefully
 2. Determine the user's intent:
    - Are they asking for information/guidance? → Use ANSWER
-   - Are they requesting workflow creation? → Use CODE (with planning if complex)
-   - Are they requesting workflow edits? → Use EDIT
+   - Are they requesting skill/workflow creation? → Use CODE (always use planning even if it seems simple)
+   - Are they requesting skill/workflow edits? → Use EDIT (by default)
    - Are they configuring a specific node? → Use CONFIGURE
    - Is critical information missing? → Use QUESTION
+   - Are they asking for testing this skill/workflow? → Use TEST
+   - Are they asking for deploying this skill/workflow? → Use DEPLOY
    - Is the request infeasible? → Use REJECT
 3. For workflow generation:
    - Identify all the nodes/integrations needed
    - Check if all required information is provided
    - If ANY critical information is missing → ASK QUESTION immediately
-   - DO NOT make assumptions or use placeholder values
+   - DO NOT make assumptions or use placeholder values, do thorough feasibility analysis, try to identify gating items, show stoppers early and get them resolved with requester, whenever you're not so sure about how to do a task, ask the requester about it until you feel confident that you can breakdown the task into known steps. 
    - If request is clear and feasible → GENERATE workflow and validate it
 
 OUTPUT FORMAT (JSON):
@@ -163,12 +165,46 @@ Rejection (when infeasible):
   "message": "Clear explanation of why this request cannot be fulfilled"
 }}
 
+Test (when testing the skill/workflow):
+{{
+  "type": "test",
+  "action": "run" | "pause" | "step" | "exit",
+  "message": "Explanation of the test action",
+  "breakpoints": ["node_id_1", "node_id_2"]  // Optional: nodes to pause at for step mode
+}}
+
+Deploy (when deploying the skill/workflow):
+{{
+  "type": "deploy",
+  "message": "Explanation of the deployment",
+  "task_config": {{
+    "task_name": "descriptive_task_name",
+    "skill_name": "current_skill_name",
+    "schedule": "cron_expression or 'now' for immediate",
+    "agent_name": "existing_agent_name or null to create new",
+    "new_agent_config": {{  // Only if agent_name is null
+      "name": "new_agent_name",
+      "description": "agent description"
+    }}
+  }}
+}}
+
 WHEN TO USE EACH TYPE:
 - Use "question" when you need MORE information from the user to proceed
 - Use "answer" when providing helpful information, explanations, or guidance WITHOUT generating workflow
   Examples: explaining features, listing available nodes, providing usage guidance, answering how-to questions
 - Use "code" when you have enough information to generate or edit a complete workflow
 - Use "configure" when the user wants to configure a specific node's parameters
+- Use "test" when user wants to test/debug the current skill:
+  - "run": Start or resume execution from the beginning
+  - "pause": Pause execution at current node
+  - "step": Execute one node at a time (step-through debugging)
+  - "exit": Stop testing and exit test mode
+- Use "deploy" when user wants to deploy the skill as a scheduled task:
+  - Creates a task using the current skill
+  - Schedules it (cron expression or immediate)
+  - Assigns to an existing agent or creates a new one
+  - Kicks off the task
 - Use "reject" when the request is infeasible or outside your capabilities
 
 CRITICAL WORKFLOW GENERATION RULES:
@@ -194,6 +230,14 @@ NODE CONFIGURATION RULES:
 - For HTTP nodes: url and method are required
 - For Condition nodes: condition expression is required
 - For Loop nodes: items source and loop variable are required
+
+LIMITATIONS:
+- Cannot access external systems outside the configured MCP tools and integrations
+- Cannot create accounts on platforms on behalf of users
+- Cannot perform actions that would violate privacy or ethical guidelines
+- Cannot access proprietary information about internal architecture
+- Limited context window - may not recall very distant parts of long conversations
+- For actions requiring human credentials, defer to human assistance via pend_event
 
 CONTEXT:
 User: {user_name}
@@ -385,7 +429,17 @@ class SkillEditorAgent:
         if "modify" in msg_lower or "change" in msg_lower or "update" in msg_lower:
             return IntentType.MODIFY_NODE
         
-        # Execution intents
+        # Test skill intents
+        if any(phrase in msg_lower for phrase in ["test", "run test", "step through", "pause", "exit test"]) and \
+           any(word in msg_lower for word in ["skill", "workflow", "this"]):
+            return IntentType.TEST_SKILL
+        
+        # Deploy skill intents
+        if any(phrase in msg_lower for phrase in ["deploy", "schedule", "create task", "assign agent", "kick off"]) and \
+           any(word in msg_lower for word in ["skill", "workflow", "this"]):
+            return IntentType.DEPLOY_SKILL
+        
+        # Execution intents (legacy - for direct run without test mode)
         if "run" in msg_lower or "execute" in msg_lower:
             return IntentType.RUN_FLOWGRAM
         if "debug" in msg_lower or "step" in msg_lower:
@@ -512,6 +566,14 @@ class SkillEditorAgent:
             # Handle SAVE_SKILL intent directly
             if intent == IntentType.SAVE_SKILL:
                 return await self._run_save_skill(message, canvas_context, session_id, on_event)
+            
+            # Handle TEST_SKILL intent
+            if intent == IntentType.TEST_SKILL:
+                return await self._run_test_skill(message, canvas_context, session_id, on_event)
+            
+            # Handle DEPLOY_SKILL intent
+            if intent == IntentType.DEPLOY_SKILL:
+                return await self._run_deploy_skill(message, canvas_context, session_id, on_event)
             
             # Check if user wants to configure a specific node
             if intent == IntentType.MODIFY_NODE and self._is_node_config_request(message, canvas_context):
@@ -1596,6 +1658,198 @@ class SkillEditorAgent:
                 intent=IntentType.UNKNOWN,
                 metadata={"error": str(e), "session_id": session_id}
             )
+
+
+    # ============================================================
+    # Test and Deploy Methods
+    # ============================================================
+    
+    async def _run_test_skill(
+        self,
+        message: str,
+        canvas_context: Optional[Dict],
+        session_id: Optional[str],
+        on_event: Optional[Callable]
+    ) -> AgentResponse:
+        """
+        Handle skill testing requests: run, pause, step, exit.
+        
+        Test actions:
+        - run: Start or resume execution from the beginning
+        - pause: Pause execution at current node
+        - step: Execute one node at a time (step-through debugging)
+        - exit: Stop testing and exit test mode
+        """
+        logger.info(f"[SkillEditorAgent] Test skill request: {message}")
+        
+        msg_lower = message.lower()
+        
+        # Determine test action
+        if "exit" in msg_lower or "stop test" in msg_lower or "quit test" in msg_lower:
+            action = "exit"
+            action_msg = "Exiting test mode."
+        elif "pause" in msg_lower:
+            action = "pause"
+            action_msg = "Pausing skill execution at current node."
+        elif "step" in msg_lower or "next" in msg_lower:
+            action = "step"
+            action_msg = "Stepping to next node."
+        else:
+            action = "run"
+            action_msg = "Starting skill test execution."
+        
+        # Get current skill name from canvas context or code agent
+        skill_name = None
+        if canvas_context and canvas_context.get("metadata"):
+            skill_name = canvas_context["metadata"].get("skillName")
+        
+        if not skill_name and self.code_agent._current_flowgram:
+            skill_name = self.code_agent._current_flowgram.metadata.get("skillName") if self.code_agent._current_flowgram.metadata else None
+        
+        if not skill_name:
+            return AgentResponse(
+                message="No skill is currently loaded. Please load or create a skill first.",
+                intent=IntentType.TEST_SKILL,
+                metadata={"session_id": session_id}
+            )
+        
+        # Extract breakpoints if mentioned
+        breakpoints = []
+        if "breakpoint" in msg_lower or "break at" in msg_lower:
+            # Extract node IDs mentioned after "breakpoint" or "break at"
+            if canvas_context and canvas_context.get("nodes"):
+                for node in canvas_context["nodes"]:
+                    node_id = node.get("id", "")
+                    if node_id.lower() in msg_lower:
+                        breakpoints.append(node_id)
+        
+        # Create test command
+        test_command = CanvasCommand(
+            type="skill.test",
+            payload={
+                "action": action,
+                "skill_name": skill_name,
+                "breakpoints": breakpoints
+            }
+        )
+        
+        return AgentResponse(
+            message=action_msg,
+            commands=[test_command],
+            intent=IntentType.TEST_SKILL,
+            metadata={
+                "session_id": session_id,
+                "test_action": action,
+                "skill_name": skill_name,
+                "breakpoints": breakpoints
+            }
+        )
+    
+    async def _run_deploy_skill(
+        self,
+        message: str,
+        canvas_context: Optional[Dict],
+        session_id: Optional[str],
+        on_event: Optional[Callable]
+    ) -> AgentResponse:
+        """
+        Handle skill deployment requests: create task, schedule, assign agent, kick off.
+        
+        Deployment flow:
+        1. Create a task using the current skill
+        2. Schedule it (cron expression or immediate)
+        3. Assign to an existing agent or create a new one
+        4. Kick off the task
+        """
+        logger.info(f"[SkillEditorAgent] Deploy skill request: {message}")
+        
+        msg_lower = message.lower()
+        
+        # Get current skill name
+        skill_name = None
+        if canvas_context and canvas_context.get("metadata"):
+            skill_name = canvas_context["metadata"].get("skillName")
+        
+        if not skill_name and self.code_agent._current_flowgram:
+            skill_name = self.code_agent._current_flowgram.metadata.get("skillName") if self.code_agent._current_flowgram.metadata else None
+        
+        if not skill_name:
+            return AgentResponse(
+                message="No skill is currently loaded. Please load or create a skill first before deploying.",
+                intent=IntentType.DEPLOY_SKILL,
+                metadata={"session_id": session_id}
+            )
+        
+        # Parse schedule from message
+        schedule = "now"  # Default to immediate
+        if "schedule" in msg_lower:
+            # Look for cron-like patterns or time expressions
+            if "every hour" in msg_lower:
+                schedule = "0 * * * *"
+            elif "every day" in msg_lower or "daily" in msg_lower:
+                schedule = "0 0 * * *"
+            elif "every week" in msg_lower or "weekly" in msg_lower:
+                schedule = "0 0 * * 0"
+            elif "every minute" in msg_lower:
+                schedule = "* * * * *"
+        
+        # Parse agent name from message
+        agent_name = None
+        new_agent_config = None
+        if "agent" in msg_lower:
+            # Check for "new agent" or "create agent"
+            if "new agent" in msg_lower or "create agent" in msg_lower:
+                # Generate a new agent name based on skill
+                new_agent_config = {
+                    "name": f"{skill_name}_agent",
+                    "description": f"Agent for running {skill_name} skill"
+                }
+            # Otherwise try to extract existing agent name (would need more context)
+        
+        # Generate task name
+        task_name = f"{skill_name}_task"
+        
+        # Create deploy command
+        deploy_command = CanvasCommand(
+            type="skill.deploy",
+            payload={
+                "task_name": task_name,
+                "skill_name": skill_name,
+                "schedule": schedule,
+                "agent_name": agent_name,
+                "new_agent_config": new_agent_config
+            }
+        )
+        
+        # Build response message
+        if schedule == "now":
+            schedule_msg = "immediately"
+        else:
+            schedule_msg = f"on schedule '{schedule}'"
+        
+        agent_msg = ""
+        if new_agent_config:
+            agent_msg = f" A new agent '{new_agent_config['name']}' will be created."
+        elif agent_name:
+            agent_msg = f" Assigned to agent '{agent_name}'."
+        
+        response_msg = f"Deploying skill '{skill_name}' as task '{task_name}' to run {schedule_msg}.{agent_msg}"
+        
+        return AgentResponse(
+            message=response_msg,
+            commands=[deploy_command],
+            intent=IntentType.DEPLOY_SKILL,
+            metadata={
+                "session_id": session_id,
+                "task_config": {
+                    "task_name": task_name,
+                    "skill_name": skill_name,
+                    "schedule": schedule,
+                    "agent_name": agent_name,
+                    "new_agent_config": new_agent_config
+                }
+            }
+        )
 
 
 # ============================================================

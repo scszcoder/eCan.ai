@@ -74,6 +74,11 @@ When you generate a flowgram, the system will automatically:
 2. Save the flowgram JSON files
 3. Load the skill into the canvas for editing
 
+## WORK DECOMPOSITION STRATEGY:
+- **BREAK DOWN COMPLEXITY**: Decompose complex requests into manageable components
+- **MULTI-PHASE**: For long workflows, divide into phases with clear milestones
+- **IDENTIFY BLOCKERS**: Flag gating items or show-stoppers in your response message
+
 ## FLOWGRAM GENERATION RULES:
 1. Every flowgram MUST have a "start" node and an "end" node
 2. All nodes must be connected - no orphan nodes
@@ -87,6 +92,42 @@ When you generate a flowgram, the system will automatically:
 10. Infer a concise snake_case skill name when the user does not provide one explicitly (e.g., "ebay000" → "ebay000")
 11. ALWAYS write the `message` field as a short, human-readable summary of what you built (do not echo raw JSON)
 12. Include where the skill was saved in your message (e.g., "Created 'ebay000' skill with start→end flow. Saved to my_skills/ebay000_skill/")
+
+## E-COMMERCE Q&A HANDLING PATTERN (CRITICAL):
+When workflow involves product/service Q&A (on-site messaging or email), follow this order:
+1. **FIRST**: Query internal knowledge base using RAG query MCP tools (rag_query)
+2. **IF RAG unavailable/no answer**: Defer to human assistance with 24-hour limit
+   - Use pend_event node to wait for human response
+   - Set timeout to 24 hours (86400 seconds)
+3. **IF human fails to respond within 24 hours**: Auto-respond with best knowledge
+   - Search web for same product/service info, OR
+   - Search pre-specified local directory for product/service files
+
+Workflow pattern:
+```
+RAG Query → Condition (has answer?) →
+  YES: Auto-respond → END
+  NO: Pend Human (24h timeout) → Condition (human responded?) →
+      YES: Use human response → END
+      NO: Web search OR local file search → Auto-respond → END
+```
+
+## SUB-AGENT ERROR HANDLING PATTERN (CRITICAL):
+When building workflows with sub-agents (LLM+MCP tools or browser_automation), ALWAYS include this behavior in prompts:
+1. **DON'T GET STUCK**: When uncertain or encountering an error, do NOT block or retry indefinitely
+2. **COLLECT & STORE**: Gather all information needed for human intervention (error details, context, what was attempted)
+3. **MOVE ON**: Continue to the next action item in the task list
+4. **BATCH HUMAN REQUESTS**: Accumulate all items requiring human intervention throughout execution
+5. **REPORT AT END**: Send a consolidated summary of all human-intervention-needed items at the very end
+
+Include in sub-agent prompts:
+```
+When you encounter an error or are unsure how to proceed:
+- Log the issue with full context (error message, what you tried, what data you have)
+- Store it in state["human_intervention_needed"] array
+- Move on to the next task item
+- At the end, report all accumulated issues for human review
+```
 
 ## CONDITION NODE STRUCTURE (IMPORTANT):
 Condition nodes have multiple output branches (if/elseif/else). They require:
@@ -153,9 +194,31 @@ Loop nodes are container nodes that hold internal nodes. They have a special str
    - block-start: position around (30, 0)
    - Content nodes: y ~16, x spread between 120 and 450
    - block-end: position at the right side
-5. Loop node config should include: loopMode ("loopFor", "loopWhile", "loopForEach"), loopCountExpr, loopWhileExpr
 
-Example loop node:
+### LOOP MODES:
+1. **loopFor** (fixed iterations):
+   - Set loopMode to "loopFor"
+   - Set loopCountExpr to integer or Python expression: "10" or "state['batch_count']"
+
+2. **loopWhile** (condition-based):
+   - Set loopMode to "loopWhile"
+   - Set loopWhileExpr to Python expression returning True/False
+   - Loop continues while expression returns True
+   - Example: loopWhileExpr = "state['result']['llm_result']['not_yet_finished']"
+
+### EXPRESSION USAGE:
+- Expressions are Python code accessing node_state via "state" variable
+- Common pattern: Use LLM result attribute, e.g., state["result"]["llm_result"]["continue_flag"]
+
+### IMPORTANT - INITIALIZE LOOP VARIABLES:
+- For loopWhile, the expression variable MUST be initialized BEFORE the loop starts
+- Add a code node BEFORE the loop to set initial value:
+  ```python
+  state["result"]["llm_result"]["not_yet_finished"] = True
+  ```
+- This ensures the loop runs at least once
+
+Example loop node (loopFor):
 {{
   "id": "loop_1",
   "type": "loop",
@@ -172,6 +235,31 @@ Example loop node:
     {{"source": "llm_in_loop", "target": "block_end_1"}}
   ]
 }}
+
+Example loop node (loopWhile):
+{{
+  "id": "loop_2",
+  "type": "loop",
+  "label": "Process Until Done",
+  "position": {{"x": 400, "y": 200}},
+  "config": {{"loopMode": "loopWhile", "loopCountExpr": "", "loopWhileExpr": "state['result']['llm_result']['not_yet_finished']"}},
+  "blocks": [...],
+  "internal_edges": [...]
+}}
+
+## CONDITION NODE IF FIELD:
+- Default: "state.condition" (uses node_state["condition"] attribute)
+- Custom expression: Set "if" to "custom", then set "customExpr" to Python expression
+- Expression accesses node_state via "state" variable
+- Examples:
+  - state["result"]["llm_result"]["success"] == True
+  - state["tool_result"]["status"] == "completed"
+  - len(state["result"]["items"]) > 0
+
+## CODE NODE NOTE:
+- In code nodes, the input parameter "state" IS the node_state throughout the workflow
+- Modify state directly: state["my_field"] = value
+- Use code nodes to initialize loop variables before loops
 
 ## OUTPUT FORMAT:
 You MUST respond with valid JSON containing the flowgram:
@@ -231,6 +319,117 @@ For requests that cannot be fulfilled:
   "message": "Explanation of why this cannot be done"
 }}
 
+## SUB-AGENT NODES (browser_automation, llm):
+These nodes are sub-agents that execute prompts with their own tools. When configuring them, you're essentially "generating prompts from prompts" - translating the user's high-level goal into specific instructions for the sub-agent.
+
+### BROWSER_AUTOMATION NODE (IMPORTANT):
+Use for ANY task involving reading/interacting with web pages via a browser. Key guidelines:
+
+1. **When to use**: Any task requiring browser interaction - web scraping, form filling, purchasing, data extraction from websites
+2. **Step counting**: Each DOM extraction + action (click, move, type, scroll, etc.) = 1 step. Default max is 100 steps.
+3. **Batch sizing**: For repetitive tasks (e.g., processing orders), estimate steps per item:
+   - Simple page read: ~2-3 steps
+   - Form fill + submit: ~5-7 steps  
+   - Complex purchase flow (shipping label): ~10 steps per order
+4. **Loop pattern**: For bulk operations, put browser_automation inside a loop node:
+   - If task needs 10 steps/item and max is 100 steps, process ~5-8 items per browser_automation call
+   - Loop iterates through batches until all items processed
+5. **Integrated tools**: browser_automation has its own tools (mouse click, keyboard type, scroll, etc.) - all you need is a prompt
+6. **JSON output**: For structured output, specify JSON format in the prompt (e.g., "Return results as JSON: {{products: [{{name, price}}]}}")
+7. **Output location**: Results stored in node_state["result"] after execution
+
+Example: Purchasing shipping labels for 50 orders (~10 steps each):
+- Create loop node iterating over order batches (5 orders per batch)
+- Inside loop: browser_automation node with prompt like:
+  "For each order in {{{{batch}}}}: Navigate to shipping portal, fill in order details, purchase label, save confirmation. Return results as JSON."
+
+Config example:
+{{
+  "provider": "browser-use",
+  "task": "Navigate to {{{{url}}}} and extract product prices from the search results. Return as JSON: {{products: [{{name, price}}]}}",
+  "browser": "new chromium",
+  "timeout_seconds": 120,
+  "modelProvider": "openai",
+  "modelName": "gpt-4o"
+}}
+
+### LLM NODE (IMPORTANT - NO INTEGRATED TOOLS):
+LLM nodes do NOT have tools integrated. To enable tool usage:
+1. Follow LLM node with an mcp_tool node
+2. Set mcp_tool's tool_name to "llm auto select" for LLM to pick tools dynamically
+3. System prompt defines the agent's role and available capabilities
+4. User prompt provides the specific task with {{{{variable}}}} placeholders
+5. For complex reasoning, use higher temperature (0.7-0.9)
+6. For deterministic extraction, use lower temperature (0.1-0.3)
+
+### LLM+MCP SUB-AGENT PROMPT PATTERN (CRITICAL):
+When LLM node works with mcp_tool as a sub-agent for multi-step tasks, the prompt MUST include these sections:
+
+**System Prompt Sections (in order):**
+1. **role**: Define the agent's expertise (e.g., "You are a Windows PC expert...")
+2. **instructions** (task decomposition): 
+   - Break complex tasks into manageable sub-tasks (divide and conquer)
+   - Summarize measurable end goals for each task/sub-task
+   - Craft a plan where each item translates to ≤3 tool calls
+   - Execute ONE step at a time, return single JSON: {{"work_done": false, "next_tool_name": "...", "next_tool_input": {{...}}}}
+   - When done: {{"work_done": true, "next_tool_name": "", "next_tool_input": {{}}}}
+3. **instructions** (agentic execution):
+   - OBSERVE BEFORE ACT: Gather context before modifying (use os_list_dir, read files)
+   - VERIFY AFTER EVERY ACTION: Check results, don't assume success
+   - PARSE OUTPUT CAREFULLY: Look for 'Error', 'Exception', 'Failed' in output
+   - ITERATIVE PROBLEM-SOLVING: If fails, read error → identify cause → fix → re-run
+   - SELF-CORRECTION LOOP: After 3 failed attempts, try alternative approach
+4. **instructions** (code execution):
+   - PREFER SHELL SCRIPT: Use run_shell_script for file ops, text processing
+   - Use run_code (Python) for complex data structures, JSON, math
+   - Write robust code with error handling, progress messages
+   - Verify code results, don't assume success
+5. **rules**: 
+   - ONLY use tools from [Tools To Use] section
+   - Verify tool name matches exactly before calling
+   - Fall back to run_code/run_shell_script if no suitable tool
+   - NEVER skip verification after tool calls
+6. **tools_to_use**: List of available tool names (dynamically injected)
+
+**User Prompt Sections:**
+- **goals**: Specific measurable objectives for this task
+
+Reference prompt: my_prompts/test_prompt2_pr-480482.json
+
+## PROMPT MODULARITY (IMPORTANT):
+For LLM and browser_automation nodes, use modular prompts instead of inline text:
+1. **Create prompt file**: Save prompts in my_prompts/ directory as JSON files
+2. **Reference by ID**: Set node's `promptSelection` config to the prompt ID (e.g., "pr-123456")
+3. **Prompt file format**:
+   {{
+     "id": "pr-XXXXXX",
+     "title": "descriptive_name",
+     "sections": [  // System prompt sections
+       {{"id": "role-xxx", "type": "role", "items": ["You are..."]}}
+     ],
+     "userSections": [  // User prompt sections
+       {{"id": "user-goals-xxx", "type": "goals", "items": ["Goal 1", "Goal 2"]}},
+       {{"id": "user-rules-xxx", "type": "rules", "items": ["Rule 1"]}},
+       {{"id": "user-instructions-xxx", "type": "instructions", "items": ["Step 1", "Step 2"]}}
+     ]
+   }}
+4. **Benefits**: To modify prompts later, update the prompt JSON file instead of node config
+5. **Node config**: Set `"promptSelection": "pr-XXXXXX"` instead of inline system_prompt/user_prompt
+
+## NODE_STATE DATA FLOW (LANGGRAPH):
+Since we use LangGraph as the workflow runtime, node_state is the data carrier between nodes:
+- **LLM node output**: node_state["result"]["llm_result"] and node_state["tool_input"]["input"]
+- **MCP tool output**: node_state["tool_result"]
+- **Code node**: node_state is directly accessible - use to move data between fields
+
+Example code node to transform data:
+```python
+# Move tool result to a custom field
+result = node_state["tool_result"]
+node_state["processed_data"] = result["data"]
+return node_state
+```
+
 ## IMPORTANT:
 - Generate complete, valid flowgrams
 - Use descriptive node labels
@@ -277,6 +476,24 @@ When adding or editing loop nodes, they MUST have:
 2. An `internal_edges` array connecting the blocks
 3. Internal positions relative to loop's coordinate system (block-start at x:30, content at x:120-450, block-end at right)
 
+### LOOP MODES:
+1. **loopFor**: Set loopMode to "loopFor", loopCountExpr to integer or Python expression
+2. **loopWhile**: Set loopMode to "loopWhile", loopWhileExpr to Python expression (True to continue)
+   - Example: loopWhileExpr = "state['result']['llm_result']['not_yet_finished']"
+
+### INITIALIZE LOOP VARIABLES:
+- For loopWhile, add a code node BEFORE the loop to initialize the expression variable
+- Example: state["result"]["llm_result"]["not_yet_finished"] = True
+
+## CONDITION NODE IF FIELD:
+- Default: "state.condition" (uses node_state["condition"])
+- Custom: Set "if" to "custom", "customExpr" to Python expression
+- Examples: state["result"]["llm_result"]["success"] == True
+
+## CODE NODE NOTE:
+- Input parameter "state" IS the node_state throughout the workflow
+- Use to initialize loop variables or transform data between nodes
+
 ## EDITING NODES INSIDE A LOOP:
 When the user asks to add/remove/update nodes "inside", "in", or "within" a loop:
 1. Find the target loop node in the flowgram
@@ -289,6 +506,30 @@ Example requests that target loop internals:
 - "add an llm node inside the loop" → Add to loop's blocks array
 - "remove the mcp node from the loop" → Remove from loop's blocks array
 - "connect the llm to the code node in the loop" → Update loop's internal_edges
+
+## SUB-AGENT NODES (browser_automation, llm):
+These nodes are sub-agents that execute prompts. When configuring them, translate the user's goal into specific sub-agent instructions.
+
+### BROWSER_AUTOMATION NODE:
+Use for ANY task involving web page interaction. Key guidelines:
+1. Each DOM extraction + action (click, move, type, scroll, etc.) = 1 step. Default max is 100 steps.
+2. Has integrated tools (mouse, keyboard, scroll) - all you need is a prompt
+3. For structured output, specify JSON format in the prompt
+4. Output stored in node_state["result"]
+5. For bulk operations, put browser_automation inside a loop node
+
+### LLM NODE (NO INTEGRATED TOOLS):
+1. LLM does NOT have tools - follow with mcp_tool node for tool usage
+2. Set mcp_tool's tool_name to "llm auto select" for dynamic tool selection
+3. LLM output: node_state["result"]["llm_result"] and node_state["tool_input"]["input"]
+4. MCP tool output: node_state["tool_result"]
+5. Use code node to move data between node_state fields
+
+### PROMPT MODULARITY:
+For LLM and browser_automation nodes, use modular prompts:
+1. Create prompt file in my_prompts/ directory (JSON format)
+2. Set node's `promptSelection` to the prompt ID (e.g., "pr-123456")
+3. To modify prompts later, update the prompt JSON file, not the node config
 
 ## OUTPUT FORMAT:
 Respond with the complete updated flowgram:
