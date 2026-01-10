@@ -404,7 +404,8 @@
       "invalid_skills": "Invalid Skills",
       "invalid_tasks": "Invalid Tasks",
       "validation_hint": "These items do not exist in the database. Please remove them and try again.",
-      "save_failed": "Save Failed"
+      "save_failed": "Save Failed",
+      "startChat": "Start Chat"
     },
     "analytics": {
       "activeAgents": "Active Agents",
