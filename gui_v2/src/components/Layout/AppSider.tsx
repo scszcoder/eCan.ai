@@ -156,7 +156,7 @@ const StyledMenu = styled(Menu)`
         border-radius: 10px !important;
         color: rgba(203, 213, 225, 0.9) !important;
         font-weight: 500 !important;
-        font-size: 14px !important;
+        font-size: 15px !important;
         transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
         position: relative;
         overflow: hidden;

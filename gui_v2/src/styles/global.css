@@ -199,6 +199,17 @@
 }
 
 :root {
+    /* 字体大小规范 - 统一的字体层次系统 */
+    --font-size-xs: 11px;      /* 极小文字：标签、辅助说明 */
+    --font-size-sm: 12px;      /* 小文字：次要信息、趋势 */
+    --font-size-base: 14px;    /* 基础文字：正文、菜单、表格 */
+    --font-size-md: 16px;      /* 中等文字：卡片标题、模态框标题 */
+    --font-size-lg: 18px;      /* 大文字：页面标题、重要名称 */
+    --font-size-xl: 20px;      /* 超大文字：主标题 */
+    --font-size-2xl: 24px;     /* 特大文字：Hero 标题 */
+    --font-size-3xl: 28px;     /* 巨大文字：数据展示 */
+    --font-size-4xl: 32px;     /* 超巨大文字：特殊强调 */
+    
     /* 主题色 - 蓝紫渐变色系 */
     --primary-color: #3b82f6;
     --primary-hover: #2563eb;
@@ -266,6 +277,7 @@ html, body {
     margin: 0;
     padding: 0;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: var(--font-size-base); /* 设置基础字体大小为 14px */
     line-height: 1.5;
     /* 防止字体模糊 */
     -webkit-font-smoothing: antialiased;
@@ -319,7 +331,7 @@ html, body {
     height: 44px !important;
     line-height: 44px !important;
     font-weight: 500 !important;
-    font-size: 14px !important;
+    font-size: 15px !important;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
