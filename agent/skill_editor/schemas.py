@@ -26,6 +26,8 @@ class IntentType(str, Enum):
     MODIFY_NODE = "modify_node"
     RUN_FLOWGRAM = "run_flowgram"
     DEBUG_FLOWGRAM = "debug_flowgram"
+    TEST_SKILL = "test_skill"  # Test skill: run/pause/step/exit
+    DEPLOY_SKILL = "deploy_skill"  # Deploy skill: create task, schedule, assign agent
     EXPLAIN = "explain"
     GENERAL_CHAT = "general_chat"
     UNKNOWN = "unknown"
