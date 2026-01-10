@@ -90,25 +90,39 @@ const MenuWrapper = styled.div`
     height: calc(100vh - 64px);
     padding: 12px 0;
     
-    /* OptimizeScroll条样式 */
+    /* 自动隐藏滚动条 */
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+    
+    /* WebKit 浏览器滚动条样式 */
     &::-webkit-scrollbar {
         width: 6px;
     }
     
     &::-webkit-scrollbar-track {
-        background: rgba(255, 255, 255, 0.02);
+        background: transparent;
         border-radius: 3px;
         margin: 4px 0;
     }
     
     &::-webkit-scrollbar-thumb {
-        background: rgba(255, 255, 255, 0.1);
+        background: transparent;
         border-radius: 3px;
         transition: background 0.3s ease;
+    }
+    
+    /* hover 时显示滚动条 */
+    &:hover {
+        scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
         
-        &:hover {
-            background: rgba(255, 255, 255, 0.2);
+        &::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.15);
         }
+    }
+    
+    /* 滚动条 hover 时加深 */
+    &::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.3);
     }
 `;
 

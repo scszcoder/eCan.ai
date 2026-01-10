@@ -52,13 +52,19 @@ const DataCard: React.FC<DataCardProps> = ({
     onClick 
 }) => {
     const cardStyle: React.CSSProperties = {
-        background: gradient || `linear-gradient(135deg, ${color}15 0%, ${color}05 100%)`,
-        border: `1px solid ${color}30`,
+        background: gradient || `linear-gradient(135deg, ${color}18 0%, ${color}08 100%)`,
+        border: `1px solid ${color}40`,
         borderRadius: '12px',
         cursor: onClick ? 'pointer' : 'default',
-        transition: 'all 0.3s ease',
+        transition: 'all 0.2s ease',
         overflow: 'hidden',
         position: 'relative',
+        boxShadow: `
+            0 4px 12px rgba(0, 0, 0, 0.25),
+            0 8px 24px rgba(0, 0, 0, 0.15),
+            inset 0 1px 0 rgba(255, 255, 255, 0.08),
+            inset 0 0 0 1px ${color}10
+        `,
     };
 
     const iconWrapperStyle: React.CSSProperties = {
