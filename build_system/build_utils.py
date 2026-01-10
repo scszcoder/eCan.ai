@@ -864,7 +864,10 @@ def _process_standard_data(data_files_config: dict, verbose: bool = False) -> li
     for file_path in files:
         src_path = Path(file_path)
         if src_path.exists():
-            processed_files.append((file_path, file_path))
+            # For single files, target should be "." (root directory) to avoid nested directory structure
+            # PyInstaller datas format: (source, target_dir)
+            # If target is the filename itself, it creates a nested structure like VERSION/VERSION
+            processed_files.append((file_path, "."))
         elif verbose:
             print(f"[DATA] File not found: {file_path}")
 
@@ -913,7 +916,10 @@ def _process_macos_data(data_files_config: dict, verbose: bool = False) -> list:
     for file_path in files:
         src_path = Path(file_path)
         if src_path.exists():
-            processed_files.append((file_path, file_path))
+            # For single files, target should be "." (root directory) to avoid nested directory structure
+            # PyInstaller datas format: (source, target_dir)
+            # If target is the filename itself, it creates a nested structure like VERSION/VERSION
+            processed_files.append((file_path, "."))
         elif verbose:
             print(f"[DATA] File not found: {file_path}")
 
