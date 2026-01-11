@@ -65,6 +65,14 @@ from .node_config_agent import (
     get_node_config_agent,
 )
 
+# Validator Agent
+from .validator_agent import (
+    ValidatorAgent,
+    ValidatorAction,
+    ValidatorOutput,
+    get_validator_agent,
+)
+
 # Skill Editor Agent (orchestrator)
 from .skill_editor_agent import (
     SkillEditorAgent,
@@ -116,6 +124,11 @@ __all__ = [
     "NodeConfigOutput",
     "NODE_CONFIG_SCHEMAS",
     "get_node_config_agent",
+    # Validator Agent
+    "ValidatorAgent",
+    "ValidatorAction",
+    "ValidatorOutput",
+    "get_validator_agent",
     # Skill Editor Agent (orchestrator)
     "SkillEditorAgent",
     "get_skill_editor_agent",

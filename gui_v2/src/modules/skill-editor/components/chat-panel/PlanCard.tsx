@@ -10,9 +10,11 @@ import type { ImplementationPlan } from '../../types/skill-editor-chat.types';
 
 interface PlanCardProps {
   plan: ImplementationPlan;
-  onApprove: () => void;
-  onReject: () => void;
+  onApprove?: () => void;
+  onReject?: () => void;
   isSubmitting?: boolean;
+  /** If provided, renders in read-only mode showing this action was taken */
+  submittedAction?: 'approved' | 'revised';
 }
 
 const CardContainer = styled.div`
@@ -181,7 +183,11 @@ export const PlanCard: React.FC<PlanCardProps> = ({
   onApprove,
   onReject,
   isSubmitting = false,
+  submittedAction,
 }) => {
+  // Read-only mode when submittedAction is provided
+  const isReadOnly = !!submittedAction;
+
   // Log when component mounts with plan
   React.useEffect(() => {
     console.log('[PlanCard] Mounted with plan:', {
@@ -189,28 +195,32 @@ export const PlanCard: React.FC<PlanCardProps> = ({
       complexity: plan.complexity,
       stepsCount: plan.steps.length,
       estimatedNodes: plan.estimated_nodes,
+      isReadOnly,
+      submittedAction,
     });
     return () => {
       console.log('[PlanCard] Unmounting');
     };
-  }, [plan]);
+  }, [plan, isReadOnly, submittedAction]);
 
   const handleApprove = React.useCallback(() => {
     console.log('[PlanCard] Plan approved by user');
-    onApprove();
+    if (onApprove) onApprove();
   }, [onApprove]);
 
   const handleReject = React.useCallback(() => {
     console.log('[PlanCard] Plan rejected by user');
-    onReject();
+    if (onReject) onReject();
   }, [onReject]);
 
   return (
     <CardContainer>
       <CardHeader>
         <CardTitle>
-          <RocketOutlined style={{ color: '#22c55e' }} />
-          Implementation Plan
+          <RocketOutlined style={{ color: isReadOnly ? (submittedAction === 'approved' ? '#22c55e' : '#f59e0b') : '#22c55e' }} />
+          {isReadOnly 
+            ? (submittedAction === 'approved' ? '✅ Plan Approved' : '📝 Plan Revised')
+            : 'Implementation Plan'}
         </CardTitle>
         <ComplexityBadge $complexity={plan.complexity}>
           {plan.complexity.charAt(0).toUpperCase() + plan.complexity.slice(1)}
@@ -250,25 +260,28 @@ export const PlanCard: React.FC<PlanCardProps> = ({
         </EstimatedNodes>
       )}
       
-      <ButtonContainer>
-        <ApproveButton
-          type="primary"
-          icon={<CheckOutlined />}
-          onClick={handleApprove}
-          disabled={isSubmitting}
-          loading={isSubmitting}
-          style={{ background: '#22c55e', borderColor: '#22c55e' }}
-        >
-          Proceed
-        </ApproveButton>
-        <RejectButton
-          icon={<CloseOutlined />}
-          onClick={handleReject}
-          disabled={isSubmitting}
-        >
-          Revise
-        </RejectButton>
-      </ButtonContainer>
+      {/* Only show buttons in interactive mode */}
+      {!isReadOnly && (
+        <ButtonContainer>
+          <ApproveButton
+            type="primary"
+            icon={<CheckOutlined />}
+            onClick={handleApprove}
+            disabled={isSubmitting}
+            loading={isSubmitting}
+            style={{ background: '#22c55e', borderColor: '#22c55e' }}
+          >
+            Proceed
+          </ApproveButton>
+          <RejectButton
+            icon={<CloseOutlined />}
+            onClick={handleReject}
+            disabled={isSubmitting}
+          >
+            Revise
+          </RejectButton>
+        </ButtonContainer>
+      )}
     </CardContainer>
   );
 };

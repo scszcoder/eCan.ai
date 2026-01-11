@@ -82,10 +82,13 @@ This maximizes work completion and minimizes human interruptions during executio
 
 ## CLARIFICATION QUESTIONS GUIDELINES:
 - Ask questions ONLY when there's genuine ambiguity
-- Each question should have 2-4 clear choices
+- Each question should have 4-6 clear choices
 - Questions should be actionable and help determine the implementation
 - Set "allow_multiple": true when the user can reasonably select multiple options
+- Always include a "None of the above" or "Other" or "Something else" option, and if this option is selected, always make a otherwise invisible text input box visible to let user input their answer.
+- Always include a "Doesn't apply" option to let the user mark this question as not applicable.
 - Set "allow_multiple": false when only one option should be selected
+- On the Q&A form, always includes a "Cancel" button to let the user cancel the Q&A process.
 - Focus on:
   - Data sources (where does the data come from?)
   - Output destinations (where should results go?)
@@ -105,6 +108,34 @@ This maximizes work completion and minimizes human interruptions during executio
 3. **DOCUMENT FOR REFERENCE**: Include clear descriptions in plan steps for future reference
 4. **SEEK FEEDBACK**: Ask clarifying questions when uncertain; iterate based on user feedback
 
+## BROWSER_AUTOMATION NODE - CRITICAL UNDERSTANDING:
+The `browser_automation` node is a **SUB-AGENT with its own internal LLM**, NOT a simple action node!
+
+**Capabilities:**
+- Has its own LLM that can read/understand page DOM, extract data, and make decisions
+- Can execute up to **100 consecutive interaction steps** (click, type, scroll, navigate, etc.)
+- Returns structured JSON output including status flags and extracted data
+- Handles complex multi-step web interactions autonomously
+
+**CORRECT Pattern - Batch Browser Work:**
+Instead of creating multiple browser_automation + llm node pairs, batch related browser work:
+1. Write a **detailed prompt** describing all browser tasks (e.g., "Process up to 3 orders: login, navigate to orders, for each order check messages for cancellation, if not cancelled generate shipping label, select cheapest option")
+2. Configure the browser_automation node to return JSON with an `all_done` boolean flag
+3. Wrap with a **loop node (while type)** that continues until `all_done` is true
+
+**WRONG Pattern (avoid this):**
+- browser_automation → llm (to understand page) → browser_automation → llm → ...
+- Creating separate nodes for "extract data" then "analyze with LLM" for browser content
+
+**RIGHT Pattern:**
+- Single browser_automation node with comprehensive prompt → loop wrapper
+- The browser_automation sub-agent handles DOM reading, data extraction, AND decision-making internally
+
+**When to use separate LLM nodes:**
+- Non-browser reasoning/data processing (e.g., comparing prices from an API response)
+- Aggregating results from multiple sources
+- Complex business logic that doesn't involve browser interaction
+
 ## PLAN GENERATION GUIDELINES:
 When generating a plan, include:
 - A brief summary of what the workflow will do
@@ -118,7 +149,7 @@ When generating a plan, include:
 Example time estimates:
 - Simple LLM call: ~5-10 seconds
 - MCP tool execution: ~2-30 seconds (depends on tool)
-- Browser automation step: ~3-5 seconds per action
+- Browser automation batch (up to 100 steps): ~30 seconds to 5 minutes depending on complexity
 - RAG query: ~2-5 seconds
 - Loop iteration: multiply single iteration time by expected count
 
@@ -148,28 +179,41 @@ When you have enough information to generate a plan:
   "action": "generate_plan",
   "plan": {{
     "summary": "Brief overview of what the workflow will accomplish",
-    "phases": [  // Optional: for complex multi-phase work
-      {{
-        "phase_name": "Phase 1: Setup",
-        "phase_estimate": "~30 seconds",
-        "steps": [...]
-      }}
-    ],
     "steps": [
       {{
-        "title": "Step title",
+        "title": "Step title (must be meaningful workflow logic)",
         "description": "Detailed description of what this step does",
         "node_types": ["node_type_1", "node_type_2"],
         "time_estimate": "~5-10 seconds"
       }}
     ],
-    "estimated_nodes": ["start", "llm", "mcp_tool", "end"],
+    "estimated_nodes": ["start", "browser-automation", "llm", "condition", "loop", "mcp", "end"],
     "complexity": "simple" | "medium" | "complex",
     "total_time_estimate": "~2-5 minutes",
-    "blockers": []  // List any gating items or show-stoppers identified
+    "blockers": []
   }},
   "message": "Here's my implementation plan for your workflow."
 }}
+
+## PLAN STEPS REQUIREMENTS (CRITICAL):
+**NEVER generate plans with only trivial steps like "start" and "end"!**
+
+1. **Minimum 3 meaningful steps** for any workflow
+2. **Each step = one functional unit**: e.g., "Fetch orders", "Process messages", "Send notifications"
+3. **Steps must map to actual nodes**: browser-automation, llm, condition, loop, mcp, code, etc.
+4. **DO NOT include start/end as steps** - they are automatically added
+
+**BAD PLAN:**
+- Step 1: "Scheduled trigger" (start) ❌
+- Step 2: "End" ❌
+
+**GOOD PLAN for eBay after-sales:**
+- Step 1: "Fetch unshipped orders from Seller Hub" - browser-automation
+- Step 2: "Check each order for cancellation messages" - loop + browser-automation
+- Step 3: "Generate shipping labels for valid orders" - browser-automation
+- Step 4: "Handle buyer Q&A with RAG→human→auto pattern" - rag + condition + pend_event
+- Step 5: "Process return requests" - browser-automation + condition
+- Step 6: "Send consolidated summary email" - http or mcp
 
 When the request is clear and simple enough to proceed directly:
 {{
@@ -402,13 +446,27 @@ class PlannerAgent:
             plan = None
             if data.get("plan"):
                 plan_data = data["plan"]
+                logger.debug(f"[PlannerAgent] Plan data keys: {list(plan_data.keys())}")
+                
+                # Check for steps in different locations (direct steps or inside phases)
+                raw_steps = plan_data.get("steps", [])
+                
+                # If steps is empty, try to extract from phases
+                if not raw_steps and plan_data.get("phases"):
+                    logger.debug(f"[PlannerAgent] No direct steps, extracting from phases")
+                    for phase in plan_data.get("phases", []):
+                        phase_steps = phase.get("steps", [])
+                        raw_steps.extend(phase_steps)
+                
+                logger.debug(f"[PlannerAgent] Found {len(raw_steps)} raw steps")
+                
                 steps = [
                     PlanStep(
                         title=s.get("title", "Step"),
                         description=s.get("description", ""),
                         node_types=s.get("node_types", [])
                     )
-                    for s in plan_data.get("steps", [])
+                    for s in raw_steps
                 ]
                 plan = ImplementationPlan(
                     summary=plan_data.get("summary", ""),

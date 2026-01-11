@@ -10,8 +10,10 @@ import type { ClarificationQuestion } from '../../types/skill-editor-chat.types'
 
 interface ClarificationCardProps {
   questions: ClarificationQuestion[];
-  onSubmit: (answers: Record<string, string[]>) => void;
+  onSubmit?: (answers: Record<string, string[]>) => void;
   isSubmitting?: boolean;
+  /** If provided, renders in read-only mode showing these answers */
+  submittedAnswers?: Record<string, string[]>;
 }
 
 const CardContainer = styled.div`
@@ -104,8 +106,13 @@ export const ClarificationCard: React.FC<ClarificationCardProps> = ({
   questions,
   onSubmit,
   isSubmitting = false,
+  submittedAnswers,
 }) => {
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
+  
+  // Read-only mode when submittedAnswers is provided
+  const isReadOnly = !!submittedAnswers;
+  const displayAnswers = submittedAnswers || answers;
 
   // Log when component mounts with questions
   React.useEffect(() => {
@@ -154,16 +161,22 @@ export const ClarificationCard: React.FC<ClarificationCardProps> = ({
 
   const handleSubmit = useCallback(() => {
     console.log('[ClarificationCard] Submitting answers:', answers);
-    onSubmit(answers);
+    if (onSubmit) {
+      onSubmit(answers);
+    }
   }, [answers, onSubmit]);
 
-  const isComplete = questions.every(q => (answers[q.id] || []).length > 0);
+  const isComplete = questions.every(q => (displayAnswers[q.id] || []).length > 0);
 
   return (
     <CardContainer>
       <CardHeader>
-        <span style={{ fontSize: 16 }}>🤔</span>
-        <CardTitle>I have a few questions to better understand your requirements:</CardTitle>
+        <span style={{ fontSize: 16 }}>{isReadOnly ? '✅' : '🤔'}</span>
+        <CardTitle>
+          {isReadOnly 
+            ? 'Your answers to clarification questions:' 
+            : 'I have a few questions to better understand your requirements:'}
+        </CardTitle>
       </CardHeader>
       
       {questions.map((question, index) => (
@@ -176,17 +189,22 @@ export const ClarificationCard: React.FC<ClarificationCardProps> = ({
           )}
           <ChoiceContainer>
             {question.choices.map(choice => {
-              const isSelected = (answers[question.id] || []).includes(choice.id);
+              const isSelected = (displayAnswers[question.id] || []).includes(choice.id);
+              // In read-only mode, only show selected choices
+              if (isReadOnly && !isSelected) {
+                return null;
+              }
               return (
                 <ChoiceItem
                   key={choice.id}
                   $selected={isSelected}
-                  onClick={() => handleChoiceToggle(question.id, choice.id, question.allow_multiple)}
+                  onClick={isReadOnly ? undefined : () => handleChoiceToggle(question.id, choice.id, question.allow_multiple)}
+                  style={isReadOnly ? { cursor: 'default' } : undefined}
                 >
                   {question.allow_multiple ? (
-                    <Checkbox checked={isSelected} style={{ marginTop: 2 }} />
+                    <Checkbox checked={isSelected} disabled={isReadOnly} style={{ marginTop: 2 }} />
                   ) : (
-                    <Radio checked={isSelected} style={{ marginTop: 2 }} />
+                    <Radio checked={isSelected} disabled={isReadOnly} style={{ marginTop: 2 }} />
                   )}
                   <div>
                     <ChoiceLabel>{choice.label}</ChoiceLabel>
@@ -201,15 +219,18 @@ export const ClarificationCard: React.FC<ClarificationCardProps> = ({
         </QuestionContainer>
       ))}
       
-      <SubmitButton
-        type="primary"
-        icon={<CheckOutlined />}
-        onClick={handleSubmit}
-        disabled={!isComplete || isSubmitting}
-        loading={isSubmitting}
-      >
-        {isSubmitting ? 'Submitting...' : 'Submit Answers'}
-      </SubmitButton>
+      {/* Only show submit button in interactive mode */}
+      {!isReadOnly && (
+        <SubmitButton
+          type="primary"
+          icon={<CheckOutlined />}
+          onClick={handleSubmit}
+          disabled={!isComplete || isSubmitting}
+          loading={isSubmitting}
+        >
+          {isSubmitting ? 'Submitting...' : 'Submit Answers'}
+        </SubmitButton>
+      )}
     </CardContainer>
   );
 };

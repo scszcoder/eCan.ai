@@ -54,6 +54,10 @@ class ChatSession:
     messages: List[ChatMessage] = field(default_factory=list)
     created_at: int = field(default_factory=lambda: int(time.time() * 1000))
     updated_at: int = field(default_factory=lambda: int(time.time() * 1000))
+    # Pipeline state persistence - survives app restarts
+    pipeline_state: str = field(default="idle")
+    current_plan: Optional[Dict[str, Any]] = field(default=None)
+    current_request: Optional[str] = field(default=None)
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -63,15 +67,35 @@ class ChatSession:
             "messages": [asdict(m) for m in self.messages],
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
+            "pipelineState": self.pipeline_state,
+            "currentPlan": self.current_plan,
+            "currentRequest": self.current_request,
         }
 
 
 # ============================================================
-# Session Store (in-memory for now, can be persisted later)
+# Session Store (with disk persistence)
 # ============================================================
 
+import json
+import os
+
+MAX_SESSIONS = 50
+MAX_MESSAGES_PER_SESSION = 200
+
+
+def _get_chat_history_path() -> str:
+    """Get the path to the chat history file"""
+    try:
+        from config.app_info import AppInfo
+        app_info = AppInfo()
+        return os.path.join(app_info.appdata_home_path, "skill_editor_chat_history.json")
+    except Exception:
+        return "skill_editor_chat_history.json"
+
+
 class SkillEditorChatStore:
-    """In-memory store for chat sessions"""
+    """Persistent store for chat sessions - saves to disk"""
     
     _instance = None
     _lock = threading.Lock()
@@ -83,29 +107,108 @@ class SkillEditorChatStore:
                     cls._instance = super().__new__(cls)
                     cls._instance._sessions: Dict[str, ChatSession] = {}
                     cls._instance._active_generations: Dict[str, bool] = {}
+                    cls._instance._initialized = False
         return cls._instance
+    
+    def _ensure_initialized(self):
+        """Load sessions from disk on first access"""
+        if not self._initialized:
+            self._load_from_disk()
+            self._initialized = True
+    
+    def _load_from_disk(self):
+        """Load chat sessions from disk"""
+        try:
+            history_path = _get_chat_history_path()
+            if os.path.exists(history_path):
+                with open(history_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                for session_data in data.get("sessions", []):
+                    messages = []
+                    for msg_data in session_data.get("messages", []):
+                        messages.append(ChatMessage(
+                            id=msg_data.get("id", str(uuid.uuid4())),
+                            role=ChatRole(msg_data.get("role", "user")),
+                            content=msg_data.get("content", ""),
+                            timestamp=msg_data.get("timestamp", int(time.time() * 1000)),
+                            attachments=msg_data.get("attachments", []),
+                            metadata=msg_data.get("metadata", {})
+                        ))
+                    
+                    session = ChatSession(
+                        id=session_data.get("id", str(uuid.uuid4())),
+                        name=session_data.get("name", "Chat"),
+                        flowgram_id=session_data.get("flowgramId"),
+                        messages=messages,
+                        created_at=session_data.get("createdAt", int(time.time() * 1000)),
+                        updated_at=session_data.get("updatedAt", int(time.time() * 1000)),
+                        pipeline_state=session_data.get("pipelineState", "idle"),
+                        current_plan=session_data.get("currentPlan"),
+                        current_request=session_data.get("currentRequest"),
+                    )
+                    self._sessions[session.id] = session
+                
+                logger.info(f"[SkillEditorChat] Loaded {len(self._sessions)} sessions from disk")
+        except Exception as e:
+            logger.warning(f"[SkillEditorChat] Failed to load chat history: {e}")
+    
+    def _save_to_disk(self):
+        """Save chat sessions to disk"""
+        try:
+            # Enforce limits
+            if len(self._sessions) > MAX_SESSIONS:
+                sessions_list = sorted(self._sessions.values(), key=lambda s: s.updated_at, reverse=True)
+                for session in sessions_list[MAX_SESSIONS:]:
+                    del self._sessions[session.id]
+            
+            for session in self._sessions.values():
+                if len(session.messages) > MAX_MESSAGES_PER_SESSION:
+                    session.messages = session.messages[-MAX_MESSAGES_PER_SESSION:]
+            
+            history_path = _get_chat_history_path()
+            dir_path = os.path.dirname(history_path)
+            if dir_path:
+                os.makedirs(dir_path, exist_ok=True)
+            
+            data = {
+                "sessions": [s.to_dict() for s in self._sessions.values()],
+                "savedAt": int(time.time() * 1000)
+            }
+            
+            with open(history_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            
+            logger.debug(f"[SkillEditorChat] Saved {len(self._sessions)} sessions to disk")
+        except Exception as e:
+            logger.error(f"[SkillEditorChat] Failed to save chat history: {e}")
     
     def create_session(self, name: str = "New Chat", flowgram_id: Optional[str] = None) -> ChatSession:
         """Create a new chat session"""
+        self._ensure_initialized()
         session = ChatSession(
             id=str(uuid.uuid4()),
             name=name,
             flowgram_id=flowgram_id,
         )
         self._sessions[session.id] = session
+        self._save_to_disk()
         logger.info(f"[SkillEditorChat] Created session: {session.id}")
         return session
     
     def get_session(self, session_id: str) -> Optional[ChatSession]:
         """Get a session by ID"""
+        self._ensure_initialized()
         return self._sessions.get(session_id)
     
     def get_all_sessions(self) -> List[ChatSession]:
         """Get all sessions"""
+        self._ensure_initialized()
         return list(self._sessions.values())
     
     def add_message(self, session_id: str, message: ChatMessage) -> bool:
         """Add a message to a session"""
+        self._ensure_initialized()
         session = self._sessions.get(session_id)
         if session:
             session.messages.append(message)
@@ -114,13 +217,23 @@ class SkillEditorChatStore:
             if message.role == ChatRole.USER and session.name == "New Chat":
                 content = message.content
                 session.name = content[:30] + "..." if len(content) > 30 else content
+            self._save_to_disk()
             return True
         return False
     
+    def update_session(self, session: ChatSession):
+        """Update a session and save to disk"""
+        self._ensure_initialized()
+        if session.id in self._sessions:
+            self._sessions[session.id] = session
+            self._save_to_disk()
+    
     def delete_session(self, session_id: str) -> bool:
         """Delete a session"""
+        self._ensure_initialized()
         if session_id in self._sessions:
             del self._sessions[session_id]
+            self._save_to_disk()
             return True
         return False
     
@@ -504,8 +617,19 @@ def _process_with_agent(
     """
     try:
         from agent.skill_editor import get_skill_editor_agent
+        from agent.skill_editor.schemas import ImplementationPlan, PlanStep
         
         agent = get_skill_editor_agent()
+        
+        # Restore agent state from session (survives app restarts)
+        if session.pipeline_state and session.pipeline_state != "idle":
+            logger.info(f"[SkillEditorChat] Restoring pipeline state from session: {session.pipeline_state}")
+            agent.restore_state(
+                pipeline_state=session.pipeline_state,
+                current_plan=session.current_plan,
+                current_request=session.current_request
+            )
+        
         logger.info(f"[SkillEditorChat] Processing with SkillEditorAgent")
         logger.info(f"[SkillEditorChat] Pipeline state: {agent.pipeline_state.value}")
         
@@ -553,6 +677,13 @@ def _process_with_agent(
         if response.validation:
             result["validation"] = response.validation.model_dump()
             logger.info(f"[SkillEditorChat] Returning validation result: valid={response.validation.valid}")
+        
+        # Save agent state back to session for persistence
+        session.pipeline_state = agent.pipeline_state.value
+        session.current_plan = agent.current_plan.model_dump() if agent.current_plan else None
+        session.current_request = agent.current_request
+        _chat_store.update_session(session)
+        logger.debug(f"[SkillEditorChat] Saved pipeline state to session: {session.pipeline_state}")
         
         return result
         
