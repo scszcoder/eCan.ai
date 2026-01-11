@@ -3,7 +3,7 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Input, Tooltip, Upload, Spin } from 'antd';
+import { Input, Tooltip, Upload } from 'antd';
 import {
   SendOutlined,
   AudioOutlined,
@@ -24,7 +24,6 @@ import type {
   ClarificationQuestion, 
   ImplementationPlan,
   PipelineState,
-  ChatMessageResponse,
 } from '../../types/skill-editor-chat.types';
 
 const { TextArea } = Input;
@@ -36,7 +35,9 @@ interface ChatMessage {
   timestamp: Date;
   attachments?: string[];
   clarification?: ClarificationQuestion[];
+  clarificationAnswers?: Record<string, string[]>;  // Submitted answers for clarification
   plan?: ImplementationPlan;
+  planAction?: 'approved' | 'revised';  // Action taken on plan (for read-only display)
   state?: PipelineState;
 }
 
@@ -361,30 +362,62 @@ const formatSessionDate = (date: Date): string => {
 const renderMessageContent = (msg: ChatMessage) => {
   const raw = msg.content ?? '';
 
-  if (msg.role === 'assistant') {
-    const trimmed = raw.trim();
-    if (trimmed.length > 0) {
-      const startsJson = trimmed.startsWith('{') || trimmed.startsWith('[');
-      const endsJson = trimmed.endsWith('}') || trimmed.endsWith(']');
+  // If message has clarification with submitted answers, render read-only ClarificationCard
+  if (msg.clarification && msg.clarification.length > 0 && msg.clarificationAnswers) {
+    return (
+      <>
+        {renderTextContent(raw)}
+        <ClarificationCard
+          questions={msg.clarification}
+          submittedAnswers={msg.clarificationAnswers}
+        />
+      </>
+    );
+  }
 
-      if (startsJson && endsJson) {
-        try {
-          const parsed = JSON.parse(trimmed);
-          return <JsonBlock>{JSON.stringify(parsed, null, 2)}</JsonBlock>;
-        } catch (err) {
-          // fall through to plain text rendering if JSON.parse fails
-        }
+  // If message has plan with action taken, render read-only PlanCard
+  if (msg.plan && msg.planAction) {
+    return (
+      <>
+        {renderTextContent(raw)}
+        <PlanCard
+          plan={msg.plan}
+          submittedAction={msg.planAction}
+        />
+      </>
+    );
+  }
+
+  return renderTextContent(raw);
+};
+
+const renderTextContent = (raw: string) => {
+  const trimmed = raw.trim();
+  if (trimmed.length > 0) {
+    const startsJson = trimmed.startsWith('{') || trimmed.startsWith('[');
+    const endsJson = trimmed.endsWith('}') || trimmed.endsWith(']');
+
+    if (startsJson && endsJson) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        return <JsonBlock>{JSON.stringify(parsed, null, 2)}</JsonBlock>;
+      } catch (err) {
+        // fall through to plain text rendering if JSON.parse fails
       }
     }
   }
 
   const lines = raw.split('\n');
-  return lines.map((line, idx) => (
-    <React.Fragment key={idx}>
-      {line}
-      {idx < lines.length - 1 && <br />}
-    </React.Fragment>
-  ));
+  return (
+    <>
+      {lines.map((line, idx) => (
+        <React.Fragment key={idx}>
+          {line}
+          {idx < lines.length - 1 && <br />}
+        </React.Fragment>
+      ))}
+    </>
+  );
 };
 
 export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
@@ -406,6 +439,49 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
   // Get active session
   const activeSession = sessions.find(s => s.id === activeSessionId);
 
+  // Load sessions from backend on mount
+  useEffect(() => {
+    const loadSessions = async () => {
+      console.log('[ChatPanel] Loading sessions from backend...');
+      try {
+        const backendSessions = await skillEditorChatService.getSessions();
+        if (backendSessions && backendSessions.length > 0) {
+          // Convert backend format to frontend format
+          const convertedSessions: ChatSession[] = backendSessions.map(s => ({
+            id: s.id,
+            topic: s.name || 'Chat',
+            messages: (s.messages || []).map(m => ({
+              id: m.id,
+              role: m.role as 'user' | 'assistant',
+              content: m.content,
+              timestamp: new Date(m.timestamp),
+              attachments: m.attachments?.map((a: any) => a.path || a.name) as string[] | undefined,
+              clarification: m.metadata?.clarification as ClarificationQuestion[] | undefined,
+              plan: m.metadata?.plan as ImplementationPlan | undefined,
+              state: m.metadata?.state as PipelineState | undefined,
+            })),
+            createdAt: new Date(s.createdAt),
+            updatedAt: new Date(s.updatedAt),
+          }));
+          
+          setSessions(convertedSessions);
+          console.log(`[ChatPanel] Loaded ${convertedSessions.length} sessions from backend`);
+          
+          // Auto-select the most recent session if none selected
+          if (!activeSessionId && convertedSessions.length > 0) {
+            setActiveSessionId(convertedSessions[0].id);
+          }
+        } else {
+          console.log('[ChatPanel] No sessions found in backend');
+        }
+      } catch (error) {
+        console.error('[ChatPanel] Failed to load sessions:', error);
+      }
+    };
+    
+    loadSessions();
+  }, []); // Only run on mount
+
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     if (chatThreadRef.current) {
@@ -422,18 +498,51 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
     }
   }, [activeSessionId]);
 
-  // Create new session
-  const handleNewSession = useCallback(() => {
-    const newSession: ChatSession = {
-      id: `session-${Date.now()}`,
-      topic: 'New Chat',
-      messages: [],
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    setSessions(prev => [newSession, ...prev]);
-    setActiveSessionId(newSession.id);
-    setMessages([]);
+  // Create new session (via backend for persistence)
+  const handleNewSession = useCallback(async () => {
+    try {
+      // Create session via backend so it gets persisted
+      const backendSession = await skillEditorChatService.createSession('New Chat');
+      if (backendSession) {
+        const newSession: ChatSession = {
+          id: backendSession.id,
+          topic: backendSession.name || 'New Chat',
+          messages: [],
+          createdAt: new Date(backendSession.createdAt),
+          updatedAt: new Date(backendSession.updatedAt),
+        };
+        setSessions(prev => [newSession, ...prev]);
+        setActiveSessionId(newSession.id);
+        setMessages([]);
+        console.log('[ChatPanel] Created new session via backend:', newSession.id);
+      } else {
+        // Fallback to local-only session if backend fails
+        const newSession: ChatSession = {
+          id: `session-${Date.now()}`,
+          topic: 'New Chat',
+          messages: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        setSessions(prev => [newSession, ...prev]);
+        setActiveSessionId(newSession.id);
+        setMessages([]);
+        console.warn('[ChatPanel] Backend session creation failed, using local session');
+      }
+    } catch (error) {
+      console.error('[ChatPanel] Error creating session:', error);
+      // Fallback to local-only session
+      const newSession: ChatSession = {
+        id: `session-${Date.now()}`,
+        topic: 'New Chat',
+        messages: [],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      setSessions(prev => [newSession, ...prev]);
+      setActiveSessionId(newSession.id);
+      setMessages([]);
+    }
   }, []);
 
   // Select session
@@ -458,19 +567,51 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
       timestamp: new Date(),
     };
 
-    // If no active session, create one locally first
+    // If no active session, create one via backend for persistence
     let currentSessionId = activeSessionId;
     if (!currentSessionId) {
-      const newSession: ChatSession = {
-        id: `session-${Date.now()}`,
-        topic: 'New Chat',
-        messages: [],
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-      setSessions(prev => [newSession, ...prev]);
-      currentSessionId = newSession.id;
-      setActiveSessionId(currentSessionId);
+      try {
+        const backendSession = await skillEditorChatService.createSession('New Chat');
+        if (backendSession) {
+          const newSession: ChatSession = {
+            id: backendSession.id,
+            topic: backendSession.name || 'New Chat',
+            messages: [],
+            createdAt: new Date(backendSession.createdAt),
+            updatedAt: new Date(backendSession.updatedAt),
+          };
+          setSessions(prev => [newSession, ...prev]);
+          currentSessionId = newSession.id;
+          setActiveSessionId(currentSessionId);
+          console.log('[ChatPanel] Created session via backend:', currentSessionId);
+        } else {
+          // Fallback to local session if backend fails
+          const newSession: ChatSession = {
+            id: `session-${Date.now()}`,
+            topic: 'New Chat',
+            messages: [],
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+          setSessions(prev => [newSession, ...prev]);
+          currentSessionId = newSession.id;
+          setActiveSessionId(currentSessionId);
+          console.warn('[ChatPanel] Backend session creation failed, using local session');
+        }
+      } catch (error) {
+        console.error('[ChatPanel] Error creating session:', error);
+        // Fallback to local session
+        const newSession: ChatSession = {
+          id: `session-${Date.now()}`,
+          topic: 'New Chat',
+          messages: [],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        setSessions(prev => [newSession, ...prev]);
+        currentSessionId = newSession.id;
+        setActiveSessionId(currentSessionId);
+      }
     }
 
     // Update messages locally (optimistic update)
@@ -565,6 +706,17 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
           setPendingPlan(null);
         }
         
+        // Load flowgram into canvas if present in response
+        if (response.flowgram) {
+          console.log('[ChatPanel] Loading generated flowgram into canvas...');
+          const loadResult = await canvasController.loadFlowgram(response.flowgram);
+          if (loadResult.success) {
+            console.log('[ChatPanel] Flowgram loaded successfully:', loadResult.data);
+          } else {
+            console.error('[ChatPanel] Failed to load flowgram:', loadResult.error);
+          }
+        }
+        
         // Update session with response
         setSessions(prev => prev.map(s => {
           if (s.id === currentSessionId) {
@@ -614,6 +766,18 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
     
     console.log('[ChatPanel] Submitting clarification answers:', answers);
     setIsLoading(true);
+    
+    // Store the answers in the message that had the clarification questions (before clearing pending)
+    const currentClarification = pendingClarification;
+    setMessages(prev => prev.map(msg => {
+      // Find the message with matching clarification questions and add the answers
+      if (msg.clarification && msg.clarification.length > 0 && 
+          currentClarification && msg.clarification[0]?.id === currentClarification[0]?.id) {
+        return { ...msg, clarificationAnswers: answers };
+      }
+      return msg;
+    }));
+    
     setPendingClarification(null);
     
     try {
@@ -684,6 +848,16 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
     
     console.log('[ChatPanel] Approving plan');
     setIsLoading(true);
+    
+    // Store the action in the message that had the plan (before clearing pending)
+    const currentPlan = pendingPlan;
+    setMessages(prev => prev.map(msg => {
+      if (msg.plan && currentPlan && msg.plan.summary === currentPlan.summary) {
+        return { ...msg, planAction: 'approved' as const };
+      }
+      return msg;
+    }));
+    
     setPendingPlan(null);
     
     try {
@@ -727,6 +901,17 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
         setMessages(prev => [...prev, assistantMessage]);
         setPipelineState(response.state || 'complete');
         console.log('[ChatPanel] Pipeline state updated to:', response.state || 'complete');
+        
+        // Load the generated flowgram into the canvas
+        if (response.flowgram) {
+          console.log('[ChatPanel] Loading generated flowgram into canvas...');
+          const loadResult = await canvasController.loadFlowgram(response.flowgram);
+          if (loadResult.success) {
+            console.log('[ChatPanel] Flowgram loaded successfully:', loadResult.data);
+          } else {
+            console.error('[ChatPanel] Failed to load flowgram:', loadResult.error);
+          }
+        }
       } else {
         console.warn('[ChatPanel] No response received from plan approval');
       }
@@ -743,6 +928,16 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
     
     console.log('[ChatPanel] Rejecting plan');
     setIsLoading(true);
+    
+    // Store the action in the message that had the plan (before clearing pending)
+    const currentPlan = pendingPlan;
+    setMessages(prev => prev.map(msg => {
+      if (msg.plan && currentPlan && msg.plan.summary === currentPlan.summary) {
+        return { ...msg, planAction: 'revised' as const };
+      }
+      return msg;
+    }));
+    
     setPendingPlan(null);
     
     try {

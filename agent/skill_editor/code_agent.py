@@ -28,6 +28,11 @@ from .schemas import (
     ImplementationPlan,
     CanvasCommand,
     NODE_TYPES,
+)
+from .validator_agent import get_validator_agent, ValidatorAction
+
+# Re-import for the rest of the file
+from .schemas import (
     get_node_types_description,
 )
 from .placement import place_nodes, LOOP_INTERNAL_CFG
@@ -82,7 +87,18 @@ When you generate a flowgram, the system will automatically:
 ## FLOWGRAM GENERATION RULES:
 1. Every flowgram MUST have a "start" node and an "end" node
 2. All nodes must be connected - no orphan nodes
-3. Node IDs must be unique (use descriptive IDs like "llm_process", "condition_check")
+3. **NODE NAMING CONVENTION (CRITICAL - MUST FOLLOW EXACTLY)**: Node IDs MUST use the node type as prefix (replace hyphens with underscores):
+   - LLM nodes (type="llm"): `llm_<purpose>` (e.g., "llm_analyze_order", "llm_process_message")
+   - Condition nodes (type="condition"): `condition_<purpose>` (e.g., "condition_check_status", "condition_has_orders")
+   - Loop nodes (type="loop"): `loop_<purpose>` (e.g., "loop_process_orders", "loop_messages")
+   - Browser automation (type="browser-automation"): `browser_automation_<purpose>` (e.g., "browser_automation_scrape", "browser_automation_login")
+   - MCP nodes (type="mcp"): `mcp_<purpose>` (e.g., "mcp_rag_query", "mcp_send_email")
+   - Code nodes (type="code"): `code_<purpose>` (e.g., "code_init_vars", "code_transform_data")
+   - Chat nodes (type="chat_node"): `chat_node_<purpose>` (e.g., "chat_node_alert", "chat_node_summary")
+   - Pend event (type="pend_event"): `pend_event_<purpose>` (e.g., "pend_event_human_review")
+   - HTTP nodes (type="http"): `http_<purpose>` (e.g., "http_fetch_data", "http_post_result")
+   - RAG nodes (type="rag"): `rag_<purpose>` (e.g., "rag_query_kb", "rag_search")
+   **The prefix MUST match the node type (with hyphens replaced by underscores)** - this is validated and will cause errors if wrong.
 4. Position nodes in a logical flow (top to bottom or left to right)
 5. Include proper configuration for each node type
 6. For LLM nodes, include system_prompt and user_prompt in config
@@ -92,6 +108,26 @@ When you generate a flowgram, the system will automatically:
 10. Infer a concise snake_case skill name when the user does not provide one explicitly (e.g., "ebay000" → "ebay000")
 11. ALWAYS write the `message` field as a short, human-readable summary of what you built (do not echo raw JSON)
 12. Include where the skill was saved in your message (e.g., "Created 'ebay000' skill with start→end flow. Saved to my_skills/ebay000_skill/")
+
+## EDGE CONNECTIVITY VALIDATION (CRITICAL - MOST COMMON ERROR):
+Before finalizing your flowgram, VERIFY these connectivity rules:
+1. **Every node except start must have at least one incoming edge**
+2. **Every node except end must have at least one outgoing edge**
+3. **Condition nodes REQUIRE incoming edges**: The node BEFORE a condition MUST connect TO the condition!
+   - WRONG: node_A exists, condition_B exists, but no edge from node_A to condition_B
+   - RIGHT: {{"source": "node_A", "target": "condition_B"}} edge exists
+4. **Loop nodes**: Must have incoming edge from previous node and outgoing edge to next node
+5. **Double-check**: After creating ALL edges, trace the flow from start to end - every node must be reachable
+
+**COMMON MISTAKE (FIX THIS)**: Creating a condition node but forgetting to connect the previous node TO it.
+Example: If you have `browser_automation_login` followed by `condition_check_data`, you MUST create an edge:
+  {{"source": "browser_automation_login", "target": "condition_check_data"}}
+
+**VERIFICATION CHECKLIST** (run through this before outputting):
+- [ ] Does every condition node have an incoming edge? (Check each one!)
+- [ ] Does every loop node have an incoming edge?
+- [ ] Can you trace a path from "start" to every node?
+- [ ] Can you trace a path from every node to "end"?
 
 ## E-COMMERCE Q&A HANDLING PATTERN (CRITICAL):
 When workflow involves product/service Q&A (on-site messaging or email), follow this order:
@@ -111,6 +147,30 @@ RAG Query → Condition (has answer?) →
       YES: Use human response → END
       NO: Web search OR local file search → Auto-respond → END
 ```
+
+## BROWSER_AUTOMATION NODE - CRITICAL UNDERSTANDING:
+The `browser_automation` node is a **SUB-AGENT with its own internal LLM**, NOT a simple action node!
+
+**Capabilities:**
+- Has its own LLM that can read/understand page DOM, extract data, and make decisions
+- Can execute up to **100 consecutive interaction steps** (click, type, scroll, navigate, etc.)
+- Returns structured JSON output including status flags and extracted data
+- Handles complex multi-step web interactions autonomously
+
+**CORRECT Pattern - Batch Browser Work:**
+Instead of creating multiple browser_automation + llm node pairs, batch related browser work:
+1. Write a **detailed prompt** describing all browser tasks
+2. Configure the browser_automation node to return JSON with an `all_done` boolean flag
+3. Wrap with a **loop node (while type)** that continues until `all_done` is true
+
+Example: Processing eBay orders
+- WRONG: browser_automation (login) → llm (analyze) → browser_automation (navigate) → llm (extract) → ...
+- RIGHT: Single browser_automation node with prompt: "Login to eBay, navigate to orders, process up to 3 unshipped orders by checking messages for cancellations and generating shipping labels. Return JSON with processed_orders array and all_done boolean." → Wrap in while loop checking all_done
+
+**When to use separate LLM nodes:**
+- Non-browser reasoning/data processing (e.g., comparing API response data)
+- Aggregating results from multiple sources
+- Complex business logic that doesn't involve browser interaction
 
 ## SUB-AGENT ERROR HANDLING PATTERN (CRITICAL):
 When building workflows with sub-agents (LLM+MCP tools or browser_automation), ALWAYS include this behavior in prompts:
@@ -138,6 +198,7 @@ Condition nodes have multiple output branches (if/elseif/else). They require:
 4. By default, only if and else branches (no elseif). Add elseif branches only when needed.
 5. Edges FROM condition nodes MUST use `source_handle` (or `sourcePortID`) matching the condition key
 6. Note: Each elseif branch adds ~27px to the node height
+7. **Connectivity rule (CRITICAL)**: Every condition node MUST have exactly one INCOMING edge from the immediately preceding node in the flow. Then add OUTGOING edges for every branch using the branch key as `source_handle`.
 
 Example condition node (default - no elseif):
 {{
@@ -189,11 +250,33 @@ Loop nodes are container nodes that hold internal nodes. They have a special str
    - A "block-start" node (type: "block-start") at the beginning
    - A "block-end" node (type: "block-end") at the end
    - Any content nodes (llm, mcp, code, etc.) between them
-3. Loop nodes MUST have an `internal_edges` array connecting the blocks
+3. Loop nodes MUST have an `edges` array (or `internal_edges`) connecting ALL blocks
 4. Internal node positions are RELATIVE to the loop's internal coordinate system:
    - block-start: position around (30, 0)
    - Content nodes: y ~16, x spread between 120 and 450
    - block-end: position at the right side
+
+### LOOP INTERNAL EDGE REQUIREMENTS (CRITICAL - MOST COMMON ERROR):
+**Every node inside a loop MUST be connected via internal edges!**
+
+1. **block-start** must have outgoing edge to the first content node
+2. **Every content node** must have:
+   - At least one INCOMING edge (from block-start or previous node)
+   - At least one OUTGOING edge (to next node or block-end)
+3. **block-end** must have incoming edge from the last content node
+4. **Condition nodes inside loops** follow the same rules as top-level:
+   - MUST have incoming edge from previous node
+   - Each branch (if/else) must have outgoing edge
+
+**COMMON MISTAKE**: Creating nodes inside a loop but forgetting to connect them!
+Example: If loop has `block_start_1 → rag_query → condition_check → llm_respond → block_end_1`:
+- WRONG: Only edges `block_start_1 → rag_query` and `condition_check → llm_respond` (missing `rag_query → condition_check`)
+- RIGHT: ALL edges present: `block_start_1 → rag_query → condition_check → llm_respond → block_end_1`
+
+**VERIFICATION for loop nodes**: After creating internal edges, verify:
+- [ ] Can you trace from block-start to EVERY internal node?
+- [ ] Can you trace from EVERY internal node to block-end?
+- [ ] Does every condition node inside the loop have an incoming edge?
 
 ### LOOP MODES:
 1. **loopFor** (fixed iterations):
@@ -218,7 +301,7 @@ Loop nodes are container nodes that hold internal nodes. They have a special str
   ```
 - This ensures the loop runs at least once
 
-Example loop node (loopFor):
+Example loop node (loopFor - simple):
 {{
   "id": "loop_1",
   "type": "loop",
@@ -230,22 +313,41 @@ Example loop node (loopFor):
     {{"id": "llm_in_loop", "type": "llm", "label": "Process", "position": {{"x": 200, "y": 16}}, "config": {{}}}},
     {{"id": "block_end_1", "type": "block-end", "label": "Loop End", "position": {{"x": 450, "y": 16}}, "config": {{}}}}
   ],
-  "internal_edges": [
+  "edges": [
     {{"source": "block_start_1", "target": "llm_in_loop"}},
     {{"source": "llm_in_loop", "target": "block_end_1"}}
   ]
 }}
 
-Example loop node (loopWhile):
+Example loop node (with condition - NOTICE ALL EDGES):
 {{
-  "id": "loop_2",
+  "id": "loop_process_messages",
   "type": "loop",
-  "label": "Process Until Done",
+  "label": "Process Messages",
   "position": {{"x": 400, "y": 200}},
-  "config": {{"loopMode": "loopWhile", "loopCountExpr": "", "loopWhileExpr": "state['result']['llm_result']['not_yet_finished']"}},
-  "blocks": [...],
-  "internal_edges": [...]
+  "config": {{"loopMode": "loopWhile", "loopCountExpr": "", "loopWhileExpr": "state['has_more_messages']"}},
+  "blocks": [
+    {{"id": "block_start_msg", "type": "block-start", "label": "Loop Start", "position": {{"x": 30, "y": 0}}, "config": {{}}}},
+    {{"id": "rag_query_kb", "type": "rag", "label": "Query KB", "position": {{"x": 150, "y": 16}}, "config": {{}}}},
+    {{"id": "condition_has_answer", "type": "condition", "label": "Has Answer?", "position": {{"x": 300, "y": 50}}, "config": {{"conditions": [{{"key": "if_yes", "value": {{}}}}, {{"key": "else_no", "value": {{}}}}]}}}},
+    {{"id": "llm_respond", "type": "llm", "label": "Auto Respond", "position": {{"x": 450, "y": 16}}, "config": {{}}}},
+    {{"id": "pend_event_human", "type": "pend_event", "label": "Wait Human", "position": {{"x": 450, "y": 100}}, "config": {{}}}},
+    {{"id": "block_end_msg", "type": "block-end", "label": "Loop End", "position": {{"x": 600, "y": 50}}, "config": {{}}}}
+  ],
+  "edges": [
+    {{"source": "block_start_msg", "target": "rag_query_kb"}},
+    {{"source": "rag_query_kb", "target": "condition_has_answer"}},
+    {{"source": "condition_has_answer", "target": "llm_respond", "source_handle": "if_yes"}},
+    {{"source": "condition_has_answer", "target": "pend_event_human", "source_handle": "else_no"}},
+    {{"source": "llm_respond", "target": "block_end_msg"}},
+    {{"source": "pend_event_human", "target": "block_end_msg"}}
+  ]
 }}
+NOTE: In the above example, EVERY node has incoming AND outgoing edges:
+- block_start_msg → rag_query_kb (rag_query_kb has incoming)
+- rag_query_kb → condition_has_answer (condition has incoming!)
+- condition_has_answer → llm_respond AND pend_event_human (both branches have outgoing)
+- llm_respond → block_end_msg AND pend_event_human → block_end_msg (both paths reach end)
 
 ## CONDITION NODE IF FIELD:
 - Default: "state.condition" (uses node_state["condition"] attribute)
@@ -262,46 +364,97 @@ Example loop node (loopWhile):
 - Use code nodes to initialize loop variables before loops
 
 ## OUTPUT FORMAT:
-You MUST respond with valid JSON containing the flowgram:
+You MUST respond with valid JSON containing the flowgram.
+
+**CRITICAL NODE STRUCTURE**: Each node uses `data.inputsValues` with typed values:
+- Constant values: `{{"type": "constant", "content": <value>}}`
+- Template strings (with variables): `{{"type": "template", "content": "text with {{{{var}}}}"}}`
 
 {{
   "action": "generate_flowgram",
-  "message": "Brief, human-readable summary of what was created (e.g. 'Created ebay order triage flow with 5 nodes')",
+  "message": "Brief, human-readable summary of what was created",
   "flowgram": {{
     "nodes": [
       {{
         "id": "start",
         "type": "start",
-        "label": "Start",
-        "position": {{"x": 100, "y": 100}},
-        "config": {{}}
+        "meta": {{"position": {{"x": 100, "y": 200}}}},
+        "data": {{"title": "Start"}}
       }},
       {{
-        "id": "llm_process",
+        "id": "browser_automation_fetch_orders",
+        "type": "browser-automation",
+        "meta": {{"position": {{"x": 350, "y": 200}}}},
+        "data": {{
+          "title": "Browser Task",
+          "inputsValues": {{
+            "tool": {{"type": "constant", "content": "browser-use"}},
+            "browser": {{"type": "constant", "content": "new chromium"}},
+            "browserDriver": {{"type": "constant", "content": "native"}},
+            "cdpPort": {{"type": "constant", "content": ""}},
+            "shopName": {{"type": "constant", "content": "ebay"}},
+            "customShopName": {{"type": "constant", "content": ""}},
+            "modelProvider": {{"type": "constant", "content": "OpenAI"}},
+            "modelName": {{"type": "constant", "content": "gpt-4o"}},
+            "temperature": {{"type": "constant", "content": 0.3}},
+            "useThinking": {{"type": "constant", "content": false}},
+            "profile": {{"type": "constant", "content": ""}},
+            "systemPrompt": {{"type": "template", "content": "You are a browser automation agent."}},
+            "prompt": {{"type": "template", "content": "Navigate to eBay and perform the task."}},
+            "promptSelection": {{"type": "constant", "content": "inline"}}
+          }}
+        }}
+      }},
+      {{
+        "id": "llm_analyze_data",
         "type": "llm",
-        "label": "Process with AI",
-        "position": {{"x": 100, "y": 250}},
-        "config": {{
-          "model": "gpt-4o-mini",
-          "system_prompt": "You are a helpful assistant.",
-          "user_prompt": "Process the input: {{{{input}}}}",
-          "temperature": 0.7
+        "meta": {{"position": {{"x": 600, "y": 200}}}},
+        "data": {{
+          "title": "Process with AI",
+          "inputsValues": {{
+            "modelProvider": {{"type": "constant", "content": "OpenAI"}},
+            "modelName": {{"type": "constant", "content": "gpt-4o-mini"}},
+            "temperature": {{"type": "constant", "content": 0.5}},
+            "useThinking": {{"type": "constant", "content": false}},
+            "systemPrompt": {{"type": "template", "content": "You are a helpful assistant."}},
+            "systemPromptId": {{"type": "constant", "content": "in-line"}},
+            "prompt": {{"type": "template", "content": "Process: {{{{input}}}}"}},
+            "promptId": {{"type": "constant", "content": "in-line"}},
+            "promptSelection": {{"type": "constant", "content": "inline"}}
+          }}
+        }}
+      }},
+      {{
+        "id": "mcp_send_email",
+        "type": "mcp",
+        "meta": {{"position": {{"x": 850, "y": 200}}}},
+        "data": {{
+          "title": "MCP Tool",
+          "callable": {{
+            "id": "llm-auto-select",
+            "name": "llm auto select",
+            "desc": "Let the LLM automatically select the appropriate tool",
+            "type": "system",
+            "source": ""
+          }},
+          "inputsValues": {{}}
         }}
       }},
       {{
         "id": "end",
         "type": "end",
-        "label": "End",
-        "position": {{"x": 100, "y": 400}},
-        "config": {{}}
+        "meta": {{"position": {{"x": 1100, "y": 200}}}},
+        "data": {{"title": "End"}}
       }}
     ],
     "edges": [
-      {{"source": "start", "target": "llm_process"}},
-      {{"source": "llm_process", "target": "end"}}
+      {{"sourceNodeID": "start", "targetNodeID": "browser_automation_fetch_orders"}},
+      {{"sourceNodeID": "browser_automation_fetch_orders", "targetNodeID": "llm_analyze_data"}},
+      {{"sourceNodeID": "llm_analyze_data", "targetNodeID": "mcp_send_email"}},
+      {{"sourceNodeID": "mcp_send_email", "targetNodeID": "end"}}
     ],
     "metadata": {{
-      "name": "Workflow Name",
+      "skillName": "workflow_name",
       "description": "What this workflow does"
     }}
   }}
@@ -603,11 +756,28 @@ class CodeAgent:
             llm_providers = config_manager.llm_manager.get_all_providers()
             default_llm = config_manager.general_settings.default_llm
             
+            logger.info(f"[CodeAgent] Default LLM setting: {default_llm}")
+            logger.info(f"[CodeAgent] Available providers: {list(llm_providers.keys()) if llm_providers else 'None'}")
+            
             if not llm_providers:
                 raise RuntimeError("No LLM providers configured")
             
+            # Log provider details (mask API keys)
+            for name, provider in llm_providers.items():
+                api_key = getattr(provider, 'api_key', None) or getattr(provider, 'apiKey', None)
+                if api_key:
+                    masked_key = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else "***"
+                    logger.info(f"[CodeAgent] Provider '{name}': API key = {masked_key}")
+            
+            # For skill editor, prefer OpenAI for complex flowgram generation
+            # Override default if OpenAI is available
+            skill_editor_llm = default_llm
+            if 'openai' in [p.lower() for p in llm_providers.keys()]:
+                skill_editor_llm = 'openai'
+                logger.info(f"[CodeAgent] Overriding default LLM '{default_llm}' with 'openai' for skill editor")
+            
             llm_instance = pick_llm(
-                default_llm=default_llm,
+                default_llm=skill_editor_llm,
                 llm_providers=llm_providers,
                 config_manager=config_manager,
                 allow_fallback=True
@@ -615,6 +785,16 @@ class CodeAgent:
             
             if llm_instance is None:
                 raise RuntimeError("Failed to create LLM instance")
+            
+            # Log which model is being used
+            model_name = getattr(llm_instance, 'model_name', None) or getattr(llm_instance, 'model', None)
+            logger.info(f"[CodeAgent] Using LLM model: {model_name}")
+            
+            # Increase max_tokens for complex flowgram generation
+            # Default is often 4096, but complex workflows need more
+            if hasattr(llm_instance, 'max_tokens'):
+                llm_instance.max_tokens = 16384
+                logger.info(f"[CodeAgent] Set max_tokens to 16384 for complex flowgram generation")
             
             return llm_instance
             
@@ -625,8 +805,8 @@ class CodeAgent:
                 import os
                 api_key = os.environ.get("OPENAI_API_KEY")
                 if api_key:
-                    logger.info("[CodeAgent] Using fallback OpenAI LLM")
-                    return ChatOpenAI(model="gpt-4o-mini", api_key=api_key)
+                    logger.info("[CodeAgent] Using fallback OpenAI LLM with max_tokens=16384")
+                    return ChatOpenAI(model="gpt-4o", api_key=api_key, max_tokens=16384)
             except Exception:
                 pass
             raise
@@ -667,14 +847,23 @@ class CodeAgent:
             f"Summary: {plan.summary}",
             f"Complexity: {plan.complexity}",
             f"Estimated nodes: {', '.join(plan.estimated_nodes)}",
-            "\nSteps:"
+            "\n## PLAN STEPS (YOU MUST IMPLEMENT EACH STEP):"
         ]
         
         for i, step in enumerate(plan.steps, 1):
-            lines.append(f"  {i}. {step.title}")
-            lines.append(f"     {step.description}")
+            lines.append(f"\n### Step {i}: {step.title}")
+            lines.append(f"Description: {step.description}")
             if step.node_types:
-                lines.append(f"     Node types: {', '.join(step.node_types)}")
+                lines.append(f"**REQUIRED NODE TYPES FOR THIS STEP: {', '.join(step.node_types)}**")
+                lines.append(f"You MUST create nodes of these types to implement this step.")
+        
+        lines.append("\n## CRITICAL PLAN IMPLEMENTATION RULES:")
+        lines.append("1. **EVERY plan step MUST be implemented** - do not skip any steps")
+        lines.append("2. **Use the EXACT node types specified** in each step's 'REQUIRED NODE TYPES'")
+        lines.append("3. If a step says 'loop', you MUST create a loop node with blocks")
+        lines.append("4. If a step says 'browser_automation', you MUST create a browser_automation node")
+        lines.append("5. If a step says 'mcp_tool', you MUST create an mcp_tool node")
+        lines.append("6. Connect the nodes from each step in sequence to form the complete workflow")
         
         return "\n".join(lines)
     
@@ -722,35 +911,183 @@ class CodeAgent:
             logger.error(f"[CodeAgent] LLM streaming failed: {e}")
             raise
     
-    def _parse_flowgram_from_response(self, response: str) -> Optional[Dict]:
-        """Extract flowgram JSON from LLM response"""
+    def _parse_flowgram_from_response(self, response: str, task_context: Optional[str] = None) -> Optional[Dict]:
+        """Extract flowgram JSON from LLM response
+        
+        Args:
+            response: The LLM response to parse
+            task_context: The original user request for logical sequencing during edge fixing
+        """
+        # Use stored task context if not provided
+        if task_context is None:
+            task_context = getattr(self, '_current_task_context', None)
         logger.debug(f"[CodeAgent] Parsing flowgram from response (length: {len(response)})")
         
+        parsed_data = None
+        
+        # First try direct JSON parsing
         try:
             # Try to extract JSON from markdown code block
             json_match = re.search(r'```json\s*([\s\S]*?)\s*```', response)
             if json_match:
-                return json.loads(json_match.group(1))
+                try:
+                    parsed_data = json.loads(json_match.group(1))
+                except json.JSONDecodeError:
+                    pass
             
-            # Try to find raw JSON object
-            json_match = re.search(r'\{[\s\S]*"flowgram"[\s\S]*\}', response)
-            if json_match:
-                return json.loads(json_match.group(0))
+            # Try to find raw JSON object with "flowgram" key
+            if not parsed_data:
+                json_match = re.search(r'\{[\s\S]*"flowgram"[\s\S]*\}', response)
+                if json_match:
+                    try:
+                        parsed_data = json.loads(json_match.group(0))
+                    except json.JSONDecodeError:
+                        pass
             
-            # Try to find just the flowgram object
-            json_match = re.search(r'\{[\s\S]*"nodes"[\s\S]*\}', response)
-            if json_match:
-                data = json.loads(json_match.group(0))
-                if "nodes" in data:
-                    return {"action": "generate_flowgram", "flowgram": data, "message": ""}
-                return data
+            # Try to find just the flowgram object with "nodes" key
+            if not parsed_data:
+                json_match = re.search(r'\{[\s\S]*"nodes"[\s\S]*\}', response)
+                if json_match:
+                    try:
+                        data = json.loads(json_match.group(0))
+                        if "nodes" in data:
+                            parsed_data = {"action": "generate_flowgram", "flowgram": data, "message": ""}
+                        else:
+                            parsed_data = data
+                    except json.JSONDecodeError:
+                        pass
             
-            logger.warning("[CodeAgent] No JSON found in response")
-            return None
+        except Exception as e:
+            logger.debug(f"[CodeAgent] Direct JSON parse failed: {e}")
+        
+        # If direct parsing failed, use ValidatorAgent to fix the JSON
+        if not parsed_data:
+            logger.info("[CodeAgent] Direct JSON parsing failed, using ValidatorAgent to repair")
+            parsed_data = self._parse_with_validator(response)
+        
+        # Always fix disconnected nodes if we have a flowgram
+        if parsed_data:
+            parsed_data = self._fix_disconnected_nodes(parsed_data, task_context=task_context)
+        
+        return parsed_data
+    
+    def _fix_disconnected_nodes(self, data: Dict, task_context: Optional[str] = None) -> Dict:
+        """Fix disconnected nodes in the flowgram using ValidatorAgent
+        
+        Args:
+            data: The flowgram data to fix
+            task_context: The original user request for logical sequencing
+        """
+        try:
+            validator = get_validator_agent()
+            fixed_data = validator.fix_disconnected_nodes(data, task_context=task_context)
+            return fixed_data
+        except Exception as e:
+            logger.warning(f"[CodeAgent] Failed to fix disconnected nodes: {e}")
+            return data
+    
+    def _parse_with_validator(self, response: str, continuation_attempt: int = 0) -> Optional[Dict]:
+        """Use ValidatorAgent to parse and fix malformed JSON"""
+        import asyncio
+        
+        MAX_CONTINUATION_ATTEMPTS = 2
+        
+        try:
+            validator = get_validator_agent()
             
-        except json.JSONDecodeError as e:
-            logger.warning(f"[CodeAgent] JSON parse error: {e}")
-            return None
+            # Run async validation synchronously
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(
+                            asyncio.run,
+                            validator.validate_and_fix(response)
+                        )
+                        result = future.result()
+                else:
+                    result = loop.run_until_complete(validator.validate_and_fix(response))
+            except RuntimeError:
+                result = asyncio.run(validator.validate_and_fix(response))
+            
+            if result.action == ValidatorAction.VALID or result.action == ValidatorAction.FIXED:
+                logger.info(f"[CodeAgent] ValidatorAgent: {result.message}")
+                data = result.fixed_json
+                
+                # Normalize the result
+                if data:
+                    if "flowgram" in data:
+                        return data
+                    if "nodes" in data:
+                        return {"action": "generate_flowgram", "flowgram": data, "message": ""}
+                    return data
+            
+            elif result.action == ValidatorAction.TRUNCATED:
+                # Output was truncated - try to continue generation
+                if continuation_attempt < MAX_CONTINUATION_ATTEMPTS:
+                    logger.info(f"[CodeAgent] Output truncated, requesting continuation (attempt {continuation_attempt + 1})")
+                    continued_response = self._request_continuation(result.truncated_content)
+                    if continued_response:
+                        # Combine original + continuation and try again
+                        combined = response.rstrip() + continued_response
+                        return self._parse_with_validator(combined, continuation_attempt + 1)
+                else:
+                    logger.warning(f"[CodeAgent] Max continuation attempts reached, cannot complete truncated output")
+            
+            else:
+                logger.warning(f"[CodeAgent] ValidatorAgent could not fix JSON: {result.message}")
+                if result.original_error:
+                    logger.debug(f"[CodeAgent] Original error: {result.original_error}")
+            
+        except Exception as e:
+            logger.error(f"[CodeAgent] ValidatorAgent failed: {e}")
+        
+        return None
+    
+    def _request_continuation(self, truncated_content: str) -> Optional[str]:
+        """Request LLM to continue generating from truncated output"""
+        import asyncio
+        
+        try:
+            # Take the last portion of truncated content for context
+            context_length = min(4000, len(truncated_content))
+            context = truncated_content[-context_length:]
+            
+            continuation_prompt = f"""Your previous response was truncated. Continue EXACTLY from where you left off.
+
+DO NOT repeat any content. Just continue the JSON from this point:
+
+...{context}
+
+Continue the JSON output (do not include any text before the continuation):"""
+            
+            logger.info("[CodeAgent] Requesting continuation from LLM")
+            
+            # Run async LLM call
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(
+                            asyncio.run,
+                            self._invoke_llm_async(continuation_prompt)
+                        )
+                        continuation = future.result()
+                else:
+                    continuation = loop.run_until_complete(self._invoke_llm_async(continuation_prompt))
+            except RuntimeError:
+                continuation = asyncio.run(self._invoke_llm_async(continuation_prompt))
+            
+            if continuation:
+                logger.info(f"[CodeAgent] Received continuation (length: {len(continuation)})")
+                return continuation
+                
+        except Exception as e:
+            logger.error(f"[CodeAgent] Continuation request failed: {e}")
+        
+        return None
 
     def _ensure_start_end_nodes(self, flowgram: Optional[Flowgram]) -> None:
         """Ensure the flowgram has start/end nodes, minimal connectivity, and metadata defaults."""
@@ -811,6 +1148,115 @@ class CodeAgent:
         
         # Apply automatic layout to avoid overlapping nodes
         self._apply_layout(flowgram)
+    
+    def _fix_missing_incoming_edges(self, flowgram: Flowgram) -> None:
+        """
+        Auto-fix missing incoming edges to condition and loop nodes.
+        Infers the previous node based on position (x-coordinate) and creates the missing edge.
+        """
+        if not flowgram or not flowgram.nodes:
+            return
+        
+        # Build set of nodes that have incoming edges
+        nodes_with_incoming = set()
+        for edge in flowgram.edges:
+            nodes_with_incoming.add(edge.target)
+        
+        # Sort nodes by x position to determine order
+        sorted_nodes = sorted(flowgram.nodes, key=lambda n: n.position.x if n.position else 0)
+        
+        # Find nodes without incoming edges (excluding start)
+        for i, node in enumerate(sorted_nodes):
+            if node.type in ["start", "block-start"]:
+                continue
+            
+            if node.id not in nodes_with_incoming:
+                # Find the previous node in the sorted order that has outgoing edges to somewhere
+                # or is the closest node by position
+                prev_node = None
+                for j in range(i - 1, -1, -1):
+                    candidate = sorted_nodes[j]
+                    if candidate.type not in ["end", "block-end"]:
+                        prev_node = candidate
+                        break
+                
+                if prev_node:
+                    # Create the missing edge
+                    new_edge = FlowgramEdge(source=prev_node.id, target=node.id)
+                    flowgram.edges.append(new_edge)
+                    nodes_with_incoming.add(node.id)
+                    logger.info(f"[CodeAgent] Auto-fixed: Added missing edge {prev_node.id} -> {node.id}")
+    
+    def _fix_node_naming(self, flowgram: Flowgram) -> None:
+        """
+        Auto-fix node IDs to follow naming convention (type prefix).
+        Updates node IDs and all edge references.
+        """
+        if not flowgram or not flowgram.nodes:
+            return
+        
+        type_to_prefix = {
+            "llm": "llm_",
+            "condition": "condition_",
+            "loop": "loop_",
+            "browser_automation": "browser_automation_",
+            "mcp_tool": "mcp_tool_",
+            "code": "code_",
+            "chat_node": "chat_node_",
+            "pend_event": "pend_event_",
+            "http": "http_",
+            "rag": "rag_",
+        }
+        
+        # Build mapping of old ID -> new ID
+        id_mapping = {}
+        for node in flowgram.nodes:
+            if node.type in type_to_prefix:
+                expected_prefix = type_to_prefix[node.type]
+                if not node.id.startswith(expected_prefix):
+                    # Generate new ID with correct prefix
+                    # Remove any existing type-like prefix first
+                    clean_id = node.id
+                    for prefix in type_to_prefix.values():
+                        if clean_id.startswith(prefix):
+                            clean_id = clean_id[len(prefix):]
+                            break
+                    # Also handle short prefixes like "browser_" or "mcp_"
+                    short_prefixes = ["browser_", "mcp_", "automation_"]
+                    for sp in short_prefixes:
+                        if clean_id.startswith(sp):
+                            clean_id = clean_id[len(sp):]
+                            break
+                    
+                    new_id = f"{expected_prefix}{clean_id}"
+                    id_mapping[node.id] = new_id
+                    logger.info(f"[CodeAgent] Auto-fixed: Renamed node '{node.id}' -> '{new_id}'")
+        
+        # Apply ID changes to nodes
+        for node in flowgram.nodes:
+            if node.id in id_mapping:
+                node.id = id_mapping[node.id]
+            # Also fix blocks inside loop nodes
+            if node.blocks:
+                for block in node.blocks:
+                    if block.id in id_mapping:
+                        block.id = id_mapping[block.id]
+        
+        # Update edge references
+        for edge in flowgram.edges:
+            if edge.source in id_mapping:
+                edge.source = id_mapping[edge.source]
+            if edge.target in id_mapping:
+                edge.target = id_mapping[edge.target]
+        
+        # Update internal edges in loop nodes
+        for node in flowgram.nodes:
+            if node.internal_edges:
+                for edge in node.internal_edges:
+                    if edge.source in id_mapping:
+                        edge.source = id_mapping[edge.source]
+                    if edge.target in id_mapping:
+                        edge.target = id_mapping[edge.target]
     
     def _apply_layout(self, flowgram: Flowgram) -> None:
         """
@@ -1022,15 +1468,16 @@ class CodeAgent:
                     FlowgramEdge(source=block_start_id, target=block_end_id)
                 ]
             
-            # Parse internal edges
-            internal_edges_data = n.get("internal_edges", [])
+            # Parse internal edges - check both "internal_edges" and "edges" keys
+            # ValidatorAgent uses "edges" while LLM might use "internal_edges"
+            internal_edges_data = n.get("internal_edges", []) or n.get("edges", [])
             if internal_edges_data:
                 internal_edges = [
                     FlowgramEdge(
-                        source=e.get("source", ""),
-                        target=e.get("target", ""),
-                        source_handle=e.get("source_handle") or e.get("sourceHandle"),
-                        target_handle=e.get("target_handle") or e.get("targetHandle"),
+                        source=e.get("source") or e.get("sourceNodeID") or "",
+                        target=e.get("target") or e.get("targetNodeID") or "",
+                        source_handle=e.get("source_handle") or e.get("sourceHandle") or e.get("sourcePortID"),
+                        target_handle=e.get("target_handle") or e.get("targetHandle") or e.get("targetPortID"),
                     )
                     for e in internal_edges_data
                 ]
@@ -1073,11 +1520,14 @@ class CodeAgent:
                 
                 edges = []
                 for e in flowgram_data.get("edges", []):
+                    # Handle both source/target and sourceNodeID/targetNodeID formats
+                    source = e.get("source") or e.get("sourceNodeID") or ""
+                    target = e.get("target") or e.get("targetNodeID") or ""
                     edges.append(FlowgramEdge(
-                        source=e.get("source", ""),
-                        target=e.get("target", ""),
-                        source_handle=e.get("source_handle") or e.get("sourceHandle"),
-                        target_handle=e.get("target_handle") or e.get("targetHandle"),
+                        source=source,
+                        target=target,
+                        source_handle=e.get("source_handle") or e.get("sourceHandle") or e.get("sourcePortID"),
+                        target_handle=e.get("target_handle") or e.get("targetHandle") or e.get("targetPortID"),
                         label=e.get("label")
                     ))
                 
@@ -1087,6 +1537,8 @@ class CodeAgent:
                     metadata=flowgram_data.get("metadata", {})
                 )
                 self._ensure_start_end_nodes(flowgram)
+                self._fix_missing_incoming_edges(flowgram)
+                self._fix_node_naming(flowgram)
                 logger.info(f"[CodeAgent] Parsed flowgram: {len(flowgram.nodes)} nodes, {len(flowgram.edges)} edges")
             except Exception as e:
                 logger.warning(f"[CodeAgent] Error parsing flowgram: {e}")
@@ -1099,13 +1551,33 @@ class CodeAgent:
             flowgram=flowgram
         )
     
-    def validate_flowgram(self, flowgram: Flowgram) -> ValidationResult:
+    def validate_flowgram(self, flowgram: Flowgram, plan: Optional[ImplementationPlan] = None) -> ValidationResult:
         """Validate a flowgram structure"""
         logger.debug(f"[CodeAgent] Validating flowgram with {len(flowgram.nodes)} nodes")
         errors = []
         warnings = []
         
         node_ids = {n.id for n in flowgram.nodes}
+        
+        # Check if plan's required node types are present
+        if plan and plan.estimated_nodes:
+            generated_types = {n.type for n in flowgram.nodes}
+            # Also check blocks inside loop nodes
+            for node in flowgram.nodes:
+                if node.type == "loop" and node.blocks:
+                    for block in node.blocks:
+                        generated_types.add(block.type)
+            
+            for required_type in plan.estimated_nodes:
+                # Normalize type names (browser-automation vs browser_automation)
+                normalized_required = required_type.replace("-", "_")
+                normalized_generated = {t.replace("-", "_") for t in generated_types}
+                
+                if normalized_required not in normalized_generated and required_type not in ["start", "end", "block-start", "block-end"]:
+                    errors.append(ValidationError(
+                        message=f"Plan requires '{required_type}' node but none was generated. The plan specified this node type must be used.",
+                        severity="error"
+                    ))
         
         # Check for start node
         has_start = any(n.type == "start" for n in flowgram.nodes)
@@ -1143,6 +1615,29 @@ class CodeAgent:
                     severity="warning"
                 ))
         
+        # Check node naming convention - ID must start with node type prefix
+        type_to_prefix = {
+            "llm": "llm_",
+            "condition": "condition_",
+            "loop": "loop_",
+            "browser_automation": "browser_automation_",
+            "mcp_tool": "mcp_tool_",
+            "code": "code_",
+            "chat_node": "chat_node_",
+            "pend_event": "pend_event_",
+            "http": "http_",
+            "rag": "rag_",
+        }
+        for node in flowgram.nodes:
+            if node.type in type_to_prefix:
+                expected_prefix = type_to_prefix[node.type]
+                if not node.id.startswith(expected_prefix):
+                    errors.append(ValidationError(
+                        node_id=node.id,
+                        message=f"Node '{node.id}' has type '{node.type}' but ID doesn't start with '{expected_prefix}'. Rename to '{expected_prefix}{node.id}' or similar.",
+                        severity="error"
+                    ))
+        
         # Check edges reference valid nodes
         for edge in flowgram.edges:
             if edge.source not in node_ids:
@@ -1156,19 +1651,52 @@ class CodeAgent:
                     severity="error"
                 ))
         
-        # Check for orphan nodes (not connected)
-        connected_nodes = set()
+        # Check for orphan nodes (not connected) and nodes missing incoming/outgoing edges
+        nodes_with_incoming = set()
+        nodes_with_outgoing = set()
         for edge in flowgram.edges:
-            connected_nodes.add(edge.source)
-            connected_nodes.add(edge.target)
+            nodes_with_outgoing.add(edge.source)
+            nodes_with_incoming.add(edge.target)
         
         for node in flowgram.nodes:
-            if node.id not in connected_nodes and node.type not in ["start", "end"]:
-                warnings.append(ValidationError(
-                    node_id=node.id,
-                    message=f"Node '{node.id}' is not connected to any other node",
-                    severity="warning"
-                ))
+            # Skip start/end and internal block nodes
+            if node.type in ["start", "block-start"]:
+                # Start nodes should have outgoing edges
+                if node.id not in nodes_with_outgoing:
+                    errors.append(ValidationError(
+                        node_id=node.id,
+                        message=f"Start node '{node.id}' has no outgoing edge",
+                        severity="error"
+                    ))
+            elif node.type in ["end", "block-end"]:
+                # End nodes should have incoming edges
+                if node.id not in nodes_with_incoming:
+                    errors.append(ValidationError(
+                        node_id=node.id,
+                        message=f"End node '{node.id}' has no incoming edge",
+                        severity="error"
+                    ))
+            else:
+                # Regular nodes should have both incoming and outgoing edges
+                if node.id not in nodes_with_incoming and node.id not in nodes_with_outgoing:
+                    errors.append(ValidationError(
+                        node_id=node.id,
+                        message=f"Node '{node.id}' is completely disconnected (no edges)",
+                        severity="error"
+                    ))
+                elif node.id not in nodes_with_incoming:
+                    errors.append(ValidationError(
+                        node_id=node.id,
+                        message=f"Node '{node.id}' has no incoming edge - workflow cannot reach this node",
+                        severity="error"
+                    ))
+                elif node.id not in nodes_with_outgoing:
+                    # Nodes before end should have outgoing edges (except condition branches that may end)
+                    warnings.append(ValidationError(
+                        node_id=node.id,
+                        message=f"Node '{node.id}' has no outgoing edge - workflow may dead-end here",
+                        severity="warning"
+                    ))
         
         # Check LLM nodes have required config
         for node in flowgram.nodes:
@@ -1290,6 +1818,9 @@ class CodeAgent:
         """
         logger.info(f"[CodeAgent] Generating flowgram for: {user_message[:100]}...")
         
+        # Store task context for ValidatorAgent to use during edge fixing
+        self._current_task_context = user_message
+        
         try:
             # Build prompt
             prompt = CODE_GENERATION_PROMPT.format(
@@ -1309,7 +1840,7 @@ class CodeAgent:
             
             # Validate if flowgram was generated
             if output.flowgram:
-                validation = self.validate_flowgram(output.flowgram)
+                validation = self.validate_flowgram(output.flowgram, plan)
                 output.validation = validation
                 
                 # Store current flowgram
@@ -1332,7 +1863,8 @@ class CodeAgent:
             return output
             
         except Exception as e:
-            logger.error(f"[CodeAgent] Generation failed: {e}")
+            import traceback
+            logger.error(f"[CodeAgent] Generation failed: {e}\n{traceback.format_exc()}")
             return CodeAgentOutput(
                 action=CodeAgentAction.REJECT,
                 message=f"Failed to generate flowgram: {str(e)}"
@@ -1378,7 +1910,7 @@ Please regenerate the flowgram with these errors fixed.
         new_output = self._parse_code_agent_output(response)
         
         if new_output.flowgram:
-            new_validation = self.validate_flowgram(new_output.flowgram)
+            new_validation = self.validate_flowgram(new_output.flowgram, plan)
             new_output.validation = new_validation
             
             if new_validation.valid:

@@ -34,6 +34,7 @@ from .schemas import (
     CanvasCommand,
     ClarificationQuestion,
     ImplementationPlan,
+    PlanStep,
     Flowgram,
     FlowgramNode,
     FlowgramEdge,
@@ -374,6 +375,17 @@ class SkillEditorAgent:
         if len(self._conversation_history) > 50:
             self._conversation_history = self._conversation_history[-40:]
     
+    def _add_response_to_history(self, response: AgentResponse):
+        """Add assistant response to conversation history"""
+        # Extract meaningful content from response
+        content = response.message
+        if response.plan:
+            content += f"\n[Plan generated: {response.plan.summary}]"
+        if response.clarification:
+            questions = [q.question for q in response.clarification]
+            content += f"\n[Clarification questions: {'; '.join(questions)}]"
+        self.add_to_history("assistant", content)
+    
     @property
     def planner(self) -> PlannerAgent:
         """Get or create the planner agent"""
@@ -403,6 +415,55 @@ class SkillEditorAgent:
         """Get current pipeline state"""
         return self._pipeline_state
     
+    @property
+    def current_plan(self) -> Optional[ImplementationPlan]:
+        """Get current implementation plan"""
+        return self._current_plan
+    
+    @property
+    def current_request(self) -> Optional[str]:
+        """Get current user request"""
+        return self._current_request
+    
+    def restore_state(
+        self,
+        pipeline_state: str,
+        current_plan: Optional[Dict[str, Any]] = None,
+        current_request: Optional[str] = None
+    ) -> None:
+        """Restore agent state from persisted session data (survives app restarts)"""
+        try:
+            logger.info(f"[SkillEditorAgent] restore_state called: pipeline_state={pipeline_state}, has_plan={current_plan is not None}")
+            self._pipeline_state = PipelineState(pipeline_state)
+            self._current_request = current_request
+            
+            if current_plan:
+                # Reconstruct ImplementationPlan from dict
+                steps = [
+                    PlanStep(
+                        title=s.get("title", "Step"),
+                        description=s.get("description", ""),
+                        node_types=s.get("node_types", [])
+                    )
+                    for s in current_plan.get("steps", [])
+                ]
+                self._current_plan = ImplementationPlan(
+                    summary=current_plan.get("summary", ""),
+                    steps=steps,
+                    estimated_nodes=current_plan.get("estimated_nodes", []),
+                    complexity=current_plan.get("complexity", "medium")
+                )
+            else:
+                self._current_plan = None
+            
+            logger.info(f"[SkillEditorAgent] Restored state: pipeline={self._pipeline_state.value}, has_plan={self._current_plan is not None}")
+        except Exception as e:
+            import traceback
+            logger.error(f"[SkillEditorAgent] Failed to restore state: {e}\n{traceback.format_exc()}")
+            self._pipeline_state = PipelineState.IDLE
+            self._current_plan = None
+            self._current_request = None
+    
     def _classify_intent_simple(self, message: str) -> IntentType:
         """Simple rule-based intent classification"""
         msg_lower = message.lower()
@@ -415,9 +476,14 @@ class SkillEditorAgent:
         if any(phrase in msg_lower for phrase in ["save", "save as", "export"]) and ("skill" in msg_lower or "workflow" in msg_lower or "flowgram" in msg_lower):
             return IntentType.SAVE_SKILL
         
-        # Creation intents
+        # Creation intents - explicit creation keywords
         if any(word in msg_lower for word in ["create", "build", "make", "generate", "new workflow"]):
             return IntentType.CREATE_FLOWGRAM
+        
+        # Creation intents - "workflow" or "skill" with action phrases (e.g., "lets do an ebay workflow")
+        if any(word in msg_lower for word in ["workflow", "skill", "automation"]):
+            if any(phrase in msg_lower for phrase in ["lets do", "let's do", "i want", "i need", "can you", "please", "do a", "do an"]):
+                return IntentType.CREATE_FLOWGRAM
         
         # Node operations
         if "add" in msg_lower and "node" in msg_lower:
@@ -453,9 +519,11 @@ class SkillEditorAgent:
     
     def _should_use_planner(self, intent: IntentType) -> bool:
         """Determine if the planner should be used for this intent"""
-        # Use planner for complex creation tasks
+        # Use planner for complex creation tasks and general chat (which may be workflow requests)
+        # General chat goes through planner to let it decide if clarification/planning is needed
         return intent in [
             IntentType.CREATE_FLOWGRAM,
+            IntentType.GENERAL_CHAT,  # Let planner handle ambiguous requests
         ]
     
     def _is_node_config_request(self, message: str, canvas_context: Optional[Dict]) -> bool:
@@ -522,6 +590,9 @@ class SkillEditorAgent:
         logger.info(f"[SkillEditorAgent] Processing message: {message[:100]}...")
         logger.info(f"[SkillEditorAgent] Pipeline state: {self._pipeline_state.value}")
         
+        # Add user message to conversation history for context accumulation
+        self.add_to_history("user", message)
+        
         try:
             # Handle node configuration clarification responses
             if clarification_responses and self._pipeline_state == PipelineState.CONFIGURING_NODE:
@@ -539,10 +610,26 @@ class SkillEditorAgent:
             
             # Handle plan approval
             if self._pipeline_state == PipelineState.AWAITING_PLAN_APPROVAL:
-                if any(word in message.lower() for word in ["yes", "ok", "approve", "proceed", "do it", "do them", "go ahead"]):
+                # Check for explicit approval - message should be short and contain approval words
+                # This prevents false positives like "before we proceed, I want to clarify..."
+                msg_lower = message.lower().strip()
+                msg_words = msg_lower.split()
+                
+                # Approval: short message (<=10 words) that starts with or is an approval phrase
+                approval_phrases = ["yes", "ok", "okay", "approve", "proceed", "do it", "do them", "go ahead", "let's go", "sounds good", "looks good", "go for it"]
+                is_short_message = len(msg_words) <= 10
+                starts_with_approval = any(msg_lower.startswith(phrase) for phrase in approval_phrases)
+                is_approval_only = msg_lower in approval_phrases or msg_lower.rstrip('.!') in approval_phrases
+                
+                # Rejection: short message that starts with or is a rejection phrase
+                rejection_phrases = ["no", "cancel", "revise", "change", "wait", "hold on", "stop", "not yet"]
+                starts_with_rejection = any(msg_lower.startswith(phrase) for phrase in rejection_phrases)
+                is_rejection_only = msg_lower in rejection_phrases or msg_lower.rstrip('.!') in rejection_phrases
+                
+                if is_approval_only or (is_short_message and starts_with_approval):
                     logger.info("[SkillEditorAgent] Plan approved, proceeding to code generation")
                     return await self._generate_from_plan(canvas_context, session_id, on_event)
-                elif any(word in message.lower() for word in ["no", "cancel", "revise", "change"]):
+                elif is_rejection_only or (is_short_message and starts_with_rejection):
                     logger.info("[SkillEditorAgent] Plan rejected, resetting")
                     self._pipeline_state = PipelineState.IDLE
                     self._current_plan = None
@@ -551,6 +638,13 @@ class SkillEditorAgent:
                         intent=IntentType.GENERAL_CHAT,
                         metadata={"session_id": session_id}
                     )
+                # If message is longer and doesn't clearly approve/reject, treat as feedback on the plan
+                # Reset state and process as a new request that may modify the plan
+                else:
+                    logger.info("[SkillEditorAgent] Received feedback on plan, treating as revision request")
+                    self._pipeline_state = PipelineState.IDLE
+                    # Don't clear the plan - let the user's feedback be processed
+                    # Fall through to normal intent classification
             
             # Classify intent
             intent = self._classify_intent_simple(message)
@@ -577,14 +671,20 @@ class SkillEditorAgent:
             
             # Check if user wants to configure a specific node
             if intent == IntentType.MODIFY_NODE and self._is_node_config_request(message, canvas_context):
-                return await self._run_node_configuration(message, canvas_context, session_id, on_event)
+                response = await self._run_node_configuration(message, canvas_context, session_id, on_event)
+                self._add_response_to_history(response)
+                return response
             
             # Decide whether to use planner or go directly to code
             if self._should_use_planner(intent):
-                return await self._run_planning_phase(message, canvas_context, session_id, on_event)
+                response = await self._run_planning_phase(message, canvas_context, session_id, on_event)
+                self._add_response_to_history(response)
+                return response
             else:
                 # For simpler intents, go directly to code agent
-                return await self._run_code_generation(message, canvas_context, session_id, intent, on_event)
+                response = await self._run_code_generation(message, canvas_context, session_id, intent, on_event)
+                self._add_response_to_history(response)
+                return response
             
         except Exception as e:
             error_msg = f"I encountered an error processing your request: {str(e)}"
@@ -1190,6 +1290,45 @@ class SkillEditorAgent:
             logger.error(f"[SkillEditorAgent] Failed to load flowgram from disk: {e}")
             return None
     
+    def _config_to_inputs_values(self, config: Dict[str, Any], node_type: str) -> Dict[str, Any]:
+        """
+        Convert simplified config format to proper inputsValues format for frontend.
+        
+        The frontend expects inputsValues with structure:
+        {
+            "fieldName": {
+                "type": "constant" | "template",
+                "content": value
+            }
+        }
+        """
+        inputs_values = {}
+        
+        # Fields that should use "template" type (can contain {{variable}} placeholders)
+        template_fields = {
+            "system_prompt", "systemPrompt", "user_prompt", "prompt", "task", 
+            "message", "code", "url", "query_path"
+        }
+        
+        for key, value in config.items():
+            # Skip special fields that aren't inputsValues
+            if key in ["conditions", "blocks", "internal_edges", "inputs", "outputs"]:
+                continue
+            
+            # If value is already in inputsValues format, keep it
+            if isinstance(value, dict) and ("type" in value or "content" in value):
+                inputs_values[key] = value
+                continue
+            
+            # Convert to proper format
+            value_type = "template" if key in template_fields else "constant"
+            inputs_values[key] = {
+                "type": value_type,
+                "content": value
+            }
+        
+        return inputs_values
+    
     def _node_to_json(self, node: FlowgramNode) -> Dict[str, Any]:
         """Convert a FlowgramNode to JSON-serializable dict for skill file."""
         config = node.config or {}
@@ -1202,13 +1341,45 @@ class SkillEditorAgent:
                     {"key": f"else_{node.id[-5:]}", "value": {}},
                 ]
         
+        # Build the data object with proper inputsValues format
+        data = {
+            "title": node.label or node.id,
+        }
+        
+        # For nodes that use inputsValues format (llm, browser_automation, mcp_tool, etc.)
+        if node.type in ["llm", "browser_automation", "browser-automation", "mcp_tool", "http", "code", "chat_node", "pend_event", "rag"]:
+            # Convert config to inputsValues format
+            inputs_values = self._config_to_inputs_values(config, node.type)
+            if inputs_values:
+                data["inputsValues"] = inputs_values
+            
+            # Also include inputs schema for frontend
+            data["inputs"] = {
+                "type": "object",
+                "properties": {
+                    key: {"type": "string" if isinstance(val.get("content"), str) else "object"}
+                    for key, val in inputs_values.items()
+                }
+            }
+            
+            # Include outputs schema
+            data["outputs"] = {
+                "type": "object",
+                "properties": {
+                    "result": {"type": "object", "description": "Node execution result"},
+                    "condition": {"type": "boolean", "description": "Node execution condition"},
+                    "resolved": {"type": "boolean", "description": "Node execution resolved status"},
+                    "case": {"type": "string", "description": "Node execution case"}
+                }
+            }
+        else:
+            # For simple nodes (start, end, condition, loop), just spread config
+            data.update(config)
+        
         node_json = {
             "id": node.id,
             "type": node.type,
-            "data": {
-                "title": node.label or node.id,
-                **config
-            },
+            "data": data,
             "meta": {
                 "position": {"x": node.position.x, "y": node.position.y} if node.position else {"x": 100, "y": 100}
             }
@@ -1293,9 +1464,24 @@ class SkillEditorAgent:
         logger.info("[SkillEditorAgent] Generating flowgram from plan")
         self._pipeline_state = PipelineState.GENERATING
         
+        # Build full context from conversation history
+        # This ensures the code agent has the complete picture of what user wants
+        context_messages = []
+        for msg in self._conversation_history:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if content:
+                context_messages.append(f"[{role.upper()}]: {content}")
+        
+        # Combine conversation context with current request
+        full_context = ""
+        if len(context_messages) > 1:
+            full_context = "## CONVERSATION HISTORY (for context):\n" + "\n".join(context_messages[:-1]) + "\n\n"
+        full_context += "## CURRENT REQUEST:\n" + (self._current_request or "")
+        
         # Generate with code agent
         code_output = await self.code_agent.generate(
-            user_message=self._current_request or "",
+            user_message=full_context,
             canvas_context=canvas_context,
             plan=self._current_plan,
             on_event=on_event
