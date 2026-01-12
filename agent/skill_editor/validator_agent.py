@@ -566,6 +566,51 @@ Return ONLY the fixed JSON, no explanations."""
             to_delete = [k for k, v in e.items() if v is None]
             for k in to_delete:
                 del e[k]
+
+    def _normalize_condition_handles(
+        self,
+        cond_id: str,
+        conditions: List[Dict],
+        edges: List[Dict],
+    ) -> None:
+        """
+        Ensure outgoing edges from a condition node use handles that match the condition keys.
+        If an edge uses a non-existent handle, remap it to an available condition key
+        (first available, then fallback to the first key).
+        """
+        if not conditions:
+            return
+        required_handles = [c.get("key") for c in conditions if c.get("key")]
+        if not required_handles:
+            return
+
+        # Track which handles are already correctly used
+        used = set()
+        needing_remap = []
+        for e in edges:
+            source = e.get("sourceNodeID") or e.get("source")
+            if source != cond_id:
+                continue
+            handle = e.get("sourcePortID") or e.get("source_handle") or e.get("sourceHandle")
+            if handle in required_handles and handle not in used:
+                used.add(handle)
+            else:
+                needing_remap.append(e)
+
+        available = [h for h in required_handles if h not in used]
+        for e in needing_remap:
+            new_handle = None
+            if available:
+                new_handle = available.pop(0)
+                used.add(new_handle)
+            elif required_handles:
+                new_handle = required_handles[0]
+            if new_handle:
+                e["sourcePortID"] = new_handle
+            else:
+                # No handle available; leave edge as-is but ensure no nulls
+                if "sourcePortID" in e and e["sourcePortID"] is None:
+                    del e["sourcePortID"]
     
     def _fix_disconnected_in_scope(self, nodes: List[Dict], edges: List[Dict], is_loop: bool = False, task_context: Optional[str] = None) -> List[Dict]:
         """
@@ -690,6 +735,17 @@ Return ONLY the fixed JSON, no explanations."""
             cond_idx = node_index.get(cond_id, -1)
             conditions = cond_node.get("data", {}).get("conditions", [])
             has_incoming = cond_id in nodes_with_incoming
+
+            # Normalize existing condition handles to match declared condition keys
+            self._normalize_condition_handles(cond_id, conditions, edges)
+            # Refresh used handles after normalization
+            used_handles = set()
+            for e in edges:
+                if (e.get("sourceNodeID") or e.get("source")) == cond_id:
+                    handle = e.get("sourcePortID") or e.get("source_handle") or e.get("sourceHandle")
+                    if handle:
+                        used_handles.add(handle)
+            outgoing_handles[cond_id] = used_handles
 
             # Ensure condition has an incoming edge from the previous node in chain
             if not has_incoming:
