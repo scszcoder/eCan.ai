@@ -4,6 +4,11 @@ Node Configuration Agent
 Specialized agent for configuring individual node parameters.
 Inspired by BubbleLab's MilkTea agent - translates user requests into proper node configuration,
 asks clarifying questions for ambiguous parameters, and validates configurations.
+
+MULTI-SHEET SYNC (CRITICAL):
+- Every skill has two files: `<name>_skill.json` (current sheet) AND `<name>_skill_bundle.json` (all sheets).
+- After any node edit/config update, mirror the current sheet's `workFlow` into the bundle's main sheet (`mainSheetId`/`activeSheetId` = "main") so nodes/edges stay identical.
+- Assume caller will persist BOTH files; never leave the bundle out of sync with the sheet file.
 """
 
 import json

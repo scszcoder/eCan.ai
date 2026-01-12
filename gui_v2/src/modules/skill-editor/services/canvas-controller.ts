@@ -448,14 +448,36 @@ class CanvasControllerService {
       }));
       
       // Convert edges to the format expected by the editor
-      const convertedEdges = flowgramData.edges.map((edge, index) => ({
-        id: `edge_${index}_${edge.source}_${edge.target}`,
-        source: edge.source,
-        target: edge.target,
-        sourceHandle: edge.source_handle,
-        targetHandle: edge.target_handle,
-        label: edge.label,
-      }));
+      const convertedEdges = flowgramData.edges.map((edge, index) => {
+        const source =
+          (edge as any).source ??
+          (edge as any).sourceNodeID ??
+          (edge as any).sourceNodeId ??
+          (edge as any).from;
+        const target =
+          (edge as any).target ??
+          (edge as any).targetNodeID ??
+          (edge as any).targetNodeId ??
+          (edge as any).to;
+        const sourceHandle =
+          (edge as any).source_handle ??
+          (edge as any).sourceHandle ??
+          (edge as any).sourcePortID ??
+          (edge as any).sourcePortId;
+        const targetHandle =
+          (edge as any).target_handle ??
+          (edge as any).targetHandle ??
+          (edge as any).targetPortID ??
+          (edge as any).targetPortId;
+        return {
+          id: `edge_${index}_${source}_${target}`,
+          source,
+          target,
+          sourceHandle,
+          targetHandle,
+          label: edge.label,
+        };
+      });
       
       console.log('[CanvasController] Converted nodes:', convertedNodes.length);
       console.log('[CanvasController] Converted edges:', convertedEdges.length);

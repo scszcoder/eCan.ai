@@ -118,6 +118,12 @@ Before finalizing your flowgram, VERIFY these connectivity rules:
    - RIGHT: {{"source": "node_A", "target": "condition_B"}} edge exists
 4. **Loop nodes**: Must have incoming edge from previous node and outgoing edge to next node
 5. **Double-check**: After creating ALL edges, trace the flow from start to end - every node must be reachable
+6. **DO NOT WRITE NULLS INTO EDGES**: Never emit `"sourcePortID": null` or `"targetNodeID": null` etc. If a field is unknown, omit it entirely. Null-valued edge fields cause the canvas to render condition connections incorrectly.
+
+## MULTI-SHEET SYNC (CRITICAL):
+- Each skill has two files: `<name>_skill.json` (current sheet) AND `<name>_skill_bundle.json` (all sheets).
+- After generation/fix, COPY the current `workFlow` into the bundle’s main sheet (`mainSheetId`/`activeSheetId` = "main") so nodes/edges stay identical.
+- Always assume the caller will persist BOTH files; never leave the bundle out of sync with the sheet file.
 
 **COMMON MISTAKE (FIX THIS)**: Creating a condition node but forgetting to connect the previous node TO it.
 Example: If you have `browser_automation_login` followed by `condition_check_data`, you MUST create an edge:
