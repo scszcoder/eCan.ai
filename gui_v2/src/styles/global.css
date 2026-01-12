@@ -199,6 +199,17 @@
 }
 
 :root {
+    /* 字体大小规范 - 统一的字体层次系统 */
+    --font-size-xs: 11px;      /* 极小文字：标签、辅助说明 */
+    --font-size-sm: 12px;      /* 小文字：次要信息、趋势 */
+    --font-size-base: 14px;    /* 基础文字：正文、菜单、表格 */
+    --font-size-md: 16px;      /* 中等文字：卡片标题、模态框标题 */
+    --font-size-lg: 18px;      /* 大文字：页面标题、重要名称 */
+    --font-size-xl: 20px;      /* 超大文字：主标题 */
+    --font-size-2xl: 24px;     /* 特大文字：Hero 标题 */
+    --font-size-3xl: 28px;     /* 巨大文字：数据展示 */
+    --font-size-4xl: 32px;     /* 超巨大文字：特殊强调 */
+    
     /* 主题色 - 蓝紫渐变色系 */
     --primary-color: #3b82f6;
     --primary-hover: #2563eb;
@@ -266,6 +277,7 @@ html, body {
     margin: 0;
     padding: 0;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: var(--font-size-base); /* 设置基础字体大小为 14px */
     line-height: 1.5;
     /* 防止字体模糊 */
     -webkit-font-smoothing: antialiased;
@@ -319,7 +331,7 @@ html, body {
     height: 44px !important;
     line-height: 44px !important;
     font-weight: 500 !important;
-    font-size: 14px !important;
+    font-size: 15px !important;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
@@ -344,23 +356,25 @@ html, body {
     transition: all 0.3s ease !important;
 }
 
-/* 卡片样式 */
+/* 卡片样式 - 优化视觉层次，无动画 */
 .ant-card {
     background: linear-gradient(
         135deg,
-        rgba(30, 41, 59, 0.9) 0%,
-        rgba(30, 41, 59, 0.8) 100%
+        rgba(30, 41, 59, 0.95) 0%,
+        rgba(30, 41, 59, 0.9) 100%
     ) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
     border-radius: 16px !important;
     box-shadow: 
-        0 4px 24px rgba(0, 0, 0, 0.2),
-        inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
-    transition: box-shadow 0.3s ease, border-color 0.3s ease !important;
+        0 4px 12px rgba(0, 0, 0, 0.25),
+        0 8px 24px rgba(0, 0, 0, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        inset 0 0 0 1px rgba(59, 130, 246, 0.05) !important;
+    transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.2s ease !important;
     position: relative;
     overflow: hidden;
     
-    /* 添加顶部微光效果 */
+    /* 添加顶部微光效果 - 静态 */
     &::before {
         content: '';
         position: absolute;
@@ -371,7 +385,7 @@ html, body {
         background: linear-gradient(
             90deg,
             transparent,
-            rgba(59, 130, 246, 0.4),
+            rgba(59, 130, 246, 0.3),
             transparent
         );
     }
@@ -379,10 +393,12 @@ html, body {
 
 .ant-card:hover {
     box-shadow: 
-        0 8px 32px rgba(0, 0, 0, 0.3),
-        inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
-    border-color: rgba(59, 130, 246, 0.3) !important;
-    transform: none !important;
+        0 6px 16px rgba(0, 0, 0, 0.3),
+        0 12px 32px rgba(0, 0, 0, 0.2),
+        0 0 0 1px rgba(59, 130, 246, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+    border-color: rgba(59, 130, 246, 0.4) !important;
+    transform: translateY(-1px) !important;
 }
 
 .ant-card-head {
@@ -418,61 +434,62 @@ html, body {
     padding: 8px !important;
 }
 
-/* 按钮样式 */
+/* 按钮样式 - 简化动效 */
 .ant-btn {
     border-radius: 10px !important;
     height: 40px !important;
     padding: 0 20px !important;
     font-weight: 600 !important;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease !important;
+    box-shadow: 
+        0 2px 4px rgba(0, 0, 0, 0.1),
+        0 1px 2px rgba(0, 0, 0, 0.06);
     position: relative;
-    overflow: hidden;
-    
-    &::before {
-        content: '';
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        width: 0;
-        height: 0;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.3);
-        transform: translate(-50%, -50%);
-        transition: width 0.6s, height 0.6s;
-    }
-    
-    &:active::before {
-        width: 300px;
-        height: 300px;
-    }
 }
 
 .ant-btn-primary {
     background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%) !important;
     border: none !important;
-    box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3) !important;
+    box-shadow: 
+        0 4px 12px rgba(59, 130, 246, 0.35),
+        0 2px 4px rgba(0, 0, 0, 0.2),
+        inset 0 1px 0 rgba(255, 255, 255, 0.15) !important;
     color: white !important;
     
     &:hover {
         background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%) !important;
-        box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4) !important;
+        box-shadow: 
+            0 6px 16px rgba(59, 130, 246, 0.45),
+            0 3px 6px rgba(0, 0, 0, 0.25),
+            inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+        transform: translateY(-1px) !important;
     }
     
     &:active {
-        box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3) !important;
+        box-shadow: 
+            0 2px 6px rgba(59, 130, 246, 0.3),
+            inset 0 1px 2px rgba(0, 0, 0, 0.2) !important;
+        transform: translateY(0) !important;
     }
 }
 
 .ant-btn-default {
     background: rgba(255, 255, 255, 0.05) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
     color: var(--text-primary) !important;
+    box-shadow: 
+        0 2px 4px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
     
     &:hover {
         background: rgba(255, 255, 255, 0.1) !important;
-        border-color: rgba(59, 130, 246, 0.3) !important;
+        border-color: rgba(59, 130, 246, 0.4) !important;
         color: var(--text-primary) !important;
+        box-shadow: 
+            0 4px 8px rgba(0, 0, 0, 0.15),
+            0 0 0 1px rgba(59, 130, 246, 0.2),
+            inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+        transform: translateY(-1px) !important;
     }
 }
 
@@ -493,17 +510,19 @@ html, body {
     }
 }
 
-/* 输入框样式（排除 textarea） */
+/* 输入框样式（排除 textarea） - 增强视觉深度 */
 .ant-input:not(textarea) {
-    background: rgba(51, 65, 85, 0.5) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    background: rgba(51, 65, 85, 0.6) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
     border-radius: 10px !important;
     color: var(--text-primary) !important;
     height: 40px !important;
     line-height: 38px !important;
     padding: 0 16px !important;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease !important;
+    box-shadow: 
+        inset 0 2px 4px rgba(0, 0, 0, 0.15),
+        0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .ant-input:not(textarea):hover {
@@ -515,6 +534,7 @@ html, body {
     border-color: rgba(59, 130, 246, 0.6) !important;
     box-shadow: 
         0 0 0 3px rgba(59, 130, 246, 0.15),
+        0 0 12px rgba(59, 130, 246, 0.2),
         inset 0 2px 4px rgba(0, 0, 0, 0.1) !important;
     background: rgba(51, 65, 85, 0.8) !important;
 }
@@ -639,30 +659,36 @@ html, body {
     color: rgba(148, 163, 184, 0.6) !important;
 }
 
-/* 表格样式 */
+/* 表格样式 - 增强层次感 */
 .ant-table {
     background: linear-gradient(
         135deg,
-        rgba(30, 41, 59, 0.9) 0%,
-        rgba(30, 41, 59, 0.8) 100%
+        rgba(30, 41, 59, 0.95) 0%,
+        rgba(30, 41, 59, 0.9) 100%
     ) !important;
     border-radius: 16px !important;
     overflow: hidden !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    box-shadow: 
+        0 4px 12px rgba(0, 0, 0, 0.25),
+        0 8px 24px rgba(0, 0, 0, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
 .ant-table-thead > tr > th {
     background: linear-gradient(
         135deg,
-        rgba(59, 130, 246, 0.15) 0%,
-        rgba(139, 92, 246, 0.1) 100%
+        rgba(59, 130, 246, 0.18) 0%,
+        rgba(139, 92, 246, 0.12) 100%
     ) !important;
     color: rgba(248, 250, 252, 0.95) !important;
     font-weight: 600 !important;
     font-size: 14px !important;
-    border-bottom: 2px solid rgba(59, 130, 246, 0.3) !important;
+    border-bottom: 2px solid rgba(59, 130, 246, 0.35) !important;
     padding: 16px !important;
+    box-shadow: 
+        0 2px 8px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .ant-table-tbody > tr > td {
@@ -678,11 +704,13 @@ html, body {
 }
 
 .ant-table-tbody > tr:hover > td {
-    background: rgba(59, 130, 246, 0.08) !important;
+    background: rgba(59, 130, 246, 0.1) !important;
 }
 
 .ant-table-tbody > tr:hover {
-    box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
+    box-shadow: 
+        0 2px 8px rgba(59, 130, 246, 0.25),
+        inset 0 0 0 1px rgba(59, 130, 246, 0.2);
 }
 
 /* 折叠面板样式 */

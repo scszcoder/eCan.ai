@@ -258,19 +258,40 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
   ];
   
   return (
-    <div className="agent-card" style={{ position: 'relative' }}>
+    <div 
+      className="agent-card" 
+      style={{ 
+        position: 'relative',
+        background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.08) 0%, rgba(147, 51, 234, 0.05) 100%)',
+        borderRadius: '16px',
+        padding: '20px',
+        border: '1px solid rgba(255, 255, 255, 0.1)',
+        transition: 'all 0.3s ease',
+        cursor: 'pointer',
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = 'translateY(-4px)';
+        e.currentTarget.style.boxShadow = '0 12px 24px rgba(59, 130, 246, 0.15)';
+        e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.3)';
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = 'translateY(0)';
+        e.currentTarget.style.boxShadow = 'none';
+        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+      }}
+    >
       {/* 媒体Content */}
-      <div style={{ position: 'relative', width: 300, height: 169, marginBottom: 26 }}>
+      <div style={{ position: 'relative', width: '100%', paddingBottom: '56.25%', marginBottom: '16px' }}>
         {isVideo ? (
           <div
             className="agent-gif-video-wrapper"
             style={{
               position: 'absolute',
               inset: 0,
-              borderRadius: 28,
-              background: '#222c',
-              border: '4px solid var(--primary-color, #3b82f6)',
-              boxShadow: '0 4px 18px 0 rgba(59,130,246,0.13)',
+              borderRadius: '12px',
+              background: 'linear-gradient(135deg, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.4) 100%)',
+              border: '2px solid rgba(59, 130, 246, 0.3)',
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -286,13 +307,11 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
               muted
               playsInline
               preload="metadata"
-              width={300}
-              height={169}
               style={{
                 width: '100%',
                 height: '100%',
-                objectFit: 'contain',
-                borderRadius: 28,
+                objectFit: 'cover',
+                borderRadius: '12px',
                 background: 'transparent'
               }}
             />
@@ -308,11 +327,11 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
               inset: 0,
               width: '100%',
               height: '100%',
-              objectFit: 'contain',
-              borderRadius: 28,
-              background: '#222c',
-              border: '4px solid var(--primary-color, #3b82f6)',
-              boxShadow: '0 4px 18px 0 rgba(59,130,246,0.13)'
+              objectFit: 'cover',
+              borderRadius: '12px',
+              background: 'linear-gradient(135deg, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.4) 100%)',
+              border: '2px solid rgba(59, 130, 246, 0.3)',
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
             }}
             onError={() => {
               if (process.env.NODE_ENV === 'development') {
@@ -328,43 +347,93 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
         )}
       </div>
       
-      {/* Information行 */}
+      {/* Agent Name and Status */}
+      <div style={{ marginBottom: '12px' }}>
+        <div 
+          className="agent-name" 
+          style={{ 
+            fontSize: '18px',
+            fontWeight: 600,
+            color: 'rgba(255, 255, 255, 0.95)',
+            marginBottom: '4px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          {name ? t(name) : ''}
+        </div>
+        {description && (
+          <div 
+            className="agent-desc" 
+            style={{
+              fontSize: '13px',
+              color: 'rgba(255, 255, 255, 0.6)',
+              lineHeight: '1.5',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical'
+            }}
+          >
+            {t(description)}
+          </div>
+        )}
+      </div>
+      
+      {/* Action Buttons */}
       <div
         className="agent-info-row"
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          gap: 12
+          gap: 8,
+          paddingTop: '12px',
+          borderTop: '1px solid rgba(255, 255, 255, 0.08)'
         }}
       >
-        <span style={{ display: 'inline-flex', alignItems: 'center' }}>
-          <Dropdown menu={{ items: menuItems }} trigger={["click"]} placement="bottomLeft">
-            <Button shape="circle" icon={<MoreOutlined />} size="middle" />
-          </Dropdown>
-        </span>
-        
-        <div className="agent-name" style={{ flex: 1, textAlign: 'center' }}>
-          {name ? t(name) : ''}
-        </div>
-        
-        <span style={{ display: 'inline-block' }}>
-          <Button
-            type="primary"
-            shape="circle"
-            icon={<MessageOutlined />}
-            size="large"
-            className="agent-chat-btn"
-            onClick={onChat}
-            disabled={id === myTwinAgentId}
+        <Dropdown menu={{ items: menuItems }} trigger={["click"]} placement="bottomLeft">
+          <Button 
+            shape="circle" 
+            icon={<MoreOutlined />} 
+            size="middle"
+            style={{
+              background: 'rgba(255, 255, 255, 0.05)',
+              borderColor: 'rgba(255, 255, 255, 0.1)',
+              color: 'rgba(255, 255, 255, 0.7)'
+            }}
           />
-        </span>
+        </Dropdown>
+        
+        <Button
+          type="primary"
+          icon={<MessageOutlined />}
+          size="middle"
+          className="agent-chat-btn"
+          onClick={(e) => {
+            e.stopPropagation();
+            onChat?.();
+          }}
+          disabled={id === myTwinAgentId}
+          style={{
+            flex: 1,
+            borderRadius: '8px',
+            height: '36px',
+            fontWeight: 500,
+            background: id === myTwinAgentId 
+              ? 'rgba(255, 255, 255, 0.1)' 
+              : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+            border: 'none',
+            boxShadow: id === myTwinAgentId 
+              ? 'none' 
+              : '0 2px 8px rgba(59, 130, 246, 0.3)'
+          }}
+        >
+          {t('pages.agents.startChat') || 'Start Chat'}
+        </Button>
       </div>
-      
-      {/* Description */}
-      {description && (
-        <div className="agent-desc">{t(description)}</div>
-      )}
     </div>
   );
 }
