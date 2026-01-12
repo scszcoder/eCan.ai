@@ -810,8 +810,8 @@ class SkillEditorAgent:
             else:
                 flowgram.metadata = {"skillName": new_skill_name}
         
-        # Scaffold to disk
-        skill_path = self._scaffold_skill_to_disk(flowgram)
+        # Dual-write to disk (skill + bundle)
+        skill_path = self._save_flowgram_to_disk(flowgram)
         
         if not skill_path:
             return AgentResponse(
@@ -1401,18 +1401,71 @@ class SkillEditorAgent:
         
         return node_json
     
-    def _scaffold_skill_to_disk(self, flowgram: Flowgram) -> Optional[str]:
+    def _mirror_workflow_into_bundle(self, skill_json: Dict[str, Any], bundle_json: Dict[str, Any]) -> None:
         """
-        Scaffold skill files to disk based on the generated flowgram.
-        Returns the skill path if successful, None otherwise.
+        Ensure bundle main sheet mirrors the current workFlow (nodes/edges).
+        """
+        now_ms = int(__import__("time").time() * 1000)
+        main_sheet_id = bundle_json.get("mainSheetId") or bundle_json.get("main_sheet_id") or "main"
+        bundle_json["mainSheetId"] = main_sheet_id
+        bundle_json["activeSheetId"] = main_sheet_id
+        if "openTabs" not in bundle_json or not bundle_json["openTabs"]:
+            bundle_json["openTabs"] = [main_sheet_id]
+        sheets = bundle_json.get("sheets", [])
+        if not sheets:
+            sheets = [{
+                "id": main_sheet_id,
+                "name": "Main",
+                "document": skill_json["workFlow"],
+                "createdAt": now_ms,
+                "lastOpenedAt": now_ms,
+            }]
+        else:
+            # Find main sheet, update or create
+            found = False
+            for s in sheets:
+                if s.get("id") == main_sheet_id:
+                    s["document"] = skill_json["workFlow"]
+                    if "lastOpenedAt" in s:
+                        s["lastOpenedAt"] = now_ms
+                    found = True
+                    break
+            if not found:
+                sheets.append({
+                    "id": main_sheet_id,
+                    "name": "Main",
+                    "document": skill_json["workFlow"],
+                    "createdAt": now_ms,
+                    "lastOpenedAt": now_ms,
+                })
+        bundle_json["sheets"] = sheets
+
+    def _write_skill_and_bundle(self, skill_json: Dict[str, Any], bundle_json: Dict[str, Any], skill_path: Path) -> None:
+        """
+        Persist both skill and bundle files, ensuring bundle main sheet mirrors workFlow.
+        """
+        try:
+            # Mirror before write
+            self._mirror_workflow_into_bundle(skill_json, bundle_json)
+            # Skill file
+            skill_path.write_text(json.dumps(skill_json, indent=2, ensure_ascii=False))
+            # Bundle path
+            bundle_path = skill_path.with_name(skill_path.stem + "_bundle.json")
+            bundle_path.write_text(json.dumps(bundle_json, indent=2, ensure_ascii=False))
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] Failed writing skill/bundle: {e}")
+
+    def _save_flowgram_to_disk(self, flowgram: Flowgram) -> Optional[str]:
+        """
+        Save a flowgram to disk (skill + bundle) ensuring dual-write and bundle mirroring.
+        Works for both create and edit operations.
         """
         try:
             metadata = flowgram.metadata or {}
             skill_name = metadata.get("skillName") or metadata.get("name") or "generated_skill"
             description = metadata.get("description") or "Workflow generated via Skill Editor"
-            
+
             # Convert flowgram to JSON-serializable dict
-            # IMPORTANT: Frontend uses "meta.position" schema, not "position"
             skill_json = {
                 "skillName": skill_name,
                 "description": description,
@@ -1430,29 +1483,71 @@ class SkillEditorAgent:
                 },
                 "metadata": metadata
             }
-            
-            # Bundle JSON (empty for now, can be extended)
-            bundle_json = {
+
+            # Resolve skill directory paths
+            skills_root = user_skills_root()
+            skill_root = skills_root / f"{skill_name}_skill"
+            diagram_dir = skill_root / "diagram_dir"
+            diagram_dir.mkdir(parents=True, exist_ok=True)
+            skill_path = diagram_dir / f"{skill_name}_skill.json"
+            bundle_path = diagram_dir / f"{skill_name}_skill_bundle.json"
+
+            # Load existing bundle (if any), else default shell
+            bundle_json: Dict[str, Any] = {
+                "mainSheetId": "main",
+                "activeSheetId": "main",
+                "openTabs": ["main"],
                 "sheets": [],
-                "order": [],
-                "activeSheetId": None
             }
-            
-            # Scaffold the skill directory and files
-            skill_path = scaffold_skill(
-                skill_name=skill_name,
-                description=description,
-                kind="diagram",
-                skill_json=skill_json,
-                bundle_json=bundle_json
-            )
-            
-            logger.info(f"[SkillEditorAgent] Scaffolded skill to disk: {skill_path}")
+            if bundle_path.exists():
+                try:
+                    bundle_json = json.loads(bundle_path.read_text())
+                except Exception:
+                    bundle_json = {
+                        "mainSheetId": "main",
+                        "activeSheetId": "main",
+                        "openTabs": ["main"],
+                        "sheets": [],
+                    }
+
+            # Dual-write skill + bundle with mirroring
+            self._write_skill_and_bundle(skill_json, bundle_json, skill_path)
+
+            logger.info(f"[SkillEditorAgent] Saved flowgram to disk (dual-write): {skill_path}")
             return str(skill_path)
-            
         except Exception as e:
-            logger.error(f"[SkillEditorAgent] Failed to scaffold skill: {e}\n{traceback.format_exc()}")
+            logger.error(f"[SkillEditorAgent] Failed to save flowgram: {e}\n{traceback.format_exc()}")
             return None
+
+    def _sync_existing_skill_bundle(self, skill_root: str, skill_name: str) -> None:
+        """
+        Given a skill root and name, load the skill JSON and bundle JSON, mirror workFlow into bundle main sheet,
+        and persist both files.
+        """
+        try:
+            root_path = Path(skill_root)
+            skill_json_path = root_path / "diagram_dir" / f"{skill_name}_skill.json"
+            bundle_json_path = root_path / "diagram_dir" / f"{skill_name}_skill_bundle.json"
+            if not skill_json_path.exists():
+                logger.warning(f"[SkillEditorAgent] Skill file not found for sync: {skill_json_path}")
+                return
+            skill_json = json.loads(skill_json_path.read_text())
+            bundle_json = {}
+            if bundle_json_path.exists():
+                try:
+                    bundle_json = json.loads(bundle_json_path.read_text())
+                except Exception:
+                    bundle_json = {}
+            # Ensure minimal bundle structure
+            bundle_json.setdefault("mainSheetId", "main")
+            bundle_json.setdefault("activeSheetId", "main")
+            bundle_json.setdefault("openTabs", ["main"])
+            bundle_json.setdefault("sheets", [])
+
+            self._write_skill_and_bundle(skill_json, bundle_json, skill_json_path)
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] Failed to sync skill/bundle for {skill_root}: {e}")
+
 
     async def _generate_from_plan(
         self,
@@ -1493,8 +1588,8 @@ class SkillEditorAgent:
         commands = []
         skill_path = None
         if code_output.flowgram:
-            # Scaffold skill to disk
-            skill_path = self._scaffold_skill_to_disk(code_output.flowgram)
+            # Dual-write skill + bundle to disk
+            skill_path = self._save_flowgram_to_disk(code_output.flowgram)
             
             # If skill was scaffolded to disk, only send load_flowgram command
             # The frontend will load the nodes from disk via loadSkillFile
@@ -1550,9 +1645,9 @@ class SkillEditorAgent:
         commands = []
         skill_path = None
         if code_output.flowgram:
-            # Always scaffold to disk for both create and edit operations
-            # This ensures the skill file is updated and the frontend can reload it
-            skill_path = self._scaffold_skill_to_disk(code_output.flowgram)
+            # Always dual-write to disk for both create and edit operations
+            # This ensures the skill file and bundle stay in sync and frontend can reload
+            skill_path = self._save_flowgram_to_disk(code_output.flowgram)
             
             # Send load_flowgram command to reload the updated skill
             # The frontend will load the nodes from disk via loadSkillFile

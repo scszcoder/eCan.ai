@@ -34,8 +34,8 @@ interface AutoSaveState {
 }
 
 export const useAutoSaveStore = create<AutoSaveState>()((set, get) => ({
-  // Auto-save is enabled by default; can be toggled by hooks like useAutoLoadRecentFile if needed
-  autoSaveEnabled: true,
+  // Auto-save default OFF to avoid unintended overwrites during load/edit
+  autoSaveEnabled: false,
 
   setAutoSaveEnabled: (enabled: boolean) => {
     set({ autoSaveEnabled: enabled });

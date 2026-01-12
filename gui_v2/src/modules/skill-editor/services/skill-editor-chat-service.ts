@@ -165,7 +165,7 @@ class SkillEditorChatService {
       console.error('[SkillEditorChat] Failed to send message:', response.error);
       return null;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+      const errorMessage = error instanceof Error ? `${error.name}: ${error.message}` : JSON.stringify(error);
       console.error('[SkillEditorChat] Error sending message:', errorMessage, error);
       return null;
     }
@@ -201,7 +201,8 @@ class SkillEditorChatService {
       console.error('[SkillEditorChat] Failed to send clarification:', response.error);
       return null;
     } catch (error) {
-      console.error('[SkillEditorChat] Error sending clarification:', error);
+      const errorMessage = error instanceof Error ? `${error.name}: ${error.message}` : JSON.stringify(error);
+      console.error('[SkillEditorChat] Error sending clarification:', errorMessage, error);
       return null;
     }
   }
