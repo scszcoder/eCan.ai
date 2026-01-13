@@ -22,7 +22,7 @@ export const PromptSelector: React.FC<PromptSelectorProps> = ({
   ...rest
 }) => {
   const username = useUserStore((s) => s.username || 'user');
-  const { prompts, fetch, fetched } = usePromptStore();
+  const { prompts, fetch, fetched, loading: storeLoading } = usePromptStore();
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -31,6 +31,16 @@ export const PromptSelector: React.FC<PromptSelectorProps> = ({
       fetch(username).finally(() => setLoading(false));
     }
   }, [fetched, fetch, username]);
+
+  useEffect(() => {
+    const selected = value;
+    if (!selected || selected === IN_LINE_PROMPT_ID) return;
+    const exists = prompts.some((p: Prompt) => p.id === selected);
+    if (exists) return;
+    if (storeLoading || loading) return;
+    setLoading(true);
+    fetch(username, true).finally(() => setLoading(false));
+  }, [value, prompts, fetch, username, storeLoading, loading]);
 
   const options = useMemo(() => {
     const promptOptions = prompts.map((p: Prompt) => ({

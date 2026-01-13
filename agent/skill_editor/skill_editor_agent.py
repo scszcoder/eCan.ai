@@ -494,6 +494,11 @@ class SkillEditorAgent:
             return IntentType.CONNECT_NODES
         if "modify" in msg_lower or "change" in msg_lower or "update" in msg_lower:
             return IntentType.MODIFY_NODE
+
+        # Validation / repair intent (treat as edit intent, but handled deterministically later)
+        if any(w in msg_lower for w in ["validate", "repair", "fix connections", "fix connectivity", "fix edges"]):
+            if any(w in msg_lower for w in ["flowgram", "workflow", "canvas", "connections", "edges", "condition"]):
+                return IntentType.MODIFY_NODE
         
         # Test skill intents
         if any(phrase in msg_lower for phrase in ["test", "run test", "step through", "pause", "exit test"]) and \
@@ -525,6 +530,33 @@ class SkillEditorAgent:
             IntentType.CREATE_FLOWGRAM,
             IntentType.GENERAL_CHAT,  # Let planner handle ambiguous requests
         ]
+
+    def _should_require_clarification(self, message: str, intent: IntentType) -> bool:
+        """
+        Decide whether to force clarification for planning.
+        Default: require clarification for workflow creation/general chat unless user opts out.
+        """
+        msg_lower = (message or "").lower()
+        # Force phrases (English/Chinese)
+        force_phrases = ["force clarify", "force clarification", "always ask", "强制澄清", "必须澄清", "请先问问题"]
+        if any(p in msg_lower for p in force_phrases):
+            return True
+        # Opt-out phrases
+        opt_out_phrases = [
+            "skip clarifications",
+            "no questions",
+            "no need to clarify",
+            "no clarification needed",
+            "no need for clarification",
+            "直接生成",
+            "不用问",
+            "不用提问",
+            "无需澄清",
+        ]
+        if any(p in msg_lower for p in opt_out_phrases):
+            return False
+        # Default: require for planner intents
+        return intent in [IntentType.CREATE_FLOWGRAM, IntentType.GENERAL_CHAT]
     
     def _is_node_config_request(self, message: str, canvas_context: Optional[Dict]) -> bool:
         """Check if the message is a node configuration request"""
@@ -677,7 +709,13 @@ class SkillEditorAgent:
             
             # Decide whether to use planner or go directly to code
             if self._should_use_planner(intent):
-                response = await self._run_planning_phase(message, canvas_context, session_id, on_event)
+                response = await self._run_planning_phase(
+                    message=message,
+                    canvas_context=canvas_context,
+                    session_id=session_id,
+                    on_event=on_event,
+                    intent=intent,
+                )
                 self._add_response_to_history(response)
                 return response
             else:
@@ -1004,17 +1042,20 @@ class SkillEditorAgent:
         message: str,
         canvas_context: Optional[Dict],
         session_id: Optional[str],
-        on_event: Optional[Callable]
+        on_event: Optional[Callable],
+        intent: IntentType,
     ) -> AgentResponse:
         """Run the planning phase with PlannerAgent"""
         logger.info("[SkillEditorAgent] Running planning phase")
         self._pipeline_state = PipelineState.PLANNING
         
-        # Run planner
+        # Run planner with forced clarification policy when applicable
+        require_clarification = self._should_require_clarification(message, intent)
         planner_output = await self.planner.plan(
             user_message=message,
             canvas_context=canvas_context,
-            on_event=on_event
+            on_event=on_event,
+            require_clarification=require_clarification,
         )
         
         logger.info(f"[SkillEditorAgent] Planner action: {planner_output.action.value}")
@@ -1065,7 +1106,8 @@ class SkillEditorAgent:
             user_message=self._current_request or "",
             canvas_context=canvas_context,
             clarification_responses=responses,
-            on_event=on_event
+            on_event=on_event,
+            require_clarification=False,
         )
         
         if planner_output.action == PlannerAction.ASK_CLARIFICATION:
@@ -1183,12 +1225,17 @@ class SkillEditorAgent:
         
         if node_type == "loop":
             # Parse blocks (internal nodes)
-            blocks_data = n.get("blocks", [])
+            blocks_data = n.get("blocks", []) or n.get("data", {}).get("blocks", [])
             if blocks_data:
                 blocks = [self._parse_canvas_node(b, i) for i, b in enumerate(blocks_data)]
             
             # Parse internal edges
-            internal_edges_data = n.get("edges", []) or n.get("internal_edges", [])
+            internal_edges_data = (
+                n.get("edges", [])
+                or n.get("internal_edges", [])
+                or n.get("data", {}).get("edges", [])
+                or n.get("data", {}).get("internal_edges", [])
+            )
             if internal_edges_data:
                 internal_edges = [
                     FlowgramEdge(
@@ -1309,10 +1356,23 @@ class SkillEditorAgent:
             "system_prompt", "systemPrompt", "user_prompt", "prompt", "task", 
             "message", "code", "url", "query_path"
         }
+        # Fields that should not be emitted into inputsValues
+        skip_fields = {"conditions", "blocks", "internal_edges", "inputs", "outputs", "code", "language"}
         
         for key, value in config.items():
             # Skip special fields that aren't inputsValues
-            if key in ["conditions", "blocks", "internal_edges", "inputs", "outputs"]:
+            if key in skip_fields:
+                continue
+
+            # promptSelection should serialize as an ID container without FlowValue 'type'
+            # so the UI treats it as a prompt ID and resolves the title from the prompt store.
+            if key == "promptSelection":
+                if value is None:
+                    continue
+                if isinstance(value, dict) and "content" in value:
+                    inputs_values[key] = {"content": value.get("content")}
+                else:
+                    inputs_values[key] = {"content": value}
                 continue
             
             # If value is already in inputsValues format, keep it
@@ -1332,6 +1392,14 @@ class SkillEditorAgent:
     def _node_to_json(self, node: FlowgramNode) -> Dict[str, Any]:
         """Convert a FlowgramNode to JSON-serializable dict for skill file."""
         config = node.config or {}
+        # Map internal to UI canonical types
+        type_out = node.type
+        if type_out == "browser_automation":
+            type_out = "browser-automation"
+        if type_out == "pend_event":
+            type_out = "pend_event_node"
+        if type_out == "mcp_tool":
+            type_out = "mcp"
         
         # Handle condition nodes - ensure conditions array is present
         if node.type == "condition":
@@ -1343,21 +1411,54 @@ class SkillEditorAgent:
         
         # Build the data object with proper inputsValues format
         data = {
-            "title": node.label or node.id,
+            "title": getattr(node, "title", None) or node.label or node.id,
         }
         
         # For nodes that use inputsValues format (llm, browser_automation, mcp_tool, etc.)
-        if node.type in ["llm", "browser_automation", "browser-automation", "mcp_tool", "http", "code", "chat_node", "pend_event", "rag"]:
+        if type_out in ["llm", "browser-automation", "mcp", "http", "code", "chat_node", "pend_event_node", "rag"]:
             # Convert config to inputsValues format
-            inputs_values = self._config_to_inputs_values(config, node.type)
+            inputs_values = self._config_to_inputs_values(config, type_out)
             if inputs_values:
                 data["inputsValues"] = inputs_values
             
-            # Also include inputs schema for frontend
+            # Also include inputs schema for frontend (typed where known)
+            property_types = {}
+            if type_out == "llm":
+                property_types = {
+                    "modelProvider": {"type": "string"},
+                    "modelName": {"type": "string"},
+                    "attachments": {"type": "object"},
+                    "apiKey": {"type": "string"},
+                    "apiHost": {"type": "string"},
+                    "temperature": {"type": "number"},
+                    "systemPrompt": {"type": "string"},
+                    "prompt": {"type": "string"},
+                    "promptSelection": {"type": "object", "properties": {}},
+                }
+            elif type_out == "browser-automation":
+                property_types = {
+                    "tool": {"type": "string"},
+                    "browser": {"type": "string"},
+                    "browserDriver": {"type": "string"},
+                    "cdpPort": {"type": "string"},
+                    "shopName": {"type": "string"},
+                    "customShopName": {"type": "string"},
+                    "modelProvider": {"type": "string"},
+                    "modelName": {"type": "string"},
+                    "temperature": {"type": "number"},
+                    "useThinking": {"type": "boolean"},
+                    "profile": {"type": "string"},
+                    "systemPrompt": {"type": "string"},
+                    "prompt": {"type": "string"},
+                    "promptSelection": {"type": "object"},
+                }
             data["inputs"] = {
                 "type": "object",
                 "properties": {
-                    key: {"type": "string" if isinstance(val.get("content"), str) else "object"}
+                    key: property_types.get(
+                        key,
+                        {"type": "string" if isinstance(val.get("content"), str) else "object"}
+                    )
                     for key, val in inputs_values.items()
                 }
             }
@@ -1372,31 +1473,38 @@ class SkillEditorAgent:
                     "case": {"type": "string", "description": "Node execution case"}
                 }
             }
+            # Code node script
+            if type_out == "code":
+                data["script"] = {
+                    "language": config.get("language", "python"),
+                    "content": config.get("code", "")
+                }
         else:
             # For simple nodes (start, end, condition, loop), just spread config
             data.update(config)
         
         node_json = {
             "id": node.id,
-            "type": node.type,
-            "data": data,
+            "type": type_out,
             "meta": {
                 "position": {"x": node.position.x, "y": node.position.y} if node.position else {"x": 100, "y": 100}
-            }
+            },
+            "data": data,
         }
         
         # Handle loop nodes with blocks
         if node.type == "loop" and node.blocks:
             node_json["blocks"] = [self._node_to_json(block) for block in node.blocks]
-            if node.internal_edges:
+            internal_edges = node.internal_edges or node.edges
+            if internal_edges:
                 node_json["edges"] = [
                     {
                         "sourceNodeID": e.source,
                         "targetNodeID": e.target,
-                        "sourcePortID": e.source_handle,
-                        "targetPortID": e.target_handle,
+                        **({"sourcePortID": e.source_handle} if e.source_handle is not None else {}),
+                        **({"targetPortID": e.target_handle} if e.target_handle is not None else {}),
                     }
-                    for e in node.internal_edges
+                    for e in internal_edges
                 ]
         
         return node_json
@@ -1461,27 +1569,46 @@ class SkillEditorAgent:
         Works for both create and edit operations.
         """
         try:
+            # Normalize/fix connectivity before persisting so the saved JSON uses the real
+            # condition port IDs (e.g., if_branch/else_branch) instead of hallucinated handles.
+            try:
+                from agent.skill_editor import get_validator_agent
+
+                validator = get_validator_agent()
+                fixed_dict = validator.fix_disconnected_nodes(flowgram.model_dump())
+                flowgram = Flowgram.model_validate(fixed_dict)
+            except Exception as e:
+                logger.warning(f"[SkillEditorAgent] Validator fix before save failed: {e}")
+
             metadata = flowgram.metadata or {}
             skill_name = metadata.get("skillName") or metadata.get("name") or "generated_skill"
             description = metadata.get("description") or "Workflow generated via Skill Editor"
+            from datetime import datetime, timezone
+            now_iso = datetime.now(timezone.utc).isoformat()
 
-            # Convert flowgram to JSON-serializable dict
+            # Convert flowgram to JSON-serializable dict in UI shape
             skill_json = {
+                "skillId": metadata.get("skillId", ""),
                 "skillName": skill_name,
-                "description": description,
+                "version": metadata.get("version", "1.0.0"),
+                "lastModified": metadata.get("lastModified", now_iso),
                 "workFlow": {
                     "nodes": [self._node_to_json(n) for n in flowgram.nodes],
                     "edges": [
                         {
                             "sourceNodeID": e.source,
                             "targetNodeID": e.target,
-                            "sourcePortID": e.source_handle,
-                            "targetPortID": e.target_handle,
+                            **({"sourcePortID": e.source_handle} if e.source_handle is not None else {}),
+                            **({"targetPortID": e.target_handle} if e.target_handle is not None else {}),
                         }
                         for e in flowgram.edges
+                        if e.source is not None and e.target is not None
                     ]
                 },
-                "metadata": metadata
+                "mode": metadata.get("mode", "development"),
+                "run_mode": metadata.get("run_mode", "developing"),
+                "config": metadata.get("config", {"nodes": {}}),
+                "schemaVersion": metadata.get("schemaVersion", "1.0.1"),
             }
 
             # Resolve skill directory paths
@@ -1489,7 +1616,7 @@ class SkillEditorAgent:
             skill_root = skills_root / f"{skill_name}_skill"
             diagram_dir = skill_root / "diagram_dir"
             diagram_dir.mkdir(parents=True, exist_ok=True)
-            skill_path = diagram_dir / f"{skill_name}_skill.json"
+            skill_json_path = diagram_dir / f"{skill_name}_skill.json"
             bundle_path = diagram_dir / f"{skill_name}_skill_bundle.json"
 
             # Load existing bundle (if any), else default shell
@@ -1511,10 +1638,11 @@ class SkillEditorAgent:
                     }
 
             # Dual-write skill + bundle with mirroring
-            self._write_skill_and_bundle(skill_json, bundle_json, skill_path)
+            self._write_skill_and_bundle(skill_json, bundle_json, skill_json_path)
 
-            logger.info(f"[SkillEditorAgent] Saved flowgram to disk (dual-write): {skill_path}")
-            return str(skill_path)
+            logger.info(f"[SkillEditorAgent] Saved flowgram to disk (dual-write): {skill_json_path}")
+            # Return skill root directory; frontend appends diagram_dir/<name>_skill.json
+            return str(skill_root)
         except Exception as e:
             logger.error(f"[SkillEditorAgent] Failed to save flowgram: {e}\n{traceback.format_exc()}")
             return None
@@ -1624,6 +1752,41 @@ class SkillEditorAgent:
         logger.info(f"[SkillEditorAgent] Direct code generation for intent: {intent.value}")
         self._pipeline_state = PipelineState.GENERATING
         
+        msg_lower = (message or "").lower()
+
+        # Deterministic validate/repair-only mode: do NOT call LLM; run ValidatorAgent on the current canvas.
+        if intent in [IntentType.MODIFY_NODE, IntentType.CONNECT_NODES] and canvas_context:
+            if any(w in msg_lower for w in ["validate", "repair", "fix connections", "fix connectivity", "fix edges"]):
+                try:
+                    current_flowgram = self._canvas_context_to_flowgram(canvas_context)
+                    if current_flowgram:
+                        from agent.skill_editor import get_validator_agent
+
+                        validator = get_validator_agent()
+                        fixed_dict = validator.fix_disconnected_nodes(current_flowgram.model_dump(), task_context=message)
+                        fixed_flowgram = Flowgram.model_validate(fixed_dict)
+                        self.code_agent.set_current_flowgram(fixed_flowgram)
+
+                        skill_path = self._save_flowgram_to_disk(fixed_flowgram)
+                        commands = []
+                        if skill_path:
+                            commands = [CanvasCommand(
+                                type="canvas.load_flowgram",
+                                payload={"skillPath": skill_path, "skillName": fixed_flowgram.metadata.get("skillName", "generated_skill")}
+                            )]
+
+                        self._pipeline_state = PipelineState.COMPLETE
+                        return AgentResponse(
+                            message="Validated and fixed the current flowgram’s connections.",
+                            commands=[CanvasCommand(type=c.type, payload=c.payload) for c in commands],
+                            intent=IntentType.MODIFY_NODE,
+                            flowgram=fixed_flowgram,
+                            validation=None,
+                            metadata={"session_id": session_id, "skillPath": skill_path, "state": "complete"}
+                        )
+                except Exception as e:
+                    logger.error(f"[SkillEditorAgent] Deterministic validation failed: {e}")
+
         # For edit operations, use edit method with current canvas state
         if intent in [IntentType.ADD_NODE, IntentType.REMOVE_NODE, IntentType.MODIFY_NODE, IntentType.CONNECT_NODES]:
             # Convert canvas_context to Flowgram for editing
@@ -1645,6 +1808,33 @@ class SkillEditorAgent:
         commands = []
         skill_path = None
         if code_output.flowgram:
+            # Guard: never allow LLM edits to wipe nodes unless the user explicitly asked to remove/delete.
+            try:
+                old_count = 0
+                if canvas_context and isinstance(canvas_context.get("nodes"), list):
+                    old_count = len(canvas_context.get("nodes"))
+                if old_count <= 0 and self.code_agent.get_current_flowgram():
+                    old_count = len(self.code_agent.get_current_flowgram().nodes)
+
+                new_count = len(code_output.flowgram.nodes)
+                is_explicit_delete = any(w in msg_lower for w in ["remove", "delete"]) 
+                if old_count > 0 and new_count < old_count and not is_explicit_delete:
+                    logger.warning(
+                        f"[SkillEditorAgent] Refusing to apply edit that reduces node count {old_count} -> {new_count}"
+                    )
+                    self._pipeline_state = PipelineState.COMPLETE
+                    return AgentResponse(
+                        message=(
+                            "I refused to apply this update because it would remove existing nodes from your canvas. "
+                            "This usually happens when the LLM returns a partial flowgram. "
+                            "Please retry, or use the validate/repair request which runs deterministically."
+                        ),
+                        intent=intent,
+                        metadata={"session_id": session_id, "state": "complete", "refused": True}
+                    )
+            except Exception:
+                pass
+
             # Always dual-write to disk for both create and edit operations
             # This ensures the skill file and bundle stay in sync and frontend can reload
             skill_path = self._save_flowgram_to_disk(code_output.flowgram)
