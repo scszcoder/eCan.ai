@@ -156,6 +156,25 @@ class CloudAPIService:
             if isinstance(result, dict):
                 logger.debug(f"[CloudAPIService] Cloud API response keys: {result.keys()}")
                 logger.debug(f"[CloudAPIService] Cloud API response: {result}")
+
+            # Schema mismatch: server doesn't support this operation.
+            # Relations are required by design, so treat this as a hard failure.
+            if isinstance(result, dict) and result.get('skipped'):
+                reason = result.get('reason', 'unknown reason')
+                op_name = result.get('operation', f"{self.data_type}.{operation}")
+                logger.error(
+                    f"[CloudAPIService] ❌ Cloud operation not supported by server schema: {op_name} | endpoint={endpoint} | reason={reason}"
+                )
+                logger.error(
+                    f"[CloudAPIService] ❌ Action required: deploy/upgrade AppSync GraphQL schema for this endpoint to include the missing mutation(s)."
+                )
+                return {
+                    'success': False,
+                    'synced': 0,
+                    'failed': len(local_items),
+                    'errors': [f"{op_name} not supported by server schema: {reason}"],
+                    'response': result
+                }
             
             # Check result
             if isinstance(result, dict) and 'errorType' in result:

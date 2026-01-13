@@ -775,12 +775,17 @@ def _trigger_cloud_sync(task_data: Dict[str, Any], operation: 'Operation') -> No
     
     def _log_result(result: Dict[str, Any]):
         """Log sync result"""
+        error_msg = result.get('error')
+        if not error_msg:
+            errors = result.get('errors')
+            if isinstance(errors, list) and errors:
+                error_msg = '; '.join([str(e) for e in errors if e])
         if result.get('synced'):
             logger.info(f"[task_handler] ✅ Task synced to cloud: {operation} - {task_data.get('name')}")
         elif result.get('cached'):
             logger.info(f"[task_handler] 💾 Task cached for later sync: {operation} - {task_data.get('name')}")
-        elif not result.get('success'):
-            logger.error(f"[task_handler] ❌ Failed to sync task: {result.get('error')}")
+        else:
+            logger.error(f"[task_handler] ❌ Failed to sync task: {error_msg or result}")
     
     # Use SyncManager's thread pool for async execution
     # Note: Use TASK for Task entity data (name, description, etc.)
@@ -818,11 +823,16 @@ def _sync_task_skill_relations(task_id: str, skill_ids: list, operation: 'Operat
         }
         
         def _log_result(result: Dict[str, Any]):
+            error_msg = result.get('error')
+            if not error_msg:
+                errors = result.get('errors')
+                if isinstance(errors, list) and errors:
+                    error_msg = '; '.join([str(e) for e in errors if e])
             if result.get('synced'):
                 logger.info(f"[task_handler] ✅ Skill relation synced: {skill_id}")
             elif result.get('cached'):
                 logger.info(f"[task_handler] 💾 Skill relation cached: {skill_id}")
-            elif not result.get('success'):
-                logger.error(f"[task_handler] ❌ Failed to sync skill relation: {result.get('error')}")
+            else:
+                logger.error(f"[task_handler] ❌ Failed to sync skill relation: {error_msg or result}")
         
         manager.sync_to_cloud_async(DataType.TASK_SKILL, relation_data, operation, callback=_log_result)
