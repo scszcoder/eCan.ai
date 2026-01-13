@@ -279,12 +279,13 @@ class CanvasEventHandler {
               // This also ensures promptSelection IDs resolve to human-readable titles.
               try {
                 const { IPCAPI } = await import('../../../services/ipc/api');
+                const { useUserStore } = await import('../../../stores/userStore');
                 const api = IPCAPI.getInstance();
                 const last = await api.getLastLoginInfo<any>();
-                const username = (last.success && (last.data as any)?.username) || '';
-                if (username) {
-                  await usePromptStore.getState().fetch(username, true);
-                }
+                const storeUsername = useUserStore.getState().username || '';
+                const lastUsername = (last.success && (last.data as any)?.username) || '';
+                const username = storeUsername || lastUsername || 'user';
+                await usePromptStore.getState().fetch(username, true);
               } catch (e) {
                 console.warn('[CanvasEventHandler] Prompt refresh failed:', e);
               }

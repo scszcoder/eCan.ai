@@ -81,10 +81,69 @@ async function fetchLLMProviders(): Promise<Map<string, any>> {
   return new Map();
 }
 
+const PromptSelectionDropdown = ({
+  selected,
+  username,
+  prompts,
+  fetch,
+  promptStoreLoading,
+  promptOptions,
+  onChange,
+  onEdit,
+}: {
+  selected: string;
+  username: string;
+  prompts: any[];
+  fetch: (username: string, force?: boolean) => Promise<void>;
+  promptStoreLoading: boolean;
+  promptOptions: any[];
+  onChange: (val: string) => void;
+  onEdit: () => void;
+}) => {
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    if (!selected || selected === 'inline') return;
+    if (!username) return;
+    const exists = prompts.some((p: any) => p?.id === selected);
+    if (exists) return;
+    if (promptStoreLoading || refreshing) return;
+    setRefreshing(true);
+    fetch(username, true).finally(() => setRefreshing(false));
+  }, [selected, username, prompts, fetch, promptStoreLoading, refreshing]);
+
+  const showEditButton = selected && selected !== 'inline';
+
+  return (
+    <div style={{ display: 'flex', gap: 4, alignItems: 'center', width: '100%' }}>
+      <Select
+        value={selected}
+        onChange={(val) => onChange(val as string)}
+        optionList={promptOptions}
+        style={{ flex: 1 }}
+        dropdownMatchSelectWidth
+        size="small"
+        loading={refreshing}
+      />
+      {showEditButton && (
+        <Tooltip content="Edit prompt">
+          <Button
+            icon={<IconEdit />}
+            size="small"
+            theme="borderless"
+            onClick={onEdit}
+            style={{ flexShrink: 0 }}
+          />
+        </Tooltip>
+      )}
+    </div>
+  );
+};
+
 export const FormRender = (_props: FormRenderProps<any>) => {
   const navigate = useNavigate();
   const username = useUserStore((s) => s.username || 'user');
-  const { prompts, fetch, fetched } = usePromptStore();
+  const { prompts, fetch, fetched, loading: promptStoreLoading } = usePromptStore();
   const [llmProviders, setLlmProviders] = useState<Map<string, any>>(new Map());
   const [browserProfiles, setBrowserProfiles] = useState<BrowserProfile[]>([]);
 
@@ -141,31 +200,19 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           <Field<string> name="inputsValues.promptSelection.content">
             {({ field: promptSelectorField }) => {
               const selectedValue = (promptSelectorField.value as string) || 'inline';
-              const showEditButton = selectedValue && selectedValue !== 'inline';
               return (
-                <div style={{ display: 'flex', gap: 4, alignItems: 'center', width: '100%' }}>
-                  <Select
-                    value={selectedValue}
-                    onChange={(val) => promptSelectorField.onChange(val as string)}
-                    optionList={promptOptions}
-                    style={{ flex: 1 }}
-                    dropdownMatchSelectWidth
-                    size="small"
-                  />
-                  {showEditButton && (
-                    <Tooltip content="Edit prompt">
-                      <Button
-                        icon={<IconEdit />}
-                        size="small"
-                        theme="borderless"
-                        onClick={() => {
-                          navigate(`/prompts?id=${encodeURIComponent(selectedValue)}&edit=true`);
-                        }}
-                        style={{ flexShrink: 0 }}
-                      />
-                    </Tooltip>
-                  )}
-                </div>
+                <PromptSelectionDropdown
+                  selected={selectedValue}
+                  username={username}
+                  prompts={prompts}
+                  fetch={fetch}
+                  promptStoreLoading={promptStoreLoading}
+                  promptOptions={promptOptions}
+                  onChange={(val) => promptSelectorField.onChange(val as string)}
+                  onEdit={() => {
+                    navigate(`/prompts?id=${encodeURIComponent(selectedValue)}&edit=true`);
+                  }}
+                />
               );
             }}
           </Field>
