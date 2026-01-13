@@ -155,7 +155,7 @@ class SkillEditorChatService {
         content,
         attachments,
         canvasContext,
-      }, { timeout: 120000 }); // 120 second timeout for LLM responses (planning + generation)
+      }, { timeout: 300000 }); // 5 minute timeout for LLM responses (planning + generation)
       console.log('[SkillEditorChat] Message response received:', { status: response.status });
       
       if (response.status === 'success' && response.result) {
@@ -191,7 +191,7 @@ class SkillEditorChatService {
         content,
         canvasContext,
         clarificationResponses,
-      }, { timeout: 120000 });
+      }, { timeout: 300000 });
       console.log('[SkillEditorChat] Clarification response received:', { status: response.status });
       
       if (response.status === 'success' && response.result) {

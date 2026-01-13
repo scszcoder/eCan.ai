@@ -214,6 +214,7 @@ class CanvasEventHandler {
             const { useSkillInfoStore } = await import('../stores/skill-info-store');
             const { useSheetsStore } = await import('../stores/sheets-store');
             const { useAutoSaveStore } = await import('../stores/editor-auto-save-store');
+            const { usePromptStore } = await import('../../../stores/promptStore');
             
             // IMPORTANT: Disable auto-save while loading to prevent race condition
             // where old canvas data gets saved to the new skill file
@@ -273,6 +274,20 @@ class CanvasEventHandler {
               }
               
               console.log('[CanvasEventHandler] Skill loaded and stores updated:', payload.skillName);
+
+              // Force-refresh prompt store so newly generated prompts (my_prompts/) are visible immediately.
+              // This also ensures promptSelection IDs resolve to human-readable titles.
+              try {
+                const { IPCAPI } = await import('../../../services/ipc/api');
+                const api = IPCAPI.getInstance();
+                const last = await api.getLastLoginInfo<any>();
+                const username = (last.success && (last.data as any)?.username) || '';
+                if (username) {
+                  await usePromptStore.getState().fetch(username, true);
+                }
+              } catch (e) {
+                console.warn('[CanvasEventHandler] Prompt refresh failed:', e);
+              }
             } else {
               console.error('[CanvasEventHandler] Failed to load skill:', result.error);
             }

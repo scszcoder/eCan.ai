@@ -763,23 +763,21 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
   // Handle clarification submission
   const handleClarificationSubmit = useCallback(async (answers: Record<string, string[]>) => {
     if (!activeSessionId || isLoading) return;
-    
+
     console.log('[ChatPanel] Submitting clarification answers:', answers);
     setIsLoading(true);
-    
-    // Store the answers in the message that had the clarification questions (before clearing pending)
+
     const currentClarification = pendingClarification;
+
+    // Store the answers in the message that had the clarification questions (before clearing pending)
     setMessages(prev => prev.map(msg => {
-      // Find the message with matching clarification questions and add the answers
-      if (msg.clarification && msg.clarification.length > 0 && 
+      if (msg.clarification && msg.clarification.length > 0 &&
           currentClarification && msg.clarification[0]?.id === currentClarification[0]?.id) {
         return { ...msg, clarificationAnswers: answers };
       }
       return msg;
     }));
-    
-    setPendingClarification(null);
-    
+
     try {
       const canvasState = canvasController.getCanvasState();
       const canvasContext = {
@@ -795,7 +793,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
           target: e.target,
         })),
       };
-      
+
       // Send clarification responses
       const response = await skillEditorChatService.sendMessageWithClarification(
         activeSessionId,
@@ -803,14 +801,14 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
         answers,
         canvasContext
       );
-      
+
       if (response) {
         console.log('[ChatPanel] Clarification response received:', {
           state: response.state,
           hasClarification: !!response.clarification?.length,
           hasPlan: !!response.plan,
         });
-        
+
         const assistantMessage: ChatMessage = {
           id: response.message.id,
           role: 'assistant',
@@ -820,27 +818,53 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
           plan: response.plan,
           state: response.state,
         };
-        
+
         setMessages(prev => [...prev, assistantMessage]);
         setPipelineState(response.state || 'complete');
-        console.log('[ChatPanel] Pipeline state updated to:', response.state || 'complete');
-        
+
+        // Only clear pending after successful response
+        setPendingClarification(null);
+
         if (response.clarification && response.clarification.length > 0) {
-          console.log('[ChatPanel] Setting pending clarification:', response.clarification.length, 'questions');
           setPendingClarification(response.clarification);
         } else if (response.plan) {
-          console.log('[ChatPanel] Setting pending plan:', response.plan.summary);
           setPendingPlan(response.plan);
         }
       } else {
         console.warn('[ChatPanel] No response received from clarification submission');
+        // Restore pending so user can retry and surface error
+        if (currentClarification) {
+          setPendingClarification(currentClarification);
+        }
+        const assistantMessage: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: 'Clarification submission failed (timeout or IPC error). Please try again.',
+          timestamp: new Date(),
+          state: pipelineState || 'awaiting_clarification',
+        };
+        setMessages(prev => [...prev, assistantMessage]);
+        setPipelineState(prev => prev || 'awaiting_clarification');
       }
     } catch (error) {
       console.error('[ChatPanel] Error submitting clarification:', error);
+      if (currentClarification) {
+        setPendingClarification(currentClarification);
+      }
+      const errText = error instanceof Error ? error.message : 'Clarification submission failed.';
+      const assistantMessage: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: `${errText} Please try again.`,
+        timestamp: new Date(),
+        state: pipelineState || 'awaiting_clarification',
+      };
+      setMessages(prev => [...prev, assistantMessage]);
+      setPipelineState(prev => prev || 'awaiting_clarification');
     } finally {
       setIsLoading(false);
     }
-  }, [activeSessionId, isLoading]);
+  }, [activeSessionId, canvasController, isLoading, pendingClarification, pipelineState, setMessages, setPendingPlan]);
   
   // Handle plan approval
   const handlePlanApprove = useCallback(async () => {

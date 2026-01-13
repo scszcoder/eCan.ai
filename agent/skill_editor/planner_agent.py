@@ -73,6 +73,11 @@ This maximizes work completion and minimizes human interruptions during executio
 4. Generate a clear implementation plan once you have enough information
 5. Default working language: **English**, But do make sure always respond in the same language as the user request
 
+## CLARIFICATION POLICY:
+- require_clarification flag: {require_clarification}
+- If require_clarification is true and the user has NOT explicitly opted out (e.g., "skip clarifications", "no questions", "直接生成", "不用问"), you MUST return action=ask_clarification with 2-3 targeted questions BEFORE generating a plan, even if the request seems clear.
+- Only skip clarifications when the user explicitly opts out OR require_clarification is false and you are confident the request is fully specified.
+
 
 ## AVAILABLE NODE TYPES:
 {node_types}
@@ -106,15 +111,15 @@ This maximizes work completion and minimizes human interruptions during executio
 1. **VERIFY AGAINST REQUIREMENTS**: Always check results against original user requirements
 2. **TEST BEFORE DELIVERY**: Validate workflow logic and node configurations before presenting
 3. **DOCUMENT FOR REFERENCE**: Include clear descriptions in plan steps for future reference
-4. **SEEK FEEDBACK**: Ask clarifying questions when uncertain; iterate based on user feedback
+4. **SEEK FEEDBACK**: Ask clarifying questions whenever uncertain; iterate based on user feedback
 
 ## BROWSER_AUTOMATION NODE - CRITICAL UNDERSTANDING:
-The `browser_automation` node is a **SUB-AGENT with its own internal LLM**, NOT a simple action node!
+The `browser_automation` node is a **SUB-AGENT with its own internal LLM**, can execute multiple steps consecutively based on the input prompt and tools available to it, NOT a simple action node!
 
 **Capabilities:**
 - Has its own LLM that can read/understand page DOM, extract data, and make decisions
 - Can execute up to **100 consecutive interaction steps** (click, type, scroll, navigate, etc.)
-- Returns structured JSON output including status flags and extracted data
+- With clear specifications in the prompt, can return structured JSON output including status flags and extracted data
 - Handles complex multi-step web interactions autonomously
 
 **CORRECT Pattern - Batch Browser Work:**
@@ -129,12 +134,17 @@ Instead of creating multiple browser_automation + llm node pairs, batch related 
 
 **RIGHT Pattern:**
 - Single browser_automation node with comprehensive prompt → loop wrapper
-- The browser_automation sub-agent handles DOM reading, data extraction, AND decision-making internally
+- The browser_automation sub-agent handles DOM reading, data extraction and collection, web page interaction, AND decision-making internally
 
 **When to use separate LLM nodes:**
-- Non-browser reasoning/data processing (e.g., comparing prices from an API response)
+- Non-browser reasoning/data processing (e.g., comparing prices from an API response, prepare and process data from API, files, spreadsheets, ppt, database etc.)
 - Aggregating results from multiple sources
 - Complex business logic that doesn't involve browser interaction
+
+## LLM NODE and MCP TOOL NODE - CRITICAL UNDERSTANDING:
+-The `llm` node is also agentic, meaning it has its own internal LLM, and context manager, given the right prompt it can pick the right tool to act on its own result, NOT a simple action node!
+-The "mcp_tool" node can be set to call any of the pre-made tools, but it also has an llm auto-select mode, 
+-Forming an sub-agent: an llm node followed by a mcp tool node, and then wrapped under a loop node, this combination is essentially an sub-agent just like the browser_automation node, except it's for other non-browser related repetitive tasks, for example: reformat a list of shipping label files and then send them to printer!
 
 ## PLAN GENERATION GUIDELINES:
 When generating a plan, include:
@@ -227,9 +237,9 @@ When the request is clear and simple enough to proceed directly:
 3. If this is the first interaction AND there's ambiguity → Ask clarification questions
 4. If clarification answers are provided OR request is clear → Generate the plan
 5. ALWAYS prefer generating a plan over asking more questions when possible
-6. For very simple requests (e.g., "create a simple LLM node"), proceed directly to code
+6. For very simple requests (e.g., "create a simple LLM node" or "create a blank skill named xyz"), proceed directly to code
 
-Remember: Your goal is to understand the user's intent well enough to create a solid implementation plan. Don't over-question - if the request is reasonably clear, proceed with plan generation.
+Remember: Your goal is to understand the user's intent and requirements well enough to create a solid implementation plan. Don't over-question - if the request is reasonably clear, proceed with plan generation.
 """
 
 
@@ -501,7 +511,8 @@ class PlannerAgent:
         user_message: str,
         canvas_context: Optional[Dict] = None,
         clarification_responses: Optional[Dict[str, List[str]]] = None,
-        on_event: Optional[Callable] = None
+        on_event: Optional[Callable] = None,
+        require_clarification: bool = False,
     ) -> PlannerOutput:
         """
         Run the planning process.
@@ -522,7 +533,8 @@ class PlannerAgent:
             system_prompt = PLANNER_SYSTEM_PROMPT.format(
                 max_questions=MAX_CLARIFICATION_QUESTIONS,
                 node_types=get_node_types_description(),
-                canvas_context=self._format_canvas_context(canvas_context)
+                canvas_context=self._format_canvas_context(canvas_context),
+                require_clarification=str(require_clarification).lower()
             )
             
             # Build conversation context
@@ -541,6 +553,41 @@ class PlannerAgent:
             # Parse response
             output = self._parse_planner_output(response)
             logger.info(f"[PlannerAgent] Planning result: action={output.action.value}")
+
+            # Enforce clarification when required and no answers yet
+            if require_clarification and not clarification_responses:
+                if output.action != PlannerAction.ASK_CLARIFICATION or not output.questions:
+                    fallback_questions = [
+                        ClarificationQuestion(
+                            id="wf_trigger",
+                            question="What triggers this workflow?",
+                            choices=[
+                                ClarificationChoice(id="manual", label="Manual / ad-hoc", description=None),
+                                ClarificationChoice(id="schedule", label="Scheduled / cron", description=None),
+                                ClarificationChoice(id="webhook", label="Webhook / event-based", description=None),
+                                ClarificationChoice(id="other", label="Other / specify", description=None),
+                                ClarificationChoice(id="none", label="Doesn't apply", description=None),
+                            ],
+                            allow_multiple=False,
+                        ),
+                        ClarificationQuestion(
+                            id="wf_outputs",
+                            question="Where should outputs/notifications go?",
+                            choices=[
+                                ClarificationChoice(id="chat", label="Chat canvas summary only", description=None),
+                                ClarificationChoice(id="http", label="HTTP/Webhook push", description=None),
+                                ClarificationChoice(id="file", label="Save to file/storage", description=None),
+                                ClarificationChoice(id="none", label="Doesn't apply", description=None),
+                                ClarificationChoice(id="other", label="Other / specify", description=None),
+                            ],
+                            allow_multiple=True,
+                        ),
+                    ]
+                    output = PlannerOutput(
+                        action=PlannerAction.ASK_CLARIFICATION,
+                        questions=fallback_questions,
+                        message="I have a few questions to tailor the workflow before generating the plan.",
+                    )
             
             # Store clarification history if questions were asked
             if output.action == PlannerAction.ASK_CLARIFICATION and output.questions:
@@ -590,7 +637,8 @@ class PlannerAgent:
         user_message: str,
         canvas_context: Optional[Dict] = None,
         clarification_responses: Optional[Dict[str, List[str]]] = None,
-        on_event: Optional[Callable] = None
+        on_event: Optional[Callable] = None,
+        require_clarification: bool = False,
     ) -> PlannerOutput:
         """Synchronous version of plan"""
         import asyncio
@@ -600,15 +648,33 @@ class PlannerAgent:
             if loop.is_running():
                 from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
                 return run_async_in_sync(
-                    self.plan(user_message, canvas_context, clarification_responses, on_event)
+                    self.plan(
+                        user_message,
+                        canvas_context,
+                        clarification_responses,
+                        on_event,
+                        require_clarification=require_clarification,
+                    )
                 )
             else:
                 return loop.run_until_complete(
-                    self.plan(user_message, canvas_context, clarification_responses, on_event)
+                    self.plan(
+                        user_message,
+                        canvas_context,
+                        clarification_responses,
+                        on_event,
+                        require_clarification=require_clarification,
+                    )
                 )
         except RuntimeError:
             return asyncio.run(
-                self.plan(user_message, canvas_context, clarification_responses, on_event)
+                self.plan(
+                    user_message,
+                    canvas_context,
+                    clarification_responses,
+                    on_event,
+                    require_clarification=require_clarification,
+                )
             )
     
     def get_current_plan(self) -> Optional[ImplementationPlan]:

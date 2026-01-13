@@ -12,6 +12,8 @@ Inspired by BubbleLab's Boba/Pearl agent pattern.
 import json
 import re
 import uuid
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Callable
 
 from utils.logger_helper import logger_helper as logger
@@ -47,6 +49,24 @@ DEFAULT_NODE_SPACING_X = 250
 DEFAULT_NODE_SPACING_Y = 150
 START_POSITION_X = 100
 START_POSITION_Y = 100
+
+# Preferred prompt pool IDs (fallback defaults when config is missing)
+DEFAULT_LLM_PROMPT_ID = "pr-454780"
+DEFAULT_BROWSER_PROMPT_ID = "pr-935241"
+MY_PROMPTS_DIR = Path(__file__).resolve().parents[2] / "my_prompts"
+
+# Default scaffold for code nodes
+CODE_NODE_DEFAULT_TEMPLATE = """# Here, you can retrieve input variables from the node using 'state'
+import time
+
+def main(node_state, *, runtime, store):
+    # Build the output object
+    print("in myfunc0.........", node_state)
+    time.sleep(5)
+    print("myfunc0 woke now, outa here.....")
+    state["result"] = {"status": "myfunc0 succeeded!!!"}
+    return state
+"""
 
 
 # ============================================================
@@ -108,6 +128,8 @@ When you generate a flowgram, the system will automatically:
 10. Infer a concise snake_case skill name when the user does not provide one explicitly (e.g., "ebay000" → "ebay000")
 11. ALWAYS write the `message` field as a short, human-readable summary of what you built (do not echo raw JSON)
 12. Include where the skill was saved in your message (e.g., "Created 'ebay000' skill with start→end flow. Saved to my_skills/ebay000_skill/")
+13. **MCP TOOL DEFAULT**: Prefer the MCP auto-select tool. Set the MCP callable/tool to "llm auto select" unless the user explicitly names a specific tool.
+14. **UI SHAPE**: Emit nodes with `meta.position` and `data` (title, inputsValues, inputs, outputs, script for code). Emit edges with `sourceNodeID/targetNodeID/sourcePortID/targetPortID`. Do not include null handles; omit absent fields entirely.
 
 ## EDGE CONNECTIVITY VALIDATION (CRITICAL - MOST COMMON ERROR):
 Before finalizing your flowgram, VERIFY these connectivity rules:
@@ -166,12 +188,12 @@ The `browser_automation` node is a **SUB-AGENT with its own internal LLM**, NOT 
 **CORRECT Pattern - Batch Browser Work:**
 Instead of creating multiple browser_automation + llm node pairs, batch related browser work:
 1. Write a **detailed prompt** describing all browser tasks
-2. Configure the browser_automation node to return JSON with an `all_done` boolean flag
+2. Configure the browser_automation node's prompt to always must return JSON with an `all_done` boolean flag
 3. Wrap with a **loop node (while type)** that continues until `all_done` is true
 
 Example: Processing eBay orders
 - WRONG: browser_automation (login) → llm (analyze) → browser_automation (navigate) → llm (extract) → ...
-- RIGHT: Single browser_automation node with prompt: "Login to eBay, navigate to orders, process up to 3 unshipped orders by checking messages for cancellations and generating shipping labels. Return JSON with processed_orders array and all_done boolean." → Wrap in while loop checking all_done
+- RIGHT: Single browser_automation node with prompt: "Login to eBay, navigate to orders, process up to 3 unshipped orders by checking messages for cancellations and generating shipping labels. Must always return JSON with processed_orders array and all_done boolean." → Wrap in while loop checking all_done
 
 **When to use separate LLM nodes:**
 - Non-browser reasoning/data processing (e.g., comparing API response data)
@@ -1000,6 +1022,7 @@ class CodeAgent:
         
         try:
             validator = get_validator_agent()
+            validator.set_llm(self.llm)
             
             # Run async validation synchronously
             try:
@@ -1157,41 +1180,48 @@ Continue the JSON output (do not include any text before the continuation):"""
     
     def _fix_missing_incoming_edges(self, flowgram: Flowgram) -> None:
         """
-        Auto-fix missing incoming edges to condition and loop nodes.
+        Auto-fix missing incoming edges to condition and loop nodes (including loop internals).
         Infers the previous node based on position (x-coordinate) and creates the missing edge.
         """
         if not flowgram or not flowgram.nodes:
             return
-        
-        # Build set of nodes that have incoming edges
-        nodes_with_incoming = set()
-        for edge in flowgram.edges:
-            nodes_with_incoming.add(edge.target)
-        
-        # Sort nodes by x position to determine order
-        sorted_nodes = sorted(flowgram.nodes, key=lambda n: n.position.x if n.position else 0)
-        
-        # Find nodes without incoming edges (excluding start)
-        for i, node in enumerate(sorted_nodes):
-            if node.type in ["start", "block-start"]:
-                continue
-            
-            if node.id not in nodes_with_incoming:
-                # Find the previous node in the sorted order that has outgoing edges to somewhere
-                # or is the closest node by position
+
+        def fix_for(nodes: List[FlowgramNode], edges: List[FlowgramEdge]) -> None:
+            nodes_with_incoming = set()
+            for edge in edges:
+                if edge.target:
+                    nodes_with_incoming.add(edge.target)
+
+            sorted_nodes = sorted(nodes, key=lambda n: n.position.x if n.position else 0)
+
+            for i, node in enumerate(sorted_nodes):
+                if node.type in ["start", "block-start"]:
+                    continue
+                if node.id in nodes_with_incoming:
+                    continue
+
                 prev_node = None
                 for j in range(i - 1, -1, -1):
                     candidate = sorted_nodes[j]
                     if candidate.type not in ["end", "block-end"]:
                         prev_node = candidate
                         break
-                
+
                 if prev_node:
-                    # Create the missing edge
                     new_edge = FlowgramEdge(source=prev_node.id, target=node.id)
-                    flowgram.edges.append(new_edge)
+                    edges.append(new_edge)
                     nodes_with_incoming.add(node.id)
                     logger.info(f"[CodeAgent] Auto-fixed: Added missing edge {prev_node.id} -> {node.id}")
+
+        # Top-level
+        fix_for(flowgram.nodes, flowgram.edges)
+
+        # Loop internals
+        for node in flowgram.nodes:
+            if node.type == "loop" and node.blocks:
+                internal_edges = list(node.internal_edges or [])
+                fix_for(node.blocks, internal_edges)
+                node.internal_edges = internal_edges
     
     def _fix_node_naming(self, flowgram: Flowgram) -> None:
         """
@@ -1418,11 +1448,124 @@ Continue the JSON output (do not include any text before the continuation):"""
                             y=y_start
                         )
 
+    def _maybe_save_inline_prompt(self, node_id: str, node_type: str, config: Dict[str, Any]) -> None:
+        """
+        If a node has inline prompts (systemPrompt/prompt) but no promptSelection,
+        save them into my_prompts as a new prompt file and set promptSelection to that ID.
+        """
+        try:
+            prompt_sel = config.get("promptSelection")
+            if prompt_sel not in [None, "", "inline", "in-line"]:
+                return
+
+            system_prompt = config.get("systemPrompt") or config.get("system_prompt")
+            user_prompt = config.get("prompt") or config.get("user_prompt")
+            if not system_prompt and not user_prompt:
+                return
+
+            MY_PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
+            prompt_id = f"pr-{uuid.uuid4().hex[:6]}"
+            title = f"{node_type}_{node_id}_prompt"
+            now_iso = datetime.utcnow().isoformat()
+
+            prompt_doc: Dict[str, Any] = {
+                "id": prompt_id,
+                "title": title,
+                "topic": node_type,
+                "usageCount": 0,
+                "sections": [],
+                "userSections": [],
+                "lastModified": now_iso,
+            }
+
+            if system_prompt:
+                prompt_doc["sections"].append({
+                    "id": f"instructions-{uuid.uuid4().hex[:8]}",
+                    "type": "instructions",
+                    "items": [system_prompt],
+                })
+            if user_prompt:
+                prompt_doc["userSections"].append({
+                    "id": f"goals-{uuid.uuid4().hex[:8]}",
+                    "type": "goals",
+                    "items": [user_prompt],
+                })
+                prompt_doc["humanInputs"] = [user_prompt]
+
+            out_path = MY_PROMPTS_DIR / f"{title}.json"
+            with out_path.open("w", encoding="utf-8") as f:
+                json.dump(prompt_doc, f, ensure_ascii=False, indent=2)
+
+            config["promptSelection"] = prompt_id
+            logger.info(f"[CodeAgent] Saved inline prompt for node '{node_id}' to {out_path}")
+        except Exception as e:
+            logger.warning(f"[CodeAgent] Failed to save inline prompt for node '{node_id}': {e}")
+
+    def _apply_config_defaults(self, node_type: str, config: Dict[str, Any]) -> None:
+        if node_type == "llm":
+            config.setdefault("modelProvider", "openai")
+            config.setdefault("modelName", "gpt-4o")
+            config.setdefault("temperature", 0.3)
+            config.setdefault("useThinking", False)
+            config.setdefault("attachments", [])
+            config.setdefault("apiKey", "")
+            config.setdefault("apiHost", "https://api.openai.com/v1")
+            if not config.get("promptSelection"):
+                config["promptSelection"] = DEFAULT_LLM_PROMPT_ID
+                logger.info(f"[CodeAgent] LLM node missing promptSelection; defaulting to {DEFAULT_LLM_PROMPT_ID}")
+
+            config.setdefault("systemPrompt", "")
+            config.setdefault("prompt", "")
+
+        elif node_type == "browser_automation":
+            config.setdefault("provider", "browser-use")
+            config.setdefault("modelProvider", "openai")
+            config.setdefault("modelName", "gpt-4o")
+            config.setdefault("browser", "new chromium")
+            config.setdefault("browserDriver", "native")
+            config.setdefault("useThinking", False)
+            config.setdefault("timeout_seconds", 120)
+            config.setdefault("tool", "browser-use")
+            config.setdefault("cdpPort", "")
+            config.setdefault("shopName", "")
+            config.setdefault("customShopName", "")
+            config.setdefault("profile", "")
+            if not config.get("promptSelection"):
+                config["promptSelection"] = DEFAULT_BROWSER_PROMPT_ID
+                logger.info(
+                    f"[CodeAgent] Browser node missing promptSelection; defaulting to {DEFAULT_BROWSER_PROMPT_ID}")
+
+            config.setdefault("systemPrompt", "")
+            config.setdefault("prompt", "")
+        elif node_type == "code":
+            config.setdefault("language", "python")
+            if not config.get("code"):
+                config["code"] = CODE_NODE_DEFAULT_TEMPLATE
     def _parse_node(self, n: Dict[str, Any], index: int) -> FlowgramNode:
         """Parse a node dict into FlowgramNode, handling loop and condition nodes."""
         pos = n.get("position", {"x": 100, "y": 100})
         node_type = n.get("type", "llm")
-        config = n.get("config", {})
+        # Normalize type naming
+        if node_type == "browser-automation":
+            node_type = "browser_automation"
+        config = dict(n.get("config", {}) or {})
+
+        # If LLM provided data.inputsValues, merge into config (using content values)
+        data_section = n.get("data", {}) or {}
+        inputs_values = data_section.get("inputsValues") or {}
+        for key, val in inputs_values.items():
+            if key in config:
+                continue
+            if isinstance(val, dict) and "content" in val:
+                config[key] = val.get("content")
+            else:
+                config[key] = val
+
+        # If prompts are inline and promptSelection is missing/inline, persist a prompt file
+        self._maybe_save_inline_prompt(n.get("id", f"node_{index}"), node_type, config)
+
+        # Apply node-type defaults so validator/canvas get required fields
+        self._apply_config_defaults(node_type, config)
         
         # Handle condition nodes - ensure they have conditions array
         if node_type == "condition":
@@ -1487,15 +1630,19 @@ Continue the JSON output (do not include any text before the continuation):"""
                     )
                     for e in internal_edges_data
                 ]
-        
+
         return FlowgramNode(
             id=n.get("id", f"node_{index}"),
             type=node_type,
-            label=n.get("label", n.get("id", "Node")),
-            position=NodePosition(x=pos.get("x", 100), y=pos.get("y", 100)),
+            label=n.get("label", n.get("title", n.get("id", "Node"))),
+            title=n.get("title", n.get("label", n.get("id", "Node"))),
+            position=NodePosition(
+                x=pos.get("x", 100),
+                y=pos.get("y", 100)
+            ),
             config=config,
             blocks=blocks,
-            internal_edges=internal_edges
+            internal_edges=internal_edges,
         )
 
     def _parse_code_agent_output(self, response: str) -> CodeAgentOutput:
@@ -1731,7 +1878,7 @@ Continue the JSON output (do not include any text before the continuation):"""
             "position": {"x": node.position.x, "y": node.position.y},
             "config": {
                 "id": node.id,
-                "label": node.label,
+                "label": getattr(node, "title", None) or node.label,
                 **node.config
             }
         }
@@ -2060,3 +2207,4 @@ def reset_code_agent():
     if _code_agent_instance:
         _code_agent_instance.clear()
     _code_agent_instance = None
+

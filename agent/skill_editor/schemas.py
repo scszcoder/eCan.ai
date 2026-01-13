@@ -8,7 +8,7 @@ These schemas ensure type-safe communication between agents and the frontend.
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 from dataclasses import dataclass, field, asdict
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # ============================================================
@@ -126,24 +126,73 @@ class NodePosition(BaseModel):
 
 
 class FlowgramNode(BaseModel):
-    """A node in the flowgram"""
+    """
+    A node in the flowgram, matching UI shape:
+    {
+      id, type,
+      meta: { position: {x, y} },
+      data: { title, inputsValues?, inputs?, outputs?, script?, ... },
+      blocks?, edges? (for loop)
+    }
+    """
     id: str = Field(..., description="Unique node identifier")
-    type: str = Field(..., description="Node type (e.g., 'llm', 'mcp_tool', 'condition')")
-    label: str = Field(..., description="Display label")
-    position: NodePosition = Field(..., description="Canvas position")
-    config: Dict[str, Any] = Field(default_factory=dict, description="Node configuration")
-    # For container nodes like loop
+    type: str = Field(..., description="Node type (e.g., 'llm', 'mcp', 'condition', 'browser-automation', 'pend_event_node')")
+    label: Optional[str] = Field(None, description="Display label/title (internal)")
+    title: Optional[str] = Field(None, description="Display title (UI-facing)")
+    # Internal position used during parsing; UI position is stored under meta.position
+    position: Optional[NodePosition] = Field(None, description="Internal position (legacy/internal); serialize via meta.position")
+    # Backward-compat: legacy config (internal form). UI form lives in data/inputsValues.
+    config: Dict[str, Any] = Field(default_factory=dict, description="Legacy internal config; UI config should be in data.inputsValues/data.*")
+    meta: Dict[str, Any] = Field(default_factory=dict, description="Metadata including position")
+    data: Dict[str, Any] = Field(default_factory=dict, description="Node data (title, inputsValues, inputs, outputs, script, etc.)")
     blocks: Optional[List["FlowgramNode"]] = Field(None, description="Internal nodes for container types (loop)")
-    internal_edges: Optional[List["FlowgramEdge"]] = Field(None, description="Internal edges for container types (loop)")
+    edges: Optional[List["FlowgramEdge"]] = Field(None, description="Internal edges for container types (loop)")
+    # Backward-compat alias for internal edges (loop)
+    internal_edges: Optional[List["FlowgramEdge"]] = Field(None, description="Alias for edges for loop/internal blocks")
 
 
 class FlowgramEdge(BaseModel):
-    """An edge connecting two nodes"""
-    source: str = Field(..., description="Source node ID")
-    target: str = Field(..., description="Target node ID")
-    source_handle: Optional[str] = Field(None, description="Source handle ID")
-    target_handle: Optional[str] = Field(None, description="Target handle ID")
+    """An edge connecting two nodes (UI shape)"""
+    sourceNodeID: str = Field(..., description="Source node ID")
+    targetNodeID: str = Field(..., description="Target node ID")
+    sourcePortID: Optional[str] = Field(None, description="Source handle/port ID")
+    targetPortID: Optional[str] = Field(None, description="Target handle/port ID")
     label: Optional[str] = Field(None, description="Edge label")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_legacy_keys(cls, data: Any) -> Any:
+        """Allow legacy edge keys (source/target/source_handle/target_handle)"""
+        if isinstance(data, dict):
+            if "source" in data and "sourceNodeID" not in data:
+                data["sourceNodeID"] = data.pop("source")
+            if "target" in data and "targetNodeID" not in data:
+                data["targetNodeID"] = data.pop("target")
+            if "source_handle" in data and "sourcePortID" not in data:
+                data["sourcePortID"] = data.pop("source_handle")
+            if "target_handle" in data and "targetPortID" not in data:
+                data["targetPortID"] = data.pop("target_handle")
+            if "sourceHandle" in data and "sourcePortID" not in data:
+                data["sourcePortID"] = data.pop("sourceHandle")
+            if "targetHandle" in data and "targetPortID" not in data:
+                data["targetPortID"] = data.pop("targetHandle")
+        return data
+
+    @property
+    def source(self) -> str:
+        return self.sourceNodeID
+
+    @property
+    def target(self) -> str:
+        return self.targetNodeID
+
+    @property
+    def source_handle(self) -> Optional[str]:
+        return self.sourcePortID
+
+    @property
+    def target_handle(self) -> Optional[str]:
+        return self.targetPortID
 
 
 class Flowgram(BaseModel):
@@ -151,6 +200,39 @@ class Flowgram(BaseModel):
     nodes: List[FlowgramNode] = Field(default_factory=list, description="List of nodes")
     edges: List[FlowgramEdge] = Field(default_factory=list, description="List of edges")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+
+
+# Optional helper schema to document common LLM inputsValues fields (keeps inputsValues flexible)
+class LLMInputsValues(BaseModel):
+    modelProvider: Optional[Any] = None
+    modelName: Optional[Any] = None
+    attachments: Optional[Any] = None
+    apiKey: Optional[Any] = None
+    apiHost: Optional[Any] = None
+    temperature: Optional[Any] = None  # may include schema block
+    systemPrompt: Optional[Any] = None
+    prompt: Optional[Any] = None
+    promptSelection: Optional[Any] = None
+
+
+class SkillFile(BaseModel):
+    """
+    Top-level skill file shape matching UI/export:
+    {
+      skillId, skillName, version, lastModified,
+      workFlow: { nodes, edges },
+      mode, run_mode, config, schemaVersion
+    }
+    """
+    skillId: str = Field("", description="Skill identifier")
+    skillName: str = Field(..., description="Skill name")
+    version: str = Field("1.0.0", description="Version string")
+    lastModified: Optional[str] = Field(None, description="ISO timestamp of last modification")
+    workFlow: Flowgram = Field(default_factory=Flowgram, description="Workflow content")
+    mode: str = Field("development", description="Editor mode")
+    run_mode: str = Field("developing", description="Runtime mode")
+    config: Dict[str, Any] = Field(default_factory=lambda: {"nodes": {}}, description="Additional configuration")
+    schemaVersion: str = Field("1.0.1", description="Schema version")
 
 
 # Update forward references for self-referential types

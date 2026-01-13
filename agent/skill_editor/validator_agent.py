@@ -108,13 +108,27 @@ class ValidatorAgent:
             return self.llm
         
         try:
-            from config.llm_settings import LLMSettings
+            import importlib
+            settings_mod = importlib.import_module("config.llm_settings")
+            LLMSettings = getattr(settings_mod, "LLMSettings", None)
+            if not LLMSettings:
+                raise ImportError("config.llm_settings.LLMSettings not found")
             settings = LLMSettings()
             self.llm = settings.get_chat_model()
             logger.info("[ValidatorAgent] Loaded LLM from settings")
             return self.llm
         except Exception as e:
             logger.error(f"[ValidatorAgent] Failed to load LLM: {e}")
+            try:
+                from langchain_openai import ChatOpenAI
+                import os
+                api_key = os.environ.get("OPENAI_API_KEY")
+                if api_key:
+                    self.llm = ChatOpenAI(model="gpt-4o", api_key=api_key, max_tokens=4096)
+                    logger.info("[ValidatorAgent] Using fallback OpenAI LLM")
+                    return self.llm
+            except Exception:
+                pass
             return None
     
     def try_parse_json(self, json_str: str) -> tuple[Optional[Dict], Optional[str]]:
@@ -420,6 +434,7 @@ Return ONLY the fixed JSON, no explanations."""
         edges = flowgram.get("edges", [])
         node_ids = {n.get("id") for n in nodes if n.get("id")}
         
+                # Check edges reference valid nodes and handles
         for i, edge in enumerate(edges):
             source = edge.get("source") or edge.get("sourceNodeID")
             target = edge.get("target") or edge.get("targetNodeID")
@@ -431,7 +446,64 @@ Return ONLY the fixed JSON, no explanations."""
                 errors.append(f"Edge {i} missing 'target'")
             elif target not in node_ids:
                 errors.append(f"Edge {i} target '{target}' not found in nodes")
-        
+            if source and source.startswith("condition"):
+                handle = edge.get("sourcePortID") or edge.get("source_handle") or edge.get("sourceHandle")
+                if handle is None:
+                    errors.append(f"Edge {i} from condition '{source}' missing source handle (branch key)")        # Required configs per node type (UI shape: data.inputsValues/script)
+
+        for node in nodes:
+            ntype = node.get("type") or ""
+            data = node.get("data") or {}
+            inputs_values = data.get("inputsValues") or {}
+            if ntype == "llm":
+                prompt_sel = (inputs_values.get("promptSelection") or {}).get("content")
+                sys_p = (inputs_values.get("systemPrompt") or {}).get("content")
+                usr_p = (inputs_values.get("prompt") or {}).get("content")
+                model_name = (inputs_values.get("modelName") or {}).get("content")
+                model_provider = (inputs_values.get("modelProvider") or {}).get("content")
+                api_host = (inputs_values.get("apiHost") or {}).get("content")
+                temperature = (inputs_values.get("temperature") or {}).get("content")
+                if not prompt_sel:
+                    errors.append(f"LLM node '{node.get('id')}' missing promptSelection (prompt pool ID or inline)")
+                if (prompt_sel in [None, "", "inline"]) and not sys_p and not usr_p:
+                    errors.append(f"LLM node '{node.get('id')}' has inline promptSelection but empty prompts")
+                if not model_name:
+                    errors.append(f"LLM node '{node.get('id')}' missing modelName")
+                if not model_provider:
+                    errors.append(f"LLM node '{node.get('id')}' missing modelProvider")
+                if api_host in [None, ""]:
+                    errors.append(f"LLM node '{node.get('id')}' missing apiHost")
+                if temperature is None:
+                    errors.append(f"LLM node '{node.get('id')}' missing temperature")
+            if ntype in ["browser-automation", "browser_automation"]:
+                prompt_sel = (inputs_values.get("promptSelection") or {}).get("content")
+                sys_p = (inputs_values.get("systemPrompt") or {}).get("content")
+                usr_p = (inputs_values.get("prompt") or {}).get("content")
+                model_name = (inputs_values.get("modelName") or {}).get("content")
+                model_provider = (inputs_values.get("modelProvider") or {}).get("content")
+                browser = (inputs_values.get("browser") or {}).get("content")
+                browser_driver = (inputs_values.get("browserDriver") or {}).get("content")
+                temperature = (inputs_values.get("temperature") or {}).get("content")
+                if not prompt_sel:
+                    errors.append(f"browser_automation node '{node.get('id')}' missing promptSelection (prompt pool ID or inline)")
+                if (prompt_sel in [None, "", "inline"]) and not sys_p and not usr_p:
+                    errors.append(f"browser_automation node '{node.get('id')}' has inline promptSelection but empty prompts")
+                if not model_name:
+                    errors.append(f"browser_automation node '{node.get('id')}' missing modelName")
+                if not model_provider:
+                    errors.append(f"browser_automation node '{node.get('id')}' missing modelProvider")
+                if browser in [None, ""]:
+                    errors.append(f"browser_automation node '{node.get('id')}' missing browser")
+                if browser_driver in [None, ""]:
+                    errors.append(f"browser_automation node '{node.get('id')}' missing browserDriver")
+                if temperature is None:
+                    errors.append(f"browser_automation node '{node.get('id')}' missing temperature")
+            if ntype == "code":
+                script = data.get("script") or {}
+                code_content = script.get("content")
+                if not code_content:
+                    errors.append(f"Code node '{node.get('id')}' missing code/script content")
+
         # Check for disconnected nodes (except start/end)
         disconnected = self._find_disconnected_nodes(nodes, edges)
         for node_id in disconnected:
@@ -494,6 +566,32 @@ Return ONLY the fixed JSON, no explanations."""
         
         return disconnected
     
+    def _normalize_condition_keys(self, cond_node: Dict) -> List[Dict]:
+        """
+        Normalize condition keys to stable if/elseif/else naming so branch handles stay consistent.
+        - First branch -> if_branch
+        - Middle branches -> elseif_<index>
+        - Last branch -> else_branch
+        """
+        data = cond_node.get("data", {}) or {}
+        conditions = data.get("conditions") or []
+        if not conditions:
+            conditions = [{"key": "if_branch", "value": {}}, {"key": "else_branch", "value": {}}]
+        else:
+            n = len(conditions)
+            for idx, c in enumerate(conditions):
+                if idx == 0:
+                    c["key"] = "if_branch"
+                elif idx == n - 1:
+                    c["key"] = "else_branch"
+                else:
+                    c["key"] = f"elseif_{idx}"
+        # Persist normalized keys into both data and config for consistency
+        data["conditions"] = conditions
+        cond_node["data"] = data
+        cond_node.setdefault("config", {})["conditions"] = conditions
+        return conditions
+    
     def fix_disconnected_nodes(self, data: Dict, task_context: Optional[str] = None) -> Dict:
         """
         Attempt to fix disconnected nodes by adding edges based on logical task sequence.
@@ -532,7 +630,12 @@ Return ONLY the fixed JSON, no explanations."""
             if node.get("type") == "loop":
                 # Loop nodes can have blocks and edges at top level or in data
                 blocks = node.get("blocks", []) or node.get("data", {}).get("blocks", [])
-                internal_edges = node.get("edges", []) or node.get("data", {}).get("internal_edges", [])
+                internal_edges = (
+                    node.get("edges", [])
+                    or node.get("internal_edges", [])
+                    or node.get("data", {}).get("edges", [])
+                    or node.get("data", {}).get("internal_edges", [])
+                )
                 # Normalize loop edge dicts
                 self._normalize_edges(internal_edges)
                 
@@ -552,11 +655,15 @@ Return ONLY the fixed JSON, no explanations."""
                     # Update the edges in the loop node
                     if node.get("edges") is not None:
                         node["edges"] = internal_edges
+                    elif node.get("internal_edges") is not None:
+                        node["internal_edges"] = internal_edges
+                    elif node.get("data", {}).get("edges") is not None:
+                        node["data"]["edges"] = internal_edges
                     elif node.get("data", {}).get("internal_edges") is not None:
                         node["data"]["internal_edges"] = internal_edges
                     else:
                         # Store in the most common location
-                        node["edges"] = internal_edges
+                        node["internal_edges"] = internal_edges
         
         return data
 
@@ -702,6 +809,126 @@ Return ONLY the fixed JSON, no explanations."""
             if source_handle:
                 outgoing_handles[source_id].add(source_handle)
             return True
+
+        def _dedupe_condition_outgoing_edges(cond_id: str) -> None:
+            def edge_source(e: Dict) -> Optional[str]:
+                return e.get("sourceNodeID") or e.get("source")
+
+            def edge_target(e: Dict) -> Optional[str]:
+                return e.get("targetNodeID") or e.get("target")
+
+            def edge_handle(e: Dict) -> Optional[str]:
+                return e.get("sourcePortID") or e.get("source_handle") or e.get("sourceHandle")
+
+            outgoing = []
+            for e in edges:
+                if edge_source(e) == cond_id:
+                    h = edge_handle(e)
+                    if h:
+                        outgoing.append(e)
+
+            by_handle: Dict[str, List[Dict]] = {}
+            for e in outgoing:
+                by_handle.setdefault(edge_handle(e) or "", []).append(e)
+
+            to_remove_ids = set()
+
+            def target_score(tgt_id: Optional[str]) -> int:
+                if not tgt_id:
+                    return -1
+                tgt_node = node_by_id.get(tgt_id)
+                tgt_type = (tgt_node or {}).get("type", "")
+                return 0 if tgt_type == end_type else 1
+
+            for handle, items in by_handle.items():
+                if not handle or len(items) <= 1:
+                    continue
+
+                # Pick the best edge to keep
+                best = None
+                best_score = -1
+                for e in items:
+                    sc = target_score(edge_target(e))
+                    if sc > best_score:
+                        best = e
+                        best_score = sc
+
+                for e in items:
+                    if e is not best:
+                        to_remove_ids.add(id(e))
+
+            if to_remove_ids:
+                edges[:] = [e for e in edges if id(e) not in to_remove_ids]
+                edge_pairs.clear()
+                nodes_with_outgoing.clear()
+                nodes_with_incoming.clear()
+                outgoing_handles.clear()
+                for edge in edges:
+                    source = edge.get("source") or edge.get("sourceNodeID")
+                    target = edge.get("target") or edge.get("targetNodeID")
+                    source_handle = edge.get("sourcePortID") or edge.get("source_handle") or edge.get("sourceHandle")
+                    if source:
+                        nodes_with_outgoing.add(source)
+                        if source not in outgoing_handles:
+                            outgoing_handles[source] = set()
+                        if source_handle:
+                            outgoing_handles[source].add(source_handle)
+                    if target:
+                        nodes_with_incoming.add(target)
+                    if source and target:
+                        edge_pairs.add((source, target, source_handle or ""))
+
+        def _fix_collapsed_loop_condition_branches(cond_id: str) -> None:
+            if not is_loop:
+                return
+            if not start_node or not end_node:
+                return
+
+            start_id = start_node.get("id")
+            end_id = end_node.get("id")
+            if not start_id or not end_id:
+                return
+
+            by_handle: Dict[str, Dict] = {}
+            for e in edges:
+                if (e.get("sourceNodeID") or e.get("source")) != cond_id:
+                    continue
+                h = e.get("sourcePortID") or e.get("source_handle") or e.get("sourceHandle")
+                if not h:
+                    continue
+                if h not in by_handle:
+                    by_handle[h] = e
+
+            if_edge = by_handle.get("if_branch")
+            else_edge = by_handle.get("else_branch")
+            if not if_edge or not else_edge:
+                return
+
+            if_tgt = if_edge.get("targetNodeID") or if_edge.get("target")
+            else_tgt = else_edge.get("targetNodeID") or else_edge.get("target")
+
+            if if_tgt == else_tgt == end_id:
+                if_edge["targetNodeID"] = start_id
+                if "target" in if_edge:
+                    del if_edge["target"]
+                edge_pairs.clear()
+                nodes_with_outgoing.clear()
+                nodes_with_incoming.clear()
+                outgoing_handles.clear()
+                for edge in edges:
+                    source = edge.get("source") or edge.get("sourceNodeID")
+                    target = edge.get("target") or edge.get("targetNodeID")
+                    source_handle = edge.get("sourcePortID") or edge.get("source_handle") or edge.get("sourceHandle")
+                    if source:
+                        nodes_with_outgoing.add(source)
+                        if source not in outgoing_handles:
+                            outgoing_handles[source] = set()
+                        if source_handle:
+                            outgoing_handles[source].add(source_handle)
+                    if target:
+                        nodes_with_incoming.add(target)
+                    if source and target:
+                        edge_pairs.add((source, target, source_handle or ""))
         
         # STEP 1: Connect sequential chain (non-condition logic)
         for i in range(len(chain) - 1):
@@ -716,7 +943,7 @@ Return ONLY the fixed JSON, no explanations."""
                 continue
             
             # Skip if edge already exists
-            if (source_id, target_id) in edge_pairs:
+            if (source_id, target_id, "") in edge_pairs:
                 continue
             
             # Skip if source already has outgoing
@@ -733,11 +960,18 @@ Return ONLY the fixed JSON, no explanations."""
         for cond_node in condition_nodes:
             cond_id = cond_node.get("id")
             cond_idx = node_index.get(cond_id, -1)
-            conditions = cond_node.get("data", {}).get("conditions", [])
+            # Normalize condition keys to if/elseif/else pattern to keep handles stable
+            conditions = self._normalize_condition_keys(cond_node)
+
             has_incoming = cond_id in nodes_with_incoming
 
             # Normalize existing condition handles to match declared condition keys
             self._normalize_condition_handles(cond_id, conditions, edges)
+
+            _dedupe_condition_outgoing_edges(cond_id)
+
+            _fix_collapsed_loop_condition_branches(cond_id)
+
             # Refresh used handles after normalization
             used_handles = set()
             for e in edges:
@@ -889,3 +1123,5 @@ def get_validator_agent() -> ValidatorAgent:
     if _validator_agent is None:
         _validator_agent = ValidatorAgent()
     return _validator_agent
+
+
