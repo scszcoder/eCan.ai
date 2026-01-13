@@ -304,6 +304,9 @@ class DBAgentService(BaseService):
                 extra_data['notes'] = frontend_extra_data
 
             # Create DBAgent model object (ID will be auto-generated)
+            # Use SUPPORTED_CONTENT_TYPES from a2a SDK for default modes
+            from agent.a2a.langgraph_agent.utils import SUPPORTED_CONTENT_TYPES
+            
             db_agent = DBAgent(
                 name=agent_name,
                 owner=username,
@@ -315,7 +318,9 @@ class DBAgentService(BaseService):
                 supervisor_id=supervisor_id,
                 vehicle_id=vehicle_id or None,  # Set vehicle_id directly on DBAgent
                 status='active',
-                extra_data=extra_data
+                extra_data=extra_data,
+                default_input_modes=SUPPORTED_CONTENT_TYPES,  # ["text", "text/plain", "json", "file"]
+                default_output_modes=SUPPORTED_CONTENT_TYPES  # ["text", "text/plain", "json", "file"]
             )
 
             # Save agent and create relationships in a transaction

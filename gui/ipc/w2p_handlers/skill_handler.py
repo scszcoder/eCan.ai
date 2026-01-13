@@ -659,12 +659,17 @@ def _trigger_cloud_sync(skill_data: Dict[str, Any], operation: 'Operation') -> N
     
     def _log_result(result: Dict[str, Any]):
         """Log sync result"""
+        error_msg = result.get('error')
+        if not error_msg:
+            errors = result.get('errors')
+            if isinstance(errors, list) and errors:
+                error_msg = '; '.join([str(e) for e in errors if e])
         if result.get('synced'):
             logger.info(f"[skill_handler] ✅ Skill synced to cloud: {operation} - {skill_data.get('name')}")
         elif result.get('cached'):
             logger.info(f"[skill_handler] 💾 Skill cached for later sync: {operation} - {skill_data.get('name')}")
-        elif not result.get('success'):
-            logger.error(f"[skill_handler] ❌ Failed to sync skill: {result.get('error')}")
+        else:
+            logger.error(f"[skill_handler] ❌ Failed to sync skill: {error_msg or result}")
     
     # Use SyncManager's thread pool for async execution
     # Note: Use SKILL for Skill entity data (name, description, etc.)
@@ -703,12 +708,17 @@ def _sync_skill_tool_relations(skill_id: str, tool_ids: list, operation: 'Operat
         }
         
         def _log_result(result: Dict[str, Any]):
+            error_msg = result.get('error')
+            if not error_msg:
+                errors = result.get('errors')
+                if isinstance(errors, list) and errors:
+                    error_msg = '; '.join([str(e) for e in errors if e])
             if result.get('synced'):
                 logger.info(f"[skill_handler] ✅ Tool relation synced: {tool_id}")
             elif result.get('cached'):
                 logger.info(f"[skill_handler] 💾 Tool relation cached: {tool_id}")
-            elif not result.get('success'):
-                logger.error(f"[skill_handler] ❌ Failed to sync tool relation: {result.get('error')}")
+            else:
+                logger.error(f"[skill_handler] ❌ Failed to sync tool relation: {error_msg or result}")
         
         manager.sync_to_cloud_async(DataType.SKILL_TOOL, relation_data, operation, callback=_log_result)
 
@@ -743,12 +753,17 @@ def _sync_skill_knowledge_relations(skill_id: str, knowledge_ids: list, operatio
         }
         
         def _log_result(result: Dict[str, Any]):
+            error_msg = result.get('error')
+            if not error_msg:
+                errors = result.get('errors')
+                if isinstance(errors, list) and errors:
+                    error_msg = '; '.join([str(e) for e in errors if e])
             if result.get('synced'):
                 logger.info(f"[skill_handler] ✅ Knowledge relation synced: {knowledge_id}")
             elif result.get('cached'):
                 logger.info(f"[skill_handler] 💾 Knowledge relation cached: {knowledge_id}")
-            elif not result.get('success'):
-                logger.error(f"[skill_handler] ❌ Failed to sync knowledge relation: {result.get('error')}")
+            else:
+                logger.error(f"[skill_handler] ❌ Failed to sync knowledge relation: {error_msg or result}")
         
         manager.sync_to_cloud_async(DataType.SKILL_KNOWLEDGE, relation_data, operation, callback=_log_result)
 

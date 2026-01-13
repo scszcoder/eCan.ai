@@ -22,7 +22,7 @@ class OfflineSyncManager:
     """Offline Sync Manager - Handles online/offline synchronization"""
     
     # Configuration variable for offline sync control
-    OFFLINE_SYNC_ENABLED = False  # 启用/禁用离线同步功能
+    OFFLINE_SYNC_ENABLED = True  # 启用/禁用离线同步功能
     
     def __init__(self):
         """Initialize offline sync manager"""
@@ -64,15 +64,16 @@ class OfflineSyncManager:
             logger.debug(f"[OfflineSyncManager] Sync result: {result}")
             
             if result['success']:
+                response = result.get('response') if isinstance(result, dict) else None
                 logger.info(f"[OfflineSyncManager] ✅ Synced to cloud: {data_type}.{operation} - {data_name}")
-                if 'response' in result:
-                    logger.debug(f"[OfflineSyncManager] Cloud response: {result['response']}")
+                if response is not None:
+                    logger.debug(f"[OfflineSyncManager] Cloud response: {response}")
                 return {
                     'success': True,
                     'synced': True,
                     'cached': False,
                     'message': 'Synced to cloud successfully',
-                    'response': result.get('response')
+                    'response': response
                 }
             else:
                 # Sync failed, check if we should add to queue
