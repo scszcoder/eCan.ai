@@ -284,6 +284,9 @@ class GraphQLBuilder:
             # Skip None values
             if value is None:
                 continue
+            # Skip empty string values (treat as absent)
+            if value == "":
+                continue
             
             # Format value based on type
             formatted_value = self._format_graphql_value(value)

@@ -368,9 +368,18 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
                     errors.append("Missing required 'id' field")
                     continue
                 
-                # Step 1: Update agent in database first
-                logger.info(f"[agent_handler] Updating agent {agent_id} with fields: {list(agent_data.keys())}")
-                result = agent_service.update_agent(agent_id, agent_data)
+                # Step 1: Check if agent exists in database
+                existing_agent = agent_service.query_agents(id=agent_id)
+                is_new_agent = not (existing_agent.get('success') and existing_agent.get('data'))
+                
+                if is_new_agent:
+                    # Create new agent
+                    logger.info(f"[agent_handler] Creating new agent {agent_id} with fields: {list(agent_data.keys())}")
+                    result = agent_service.create_agent_from_data(agent_data, username)
+                else:
+                    # Update existing agent
+                    logger.info(f"[agent_handler] Updating existing agent {agent_id} with fields: {list(agent_data.keys())}")
+                    result = agent_service.update_agent(agent_id, agent_data)
                 
                 if result.get('success'):
                     logger.info(f"[agent_handler] ✅ Database update successful for agent {agent_id}")
@@ -425,20 +434,23 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
                         logger.warning(f"[agent_handler] Failed to clean offline sync queue: {e}")
                     
                     # Step 4: Sync to cloud after memory update succeeds (async, auto-cached if failed)
+                    # Use correct operation based on whether agent is new or existing
+                    sync_operation = Operation.ADD if is_new_agent else Operation.UPDATE
+                    
                     # Sync Agent entity
-                    _trigger_cloud_sync(agent_data, Operation.UPDATE)
+                    _trigger_cloud_sync(agent_data, sync_operation)
                     
                     # Sync Agent-Skill relationships (if changed)
                     if 'skills' in agent_data:
-                        _sync_agent_skill_relations(updated_agent_data, agent_data.get('skills', []), Operation.UPDATE)
+                        _sync_agent_skill_relations(updated_agent_data, agent_data.get('skills', []), sync_operation)
                     
                     # Sync Agent-Task relationships (if changed)
                     if 'tasks' in agent_data:
-                        _sync_agent_task_relations(updated_agent_data, agent_data.get('tasks', []), Operation.UPDATE)
+                        _sync_agent_task_relations(updated_agent_data, agent_data.get('tasks', []), sync_operation)
                     
                     # Sync Agent-Tool relationships (if changed)
                     if 'tools' in agent_data:
-                        _sync_agent_tool_relations(updated_agent_data, agent_data.get('tools', []), Operation.UPDATE)
+                        _sync_agent_tool_relations(updated_agent_data, agent_data.get('tools', []), sync_operation)
                     
                     # Sync Agent's Avatar resource to cloud (if avatar changed)
                     if 'avatar_id' in agent_data:
@@ -920,12 +932,18 @@ def _trigger_cloud_sync(agent_data: Dict[str, Any], operation: 'Operation') -> N
     
     def _log_result(result: Dict[str, Any]):
         """Log sync result"""
+        error_msg = result.get('error')
+        if not error_msg:
+            errors = result.get('errors')
+            if isinstance(errors, list) and errors:
+                error_msg = '; '.join([str(e) for e in errors if e])
         if result.get('synced'):
             logger.info(f"[agent_handler] ✅ Agent synced to cloud: {operation} - {agent_data.get('name')}")
         elif result.get('cached'):
             logger.info(f"[agent_handler] 💾 Agent cached for later sync: {operation} - {agent_data.get('name')}")
-        elif not result.get('success'):
-            logger.error(f"[agent_handler] ❌ Failed to sync agent: {result.get('error')}")
+        else:
+            # For required sync, any non-synced result is a failure signal (even if success=True)
+            logger.error(f"[agent_handler] ❌ Failed to sync agent: {error_msg or result}")
     
     # Use SyncManager's thread pool for async execution
     manager = get_sync_manager()
@@ -960,12 +978,17 @@ def _sync_agent_skill_relations(agent_data: Dict[str, Any], skill_ids: list, ope
         }
         
         def _log_result(result: Dict[str, Any]):
+            error_msg = result.get('error')
+            if not error_msg:
+                errors = result.get('errors')
+                if isinstance(errors, list) and errors:
+                    error_msg = '; '.join([str(e) for e in errors if e])
             if result.get('synced'):
                 logger.info(f"[agent_handler] ✅ Skill relation synced: {skill_id}")
             elif result.get('cached'):
                 logger.info(f"[agent_handler] 💾 Skill relation cached: {skill_id}")
-            elif not result.get('success'):
-                logger.error(f"[agent_handler] ❌ Failed to sync skill relation: {result.get('error')}")
+            else:
+                logger.error(f"[agent_handler] ❌ Failed to sync skill relation: {error_msg or result}")
         
         manager.sync_to_cloud_async(DataType.AGENT_SKILL, skill_relation_data, operation, callback=_log_result)
 
@@ -999,12 +1022,17 @@ def _sync_agent_task_relations(agent_data: Dict[str, Any], task_ids: list, opera
         }
         
         def _log_result(result: Dict[str, Any]):
+            error_msg = result.get('error')
+            if not error_msg:
+                errors = result.get('errors')
+                if isinstance(errors, list) and errors:
+                    error_msg = '; '.join([str(e) for e in errors if e])
             if result.get('synced'):
                 logger.info(f"[agent_handler] ✅ Task relation synced: {task_id}")
             elif result.get('cached'):
                 logger.info(f"[agent_handler] 💾 Task relation cached: {task_id}")
-            elif not result.get('success'):
-                logger.error(f"[agent_handler] ❌ Failed to sync task relation: {result.get('error')}")
+            else:
+                logger.error(f"[agent_handler] ❌ Failed to sync task relation: {error_msg or result}")
         
         manager.sync_to_cloud_async(DataType.AGENT_TASK, task_relation_data, operation, callback=_log_result)
 
@@ -1038,12 +1066,17 @@ def _sync_agent_tool_relations(agent_data: Dict[str, Any], tool_ids: list, opera
         }
         
         def _log_result(result: Dict[str, Any]):
+            error_msg = result.get('error')
+            if not error_msg:
+                errors = result.get('errors')
+                if isinstance(errors, list) and errors:
+                    error_msg = '; '.join([str(e) for e in errors if e])
             if result.get('synced'):
                 logger.info(f"[agent_handler] ✅ Tool relation synced: {tool_id}")
             elif result.get('cached'):
                 logger.info(f"[agent_handler] 💾 Tool relation cached: {tool_id}")
-            elif not result.get('success'):
-                logger.error(f"[agent_handler] ❌ Failed to sync tool relation: {result.get('error')}")
+            else:
+                logger.error(f"[agent_handler] ❌ Failed to sync tool relation: {error_msg or result}")
         
         manager.sync_to_cloud_async(DataType.AGENT_TOOL, tool_relation_data, operation, callback=_log_result)
 

@@ -22,7 +22,10 @@
     "tasks",
     "tools",
     "owner",
-    "agid"
+    "agid",
+    "org_id",
+    "created_at",
+    "updated_at"
   ],
   
   "json_serialize_fields": [
