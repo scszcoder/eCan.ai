@@ -27,22 +27,65 @@ limiter = AsyncLimiter(1, 1)  # Max 5 requests per second
 ecb_data_homepath = getECBotDataHome()
 
 # ==========================================================
+_APPSYNC_ENDPOINT_LOGGED = False
+
+# ==========================================================
 
 def get_appsync_endpoint() -> str:
     """
     Get AppSync API endpoint URL (common method)
 
     Priority:
-    Return corresponding endpoint based on API_DEV_MODE
+    1. MainWindow.getWanApiEndpoint() (dynamic GUI config)
+    2. settings.json wan_api_endpoint (user persistent config)
+    3. API_DEV_MODE hardcoded fallback
 
     Returns:
         AppSync API endpoint URL
     """
-    # Return default endpoint based on development mode
+    global _APPSYNC_ENDPOINT_LOGGED
+
+    try:
+        from app_context import AppContext
+        main_window = AppContext.get_main_window()
+        if main_window and hasattr(main_window, 'getWanApiEndpoint'):
+            endpoint = main_window.getWanApiEndpoint()
+            if endpoint and isinstance(endpoint, str) and endpoint.strip():
+                endpoint = endpoint.strip()
+                if not _APPSYNC_ENDPOINT_LOGGED:
+                    logger_helper.info(f"[CloudAPI] Using AppSync endpoint (MainWindow.getWanApiEndpoint): {endpoint}")
+                    _APPSYNC_ENDPOINT_LOGGED = True
+                return endpoint
+    except Exception:
+        pass
+
+    try:
+        settings_file = os.path.join(ecb_data_homepath, 'resource', 'data', 'settings.json')
+        if os.path.exists(settings_file):
+            with open(settings_file, 'r', encoding='utf-8') as f:
+                settings = json.load(f)
+            endpoint = settings.get('wan_api_endpoint')
+            if endpoint and isinstance(endpoint, str) and endpoint.strip():
+                endpoint = endpoint.strip()
+                if not _APPSYNC_ENDPOINT_LOGGED:
+                    logger_helper.info(f"[CloudAPI] Using AppSync endpoint (settings.json:{settings_file}): {endpoint}")
+                    _APPSYNC_ENDPOINT_LOGGED = True
+                return endpoint
+    except Exception:
+        pass
+
     if API_DEV_MODE:
-        return "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
-    else:
-        return "https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql"
+        endpoint = "https://cpzjfests5ea5nk7cipavakdnm.appsync-api.us-east-1.amazonaws.com/graphql"
+        if not _APPSYNC_ENDPOINT_LOGGED:
+            logger_helper.info(f"[CloudAPI] Using AppSync endpoint (API_DEV_MODE=True (hardcoded)): {endpoint}")
+            _APPSYNC_ENDPOINT_LOGGED = True
+        return endpoint
+
+    endpoint = "https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql"
+    if not _APPSYNC_ENDPOINT_LOGGED:
+        logger_helper.info(f"[CloudAPI] Using AppSync endpoint (API_DEV_MODE=False (hardcoded)): {endpoint}")
+        _APPSYNC_ENDPOINT_LOGGED = True
+    return endpoint
 
 
 # resp is the response from requesting the presigned_url
