@@ -104,6 +104,13 @@ class OTAUpdater:
                 logger.info("[OTA] OTA is disabled (ota_enabled=false)")
             return (False, None) if return_info else False
         
+        # ✅ Check if download is already in progress
+        from ota.core.download_manager import download_manager
+        if download_manager.is_downloading():
+            if not silent:
+                logger.info("[OTA] Download already in progress, skipping update check")
+            return (False, None) if return_info else False
+        
         with self._check_lock:
             if self.is_checking:
                 if not silent:
