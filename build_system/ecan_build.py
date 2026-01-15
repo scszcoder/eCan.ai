@@ -346,24 +346,30 @@ class InstallerBuilder:
                 dirs_section = ""
 
             # Choose file source: prefer onedir directory, otherwise use single file EXE
-            # Use 'ignoreversion replacesameversion' flags to always overwrite files during installation
-            # replacesameversion: allows overwriting files even if they have the same version
+            # NOTE: Inno Setup forbids using both 'ignoreversion' and 'replacesameversion' together.
+            # We use 'ignoreversion' alone to ensure files get overwritten during installation.
             onedir_dir = self.project_root / 'dist' / 'eCan'
             onefile_exe = self.project_root / 'dist' / 'eCan.exe'
             if onedir_dir.exists():
-                files_section = "Source: \"..\\dist\\eCan\\*\"; DestDir: \"{app}\"; Flags: ignoreversion replacesameversion recursesubdirs createallsubdirs"
+                files_section = "Source: \"..\\dist\\eCan\\*\"; DestDir: \"{app}\"; Flags: ignoreversion recursesubdirs createallsubdirs"
                 run_target = "{app}\\eCan.exe"
             elif onefile_exe.exists():
-                files_section = "Source: \"..\\dist\\eCan.exe\"; DestDir: \"{app}\"; Flags: ignoreversion replacesameversion"
+                files_section = "Source: \"..\\dist\\eCan.exe\"; DestDir: \"{app}\"; Flags: ignoreversion"
                 run_target = "{app}\\eCan.exe"
             else:
-                files_section = "Source: \"..\\dist\\*.exe\"; DestDir: \"{app}\"; Flags: ignoreversion replacesameversion"
+                files_section = "Source: \"..\\dist\\*.exe\"; DestDir: \"{app}\"; Flags: ignoreversion"
                 run_target = "{app}\\eCan.exe"
 
             # Create standardized installer filename with platform and architecture
             arch = os.environ.get('BUILD_ARCH', 'amd64')
-            if arch == 'x86_64':
-                arch = 'amd64'
+            if isinstance(arch, str):
+                arch = arch.strip().lower()
+            arch_map = {
+                'x86_64': 'amd64',
+                'x64': 'amd64',
+                'amd64': 'amd64',
+            }
+            arch = arch_map.get(arch, arch)
             app_version = installer_config.get('app_version', app_info.get('version', '1.0.0'))
             # Inno Setup VersionInfoVersion must be strictly numeric dotted (max 4 parts)
             file_version = self._sanitize_inno_file_version(app_version)
@@ -726,8 +732,14 @@ Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowai
             app_info = self.config.get_app_info()
             app_version = app_info.get('version', '1.0.0')
             arch = os.environ.get('BUILD_ARCH', 'amd64')
-            if arch == 'x86_64':
-                arch = 'amd64'
+            if isinstance(arch, str):
+                arch = arch.strip().lower()
+            arch_map = {
+                'x86_64': 'amd64',
+                'x64': 'amd64',
+                'amd64': 'amd64',
+            }
+            arch = arch_map.get(arch, arch)
 
             # Note: For Windows distribution, we rely on Inno Setup installer
             # which packages the complete dist/eCan/ directory structure.
