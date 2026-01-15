@@ -346,17 +346,18 @@ class InstallerBuilder:
                 dirs_section = ""
 
             # Choose file source: prefer onedir directory, otherwise use single file EXE
-            # Use 'ignoreversion' flag to always overwrite files during installation
+            # Use 'ignoreversion replacesameversion' flags to always overwrite files during installation
+            # replacesameversion: allows overwriting files even if they have the same version
             onedir_dir = self.project_root / 'dist' / 'eCan'
             onefile_exe = self.project_root / 'dist' / 'eCan.exe'
             if onedir_dir.exists():
-                files_section = "Source: \"..\\dist\\eCan\\*\"; DestDir: \"{app}\"; Flags: ignoreversion recursesubdirs createallsubdirs"
+                files_section = "Source: \"..\\dist\\eCan\\*\"; DestDir: \"{app}\"; Flags: ignoreversion replacesameversion recursesubdirs createallsubdirs"
                 run_target = "{app}\\eCan.exe"
             elif onefile_exe.exists():
-                files_section = "Source: \"..\\dist\\eCan.exe\"; DestDir: \"{app}\"; Flags: ignoreversion"
+                files_section = "Source: \"..\\dist\\eCan.exe\"; DestDir: \"{app}\"; Flags: ignoreversion replacesameversion"
                 run_target = "{app}\\eCan.exe"
             else:
-                files_section = "Source: \"..\\dist\\*.exe\"; DestDir: \"{app}\"; Flags: ignoreversion"
+                files_section = "Source: \"..\\dist\\*.exe\"; DestDir: \"{app}\"; Flags: ignoreversion replacesameversion"
                 run_target = "{app}\\eCan.exe"
 
             # Create standardized installer filename with platform and architecture
@@ -444,8 +445,8 @@ CloseApplications=yes
 RestartApplications=no
 VersionInfoVersion={file_version}
 WizardStyle=modern
-; Normal installation: show standard wizard pages
-; OTA installation (/SILENT): skip wizard pages via ShouldSkipPage function
+; Normal installation: show standard wizard pages with close app prompt
+; OTA installation (/SILENT): force close via PrepareToInstall function
 ; Language detection: automatically match system language, fallback to English if no match
 LanguageDetectionMethod=uilanguage
 UsePreviousLanguage=yes
@@ -453,9 +454,12 @@ ShowLanguageDialog=auto
 ; Prevent multiple installer instances when user double-clicks repeatedly
 SetupMutex=eCanInstallerMutex
 ; Silent install support for OTA updates
-CloseApplicationsFilter=eCan.exe
+; Only close eCan processes, not all Python processes to avoid affecting user's other work
+CloseApplicationsFilter=eCan.exe,eCan*.exe
 ; Allow silent install to overwrite files in use
 AlwaysRestart=no
+; Uninstall previous version before installing new one
+Uninstallable=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -546,6 +550,27 @@ begin
   begin
     // Reserved for shell refresh if needed
   end;
+end;
+
+// Force close eCan processes before installation in silent mode
+// Normal mode: CloseApplications=yes will prompt user
+// Silent mode: Force terminate without prompt for OTA updates
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+begin
+  Result := '';
+  NeedsRestart := False;
+  
+  // In silent mode (OTA updates), force close all eCan processes
+  if WizardSilent() then
+  begin
+    // Force terminate eCan.exe and related processes
+    Exec('taskkill', '/F /IM eCan.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    // Wait a moment for processes to fully terminate
+    Sleep(500);
+  end;
+  // In normal mode, CloseApplications=yes will handle it with user prompt
 end;
 
 // Skip wizard pages in silent mode (OTA updates)
