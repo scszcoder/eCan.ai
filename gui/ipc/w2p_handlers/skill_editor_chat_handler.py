@@ -423,16 +423,61 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         
         # Mark generation as active
         _chat_store.set_generation_active(session_id, True)
-        
+
         try:
+            assistant_message_id = str(uuid.uuid4())
+
+            chunk_index = 0
+            def on_event(event: Dict[str, Any]) -> None:
+                nonlocal chunk_index
+                try:
+                    if not isinstance(event, dict):
+                        return
+                    event_type = event.get("type")
+                    if event_type not in ["progress", "chunk"]:
+                        return
+
+                    data = event.get("data") or {}
+                    chunk_text = None
+                    if event_type == "progress":
+                        chunk_text = data.get("message")
+                    else:
+                        chunk_text = data.get("content")
+
+                    if not isinstance(chunk_text, str) or not chunk_text.strip():
+                        return
+
+                    from gui.ipc.api import IPCAPI
+                    ipc = IPCAPI.get_instance()
+                    ipc.push_skill_editor_chat_chunk(
+                        session_id=session_id,
+                        message_id=assistant_message_id,
+                        chunk=chunk_text,
+                        chunk_index=chunk_index,
+                    )
+                    chunk_index += 1
+                except Exception:
+                    return
+
             # Process with LLM agent
             logger.info(f"[SkillEditorChat] Processing message with LLM agent...")
-            agent_result = _process_chat_message(session, user_message, canvas_context, clarification_responses)
+            agent_result = _process_chat_message(session, user_message, canvas_context, clarification_responses, on_event=on_event)
             logger.info(f"[SkillEditorChat] LLM response generated, state={agent_result.get('state')}")
-            
+
+            try:
+                from gui.ipc.api import IPCAPI
+                ipc = IPCAPI.get_instance()
+                ipc.push_skill_editor_chat_done(
+                    session_id=session_id,
+                    message_id=assistant_message_id,
+                    full_content=agent_result.get("message", "") or "",
+                )
+            except Exception:
+                pass
+
             # Create and store assistant message
             assistant_message = ChatMessage(
-                id=str(uuid.uuid4()),
+                id=assistant_message_id,
                 role=ChatRole.ASSISTANT,
                 content=agent_result.get("message", ""),
                 timestamp=int(time.time() * 1000),
@@ -442,10 +487,12 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                     "hasClarification": "clarification" in agent_result,
                     "hasPlan": "plan" in agent_result,
                     "hasFlowgram": "flowgram" in agent_result,
+                    "clarification": agent_result.get("clarification"),
+                    "plan": agent_result.get("plan"),
                 }
             )
             _chat_store.add_message(session_id, assistant_message)
-            
+
             # Build response
             response_data = {
                 "message": asdict(assistant_message),
@@ -454,30 +501,30 @@ def handle_send_message(request: IPCRequest, params: Optional[Dict[str, Any]]) -
                 "state": agent_result.get("state", "complete"),
                 "intent": agent_result.get("intent"),
             }
-            
+
             # Include clarification questions if present
             if "clarification" in agent_result:
                 response_data["clarification"] = agent_result["clarification"]
                 logger.info(f"[SkillEditorChat] Including {len(agent_result['clarification'])} clarification questions")
-            
+
             # Include plan if present
             if "plan" in agent_result:
                 response_data["plan"] = agent_result["plan"]
                 logger.info(f"[SkillEditorChat] Including implementation plan")
-            
+
             # Include flowgram if present
             if "flowgram" in agent_result:
                 response_data["flowgram"] = agent_result["flowgram"]
                 logger.info(f"[SkillEditorChat] Including flowgram")
-            
+
             # Include validation if present
             if "validation" in agent_result:
                 response_data["validation"] = agent_result["validation"]
                 logger.info(f"[SkillEditorChat] Including validation result")
-            
+
             logger.info(f"[SkillEditorChat] Returning response for session {session_id}")
             return create_success_response(request, response_data)
-            
+
         finally:
             _chat_store.set_generation_active(session_id, False)
         
@@ -571,7 +618,8 @@ def _process_chat_message(
     session: ChatSession,
     message: ChatMessage,
     canvas_context: Optional[Dict[str, Any]],
-    clarification_responses: Optional[Dict[str, List[str]]] = None
+    clarification_responses: Optional[Dict[str, List[str]]] = None,
+    on_event: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Process a chat message with the LLM agent
     
@@ -589,7 +637,7 @@ def _process_chat_message(
     """
     if USE_LLM_AGENT:
         try:
-            return _process_with_agent(session, message, canvas_context, clarification_responses)
+            return _process_with_agent(session, message, canvas_context, clarification_responses, on_event=on_event)
         except Exception as e:
             logger.warning(f"[SkillEditorChat] Agent processing failed, using fallback: {e}")
             fallback_msg = _process_fallback(message, canvas_context)
@@ -603,7 +651,8 @@ def _process_with_agent(
     session: ChatSession,
     message: ChatMessage,
     canvas_context: Optional[Dict[str, Any]],
-    clarification_responses: Optional[Dict[str, List[str]]] = None
+    clarification_responses: Optional[Dict[str, List[str]]] = None,
+    on_event: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Process message using the SkillEditorAgent with LLM
     
@@ -638,7 +687,8 @@ def _process_with_agent(
             message=message.content,
             canvas_context=canvas_context,
             session_id=session.id,
-            clarification_responses=clarification_responses
+            clarification_responses=clarification_responses,
+            on_event=on_event,
         )
         
         logger.info(f"[SkillEditorChat] Agent response intent: {response.intent.value}")

@@ -512,9 +512,11 @@ Use for ANY task involving reading/interacting with web pages via a browser. Key
    - Simple page read: ~2-3 steps
    - Form fill + submit: ~5-7 steps  
    - Complex purchase flow (shipping label): ~10 steps per order
-4. **Loop pattern**: For bulk operations, put browser_automation inside a loop node:
-   - If task needs 10 steps/item and max is 100 steps, process ~5-8 items per browser_automation call
+4. **Loop pattern (CRITICAL)**: If the sub-task has an unknown/variable number of items (common in e-commerce: returns, cases, disputes, buyer messages, orders), you MUST wrap the browser_automation node inside a loop node.
+   - Reason: browser_automation can run only ~100 steps consecutively; long lists will exceed this.
+   - Use batching: if task needs 10 steps/item, process ~5-8 items per browser_automation call
    - Loop iterates through batches until all items processed
+   - Exception: only keep browser_automation outside a loop when it is clearly a one-shot operation (single login, single page fetch, single settings change)
 5. **Integrated tools**: browser_automation has its own tools (mouse click, keyboard type, scroll, etc.) - all you need is a prompt
 6. **JSON output**: For structured output, specify JSON format in the prompt (e.g., "Return results as JSON: {{products: [{{name, price}}]}}")
 7. **Output location**: Results stored in node_state["result"] after execution
@@ -697,7 +699,7 @@ Use for ANY task involving web page interaction. Key guidelines:
 2. Has integrated tools (mouse, keyboard, scroll) - all you need is a prompt
 3. For structured output, specify JSON format in the prompt
 4. Output stored in node_state["result"]
-5. For bulk operations, put browser_automation inside a loop node
+5. If the sub-task has an unknown/variable number of items (returns/messages/cases/orders), put browser_automation inside a loop node (exception: clearly one-shot)
 
 ### LLM NODE (NO INTEGRATED TOOLS):
 1. LLM does NOT have tools - follow with mcp_tool node for tool usage
@@ -1465,7 +1467,12 @@ Continue the JSON output (do not include any text before the continuation):"""
 
             MY_PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
             prompt_id = f"pr-{uuid.uuid4().hex[:6]}"
-            title = f"{node_type}_{node_id}_prompt"
+            base_id = (node_id or "").strip()
+            base_type = (node_type or "").strip()
+            if base_id and base_type and base_id.startswith(base_type + "_"):
+                title = f"{base_id}_prompt"
+            else:
+                title = f"{base_type or 'node'}_{base_id or 'node'}_prompt"
             now_iso = datetime.utcnow().isoformat()
 
             prompt_doc: Dict[str, Any] = {
@@ -1478,6 +1485,15 @@ Continue the JSON output (do not include any text before the continuation):"""
                 "lastModified": now_iso,
             }
 
+            lower_type = (node_type or "").lower()
+            normalized_user = (user_prompt or "").strip()
+            return_hint = ""
+            if normalized_user:
+                for marker in ["Return ", "return ", "RETURN "]:
+                    if marker in normalized_user:
+                        return_hint = normalized_user.split(marker, 1)[1].strip()
+                        break
+
             if system_prompt:
                 prompt_doc["sections"].append({
                     "id": f"instructions-{uuid.uuid4().hex[:8]}",
@@ -1485,12 +1501,79 @@ Continue the JSON output (do not include any text before the continuation):"""
                     "items": [system_prompt],
                 })
             if user_prompt:
-                prompt_doc["userSections"].append({
+                prompt_doc["sections"].append({
                     "id": f"goals-{uuid.uuid4().hex[:8]}",
                     "type": "goals",
-                    "items": [user_prompt],
+                    "items": [normalized_user],
                 })
-                prompt_doc["humanInputs"] = [user_prompt]
+
+            if lower_type in ["browser_automation", "browser-automation"]:
+                instr = [
+                    "Follow the task goal precisely and operate only within the target website.",
+                    "Be explicit and step-by-step; avoid skipping important UI interactions.",
+                    "Do not fabricate outcomes; if blocked by login, captcha, or unexpected UI, report it clearly.",
+                ]
+                if return_hint:
+                    instr.append(f"Return exactly the requested output format: {return_hint}")
+                else:
+                    instr.append("Return a machine-readable result (JSON) and do not include extra prose.")
+                prompt_doc["sections"].append({
+                    "id": f"guidelines-{uuid.uuid4().hex[:8]}",
+                    "type": "guidelines",
+                    "items": instr,
+                })
+
+                prompt_doc["sections"].append({
+                    "id": f"rules-{uuid.uuid4().hex[:8]}",
+                    "type": "rules",
+                    "items": [
+                        "Return ONLY valid JSON. No markdown, no backticks, no additional text.",
+                        "Always follow the output schema exactly.",
+                        "If you cannot complete the task, return a JSON object with success=false and include a clear error message.",
+                        "The JSON must be parseable by standard JSON parsers.",
+                        "Output JSON schema: {\"success\": true|false, \"summary\": \"string\", \"result\": { }, \"errors\": [ {\"message\": \"string\", \"details\": { } } ] }",
+                    ],
+                })
+                prompt_doc["sections"].append({
+                    "id": f"examples-{uuid.uuid4().hex[:8]}",
+                    "type": "examples",
+                    "items": [
+                        "Example JSON output: {\n  \"success\": true,\n  \"summary\": \"Logged in and retrieved 3 open returns\",\n  \"result\": {\n    \"returns\": [\n      {\"order_id\": \"123-456\", \"status\": \"open\"}\n    ]\n  },\n  \"errors\": []\n}",
+                    ],
+                })
+            else:
+                instr = [
+                    "Follow the task goal precisely.",
+                    "Be explicit and step-by-step; include checks and edge cases when relevant.",
+                    "Do not fabricate results; if information is missing, state what is missing and what to do next.",
+                ]
+                if return_hint:
+                    instr.append(f"Return exactly the requested output format: {return_hint}")
+                prompt_doc["sections"].append({
+                    "id": f"guidelines-{uuid.uuid4().hex[:8]}",
+                    "type": "guidelines",
+                    "items": instr,
+                })
+
+                if lower_type in ["llm"]:
+                    prompt_doc["sections"].append({
+                        "id": f"rules-{uuid.uuid4().hex[:8]}",
+                        "type": "rules",
+                        "items": [
+                            "Return ONLY valid JSON. No markdown, no backticks, no additional text.",
+                            "Always follow the output schema exactly.",
+                            "If you are missing required information, return a JSON object with status=error and list what is missing.",
+                            "The JSON must be parseable by standard JSON parsers.",
+                            "Output JSON schema: {\"status\": \"ok\"|\"error\", \"summary\": \"string\", \"data\": { }, \"missing\": [\"string\"], \"errors\": [ {\"message\": \"string\", \"details\": { } } ] }",
+                        ],
+                    })
+                    prompt_doc["sections"].append({
+                        "id": f"examples-{uuid.uuid4().hex[:8]}",
+                        "type": "examples",
+                        "items": [
+                            "Example JSON output: {\n  \"status\": \"ok\",\n  \"summary\": \"Classified the case and extracted key fields\",\n  \"data\": {\n    \"case_type\": \"return\",\n    \"order_id\": \"123-456\",\n    \"customer_issue\": \"item damaged\"\n  },\n  \"missing\": [],\n  \"errors\": []\n}",
+                        ],
+                    })
 
             out_path = MY_PROMPTS_DIR / f"{title}.json"
             with out_path.open("w", encoding="utf-8") as f:
@@ -1518,11 +1601,16 @@ Continue the JSON output (do not include any text before the continuation):"""
             config.setdefault("prompt", "")
 
         elif node_type == "browser_automation":
-            config.setdefault("provider", "browser-use")
+            provider = config.get("provider")
+            if provider and not config.get("tool"):
+                config["tool"] = provider
+            if "provider" in config:
+                del config["provider"]
             config.setdefault("modelProvider", "openai")
             config.setdefault("modelName", "gpt-4o")
             config.setdefault("browser", "new chromium")
             config.setdefault("browserDriver", "native")
+            config.setdefault("temperature", 0.3)
             config.setdefault("useThinking", False)
             config.setdefault("timeout_seconds", 120)
             config.setdefault("tool", "browser-use")

@@ -20,8 +20,10 @@ import { ClarificationCard } from './ClarificationCard';
 import { PlanCard } from './PlanCard';
 import { skillEditorChatService } from '../../services/skill-editor-chat-service';
 import { canvasController } from '../../services/canvas-controller';
+import { eventBus } from '@/utils/eventBus';
 import type { 
   ClarificationQuestion, 
+  ChatAttachment,
   ImplementationPlan,
   PipelineState,
 } from '../../types/skill-editor-chat.types';
@@ -420,7 +422,7 @@ const renderTextContent = (raw: string) => {
   );
 };
 
-export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
+export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, width }) => {
   // Session management state
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -431,9 +433,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
   const [inputValue, setInputValue] = useState('');
   const [isRecording, setIsRecording] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [pendingClarification, setPendingClarification] = useState<ClarificationQuestion[] | null>(null);
   const [pendingPlan, setPendingPlan] = useState<ImplementationPlan | null>(null);
   const [pipelineState, setPipelineState] = useState<PipelineState>('idle');
+  const [streamingStatus, setStreamingStatus] = useState<string>('');
+  const [lastBackendIntent, setLastBackendIntent] = useState<string>('');
+  const [lastBackendState, setLastBackendState] = useState<string>('');
   const chatThreadRef = useRef<HTMLDivElement>(null);
 
   // Get active session
@@ -463,6 +469,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
             createdAt: new Date(s.createdAt),
             updatedAt: new Date(s.updatedAt),
           }));
+
+          convertedSessions.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
           
           setSessions(convertedSessions);
           console.log(`[ChatPanel] Loaded ${convertedSessions.length} sessions from backend`);
@@ -489,6 +497,54 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
     }
   }, [messages]);
 
+  // Auto-scroll while loading/streaming so the status bubble stays visible.
+  useEffect(() => {
+    if (chatThreadRef.current) {
+      chatThreadRef.current.scrollTop = chatThreadRef.current.scrollHeight;
+    }
+  }, [isLoading, streamingStatus]);
+
+  useEffect(() => {
+    const handleChunk = (payload: any) => {
+      try {
+        if (!payload || payload.sessionId !== activeSessionId) return;
+        const chunk = payload.chunk;
+        if (typeof chunk !== 'string' || !chunk.trim()) return;
+        setStreamingStatus(chunk);
+      } catch {
+        return;
+      }
+    };
+
+    const handleDone = (payload: any) => {
+      try {
+        if (!payload || payload.sessionId !== activeSessionId) return;
+        setStreamingStatus('');
+      } catch {
+        return;
+      }
+    };
+
+    const handleError = (payload: any) => {
+      try {
+        if (!payload || payload.sessionId !== activeSessionId) return;
+        setStreamingStatus('');
+      } catch {
+        return;
+      }
+    };
+
+    eventBus.on('skill_editor:chat:stream_chunk', handleChunk);
+    eventBus.on('skill_editor:chat:stream_end', handleDone);
+    eventBus.on('skill_editor:chat:error', handleError);
+
+    return () => {
+      eventBus.off('skill_editor:chat:stream_chunk', handleChunk);
+      eventBus.off('skill_editor:chat:stream_end', handleDone);
+      eventBus.off('skill_editor:chat:error', handleError);
+    };
+  }, [activeSessionId]);
+
   // Sync messages with active session
   useEffect(() => {
     if (activeSession) {
@@ -496,7 +552,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
     } else {
       setMessages([]);
     }
-  }, [activeSessionId]);
+    setStreamingStatus('');
+  }, [activeSessionId, sessions]);
 
   // Create new session (via backend for persistence)
   const handleNewSession = useCallback(async () => {
@@ -555,6 +612,196 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
     setHistoryExpanded(prev => !prev);
   }, []);
 
+  const handleVoiceInput = useCallback(() => {
+    setIsRecording(prev => !prev);
+  }, []);
+
+  const handleFileUpload = useCallback((info: any) => {
+    try {
+      const fileList = info?.fileList;
+      if (!Array.isArray(fileList)) return;
+
+      const attachments: ChatAttachment[] = fileList
+        .map((f: any) => {
+          const origin = f?.originFileObj;
+          const name = String(f?.name || origin?.name || 'attachment');
+          const type = String(f?.type || origin?.type || 'application/octet-stream');
+          const size = Number(f?.size || origin?.size || 0);
+
+          return {
+            id: String(f?.uid || crypto.randomUUID()),
+            name,
+            type,
+            size,
+            content: '',
+          };
+        })
+        .filter((a: any) => typeof a?.name === 'string');
+
+      setPendingAttachments(attachments);
+    } catch {
+      return;
+    }
+  }, []);
+
+  const handlePlanApprove = useCallback(async () => {
+    if (!activeSessionId || isLoading || !pendingPlan) return;
+
+    console.log('[ChatPanel] Approving plan');
+    setIsLoading(true);
+
+    const currentPlan = pendingPlan;
+    setPendingPlan(null);
+
+    setMessages(prev => {
+      const next = [...prev];
+      for (let i = next.length - 1; i >= 0; i--) {
+        if (next[i].role === 'assistant' && next[i].plan) {
+          next[i] = { ...next[i], planAction: 'approved', plan: currentPlan };
+          break;
+        }
+      }
+      return next;
+    });
+
+    try {
+      const canvasState = canvasController.getCanvasState();
+      const canvasContext = {
+        nodes: canvasState.nodes.map(n => ({
+          id: n.id,
+          type: n.type,
+          label: n.label,
+          position: n.position,
+          data: n.data,
+        })),
+        edges: canvasState.edges.map(e => ({
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          sourceHandle: e.sourceHandle,
+          targetHandle: e.targetHandle,
+        })),
+        skillName: canvasState.flowgramName,
+        skillId: canvasState.flowgramId,
+      };
+
+      const response = await skillEditorChatService.sendMessage(
+        activeSessionId,
+        'Yes, proceed with the plan',
+        undefined,
+        canvasContext
+      );
+
+      if (response) {
+        const assistantMessage: ChatMessage = {
+          id: response.message.id,
+          role: 'assistant',
+          content: response.message.content,
+          timestamp: new Date(response.message.timestamp),
+          clarification: response.clarification,
+          plan: response.plan,
+          state: response.state,
+        };
+        setMessages(prev => [...prev, assistantMessage]);
+        setPipelineState(response.state || 'complete');
+
+        if (response.clarification && response.clarification.length > 0) {
+          setPendingClarification(response.clarification);
+        } else if (response.plan) {
+          setPendingPlan(response.plan);
+        } else {
+          setPendingClarification(null);
+          setPendingPlan(null);
+        }
+
+        if (response.flowgram) {
+          await canvasController.loadFlowgram(response.flowgram);
+        }
+      }
+    } catch (error) {
+      console.error('[ChatPanel] Error approving plan:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [activeSessionId, isLoading, pendingPlan]);
+
+  const handlePlanReject = useCallback(async () => {
+    if (!activeSessionId || isLoading || !pendingPlan) return;
+
+    console.log('[ChatPanel] Rejecting plan');
+    setIsLoading(true);
+
+    const currentPlan = pendingPlan;
+    setPendingPlan(null);
+
+    setMessages(prev => {
+      const next = [...prev];
+      for (let i = next.length - 1; i >= 0; i--) {
+        if (next[i].role === 'assistant' && next[i].plan) {
+          next[i] = { ...next[i], planAction: 'revised', plan: currentPlan };
+          break;
+        }
+      }
+      return next;
+    });
+
+    try {
+      const canvasState = canvasController.getCanvasState();
+      const canvasContext = {
+        nodes: canvasState.nodes.map(n => ({
+          id: n.id,
+          type: n.type,
+          label: n.label,
+          position: n.position,
+          data: n.data,
+        })),
+        edges: canvasState.edges.map(e => ({
+          id: e.id,
+          source: e.source,
+          target: e.target,
+          sourceHandle: e.sourceHandle,
+          targetHandle: e.targetHandle,
+        })),
+        skillName: canvasState.flowgramName,
+        skillId: canvasState.flowgramId,
+      };
+
+      const response = await skillEditorChatService.sendMessage(
+        activeSessionId,
+        'No, I want to revise the plan',
+        undefined,
+        canvasContext
+      );
+
+      if (response) {
+        const assistantMessage: ChatMessage = {
+          id: response.message.id,
+          role: 'assistant',
+          content: response.message.content,
+          timestamp: new Date(response.message.timestamp),
+          clarification: response.clarification,
+          plan: response.plan,
+          state: response.state,
+        };
+        setMessages(prev => [...prev, assistantMessage]);
+        setPipelineState(response.state || 'complete');
+
+        if (response.clarification && response.clarification.length > 0) {
+          setPendingClarification(response.clarification);
+        } else if (response.plan) {
+          setPendingPlan(response.plan);
+        } else {
+          setPendingClarification(null);
+          setPendingPlan(null);
+        }
+      }
+    } catch (error) {
+      console.error('[ChatPanel] Error rejecting plan:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [activeSessionId, isLoading, pendingPlan]);
+
   const handleSend = useCallback(async () => {
     if (!inputValue.trim() || isLoading) return;
 
@@ -565,6 +812,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
       role: 'user',
       content: userContent,
       timestamp: new Date(),
+      attachments: pendingAttachments.map(a => a.name),
     };
 
     // If no active session, create one via backend for persistence
@@ -635,6 +883,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
 
     // Send to backend via IPC
     setIsLoading(true);
+    setStreamingStatus('');
     console.log('[ChatPanel] Getting canvas context and sending to backend...');
     try {
       // Get current canvas context for the AI
@@ -667,12 +916,14 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
       const response = await skillEditorChatService.sendMessage(
         currentSessionId!,
         userContent,
-        undefined, // attachments
+        pendingAttachments.length ? pendingAttachments : undefined,
         canvasContext
       );
 
       if (response) {
         console.log('[ChatPanel] Received response from backend, state:', response.state);
+        setLastBackendIntent(String((response as any).intent || ''));
+        setLastBackendState(String((response as any).state || ''));
         const assistantMessage: ChatMessage = {
           id: response.message.id,
           role: 'assistant',
@@ -687,6 +938,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
         
         // Update pipeline state
         setPipelineState(response.state || 'complete');
+        setStreamingStatus('');
         
         // Handle clarification questions
         if (response.clarification && response.clarification.length > 0) {
@@ -750,8 +1002,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
       setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
+      setPendingAttachments([]);
     }
-  }, [inputValue, activeSessionId, messages, isLoading]);
+  }, [inputValue, activeSessionId, messages, isLoading, pendingAttachments]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -864,263 +1117,131 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, width }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [activeSessionId, canvasController, isLoading, pendingClarification, pipelineState, setMessages, setPendingPlan]);
-  
-  // Handle plan approval
-  const handlePlanApprove = useCallback(async () => {
-    if (!activeSessionId || isLoading) return;
-    
-    console.log('[ChatPanel] Approving plan');
-    setIsLoading(true);
-    
-    // Store the action in the message that had the plan (before clearing pending)
-    const currentPlan = pendingPlan;
-    setMessages(prev => prev.map(msg => {
-      if (msg.plan && currentPlan && msg.plan.summary === currentPlan.summary) {
-        return { ...msg, planAction: 'approved' as const };
-      }
-      return msg;
-    }));
-    
-    setPendingPlan(null);
-    
-    try {
-      const canvasState = canvasController.getCanvasState();
-      const canvasContext = {
-        nodes: canvasState.nodes.map(n => ({
-          id: n.id,
-          type: n.type,
-          label: n.label,
-          position: n.position,
-        })),
-        edges: canvasState.edges.map(e => ({
-          id: e.id,
-          source: e.source,
-          target: e.target,
-        })),
-      };
-      
-      const response = await skillEditorChatService.sendMessage(
-        activeSessionId,
-        'Yes, proceed with the plan',
-        undefined,
-        canvasContext
-      );
-      
-      if (response) {
-        console.log('[ChatPanel] Plan approval response received:', {
-          state: response.state,
-          hasFlowgram: !!response.flowgram,
-          hasValidation: !!response.validation,
-        });
-        
-        const assistantMessage: ChatMessage = {
-          id: response.message.id,
-          role: 'assistant',
-          content: response.message.content,
-          timestamp: new Date(response.message.timestamp),
-          state: response.state,
-        };
-        
-        setMessages(prev => [...prev, assistantMessage]);
-        setPipelineState(response.state || 'complete');
-        console.log('[ChatPanel] Pipeline state updated to:', response.state || 'complete');
-        
-        // Load the generated flowgram into the canvas
-        if (response.flowgram) {
-          console.log('[ChatPanel] Loading generated flowgram into canvas...');
-          const loadResult = await canvasController.loadFlowgram(response.flowgram);
-          if (loadResult.success) {
-            console.log('[ChatPanel] Flowgram loaded successfully:', loadResult.data);
-          } else {
-            console.error('[ChatPanel] Failed to load flowgram:', loadResult.error);
-          }
-        }
-      } else {
-        console.warn('[ChatPanel] No response received from plan approval');
-      }
-    } catch (error) {
-      console.error('[ChatPanel] Error approving plan:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [activeSessionId, isLoading]);
-  
-  // Handle plan rejection
-  const handlePlanReject = useCallback(async () => {
-    if (!activeSessionId || isLoading) return;
-    
-    console.log('[ChatPanel] Rejecting plan');
-    setIsLoading(true);
-    
-    // Store the action in the message that had the plan (before clearing pending)
-    const currentPlan = pendingPlan;
-    setMessages(prev => prev.map(msg => {
-      if (msg.plan && currentPlan && msg.plan.summary === currentPlan.summary) {
-        return { ...msg, planAction: 'revised' as const };
-      }
-      return msg;
-    }));
-    
-    setPendingPlan(null);
-    
-    try {
-      const response = await skillEditorChatService.sendMessage(
-        activeSessionId,
-        'No, I want to revise the plan',
-        undefined,
-        undefined
-      );
-      
-      if (response) {
-        console.log('[ChatPanel] Plan rejection response received:', {
-          state: response.state,
-        });
-        
-        const assistantMessage: ChatMessage = {
-          id: response.message.id,
-          role: 'assistant',
-          content: response.message.content,
-          timestamp: new Date(response.message.timestamp),
-          state: response.state,
-        };
-        
-        setMessages(prev => [...prev, assistantMessage]);
-        setPipelineState(response.state || 'idle');
-        console.log('[ChatPanel] Pipeline state reset to:', response.state || 'idle');
-      } else {
-        console.warn('[ChatPanel] No response received from plan rejection');
-      }
-    } catch (error) {
-      console.error('[ChatPanel] Error rejecting plan:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [activeSessionId, isLoading]);
+  }, [activeSessionId, canvasController, inputValue, isLoading, streamingStatus, pendingClarification, pipelineState, setMessages, setPendingPlan]);
 
-  const handleVoiceInput = useCallback(() => {
-    setIsRecording(prev => !prev);
-    // TODO: Implement voice recording
-    console.log('Voice input toggled');
-  }, []);
-
-  const handleFileUpload = useCallback((info: any) => {
-    // TODO: Handle file attachment
-    console.log('File uploaded:', info);
-  }, []);
-
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  };
-
-  if (isCollapsed) {
-    return <PanelContainer $width={width} $collapsed={true} />;
-  }
+// ...
 
   return (
-    <PanelContainer $width={width} $collapsed={false}>
-      <ChatHeader>
-        <HeaderTitle>
-          <CuteRobotIcon size={18} />
-          AI Assistant
-        </HeaderTitle>
-        <HeaderActions>
-          <Tooltip title="New chat">
-            <HeaderButton onClick={handleNewSession}>
-              <PlusOutlined />
-            </HeaderButton>
-          </Tooltip>
-          <Tooltip title={historyExpanded ? 'Hide history' : 'Show history'}>
-            <HeaderButton onClick={handleToggleHistory}>
-              <HistoryOutlined />
-            </HeaderButton>
-          </Tooltip>
-        </HeaderActions>
-      </ChatHeader>
+    <PanelContainer $width={width} $collapsed={isCollapsed}>
+      {/* ... */}
 
-      {/* Collapsible Session History Panel */}
-      <SessionHistoryContainer>
-        <SessionHistoryHeader onClick={handleToggleHistory}>
-          <SessionHistoryTitle>
-            <HistoryOutlined />
-            Chat History ({sessions.length})
-          </SessionHistoryTitle>
-          {historyExpanded ? <UpOutlined style={{ fontSize: 10, color: 'rgba(148, 163, 184, 0.6)' }} /> : <DownOutlined style={{ fontSize: 10, color: 'rgba(148, 163, 184, 0.6)' }} />}
-        </SessionHistoryHeader>
-        <SessionListWrapper $expanded={historyExpanded}>
-          <SessionList>
-            {sessions.length === 0 ? (
-              <div style={{ padding: '12px', textAlign: 'center', color: 'rgba(148, 163, 184, 0.5)', fontSize: 11 }}>
-                No chat history yet
-              </div>
-            ) : (
-              sessions.map(session => (
-                <SessionItem
-                  key={session.id}
-                  $active={session.id === activeSessionId}
-                  onClick={() => handleSelectSession(session.id)}
-                >
-                  <SessionTopic>{session.topic}</SessionTopic>
-                  <SessionDate>{formatSessionDate(session.updatedAt)}</SessionDate>
-                </SessionItem>
-              ))
-            )}
-          </SessionList>
-        </SessionListWrapper>
-      </SessionHistoryContainer>
+      {!isCollapsed && (
+        <>
+          <ChatHeader>
+            <HeaderTitle>
+              <CuteRobotIcon size={18} />
+              Agent Chat
+            </HeaderTitle>
+            <HeaderActions>
+              <Tooltip title="New chat">
+                <HeaderButton onClick={handleNewSession}>
+                  <PlusOutlined />
+                </HeaderButton>
+              </Tooltip>
+              <Tooltip title={historyExpanded ? 'Hide history' : 'Show history'}>
+                <HeaderButton onClick={handleToggleHistory}>
+                  <HistoryOutlined />
+                </HeaderButton>
+              </Tooltip>
+              <Tooltip title="Close">
+                <HeaderButton onClick={onToggle}>
+                  <DownOutlined />
+                </HeaderButton>
+              </Tooltip>
+            </HeaderActions>
+          </ChatHeader>
+
+          <div style={{
+            padding: '6px 16px',
+            fontSize: 11,
+            color: 'rgba(148, 163, 184, 0.8)',
+            borderBottom: '1px solid rgba(148, 163, 184, 0.12)',
+            background: 'rgba(15, 23, 42, 0.35)',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}>
+            intent={lastBackendIntent || '—'} | backend_state={lastBackendState || '—'} | ui_state={pipelineState}
+          </div>
+
+          <SessionHistoryContainer>
+            <SessionHistoryHeader onClick={handleToggleHistory}>
+              <SessionHistoryTitle>
+                <HistoryOutlined />
+                Sessions ({sessions.length})
+              </SessionHistoryTitle>
+              {historyExpanded ? <UpOutlined /> : <DownOutlined />}
+            </SessionHistoryHeader>
+            <SessionListWrapper $expanded={historyExpanded}>
+              <SessionList>
+                {sessions.map(session => (
+                  <SessionItem
+                    key={session.id}
+                    $active={session.id === activeSessionId}
+                    onClick={() => handleSelectSession(session.id)}
+                  >
+                    <SessionTopic>{session.topic || 'Chat'}</SessionTopic>
+                    <SessionDate>{formatSessionDate(session.updatedAt)}</SessionDate>
+                  </SessionItem>
+                ))}
+              </SessionList>
+            </SessionListWrapper>
+          </SessionHistoryContainer>
+        </>
+      )}
 
       {/* Chat Content Area */}
       <ChatContentArea>
         <ChatThread ref={chatThreadRef}>
-          {messages.length === 0 ? (
+          {/* ... */}
+
+          {messages.length === 0 && !isLoading ? (
             <EmptyState>
-              <CuteRobotIcon size={48} />
-              <div>Start a conversation</div>
-              <div style={{ fontSize: 12, marginTop: 4 }}>
-                Ask questions about your workflow or get help building nodes
-              </div>
+              <div style={{ fontSize: 14, fontWeight: 500, marginBottom: 6 }}>No messages yet</div>
+              <div style={{ fontSize: 12 }}>Start a new chat or select a session from history.</div>
             </EmptyState>
           ) : (
-            <>
-              {messages.map(msg => (
-                <MessageBubble key={msg.id} $isUser={msg.role === 'user'}>
-                  <MessageContent $isUser={msg.role === 'user'}>
-                    {renderMessageContent(msg)}
-                  </MessageContent>
-                  <MessageMeta>
-                    {msg.role === 'user' ? 'You' : 'Assistant'} • {formatTime(msg.timestamp)}
-                  </MessageMeta>
-                </MessageBubble>
-              ))}
-              
-              {/* Render pending clarification questions */}
-              {pendingClarification && pendingClarification.length > 0 && (
-                <ClarificationCard
-                  questions={pendingClarification}
-                  onSubmit={handleClarificationSubmit}
-                  isSubmitting={isLoading}
-                />
-              )}
-              
-              {/* Render pending implementation plan */}
-              {pendingPlan && (
-                <PlanCard
-                  plan={pendingPlan}
-                  onApprove={handlePlanApprove}
-                  onReject={handlePlanReject}
-                  isSubmitting={isLoading}
-                />
-              )}
-              
-              {isLoading && !pendingClarification && !pendingPlan && (
-                <MessageBubble $isUser={false}>
-                  <MessageContent $isUser={false} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <LoadingOutlined spin style={{ fontSize: 14 }} />
-                    <span>{pipelineState === 'planning' ? 'Planning...' : pipelineState === 'generating' ? 'Generating workflow...' : 'Thinking...'}</span>
-                  </MessageContent>
-                </MessageBubble>
-              )}
-            </>
+            messages.map(msg => (
+              <MessageBubble key={msg.id} $isUser={msg.role === 'user'}>
+                <MessageContent $isUser={msg.role === 'user'}>
+                  {renderMessageContent(msg)}
+                  {msg.attachments && msg.attachments.length > 0 && (
+                    <div style={{ marginTop: 6, fontSize: 11, color: 'rgba(148, 163, 184, 0.8)' }}>
+                      Attachments: {msg.attachments.join(', ')}
+                    </div>
+                  )}
+                </MessageContent>
+                <MessageMeta>{msg.timestamp.toLocaleTimeString()}</MessageMeta>
+              </MessageBubble>
+            ))
+          )}
+
+          {!isLoading && pendingClarification && pendingClarification.length > 0 && (
+            <ClarificationCard
+              questions={pendingClarification}
+              onSubmit={handleClarificationSubmit}
+              isSubmitting={isLoading}
+            />
+          )}
+
+          {!isLoading && pendingPlan && (
+            <PlanCard
+              plan={pendingPlan}
+              onApprove={handlePlanApprove}
+              onReject={handlePlanReject}
+              isSubmitting={isLoading}
+            />
+          )}
+
+          {isLoading && (
+            <MessageBubble $isUser={false}>
+              <MessageContent $isUser={false} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <LoadingOutlined spin style={{ fontSize: 14 }} />
+                <span style={{ color: 'rgba(203, 213, 225, 0.85)' }}>
+                  {streamingStatus || (pipelineState === 'planning' ? 'Planning...' : pipelineState === 'generating' ? 'Generating workflow...' : 'Thinking...')}
+                </span>
+              </MessageContent>
+            </MessageBubble>
           )}
         </ChatThread>
 

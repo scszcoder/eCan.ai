@@ -624,6 +624,81 @@ Return ONLY the fixed JSON, no explanations."""
         self._fix_disconnected_in_scope(nodes, edges)
         # Ensure mutated edges are persisted on the flowgram object
         flowgram["edges"] = edges
+
+        def _collapse_empty_loops_in_scope(scope_nodes: List[Dict], scope_edges: List[Dict]) -> None:
+            try:
+                node_by_id = {n.get("id"): n for n in scope_nodes if n.get("id")}
+                edge_keys = set()
+                for e in scope_edges:
+                    s = e.get("source") or e.get("sourceNodeID")
+                    t = e.get("target") or e.get("targetNodeID")
+                    h = e.get("sourcePortID") or e.get("source_handle") or e.get("sourceHandle") or ""
+                    if s and t:
+                        edge_keys.add((s, t, h))
+
+                to_remove_loop_ids = []
+                for n in scope_nodes:
+                    if n.get("type") != "loop":
+                        continue
+                    loop_id = n.get("id")
+                    if not loop_id:
+                        continue
+                    blocks = n.get("blocks", []) or n.get("data", {}).get("blocks", [])
+                    if not blocks:
+                        to_remove_loop_ids.append(loop_id)
+                        continue
+                    inner = [b for b in blocks if b.get("type") not in ("block-start", "block-end")]
+                    if not inner:
+                        to_remove_loop_ids.append(loop_id)
+
+                if not to_remove_loop_ids:
+                    return
+
+                to_remove_edge_ids = set()
+                for loop_id in to_remove_loop_ids:
+                    incoming = []
+                    outgoing = []
+                    for e in scope_edges:
+                        s = e.get("source") or e.get("sourceNodeID")
+                        t = e.get("target") or e.get("targetNodeID")
+                        if t == loop_id:
+                            incoming.append(e)
+                        if s == loop_id:
+                            outgoing.append(e)
+
+                    if outgoing and incoming:
+                        for in_e in incoming:
+                            in_src = in_e.get("source") or in_e.get("sourceNodeID")
+                            in_handle = in_e.get("sourcePortID") or in_e.get("source_handle") or in_e.get("sourceHandle")
+                            if not in_src:
+                                continue
+                            for out_e in outgoing:
+                                out_tgt = out_e.get("target") or out_e.get("targetNodeID")
+                                if not out_tgt or out_tgt == loop_id:
+                                    continue
+                                key = (in_src, out_tgt, in_handle or "")
+                                if key in edge_keys:
+                                    continue
+                                new_e = {"sourceNodeID": in_src, "targetNodeID": out_tgt}
+                                if in_handle:
+                                    new_e["sourcePortID"] = in_handle
+                                scope_edges.append(new_e)
+                                edge_keys.add(key)
+
+                    for e in incoming:
+                        to_remove_edge_ids.add(id(e))
+                    for e in outgoing:
+                        to_remove_edge_ids.add(id(e))
+
+                if to_remove_edge_ids:
+                    scope_edges[:] = [e for e in scope_edges if id(e) not in to_remove_edge_ids]
+
+                remove_set = set(to_remove_loop_ids)
+                scope_nodes[:] = [n for n in scope_nodes if n.get("id") not in remove_set]
+            except Exception:
+                return
+
+        _collapse_empty_loops_in_scope(nodes, edges)
         
         # Fix disconnected nodes inside loop nodes
         for node in nodes:
@@ -651,6 +726,8 @@ Return ONLY the fixed JSON, no explanations."""
                     loop_id = node.get("id", "loop")
                     logger.info(f"[ValidatorAgent] Checking loop node '{loop_id}' with {len(blocks)} blocks and {len(internal_edges)} edges")
                     new_edges = self._fix_disconnected_in_scope(blocks, internal_edges, is_loop=True, task_context=task_context)
+
+                    _collapse_empty_loops_in_scope(blocks, internal_edges)
                     
                     # Update the edges in the loop node
                     if node.get("edges") is not None:
