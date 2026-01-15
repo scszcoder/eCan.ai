@@ -14,9 +14,10 @@ build complete workflows with multiple integrations.
 """
 
 import json
+import re
 import traceback
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Dict, List, Optional, Callable, Tuple
 from enum import Enum
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
@@ -47,6 +48,40 @@ from .schemas import (
 from .planner_agent import PlannerAgent, get_planner_agent
 from .code_agent import CodeAgent, get_code_agent
 from .node_config_agent import NodeConfigAgent, NodeConfigAction, get_node_config_agent
+
+
+INTENT_CLASSIFIER_SYSTEM_PROMPT = """You are an intent classification assistant for an e-commerce workflow editor.
+
+Return JSON ONLY (no markdown) with this schema:
+{
+  "intent": "<one of the allowed intents>",
+  "confidence": <number from 0.0 to 1.0>,
+  "reason": "<brief reason>"
+}
+
+Allowed intents:
+- create_flowgram
+- load_skill
+- save_skill
+- add_node
+- remove_node
+- connect_nodes
+- modify_node
+- run_flowgram
+- debug_flowgram
+- test_skill
+- deploy_skill
+- explain
+- casual_chat
+- general_chat
+
+Guidelines:
+- If the user has an existing canvas/workflow open (has_canvas=true), prefer modify_node unless the user is explicitly asking to create a new workflow.
+- If the user is asking to change structure/wiring/loop/condition/nodes, that is modify_node.
+- If the user is asking how to do something or wants an explanation, that is explain.
+- If the user message is short social chatter (e.g. acknowledgements like "awesome", "thanks", "cool") and not a workflow request, that is casual_chat.
+- If the user is asking for a direct factual answer unrelated to building/editing a workflow (e.g. "who is the president of russia"), that is explain.
+"""
 
 
 # ============================================================
@@ -302,6 +337,7 @@ class SkillEditorAgent:
         self._current_plan: Optional[ImplementationPlan] = None
         self._current_request: Optional[str] = None
         self._selected_node: Optional[Dict[str, Any]] = None  # Currently selected node for configuration
+        self._casual_chat_rounds_by_session: Dict[str, int] = {}
         logger.info("[SkillEditorAgent] Initialized")
     
     def get_system_prompt(self, canvas_context: Optional[Dict] = None) -> str:
@@ -467,6 +503,35 @@ class SkillEditorAgent:
     def _classify_intent_simple(self, message: str) -> IntentType:
         """Simple rule-based intent classification"""
         msg_lower = message.lower()
+
+        # Casual chat: short acknowledgements / social chatter that shouldn't trigger planning.
+        if self._is_casual_chat_message(message):
+            return IntentType.CASUAL_CHAT
+
+        # Robust edit marker detection (handles typos like "modifycation" / "modifcation")
+        has_modif_stem = bool(re.search(r"\bmodif\w*", msg_lower))
+
+        # Edit intent (must run BEFORE creation heuristics like "let's do ... workflow")
+        edit_markers = [
+            "modify",
+            "modification",
+            "edit",
+            "tweak",
+            "adjust",
+            "fine tune",
+            "fine-tune",
+            "tune",
+            "wrap",
+            "wrapped",
+            "rewire",
+            "reroute",
+            "fix",
+            "repair",
+        ]
+        edit_targets = ["workflow", "skill", "flowgram", "canvas", "node", "edge", "connection", "loop", "condition", "branch"]
+        has_edit_marker = has_modif_stem or any(w in msg_lower for w in edit_markers)
+        if has_edit_marker and any(t in msg_lower for t in edit_targets):
+            return IntentType.MODIFY_NODE
         
         # Load skill intent - check first as it's specific
         if any(phrase in msg_lower for phrase in ["load", "open", "load up", "switch to"]) and "skill" in msg_lower:
@@ -482,7 +547,7 @@ class SkillEditorAgent:
         
         # Creation intents - "workflow" or "skill" with action phrases (e.g., "lets do an ebay workflow")
         if any(word in msg_lower for word in ["workflow", "skill", "automation"]):
-            if any(phrase in msg_lower for phrase in ["lets do", "let's do", "i want", "i need", "can you", "please", "do a", "do an"]):
+            if (not has_edit_marker) and any(phrase in msg_lower for phrase in ["lets do", "let's do", "i want", "i need", "can you", "please", "do a", "do an"]):
                 return IntentType.CREATE_FLOWGRAM
         
         # Node operations
@@ -492,8 +557,25 @@ class SkillEditorAgent:
             return IntentType.REMOVE_NODE
         if "connect" in msg_lower or "link" in msg_lower:
             return IntentType.CONNECT_NODES
-        if "modify" in msg_lower or "change" in msg_lower or "update" in msg_lower:
+        if has_modif_stem:
             return IntentType.MODIFY_NODE
+        if any(w in msg_lower for w in [
+            "modify",
+            "change",
+            "update",
+            "edit",
+            "tweak",
+            "adjust",
+            "fine tune",
+            "fine-tune",
+            "tune",
+        ]):
+            return IntentType.MODIFY_NODE
+
+        # Common edit phrasing that users use but doesn't include "modify/change/update"
+        if any(w in msg_lower for w in ["wrap", "wrapped", "inside", "within", "move", "rewire", "reroute", "replace", "insert", "surround", "encapsulate"]):
+            if any(w in msg_lower for w in ["node", "loop", "edge", "connection", "connect", "branch"]):
+                return IntentType.MODIFY_NODE
 
         # Validation / repair intent (treat as edit intent, but handled deterministically later)
         if any(w in msg_lower for w in ["validate", "repair", "fix connections", "fix connectivity", "fix edges"]):
@@ -517,19 +599,347 @@ class SkillEditorAgent:
             return IntentType.DEBUG_FLOWGRAM
         
         # Explanation
-        if any(word in msg_lower for word in ["explain", "what", "how", "why", "help"]):
+        if self._is_explain_request(message):
             return IntentType.EXPLAIN
         
         return IntentType.GENERAL_CHAT
-    
-    def _should_use_planner(self, intent: IntentType) -> bool:
-        """Determine if the planner should be used for this intent"""
-        # Use planner for complex creation tasks and general chat (which may be workflow requests)
-        # General chat goes through planner to let it decide if clarification/planning is needed
-        return intent in [
-            IntentType.CREATE_FLOWGRAM,
-            IntentType.GENERAL_CHAT,  # Let planner handle ambiguous requests
+
+    def _is_explain_request(self, message: str) -> bool:
+        msg = (message or "").strip().lower()
+        if not msg:
+            return False
+
+        # Avoid misclassifying workflow-building prompts as explanations.
+        workflow_markers = [
+            "workflow",
+            "flowgram",
+            "skill",
+            "node",
+            "edge",
+            "loop",
+            "condition",
+            "branch",
+            "connect",
+            "disconnect",
+            "add ",
+            "remove ",
+            "delete ",
+            "modify",
+            "modif",
+            "edit",
+            "create",
+            "build",
+            "generate",
+            "load",
+            "save",
+            "deploy",
+            "test",
+            "debug",
+            "run",
         ]
+        if any(m in msg for m in workflow_markers):
+            return False
+
+        normalized = re.sub(r"\s+", " ", msg).strip()
+
+        # Common short Q&A / explain-style prompts.
+        if any(w in normalized for w in ["explain", "help"]):
+            return True
+
+        starts_with_question_word = any(
+            normalized.startswith(w)
+            for w in [
+                "who ",
+                "what ",
+                "when ",
+                "where ",
+                "which ",
+                "why ",
+                "how ",
+            ]
+        )
+        if starts_with_question_word:
+            return True
+
+        if normalized.endswith("?"):
+            return True
+
+        return False
+
+    def _is_casual_chat_message(self, message: str) -> bool:
+        msg = (message or "").strip().lower()
+        if not msg:
+            return False
+
+        # If message contains clear workflow-related terms, it isn't casual.
+        workflow_markers = [
+            "workflow",
+            "flowgram",
+            "skill",
+            "node",
+            "edge",
+            "loop",
+            "condition",
+            "branch",
+            "connect",
+            "disconnect",
+            "add ",
+            "remove ",
+            "delete ",
+            "modify",
+            "modif",
+            "edit",
+            "create",
+            "build",
+            "generate",
+            "load",
+            "save",
+            "deploy",
+            "test",
+            "debug",
+            "run",
+        ]
+        if any(m in msg for m in workflow_markers):
+            return False
+
+        # Normalize to alphanumerics/spaces for token matching.
+        normalized = re.sub(r"[^a-z0-9\s]", " ", msg)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        if not normalized:
+            return False
+
+        words = normalized.split()
+        if len(words) > 6:
+            return False
+
+        casual_phrases = {
+            "awesome",
+            "great",
+            "nice",
+            "cool",
+            "sweet",
+            "perfect",
+            "amazing",
+            "love it",
+            "thanks",
+            "thank you",
+            "thx",
+            "ty",
+            "got it",
+            "ok",
+            "okay",
+            "yep",
+            "yeah",
+            "yup",
+            "haha",
+            "lol",
+        }
+
+        # Match whole-string phrase (after normalization).
+        if normalized in casual_phrases:
+            return True
+
+        # Simple single-word acknowledgements.
+        if len(words) == 1 and words[0] in {"awesome", "great", "nice", "cool", "sweet", "perfect", "amazing", "thanks", "thx", "ty", "ok", "okay", "yep", "yeah", "yup", "lol", "haha"}:
+            return True
+
+        return False
+
+    def _format_canvas_context_for_intent(self, canvas_context: Optional[Dict]) -> str:
+        if not canvas_context:
+            return "Empty canvas"
+        nodes = canvas_context.get("nodes", [])
+        edges = canvas_context.get("edges", [])
+        selected = canvas_context.get("selectedNodes", [])
+        node_lines = []
+        for n in (nodes or [])[:10]:
+            node_lines.append(f"{n.get('id')}:{n.get('type')}:{n.get('label', '')}")
+        more = ""
+        if isinstance(nodes, list) and len(nodes) > 10:
+            more = f" (+{len(nodes) - 10} more)"
+        return (
+            f"nodes={len(nodes) if isinstance(nodes, list) else 0}{more}; "
+            f"edges={len(edges) if isinstance(edges, list) else 0}; "
+            f"selected={selected}; "
+            f"sample_nodes=[{', '.join(node_lines)}]"
+        )
+
+    async def _invoke_llm_async(self, prompt: str) -> str:
+        llm = self.planner.llm
+        if hasattr(llm, "ainvoke"):
+            resp = await llm.ainvoke(prompt)
+            return resp.content if hasattr(resp, "content") else str(resp)
+        resp = llm.invoke(prompt)
+        return resp.content if hasattr(resp, "content") else str(resp)
+
+    def _extract_json_from_text(self, text: str) -> Optional[Dict[str, Any]]:
+        try:
+            json_match = re.search(r"```json\s*([\s\S]*?)\s*```", text)
+            if json_match:
+                return json.loads(json_match.group(1))
+            json_match = re.search(r"\{[\s\S]*\}", text)
+            if json_match:
+                return json.loads(json_match.group(0))
+        except Exception:
+            return None
+
+    def _is_vague_edit_request(self, message: str) -> bool:
+        msg = (message or "").strip().lower()
+        if not msg:
+            return True
+
+        has_modif_stem = bool(re.search(r"\bmodif\w*", msg))
+
+        vague_phrases = [
+            "do some modification",
+            "some modification",
+            "some changes",
+            "make some changes",
+            "modify this",
+            "edit this",
+            "tweak this",
+            "adjust this",
+            "improve this",
+            "refine this",
+            "optimize this",
+            "fix this",
+        ]
+        if any(p in msg for p in vague_phrases):
+            return True
+
+        if has_modif_stem:
+            if re.search(r"\b(do|make)\s+some\s+modif\w*\b", msg) or re.search(r"\bsome\s+modif\w*\b", msg):
+                return True
+
+        # If the message only signals intent but has no target/action details, treat as vague.
+        specific_markers = [
+            "wrap",
+            "loop",
+            "condition",
+            "branch",
+            "connect",
+            "disconnect",
+            "remove",
+            "delete",
+            "add",
+            "rename",
+            "replace",
+            "change",
+            "update",
+            "set ",
+            "node ",
+            "edge ",
+            "id ",
+            "->",
+        ]
+        has_specifics = (
+            any(m in msg for m in specific_markers)
+            or (msg.count('"') >= 2)
+            or (msg.count("'") >= 2)
+        )
+        if not has_specifics and len(msg.split()) <= 10:
+            return True
+
+        return False
+
+    def _is_edit_plan(self, plan: Optional[ImplementationPlan]) -> bool:
+        if not plan or not plan.summary:
+            return False
+        return plan.summary.strip().lower().startswith("edit:")
+
+    def _has_loaded_canvas(self, canvas_context: Optional[Dict]) -> bool:
+        """Return True if the user has an existing workflow loaded.
+
+        We treat either:
+        - non-empty nodes list, OR
+        - a provided skillName
+        as evidence of a loaded workflow.
+        """
+        if not canvas_context or not isinstance(canvas_context, dict):
+            return False
+        try:
+            nodes = canvas_context.get("nodes")
+            if isinstance(nodes, list) and len(nodes) > 0:
+                return True
+        except Exception:
+            pass
+        try:
+            skill_name = canvas_context.get("skillName")
+            if isinstance(skill_name, str) and skill_name.strip():
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _should_require_edit_confirmation(self, intent: IntentType, message: str, canvas_context: Optional[Dict]) -> bool:
+        if intent not in [IntentType.ADD_NODE, IntentType.REMOVE_NODE, IntentType.MODIFY_NODE, IntentType.CONNECT_NODES]:
+            return False
+        has_canvas = self._has_loaded_canvas(canvas_context)
+        if not has_canvas:
+            return False
+
+        if intent == IntentType.MODIFY_NODE and self._is_node_config_request(message, canvas_context):
+            return False
+
+        msg_lower = (message or "").lower()
+        # Deterministic validate/repair requests should not require confirmation.
+        if any(w in msg_lower for w in ["validate", "repair", "fix connections", "fix connectivity", "fix edges"]):
+            return False
+
+        return True
+
+    def _emit_progress(self, on_event: Optional[Callable], message: str) -> None:
+        if not on_event:
+            return
+        try:
+            on_event({"type": "progress", "data": {"message": message}})
+        except Exception:
+            return
+
+    async def _classify_intent_llm(self, message: str, canvas_context: Optional[Dict]) -> Tuple[IntentType, float, str]:
+        has_canvas = self._has_loaded_canvas(canvas_context)
+        canvas_summary = self._format_canvas_context_for_intent(canvas_context)
+        prompt = (
+            f"{INTENT_CLASSIFIER_SYSTEM_PROMPT}\n\n"
+            f"has_canvas={str(has_canvas).lower()}\n"
+            f"canvas_summary={canvas_summary}\n\n"
+            f"user_message={json.dumps(message)}\n"
+        )
+
+        try:
+            response = await self._invoke_llm_async(prompt)
+            data = self._extract_json_from_text(response) or {}
+            intent_str = str(data.get("intent", "general_chat")).strip()
+            confidence = float(data.get("confidence", 0.0) or 0.0)
+            reason = str(data.get("reason", "")).strip()
+
+            try:
+                intent = IntentType(intent_str)
+            except Exception:
+                intent = IntentType.GENERAL_CHAT
+
+            return intent, max(0.0, min(1.0, confidence)), reason
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] LLM intent classification failed: {e}")
+            return IntentType.GENERAL_CHAT, 0.0, ""
+    
+    def _should_use_planner(self, intent: IntentType, canvas_context: Optional[Dict] = None) -> bool:
+        """Determine if the planner should be used for this intent"""
+        # Use planner for complex creation tasks.
+        # For GENERAL_CHAT, only use planner when canvas is empty (otherwise keep the interaction conversational
+        # and avoid multi-choice clarification cards for edits).
+        if intent == IntentType.CREATE_FLOWGRAM:
+            return True
+        if intent == IntentType.CASUAL_CHAT:
+            return False
+        if intent == IntentType.GENERAL_CHAT:
+            has_canvas_nodes = bool(
+                canvas_context
+                and isinstance(canvas_context.get("nodes"), list)
+                and len(canvas_context.get("nodes")) > 0
+            )
+            return not has_canvas_nodes
+        return False
 
     def _should_require_clarification(self, message: str, intent: IntentType) -> bool:
         """
@@ -557,6 +967,53 @@ class SkillEditorAgent:
             return False
         # Default: require for planner intents
         return intent in [IntentType.CREATE_FLOWGRAM, IntentType.GENERAL_CHAT]
+
+    def _handle_casual_chat(self, message: str, session_id: Optional[str]) -> AgentResponse:
+        session_key = session_id or "default"
+        rounds = int(self._casual_chat_rounds_by_session.get(session_key, 0) or 0) + 1
+        self._casual_chat_rounds_by_session[session_key] = rounds
+
+        max_rounds = 10
+        if rounds > max_rounds:
+            return AgentResponse(
+                message=(
+                    "Happy to chat, but let’s keep moving in the Skill Editor. "
+                    "What do you want to do next: create a new workflow, load an existing skill, or modify the current canvas?"
+                ),
+                intent=IntentType.CASUAL_CHAT,
+                metadata={"session_id": session_id, "state": self._pipeline_state.value, "casual_rounds": rounds},
+            )
+
+        # Default: acknowledge and gently pivot back.
+        return AgentResponse(
+            message=(
+                "Got it. When you’re ready, tell me what workflow you want to build (or what you want to change on the canvas)."
+            ),
+            intent=IntentType.CASUAL_CHAT,
+            metadata={"session_id": session_id, "state": self._pipeline_state.value, "casual_rounds": rounds},
+        )
+
+    async def _run_explain(self, message: str, session_id: Optional[str], on_event: Optional[Callable]) -> AgentResponse:
+        self._pipeline_state = PipelineState.IDLE
+        self._emit_progress(on_event, "Answering...")
+
+        prompt = (
+            "You are a helpful assistant. Answer the user's question directly and concisely. "
+            "If the question is about current events and you are not fully certain, say that your information may be outdated.\n\n"
+            f"user_question={json.dumps(message)}\n"
+        )
+
+        try:
+            answer = await self._invoke_llm_async(prompt)
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] Explain answer failed: {e}")
+            answer = "I had trouble generating an answer right now. Please try again."
+
+        return AgentResponse(
+            message=str(answer).strip(),
+            intent=IntentType.EXPLAIN,
+            metadata={"session_id": session_id, "state": self._pipeline_state.value},
+        )
     
     def _is_node_config_request(self, message: str, canvas_context: Optional[Dict]) -> bool:
         """Check if the message is a node configuration request"""
@@ -621,11 +1078,27 @@ class SkillEditorAgent:
         """
         logger.info(f"[SkillEditorAgent] Processing message: {message[:100]}...")
         logger.info(f"[SkillEditorAgent] Pipeline state: {self._pipeline_state.value}")
+
+        self._emit_progress(on_event, "Thinking...")
         
         # Add user message to conversation history for context accumulation
         self.add_to_history("user", message)
         
         try:
+            # If we're waiting on clarification answers, don't let casual messages derail the flow.
+            if self._pipeline_state in [PipelineState.AWAITING_CLARIFICATION, PipelineState.CONFIGURING_NODE] and not clarification_responses:
+                if self._is_casual_chat_message(message):
+                    response = AgentResponse(
+                        message=(
+                            "Got it. When you’re ready, please answer the questions above (or cancel), "
+                            "so I can continue."
+                        ),
+                        intent=IntentType.CASUAL_CHAT,
+                        metadata={"session_id": session_id, "state": self._pipeline_state.value},
+                    )
+                    self._add_response_to_history(response)
+                    return response
+
             # Handle node configuration clarification responses
             if clarification_responses and self._pipeline_state == PipelineState.CONFIGURING_NODE:
                 logger.info("[SkillEditorAgent] Processing node config clarification responses")
@@ -646,6 +1119,18 @@ class SkillEditorAgent:
                 # This prevents false positives like "before we proceed, I want to clarify..."
                 msg_lower = message.lower().strip()
                 msg_words = msg_lower.split()
+
+                if self._is_casual_chat_message(message):
+                    response = AgentResponse(
+                        message=(
+                            "Got it. If you want me to proceed with the plan, reply 'yes' (or click Approve). "
+                            "If you want to stop, reply 'cancel'."
+                        ),
+                        intent=IntentType.CASUAL_CHAT,
+                        metadata={"session_id": session_id, "state": self._pipeline_state.value, "awaiting_plan_approval": True},
+                    )
+                    self._add_response_to_history(response)
+                    return response
                 
                 # Approval: short message (<=10 words) that starts with or is an approval phrase
                 approval_phrases = ["yes", "ok", "okay", "approve", "proceed", "do it", "do them", "go ahead", "let's go", "sounds good", "looks good", "go for it"]
@@ -659,14 +1144,37 @@ class SkillEditorAgent:
                 is_rejection_only = msg_lower in rejection_phrases or msg_lower.rstrip('.!') in rejection_phrases
                 
                 if is_approval_only or (is_short_message and starts_with_approval):
+                    # If the pending plan is an edit proposal, apply the edit (do not generate a new flowgram).
+                    if self._is_edit_plan(self._current_plan):
+                        logger.info("[SkillEditorAgent] Edit plan approved, applying edit")
+                        try:
+                            edit_request = self._current_request or ""
+                            self._current_plan = None
+                            return await self._run_code_generation(
+                                message=edit_request,
+                                canvas_context=canvas_context,
+                                session_id=session_id,
+                                intent=IntentType.MODIFY_NODE,
+                                on_event=on_event,
+                            )
+                        finally:
+                            self._current_plan = None
                     logger.info("[SkillEditorAgent] Plan approved, proceeding to code generation")
-                    return await self._generate_from_plan(canvas_context, session_id, on_event)
+                    try:
+                        return await self._generate_from_plan(canvas_context, session_id, on_event)
+                    finally:
+                        self._current_plan = None
                 elif is_rejection_only or (is_short_message and starts_with_rejection):
                     logger.info("[SkillEditorAgent] Plan rejected, resetting")
                     self._pipeline_state = PipelineState.IDLE
+                    is_edit_plan = self._is_edit_plan(self._current_plan)
                     self._current_plan = None
                     return AgentResponse(
-                        message="Understood. Please describe what you'd like to change about the plan.",
+                        message=(
+                            "Understood. Please describe what you'd like to change."
+                            if is_edit_plan
+                            else "Understood. Please describe what you'd like to change about the plan."
+                        ),
                         intent=IntentType.GENERAL_CHAT,
                         metadata={"session_id": session_id}
                     )
@@ -679,11 +1187,102 @@ class SkillEditorAgent:
                     # Fall through to normal intent classification
             
             # Classify intent
+            self._emit_progress(on_event, "Classifying intent...")
             intent = self._classify_intent_simple(message)
+
+            # If the user returns to work-related actions, reset the casual chat counter.
+            if intent != IntentType.CASUAL_CHAT:
+                session_key = session_id or "default"
+                if session_key in self._casual_chat_rounds_by_session:
+                    self._casual_chat_rounds_by_session[session_key] = 0
+
+            if intent == IntentType.GENERAL_CHAT:
+                llm_intent, confidence, reason = await self._classify_intent_llm(message, canvas_context)
+                logger.info(
+                    f"[SkillEditorAgent] LLM intent: {llm_intent.value} (confidence={confidence:.2f}) reason={reason}"
+                )
+
+                has_canvas = self._has_loaded_canvas(canvas_context)
+                if has_canvas:
+                    if llm_intent == IntentType.CREATE_FLOWGRAM and confidence < 0.85:
+                        llm_intent = IntentType.MODIFY_NODE
+                    elif llm_intent == IntentType.GENERAL_CHAT and confidence < 0.7:
+                        llm_intent = IntentType.MODIFY_NODE
+
+                if confidence >= 0.6 and llm_intent != IntentType.GENERAL_CHAT:
+                    intent = llm_intent
+                elif has_canvas and llm_intent == IntentType.MODIFY_NODE:
+                    intent = IntentType.MODIFY_NODE
+
             logger.info(f"[SkillEditorAgent] Classified intent: {intent.value}")
+
+            if intent == IntentType.CASUAL_CHAT:
+                self._pipeline_state = PipelineState.IDLE
+                response = self._handle_casual_chat(message, session_id)
+                self._add_response_to_history(response)
+                return response
+
+            if intent == IntentType.EXPLAIN:
+                response = await self._run_explain(message, session_id, on_event)
+                self._add_response_to_history(response)
+                return response
+
+            if intent == IntentType.CREATE_FLOWGRAM:
+                self._emit_progress(on_event, "Planning or generating a new workflow...")
+            elif intent in [IntentType.ADD_NODE, IntentType.REMOVE_NODE, IntentType.MODIFY_NODE, IntentType.CONNECT_NODES]:
+                self._emit_progress(on_event, "Preparing to modify the current workflow...")
             
             # Store current request
             self._current_request = message
+
+            # Safe edit mode: never run an LLM edit for vague modification messages.
+            has_canvas = self._has_loaded_canvas(canvas_context)
+            if intent in [IntentType.ADD_NODE, IntentType.REMOVE_NODE, IntentType.MODIFY_NODE, IntentType.CONNECT_NODES] and has_canvas:
+                if self._is_vague_edit_request(message):
+                    self._pipeline_state = PipelineState.IDLE
+                    return AgentResponse(
+                        message=(
+                            "What specific change do you want me to make to the currently loaded workflow? "
+                            "For example: 'wrap node X in a loop', 'connect A -> B', or 'change the LLM prompt in node Y'."
+                        ),
+                        intent=IntentType.GENERAL_CHAT,
+                        metadata={"session_id": session_id, "state": "idle", "needs_edit_details": True},
+                    )
+
+            # Edit confirmation gate: propose an edit plan, then wait for explicit approval.
+            if self._should_require_edit_confirmation(intent, message, canvas_context):
+                self._emit_progress(on_event, "Waiting for confirmation...")
+
+                items = [p.strip() for p in re.split(r"(?:\n+|;)+", (message or "").strip()) if p.strip()]
+                if not items:
+                    items = [message.strip()]
+
+                plan = ImplementationPlan(
+                    summary=f"Edit: {items[0]}",
+                    steps=[
+                        PlanStep(
+                            title=("Apply requested modification to current workflow" if len(items) == 1 else f"Apply edit item {idx + 1}"),
+                            description=item,
+                            node_types=[],
+                        )
+                        for idx, item in enumerate(items)
+                    ],
+                    estimated_nodes=[],
+                    complexity="simple",
+                )
+
+                self._pipeline_state = PipelineState.AWAITING_PLAN_APPROVAL
+                self._current_plan = plan
+                plan_text = self._format_plan_for_display(plan)
+                return AgentResponse(
+                    message=(
+                        f"I’m ready to apply this edit to the currently loaded workflow:\n\n{plan_text}\n\n"
+                        "Proceed?"
+                    ),
+                    intent=IntentType.MODIFY_NODE,
+                    plan=plan,
+                    metadata={"session_id": session_id, "state": "awaiting_plan_approval", "edit_confirmation": True},
+                )
             
             # Handle LOAD_SKILL intent directly
             if intent == IntentType.LOAD_SKILL:
@@ -708,7 +1307,7 @@ class SkillEditorAgent:
                 return response
             
             # Decide whether to use planner or go directly to code
-            if self._should_use_planner(intent):
+            if self._should_use_planner(intent, canvas_context):
                 response = await self._run_planning_phase(
                     message=message,
                     canvas_context=canvas_context,
@@ -1357,7 +1956,7 @@ class SkillEditorAgent:
             "message", "code", "url", "query_path"
         }
         # Fields that should not be emitted into inputsValues
-        skip_fields = {"conditions", "blocks", "internal_edges", "inputs", "outputs", "code", "language"}
+        skip_fields = {"conditions", "blocks", "internal_edges", "inputs", "outputs", "code", "language", "breakpoint"}
         
         for key, value in config.items():
             # Skip special fields that aren't inputsValues
@@ -1400,6 +1999,18 @@ class SkillEditorAgent:
             type_out = "pend_event_node"
         if type_out == "mcp_tool":
             type_out = "mcp"
+
+        if type_out == "llm":
+            config.setdefault("temperature", 0.3)
+            config.setdefault("useThinking", False)
+        if type_out == "browser-automation":
+            provider = config.get("provider")
+            if provider and not config.get("tool"):
+                config["tool"] = provider
+            if "provider" in config:
+                del config["provider"]
+            config.setdefault("temperature", 0.3)
+            config.setdefault("useThinking", False)
         
         # Handle condition nodes - ensure conditions array is present
         if node.type == "condition":
@@ -1413,13 +2024,55 @@ class SkillEditorAgent:
         data = {
             "title": getattr(node, "title", None) or node.label or node.id,
         }
+
+        try:
+            data["breakpoint"] = bool(config.get("breakpoint")) if isinstance(config.get("breakpoint"), bool) else False
+        except Exception:
+            data["breakpoint"] = False
+
+        mcp_callable = None
+        mcp_breakpoint = None
+        if type_out == "mcp":
+            try:
+                if isinstance(config.get("callable"), dict):
+                    mcp_callable = config.get("callable")
+                elif isinstance(config.get("data"), dict) and isinstance((config.get("data") or {}).get("callable"), dict):
+                    mcp_callable = (config.get("data") or {}).get("callable")
+            except Exception:
+                mcp_callable = None
+            try:
+                mcp_breakpoint = config.get("breakpoint") if isinstance(config, dict) else None
+            except Exception:
+                mcp_breakpoint = None
         
         # For nodes that use inputsValues format (llm, browser_automation, mcp_tool, etc.)
         if type_out in ["llm", "browser-automation", "mcp", "http", "code", "chat_node", "pend_event_node", "rag"]:
             # Convert config to inputsValues format
-            inputs_values = self._config_to_inputs_values(config, type_out)
-            if inputs_values:
+            config_for_inputs_values = config
+            if type_out == "mcp" and isinstance(config, dict):
+                config_for_inputs_values = {
+                    k: v
+                    for k, v in config.items()
+                    if k not in {"callable", "breakpoint", "data"}
+                }
+
+            inputs_values = self._config_to_inputs_values(config_for_inputs_values, type_out)
+            if inputs_values or type_out == "mcp":
                 data["inputsValues"] = inputs_values
+
+            if type_out == "mcp":
+                if not isinstance(mcp_callable, dict):
+                    mcp_callable = {
+                        "id": "llm-auto-select",
+                        "name": "llm auto select",
+                        "desc": "Let the LLM automatically select the appropriate tool based on the context",
+                        "params": {"type": "object", "properties": {}},
+                        "returns": {"type": "object", "properties": {}},
+                        "type": "system",
+                        "source": "",
+                    }
+                data["data"] = {"callable": mcp_callable}
+                data["breakpoint"] = bool(mcp_breakpoint) if isinstance(mcp_breakpoint, bool) else False
             
             # Also include inputs schema for frontend (typed where known)
             property_types = {}
@@ -1569,6 +2222,8 @@ class SkillEditorAgent:
         Works for both create and edit operations.
         """
         try:
+            original_metadata: Dict[str, Any] = dict(flowgram.metadata or {})
+
             # Normalize/fix connectivity before persisting so the saved JSON uses the real
             # condition port IDs (e.g., if_branch/else_branch) instead of hallucinated handles.
             try:
@@ -1577,6 +2232,14 @@ class SkillEditorAgent:
                 validator = get_validator_agent()
                 fixed_dict = validator.fix_disconnected_nodes(flowgram.model_dump())
                 flowgram = Flowgram.model_validate(fixed_dict)
+
+                # Validator outputs may omit metadata; preserve original metadata (especially skillName).
+                if not flowgram.metadata:
+                    flowgram.metadata = dict(original_metadata)
+                else:
+                    for k, v in original_metadata.items():
+                        if k not in flowgram.metadata:
+                            flowgram.metadata[k] = v
             except Exception as e:
                 logger.warning(f"[SkillEditorAgent] Validator fix before save failed: {e}")
 
@@ -1754,6 +2417,20 @@ class SkillEditorAgent:
         
         msg_lower = (message or "").lower()
 
+        # When editing, we must preserve the currently loaded skill identity.
+        target_skill_name: Optional[str] = None
+        if canvas_context and isinstance(canvas_context, dict):
+            try:
+                raw_skill_name = canvas_context.get("skillName")
+                if isinstance(raw_skill_name, str) and raw_skill_name.strip():
+                    target_skill_name = raw_skill_name.strip()
+                    if target_skill_name.endswith("_skill"):
+                        target_skill_name = target_skill_name[: -len("_skill")]
+            except Exception:
+                target_skill_name = None
+
+        current_flowgram_for_edit: Optional[Flowgram] = None
+
         # Deterministic validate/repair-only mode: do NOT call LLM; run ValidatorAgent on the current canvas.
         if intent in [IntentType.MODIFY_NODE, IntentType.CONNECT_NODES] and canvas_context:
             if any(w in msg_lower for w in ["validate", "repair", "fix connections", "fix connectivity", "fix edges"]):
@@ -1791,6 +2468,16 @@ class SkillEditorAgent:
         if intent in [IntentType.ADD_NODE, IntentType.REMOVE_NODE, IntentType.MODIFY_NODE, IntentType.CONNECT_NODES]:
             # Convert canvas_context to Flowgram for editing
             current_flowgram = self._canvas_context_to_flowgram(canvas_context)
+            current_flowgram_for_edit = current_flowgram
+
+            # Ensure CodeAgent knows what the current workflow is (important when canvas_context had 0 nodes
+            # but we loaded from disk via skillName).
+            if current_flowgram_for_edit:
+                try:
+                    self.code_agent.set_current_flowgram(current_flowgram_for_edit)
+                except Exception:
+                    pass
+
             code_output = await self.code_agent.edit(
                 edit_request=message,
                 current_flowgram=current_flowgram,
@@ -1808,11 +2495,30 @@ class SkillEditorAgent:
         commands = []
         skill_path = None
         if code_output.flowgram:
+            # For edit intents, never allow changing the underlying skill name (prevents writing to generated_skill).
+            if intent in [IntentType.ADD_NODE, IntentType.REMOVE_NODE, IntentType.MODIFY_NODE, IntentType.CONNECT_NODES]:
+                desired_skill_name = None
+                if target_skill_name:
+                    desired_skill_name = target_skill_name
+                elif current_flowgram_for_edit and current_flowgram_for_edit.metadata:
+                    desired_skill_name = current_flowgram_for_edit.metadata.get("skillName")
+                if isinstance(desired_skill_name, str) and desired_skill_name.strip():
+                    if not code_output.flowgram.metadata:
+                        code_output.flowgram.metadata = {}
+                    code_output.flowgram.metadata["skillName"] = desired_skill_name.strip()
+
             # Guard: never allow LLM edits to wipe nodes unless the user explicitly asked to remove/delete.
             try:
                 old_count = 0
-                if canvas_context and isinstance(canvas_context.get("nodes"), list):
+
+                # Prefer the authoritative loaded flowgram for edits (covers cases where canvas_context has 0 nodes
+                # but skillName was provided and we loaded from disk).
+                if current_flowgram_for_edit and getattr(current_flowgram_for_edit, "nodes", None) is not None:
+                    old_count = len(current_flowgram_for_edit.nodes)
+
+                if old_count <= 0 and canvas_context and isinstance(canvas_context.get("nodes"), list):
                     old_count = len(canvas_context.get("nodes"))
+
                 if old_count <= 0 and self.code_agent.get_current_flowgram():
                     old_count = len(self.code_agent.get_current_flowgram().nodes)
 

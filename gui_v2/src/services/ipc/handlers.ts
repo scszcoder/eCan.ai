@@ -1,4 +1,4 @@
-﻿/**
+/**
  * IPC Process?
  * Implementation?? Python Backend???RequestProcess?
  */
@@ -75,6 +75,11 @@ export class IPCHandlers {
         this.registerHandler('lightrag.queryStream.done', this.handleLightRagDone);
         this.registerHandler('lightrag.queryStream.error', this.handleLightRagError);
 
+        // Skill editor chat streaming events
+        this.registerHandler('skill_editor.chat.stream_chunk', this.handleSkillEditorChatChunk);
+        this.registerHandler('skill_editor.chat.stream_end', this.handleSkillEditorChatDone);
+        this.registerHandler('skill_editor.chat.error', this.handleSkillEditorChatError);
+
         // Ad banner push from backend
         this.registerHandler('push_ad', this.pushAd);
 
@@ -108,6 +113,25 @@ export class IPCHandlers {
     async handleLightRagError(request: IPCRequest): Promise<{ success: boolean }> {
         const params = request.params as any;
         eventBus.emit('lightrag:queryStream:error', params);
+        return { success: true };
+    }
+
+    // Skill editor chat streaming handlers
+    async handleSkillEditorChatChunk(request: IPCRequest): Promise<{ success: boolean }> {
+        const params = request.params as any;
+        eventBus.emit('skill_editor:chat:stream_chunk', params);
+        return { success: true };
+    }
+
+    async handleSkillEditorChatDone(request: IPCRequest): Promise<{ success: boolean }> {
+        const params = request.params as any;
+        eventBus.emit('skill_editor:chat:stream_end', params);
+        return { success: true };
+    }
+
+    async handleSkillEditorChatError(request: IPCRequest): Promise<{ success: boolean }> {
+        const params = request.params as any;
+        eventBus.emit('skill_editor:chat:error', params);
         return { success: true };
     }
 

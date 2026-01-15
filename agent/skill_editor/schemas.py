@@ -29,6 +29,7 @@ class IntentType(str, Enum):
     TEST_SKILL = "test_skill"  # Test skill: run/pause/step/exit
     DEPLOY_SKILL = "deploy_skill"  # Deploy skill: create task, schedule, assign agent
     EXPLAIN = "explain"
+    CASUAL_CHAT = "casual_chat"
     GENERAL_CHAT = "general_chat"
     UNKNOWN = "unknown"
 
