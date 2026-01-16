@@ -381,10 +381,49 @@ class SigningManager:
             return True  # Tool exists but may be waiting for parameters
         except Exception:
             return False
+
+    def _can_verify_signatures(self) -> bool:
+        """Return True if signature verification should run for this build.
+
+        In CI builds we often don't have access to signing credentials. In that case we
+        still want the build to proceed (unsigned), so verification should be skipped.
+        """
+        try:
+            platform_config = self.config.get("platforms", {})
+
+            if self.platform == "windows":
+                sign_cfg = platform_config.get("windows", {}).get("sign", {})
+                if not sign_cfg.get("enabled", False):
+                    return False
+                cert_path = sign_cfg.get("certificate", "")
+                if not cert_path or not Path(cert_path).exists():
+                    return False
+                if not self._check_tool_available("signtool"):
+                    return False
+                return True
+
+            if self.platform == "darwin":
+                sign_cfg = platform_config.get("macos", {}).get("codesign", {})
+                if not sign_cfg.get("enabled", False):
+                    return False
+                identity = sign_cfg.get("identity", "")
+                if not identity:
+                    return False
+                if not self._check_tool_available("codesign"):
+                    return False
+                return True
+
+            return False
+        except Exception:
+            return False
     
     def verify_signatures(self) -> bool:
         """Verify signatures"""
         print("[VERIFY] Verifying build artifact signatures...")
+
+        if not self._can_verify_signatures():
+            print("[VERIFY] Skipping signature verification (signing not configured or credentials/tools unavailable)")
+            return True
         
         try:
             if self.platform == "windows":
