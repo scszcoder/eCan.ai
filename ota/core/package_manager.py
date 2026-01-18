@@ -626,6 +626,64 @@ class PackageManager:
         except Exception as e:
             logger.error(f"Old file cleanup failed: {e}")
     
+    def check_local_package(self, package: UpdatePackage) -> bool:
+        """Check if package is already downloaded and verified locally
+        
+        Args:
+            package: Update package to check
+            
+        Returns:
+            bool: True if package exists locally and is verified
+        """
+        try:
+            # Get expected filename
+            filename = self._get_filename_from_url(package.download_url)
+            local_path = self.download_dir / filename
+            
+            # Check if file exists
+            if not local_path.exists():
+                logger.debug(f"[LocalPackage] Package not found: {local_path}")
+                return False
+            
+            # Check file size matches
+            local_size = local_path.stat().st_size
+            if package.file_size > 0 and local_size != package.file_size:
+                logger.info(f"[LocalPackage] Size mismatch: expected {package.file_size}, got {local_size}")
+                return False
+            
+            # Verify package integrity
+            logger.info(f"[LocalPackage] Found local package, verifying: {local_path}")
+            
+            # Create a temporary package object for verification
+            temp_package = UpdatePackage(
+                version=package.version,
+                download_url=package.download_url,
+                file_size=package.file_size,
+                signature=package.signature,
+                description=package.description,
+                alternate_url=package.alternate_url
+            )
+            temp_package.download_path = local_path
+            temp_package.is_downloaded = True
+            
+            # Verify the package
+            if self.verify_package(temp_package):
+                logger.info(f"[LocalPackage] ✅ Local package verified successfully: {package.version}")
+                # Update the original package object
+                package.download_path = local_path
+                package.is_downloaded = True
+                package.is_verified = True
+                # Set as current package
+                self.current_package = package
+                return True
+            else:
+                logger.warning(f"[LocalPackage] Local package verification failed, will re-download")
+                return False
+                
+        except Exception as e:
+            logger.warning(f"[LocalPackage] Error checking local package: {e}")
+            return False
+    
     def _get_filename_from_url(self, url: str) -> str:
         """Get filename from URL"""
         parsed = urlparse(url)

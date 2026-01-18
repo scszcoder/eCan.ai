@@ -540,6 +540,42 @@ class UpdateDialog(QDialog):
         if not self.update_info:
             return
         
+        # ✅ Check if package is already downloaded and verified locally
+        from ota.core.package_manager import UpdatePackage, package_manager
+        
+        package = UpdatePackage(
+            version=self.update_info.get('latest_version', '1.1.0'),
+            download_url=self.update_info.get('download_url', ''),
+            file_size=self.update_info.get('file_size', 0),
+            signature=self.update_info.get('signature', ''),
+            description=self.update_info.get('description', ''),
+            alternate_url=self.update_info.get('alternate_url', None)
+        )
+        
+        # Check if package exists locally and is verified
+        if package_manager.check_local_package(package):
+            logger.info(f"[UpdateDialog] ✅ Package already downloaded and verified: {package.version}")
+            self.status_label.setText(_tr.tr("download_complete"))
+            
+            # Show progress as 100%
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setValue(100)
+            self.speed_label.setVisible(False)
+            self.remaining_label.setVisible(False)
+            
+            # Update global download manager state
+            version = self.update_info.get('latest_version', '1.1.0')
+            download_manager.set_state(DownloadState.COMPLETED)
+            download_manager.version = version
+            download_manager.update_info = self.update_info
+            download_manager.progress = 100
+            
+            # Directly trigger download finished with success
+            self.download_finished(True, _tr.tr("download_success"))
+            return
+        
+        logger.info(f"[UpdateDialog] Package not found locally, starting download: {package.version}")
+        
         self.cancel_button.setVisible(True)
         self.progress_bar.setVisible(True)
         self.speed_label.setVisible(True)

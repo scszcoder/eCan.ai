@@ -38,7 +38,7 @@ def get_template_env_path() -> Optional[Path]:
     """
     try:
         from config.app_info import app_info
-        app_home_dir = Path(app_info.apphomepath)
+        app_home_dir = Path(app_info.app_home_path)
         return app_home_dir / "resource" / "data" / "lightrag_template.env"
     except Exception as e:
         logger.warning(f"Failed to get template env path from app_info: {e}")
