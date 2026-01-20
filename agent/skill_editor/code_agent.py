@@ -796,14 +796,15 @@ class CodeAgent:
             default_llm = config_manager.general_settings.default_llm
             
             logger.info(f"[CodeAgent] Default LLM setting: {default_llm}")
-            logger.info(f"[CodeAgent] Available providers: {list(llm_providers.keys()) if llm_providers else 'None'}")
+            logger.info(f"[CodeAgent] Available providers: {len(llm_providers) if llm_providers else 0} providers")
             
             if not llm_providers:
                 raise RuntimeError("No LLM providers configured")
             
             # Log provider details (mask API keys)
-            for name, provider in llm_providers.items():
-                api_key = getattr(provider, 'api_key', None) or getattr(provider, 'apiKey', None)
+            for provider in llm_providers:
+                name = provider.get('name', 'unknown')
+                api_key = provider.get('api_key') or provider.get('apiKey')
                 if api_key:
                     masked_key = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else "***"
                     logger.info(f"[CodeAgent] Provider '{name}': API key = {masked_key}")
@@ -811,7 +812,7 @@ class CodeAgent:
             # For skill editor, prefer OpenAI for complex flowgram generation
             # Override default if OpenAI is available
             skill_editor_llm = default_llm
-            if 'openai' in [p.lower() for p in llm_providers.keys()]:
+            if any(p.get('name', '').lower() == 'openai' for p in llm_providers):
                 skill_editor_llm = 'openai'
                 logger.info(f"[CodeAgent] Overriding default LLM '{default_llm}' with 'openai' for skill editor")
             

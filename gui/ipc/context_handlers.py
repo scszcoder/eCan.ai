@@ -225,11 +225,12 @@ def handle_send_all_contexts(request: IPCRequest, params: Optional[Dict[str, Any
         contexts = generate_test_contexts()
         
         # Push to frontend via IPC
-        main_window = AppContext.get_main_window()
-        if main_window:
-            # Use push_to_web to send data to frontend
-            main_window.push_to_web('send_all_contexts', contexts)
-            logger.info(f"[Context] Pushed {len(contexts)} contexts to frontend")
+        web_gui = AppContext.get_web_gui()
+        if web_gui:
+            ipc_api = web_gui.get_ipc_api()
+            if ipc_api:
+                ipc_api.push_contexts('send_all_contexts', contexts)
+                logger.info(f"[Context] Pushed {len(contexts)} contexts to frontend")
         
         return create_success_response(request, {"sent": len(contexts)})
         
@@ -253,10 +254,12 @@ def handle_update_contexts(request: IPCRequest, params: Optional[Dict[str, Any]]
         logger.info(f"[Context] Updating context: {context.get('uid', 'unknown')}")
         
         # Push to frontend via IPC
-        main_window = AppContext.get_main_window()
-        if main_window:
-            main_window.push_to_web('update_contexts', context)
-            logger.info("[Context] Pushed context update to frontend")
+        web_gui = AppContext.get_web_gui()
+        if web_gui:
+            ipc_api = web_gui.get_ipc_api()
+            if ipc_api:
+                ipc_api.push_contexts('update_contexts', [context])
+                logger.info("[Context] Pushed context update to frontend")
         
         return create_success_response(request, {"updated": True})
         
@@ -299,10 +302,12 @@ def handle_refresh_contexts(request: IPCRequest, params: Optional[Dict[str, Any]
         # Send latest contexts to frontend
         contexts = generate_test_contexts()
         
-        main_window = AppContext.get_main_window()
-        if main_window:
-            main_window.push_to_web('send_all_contexts', contexts)
-            logger.info(f"[Context] Refreshed {len(contexts)} contexts")
+        web_gui = AppContext.get_web_gui()
+        if web_gui:
+            ipc_api = web_gui.get_ipc_api()
+            if ipc_api:
+                ipc_api.push_contexts('send_all_contexts', contexts)
+                logger.info(f"[Context] Refreshed {len(contexts)} contexts")
         
         return create_success_response(request, {"refreshed": True, "count": len(contexts)})
         

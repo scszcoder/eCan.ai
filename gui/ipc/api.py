@@ -765,3 +765,23 @@ class IPCAPI:
             }, callback=callback)
         except Exception as legacy_err:
             logger.debug(f"[IPCAPI] Legacy canvas command send failed: {legacy_err}")
+
+    # ============================================================
+    # Context Management
+    # ============================================================
+
+    def push_contexts(
+        self,
+        method: str,
+        contexts: List[Dict[str, Any]],
+        callback: Optional[Callable[[APIResponse[bool]], None]] = None
+    ) -> None:
+        """
+        Push contexts to frontend
+        
+        Args:
+            method: Method name (e.g., 'send_all_contexts', 'update_contexts')
+            contexts: Context data list or single context dict
+            callback: Callback function
+        """
+        self._send_request(method, {'contexts': contexts}, callback=callback)
