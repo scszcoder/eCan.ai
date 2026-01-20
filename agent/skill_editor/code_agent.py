@@ -86,6 +86,13 @@ Your role is to translate user requests and implementation plans into concrete f
 ## IMPLEMENTATION PLAN (if provided):
 {plan_context}
 
+## TERMINOLOGIES:
+- **Flowgram**: A workflow definition in JSON format
+- **Node**: A component of a flowgram that performs a specific task
+- **Edge**: A connection between nodes in a flowgram
+- **Canvas**: The visual representation of a flowgram in the Skill Editor
+- Flowgram, Skill, Workflow are used interchangeably
+
 ## SKILL DIRECTORY STRUCTURE:
 Skills are stored in `my_skills/` under the application's data directory.
 Each skill follows this structure:
@@ -103,6 +110,8 @@ When you generate a flowgram, the system will automatically:
 - **BREAK DOWN COMPLEXITY**: Decompose complex requests into manageable components
 - **MULTI-PHASE**: For long workflows, divide into phases with clear milestones
 - **IDENTIFY BLOCKERS**: Flag gating items or show-stoppers in your response message
+- **IDENTIFY LOOPS**: Any repeatable task should be placed inside a loop node
+- **IDENTIFY HUMAN IN THE LOOPS**: Any instance where human interaction is required should be mapped to a pend_event node
 
 ## FLOWGRAM GENERATION RULES:
 1. Every flowgram MUST have a "start" node and an "end" node
@@ -182,7 +191,7 @@ The `browser_automation` node is a **SUB-AGENT with its own internal LLM**, NOT 
 **Capabilities:**
 - Has its own LLM that can read/understand page DOM, extract data, and make decisions
 - Can execute up to **100 consecutive interaction steps** (click, type, scroll, navigate, etc.)
-- Returns structured JSON output including status flags and extracted data
+- Per prompt request, can return structured JSON output including status flags and extracted data (
 - Handles complex multi-step web interactions autonomously
 
 **CORRECT Pattern - Batch Browser Work:**

@@ -225,6 +225,10 @@ export class IPCAPI {
         return this.executeRequest<T>('get_agent_skills', { username, skill_ids });
     }
 
+    public async getPublicSkills<T>(username: string): Promise<APIResponse<T>> {
+        return this.executeRequest<T>('get_public_skills', { username });
+    }
+
     public async getAgentTasks<T>(username: string, agent_task_ids: string[]): Promise<APIResponse<T>> {
         return this.executeRequest<T>('get_agent_tasks', {username, task_ids: agent_task_ids });
     }

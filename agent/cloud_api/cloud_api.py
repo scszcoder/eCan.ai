@@ -2,6 +2,7 @@ import json
 import os
 import base64
 import requests
+import asyncio
 from config.envi import getECBotDataHome
 from utils.logger_helper import logger_helper as logger
 import traceback
@@ -10,7 +11,7 @@ from aiolimiter import AsyncLimiter
 import websocket
 import threading
 from urllib.parse import urlparse, urlencode, urlunparse, parse_qsl
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Any
 from utils.logger_helper import logger_helper
 from a2a.types import MessageSendParams, Message, TextPart
 from agent.cloud_api.constants import cloud_api, DataType, Operation
@@ -25,6 +26,48 @@ from datetime import datetime
 limiter = AsyncLimiter(1, 1)  # Max 5 requests per second
 
 ecb_data_homepath = getECBotDataHome()
+
+_LONG_LLM_TASK_WAITERS: dict[str, tuple[asyncio.AbstractEventLoop, asyncio.Future]] = {}
+_LONG_LLM_TASK_WAITERS_LOCK = threading.Lock()
+
+
+def register_long_llm_task_waiter(task_id: str, loop: asyncio.AbstractEventLoop, future: asyncio.Future) -> None:
+    with _LONG_LLM_TASK_WAITERS_LOCK:
+        _LONG_LLM_TASK_WAITERS[task_id] = (loop, future)
+
+
+def cancel_long_llm_task_waiter(task_id: str) -> None:
+    with _LONG_LLM_TASK_WAITERS_LOCK:
+        _LONG_LLM_TASK_WAITERS.pop(task_id, None)
+
+
+def try_resolve_long_llm_task_waiter(result_obj: dict) -> bool:
+    try:
+        task_id = (result_obj or {}).get("taskID")
+        if not task_id:
+            return False
+        with _LONG_LLM_TASK_WAITERS_LOCK:
+            entry = _LONG_LLM_TASK_WAITERS.pop(task_id, None)
+        if not entry:
+            return False
+
+        loop, future = entry
+        if future.cancelled() or future.done():
+            return True
+
+        def _set_result() -> None:
+            try:
+                if not future.cancelled() and not future.done():
+                    future.set_result(result_obj)
+            except Exception:
+                # Avoid crashing the subscription thread.
+                logger.error("[CloudLLMTask] Failed to resolve waiter", exc_info=True)
+
+        loop.call_soon_threadsafe(_set_result)
+        return True
+    except Exception:
+        logger.error("[CloudLLMTask] try_resolve_long_llm_task_waiter unexpected error", exc_info=True)
+        return False
 
 # ==========================================================
 _APPSYNC_ENDPOINT_LOGGED = False
@@ -4139,7 +4182,11 @@ def subscribe_cloud_llm_task(acctSiteID: str, id_token: str, ws_url: Optional[st
             if isinstance(payload_data, dict):
                 result_obj = payload_data.get("onLongLLMTaskComplete")
                 logger.debug(f"Received long LLM Task subscription result:{json.dumps(result_obj, indent=2, ensure_ascii=False)}")
-                # now we can send result_obj to resume the pending workflow.
+                # First: if any local code is awaiting this taskID, resolve it.
+                if try_resolve_long_llm_task_waiter(result_obj):
+                    return
+
+                # Fallback: resume workflow pending queue.
                 # which msg queue should this be put into? (agent should maintain some kind of cloud_task_id to agent_task_queue LUT)
                 agent_id = result_obj["agentID"]
                 work_type = result_obj["workType"]

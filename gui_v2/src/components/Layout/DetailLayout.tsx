@@ -1,16 +1,15 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Card } from 'antd';
 import styled from '@emotion/styled';
 import { useEffectOnActive } from 'keepalive-for-react';
 
-const Container = styled.div`
+const Container = styled.div<{ $resizable?: boolean }>`
     display: flex;
-    gap: 16px;
+    gap: ${props => (props.$resizable ? '0' : '16px')};
     height: 100%;
 `;
 
 const ListCard = styled(Card)`
-    width: 300px;
     height: 100%;
     display: flex;
     flex-direction: column;
@@ -29,6 +28,32 @@ const ListCard = styled(Card)`
     }
     .ant-card-head-title {
         color: white;
+    }
+`;
+
+const Splitter = styled.div`
+    width: 10px;
+    cursor: col-resize;
+    flex: 0 0 auto;
+    position: relative;
+    user-select: none;
+    background: transparent;
+
+    &::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 8px;
+        transform: translateX(-50%);
+        width: 3px;
+        height: calc(100% - 16px);
+        border-radius: 2px;
+        background: rgba(255, 255, 255, 0.06);
+        transition: background 0.15s ease;
+    }
+
+    &:hover::before {
+        background: rgba(59, 130, 246, 0.45);
     }
 `;
 
@@ -58,6 +83,12 @@ interface DetailLayoutProps {
     detailsTitle: string;
     listContent: React.ReactNode;
     detailsContent: React.ReactNode;
+
+    resizableList?: boolean;
+    listWidthStorageKey?: string;
+    defaultListWidth?: number;
+    minListWidth?: number;
+    maxListWidth?: number;
 }
 
 const DetailLayout: React.FC<DetailLayoutProps> = ({
@@ -65,10 +96,67 @@ const DetailLayout: React.FC<DetailLayoutProps> = ({
     detailsTitle,
     listContent,
     detailsContent,
+    resizableList = false,
+    listWidthStorageKey,
+    defaultListWidth = 300,
+    minListWidth = 260,
+    maxListWidth = 520,
 }) => {
     // ListScrollPositionSave
     const listCardRef = useRef<HTMLDivElement>(null);
     const savedListScrollPosition = useRef<number>(0);
+
+    const storageKey = useMemo(() => {
+        if (!resizableList) return null;
+        return listWidthStorageKey || `detail_layout:list_width:${detailsTitle || 'default'}`;
+    }, [detailsTitle, listWidthStorageKey, resizableList]);
+
+    const [listWidth, setListWidth] = useState<number>(() => {
+        if (!resizableList) return defaultListWidth;
+        if (!storageKey) return defaultListWidth;
+        try {
+            const raw = localStorage.getItem(storageKey);
+            const v = raw ? Number(raw) : NaN;
+            if (!Number.isFinite(v)) return defaultListWidth;
+            return Math.min(maxListWidth, Math.max(minListWidth, v));
+        } catch {
+            return defaultListWidth;
+        }
+    });
+
+    const draggingRef = useRef<boolean>(false);
+    const dragStartXRef = useRef<number>(0);
+    const dragStartWidthRef = useRef<number>(0);
+
+    useEffect(() => {
+        if (!resizableList) return;
+
+        const handleMove = (e: MouseEvent) => {
+            if (!draggingRef.current) return;
+            const dx = e.clientX - dragStartXRef.current;
+            const next = Math.min(maxListWidth, Math.max(minListWidth, dragStartWidthRef.current + dx));
+            setListWidth(next);
+        };
+
+        const handleUp = () => {
+            if (!draggingRef.current) return;
+            draggingRef.current = false;
+            try {
+                if (storageKey) localStorage.setItem(storageKey, String(listWidth));
+            } catch {
+                // ignore
+            }
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        };
+
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('mouseup', handleUp);
+        return () => {
+            window.removeEventListener('mousemove', handleMove);
+            window.removeEventListener('mouseup', handleUp);
+        };
+    }, [listWidth, maxListWidth, minListWidth, resizableList, storageKey]);
     
     // 使用 useEffectOnActive 在ComponentActive时RestoreScrollPosition
     useEffectOnActive(
@@ -92,10 +180,26 @@ const DetailLayout: React.FC<DetailLayoutProps> = ({
     );
     
     return (
-        <Container>
-            <ListCard ref={listCardRef} variant="borderless" title={listTitle}>
+        <Container $resizable={resizableList}>
+            <ListCard
+                ref={listCardRef}
+                variant="borderless"
+                title={listTitle}
+                style={{ width: resizableList ? listWidth : defaultListWidth }}
+            >
                 {listContent}
             </ListCard>
+            {resizableList && (
+                <Splitter
+                    onMouseDown={(e) => {
+                        draggingRef.current = true;
+                        dragStartXRef.current = e.clientX;
+                        dragStartWidthRef.current = listWidth;
+                        document.body.style.cursor = 'col-resize';
+                        document.body.style.userSelect = 'none';
+                    }}
+                />
+            )}
             <DetailsCard variant="borderless" title={detailsTitle}>
                 {detailsContent}
             </DetailsCard>

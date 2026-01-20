@@ -3071,7 +3071,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             logger.error(f"[BrowserAutomation] Failed to acquire browser: {error_msg}")
             return None
 
-    async def _run_browser_use(task: str, mainwin) -> dict:
+    async def _run_browser_use(task: str, mainwin, calling_agent_id: str | None = None) -> dict:
         try:
             from browser_use import Agent as BUAgent
             from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller
@@ -3145,6 +3145,41 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 'use_thinking': node_use_thinking,  # Pass use_thinking from node config to browser_use Agent
             }
             logger.info(f"[BrowserAutomation] Agent kwargs: use_thinking={node_use_thinking}")
+
+            # Optional: Cloud LLM mode for browser-use via PrivacyAgent (feature flagged)
+            # Only pass cloud kwargs when using PrivacyAgent (browser_use.Agent won't accept them).
+            try:
+                cloud_enabled = os.environ.get("EC_BROWSER_USE_CLOUD_LLM", "").strip().lower() in {"1", "true", "yes", "on"}
+            except Exception:
+                cloud_enabled = False
+
+            if cloud_enabled and AgentClass is not BUAgent:
+                try:
+                    cloud_endpoint = None
+                    try:
+                        cloud_endpoint = mainwin.getWanApiEndpoint()
+                    except Exception:
+                        cloud_endpoint = None
+
+                    cloud_agent_id = calling_agent_id or getattr(mainwin, 'current_agent_id', None)
+                    agent_kwargs.update(
+                        {
+                            "cloud_llm_enabled": True,
+                            "cloud_session": getattr(mainwin, "session", None),
+                            "cloud_token": mainwin.get_auth_token(),
+                            "cloud_endpoint": cloud_endpoint,
+                            "cloud_acct_site_id": mainwin.getAcctSiteID(),
+                            "cloud_agent_id": cloud_agent_id,
+                            "cloud_skill_id": skill_name,
+                            "cloud_node_id": node_name,
+                            "cloud_system_prompt_id": system_prompt_id,
+                            "cloud_user_prompt_id": user_prompt_id,
+                            "cloud_work_type": "browser_use_next_action",
+                        }
+                    )
+                    logger.info(f"[BrowserAutomation] Cloud LLM enabled for PrivacyAgent (agent_id={cloud_agent_id})")
+                except Exception as _cloud_kwargs_exc:
+                    logger.warning(f"[BrowserAutomation] Failed to configure cloud LLM mode: {_cloud_kwargs_exc}")
             
             # Get or create browser session based on node editor settings
             browser_session = await _get_or_create_browser_session(mainwin)
@@ -3308,7 +3343,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     try:
                         async def _run_with_hard_timeout():
                             return await asyncio.wait_for(
-                                _run_browser_use(combined_task, mainwin),
+                                _run_browser_use(combined_task, mainwin, agent_id),
                                 timeout=effective_timeout
                             )
                         from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
@@ -3329,7 +3364,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         info = {"error": error_msg, "timed_out": True}
                 else:
                     from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
-                    info = run_async_in_sync(_run_browser_use(combined_task, mainwin)) or {}
+                    info = run_async_in_sync(_run_browser_use(combined_task, mainwin, agent_id)) or {}
                 
                 # Cancel guardrail timer on success
                 if correlation_id:

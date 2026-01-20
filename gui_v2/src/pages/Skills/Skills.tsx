@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Button, message, Tooltip, Space } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined, AppstoreOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import DetailLayout from '../../components/Layout/DetailLayout';
 import { useTranslation } from 'react-i18next';
 import { useSkillStore } from '../../stores/domain/skillStore';
@@ -9,6 +9,7 @@ import SkillList from './components/SkillList';
 import SkillDetails from './components/SkillDetails';
 import { logger } from '@/utils/logger';
 import type { Skill } from '@/types/domain/skill';
+import { get_ipc_api } from '../../services/ipc_api';
 import './Skills.css';
 
 const Skills: React.FC = () => {
@@ -25,6 +26,16 @@ const Skills: React.FC = () => {
 
     // 直接管理选中Status
     const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
+    const [publicSkills, setPublicSkills] = useState<Skill[]>([]);
+
+    const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => {
+        try {
+            const raw = localStorage.getItem('skills:list_view_mode');
+            return raw === 'grid' ? 'grid' : 'list';
+        } catch {
+            return 'list';
+        }
+    });
 
     const selectItem = useCallback((skill: Skill) => {
         setSelectedSkill(skill);
@@ -47,6 +58,26 @@ const Skills: React.FC = () => {
         }
     }, [username, fetchSkills]);
 
+    useEffect(() => {
+        if (!username) return;
+        let cancelled = false;
+
+        (async () => {
+            try {
+                const resp = await get_ipc_api().getPublicSkills<{ skills?: Skill[] }>(username);
+                if (!resp.success) return;
+                const rows = (resp.data as any)?.skills;
+                const next = Array.isArray(rows) ? rows : [];
+                if (!cancelled) setPublicSkills(next);
+            } catch (e) {
+                // ignore - store is optional
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [username]);
 
     const handleRefresh = useCallback(async () => {
         if (!username) return;
@@ -59,11 +90,52 @@ const Skills: React.FC = () => {
         }
     }, [username, forceRefresh, t]);
 
-
     const listTitle = (
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
             <span style={{ fontSize: '16px', fontWeight: 600, lineHeight: '24px' }}>{t('pages.skills.title')}</span>
             <Space>
+                <Tooltip title={t('pages.skills.viewList', 'List view')}>
+                    <Button
+                        type="text"
+                        shape="circle"
+                        icon={<UnorderedListOutlined />}
+                        onClick={() => {
+                            setViewMode('list');
+                            try {
+                                localStorage.setItem('skills:list_view_mode', 'list');
+                            } catch {
+                                // ignore
+                            }
+                        }}
+                        style={{
+                            background: viewMode === 'list' ? 'rgba(255, 255, 255, 0.06)' : 'transparent',
+                            border: 'none',
+                            color: 'rgba(203, 213, 225, 0.9)',
+                            boxShadow: 'none'
+                        }}
+                    />
+                </Tooltip>
+                <Tooltip title={t('pages.skills.viewGrid', 'Grid view')}>
+                    <Button
+                        type="text"
+                        shape="circle"
+                        icon={<AppstoreOutlined />}
+                        onClick={() => {
+                            setViewMode('grid');
+                            try {
+                                localStorage.setItem('skills:list_view_mode', 'grid');
+                            } catch {
+                                // ignore
+                            }
+                        }}
+                        style={{
+                            background: viewMode === 'grid' ? 'rgba(255, 255, 255, 0.06)' : 'transparent',
+                            border: 'none',
+                            color: 'rgba(203, 213, 225, 0.9)',
+                            boxShadow: 'none'
+                        }}
+                    />
+                </Tooltip>
                 <Tooltip title={t('pages.skills.refresh')}>
                     <Button
                         type="text"
@@ -110,12 +182,20 @@ const Skills: React.FC = () => {
         <DetailLayout
             listTitle={listTitle}
             detailsTitle={t('pages.skills.details')}
+            resizableList
+            listWidthStorageKey="skills:list_panel_width"
+            defaultListWidth={360}
+            minListWidth={300}
+            maxListWidth={640}
             listContent={
                 <SkillList
                     skills={skills}
+                    publicSkills={publicSkills}
                     loading={isLoading}
                     onSelectSkill={selectItem}
                     selectedSkillId={selectedSkill ? String(selectedSkill.id) : undefined}
+                    viewMode={viewMode}
+                    username={username || ''}
                 />
             }
             detailsContent={

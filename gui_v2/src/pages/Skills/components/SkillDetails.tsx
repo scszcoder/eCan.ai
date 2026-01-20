@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { Typography, Space, Button, Progress, Tooltip, Tag, Form, Input, Row, Col, Checkbox, Select, Tabs, App } from 'antd';
+import { Typography, Space, Button, Progress, Tooltip, Tag, Form, Input, Row, Col, Checkbox, Select, Tabs, App, Modal } from 'antd';
 import { useEffectOnActive } from 'keepalive-for-react';
 import type { TabsProps } from 'antd';
 import {
@@ -15,7 +15,9 @@ import {
     TagsOutlined,
     DeleteOutlined,
     LockOutlined,
+    UploadOutlined,
 } from '@ant-design/icons';
+
 import { useTranslation } from 'react-i18next';
 import type { Skill, SkillRunMode, SkillNeedInput } from '@/types/domain/skill';
 
@@ -80,6 +82,9 @@ type ExtendedSkill = Skill & {
     objectives_json?: string;
     need_inputs_json?: string;
     mapping_rules_json?: string;
+
+    // Publish/Store metadata (ExtensibleMixin)
+    extra_data?: Record<string, any>;
 };
 
 const DEFAULT_SKILL: Partial<ExtendedSkill> = {
@@ -171,10 +176,94 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
 
     const [form] = Form.useForm<ExtendedSkill>();
     const [editMode, setEditMode] = React.useState(isNew);
+    const [publishOpen, setPublishOpen] = React.useState(false);
+    const [publishForm] = Form.useForm<{ price_model?: string; trial_days?: number }>();
+
+    const ownerValue = String(((skill as any)?.owner ?? '')).trim();
+    const usernameValue = String((username ?? '')).trim();
+    const isOwnedByOwner = !!ownerValue && !!usernameValue && ownerValue.toLowerCase() === usernameValue.toLowerCase();
+    const isOwnedByPath = !ownerValue && isResourceMySkillsPath((skill as any)?.path);
+    const isOwnedByUser = !!skill && !isNew && (isOwnedByOwner || isOwnedByPath);
+    const canPublish = isOwnedByUser && !isCodeSkill;
+    const currentExtraData = (skill as any)?.extra_data as Record<string, any> | undefined;
+    const currentTrialDays = currentExtraData?.trial_days;
+    const isPublished = !!skill && !isNew && !!(skill as any)?.public;
+
+    const handleOpenPublish = () => {
+        if (!canPublish) return;
+        const s = skill as any;
+        const sTrialDays = s?.extra_data?.trial_days;
+        const parsedTrialDays = typeof sTrialDays === 'number' ? sTrialDays : (sTrialDays !== undefined ? Number(sTrialDays) : undefined);
+
+        publishForm.setFieldsValue({
+            price_model: s?.price_model,
+            trial_days: Number.isFinite(parsedTrialDays) ? parsedTrialDays : undefined,
+        });
+
+        setPublishOpen(true);
+    };
+
+    const handlePublishSave = async () => {
+        if (!skill || !username) return;
+        try {
+            const values = await publishForm.validateFields();
+            const existingExtra = ((skill as any)?.extra_data && typeof (skill as any).extra_data === 'object')
+                ? { ...(skill as any).extra_data }
+                : {};
+
+            const nextExtra = {
+                ...existingExtra,
+                trial_days: values.trial_days,
+            };
+
+            const payload: Partial<Skill> = {
+                ...(skill as any),
+                owner: username,
+                price_model: values.price_model,
+                public: true,
+                rentable: true,
+                extra_data: nextExtra,
+            };
+
+            const api = get_ipc_api();
+            const resp = await api.saveAgentSkill(username, payload as any);
+            if (!resp.success) {
+                message.error(resp.error?.message || 'Publish failed');
+                return;
+            }
+
+            try {
+                const returned = (resp.data as any) || {};
+                const merged: any = { ...payload };
+                const returnedData = returned.data;
+                if (returnedData && typeof returnedData === 'object') {
+                    merged.price_model = returnedData.price_model ?? merged.price_model;
+                    merged.public = returnedData.public ?? merged.public;
+                    merged.rentable = returnedData.rentable ?? merged.rentable;
+                    merged.extra_data = returnedData.extra_data ?? merged.extra_data;
+                }
+                updateItem(String((skill as any).id), merged as any);
+            } catch (e) {
+                // ignore store update errors
+            }
+
+            message.success(t('pages.skills.publishSaved', 'Publish settings saved'));
+            setPublishOpen(false);
+            if (onSave) onSave();
+            else onRefresh();
+        } catch (e) {
+            if (e instanceof Error) {
+                message.error(e.message);
+            }
+        }
+    };
 
     React.useEffect(() => {
         if (skill) {
             const s = skill as ExtendedSkill;
+            const sTrialDays = (s as any)?.extra_data?.trial_days;
+            const parsedTrialDays = typeof sTrialDays === 'number' ? sTrialDays : (sTrialDays !== undefined ? Number(sTrialDays) : undefined);
+
             form.setFieldsValue({
                 // BaseField
                 id: s.id,
@@ -195,6 +284,8 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 public: s.public,
                 rentable: s.rentable,
 
+                extra_data: (s as any)?.extra_data,
+
                 // JSON Field（Serialize为字符串）
                 config_json: toJsonString(s.config),
                 apps_json: toJsonString(s.apps),
@@ -206,6 +297,11 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 objectives_json: toJsonString(s.objectives),
                 need_inputs_json: toJsonString(s.need_inputs),
                 mapping_rules_json: toJsonString(s.mapping_rules),
+            });
+
+            publishForm.setFieldsValue({
+                price_model: s.price_model,
+                trial_days: Number.isFinite(parsedTrialDays) ? parsedTrialDays : undefined,
             });
         } else if (isNew) {
             form.setFieldsValue({
@@ -260,6 +356,8 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                     public: s.public,
                     rentable: s.rentable,
 
+                    extra_data: (s as any)?.extra_data,
+
                     // JSON Field（Serialize为字符串）
                     config_json: toJsonString(s.config),
                     apps_json: toJsonString(s.apps),
@@ -302,6 +400,8 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 price_model: values.price_model,
                 public: values.public,
                 rentable: values.rentable,
+
+                extra_data: (values as any).extra_data,
 
                 // 反Serialize JSON Field
                 config: fromJsonString(values.config_json || ''),
@@ -872,6 +972,28 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                     </Form>
                 </StyledCard>
 
+                {canPublish && (
+                    <StyledCard
+                        title={t('pages.skills.publishInfo', 'Publish Info')}
+                        style={{
+                            background: 'rgba(255, 255, 255, 0.02)',
+                            border: '1px solid rgba(255, 255, 255, 0.06)'
+                        }}
+                    >
+                        <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                            <Text style={{ color: 'rgba(255, 255, 255, 0.85)' }}>
+                                {t('pages.skills.publishStatus', 'Status')}: {isPublished ? t('pages.skills.published', 'Published') : t('pages.skills.notPublished', 'Not published')}
+                            </Text>
+                            <Text style={{ color: 'rgba(255, 255, 255, 0.85)' }}>
+                                {t('pages.skills.priceModel', 'Price Model')}: {(skill as any)?.price_model || '-'}
+                            </Text>
+                            <Text style={{ color: 'rgba(255, 255, 255, 0.85)' }}>
+                                {t('pages.skills.freeTrialDays', 'Free Trial Days')}: {currentTrialDays !== undefined && currentTrialDays !== null && String(currentTrialDays) !== '' ? String(currentTrialDays) : '0'}
+                            </Text>
+                        </Space>
+                    </StyledCard>
+                )}
+
                 </Space>
             </FormContainer>
             
@@ -945,6 +1067,28 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                             </Tooltip>
                         ) : (
                             <>
+                                {canPublish && (
+                                    <Button
+                                        icon={<UploadOutlined />}
+                                        onClick={handleOpenPublish}
+                                        size="large"
+                                        style={buttonStyle}
+                                    >
+                                        {t('pages.skills.publish', 'Publish')}
+                                    </Button>
+                                )}
+                                {canPublish && (
+                                    <Tooltip title={t('pages.skills.readOnly', 'Read-only')}>
+                                        <Button
+                                            icon={<LockOutlined />}
+                                            disabled
+                                            size="large"
+                                            style={buttonStyle}
+                                        >
+                                            {t('pages.skills.readOnly', 'Read-only')}
+                                        </Button>
+                                    </Tooltip>
+                                )}
                                 <Button
                                     icon={<EditOutlined />}
                                     onClick={handleEdit}
@@ -967,6 +1111,40 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                     </>
                 )}
             </div>
+
+            <Modal
+                open={publishOpen}
+                title={t('pages.skills.publishSettings', 'Publish Settings')}
+                onCancel={() => setPublishOpen(false)}
+                onOk={handlePublishSave}
+                okText={t('common.save', 'Save')}
+                cancelText={t('common.cancel', 'Cancel')}
+                destroyOnClose
+            >
+                <Form
+                    form={publishForm}
+                    layout="vertical"
+                    initialValues={{
+                        price_model: '',
+                        trial_days: undefined,
+                    }}
+                >
+                    <Form.Item
+                        label={t('pages.skills.priceModel', 'Price Model')}
+                        name="price_model"
+                        rules={[{ required: true, message: t('pages.skills.priceModelRequired', 'Please enter price model') }]}
+                    >
+                        <Input placeholder={t('pages.skills.priceModelPlaceholder', 'e.g., $0.02 per use')} />
+                    </Form.Item>
+                    <Form.Item
+                        label={t('pages.skills.freeTrialDays', 'Free Trial Days')}
+                        name="trial_days"
+                        rules={[{ type: 'number', min: 0, transform: (v) => (v === '' || v === undefined || v === null ? undefined : Number(v)) }]}
+                    >
+                        <Input type="number" min={0} placeholder="0" />
+                    </Form.Item>
+                </Form>
+            </Modal>
         </div>
     );
 };
