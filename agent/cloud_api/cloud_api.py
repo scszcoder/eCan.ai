@@ -4315,7 +4315,7 @@ def subscribe_account_notifications(owner: str, id_token: str, ws_url: Optional[
             try:
                 subscription = (
                     """
-                    subscription OnAccountNotification($owner: String!) {
+                    subscription OnAccountNotification($owner: ID!) {
                       onAccountNotification(owner: $owner) {
                         id
                         type
