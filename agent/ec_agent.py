@@ -72,6 +72,7 @@ class EC_Agent(Agent):
 		personalities: Optional[List[str]] = None,
 		vehicle: Optional[str] = None,
 		avatar: Optional[Dict] = None,
+        cloud_based: Optional[bool] = False,
 		*args,
 		**kwargs
 	):
@@ -98,6 +99,10 @@ class EC_Agent(Agent):
 		self.personalities = personalities if personalities is not None else []  # Use personalities (unified naming)
 		self.vehicle = vehicle if vehicle is not None else ""
 		self.status = "active"
+		self.cloud_based = cloud_based
+
+
+
 		self.images = [{"image_name":"", "image_source":"","text":""}]
 		self.avatar = avatar or (DBAvatarService.generate_default_avatar(card.id) if card else None)
 

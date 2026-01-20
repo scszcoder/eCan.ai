@@ -3071,7 +3071,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             logger.error(f"[BrowserAutomation] Failed to acquire browser: {error_msg}")
             return None
 
-    async def _run_browser_use(task: str, mainwin, calling_agent_id: str | None = None) -> dict:
+    async def _run_browser_use(task: str, mainwin, state: dict | None = None, calling_agent_id: str | None = None) -> dict:
         try:
             from browser_use import Agent as BUAgent
             from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller
@@ -3079,6 +3079,73 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             log_msg = f"🤖 Executing node Browser Automation node: {node_name}"
             logger.debug(log_msg)
             web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+
+            try:
+                passive_enabled = os.environ.get("EC_BROWSER_USE_PASSIVE", "").strip().lower() in {"1", "true", "yes", "on"}
+            except Exception:
+                passive_enabled = False
+
+            try:
+                cloud_agent_enabled = (
+                    os.environ.get("EC_BROWSER_USE_MODE", "").strip().lower() == "cloud"
+                    or os.environ.get("EC_BROWSER_USE_CLOUD_AGENT", "").strip().lower() in {"1", "true", "yes", "on"}
+                )
+            except Exception:
+                cloud_agent_enabled = False
+
+            # Cloud mode takes precedence over passive mode
+            if cloud_agent_enabled:
+                passive_enabled = False
+
+            if passive_enabled:
+                try:
+                    from agent.ec_skills.browser_use_extension.passive_agent import PassiveAgent
+
+                    browser_session = await _get_or_create_browser_session(mainwin)
+                    if not browser_session:
+                        return {"error": "browser-use passive mode: failed to acquire browser session"}
+
+                    await browser_session.start()
+
+                    actions = None
+                    try:
+                        tool_input = state.get("tool_input") if isinstance(state, dict) else None
+                    except Exception:
+                        tool_input = None
+
+                    if isinstance(tool_input, dict):
+                        node_input = tool_input.get(node_name)
+                        if isinstance(node_input, dict) and isinstance(node_input.get("actions"), list):
+                            actions = node_input.get("actions")
+                        elif isinstance(tool_input.get("actions"), list):
+                            actions = tool_input.get("actions")
+
+                    if actions is None:
+                        if isinstance(state, dict) and isinstance(state.get("browser_use_actions"), list):
+                            actions = state.get("browser_use_actions")
+
+                    if actions is None:
+                        actions = []
+                    if not isinstance(actions, list):
+                        return {"error": "browser-use passive mode enabled but actions is not a list"}
+
+                    passive_agent = PassiveAgent(
+                        browser_session=browser_session,
+                        tools=custom_controller,
+                        privacy_enabled=True,
+                    )
+
+                    payload = await passive_agent.execute_actions(
+                        actions=actions,
+                        stop_on_error=True,
+                        include_screenshot=False,
+                    )
+                    return {"passive": True, **payload}
+                except Exception as e:
+                    err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNodePassive")
+                    logger.error(err_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+                    return {"error": str(err_msg)}
 
             # Prefer privacy-aware wrapper if available; fall back to vanilla Agent.
             AgentClass = BUAgent
@@ -3146,8 +3213,50 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             }
             logger.info(f"[BrowserAutomation] Agent kwargs: use_thinking={node_use_thinking}")
 
+            if cloud_agent_enabled:
+                try:
+                    import uuid
+
+                    from agent.ec_skills.browser_use_extension.cloud_agent import CloudAgent, make_default_cloud_transport_from_env
+
+                    transport = make_default_cloud_transport_from_env()
+
+                    run_id = None
+                    try:
+                        if isinstance(state, dict):
+                            run_id = state.get("browser_use_run_id") or state.get("run_id")
+                    except Exception:
+                        run_id = None
+
+                    if not isinstance(run_id, str) or not run_id.strip():
+                        run_id = uuid.uuid4().hex
+
+                    cloud_agent_id = calling_agent_id or getattr(mainwin, 'current_agent_id', None)
+
+                    agent = CloudAgent(
+                        task=task,
+                        llm=llm,
+                        controller=controller,
+                        transport=transport,
+                        run_id=run_id,
+                        acct_site_id=mainwin.getAcctSiteID(),
+                        agent_id=cloud_agent_id,
+                        skill_id=skill_name,
+                        node_id=node_name,
+                        **agent_kwargs,
+                    )
+
+                    history = await agent.run()
+                    final = history.final_result() if hasattr(history, 'final_result') else None
+                    return {"cloud": True, "run_id": run_id, "final": final, "history": str(history)}
+                except Exception as e:
+                    err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNodeCloudAgent")
+                    logger.error(err_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+                    return {"error": str(err_msg)}
+
             # Optional: Cloud LLM mode for browser-use via PrivacyAgent (feature flagged)
-            # Only pass cloud kwargs when using PrivacyAgent (browser_use.Agent won't accept them).
+            # Only pass cloud kwargs when using PrivacyAgent (browser_use.Agent won't accept them)).
             try:
                 cloud_enabled = os.environ.get("EC_BROWSER_USE_CLOUD_LLM", "").strip().lower() in {"1", "true", "yes", "on"}
             except Exception:
@@ -3253,7 +3362,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             final_user_prompt = active_user_prompt
 
         # Combine prompts into task instructions for browser_use agent
-        task_instructions = final_user_prompt.strip() or base_task_text or final_system_prompt.strip()
+        task_instructions = final_user_prompt.strip() or task_text or final_system_prompt.strip()
         if final_system_prompt.strip():
             combined_task = f"{final_system_prompt.strip()}\n\n{task_instructions}"
         else:
@@ -3343,7 +3452,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     try:
                         async def _run_with_hard_timeout():
                             return await asyncio.wait_for(
-                                _run_browser_use(combined_task, mainwin, agent_id),
+                                _run_browser_use(combined_task, mainwin, state, agent_id),
                                 timeout=effective_timeout
                             )
                         from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
@@ -3364,7 +3473,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         info = {"error": error_msg, "timed_out": True}
                 else:
                     from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
-                    info = run_async_in_sync(_run_browser_use(combined_task, mainwin, agent_id)) or {}
+                    info = run_async_in_sync(_run_browser_use(combined_task, mainwin, state, agent_id)) or {}
                 
                 # Cancel guardrail timer on success
                 if correlation_id:
@@ -3407,9 +3516,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             add_to_history(state, ActionMessage(content=f"action: browser-use {task_instructions}; result: {info}"))
 
             return state
+
         # Fallback: record intent for other providers
         intents = state.setdefault("metadata", {}).setdefault("automation_intents", [])
         intents.append({"node": node_name, "provider": provider, "action": action, "params": params, "task": combined_task})
+        info = {"recorded": True, "provider": provider, "action": action}
         if wait_for_done:
             interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": f"Please perform automation: {action}"})
 
