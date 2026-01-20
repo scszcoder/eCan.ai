@@ -31,6 +31,7 @@ import asyncio
 import copy
 import os
 import time
+import json
 from typing import Any, Callable, Awaitable, Literal
 
 from utils.logger_helper import logger_helper as logger
@@ -58,6 +59,13 @@ from .privacy import (
     FilterResult,
     PrivacyConfig,
     load_privacy_config,
+)
+
+from agent.cloud_api.cloud_api import (
+    send_start_long_llm_task_to_cloud,
+    register_long_llm_task_waiter,
+    cancel_long_llm_task_waiter,
+    get_appsync_endpoint,
 )
 
 
@@ -126,6 +134,17 @@ class PrivacyAgent:
         file_system_path: str | None = None,
         task_id: str | None = None,
         calculate_cost: bool = False,
+        cloud_llm_enabled: bool | None = None,
+        cloud_session: Any | None = None,
+        cloud_token: str | None = None,
+        cloud_endpoint: str | None = None,
+        cloud_acct_site_id: str | None = None,
+        cloud_agent_id: str | None = None,
+        cloud_skill_id: str | None = None,
+        cloud_node_id: str | None = None,
+        cloud_system_prompt_id: str | None = None,
+        cloud_user_prompt_id: str | None = None,
+        cloud_work_type: str | None = None,
         **kwargs,
     ):
         """
@@ -157,6 +176,21 @@ class PrivacyAgent:
 
         self.privacy_debug = bool(privacy_debug)
         self.privacy_step_delay_seconds = privacy_step_delay_seconds
+
+        if cloud_llm_enabled is None:
+            cloud_llm_enabled = os.environ.get("EC_BROWSER_USE_CLOUD_LLM", "").strip().lower() in {"1", "true", "yes", "on"}
+
+        self.cloud_llm_enabled = bool(cloud_llm_enabled)
+        self.cloud_session = cloud_session
+        self.cloud_token = cloud_token
+        self.cloud_endpoint = cloud_endpoint
+        self.cloud_acct_site_id = cloud_acct_site_id
+        self.cloud_agent_id = cloud_agent_id
+        self.cloud_skill_id = cloud_skill_id
+        self.cloud_node_id = cloud_node_id
+        self.cloud_system_prompt_id = cloud_system_prompt_id
+        self.cloud_user_prompt_id = cloud_user_prompt_id
+        self.cloud_work_type = cloud_work_type or "browser_use_next_action"
         
         # Privacy enabled flag - can be toggled at runtime
         self.privacy_enabled = privacy_enabled
@@ -215,6 +249,10 @@ class PrivacyAgent:
         # Patch the agent's _prepare_context method
         self._original_prepare_context = self._agent._prepare_context
         self._agent._prepare_context = self._privacy_prepare_context
+
+        self._original_get_next_action = self._agent._get_next_action
+        if self.cloud_llm_enabled:
+            self._agent._get_next_action = self._cloud_get_next_action
         
         status = "enabled" if self.privacy_enabled else "DISABLED (passthrough mode)"
         debug_status = "debug=on" if self.privacy_debug else "debug=off"
@@ -224,6 +262,9 @@ class PrivacyAgent:
             else "step_delay=off"
         )
         logger.info(f"[PrivacyAgent] Initialized with privacy filtering {status} ({debug_status}, {delay_status})")
+
+        if self.cloud_llm_enabled:
+            logger.info("[PrivacyAgent] Cloud LLM mode enabled")
     
     async def _privacy_prepare_context(
         self, 
@@ -257,7 +298,7 @@ class PrivacyAgent:
                     f"elapsed={t_original - t0:.3f}s"
                 )
             return browser_state_summary
-        
+
         # Apply privacy filter
         url = browser_state_summary.url if browser_state_summary else ""
         if self.privacy_debug:
@@ -270,14 +311,14 @@ class PrivacyAgent:
             browser_state_summary, url
         )
         t_filtered = time.perf_counter()
-        
+
         # Store result for debugging
         self._filter_results.append(filter_result)
-        
+
         if filter_result.was_filtered:
             # Get the filtered state
             filtered_state = filter_result.filtered_data
-            
+
             # Re-create state messages with filtered data
             # This replaces the messages created by the original _prepare_context
             self._agent._message_manager.create_state_messages(
@@ -297,14 +338,14 @@ class PrivacyAgent:
                     f"elapsed_filter={t_filtered - t_original:.3f}s "
                     f"elapsed_total={time.perf_counter() - t0:.3f}s"
                 )
-            
+
             logger.debug(
                 f"[PrivacyAgent] Applied privacy filter, "
                 f"redacted {sum(filter_result.stats.values())} items"
             )
-            
+
             return filtered_state
-        
+
         if self.privacy_debug:
             logger.debug(
                 f"[PrivacyAgent] No filtering applied "
@@ -318,6 +359,175 @@ class PrivacyAgent:
             await asyncio.sleep(self.privacy_step_delay_seconds)
 
         return browser_state_summary
+
+    def _truncate_text(self, text: Any, max_len: int) -> str:
+        try:
+            s = "" if text is None else str(text)
+        except Exception:
+            return ""
+        if max_len <= 0:
+            return ""
+        if len(s) <= max_len:
+            return s
+        return s[:max_len]
+
+    def _compact_selector_map(self, selector_map: Any, *, max_elems: int = 250) -> list[dict[str, Any]]:
+        try:
+            items = []
+            if isinstance(selector_map, dict):
+                iterable = list(selector_map.items())
+            else:
+                return []
+
+            for k, v in iterable[:max_elems]:
+                if hasattr(v, "model_dump"):
+                    d = v.model_dump()
+                elif hasattr(v, "dict"):
+                    d = v.dict()
+                elif hasattr(v, "__dict__"):
+                    d = dict(v.__dict__)
+                else:
+                    d = {"value": str(v)}
+
+                attrs = d.get("attributes")
+                if isinstance(attrs, dict):
+                    keep = {}
+                    for kk in ("id", "name", "type", "role", "href", "placeholder", "aria-label", "aria_label", "value"):
+                        if kk in attrs and attrs.get(kk) is not None:
+                            keep[kk] = self._truncate_text(attrs.get(kk), 120)
+                    d["attributes"] = keep
+
+                if "text" in d:
+                    d["text"] = self._truncate_text(d.get("text"), 200)
+                if "xpath" in d:
+                    d["xpath"] = self._truncate_text(d.get("xpath"), 400)
+                if "css_selector" in d:
+                    d["css_selector"] = self._truncate_text(d.get("css_selector"), 400)
+                if "selector" in d:
+                    d["selector"] = self._truncate_text(d.get("selector"), 400)
+
+                items.append({"i": k, "e": d})
+            return items
+        except Exception:
+            logger.error("[PrivacyAgent] Failed to compact selector_map", exc_info=True)
+            return []
+
+    def _build_compact_dom_payload(self, browser_state_summary: Any) -> dict[str, Any]:
+        url = getattr(browser_state_summary, "url", None)
+        title = getattr(browser_state_summary, "title", None)
+        dom_state = getattr(browser_state_summary, "dom_state", None)
+        selector_map = getattr(dom_state, "selector_map", None)
+        return {
+            "url": self._truncate_text(url, 1024),
+            "title": self._truncate_text(title, 256),
+            "selector_map": self._compact_selector_map(selector_map),
+        }
+
+    def _parse_structured_output(self, payload: Any) -> "AgentStructuredOutput":
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except Exception:
+                payload = {"raw": payload}
+
+        if hasattr(AgentStructuredOutput, "model_validate"):
+            return AgentStructuredOutput.model_validate(payload)
+        if hasattr(AgentStructuredOutput, "parse_obj"):
+            return AgentStructuredOutput.parse_obj(payload)
+        return AgentStructuredOutput(**payload)
+
+    async def _cloud_get_next_action(self, *args, **kwargs) -> "AgentStructuredOutput":
+        browser_state_summary = None
+        if args:
+            browser_state_summary = args[0]
+        if browser_state_summary is None:
+            browser_state_summary = kwargs.get("browser_state_summary")
+
+        if not self.cloud_session or not self.cloud_token:
+            raise ValueError("Cloud LLM mode enabled but cloud_session/cloud_token not provided")
+
+        acct_site_id = self.cloud_acct_site_id
+        agent_id = self.cloud_agent_id
+        if not acct_site_id or not agent_id:
+            raise ValueError("Cloud LLM mode enabled but cloud_acct_site_id/cloud_agent_id not provided")
+
+        endpoint = self.cloud_endpoint or get_appsync_endpoint()
+        step_number = int(getattr(getattr(self._agent, "state", None), "n_steps", 0) or 0)
+        dom_payload = self._build_compact_dom_payload(browser_state_summary)
+
+        task_data = {
+            "skill_id": self.cloud_skill_id,
+            "node_id": self.cloud_node_id,
+            "system_prompt_id": self.cloud_system_prompt_id,
+            "user_prompt_id": self.cloud_user_prompt_id,
+            "step_number": step_number,
+            "dom": dom_payload,
+        }
+        task_input = {
+            "acct_site_id": acct_site_id,
+            "agent_id": agent_id,
+            "work_type": self.cloud_work_type,
+            "task_data": task_data,
+        }
+
+        loop = asyncio.get_running_loop()
+        start_resp = await loop.run_in_executor(
+            None,
+            lambda: send_start_long_llm_task_to_cloud(self.cloud_session, self.cloud_token, task_input, endpoint),
+        )
+
+        if isinstance(start_resp, dict) and start_resp.get("errors"):
+            raise RuntimeError(f"Cloud startLongLLMTask error: {start_resp.get('errors')}")
+
+        body = start_resp.get("body") if isinstance(start_resp, dict) else None
+        if body is None:
+            body = start_resp
+
+        task_id = None
+        if isinstance(body, dict):
+            task_id = body.get("id") or body.get("taskID") or body.get("task_id")
+        if not task_id:
+            raise RuntimeError(f"Cloud startLongLLMTask missing task id: {start_resp}")
+
+        fut: asyncio.Future = loop.create_future()
+        register_long_llm_task_waiter(task_id, loop, fut)
+
+        try:
+            timeout_raw = os.environ.get("EC_BROWSER_USE_CLOUD_LLM_TIMEOUT_SECONDS", "").strip()
+            timeout_seconds = float(timeout_raw) if timeout_raw else None
+        except Exception:
+            timeout_seconds = None
+
+        try:
+            if timeout_seconds is None:
+                timeout_seconds = 120.0
+            result_obj = await asyncio.wait_for(fut, timeout=timeout_seconds)
+        finally:
+            if not fut.done():
+                cancel_long_llm_task_waiter(task_id)
+
+        status = (result_obj or {}).get("status")
+        if status and str(status).lower() not in {"success", "ok", "completed"}:
+            raise RuntimeError(f"Cloud LLM task failed status={status} task_id={task_id} result={result_obj}")
+
+        results = (result_obj or {}).get("results")
+        if isinstance(results, str):
+            try:
+                results = json.loads(results)
+            except Exception:
+                results = {"raw": results}
+
+        candidate = results
+        if isinstance(results, dict):
+            candidate = (
+                results.get("completion")
+                or results.get("model_output")
+                or results.get("agent_output")
+                or results.get("output")
+                or results
+            )
+
+        return self._parse_structured_output(candidate)
     
     async def run(self, max_steps: int = 100) -> Any:
         """

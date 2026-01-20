@@ -50,6 +50,7 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
                 'INVALID_PARAMS',
                 error
             )
+
         username = data['username']
         logger.info(f"Getting agent skills for user: {username}")
 
@@ -65,11 +66,17 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
             for i, sk in enumerate(memory_skills):
                 try:
                     sk_dict = sk.to_dict()
-                    # Ensure owner field is set
-                    sk_dict['owner'] = username
+                    if not sk_dict.get('owner'):
+                        sk_dict['owner'] = username
+                    # Propagate extra publish metadata if attached to the in-memory skill
+                    if 'extra_data' not in sk_dict and hasattr(sk, 'extra_data'):
+                        try:
+                            sk_dict['extra_data'] = getattr(sk, 'extra_data')
+                        except Exception:
+                            pass
                     if 'id' not in sk_dict:
                         sk_dict['id'] = f"skill_{i}"
-                    
+
                     skills_dicts.append(sk_dict)
                     logger.debug(f"Converted skill: {sk_dict.get('name', 'NO NAME')} (id: {sk_dict.get('id', 'NO ID')})")
                 except Exception as e:
@@ -97,6 +104,45 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
             request,
             'GET_AGENT_SKILLS_ERROR',
             f"Error during get agent skills: {str(e)}"
+        )
+
+
+@IPCHandlerRegistry.handler('get_public_skills')
+def handle_get_public_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    try:
+        is_valid, data, error = validate_params(params, ['username'])
+        if not is_valid:
+            return create_error_response(request, 'INVALID_PARAMS', error)
+
+        username = data['username']
+
+        skill_service = _get_skill_service(request, params)
+        if not skill_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
+
+        result = skill_service.get_public_skills()
+        if not result.get('success'):
+            return create_error_response(request, 'GET_PUBLIC_SKILLS_ERROR', str(result.get('error')))
+
+        rows = result.get('data') or []
+        skills = []
+        for sk in rows:
+            if isinstance(sk, dict):
+                owner = sk.get('owner')
+                if owner and owner == username:
+                    continue
+                skills.append(sk)
+
+        return create_success_response(request, {
+            'skills': skills,
+            'message': 'Get public skills successful',
+        })
+    except Exception as e:
+        logger.error(f"Error in get_public_skills handler: {e} {traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'GET_PUBLIC_SKILLS_ERROR',
+            f"Error during get public skills: {str(e)}"
         )
     
 @IPCHandlerRegistry.handler('save_agent_skill')
@@ -530,6 +576,8 @@ def _prepare_skill_data(skill_info: Dict[str, Any], username: str, skill_id: Opt
         'price_model': skill_info.get('price_model', ''),
         'public': skill_info.get('public', False),
         'rentable': skill_info.get('rentable', False),
+        'ext': skill_info.get('ext', skill_info.get('extra_data', None)),
+        'source': skill_info.get('source', 'ui'),
     }
 
     # Only add ID if provided (for updates)
@@ -579,8 +627,23 @@ def _update_skill_in_memory(skill_id: str, skill_data: Dict[str, Any], request=N
         skill_obj.version = skill_data.get('version', '1.0.0')
         skill_obj.path = skill_path
         skill_obj.config = skill_data.get('config', {})
+        skill_obj.diagram = skill_data.get('diagram', {})
         skill_obj.level = skill_data.get('level', 'entry')
         skill_obj.source = skill_data.get('source', 'ui')
+        skill_obj.tags = skill_data.get('tags', [])
+        skill_obj.examples = skill_data.get('examples', [])
+        skill_obj.inputModes = skill_data.get('inputModes', [])
+        skill_obj.outputModes = skill_data.get('outputModes', [])
+        skill_obj.apps = skill_data.get('apps', [])
+        skill_obj.limitations = skill_data.get('limitations', [])
+        skill_obj.price = int(skill_data.get('price', 0) or 0)
+        skill_obj.price_model = str(skill_data.get('price_model', '') or '')
+        skill_obj.public = bool(skill_data.get('public', False))
+        skill_obj.rentable = bool(skill_data.get('rentable', False))
+        try:
+            setattr(skill_obj, 'extra_data', skill_data.get('ext', None))
+        except Exception:
+            pass
         
         if existing_index is not None:
             # Update existing skill
@@ -623,7 +686,8 @@ def _create_clean_skill_response(skill_id: str, skill_data: Dict[str, Any]) -> D
         'level': str(skill_data.get('level', 'entry')),
         'public': bool(skill_data.get('public', False)),
         'rentable': bool(skill_data.get('rentable', False)),
-        'price': int(skill_data.get('price', 0))
+        'price': int(skill_data.get('price', 0)),
+        'price_model': str(skill_data.get('price_model', '') or ''),
     }
     
     # Add optional fields if they exist and are simple types
@@ -631,6 +695,8 @@ def _create_clean_skill_response(skill_id: str, skill_data: Dict[str, Any]) -> D
         clean_data['path'] = str(skill_data['path'])
     if 'status' in skill_data:
         clean_data['status'] = str(skill_data['status'])
+    if 'ext' in skill_data:
+        clean_data['extra_data'] = skill_data.get('ext', None)
     
     return clean_data
 

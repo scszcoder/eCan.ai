@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef } from 'react';
-import { List, Tag, Typography, Space, Empty } from 'antd';
+import { List, Tag, Typography, Space, Empty, Collapse } from 'antd';
 import { useEffectOnActive } from 'keepalive-for-react';
 import {
     RobotOutlined,
@@ -16,8 +16,10 @@ import {
     MessageOutlined,
     CodeOutlined,
     EyeOutlined,
-    CloudOutlined
+    CloudOutlined,
+    DollarCircleFilled
 } from '@ant-design/icons';
+
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import type { Skill } from '@/types/domain/skill';
@@ -29,6 +31,13 @@ const ListContainer = styled.div`
   height: 100%;
   display: flex;
   flex-direction: column;
+`;
+
+const GridContainer = styled.div`
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 12px;
+    padding: 8px 0;
 `;
 
 const SkillsScrollArea = styled.div`
@@ -111,6 +120,11 @@ const SkillItem = styled.div`
         font-size: 11px;
         font-weight: 500;
     }
+`;
+
+const GridSkillItem = styled(SkillItem)`
+    margin: 0;
+    height: 100%;
 `;
 
 const SkillHeader = styled.div`
@@ -276,6 +290,21 @@ const EmptyContainer = styled.div`
     text-align: center;
 `;
 
+const MiniBadge = styled.div<{ $variant: 'free' | 'paid' }>`
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 4px;
+    border-radius: 4px;
+    color: ${props => props.$variant === 'free' ? 'rgba(255, 255, 255, 0.95)' : 'rgba(250, 204, 21, 0.95)'};
+    background: ${props => props.$variant === 'free' ? 'rgba(239, 68, 68, 0.9)' : 'rgba(17, 24, 39, 0.65)'};
+    border: 1px solid ${props => props.$variant === 'free' ? 'rgba(239, 68, 68, 0.9)' : 'rgba(250, 204, 21, 0.55)'};
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+    line-height: 1;
+`;
+
 // Infer category from skill name, description, and tags
 const inferCategory = (skill: Skill): string => {
     const searchText = `${skill.name} ${skill.description || ''} ${(skill.tags || []).join(' ')}`.toLowerCase();
@@ -360,12 +389,23 @@ const getStatusConfig = (status: Skill['status']) => {
 
 interface SkillListProps {
     skills: Skill[];
+    publicSkills?: Skill[];
     loading: boolean;
     onSelectSkill: (skill: Skill) => void;
     selectedSkillId?: string;
+    viewMode: 'list' | 'grid';
+    username: string;
 }
 
-const SkillList: React.FC<SkillListProps> = ({ skills, loading, onSelectSkill, selectedSkillId }) => {
+const SkillList: React.FC<SkillListProps> = ({
+    skills,
+    publicSkills,
+    loading,
+    onSelectSkill,
+    selectedSkillId,
+    viewMode,
+    username,
+}) => {
     const { t } = useTranslation();
     const [filters, setFilters] = useState<SkillFilterOptions>({
         sortBy: 'name',
@@ -402,9 +442,8 @@ const SkillList: React.FC<SkillListProps> = ({ skills, loading, onSelectSkill, s
         savedScrollPositionRef.current = e.currentTarget.scrollTop;
     };
 
-    // 筛选和Sort技能
-    const filteredAndSortedSkills = useMemo(() => {
-        let result = [...skills];
+    const applyFiltersAndSort = (rows: Skill[]) => {
+        let result = [...rows];
 
         // 1. 先按StatusFilter（If有SelectStatus）
         // 没SelectStatus时，filters.status 为 undefined，DefaultDisplayAllStatus
@@ -447,9 +486,22 @@ const SkillList: React.FC<SkillListProps> = ({ skills, loading, onSelectSkill, s
         });
 
         return result;
-    }, [skills, filters]);
+    };
 
-    if (!loading && skills.length === 0) {
+    const mySkills = useMemo(() => applyFiltersAndSort(skills || []), [skills, filters]);
+    const storeSkills = useMemo(() => applyFiltersAndSort((publicSkills || []).filter(s => (s?.owner || '') !== (username || ''))), [publicSkills, filters, username]);
+
+    const isPaidSkill = (skill: Skill): boolean => {
+        const price = (skill as any)?.price;
+        if (typeof price === 'number') return price > 0;
+        if (typeof price === 'string') {
+            const v = Number(price);
+            return Number.isFinite(v) && v > 0;
+        }
+        return false;
+    };
+
+    if (!loading && (skills.length === 0) && ((publicSkills || []).length === 0)) {
         return (
             <EmptyContainer>
                 <Empty
@@ -469,118 +521,152 @@ const SkillList: React.FC<SkillListProps> = ({ skills, loading, onSelectSkill, s
         );
     }
 
+    const renderSkillCard = (skill: Skill, opts: { grid: boolean }) => {
+        const statusConfig = getStatusConfig(skill.status);
+        const skillIdStr = String(skill.id);
+        const isSelected = selectedSkillId !== undefined && selectedSkillId === skillIdStr;
+        const levelValue = typeof skill.level === 'string' ? parseInt(skill.level, 10) : (skill.level || 0);
+        const paid = isPaidSkill(skill);
+
+        const CardComp: any = opts.grid ? GridSkillItem : SkillItem;
+
+        return (
+            <CardComp
+                key={skillIdStr}
+                onClick={() => onSelectSkill(skill)}
+                className={isSelected ? 'selected' : ''}
+            >
+                <SkillHeader>
+                    <Space align="start" style={{ flex: 1 }}>
+                        <SkillIcon status={skill.status}>
+                            {paid ? (
+                                <MiniBadge $variant="paid">
+                                    <DollarCircleFilled />
+                                </MiniBadge>
+                            ) : (
+                                <MiniBadge $variant="free">FREE</MiniBadge>
+                            )}
+                            {getCategoryIcon(skill, skill.status)}
+                        </SkillIcon>
+                        <SkillMeta>
+                            <SkillName>{skill.name}</SkillName>
+                            <Space size={6} wrap>
+                                <Tag color={statusConfig.color} icon={statusConfig.icon}>
+                                    {t(`pages.skills.status.${skill.status || 'unknown'}`, statusConfig.text)}
+                                </Tag>
+                                {(() => {
+                                    const displayCategory = skill.category || inferCategory(skill);
+                                    return (
+                                        <Tag color="blue">{t(`pages.skills.categories.${displayCategory}`, displayCategory)}</Tag>
+                                    );
+                                })()}
+                            </Space>
+                        </SkillMeta>
+                    </Space>
+                </SkillHeader>
+
+                <SkillProgress>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+                        <span style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.45)' }}>
+                            {t('pages.skills.proficiency', 'Proficiency')}
+                        </span>
+                        <span style={{ fontSize: '13px', color: '#1890ff', fontWeight: 700, fontFamily: 'monospace' }}>
+                            {isNaN(levelValue) ? 0 : levelValue}%
+                        </span>
+                    </div>
+                    <div
+                        style={{
+                            width: '100%',
+                            height: '8px',
+                            background: 'rgba(255, 255, 255, 0.08)',
+                            borderRadius: '4px',
+                            overflow: 'hidden',
+                            position: 'relative',
+                        }}
+                    >
+                        <div
+                            style={{
+                                width: `${isNaN(levelValue) ? 0 : levelValue}%`,
+                                height: '100%',
+                                background: 'linear-gradient(90deg, #1890ff 0%, #40a9ff 50%, #52c41a 100%)',
+                                borderRadius: '4px',
+                                transition: 'width 0.3s ease',
+                                boxShadow: skill.status === 'learning' ? '0 0 8px rgba(24, 144, 255, 0.6)' : 'none',
+                                animation: skill.status === 'learning' ? 'pulse 2s ease-in-out infinite' : 'none',
+                            }}
+                        />
+                    </div>
+                </SkillProgress>
+
+                {((skill as any).usageCount !== undefined || (skill as any).lastUsed) && (
+                    <SkillStats>
+                        {(skill as any).usageCount !== undefined && (
+                            <StatItem>
+                                <StarOutlined />
+                                <span>
+                                    {t('pages.skills.usageCount', 'Used')}: {(skill as any).usageCount}
+                                </span>
+                            </StatItem>
+                        )}
+                        {(skill as any).lastUsed && (
+                            <StatItem>
+                                <ClockCircleOutlined />
+                                <span>
+                                    {t('pages.skills.lastUsed', 'Last')}: {(skill as any).lastUsed}
+                                </span>
+                            </StatItem>
+                        )}
+                    </SkillStats>
+                )}
+            </CardComp>
+        );
+    };
+
+    const renderSection = (rows: Skill[], opts: { grid: boolean }) => {
+        if (rows.length === 0) {
+            return (
+                <EmptyContainer>
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('pages.skills.noMatchingSkills', '未找到匹配的技能')} />
+                </EmptyContainer>
+            );
+        }
+
+        if (opts.grid) {
+            return <GridContainer>{rows.map((s) => renderSkillCard(s, { grid: true }))}</GridContainer>;
+        }
+
+        return (
+            <List
+                dataSource={rows}
+                loading={loading}
+                renderItem={(skill) => renderSkillCard(skill, { grid: false }) as any}
+            />
+        );
+    };
+
+    const collapseItems = [
+        {
+            key: 'my',
+            label: t('pages.skills.sections.mySkills', 'My Skills'),
+            children: renderSection(mySkills, { grid: viewMode === 'grid' }),
+        },
+        {
+            key: 'store',
+            label: t('pages.skills.sections.skillStore', 'Skill Store'),
+            children: renderSection(storeSkills, { grid: viewMode === 'grid' }),
+        },
+    ];
+
     return (
         <ListContainer>
             <SkillFilters filters={filters} onChange={setFilters} />
-            
+
             <SkillsScrollArea ref={scrollContainerRef} onScroll={handleScroll}>
-                {filteredAndSortedSkills.length === 0 ? (
-                    <EmptyContainer>
-                        <Empty
-                            image={Empty.PRESENTED_IMAGE_SIMPLE}
-                            description={t('pages.skills.noMatchingSkills', '未找到匹配的技能')}
-                        />
-                    </EmptyContainer>
-                ) : (
-                    <List
-                        dataSource={filteredAndSortedSkills}
-                        loading={loading}
-                        renderItem={skill => {
-                const statusConfig = getStatusConfig(skill.status);
-                // 确保两边都是字符串Type进行比较
-                const skillIdStr = String(skill.id);
-                const isSelected = selectedSkillId !== undefined && selectedSkillId === skillIdStr;
-                const levelValue = typeof skill.level === 'string' ? parseInt(skill.level, 10) : (skill.level || 0);
-
-                return (
-                    <SkillItem
-                        onClick={() => onSelectSkill(skill)}
-                        className={isSelected ? 'selected' : ''}
-                    >
-                        <SkillHeader>
-                            <Space align="start" style={{ flex: 1 }}>
-                                <SkillIcon status={skill.status}>
-                                    {getCategoryIcon(skill, skill.status)}
-                                </SkillIcon>
-                                <SkillMeta>
-                                    <SkillName>{skill.name}</SkillName>
-                                    <Space size={6} wrap>
-                                        <Tag color={statusConfig.color} icon={statusConfig.icon}>
-                                            {t(`pages.skills.status.${skill.status || 'unknown'}`, statusConfig.text)}
-                                        </Tag>
-                                        {(() => {
-                                            const displayCategory = skill.category || inferCategory(skill);
-                                            return (
-                                                <Tag color="blue">
-                                                    {t(`pages.skills.categories.${displayCategory}`, displayCategory)}
-                                                </Tag>
-                                            );
-                                        })()}
-                                    </Space>
-                                </SkillMeta>
-                            </Space>
-                        </SkillHeader>
-
-                        <SkillProgress>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                                <span style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.45)' }}>
-                                    {t('pages.skills.proficiency', 'Proficiency')}
-                                </span>
-                                <span style={{ 
-                                    fontSize: '13px', 
-                                    color: '#1890ff', 
-                                    fontWeight: 700,
-                                    fontFamily: 'monospace'
-                                }}>
-                                    {isNaN(levelValue) ? 0 : levelValue}%
-                                </span>
-                            </div>
-                            {/* Gradient Progress Bar */}
-                            <div style={{ 
-                                width: '100%', 
-                                height: '8px', 
-                                background: 'rgba(255, 255, 255, 0.08)',
-                                borderRadius: '4px',
-                                overflow: 'hidden',
-                                position: 'relative'
-                            }}>
-                                <div style={{
-                                    width: `${isNaN(levelValue) ? 0 : levelValue}%`,
-                                    height: '100%',
-                                    background: 'linear-gradient(90deg, #1890ff 0%, #40a9ff 50%, #52c41a 100%)',
-                                    borderRadius: '4px',
-                                    transition: 'width 0.3s ease',
-                                    boxShadow: skill.status === 'learning' 
-                                        ? '0 0 8px rgba(24, 144, 255, 0.6)' 
-                                        : 'none',
-                                    animation: skill.status === 'learning' 
-                                        ? 'pulse 2s ease-in-out infinite' 
-                                        : 'none'
-                                }} />
-                            </div>
-                        </SkillProgress>
-
-                        {((skill as any).usageCount !== undefined || (skill as any).lastUsed) && (
-                            <SkillStats>
-                                {(skill as any).usageCount !== undefined && (
-                                    <StatItem>
-                                        <StarOutlined />
-                                        <span>{t('pages.skills.usageCount', 'Used')}: {(skill as any).usageCount}</span>
-                                    </StatItem>
-                                )}
-                                {(skill as any).lastUsed && (
-                                    <StatItem>
-                                        <ClockCircleOutlined />
-                                        <span>{t('pages.skills.lastUsed', 'Last')}: {(skill as any).lastUsed}</span>
-                                    </StatItem>
-                                )}
-                            </SkillStats>
-                        )}
-                    </SkillItem>
-                );
-                        }}
-                    />
-                )}
+                <Collapse
+                    ghost
+                    defaultActiveKey={['my', 'store']}
+                    items={collapseItems as any}
+                />
             </SkillsScrollArea>
         </ListContainer>
     );
