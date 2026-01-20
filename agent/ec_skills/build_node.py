@@ -3087,7 +3087,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
             try:
                 cloud_agent_enabled = (
-                    os.environ.get("EC_BROWSER_USE_MODE", "").strip().lower() == "cloud"
+                    os.environ.get("EC_BROWSER_USE_MODE", "").strip().lower() in {"client_assisted_cloud", "cloud"}
                     or os.environ.get("EC_BROWSER_USE_CLOUD_AGENT", "").strip().lower() in {"1", "true", "yes", "on"}
                 )
             except Exception:
@@ -3248,7 +3248,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
                     history = await agent.run()
                     final = history.final_result() if hasattr(history, 'final_result') else None
-                    return {"cloud": True, "run_id": run_id, "final": final, "history": str(history)}
+                    return {
+                        "cloud": True,
+                        "client_assisted_cloud": True,
+                        "mode": "client_assisted_cloud",
+                        "run_id": run_id,
+                        "final": final,
+                        "history": str(history),
+                    }
                 except Exception as e:
                     err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNodeCloudAgent")
                     logger.error(err_msg)
