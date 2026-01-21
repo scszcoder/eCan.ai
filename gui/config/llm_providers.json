@@ -9,70 +9,58 @@
         "OPENAI_API_KEY"
       ],
       "base_url": "https://api.openai.com/v1",
-      "default_model": "gpt-5",
-      "description": "OpenAI models including the latest GPT-5 and O-series",
+      "default_model": "gpt-5.2",
+      "description": "OpenAI GPT-5.2 series - Latest models (Jan 2026)",
       "documentation_url": "https://platform.openai.com/docs/models",
       "is_local": false,
       "supported_models": [
         {
-          "name": "gpt-5.1",
-          "display_name": "GPT-5.1",
-          "model_id": "gpt-5.1",
+          "name": "gpt-5.2",
+          "display_name": "GPT-5.2",
+          "model_id": "gpt-5.2",
           "default_temperature": 0.7,
-          "max_tokens": 200000,
+          "max_tokens": 400000,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
-          "cost_per_1k_tokens": 0.005,
-          "description": "Advanced GPT-5.1 model with enhanced reasoning"
+          "cost_per_1k_tokens": 0.01,
+          "description": "Most capable model for professional work (Dec 2025, 93.2% GPQA Diamond)"
         },
         {
-          "name": "gpt-5",
-          "display_name": "GPT-5",
-          "model_id": "gpt-5",
+          "name": "gpt-5.2-thinking",
+          "display_name": "GPT-5.2 Thinking",
+          "model_id": "gpt-5.2-thinking",
           "default_temperature": 0.7,
-          "max_tokens": 131072,
+          "max_tokens": 400000,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
-          "cost_per_1k_tokens": 0.003,
-          "description": "OpenAI's 2025 flagship multimodal model"
+          "cost_per_1k_tokens": 0.015,
+          "description": "Extended reasoning model (92.4% GPQA Diamond)"
         },
         {
-          "name": "o4-mini",
-          "display_name": "O4 Mini",
-          "model_id": "o4-mini",
-          "default_temperature": 1.0,
-          "max_tokens": 100000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.001,
-          "description": "Highly efficient O-series reasoning model (AIME 2025 SOTA)"
-        },
-        {
-          "name": "o3-pro",
-          "display_name": "O3 Pro",
-          "model_id": "o3-pro",
-          "default_temperature": 1.0,
-          "max_tokens": 200000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.02,
-          "description": "Powerful reasoning model (June 2025)"
-        },
-        {
-          "name": "gpt-4o",
-          "display_name": "GPT-4o",
-          "model_id": "gpt-4o",
+          "name": "gpt-5.2-codex",
+          "display_name": "GPT-5.2 Codex",
+          "model_id": "gpt-5.2-codex",
           "default_temperature": 0.7,
-          "max_tokens": 128000,
+          "max_tokens": 400000,
           "supports_streaming": true,
           "supports_function_calling": true,
-          "supports_vision": true,
-          "cost_per_1k_tokens": 0.0025,
-          "description": "Previous generation flagship"
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.012,
+          "description": "Advanced agentic coding model for software engineering (Jan 2026)"
+        },
+        {
+          "name": "gpt-5.2-codex-long",
+          "display_name": "GPT-5.2 Codex Long",
+          "model_id": "gpt-5.2-codex-long",
+          "default_temperature": 0.7,
+          "max_tokens": 400000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.018,
+          "description": "Optimized for long-running coding tasks"
         }
       ]
     },
@@ -85,8 +73,8 @@
         "ANTHROPIC_API_KEY"
       ],
       "base_url": "https://api.anthropic.com",
-      "default_model": "claude-sonnet-4.5",
-      "description": "Anthropic Claude models",
+      "default_model": "claude-opus-4.5",
+      "description": "Anthropic Claude 4.5 series - Latest models (Jan 2026)",
       "documentation_url": "https://docs.anthropic.com/",
       "is_local": false,
       "supported_models": [
@@ -99,8 +87,8 @@
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
-          "cost_per_1k_tokens": 0.02,
-          "description": "Most intelligent Claude model (Nov 2025)"
+          "cost_per_1k_tokens": 0.015,
+          "description": "Most powerful frontier model (Jan 2026)"
         },
         {
           "name": "claude-sonnet-4.5",
@@ -112,7 +100,19 @@
           "supports_function_calling": true,
           "supports_vision": true,
           "cost_per_1k_tokens": 0.003,
-          "description": "Balanced intelligence and speed (July 2025)"
+          "description": "Balanced intelligence and speed (Jan 2026)"
+        },
+        {
+          "name": "claude-haiku-4.5",
+          "display_name": "Claude Haiku 4.5",
+          "model_id": "claude-haiku-4.5",
+          "default_temperature": 0.7,
+          "max_tokens": 200000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.0008,
+          "description": "Fast and cost-efficient (Jan 2026)"
         }
       ]
     },
@@ -125,22 +125,46 @@
         "GEMINI_API_KEY"
       ],
       "base_url": "https://generativelanguage.googleapis.com/v1beta/",
-      "default_model": "gemini-3.0-pro",
-      "description": "Google Gemini models",
+      "default_model": "gemini-3-flash",
+      "description": "Google Gemini 3.0 series - Latest models (Jan 2026)",
       "documentation_url": "https://ai.google.dev/docs",
       "is_local": false,
       "supported_models": [
         {
-          "name": "gemini-3.0-pro",
-          "display_name": "Gemini 3.0 Pro",
-          "model_id": "gemini-3.0-pro",
+          "name": "gemini-3-flash",
+          "display_name": "Gemini 3 Flash",
+          "model_id": "gemini-3-flash",
+          "default_temperature": 0.7,
+          "max_tokens": 1000000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.0005,
+          "description": "Best vibe coding model, 3x faster than 2.5 Pro (Jan 2026, 1487 Elo WebDev Arena)"
+        },
+        {
+          "name": "gemini-3-pro",
+          "display_name": "Gemini 3 Pro",
+          "model_id": "gemini-3-pro",
           "default_temperature": 0.7,
           "max_tokens": 2000000,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
-          "cost_per_1k_tokens": 0.0035,
-          "description": "Next-gen Gemini 3.0 Pro model"
+          "cost_per_1k_tokens": 0.00125,
+          "description": "Most capable Gemini 3 model (Jan 2026)"
+        },
+        {
+          "name": "gemini-3-ultra",
+          "display_name": "Gemini 3 Ultra",
+          "model_id": "gemini-3-ultra",
+          "default_temperature": 0.7,
+          "max_tokens": 2000000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.005,
+          "description": "Flagship Gemini 3 model for complex tasks (Jan 2026)"
         }
       ]
     },
@@ -154,13 +178,13 @@
       ],
       "base_url": "https://api.deepseek.com",
       "default_model": "deepseek-chat",
-      "description": "DeepSeek AI models",
+      "description": "DeepSeek V3.2 and R1 series - Latest models (Jan 2026)",
       "documentation_url": "https://platform.deepseek.com/",
       "is_local": false,
       "supported_models": [
         {
           "name": "deepseek-chat",
-          "display_name": "DeepSeek-V3",
+          "display_name": "DeepSeek-V3.2",
           "model_id": "deepseek-chat",
           "default_temperature": 1.3,
           "max_tokens": 128000,
@@ -168,7 +192,7 @@
           "supports_function_calling": true,
           "supports_vision": false,
           "cost_per_1k_tokens": 0.00014,
-          "description": "DeepSeek-V3: Mixture-of-Experts model (Dec 2024)"
+          "description": "DeepSeek-V3.2: Latest MoE model with R1 distillation (Jan 2026)"
         },
         {
           "name": "deepseek-reasoner",
@@ -177,10 +201,10 @@
           "default_temperature": 0.6,
           "max_tokens": 64000,
           "supports_streaming": true,
-          "supports_function_calling": false,
+          "supports_function_calling": true,
           "supports_vision": false,
           "cost_per_1k_tokens": 0.00055,
-          "description": "DeepSeek-R1: Advanced reasoning model (Jan 2025)"
+          "description": "DeepSeek-R1: Advanced reasoning model (Jan 2026)"
         }
       ]
     },
@@ -193,46 +217,34 @@
         "DASHSCOPE_API_KEY"
       ],
       "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      "default_model": "qwen-max",
-      "description": "Alibaba Qwen models via DashScope (Qwen 3 / 2.5)",
+      "default_model": "qwen3-max",
+      "description": "Alibaba Qwen3 series - Latest models (Jan 2026)",
       "documentation_url": "https://help.aliyun.com/zh/model-studio/getting-started/models",
       "is_local": false,
       "supported_models": [
         {
-          "name": "qwen-max",
-          "display_name": "Qwen Max",
-          "model_id": "qwen-max",
+          "name": "qwen3-max",
+          "display_name": "Qwen3-Max",
+          "model_id": "qwen3-max",
           "default_temperature": 0.7,
           "max_tokens": 32768,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
           "cost_per_1k_tokens": 0.01,
-          "description": "Flagship Qwen model (Likely Qwen 3 based)"
+          "description": "Flagship Qwen3 model with thinking mode (Jan 2026)"
         },
         {
-          "name": "qwen-plus",
-          "display_name": "Qwen Plus",
-          "model_id": "qwen-plus",
+          "name": "qwen3-235b",
+          "display_name": "Qwen3-235B",
+          "model_id": "qwen3-235b",
           "default_temperature": 0.7,
           "max_tokens": 32768,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
-          "cost_per_1k_tokens": 0.004,
-          "description": "Balanced Qwen model"
-        },
-        {
-          "name": "qwen-turbo",
-          "display_name": "Qwen Turbo",
-          "model_id": "qwen-turbo",
-          "default_temperature": 0.7,
-          "max_tokens": 32768,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": false,
-          "cost_per_1k_tokens": 0.002,
-          "description": "Fast Qwen model"
+          "cost_per_1k_tokens": 0.008,
+          "description": "Qwen3-235B: Competitive coding and math performance (Jan 2026)"
         }
       ]
     },
@@ -245,34 +257,34 @@
         "ARK_API_KEY"
       ],
       "base_url": "https://ark.cn-beijing.volces.com/api/v3",
-      "default_model": "doubao-pro-32k",
-      "description": "Bytedance Doubao models",
+      "default_model": "doubao-1.8-pro",
+      "description": "Bytedance Doubao 1.8 series - Latest models (Jan 2026)",
       "documentation_url": "https://www.volcengine.com/docs/82379",
       "is_local": false,
       "supported_models": [
         {
-          "name": "doubao-pro-32k",
-          "display_name": "Doubao Pro 32K",
-          "model_id": "doubao-pro-32k",
-          "default_temperature": 0.7,
-          "max_tokens": 32000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": false,
-          "cost_per_1k_tokens": 0.0008,
-          "description": "Doubao Pro 32K"
-        },
-        {
-          "name": "doubao-pro-128k",
-          "display_name": "Doubao Pro 128K",
-          "model_id": "doubao-pro-128k",
+          "name": "doubao-1.8-pro",
+          "display_name": "Doubao 1.8 Pro",
+          "model_id": "doubao-1.8-pro",
           "default_temperature": 0.7,
           "max_tokens": 128000,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": false,
-          "cost_per_1k_tokens": 0.005,
-          "description": "Doubao Pro 128K"
+          "cost_per_1k_tokens": 0.0008,
+          "description": "Doubao 1.8 Pro: Latest enterprise model (Jan 2026)"
+        },
+        {
+          "name": "doubao-1.8-lite",
+          "display_name": "Doubao 1.8 Lite",
+          "model_id": "doubao-1.8-lite",
+          "default_temperature": 0.7,
+          "max_tokens": 32000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.0001,
+          "description": "Doubao 1.8 Lite: Fast and cost-efficient (Jan 2026)"
         }
       ]
     },
@@ -285,46 +297,34 @@
         "BAIDU_API_KEY"
       ],
       "base_url": "https://qianfan.baidubce.com/v2",
-      "default_model": "ernie-4.0-turbo-128k",
-      "description": "Baidu Wenxin (ERNIE) models - OpenAI compatible API v2",
+      "default_model": "ernie-5.0",
+      "description": "Baidu ERNIE 5.0 series - Latest models (Jan 2026)",
       "documentation_url": "https://cloud.baidu.com/doc/WENXINWORKSHOP/s/Hlwerupz6",
       "is_local": false,
       "supported_models": [
         {
-          "name": "ernie-4.0-turbo-128k",
-          "display_name": "ERNIE 4.0 Turbo 128K",
-          "model_id": "ernie-4.0-turbo-128k",
+          "name": "ernie-5.0",
+          "display_name": "ERNIE 5.0",
+          "model_id": "ernie-5.0",
           "default_temperature": 0.7,
-          "max_tokens": 131072,
+          "max_tokens": 200000,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
           "cost_per_1k_tokens": 0.12,
-          "description": "ERNIE 4.0 Turbo with long context"
+          "description": "ERNIE 5.0: Natively omni-modal model (Jan 2026)"
         },
         {
-          "name": "ernie-4.0-turbo-8k",
-          "display_name": "ERNIE 4.0 Turbo 8K",
-          "model_id": "ernie-4.0-turbo-8k",
+          "name": "ernie-4.0-turbo",
+          "display_name": "ERNIE 4.0 Turbo",
+          "model_id": "ernie-4.0-turbo",
           "default_temperature": 0.7,
-          "max_tokens": 8192,
+          "max_tokens": 128000,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
           "cost_per_1k_tokens": 0.12,
           "description": "ERNIE 4.0 Turbo"
-        },
-        {
-          "name": "ernie-speed-128k",
-          "display_name": "ERNIE Speed 128K",
-          "model_id": "ernie-speed-128k",
-          "default_temperature": 0.7,
-          "max_tokens": 128000,
-          "supports_streaming": true,
-          "supports_function_calling": true,
-          "supports_vision": false,
-          "cost_per_1k_tokens": 0.0,
-          "description": "ERNIE Speed"
         }
       ]
     },
@@ -410,6 +410,58 @@
         }
       ]
     },
+    "ChatGLM (Zhipu AI)": {
+      "name": "ChatGLM (Zhipu AI)",
+      "display_name": "ChatGLM (Zhipu AI)",
+      "provider": "zhipuai",
+      "class_name": "ChatZhipuAI",
+      "api_key_env_vars": [
+        "ZHIPUAI_API_KEY"
+      ],
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "default_model": "glm-4.7",
+      "description": "Zhipu AI GLM-4.7 series - Latest models (Jan 2026)",
+      "documentation_url": "https://open.bigmodel.cn/dev/api",
+      "is_local": false,
+      "supported_models": [
+        {
+          "name": "glm-4.7",
+          "display_name": "GLM-4.7",
+          "model_id": "glm-4.7",
+          "default_temperature": 0.7,
+          "max_tokens": 128000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.003,
+          "description": "GLM-4.7: Coding-centric model beating GPT-5.2 and Claude 4.5 (Dec 2025, $3 pricing)"
+        },
+        {
+          "name": "glm-4-plus",
+          "display_name": "GLM-4-Plus",
+          "model_id": "glm-4-plus",
+          "default_temperature": 0.7,
+          "max_tokens": 128000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.05,
+          "description": "GLM-4-Plus: Enhanced general capabilities"
+        },
+        {
+          "name": "glm-4-flash",
+          "display_name": "GLM-4-Flash",
+          "model_id": "glm-4-flash",
+          "default_temperature": 0.7,
+          "max_tokens": 128000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.0001,
+          "description": "GLM-4-Flash: Free high-frequency model"
+        }
+      ]
+    },
     "Ollama (Local)": {
       "name": "Ollama (Local)",
       "display_name": "Ollama (Local)",
@@ -427,9 +479,9 @@
     }
   },
   "metadata": {
-    "version": "1.1.1",
-    "last_updated": "2025-11-26",
-    "description": "LLM provider configurations for eCan.ai - Updated for Nov 2025",
+    "version": "2.0.0",
+    "last_updated": "2026-01-21",
+    "description": "LLM provider configurations for eCan.ai - Jan 2026 Latest Models: GPT-5.2, Claude 4.5, Gemini 3, GLM-4.7, DeepSeek V3.2/R1, Qwen3-Max",
     "schema_version": "1.0"
   }
 }
