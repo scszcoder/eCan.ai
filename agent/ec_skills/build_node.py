@@ -974,6 +974,8 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         return gs("ARK_API_KEY") or os.getenv("ARK_API_KEY")
                     if provider_l in ("baidu", "qianfan", "baidu_qianfan"):
                         return gs("BAIDU_API_KEY") or os.getenv("BAIDU_API_KEY")
+                    if provider_l in ("zhipuai", "chatglm", "glm"):
+                        return gs("ZHIPUAI_API_KEY") or os.getenv("ZHIPUAI_API_KEY")
                     if provider_l in ("azure", "azure_openai"):
                         # Azure uses a different key name
                         return gs("AZURE_OPENAI_API_KEY") or os.getenv("AZURE_OPENAI_API_KEY")

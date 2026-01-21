@@ -27,6 +27,57 @@ os.environ['PYTHONUTF8'] = '1'
 os.environ.setdefault('TIMEOUT_ScreenshotEvent', '30')  # Increase from 8s to 30s
 
 # ============================================================================
+# CRITICAL: Force UTF-8 encoding for browser-use file operations
+# Patches browser-use to use UTF-8 instead of system default encoding (GBK on Windows)
+# Prevents 'gbk' codec errors when handling emoji/Unicode characters
+# ============================================================================
+def _patch_browser_use_to_utf8():
+    """
+    Apply browser-use GBK encoding fix after imports are complete.
+    
+    Patches browser-use file operations to force UTF-8 encoding,
+    preventing 'gbk' codec errors when handling emoji and Unicode characters.
+    
+    Error example: 'gbk' codec can't encode character '\U0001f339' (🌹)
+    Root cause: file_path.write_text() uses system default encoding (GBK on Windows)
+    """
+    try:
+        from browser_use.filesystem.file_system import BaseFile
+        from pathlib import Path
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
+        
+        # Patched sync method with UTF-8 encoding
+        def patched_sync_to_disk_sync(self, path: Path) -> None:
+            """Patched version that forces UTF-8 encoding."""
+            file_path = path / self.full_name
+            file_path.write_text(self.content, encoding='utf-8')
+        
+        # Patched async method with UTF-8 encoding
+        async def patched_sync_to_disk(self, path: Path) -> None:
+            """Patched async version that forces UTF-8 encoding."""
+            file_path = path / self.full_name
+            with ThreadPoolExecutor() as executor:
+                await asyncio.get_event_loop().run_in_executor(
+                    executor, 
+                    lambda: file_path.write_text(self.content, encoding='utf-8')
+                )
+        
+        # Apply patches
+        BaseFile.sync_to_disk_sync = patched_sync_to_disk_sync
+        BaseFile.sync_to_disk = patched_sync_to_disk
+        
+        print("[GBK_FIX] ✅ Successfully patched browser-use file operations to use UTF-8 encoding")
+        
+    except ImportError:
+        # browser-use not installed or not imported yet - skip silently
+        pass
+    except Exception as e:
+        # Non-critical - log but continue
+        print(f"[GBK_FIX] Warning: Could not apply browser-use encoding fix: {e}")
+# Note: _apply_browser_use_encoding_fix() will be called after GUI imports
+
+# ============================================================================
 # CRITICAL: Patch platform._syscmd_ver BEFORE any imports that use it
 # This prevents the 'ver' command from being called, which causes window flashes
 # ============================================================================
@@ -557,6 +608,10 @@ try:
     from gui.LoginoutGUI import Login
     progress_manager.update_progress(32, "Loading WebGUI components...")
     from gui.WebGUI import WebGUI
+    
+    # Patch browser-use to use UTF-8 encoding
+    progress_manager.update_progress(33, "Patching browser-use to UTF-8...")
+    _patch_browser_use_to_utf8()
 
 
 
