@@ -24,6 +24,10 @@ class ProviderType(Enum):
     QWEN = "qwen"
     QWQ = "qwq"
     DASHSCOPE = "dashscope"
+    ZHIPUAI = "zhipuai"
+    CHATGLM = "chatglm"
+    BYTEDANCE = "bytedance"
+    BAIDU_QIANFAN = "baidu_qianfan"
     BEDROCK = "bedrock"
     OLLAMA = "ollama"
     UNKNOWN = "unknown"
@@ -225,6 +229,9 @@ class LLMProvider:
             ProviderType.QWEN,
             ProviderType.QWQ,
             ProviderType.DASHSCOPE,
+            ProviderType.ZHIPUAI,
+            ProviderType.BYTEDANCE,
+            ProviderType.BAIDU_QIANFAN,
             ProviderType.OLLAMA
         ]
         return self.provider_type in openai_compatible_types or 'openai' in self.class_name.lower()
