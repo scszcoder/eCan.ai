@@ -138,11 +138,14 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
 
     // 从存储中获取完整的用户信息（支持账号登录和 Google 登录）
     const storedUserInfo: UserInfo | null = userStorageManager.getUserInfo();
-    // 显示名称优先级：name > username > email
-    const displayName = storedUserInfo?.name || storedUserInfo?.username || storedUserInfo?.email || username || t('common.username');
+    const isPasswordLogin = storedUserInfo?.login_type === 'password';
+    // 显示名称优先级：password 登录时 username/email，其它登录方式优先 name
+    const displayName = isPasswordLogin
+        ? (storedUserInfo?.username || storedUserInfo?.email || username || t('common.username'))
+        : (storedUserInfo?.name || storedUserInfo?.username || storedUserInfo?.email || username || t('common.username'));
     const displayEmail = storedUserInfo?.email;
     const displayRole = storedUserInfo?.role;
-    const displayPicture = storedUserInfo?.picture;
+    const displayPicture = isPasswordLogin ? undefined : storedUserInfo?.picture;
     const loginType = storedUserInfo?.login_type;
     const loginSession = userStorageManager.getLoginSession();
     const loginTimeText = loginSession ? new Date(loginSession.loginTime).toLocaleString() : null;
@@ -386,7 +389,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
                             <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 8 }}>
                                 <UserAvatar name={displayName} picture={displayPicture} size={64} style={{ fontSize: 24 }} />
                                 <div>
-                                    <div style={{ fontSize: 18, fontWeight: 600 }}>{storedUserInfo.name || storedUserInfo.username}</div>
+                                    <div style={{ fontSize: 18, fontWeight: 600 }}>{displayName}</div>
                                     {displayEmail && <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 14 }}>{displayEmail}</div>}
                                 </div>
                             </div>

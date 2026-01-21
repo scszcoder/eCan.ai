@@ -73,9 +73,22 @@ export const useOrgStore = create<OrgStoreState>((set, get) => ({
   setAllOrgAgents: (data: GetAllOrgAgentsResponse) => {
     console.log('[OrgStore] setAllOrgAgents called with data:', data);
     console.log('[OrgStore] data.orgs:', data.orgs);
-    
+
     // Use raw data (avoid data loss from JSON serialization)
-    const treeRoot = data.orgs;
+    const treeRoot = data.orgs || {
+      id: 'root',
+      name: 'Organizations',
+      description: 'Root',
+      org_type: 'company',
+      level: 0,
+      sort_order: 0,
+      status: 'active',
+      parent_id: null,
+      created_at: null,
+      updated_at: null,
+      children: [],
+      agents: []
+    };
     
     // Extract flat organization list and all agents from tree structure (backward compatible)
     const flattenTree = (treeNode: TreeOrgNode): { orgs: Org[], agents: OrgAgent[] } => {

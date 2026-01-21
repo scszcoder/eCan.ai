@@ -7,6 +7,8 @@
 import { logger } from '../../utils/logger';
 import { useUserStore } from '../../stores/userStore';
 import { logoutManager } from '../LogoutManager';
+import { isWebPlatform } from '../../config/platform';
+import { webAuthSession } from '../auth/webAuthSession';
 
 // User data interfaces
 export interface UserInfo {
@@ -78,8 +80,9 @@ export class UserStorageManager {
    */
   setToken(token: string): void {
     try {
-      localStorage.setItem(STORAGE_KEYS.TOKEN, token);
-      localStorage.setItem(STORAGE_KEYS.TOKEN_LEGACY, token); // Backward compatibility
+      const storage = isWebPlatform() ? sessionStorage : localStorage;
+      storage.setItem(STORAGE_KEYS.TOKEN, token);
+      storage.setItem(STORAGE_KEYS.TOKEN_LEGACY, token); // Backward compatibility
       logger.debug('Token stored successfully');
     } catch (error) {
       logger.error('Failed to store token:', error);
@@ -92,6 +95,9 @@ export class UserStorageManager {
    */
   getToken(): string | null {
     try {
+      if (isWebPlatform()) {
+        return webAuthSession.getAccessToken();
+      }
       // Try new key first, fallback to legacy key
       return localStorage.getItem(STORAGE_KEYS.TOKEN) || 
              localStorage.getItem(STORAGE_KEYS.TOKEN_LEGACY);
@@ -106,8 +112,9 @@ export class UserStorageManager {
    */
   removeToken(): void {
     try {
-      localStorage.removeItem(STORAGE_KEYS.TOKEN);
-      localStorage.removeItem(STORAGE_KEYS.TOKEN_LEGACY);
+      const storage = isWebPlatform() ? sessionStorage : localStorage;
+      storage.removeItem(STORAGE_KEYS.TOKEN);
+      storage.removeItem(STORAGE_KEYS.TOKEN_LEGACY);
       logger.debug('Token removed successfully');
     } catch (error) {
       logger.error('Failed to remove token:', error);
@@ -247,6 +254,9 @@ export class UserStorageManager {
    */
   isAuthenticated(): boolean {
     try {
+      if (isWebPlatform()) {
+        return webAuthSession.isAuthenticated();
+      }
       const isAuth = localStorage.getItem(STORAGE_KEYS.IS_AUTHENTICATED) === 'true';
       const hasToken = this.hasValidToken();
       const hasUserInfo = !!this.getUserInfo();
@@ -387,6 +397,10 @@ export class UserStorageManager {
   logout(): void {
     try {
       logger.info('Starting logout process...');
+
+      if (isWebPlatform()) {
+        webAuthSession.clear();
+      }
 
       // Clear all user data
       this.clearAllUserData();

@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 
 // https://vitejs.dev/config/
+const basePath = process.env.VITE_BASE || '/app/gui-v2/';
+
 export default defineConfig({
   plugins: [
     react({
@@ -14,7 +16,7 @@ export default defineConfig({
       }
     })
   ],
-  base: './', // 使用相对路径，支持 file:// 协议
+  base: basePath,
   server: {
     port: 3000,
     strictPort: true, // 如果端口被占用，则直接退出

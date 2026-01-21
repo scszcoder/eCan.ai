@@ -8,6 +8,8 @@ import { createChatApi } from './chatApi';
 import { createLightRAGApi } from './lightragApi';
 import { logoutManager } from '../LogoutManager';
 import { ipcClient } from './ipcClient';
+import { detectPlatform } from '../../config/platform';
+import { handleWebIpcRequest } from '../web/webIpcBridge';
 
 /**
  * API ResponseType
@@ -131,6 +133,17 @@ export class IPCAPI {
         const startTs = Date.now();
         console.log('[IPCAPI] executeRequest:start', method, { params, timeout });
         try {
+            const detectedMode = ipcClient.getMode?.() ?? null;
+            const platform = detectedMode || detectPlatform();
+
+            if (platform === 'web') {
+                const webResponse = await handleWebIpcRequest<T>(method, params as any);
+                if (webResponse) {
+                    console.log('[IPCAPI] executeRequest:web', method, { durationMs: Date.now() - startTs });
+                    return webResponse;
+                }
+            }
+
             await this.ensureInitialized();
 
             // 对于 get_initialization_progress，使用 invoke Method以利用队列和并发控制

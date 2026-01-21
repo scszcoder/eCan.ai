@@ -4,6 +4,8 @@
  */
 
 import { logger } from '../../utils/logger';
+import { detectPlatform } from '../../config/platform';
+import { refreshAllMineStores } from '../../services/web/webStoreSync';
 
 /**
  * Store Interface - AllNeedSync的 store MustImplementation
@@ -158,6 +160,26 @@ export class StoreSyncManager {
     const results: SyncResult[] = [];
 
     try {
+      if (detectPlatform() === 'web') {
+        try {
+          await refreshAllMineStores();
+          return storeNames.map((name) => ({
+            success: true,
+            storeName: name,
+            duration: Date.now() - startTime,
+          }));
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          logger.error('[SyncManager] Web sync failed:', errorMessage);
+          return storeNames.map((name) => ({
+            success: false,
+            storeName: name,
+            error: errorMessage,
+            duration: Date.now() - startTime,
+          }));
+        }
+      }
+
       if (parallel) {
         // 并行Sync
         const promises = storeNames.map(name => 

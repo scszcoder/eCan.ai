@@ -4,6 +4,9 @@
  */
 
 import { ipcClient } from '../ipc/ipcWCClient';
+import { isWebPlatform } from '../../config/platform';
+import { webAuthSession } from './webAuthSession';
+import { cognitoAuth } from './cognitoAuth';
 import { logger } from '../../utils/logger';
 
 interface TokenInfo {
@@ -89,6 +92,11 @@ class TokenRefreshService {
       return;
     }
 
+    if (isWebPlatform()) {
+      await this.checkAndRefreshWebToken();
+      return;
+    }
+
     const checkTime = new Date().toISOString();
     logger.info('[TokenRefresh] Starting token check', {
       checkTime,
@@ -140,6 +148,57 @@ class TokenRefreshService {
       }
     } catch (error) {
       logger.error('[TokenRefresh] Error checking token:', error);
+    }
+  }
+
+  private async checkAndRefreshWebToken() {
+    const session = webAuthSession.getSession();
+    if (!session?.accessToken) {
+      logger.warn('[TokenRefresh] No web session available');
+      return;
+    }
+
+    if (!session.expiresAt) {
+      logger.info('[TokenRefresh] Web session has no expiry, skipping refresh');
+      return;
+    }
+
+    const msRemaining = session.expiresAt - Date.now();
+    const secondsRemaining = Math.floor(msRemaining / 1000);
+
+    if (secondsRemaining < this.refreshThreshold) {
+      logger.info('[TokenRefresh] Web token expiring soon, refreshing...', {
+        secondsRemaining
+      });
+
+      const refreshToken = session.refreshToken;
+      if (!refreshToken) {
+        logger.warn('[TokenRefresh] No refresh token available for web session');
+        this.handleTokenExpired();
+        return;
+      }
+
+      try {
+        const refreshed = await cognitoAuth.refreshTokens(refreshToken);
+        const newExpiresAt = refreshed.expires_in
+          ? Date.now() + refreshed.expires_in * 1000
+          : session.expiresAt;
+
+        webAuthSession.updateTokens({
+          accessToken: refreshed.access_token,
+          idToken: refreshed.id_token ?? session.idToken,
+          tokenType: refreshed.token_type ?? session.tokenType,
+          expiresAt: newExpiresAt,
+        });
+
+        this.currentToken = refreshed.access_token;
+        if (this.onTokenRefreshed) {
+          this.onTokenRefreshed(refreshed.access_token);
+        }
+      } catch (error) {
+        logger.error('[TokenRefresh] Failed to refresh web token', error);
+        this.handleTokenExpired();
+      }
     }
   }
 

@@ -10,6 +10,8 @@ import { useTaskStore } from '../../stores/domain/taskStore';
 import { useSkillStore } from '../../stores/domain/skillStore';
 import { useUserStore } from '../../stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
+import { detectPlatform } from '@/config/platform';
+import { refreshAllMineStores } from '@/services/web/webStoreSync';
 
 // ==================== 样式Component ====================
 const BreadcrumbContainer = styled.div`
@@ -453,30 +455,36 @@ const PageBackBreadcrumb: React.FC<PageBackBreadcrumbProps> = ({ searchQuery = '
         
         setRefreshing(true);
         try {
-            const api = get_ipc_api();
             const currentPath = segments[0];
-            
-            // 根据When前PageRefresh对应的Data
-            if (currentPath === 'agents') {
-                // Agents Page：调用 get_all_org_agents InterfaceRefresh组织和代理Data
-                const res = await api.getAllOrgAgents(username).catch((e: any) => ({ success: false, error: e, data: null }));
-                
-                if (res.success && res.data) {
-                    useOrgStore.getState().refreshOrgData();
-                }
-            } else if (currentPath === 'tasks') {
-                // Tasks Page：只Refresh tasks Data
-                const tasksRes = await api.getAgentTasks(username, []).catch((e: any) => ({ success: false, error: e, data: null }));
-                
-                if (tasksRes.success && tasksRes.data && (tasksRes.data as any).tasks) {
-                    useTaskStore.getState().setItems((tasksRes.data as any).tasks);
-                }
-            } else if (currentPath === 'skills') {
-                // Skills Page：只Refresh skills Data
-                const skillsRes = await api.getAgentSkills(username, []).catch((e: any) => ({ success: false, error: e, data: null }));
-                
-                if (skillsRes.success && skillsRes.data && (skillsRes.data as any).skills) {
-                    useSkillStore.getState().setItems((skillsRes.data as any).skills);
+            const platform = detectPlatform();
+
+            if (platform === 'web') {
+                await refreshAllMineStores();
+            } else {
+                const api = get_ipc_api();
+
+                // 根据When前PageRefresh对应的Data
+                if (currentPath === 'agents') {
+                    // Agents Page：调用 get_all_org_agents InterfaceRefresh组织和代理Data
+                    const res = await api.getAllOrgAgents(username).catch((e: any) => ({ success: false, error: e, data: null }));
+                    
+                    if (res.success && res.data) {
+                        useOrgStore.getState().refreshOrgData();
+                    }
+                } else if (currentPath === 'tasks') {
+                    // Tasks Page：只Refresh tasks Data
+                    const tasksRes = await api.getAgentTasks(username, []).catch((e: any) => ({ success: false, error: e, data: null }));
+                    
+                    if (tasksRes.success && tasksRes.data && (tasksRes.data as any).tasks) {
+                        useTaskStore.getState().setItems((tasksRes.data as any).tasks);
+                    }
+                } else if (currentPath === 'skills') {
+                    // Skills Page：只Refresh skills Data
+                    const skillsRes = await api.getAgentSkills(username, []).catch((e: any) => ({ success: false, error: e, data: null }));
+                    
+                    if (skillsRes.success && skillsRes.data && (skillsRes.data as any).skills) {
+                        useSkillStore.getState().setItems((skillsRes.data as any).skills);
+                    }
                 }
             }
             

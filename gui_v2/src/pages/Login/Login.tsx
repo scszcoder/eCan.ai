@@ -11,6 +11,8 @@ import { pageRefreshManager } from '../../services/events/PageRefreshManager';
 import { useInitializationProgress } from '../../hooks/useInitializationProgress';
 import { tokenRefreshService } from '../../services/auth/tokenRefreshService';
 import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
+import { isWebPlatform } from '../../config/platform';
+import { cognitoAuth } from '../../services/auth/cognitoAuth';
 import logo from '../../assets/logoWhite22.png';
 import googleIcon from '../../assets/Google_Icons.png';
 import appleIcon from '../../assets/Apple_Icon3.png';
@@ -40,6 +42,7 @@ const Login: React.FC = () => {
 	const [mode, setMode] = useState<AuthMode>('login');
 	const [loading, setLoading] = useState(false);
 	const [showInitProgress, setShowInitProgress] = useState(false);
+	const isWeb = isWebPlatform();
 	// 新增Local state 控制Validate码Send
 	const [codeSent, setCodeSent] = useState(false);
 	// LoginSuccessStatus，防止ButtonStatusReset
@@ -284,6 +287,13 @@ const Login: React.FC = () => {
 	const handleForgotPasswordSendCode = async () => {
 		if (forgotPasswordLoading) return; // Prevent double submission
 
+		if (isWeb) {
+			setLoading(true);
+			setShowInitProgress(true);
+			await cognitoAuth.startHostedLogin({ screenHint: 'login' });
+			return;
+		}
+
 		setForgotPasswordLoading(true);
 		try {
 			const username = form.getFieldValue('username');
@@ -314,6 +324,13 @@ const Login: React.FC = () => {
 
 	const handleForgotPasswordReset = async () => {
 		if (forgotPasswordLoading) return; // Prevent double submission
+
+		if (isWeb) {
+			setLoading(true);
+			setShowInitProgress(true);
+			await cognitoAuth.startHostedLogin({ screenHint: 'login' });
+			return;
+		}
 
 		setForgotPasswordLoading(true);
 		try {
@@ -353,6 +370,16 @@ const Login: React.FC = () => {
 
 	const handleSubmit = async (values: LoginFormValues) => {
 		if (loading || loginSuccessful) return; // Prevent double submission
+
+		if (isWeb) {
+			setLoading(true);
+			setShowInitProgress(true);
+			sessionStorage.setItem('cognito_login_method', mode === 'signup' ? 'password' : 'password');
+			await cognitoAuth.startHostedLogin({
+				screenHint: mode === 'signup' ? 'signup' : 'login'
+			});
+			return;
+		}
 
 		setLoading(true);
 		setLoginSuccessful(false);
@@ -409,6 +436,14 @@ const Login: React.FC = () => {
   // Google login handler
 	const handleGoogleLogin = useCallback(async () => {
     if (loading || loginSuccessful) return; // Prevent double submission
+
+		if (isWeb) {
+			setLoading(true);
+			setShowInitProgress(true);
+	  sessionStorage.setItem('cognito_login_method', 'google');
+			await cognitoAuth.startHostedLogin({ identityProvider: 'Google' });
+			return;
+		}
 
     setLoading(true);
     setLoginSuccessful(false);
@@ -517,7 +552,7 @@ const Login: React.FC = () => {
       });
       setLoading(false);
     }
-  }, [i18n.language, navigate, messageApi, loading, loginSuccessful, t, form]);
+	}, [i18n.language, navigate, messageApi, loading, loginSuccessful, t, form, isWeb]);
 
   // Placeholder for Apple login to prevent runtime errors if referenced in JSX
   const handleAppleLogin = useCallback(() => {
