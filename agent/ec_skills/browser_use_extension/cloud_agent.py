@@ -373,7 +373,13 @@ class CloudAgent(Agent):
         )
 
 
-def make_default_cloud_transport_from_env() -> HttpPassivePubSubTransport:
+def make_default_cloud_transport_from_env() -> PassivePubSubTransport:
+    transport_kind = os.environ.get('EC_BROWSER_PASSIVE_TRANSPORT', '').strip().lower()
+    if transport_kind in {'appsync', 'aws_appsync'}:
+        from agent.ec_skills.browser_use_extension.appsync_passive_transport import make_appsync_passive_transport_from_env
+
+        return make_appsync_passive_transport_from_env()
+
     publish_endpoint = os.environ.get('EC_BROWSER_PASSIVE_PUB_ENDPOINT', '').strip()
     wait_endpoint = os.environ.get('EC_BROWSER_PASSIVE_WAIT_ENDPOINT', '').strip()
     token = os.environ.get('EC_BROWSER_PASSIVE_TOKEN', '').strip() or None
