@@ -148,10 +148,49 @@ export class IPCAPI {
                     data: response.result as T
                 };
             } else {
+                const errorCode = String(response.error?.code || 'UNKNOWN_ERROR');
+                
+                // Handle INVALID_TOKEN error by clearing stored token and redirecting to login
+                if (errorCode === 'INVALID_TOKEN' || errorCode === 'TOKEN_REQUIRED') {
+                    logger.warn(`[IPCAPI] Authentication failed for ${method}: ${errorCode}`);
+                    
+                    // Clear the invalid token from storage
+                    try {
+                        const { userStorageManager } = await import('../storage/UserStorageManager');
+                        userStorageManager.removeToken();
+                        logger.info('[IPCAPI] Cleared invalid token from storage');
+                        
+                        // Show user notification (only once)
+                        if (!sessionStorage.getItem('token_expired_notification_shown')) {
+                            sessionStorage.setItem('token_expired_notification_shown', 'true');
+                            
+                            // Try to show Ant Design message if available
+                            try {
+                                const { message } = await import('antd');
+                                message.warning('Your session has expired. Please log in again.');
+                            } catch {
+                                // Fallback to console if Ant Design not available
+                                console.warn('Session expired. Please log in again.');
+                            }
+                        }
+                        
+                        // Redirect to login page if not already there
+                        if (window.location.hash !== '#/login') {
+                            logger.info('[IPCAPI] Redirecting to login due to invalid token');
+                            // Small delay to allow notification to show
+                            setTimeout(() => {
+                                window.location.hash = '#/login';
+                            }, 500);
+                        }
+                    } catch (error) {
+                        logger.error('[IPCAPI] Error clearing invalid token:', error);
+                    }
+                }
+                
                 return {
                     success: false,
                     error: {
-                        code: String(response.error?.code || 'UNKNOWN_ERROR'),
+                        code: errorCode,
                         message: response.error?.message || 'Unknown error occurred',
                         details: response.error?.details
                     }
