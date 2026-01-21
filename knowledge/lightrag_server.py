@@ -321,6 +321,7 @@ class LightragServer:
             'dashscope': 'openai',
             'bytedance': 'openai',
             'baidu_qianfan': 'openai',
+            'zhipuai': 'openai',
             # Embedding providers (OpenAI-compatible)
             'huggingface': 'openai',
             'cohere': 'openai',
@@ -330,6 +331,7 @@ class LightragServer:
             # Provider display names (map to their provider IDs)
             'Qwen (DashScope)': 'openai',  # alibaba_qwen
             'Baidu Qianfan': 'openai',  # baidu_qianfan
+            'ChatGLM (Zhipu AI)': 'openai',  # zhipuai
         }
         
         # Map LLM binding (case-insensitive)

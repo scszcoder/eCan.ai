@@ -212,6 +212,10 @@ export const FormRender = (_props: FormRenderProps<any>) => {
       return 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
     } else if (providerName.includes('Qwen') || providerName.includes('DashScope')) {
       return 'sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+    } else if (providerName.includes('ChatGLM') || providerName.includes('Zhipu')) {
+      return 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.xxxxxxxxxxxxxxxx';
+    } else if (providerName.includes('Baidu') || providerName.includes('Qianfan')) {
+      return 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
     } else if (providerName.includes('Bytedance') || providerName.includes('Doubao')) {
       return 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
     } else if (providerName.includes('Ollama')) {
@@ -433,7 +437,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
             {({ field }) => (
               <Checkbox
                 checked={!!field.value}
-                onChange={(e) => field.onChange(e.target.checked)}
+                onChange={(e: any) => field.onChange(e.target?.checked ?? e)}
               >
                 Use Thinking (for reasoning models like Qwen3, DeepSeek-R1)
               </Checkbox>
@@ -451,9 +455,8 @@ export const FormRender = (_props: FormRenderProps<any>) => {
 
               const handleAdd = async () => {
                 try {
-                  if (window.showOpenFilePicker) {
-                    // @ts-ignore
-                    const handles = await window.showOpenFilePicker({ multiple: true });
+                  if ((window as any).showOpenFilePicker) {
+                    const handles = await (window as any).showOpenFilePicker({ multiple: true });
                     const newItems: any[] = [];
                     for (const handle of handles) {
                       const file = await handle.getFile();
@@ -593,7 +596,7 @@ export const FormRender = (_props: FormRenderProps<any>) => {
 
               // Hide attachments when using external library prompt
               if ((promptSelectorField.value as string) && promptSelectorField.value !== 'inline') {
-                return null;
+                return <></>;
               }
 
               return attachmentsBlock;
