@@ -218,8 +218,18 @@ export const LLM_PROVIDERS: ProviderConfig[] = [
     name: 'Baidu Qianfan',
     description: 'Baidu Qianfan (ERNIE) models',
     fields: [
-      { key: 'LLM_MODEL', label: 'fields.model', type: 'text', defaultValue: 'ernie-4.0-8k', required: true },
-      { key: 'LLM_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'https://aip.baidubce.com' },
+      { key: 'LLM_MODEL', label: 'fields.model', type: 'text', defaultValue: 'ernie-5.0', required: true },
+      { key: 'LLM_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'https://qianfan.baidubce.com/v2' },
+      { key: 'LLM_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', required: true }
+    ]
+  },
+  {
+    id: 'zhipuai',
+    name: 'ChatGLM (Zhipu AI)',
+    description: 'Zhipu AI ChatGLM models',
+    fields: [
+      { key: 'LLM_MODEL', label: 'fields.model', type: 'text', defaultValue: 'glm-4.7', required: true },
+      { key: 'LLM_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'https://open.bigmodel.cn/api/paas/v4' },
       { key: 'LLM_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', required: true }
     ]
   },
@@ -228,7 +238,7 @@ export const LLM_PROVIDERS: ProviderConfig[] = [
     name: 'Bytedance Doubao',
     description: 'Bytedance Doubao (豆包) models',
     fields: [
-      { key: 'LLM_MODEL', label: 'fields.model', type: 'text', defaultValue: 'doubao-pro-32k', required: true },
+      { key: 'LLM_MODEL', label: 'fields.model', type: 'text', defaultValue: 'doubao-1.8-pro', required: true },
       { key: 'LLM_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'https://ark.cn-beijing.volces.com/api/v3' },
       { key: 'LLM_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', required: true }
     ]
@@ -334,6 +344,17 @@ export const EMBEDDING_PROVIDERS: ProviderConfig[] = [
       { key: 'EMBEDDING_MODEL', label: 'fields.model', type: 'text', defaultValue: 'Embedding-V1', required: true },
       { key: 'EMBEDDING_DIM', label: 'fields.dimensions', type: 'number', defaultValue: '1024', tooltip: 'tooltips.embeddingDim' },
       { key: 'EMBEDDING_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'https://aip.baidubce.com' },
+      { key: 'EMBEDDING_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', required: true }
+    ]
+  },
+  {
+    id: 'zhipuai',
+    name: 'ChatGLM (Zhipu AI)',
+    description: 'Zhipu AI embedding models',
+    fields: [
+      { key: 'EMBEDDING_MODEL', label: 'fields.model', type: 'text', defaultValue: 'embedding-3', required: true },
+      { key: 'EMBEDDING_DIM', label: 'fields.dimensions', type: 'number', defaultValue: '2048', tooltip: 'tooltips.embeddingDim' },
+      { key: 'EMBEDDING_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'https://open.bigmodel.cn/api/paas/v4' },
       { key: 'EMBEDDING_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', required: true }
     ]
   },
