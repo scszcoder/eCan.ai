@@ -24,6 +24,7 @@ import {
 } from './types';
 import { getHandlers } from './handlers';
 import { logger } from '../../utils/logger';
+import { webAuthSession } from '../auth/webAuthSession';
 
 // Connection state enum
 export enum WSConnectionState {
@@ -246,7 +247,9 @@ export class IPCWSClient {
         // Add session_id to params if available
         const paramsWithSession = this.addSessionToParams(params);
         
-        const request = createRequest(method, paramsWithSession);
+        const accessToken = webAuthSession.getAccessToken();
+        const meta = accessToken ? { authorization: `Bearer ${accessToken}` } : undefined;
+        const request = createRequest(method, paramsWithSession, meta);
         
         // Add session_id to meta as well
         if (this.sessionId) {

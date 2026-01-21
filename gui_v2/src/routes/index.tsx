@@ -8,6 +8,7 @@ import MainRouteWrapper from './MainRouteWrapper';
 
 // PageComponent懒Load
 const Login = React.lazy(() => import('../pages/Login/index'));
+const AuthCallback = React.lazy(() => import('../pages/AuthCallback'));
 const Dashboard = React.lazy(() => import('../pages/Dashboard/Dashboard'));
 const Vehicles = React.lazy(() => import('../pages/Vehicles/Vehicles'));
 const Schedule = React.lazy(() => import('../pages/Schedule/Schedule'));
@@ -83,6 +84,10 @@ export const publicRoutes: RouteConfig[] = [
     {
         path: '/login',
         element: <LoginRoute />,
+    },
+    {
+        path: '/auth/callback',
+        element: <LazyWrapper><AuthCallback /></LazyWrapper>,
     },
 ];
 

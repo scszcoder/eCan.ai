@@ -4,6 +4,7 @@ import { ReloadOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import {get_ipc_api} from '../../services/ipc_api';
 import { useUserStore } from '../../stores/userStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -16,6 +17,12 @@ const Tests: React.FC = () => {
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [isTestRunning, setIsTestRunning] = useState<boolean>(false);
     const username = useUserStore((state) => state.username);
+    const settings = useSettingsStore((state) => state.settings);
+    const loadSettings = useSettingsStore((state) => state.loadSettings);
+
+    const appendTestOutput = (line: string) => {
+        setTestOutput(prev => (prev ? `${prev}\n${line}` : line));
+    };
 
     // Add default test at the top of the component
     const defaultTest = {
@@ -132,6 +139,14 @@ const Tests: React.FC = () => {
         fetchTests();
     }, []);
 
+    useEffect(() => {
+        if (!settings) {
+            loadSettings().catch((error) => {
+                console.error('[Tests] Failed to load settings:', error);
+            });
+        }
+    }, [settings, loadSettings]);
+
     // Handle test execution (STEP7: deferred IPC with then/catch/finally)
     const handleRunTest = async () => {
         const hasIPC = typeof window !== 'undefined' && !!(window as any).ipc;
@@ -193,6 +208,179 @@ const Tests: React.FC = () => {
         } finally {
             setIsTestRunning(false);
         }
+    };
+
+    const handleWebsocketTest = async () => {
+        const defaultWanEndpoint = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql';
+        const defaultWsEndpoint = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql';
+        const defaultWsHost = '3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com';
+
+        let parsedArgs: any = {};
+        try {
+            parsedArgs = testArgument ? JSON.parse(testArgument) : {};
+        } catch (e) {
+            appendTestOutput('WebSocket Test: Invalid JSON in Test Argument');
+            return;
+        }
+
+        const wsEndpoint = (settings?.ws_api_endpoint?.trim() || parsedArgs.wsEndpoint || defaultWsEndpoint);
+        const wsHost = (settings?.ws_api_host?.trim() || parsedArgs.wsHost || defaultWsHost);
+        const wanEndpoint = (settings?.wan_api_endpoint?.trim() || parsedArgs.wanEndpoint || defaultWanEndpoint);
+        const wanApiKey = (settings?.wan_api_key?.trim() || parsedArgs.wanApiKey || parsedArgs.apiKey || '');
+
+        setTestOutput('');
+
+        if (!wanApiKey) {
+            appendTestOutput('WebSocket Test: Missing wan_api_key. Provide in Settings or Test Argument as {"wanApiKey":"..."}.');
+            return;
+        }
+
+        if (!settings?.ws_api_endpoint || !settings?.ws_api_host || !settings?.wan_api_endpoint) {
+            appendTestOutput('WebSocket Test: Using hardcoded AppSync endpoints (settings missing).');
+        }
+
+        const channelId = parsedArgs.channelId || `a2a-test-${username || 'web'}-${Date.now()}`;
+        const messageText = parsedArgs.message || 'Hello from WebSocket Test';
+        const senderId = parsedArgs.senderId || username || 'web-client';
+        const sessionId = parsedArgs.sessionId || `session-${Date.now()}`;
+        const recipientId = parsedArgs.recipientId || senderId;
+
+        const subscriptionQuery = `subscription OnA2AMessageReceived($channelId: String!) {\n  onA2AMessageReceived(channelId: $channelId) {\n    id\n    channelId\n    senderId\n    sessionId\n    timestamp\n    message {\n      role\n      parts {\n        type\n        text\n        data\n        metadata\n        file {\n          name\n          uri\n          mimeType\n          bytes\n        }\n      }\n    }\n  }\n}`;
+
+        const mutationQuery = `mutation SendA2AMessage($input: A2AMessageInput!) {\n  sendA2AMessage(input: $input) {\n    id\n    channelId\n    senderId\n    sessionId\n    timestamp\n    message {\n      role\n      parts {\n        type\n        text\n      }\n    }\n  }\n}`;
+
+        const input = {
+            channelId,
+            senderId,
+            recipientId,
+            sessionId,
+            acceptedOutputModes: ['text'],
+            historyLength: 10,
+            message: {
+                role: 'user',
+                parts: [
+                    { type: 'text', text: messageText }
+                ]
+            }
+        };
+
+        const toBase64 = (value: string) => {
+            try {
+                return window.btoa(unescape(encodeURIComponent(value)));
+            } catch {
+                return window.btoa(value);
+            }
+        };
+
+        const authHeaders = {
+            host: wsHost,
+            'x-api-key': wanApiKey
+        };
+
+        const headerParam = toBase64(JSON.stringify(authHeaders));
+        const payloadParam = toBase64(JSON.stringify({}));
+        const realtimeUrl = `${wsEndpoint}?header=${encodeURIComponent(headerParam)}&payload=${encodeURIComponent(payloadParam)}`;
+
+        appendTestOutput(`WebSocket Test: Connecting to ${wsEndpoint}`);
+        appendTestOutput(`WebSocket Test: Subscribing channelId=${channelId}`);
+
+        const ws = new WebSocket(realtimeUrl, 'graphql-ws');
+        const subscriptionId = `sub-${Date.now()}`;
+        let hasAck = false;
+        let hasReceived = false;
+
+        const cleanup = () => {
+            try {
+                if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+                    ws.close(1000, 'WebSocket test complete');
+                }
+            } catch (e) {
+                console.warn('[Tests] WebSocket cleanup error', e);
+            }
+        };
+
+        ws.onopen = () => {
+            appendTestOutput('WebSocket Test: Socket open, sending connection_init');
+            ws.send(JSON.stringify({
+                type: 'connection_init'
+            }));
+        };
+
+        ws.onmessage = async (event) => {
+            let messageData: any;
+            try {
+                messageData = JSON.parse(event.data as string);
+            } catch {
+                appendTestOutput('WebSocket Test: Received non-JSON message');
+                return;
+            }
+
+            if (messageData.type === 'connection_ack') {
+                hasAck = true;
+                appendTestOutput('WebSocket Test: connection_ack received, starting subscription');
+                ws.send(JSON.stringify({
+                    id: subscriptionId,
+                    type: 'start',
+                    payload: {
+                        data: JSON.stringify({
+                            query: subscriptionQuery,
+                            variables: { channelId }
+                        }),
+                        extensions: {
+                            authorization: authHeaders
+                        }
+                    }
+                }));
+
+                appendTestOutput('WebSocket Test: Sending mutation via AppSync HTTP');
+                try {
+                    const response = await fetch(wanEndpoint, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'x-api-key': wanApiKey
+                        },
+                        body: JSON.stringify({
+                            query: mutationQuery,
+                            variables: { input }
+                        })
+                    });
+                    const payload = await response.json();
+                    appendTestOutput(`WebSocket Test: Mutation response ${response.status} ${response.statusText}`);
+                    appendTestOutput(JSON.stringify(payload, null, 2));
+                } catch (e) {
+                    appendTestOutput('WebSocket Test: Mutation failed - ' + (e instanceof Error ? e.message : String(e)));
+                }
+                return;
+            }
+
+            if (messageData.type === 'ka') {
+                return;
+            }
+
+            if (messageData.type === 'data') {
+                hasReceived = true;
+                appendTestOutput('WebSocket Test: Subscription data received');
+                appendTestOutput(JSON.stringify(messageData.payload, null, 2));
+                cleanup();
+                return;
+            }
+
+            if (messageData.type === 'error' || messageData.type === 'connection_error') {
+                appendTestOutput('WebSocket Test: Error - ' + JSON.stringify(messageData, null, 2));
+                cleanup();
+            }
+        };
+
+        ws.onerror = (event) => {
+            appendTestOutput('WebSocket Test: WebSocket error');
+            console.error('[Tests] WebSocket error', event);
+        };
+
+        ws.onclose = (event) => {
+            const suffix = hasReceived ? ' (message received)' : hasAck ? ' (connected)' : '';
+            appendTestOutput(`WebSocket Test: Socket closed ${event.code}${suffix}`);
+        };
     };
 
     const handlePageClick: React.MouseEventHandler<HTMLDivElement> = (e) => {
@@ -286,6 +474,9 @@ const Tests: React.FC = () => {
                         </Button>
                         <Button onClick={handleRunMinimal} style={{ marginLeft: 8 }}>
                             Run Minimal
+                        </Button>
+                        <Button onClick={handleWebsocketTest} style={{ marginLeft: 8 }}>
+                            WebSocket Test
                         </Button>
                     </Space>
                     {/* Test Selection */}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { HashRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { ConfigProvider, theme, App as AntdApp } from 'antd';
 import { registerOnboardingModalApi } from './services/onboarding/onboardingService';
 import { routes, RouteConfig } from './routes';
@@ -21,6 +21,9 @@ import { logoutManager } from './services/LogoutManager';
 import { initializePlatform } from './config/platform';
 import { initializeStoreSync, cleanupStoreSync } from './services/storeSync';
 import { orgDataSyncService } from './services/OrgDataSyncService';
+import { isWebPlatform } from './config/platform';
+import { webAuthSession } from './services/auth/webAuthSession';
+import { tokenRefreshService } from './services/auth/tokenRefreshService';
 import './utils/videoSupport'; // Initialize video support check on page load
 
 
@@ -149,6 +152,17 @@ const AppContent = () => {
         };
     }, []);
 
+    React.useEffect(() => {
+        if (!isWebPlatform()) return;
+        const session = webAuthSession.getSession();
+        if (session?.accessToken) {
+            tokenRefreshService.start(session.accessToken, {
+                checkInterval: 10 * 60 * 1000,
+                refreshThreshold: 10 * 60,
+            });
+        }
+    }, []);
+
     // Register App-level cleanup for logout
     React.useEffect(() => {
         logoutManager.registerCleanup({
@@ -200,11 +214,11 @@ const AppContent = () => {
         >
             <AntdApp>
                 <ModalRegistrar />
-                <HashRouter>
+                <BrowserRouter basename="/app/gui-v2">
                     <Routes>
                         {renderRoutes(routes)}
                     </Routes>
-                </HashRouter>
+                </BrowserRouter>
             </AntdApp>
         </ConfigProvider>
     );
