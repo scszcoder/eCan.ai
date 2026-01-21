@@ -553,7 +553,7 @@ def _update_skill_in_memory(skill_id: str, skill_data: Dict[str, Any], request=N
     """
     try:
         ctx = get_handler_context(request, params)
-        if not ctx or not hasattr(ctx, 'agent_skills'):
+        if not ctx or not hasattr(ctx, 'get_agent_skills'):
             logger.warning("[skill_handler] mainwin.agent_skills not available")
             return False
 
