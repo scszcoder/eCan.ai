@@ -139,7 +139,7 @@ parso==0.8.4
 pdf2image>=1.17.0
 pefile==2023.2.7
 pickleshare==0.7.5
-pillow==11.2.1
+pillow==11.3.0
 ping3==4.0.8
 pipreqs==0.5.0
 platformdirs==4.3.7
@@ -229,7 +229,7 @@ typing_extensions>=4.14.0
 tzdata==2024.1
 tzlocal==5.2
 uritemplate==4.1.1
-urllib3>=2.0.0
+urllib3>=2.6.3
 uvicorn==0.34.0
 watchdog==4.0.1
 watchfiles==1.1.0
