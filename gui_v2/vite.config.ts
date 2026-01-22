@@ -77,7 +77,7 @@ export default defineConfig({
       'monaco-editor/esm/vs/language/css/css.worker',
       'monaco-editor/esm/vs/language/html/html.worker',
       'monaco-editor/esm/vs/language/typescript/ts.worker',
-      'react-split-pane',
+      'split-pane-react',
       'react',
       'react-dom',
       'antd',
