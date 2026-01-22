@@ -214,28 +214,36 @@ class InstallationManager:
                 logger.info("Running in development environment, skipping backup")
                 return True
             
-            # Get current application path (packaged application only)
-            app_path = Path(sys.executable).parent
-            
-            # Create backup directory
-            backup_root = Path(tempfile.gettempdir()) / "ecan_backup"
-            backup_root.mkdir(exist_ok=True)
-            
-            timestamp = int(time.time())
-            self.backup_dir = backup_root / f"backup_{timestamp}"
-            
-            logger.info(f"Creating backup: {app_path} -> {self.backup_dir}")
-            
-            # Copy application files
-            shutil.copytree(
-                app_path, 
-                self.backup_dir, 
-                ignore=shutil.ignore_patterns('*.log', '__pycache__'),
-                symlinks=True  # ✅ Copy symlinks as symlinks, don't follow them
-            )
-            
-            logger.info(f"Backup created successfully: {self.backup_dir}")
+            # ⚠️ Skip backup for OTA updates to avoid long blocking operations
+            # Inno Setup installer has built-in rollback mechanism if installation fails
+            # Creating backup of entire app directory (hundreds of MB) can take minutes and block the UI
+            logger.info("OTA update: Skipping backup (Inno Setup has built-in rollback)")
+            logger.info("If installation fails, Inno Setup will automatically restore previous version")
             return True
+            
+            # Original backup code (disabled for OTA updates):
+            # Get current application path (packaged application only)
+            # app_path = Path(sys.executable).parent
+            # 
+            # # Create backup directory
+            # backup_root = Path(tempfile.gettempdir()) / "ecan_backup"
+            # backup_root.mkdir(exist_ok=True)
+            # 
+            # timestamp = int(time.time())
+            # self.backup_dir = backup_root / f"backup_{timestamp}"
+            # 
+            # logger.info(f"Creating backup: {app_path} -> {self.backup_dir}")
+            # 
+            # # Copy application files
+            # shutil.copytree(
+            #     app_path, 
+            #     self.backup_dir, 
+            #     ignore=shutil.ignore_patterns('*.log', '__pycache__'),
+            #     symlinks=True  # ✅ Copy symlinks as symlinks, don't follow them
+            # )
+            # 
+            # logger.info(f"Backup created successfully: {self.backup_dir}")
+            # return True
             
         except Exception as e:
             logger.error(f"Failed to create backup: {e}")
