@@ -1,0 +1,28 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    ECAN_MODE=worker \
+    AWS_DEFAULT_REGION=us-east-1
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libffi-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd --create-home --shell /bin/bash ecan
+RUN chown -R ecan:ecan /app
+
+COPY requirements-base.txt ./
+
+RUN pip install --no-cache-dir --upgrade pip && \
+    grep -v -E "^(PySide6|PyQt|qtpy)" requirements-base.txt > requirements-worker.txt && \
+    pip install --no-cache-dir -r requirements-worker.txt
+
+COPY --chown=ecan:ecan . .
+
+USER ecan
+
+CMD ["python", "-m", "agent.cloud_worker.worker_main"]
