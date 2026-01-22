@@ -228,6 +228,9 @@ const Login: React.FC = () => {
 				userStorageManager.saveLoginSession(loginSession);
 				// LoginSuccess后EnabledPageRefreshListen
 				pageRefreshManager.enable();
+				
+				// Clear token expiration notification flag on successful login
+				sessionStorage.removeItem('token_expired_notification_shown');
 
 				// Start token refresh service with callback to update localStorage
 				tokenRefreshService.start(token, {
