@@ -244,12 +244,16 @@ const Tests: React.FC = () => {
         const senderId = parsedArgs.senderId || username || 'web-client';
         const sessionId = parsedArgs.sessionId || `session-${Date.now()}`;
         const recipientId = parsedArgs.recipientId || senderId;
+        const owner = parsedArgs.owner || username || 'web-client';
+        const acctSiteID = parsedArgs.acctSiteID || parsedArgs.acctSiteId || `site-${username || 'web'}`;
+        const sceneId = parsedArgs.scene_id || `scene-${Date.now()}`;
+        const requestId = parsedArgs.request_id || `req-${Date.now()}`;
 
-        const subscriptionQuery = `subscription OnA2AMessageReceived($channelId: String!) {\n  onA2AMessageReceived(channelId: $channelId) {\n    id\n    channelId\n    senderId\n    sessionId\n    timestamp\n    message {\n      role\n      parts {\n        type\n        text\n        data\n        metadata\n        file {\n          name\n          uri\n          mimeType\n          bytes\n        }\n      }\n    }\n  }\n}`;
+        const a2aSubscriptionQuery = `subscription OnA2AMessageReceived($channelId: String!) {\n  onA2AMessageReceived(channelId: $channelId) {\n    id\n    channelId\n    senderId\n    sessionId\n    timestamp\n    message {\n      role\n      parts {\n        type\n        text\n        data\n        metadata\n        file {\n          name\n          uri\n          mimeType\n          bytes\n        }\n      }\n    }\n  }\n}`;
 
-        const mutationQuery = `mutation SendA2AMessage($input: A2AMessageInput!) {\n  sendA2AMessage(input: $input) {\n    id\n    channelId\n    senderId\n    sessionId\n    timestamp\n    message {\n      role\n      parts {\n        type\n        text\n      }\n    }\n  }\n}`;
+        const a2aMutationQuery = `mutation SendA2AMessage($input: A2AMessageInput!) {\n  sendA2AMessage(input: $input) {\n    id\n    channelId\n    senderId\n    sessionId\n    timestamp\n    message {\n      role\n      parts {\n        type\n        text\n      }\n    }\n  }\n}`;
 
-        const input = {
+        const a2aInput = {
             channelId,
             senderId,
             recipientId,
@@ -262,6 +266,64 @@ const Tests: React.FC = () => {
                     { type: 'text', text: messageText }
                 ]
             }
+        };
+
+        const accountSubscriptionQuery = `subscription OnAccountNotification($owner: ID!) {\n  onAccountNotification(owner: $owner) {\n    id\n    owner\n    type\n    title\n    message\n    payload\n    created_at\n    cta_url\n  }\n}`;
+
+        const accountMutationQuery = `mutation PublishAccountNotification($input: AccountNotificationInput!) {\n  publishAccountNotification(input: $input) {\n    id\n    owner\n    type\n    title\n    message\n    payload\n    created_at\n    cta_url\n  }\n}`;
+
+        const accountInput = {
+            owner,
+            type: parsedArgs.accountType || 'TEST',
+            title: parsedArgs.accountTitle || 'WebSocket Test',
+            message: parsedArgs.accountMessage || 'Account notification echo test',
+            payload: parsedArgs.accountPayload || { source: 'websocket-test' },
+            cta_url: parsedArgs.accountCtaUrl || ''
+        };
+
+        const sceneSubscriptionQuery = `subscription OnAgentSceneEvent($acctSiteID: String!) {\n  onAgentSceneEvent(acctSiteID: $acctSiteID) {\n    id\n    acctSiteID\n    scene_id\n    status\n    timestamp\n    label\n  }\n}`;
+
+        const sceneMutationQuery = `mutation UpdateScene($input: SceneInput!) {\n  updateScene(input: $input) {\n    id\n    acctSiteID\n    scene_id\n    status\n    timestamp\n    label\n  }\n}`;
+
+        const sceneInput = {
+            acctSiteID,
+            agent_ids: parsedArgs.agent_ids || [senderId],
+            clip: parsedArgs.clip || 'clip',
+            images: parsedArgs.images || ['image'],
+            label: parsedArgs.label || 'WebSocket Test Scene',
+            scene_id: sceneId,
+            status: parsedArgs.sceneStatus || 'PENDING',
+            thumbnails: parsedArgs.thumbnails || ['thumbnail'],
+            video: parsedArgs.video || ['video'],
+            actions: parsedArgs.actions,
+            captions: parsedArgs.captions,
+            description: parsedArgs.description || 'Scene echo test',
+            dialogs: parsedArgs.dialogs,
+            duration_ms: parsedArgs.duration_ms || 1000,
+            n_repeat: parsedArgs.n_repeat,
+            priority: parsedArgs.priority,
+            trigger_events: parsedArgs.trigger_events
+        };
+
+        const sceneCompleteSubscriptionQuery = `subscription OnSceneComplete($acctSiteID: String!) {\n  onSceneComplete(acctSiteID: $acctSiteID) {\n    id\n    acctSiteID\n    scene_id\n    request_id\n    status\n    timestamp\n  }\n}`;
+
+        const sceneCompleteMutationQuery = `mutation PublishSceneResult($input: SceneResultInput!) {\n  publishSceneResult(input: $input) {\n    id\n    acctSiteID\n    scene_id\n    request_id\n    status\n    timestamp\n  }\n}`;
+
+        const sceneResultInput = {
+            acctSiteID,
+            agent_ids: parsedArgs.agent_ids || [senderId],
+            request_id: requestId,
+            scene_id: sceneId,
+            status: parsedArgs.sceneResultStatus || 'COMPLETED',
+            video: parsedArgs.video || ['video'],
+            actions: parsedArgs.result_actions,
+            description: parsedArgs.result_description,
+            dialogs: parsedArgs.result_dialogs,
+            duration_ms: parsedArgs.result_duration_ms,
+            emotion: parsedArgs.result_emotion,
+            error: parsedArgs.result_error,
+            mind_state: parsedArgs.result_mind_state,
+            thumbnail: parsedArgs.result_thumbnail
         };
 
         const toBase64 = (value: string) => {
@@ -281,106 +343,176 @@ const Tests: React.FC = () => {
         const payloadParam = toBase64(JSON.stringify({}));
         const realtimeUrl = `${wsEndpoint}?header=${encodeURIComponent(headerParam)}&payload=${encodeURIComponent(payloadParam)}`;
 
-        appendTestOutput(`WebSocket Test: Connecting to ${wsEndpoint}`);
-        appendTestOutput(`WebSocket Test: Subscribing channelId=${channelId}`);
-
-        const ws = new WebSocket(realtimeUrl, 'graphql-ws');
-        const subscriptionId = `sub-${Date.now()}`;
-        let hasAck = false;
-        let hasReceived = false;
-
-        const cleanup = () => {
-            try {
-                if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-                    ws.close(1000, 'WebSocket test complete');
-                }
-            } catch (e) {
-                console.warn('[Tests] WebSocket cleanup error', e);
+        const subscriptionTests = [
+            {
+                key: 'a2a',
+                label: 'A2A Message',
+                subscriptionQuery: a2aSubscriptionQuery,
+                subscriptionVariables: { channelId },
+                mutationQuery: a2aMutationQuery,
+                mutationVariables: { input: a2aInput }
+            },
+            {
+                key: 'account',
+                label: 'Account Notification',
+                subscriptionQuery: accountSubscriptionQuery,
+                subscriptionVariables: { owner },
+                mutationQuery: accountMutationQuery,
+                mutationVariables: { input: accountInput }
+            },
+            {
+                key: 'scene',
+                label: 'Agent Scene Event',
+                subscriptionQuery: sceneSubscriptionQuery,
+                subscriptionVariables: { acctSiteID },
+                mutationQuery: sceneMutationQuery,
+                mutationVariables: { input: sceneInput }
+            },
+            {
+                key: 'sceneComplete',
+                label: 'Scene Complete',
+                subscriptionQuery: sceneCompleteSubscriptionQuery,
+                subscriptionVariables: { acctSiteID },
+                mutationQuery: sceneCompleteMutationQuery,
+                mutationVariables: { input: sceneResultInput }
             }
-        };
+        ];
 
-        ws.onopen = () => {
-            appendTestOutput('WebSocket Test: Socket open, sending connection_init');
-            ws.send(JSON.stringify({
-                type: 'connection_init'
-            }));
-        };
+        const requestedTests = Array.isArray(parsedArgs.subscriptions) && parsedArgs.subscriptions.length > 0
+            ? parsedArgs.subscriptions
+            : subscriptionTests.map((test) => test.key);
 
-        ws.onmessage = async (event) => {
-            let messageData: any;
-            try {
-                messageData = JSON.parse(event.data as string);
-            } catch {
-                appendTestOutput('WebSocket Test: Received non-JSON message');
-                return;
-            }
+        const testsToRun = subscriptionTests.filter((test) => requestedTests.includes(test.key));
 
-            if (messageData.type === 'connection_ack') {
-                hasAck = true;
-                appendTestOutput('WebSocket Test: connection_ack received, starting subscription');
-                ws.send(JSON.stringify({
-                    id: subscriptionId,
-                    type: 'start',
-                    payload: {
-                        data: JSON.stringify({
-                            query: subscriptionQuery,
-                            variables: { channelId }
-                        }),
-                        extensions: {
-                            authorization: authHeaders
-                        }
+        const runEchoTest = async (test: typeof subscriptionTests[number]) => {
+            appendTestOutput(`WebSocket Test (${test.label}): Connecting to ${wsEndpoint}`);
+            appendTestOutput(`WebSocket Test (${test.label}): Subscribing with ${JSON.stringify(test.subscriptionVariables)}`);
+
+            return new Promise<void>((resolve) => {
+                const ws = new WebSocket(realtimeUrl, 'graphql-ws');
+                const subscriptionId = `sub-${test.key}-${Date.now()}`;
+                let hasAck = false;
+                let hasReceived = false;
+                let finished = false;
+
+                const finish = (note?: string) => {
+                    if (finished) return;
+                    finished = true;
+                    if (note) {
+                        appendTestOutput(note);
                     }
-                }));
+                    try {
+                        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+                            ws.close(1000, 'WebSocket test complete');
+                        }
+                    } catch (e) {
+                        console.warn('[Tests] WebSocket cleanup error', e);
+                    }
+                    resolve();
+                };
 
-                appendTestOutput('WebSocket Test: Sending mutation via AppSync HTTP');
-                try {
-                    const response = await fetch(wanEndpoint, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'x-api-key': wanApiKey
-                        },
-                        body: JSON.stringify({
-                            query: mutationQuery,
-                            variables: { input }
-                        })
-                    });
-                    const payload = await response.json();
-                    appendTestOutput(`WebSocket Test: Mutation response ${response.status} ${response.statusText}`);
-                    appendTestOutput(JSON.stringify(payload, null, 2));
-                } catch (e) {
-                    appendTestOutput('WebSocket Test: Mutation failed - ' + (e instanceof Error ? e.message : String(e)));
-                }
-                return;
-            }
+                const timeoutId = window.setTimeout(() => {
+                    finish(`WebSocket Test (${test.label}): Timeout waiting for data`);
+                }, parsedArgs.timeoutMs || 15000);
 
-            if (messageData.type === 'ka') {
-                return;
-            }
+                ws.onopen = () => {
+                    appendTestOutput(`WebSocket Test (${test.label}): Socket open, sending connection_init`);
+                    ws.send(JSON.stringify({
+                        type: 'connection_init'
+                    }));
+                };
 
-            if (messageData.type === 'data') {
-                hasReceived = true;
-                appendTestOutput('WebSocket Test: Subscription data received');
-                appendTestOutput(JSON.stringify(messageData.payload, null, 2));
-                cleanup();
-                return;
-            }
+                ws.onmessage = async (event) => {
+                    let messageData: any;
+                    try {
+                        messageData = JSON.parse(event.data as string);
+                    } catch {
+                        appendTestOutput(`WebSocket Test (${test.label}): Received non-JSON message`);
+                        return;
+                    }
 
-            if (messageData.type === 'error' || messageData.type === 'connection_error') {
-                appendTestOutput('WebSocket Test: Error - ' + JSON.stringify(messageData, null, 2));
-                cleanup();
-            }
+                    if (messageData.type === 'connection_ack') {
+                        hasAck = true;
+                        appendTestOutput(`WebSocket Test (${test.label}): connection_ack received, starting subscription`);
+                        ws.send(JSON.stringify({
+                            id: subscriptionId,
+                            type: 'start',
+                            payload: {
+                                data: JSON.stringify({
+                                    query: test.subscriptionQuery,
+                                    variables: test.subscriptionVariables
+                                }),
+                                extensions: {
+                                    authorization: authHeaders
+                                }
+                            }
+                        }));
+
+                        appendTestOutput(`WebSocket Test (${test.label}): Sending mutation via AppSync HTTP`);
+                        try {
+                            const response = await fetch(wanEndpoint, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'x-api-key': wanApiKey
+                                },
+                                body: JSON.stringify({
+                                    query: test.mutationQuery,
+                                    variables: test.mutationVariables
+                                })
+                            });
+                            const payload = await response.json();
+                            appendTestOutput(`WebSocket Test (${test.label}): Mutation response ${response.status} ${response.statusText}`);
+                            appendTestOutput(JSON.stringify(payload, null, 2));
+                        } catch (e) {
+                            appendTestOutput(`WebSocket Test (${test.label}): Mutation failed - ${e instanceof Error ? e.message : String(e)}`);
+                        }
+                        return;
+                    }
+
+                    if (messageData.type === 'ka') {
+                        return;
+                    }
+
+                    if (messageData.type === 'data') {
+                        hasReceived = true;
+                        appendTestOutput(`WebSocket Test (${test.label}): Subscription data received`);
+                        appendTestOutput(JSON.stringify(messageData.payload, null, 2));
+                        window.clearTimeout(timeoutId);
+                        finish();
+                        return;
+                    }
+
+                    if (messageData.type === 'error' || messageData.type === 'connection_error') {
+                        appendTestOutput(`WebSocket Test (${test.label}): Error - ${JSON.stringify(messageData, null, 2)}`);
+                        window.clearTimeout(timeoutId);
+                        finish();
+                    }
+                };
+
+                ws.onerror = (event) => {
+                    appendTestOutput(`WebSocket Test (${test.label}): WebSocket error`);
+                    console.error('[Tests] WebSocket error', event);
+                };
+
+                ws.onclose = (event) => {
+                    window.clearTimeout(timeoutId);
+                    const suffix = hasReceived ? ' (message received)' : hasAck ? ' (connected)' : '';
+                    appendTestOutput(`WebSocket Test (${test.label}): Socket closed ${event.code}${suffix}`);
+                    finish();
+                };
+            });
         };
 
-        ws.onerror = (event) => {
-            appendTestOutput('WebSocket Test: WebSocket error');
-            console.error('[Tests] WebSocket error', event);
-        };
+        if (testsToRun.length === 0) {
+            appendTestOutput('WebSocket Test: No subscriptions selected to run.');
+            return;
+        }
 
-        ws.onclose = (event) => {
-            const suffix = hasReceived ? ' (message received)' : hasAck ? ' (connected)' : '';
-            appendTestOutput(`WebSocket Test: Socket closed ${event.code}${suffix}`);
-        };
+        appendTestOutput(`WebSocket Test: Running ${testsToRun.length} subscription echo tests`);
+        for (const test of testsToRun) {
+            await runEchoTest(test);
+        }
     };
 
     const handlePageClick: React.MouseEventHandler<HTMLDivElement> = (e) => {
