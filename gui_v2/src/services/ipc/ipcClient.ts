@@ -32,10 +32,8 @@ export interface IPCClientConfig {
     wsConfig?: Partial<WSClientConfig>;
 }
 
-// Default WebSocket URL (can be overridden by environment variable)
-// @ts-ignore - import.meta.env is available in Vite
-const DEFAULT_WS_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_WS_URL) || 
-    (typeof window !== 'undefined' ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws` : 'ws://localhost:8765');
+// Default WebSocket URL (hardcoded for current deployment)
+const DEFAULT_WS_URL = 'wss://www.eCan.ai/ws';
 
 /**
  * Detect deployment mode based on environment
