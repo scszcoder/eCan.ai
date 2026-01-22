@@ -142,6 +142,10 @@ class FrontendBuilder:
     def _run_build(self, force: bool = False) -> bool:
         """Execute build"""
         try:
+            # Clean Vite cache and dist before building to ensure fresh build
+            print("[FRONTEND] Cleaning Vite cache and build artifacts...")
+            self._clean_frontend_cache()
+            
             # If node_modules doesn't exist or force mode, run npm ci first
             need_install = force or not (self.frontend_dir / 'node_modules').exists()
             if need_install:
@@ -207,6 +211,26 @@ class FrontendBuilder:
         except Exception as e:
             print(f"[ERROR] Failed to build frontend: {e}")
             return False
+    
+    def _clean_frontend_cache(self) -> None:
+        """Clean Vite cache and build artifacts to ensure fresh build"""
+        try:
+            # Directories to clean
+            cache_dirs = [
+                self.frontend_dir / "dist",
+                self.frontend_dir / "node_modules" / ".vite",
+                self.frontend_dir / ".vite"
+            ]
+            
+            for cache_dir in cache_dirs:
+                if cache_dir.exists():
+                    try:
+                        shutil.rmtree(cache_dir, ignore_errors=True)
+                        print(f"[FRONTEND] Cleaned: {cache_dir.name}")
+                    except Exception as e:
+                        print(f"[FRONTEND] Warning: Failed to clean {cache_dir.name}: {e}")
+        except Exception as e:
+            print(f"[FRONTEND] Warning: Cache cleanup failed: {e}")
 
 
 # PyInstallerBuilder removed: unified build directly uses MiniSpecBuilder

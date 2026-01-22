@@ -12,7 +12,7 @@ import logging
 from os.path import exists
 from typing import Dict, List, Any, Optional
 
-logger = logging.getLogger('eCan')
+from utils.logger_helper import logger_helper as logger
 
 
 # ==================== Ollama Tags File Management ====================
