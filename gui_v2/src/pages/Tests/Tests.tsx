@@ -5,6 +5,11 @@ import { useTranslation } from 'react-i18next';
 import {get_ipc_api} from '../../services/ipc_api';
 import { useUserStore } from '../../stores/userStore';
 import { useSettingsStore } from '../../stores/settingsStore';
+import {
+    downloadWithPresignedUrl,
+    uploadWithPresignedUrl,
+    PresignedRequest
+} from '../../services/web/presignedFileOps';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -339,6 +344,94 @@ const Tests: React.FC = () => {
             'x-api-key': wanApiKey
         };
 
+        const parseJsonMaybe = (value: any) => {
+            if (typeof value !== 'string') return value;
+            try {
+                return JSON.parse(value);
+            } catch {
+                return value;
+            }
+        };
+
+        const normalizePresignedRequest = (entry: any, fallbackMethod?: PresignedRequest['method']): PresignedRequest | null => {
+            const parsed = parseJsonMaybe(entry);
+            if (!parsed || typeof parsed !== 'object') return null;
+            const url =
+                parsed.url ||
+                parsed.upload_url ||
+                parsed.download_url ||
+                parsed.presigned_url ||
+                parsed.s3_url ||
+                parsed.s3PresignedUrl;
+
+            if (!url || typeof url !== 'string') return null;
+
+            const fields = parsed.fields && typeof parsed.fields === 'object' ? parsed.fields : undefined;
+            const headers = parsed.headers || parsed.requestHeaders;
+
+            return {
+                url,
+                method: parsed.method || fallbackMethod || (fields ? 'POST' : undefined),
+                fields,
+                headers,
+                raw: parsed
+            };
+        };
+
+        const tryPresignedFlow = async (payload: any) => {
+            const data = payload?.data || payload;
+            const notification = data?.onAccountNotification || data?.accountNotification || data;
+            const rawPayload = parseJsonMaybe(notification?.payload ?? notification?.data ?? notification);
+            if (!rawPayload || typeof rawPayload !== 'object') {
+                return false;
+            }
+
+            const uploadEntry =
+                rawPayload.upload ||
+                rawPayload.uploadInfo ||
+                rawPayload.upload_request ||
+                {
+                    url: rawPayload.upload_url || rawPayload.uploadUrl || rawPayload.presigned_upload_url,
+                    headers: rawPayload.upload_headers,
+                    method: rawPayload.upload_method || 'PUT'
+                };
+
+            const downloadEntry =
+                rawPayload.download ||
+                rawPayload.downloadInfo ||
+                rawPayload.download_request ||
+                {
+                    url: rawPayload.download_url || rawPayload.downloadUrl || rawPayload.presigned_download_url,
+                    headers: rawPayload.download_headers,
+                    method: rawPayload.download_method || 'GET'
+                };
+
+            const upload = normalizePresignedRequest(uploadEntry, 'PUT');
+            const download = normalizePresignedRequest(downloadEntry, 'GET');
+
+            if (!upload || !download) {
+                return false;
+            }
+
+            const contentType = rawPayload.contentType || rawPayload.content_type || 'text/plain';
+            const testBody = rawPayload.testBody || rawPayload.test_body || `presigned-test-${Date.now()}`;
+            const blob = new Blob([testBody], { type: contentType });
+
+            appendTestOutput('WebSocket Test: Presigned payload detected, starting upload');
+            await uploadWithPresignedUrl(blob, upload, contentType);
+            appendTestOutput('WebSocket Test: Upload completed, downloading');
+            const downloaded = await downloadWithPresignedUrl(download);
+            const downloadedText = await downloaded.text();
+
+            if (downloadedText !== testBody) {
+                appendTestOutput('WebSocket Test: Downloaded content mismatch');
+            } else {
+                appendTestOutput('WebSocket Test: Downloaded content verified');
+            }
+
+            return true;
+        };
+
         const headerParam = toBase64(JSON.stringify(authHeaders));
         const payloadParam = toBase64(JSON.stringify({}));
         const realtimeUrl = `${wsEndpoint}?header=${encodeURIComponent(headerParam)}&payload=${encodeURIComponent(payloadParam)}`;
@@ -394,6 +487,9 @@ const Tests: React.FC = () => {
                 let hasAck = false;
                 let hasReceived = false;
                 let finished = false;
+                const skipMutation =
+                    parsedArgs.skipMutation === true ||
+                    (Array.isArray(parsedArgs.skipMutationFor) && parsedArgs.skipMutationFor.includes(test.key));
 
                 const finish = (note?: string) => {
                     if (finished) return;
@@ -448,6 +544,11 @@ const Tests: React.FC = () => {
                             }
                         }));
 
+                        if (skipMutation) {
+                            appendTestOutput(`WebSocket Test (${test.label}): Skipping mutation (awaiting external publisher)`);
+                            return;
+                        }
+
                         appendTestOutput(`WebSocket Test (${test.label}): Sending mutation via AppSync HTTP`);
                         try {
                             const response = await fetch(wanEndpoint, {
@@ -478,6 +579,14 @@ const Tests: React.FC = () => {
                         hasReceived = true;
                         appendTestOutput(`WebSocket Test (${test.label}): Subscription data received`);
                         appendTestOutput(JSON.stringify(messageData.payload, null, 2));
+                        try {
+                            const handled = await tryPresignedFlow(messageData.payload);
+                            if (handled) {
+                                appendTestOutput(`WebSocket Test (${test.label}): Presigned upload/download test finished`);
+                            }
+                        } catch (e) {
+                            appendTestOutput(`WebSocket Test (${test.label}): Presigned flow failed - ${e instanceof Error ? e.message : String(e)}`);
+                        }
                         window.clearTimeout(timeoutId);
                         finish();
                         return;
