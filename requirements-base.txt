@@ -77,7 +77,7 @@ pytesseract==0.3.13
 selenium==4.32.0
 playwright==1.54.0
 browser-use==0.11.2
-# crawl4ai==0.7.8  # Commented out - no Python 3.14 wheels (requires lxml~=5.3 which lacks cp314 support)
+# crawl4ai==0.8.0  # Commented out - no Python 3.14 wheels (requires lxml~=5.3 which lacks cp314 support)
 webdriver-manager==4.0.2
 fake-useragent==2.2.0
 beautifulsoup4==4.13.3
@@ -326,7 +326,7 @@ altgraph==0.17.4
 asttokens==3.0.0
 backcall==0.2.0
 cffi==2.0.0
-deepdiff==8.0.1
+deepdiff>=8.6.1
 defusedxml==0.7.1
 docopt==0.6.2
 EasyProcess==1.1
