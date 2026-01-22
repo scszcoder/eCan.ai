@@ -24,6 +24,7 @@ import { orgDataSyncService } from './services/OrgDataSyncService';
 import { isWebPlatform } from './config/platform';
 import { webAuthSession } from './services/auth/webAuthSession';
 import { tokenRefreshService } from './services/auth/tokenRefreshService';
+import { startWebSubscriptions } from './services/web/appSyncSubscriptions';
 import './utils/videoSupport'; // Initialize video support check on page load
 
 
@@ -161,6 +162,12 @@ const AppContent = () => {
                 refreshThreshold: 10 * 60,
             });
         }
+    }, []);
+
+    React.useEffect(() => {
+        if (!isWebPlatform()) return;
+        const cleanup = startWebSubscriptions();
+        return () => cleanup?.();
     }, []);
 
     // Register App-level cleanup for logout

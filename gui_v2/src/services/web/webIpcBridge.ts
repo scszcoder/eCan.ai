@@ -262,6 +262,13 @@ export async function handleWebIpcRequest<T>(method: string, params?: any): Prom
       const allMine = await webApi.getAllMine();
       return { success: true, data: { vehicles: allMine.vehicles } as any };
     }
+    case 'get_settings': {
+      const allMine = await webApi.getAllMine();
+      return { success: true, data: { settings: allMine.accountInfo ?? null } as any };
+    }
+    case 'save_settings': {
+      return { success: false, error: { code: 'NOT_SUPPORTED', message: 'save_settings is not supported in web mode yet.' } };
+    }
     case 'new_agent': {
       const agents = normalizeArray<any>(params?.agent);
       const results = await runMutation<MutationResult[]>(ADD_AGENTS_MUTATION, { input: agents }, 'addAgents');
