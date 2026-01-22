@@ -41,6 +41,36 @@ from utils.logger_helper import logger_helper as logger
 # Configuration
 # =============================================================================
 
+def _build_http_headers(mainwin, auth_headers: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    if auth_headers is not None:
+        return {
+            'Content-Type': "application/json",
+            'cache-control': "no-cache",
+            **auth_headers,
+        }
+    if mainwin is None:
+        raise ValueError("wan_a2a_chat requires either mainwin or auth_headers")
+    token = mainwin.get_auth_token()
+    return {
+        'Content-Type': "application/json",
+        'Authorization': token,
+        'cache-control': "no-cache",
+    }
+
+
+def _build_ws_api_headers(endpoints: Dict[str, str], mainwin, auth_headers: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    headers: Dict[str, str] = {
+        'host': endpoints["host"],
+    }
+    if auth_headers is not None:
+        headers.update(auth_headers)
+        return headers
+    if mainwin is None:
+        raise ValueError("wan_a2a_chat requires either mainwin or auth_headers")
+    token = mainwin.get_auth_token()
+    headers['Authorization'] = token
+    return headers
+
 def get_a2a_appsync_endpoints():
     """Get AppSync endpoints for A2A messaging"""
     from config.constants import API_DEV_MODE
@@ -312,7 +342,9 @@ async def wan_a2a_send_message(
     recipient_id: Optional[str] = None,
     session_id: Optional[str] = None,
     accepted_output_modes: Optional[List[str]] = None,
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None,
+    auth_headers: Optional[Dict[str, str]] = None,
+    endpoints: Optional[Dict[str, str]] = None
 ) -> Dict[str, Any]:
     """
     Send an A2A message over WAN via AWS AppSync GraphQL.
@@ -326,12 +358,13 @@ async def wan_a2a_send_message(
         session_id: Optional session ID (auto-generated if not provided)
         accepted_output_modes: Optional list of accepted output modes
         metadata: Optional metadata dict
+        auth_headers: Optional auth headers (API key or JWT)
+        endpoints: Optional AppSync endpoints
         
     Returns:
         GraphQL response dict
     """
-    endpoints = get_a2a_appsync_endpoints()
-    token = mainwin.get_auth_token()
+    endpoints = endpoints or get_a2a_appsync_endpoints()
     
     # Build TaskSendParams
     params = TaskSendParams(
@@ -353,11 +386,7 @@ async def wan_a2a_send_message(
     variables = {"input": graphql_input}
     query_string = gen_a2a_send_message_mutation()
     
-    headers = {
-        'Content-Type': "application/json",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
+    headers = _build_http_headers(mainwin=mainwin, auth_headers=auth_headers)
     
     try:
         logger.debug(f"[wan_a2a] Sending message to channel: {channel_id}")
@@ -397,7 +426,9 @@ def wan_a2a_send_message_sync(
     recipient_id: Optional[str] = None,
     session_id: Optional[str] = None,
     accepted_output_modes: Optional[List[str]] = None,
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None,
+    auth_headers: Optional[Dict[str, str]] = None,
+    endpoints: Optional[Dict[str, str]] = None
 ) -> Dict[str, Any]:
     """
     Synchronous version of wan_a2a_send_message.
@@ -405,8 +436,8 @@ def wan_a2a_send_message_sync(
     """
     import requests
     
-    endpoints = get_a2a_appsync_endpoints()
-    token = mainwin.get_auth_token()
+    endpoints = endpoints or get_a2a_appsync_endpoints()
+    headers = _build_http_headers(mainwin=mainwin, auth_headers=auth_headers)
     
     # Build TaskSendParams
     params = TaskSendParams(
@@ -427,12 +458,6 @@ def wan_a2a_send_message_sync(
     
     variables = {"input": graphql_input}
     query_string = gen_a2a_send_message_mutation()
-    
-    headers = {
-        'Content-Type': "application/json",
-        'Authorization': token,
-        'cache-control': "no-cache",
-    }
     
     http_endpoint = endpoints["http"]
     
@@ -471,7 +496,9 @@ async def wan_a2a_subscribe(
     mainwin,
     channel_id: str,
     on_message_callback=None,
-    max_retries: int = 50
+    max_retries: int = 50,
+    auth_headers: Optional[Dict[str, str]] = None,
+    endpoints: Optional[Dict[str, str]] = None
 ):
     """
     Subscribe to A2A messages on a channel via AWS AppSync WebSocket.
@@ -481,29 +508,25 @@ async def wan_a2a_subscribe(
         channel_id: Channel to subscribe to
         on_message_callback: Optional callback function(TaskSendParams, sender_id, channel_id)
         max_retries: Maximum retry attempts for connection
+        auth_headers: Optional auth headers (API key or JWT)
+        endpoints: Optional AppSync endpoints
     """
-    endpoints = get_a2a_appsync_endpoints()
-    token = mainwin.get_auth_token()
-    
+    endpoints = endpoints or get_a2a_appsync_endpoints()
+    if on_message_callback is None and mainwin is None:
+        raise ValueError("wan_a2a_subscribe requires on_message_callback when mainwin is None")
     retry_count = 0
     base_backoff = 5
     
     while retry_count < max_retries:
         try:
             # Build WebSocket connection URL with auth headers
-            api_headers = {
-                'content-type': 'application/json',
-                'host': endpoints["host"],
-                'Authorization': token
-            }
-            
+            api_headers = _build_ws_api_headers(endpoints=endpoints, mainwin=mainwin, auth_headers=auth_headers)
+
             header_b64 = base64.b64encode(json.dumps(api_headers).encode('utf-8')).decode('utf-8')
             ws_url = f"{endpoints['ws']}?header={header_b64}&payload=e30="
             
             # SSL context
-            ssl_context = ssl.create_default_context()
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
+            ssl_context = ssl.create_default_context(cafile=certifi.where())
             
             timeout = aiohttp.ClientTimeout(total=60, connect=60, sock_read=300)
             
@@ -528,7 +551,8 @@ async def wan_a2a_subscribe(
                             response_data = json.loads(msg.data)
                             if response_data.get("type") == "connection_ack":
                                 logger.info("[wan_a2a] WebSocket connection acknowledged")
-                                mainwin.set_wan_connected(True)
+                                if mainwin is not None:
+                                    mainwin.set_wan_connected(True)
                                 ka_timeout_sec = response_data.get("payload", {}).get("connectionTimeoutMs", 300000) / 1000
                                 break
                         elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
@@ -542,14 +566,11 @@ async def wan_a2a_subscribe(
                     }
                     
                     sub_request = {
-                        "id": "a2a-sub-1",
+                        "id": f"a2a-sub-{uuid4().hex}",
                         "payload": {
                             "data": json.dumps(sub_data),
                             "extensions": {
-                                "authorization": {
-                                    "Authorization": token,
-                                    "host": endpoints["host"]
-                                }
+                                "authorization": {k: v for k, v in api_headers.items() if k != 'content-type'}
                             }
                         },
                         "type": "start"
@@ -565,7 +586,8 @@ async def wan_a2a_subscribe(
                             response_data = json.loads(msg.data)
                             if response_data.get("type") == "start_ack":
                                 logger.info(f"[wan_a2a] Subscribed to channel: {channel_id}")
-                                mainwin.set_wan_msg_subscribed(True)
+                                if mainwin is not None:
+                                    mainwin.set_wan_msg_subscribed(True)
                                 break
                         elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
                             raise Exception("Connection closed during subscription ack")
@@ -612,20 +634,24 @@ async def wan_a2a_subscribe(
                                     
                             elif msg.type == aiohttp.WSMsgType.CLOSED:
                                 logger.info("[wan_a2a] WebSocket closed normally")
-                                mainwin.set_wan_connected(False)
+                                if mainwin is not None:
+                                    mainwin.set_wan_connected(False)
                                 break
                             elif msg.type == aiohttp.WSMsgType.ERROR:
                                 logger.error(f"[wan_a2a] WebSocket error: {websocket.exception()}")
-                                mainwin.set_wan_connected(False)
+                                if mainwin is not None:
+                                    mainwin.set_wan_connected(False)
                                 break
                                 
                         except asyncio.TimeoutError:
                             logger.warning("[wan_a2a] WebSocket recv timeout")
-                            mainwin.set_wan_connected(False)
+                            if mainwin is not None:
+                                mainwin.set_wan_connected(False)
                             break
                         except asyncio.CancelledError:
                             logger.info("[wan_a2a] Subscription cancelled")
-                            mainwin.set_wan_connected(False)
+                            if mainwin is not None:
+                                mainwin.set_wan_connected(False)
                             return
                     
                     # If we get here, connection was lost
@@ -633,7 +659,8 @@ async def wan_a2a_subscribe(
                     
         except asyncio.CancelledError:
             logger.info("[wan_a2a] Subscription task cancelled")
-            mainwin.set_wan_connected(False)
+            if mainwin is not None:
+                mainwin.set_wan_connected(False)
             return
             
         except Exception as e:
@@ -646,7 +673,8 @@ async def wan_a2a_subscribe(
                 await asyncio.sleep(backoff_time)
             else:
                 logger.error(f"[wan_a2a] Max retries reached")
-                mainwin.set_wan_connected(False)
+                if mainwin is not None:
+                    mainwin.set_wan_connected(False)
                 break
     
     logger.error(f"[wan_a2a] Subscription failed after {max_retries} attempts")
