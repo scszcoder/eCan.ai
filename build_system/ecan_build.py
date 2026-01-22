@@ -582,25 +582,40 @@ begin
   end;
 end;
 
-// Force close eCan processes before installation in silent mode
-// Normal mode: CloseApplications=yes will prompt user
-// Silent mode: Force terminate without prompt for OTA updates
+// Force close eCan processes before installation
+// This ensures all three installation scenarios work correctly:
+// 1. Fresh install: No processes to close
+// 2. Manual reinstall: Force close running app
+// 3. OTA upgrade: Force close running app (already handled by app itself, but double-check here)
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
+  RetryCount: Integer;
+  ProcessFound: Boolean;
 begin
   Result := '';
   NeedsRestart := False;
   
-  // In silent mode (OTA updates), force close all eCan processes
-  if WizardSilent() then
-  begin
+  // Always force close eCan processes (both silent and normal mode)
+  // This prevents MoveFile error 183 in all scenarios
+  RetryCount := 0;
+  repeat
     // Force terminate eCan.exe and related processes
     Exec('taskkill', '/F /IM eCan.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    // Wait a moment for processes to fully terminate
-    Sleep(500);
-  end;
-  // In normal mode, CloseApplications=yes will handle it with user prompt
+    
+    // Wait for processes to fully terminate and release file locks
+    // Increased from 500ms to 3000ms to ensure file handles are released
+    Sleep(3000);
+    
+    // Check if process still exists
+    Exec('tasklist', '/FI "IMAGENAME eq eCan.exe"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    ProcessFound := (ResultCode = 0);
+    
+    RetryCount := RetryCount + 1;
+  until (not ProcessFound) or (RetryCount >= 3);
+  
+  // Final wait to ensure filesystem releases all locks
+  Sleep(2000);
 end;
 
 // Skip wizard pages in silent mode (OTA updates)

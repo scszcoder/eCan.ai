@@ -302,18 +302,18 @@ class InstallationManager:
                             creation_flags = 0
 
                         if sys.platform == 'win32':
-                            pid = self._launch_windows_installer_delayed(cmd, delay_seconds=10)
+                            pid = self._launch_windows_installer_delayed(cmd, delay_seconds=8)
                             logger.info(f"Installer launch script started (PID: {pid})")
                         else:
                             process = subprocess.Popen(cmd, creationflags=creation_flags)
                             logger.info(f"Installer launched (PID: {process.pid})")
                         
-                        logger.info("Application will exit in 2 seconds for file replacement...")
+                        logger.info("Application will exit in 3 seconds for file replacement...")
                         
                         # Schedule application exit
                         import threading
                         def delayed_exit():
-                            time.sleep(2)
+                            time.sleep(3)
                             logger.info("Exiting for installer to replace files...")
                             # Force flush all file handles and buffers
                             import sys as sys_module
@@ -366,7 +366,7 @@ class InstallationManager:
                         creation_flags = 0
 
                     if sys.platform == 'win32':
-                        pid = self._launch_windows_installer_delayed(cmd, delay_seconds=10)
+                        pid = self._launch_windows_installer_delayed(cmd, delay_seconds=8)
                         logger.info(f"Installer launch script started (PID: {pid})")
                     else:
                         process = subprocess.Popen(cmd, creationflags=creation_flags)
@@ -375,7 +375,7 @@ class InstallationManager:
                     # Schedule application exit for development environment
                     import threading
                     def delayed_exit():
-                        time.sleep(2)
+                        time.sleep(3)
                         logger.info("Development mode: Exiting for installer to replace files...")
                         # Force flush all file handles and buffers
                         import sys as sys_module
