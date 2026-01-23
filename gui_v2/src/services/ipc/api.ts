@@ -146,6 +146,17 @@ export class IPCAPI {
 
             await this.ensureInitialized();
 
+            const currentMode = ipcClient.getMode?.() ?? detectPlatform();
+            if (currentMode === 'web' && !ipcClient.isConnected()) {
+                return {
+                    success: false,
+                    error: {
+                        code: 'NOT_CONNECTED',
+                        message: 'WebSocket not connected. Call connect() first.'
+                    }
+                };
+            }
+
             // 对于 get_initialization_progress，使用 invoke Method以利用队列和并发控制
             let response: IPCResponse;
             if (method === 'get_initialization_progress') {
@@ -265,8 +276,18 @@ export class IPCAPI {
         return this.executeRequest<T>('get_all', { username });
     }
 
-    public async getAllOrgAgents<T>(username: string): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('get_all_org_agents', { username });
+    public async getAllOrgAgents<T>(username: string, companyName?: string): Promise<APIResponse<T>> {
+        let company = companyName;
+        if (!company) {
+            try {
+                company = localStorage.getItem('org_company_filter') || undefined;
+            } catch {
+                company = undefined;
+            }
+        }
+
+        const params = company ? { username, company } : { username };
+        return this.executeRequest<T>('get_all_org_agents', params);
     }
     
     public async getAgents<T>(username: string, agent_id: string[]): Promise<APIResponse<T>> {

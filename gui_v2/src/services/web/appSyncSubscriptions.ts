@@ -16,6 +16,8 @@ const SUB_AGENT_SCENE = `subscription OnAgentSceneEvent($acctSiteID: String!) {\
 
 const SUB_SCENE_COMPLETE = `subscription OnSceneComplete($acctSiteID: String!) {\n  onSceneComplete(acctSiteID: $acctSiteID) {\n    id\n    scene_id\n    request_id\n    acctSiteID\n    agent_ids\n    status\n    description\n    actions\n    dialogs\n    duration_ms\n    error\n    emotion\n    mind_state\n    thumbnail\n    timestamp\n    video\n  }\n}`;
 
+const SUB_TASK_STATUS = `subscription OnTaskStatus($runner: String!) {\n  onTaskStatus(runner: $runner) {\n    id\n    runID\n    runner\n    error\n    success\n    status\n    timestamp\n  }\n}`;
+
 let activeSocket: WebSocket | null = null;
 let active = false;
 
@@ -70,6 +72,10 @@ const emitA2AMessage = (message: any) => {
   eventBus.emit('a2a:message', message);
 };
 
+const emitTaskStatus = (taskStatus: any) => {
+  eventBus.emit('task:status', taskStatus);
+};
+
 export const startWebSubscriptions = () => {
   if (active) {
     logger.warn('[AppSyncSubscriptions] Already running');
@@ -87,6 +93,7 @@ export const startWebSubscriptions = () => {
   const channelId = (env.VITE_A2A_CHANNEL_ID || '').trim();
   const owner = (env.VITE_ACCOUNT_OWNER || username || '').trim();
   const acctSiteID = (env.VITE_ACCT_SITE_ID || '').trim();
+  const taskRunner = (env.VITE_TASK_RUNNER || '').trim();
 
   if (!apiKey) {
     logger.warn('[AppSyncSubscriptions] Missing API key; subscriptions disabled');
@@ -144,6 +151,13 @@ export const startWebSubscriptions = () => {
       } else {
         logger.warn('[AppSyncSubscriptions] No acctSiteID provided; agent scene subscription skipped');
       }
+
+      if (taskRunner) {
+        subscriptionIds.taskStatus = `sub-task-status-${Date.now()}`;
+        sendStart(ws, subscriptionIds.taskStatus, SUB_TASK_STATUS, { runner: taskRunner }, headers);
+      } else {
+        logger.warn('[AppSyncSubscriptions] Missing runner; task status subscription skipped');
+      }
       return;
     }
 
@@ -160,6 +174,9 @@ export const startWebSubscriptions = () => {
       }
       if (payload.onSceneComplete) {
         emitSceneComplete(payload.onSceneComplete);
+      }
+      if (payload.onTaskStatus) {
+        emitTaskStatus(payload.onTaskStatus);
       }
       return;
     }
