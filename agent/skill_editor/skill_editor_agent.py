@@ -14,6 +14,7 @@ build complete workflows with multiple integrations.
 """
 
 import json
+import os
 import re
 import traceback
 from pathlib import Path
@@ -48,6 +49,38 @@ from .schemas import (
 from .planner_agent import PlannerAgent, get_planner_agent
 from .code_agent import CodeAgent, get_code_agent
 from .node_config_agent import NodeConfigAgent, NodeConfigAction, get_node_config_agent
+
+
+def _is_lambda_runtime() -> bool:
+    try:
+        if os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+            return True
+        if os.environ.get("LAMBDA_TASK_ROOT"):
+            return True
+        exec_env = os.environ.get("AWS_EXECUTION_ENV", "")
+        return exec_env.startswith("AWS_Lambda")
+    except Exception:
+        return False
+
+
+def _norm_s3_prefix(prefix: str) -> str:
+    p = (prefix or "").strip()
+    p = p.lstrip("/")
+    p = p.rstrip("/")
+    return p
+
+
+def _safe_user_dir_name(username: str) -> str:
+    u = (username or "").strip()
+    if not u:
+        return "unknown"
+    try:
+        if "@" in u:
+            local_part, domain_part = u.split("@", 1)
+            return f"{local_part}_{domain_part.replace('.', '_')}"
+    except Exception:
+        pass
+    return u.replace("@", "_").replace(".", "_")
 
 
 INTENT_CLASSIFIER_SYSTEM_PROMPT = """You are an intent classification assistant for an e-commerce workflow editor.
@@ -338,6 +371,7 @@ class SkillEditorAgent:
         self._current_request: Optional[str] = None
         self._selected_node: Optional[Dict[str, Any]] = None  # Currently selected node for configuration
         self._casual_chat_rounds_by_session: Dict[str, int] = {}
+        self._loaded_context_key: Optional[str] = None
         logger.info("[SkillEditorAgent] Initialized")
     
     def get_system_prompt(self, canvas_context: Optional[Dict] = None) -> str:
@@ -922,7 +956,7 @@ class SkillEditorAgent:
         except Exception as e:
             logger.error(f"[SkillEditorAgent] LLM intent classification failed: {e}")
             return IntentType.GENERAL_CHAT, 0.0, ""
-    
+
     def _should_use_planner(self, intent: IntentType, canvas_context: Optional[Dict] = None) -> bool:
         """Determine if the planner should be used for this intent"""
         # Use planner for complex creation tasks.
@@ -1080,6 +1114,18 @@ class SkillEditorAgent:
         logger.info(f"[SkillEditorAgent] Pipeline state: {self._pipeline_state.value}")
 
         self._emit_progress(on_event, "Thinking...")
+
+        # Restore per-skill chat context (conversation history) once per (skill, session_id)
+        try:
+            if session_id:
+                skill_dir_for_context = self._infer_skill_dir_name(canvas_context) or self._infer_skill_dir_name_from_current_flowgram()
+                if skill_dir_for_context:
+                    context_key = f"{skill_dir_for_context}:{session_id}"
+                    if self._loaded_context_key != context_key:
+                        self._restore_conversation_history(skill_dir_for_context, session_id)
+                        self._loaded_context_key = context_key
+        except Exception:
+            pass
         
         # Add user message to conversation history for context accumulation
         self.add_to_history("user", message)
@@ -1332,6 +1378,14 @@ class SkillEditorAgent:
                 intent=IntentType.UNKNOWN,
                 metadata={"error": str(e), "session_id": session_id}
             )
+        finally:
+            try:
+                if session_id:
+                    skill_dir_to_persist = self._infer_skill_dir_name(canvas_context) or self._infer_skill_dir_name_from_current_flowgram()
+                    if skill_dir_to_persist:
+                        self._persist_conversation_history(skill_dir_to_persist, session_id)
+            except Exception:
+                pass
     
     async def _run_load_skill(
         self,
@@ -1359,20 +1413,12 @@ class SkillEditorAgent:
             skill_dir_name = skill_name
             skill_name = skill_name.replace("_skill", "")
         
-        skill_path = user_skills_root() / skill_dir_name
-        skill_file_path = skill_path / "diagram_dir" / f"{skill_dir_name}.json"
+        skill_root_uri = self._get_skill_root_uri(skill_dir_name)
+        logger.info(f"[SkillEditorAgent] Looking for skill at: {skill_root_uri}")
         
-        logger.info(f"[SkillEditorAgent] Looking for skill at: {skill_file_path}")
-        
-        if not skill_file_path.exists():
+        if not self._skill_exists(skill_dir_name):
             # List available skills
-            available_skills = []
-            skills_root = user_skills_root()
-            if skills_root.exists():
-                for d in skills_root.iterdir():
-                    if d.is_dir() and d.name.endswith("_skill"):
-                        available_skills.append(d.name.replace("_skill", ""))
-            
+            available_skills = self._list_available_skills()
             skills_list = ", ".join(available_skills[:10]) if available_skills else "none found"
             return AgentResponse(
                 message=f"Skill '{skill_name}' not found. Available skills: {skills_list}",
@@ -1392,12 +1438,15 @@ class SkillEditorAgent:
         
         # Set as current flowgram
         self.code_agent.set_current_flowgram(flowgram)
+
+        if session_id:
+            self._restore_conversation_history(skill_dir_name, session_id)
         
         # Send canvas.load_flowgram command
         commands = [CanvasCommand(
             type="canvas.load_flowgram",
             payload={
-                "skillPath": str(skill_path),
+                "skillPath": str(skill_root_uri),
                 "skillName": skill_dir_name
             }
         )]
@@ -1412,7 +1461,7 @@ class SkillEditorAgent:
             commands=commands,
             intent=IntentType.LOAD_SKILL,
             flowgram=flowgram,
-            metadata={"session_id": session_id, "skillPath": str(skill_path)}
+            metadata={"session_id": session_id, "skillPath": str(skill_root_uri)}
         )
     
     async def _run_save_skill(
@@ -1868,24 +1917,29 @@ class SkillEditorAgent:
             Flowgram object if found, None otherwise
         """
         try:
-            # Construct skill file path
-            # Handle both "skill_name" and "skill_name_skill" formats
             if not skill_name.endswith("_skill"):
                 skill_dir_name = f"{skill_name}_skill"
             else:
                 skill_dir_name = skill_name
                 skill_name = skill_name.replace("_skill", "")
-            
-            skill_file_path = user_skills_root() / skill_dir_name / "diagram_dir" / f"{skill_dir_name}.json"
-            
-            logger.info(f"[SkillEditorAgent] Loading flowgram from disk: {skill_file_path}")
-            
-            if not skill_file_path.exists():
-                logger.warning(f"[SkillEditorAgent] Skill file not found: {skill_file_path}")
-                return None
-            
-            with open(skill_file_path, 'r', encoding='utf-8') as f:
-                skill_json = json.load(f)
+
+            if _is_lambda_runtime():
+                skill_root_uri = self._get_skill_root_uri(skill_dir_name)
+                logger.info(f"[SkillEditorAgent] Loading flowgram from S3: {skill_root_uri}")
+                skill_json = self._read_skill_json_from_s3(skill_dir_name)
+                if not skill_json:
+                    logger.warning(f"[SkillEditorAgent] Skill file not found in S3 for: {skill_dir_name}")
+                    return None
+            else:
+                skill_file_path = user_skills_root() / skill_dir_name / "diagram_dir" / f"{skill_dir_name}.json"
+                logger.info(f"[SkillEditorAgent] Loading flowgram from disk: {skill_file_path}")
+
+                if not skill_file_path.exists():
+                    logger.warning(f"[SkillEditorAgent] Skill file not found: {skill_file_path}")
+                    return None
+
+                with open(skill_file_path, 'r', encoding='utf-8') as f:
+                    skill_json = json.load(f)
             
             # Extract workflow data
             workflow = skill_json.get("workFlow", {})
@@ -1893,7 +1947,7 @@ class SkillEditorAgent:
             edges_data = workflow.get("edges", [])
             
             if not nodes_data:
-                logger.warning(f"[SkillEditorAgent] Skill file has no nodes: {skill_file_path}")
+                logger.warning(f"[SkillEditorAgent] Skill file has no nodes: {skill_dir_name}")
                 return None
             
             # Convert nodes - handle frontend schema (meta.position) and loop blocks
@@ -2216,6 +2270,16 @@ class SkillEditorAgent:
         except Exception as e:
             logger.error(f"[SkillEditorAgent] Failed writing skill/bundle: {e}")
 
+    def _write_skill_and_bundle_to_s3(self, skill_json: Dict[str, Any], bundle_json: Dict[str, Any], skill_dir_name: str) -> None:
+        try:
+            self._mirror_workflow_into_bundle(skill_json, bundle_json)
+            skill_key = self._s3_skill_json_key(skill_dir_name)
+            bundle_key = self._s3_bundle_json_key(skill_dir_name)
+            self._s3_put_json(skill_key, skill_json)
+            self._s3_put_json(bundle_key, bundle_json)
+        except Exception as e:
+            logger.error(f"[SkillEditorAgent] Failed writing skill/bundle to S3: {e}")
+
     def _save_flowgram_to_disk(self, flowgram: Flowgram) -> Optional[str]:
         """
         Save a flowgram to disk (skill + bundle) ensuring dual-write and bundle mirroring.
@@ -2274,38 +2338,54 @@ class SkillEditorAgent:
                 "schemaVersion": metadata.get("schemaVersion", "1.0.1"),
             }
 
-            # Resolve skill directory paths
-            skills_root = user_skills_root()
-            skill_root = skills_root / f"{skill_name}_skill"
-            diagram_dir = skill_root / "diagram_dir"
-            diagram_dir.mkdir(parents=True, exist_ok=True)
-            skill_json_path = diagram_dir / f"{skill_name}_skill.json"
-            bundle_path = diagram_dir / f"{skill_name}_skill_bundle.json"
+            skill_dir_name = f"{skill_name}_skill"
+            if _is_lambda_runtime():
+                bundle_json: Dict[str, Any] = {
+                    "mainSheetId": "main",
+                    "activeSheetId": "main",
+                    "openTabs": ["main"],
+                    "sheets": [],
+                }
+                existing_bundle = self._read_bundle_json_from_s3(skill_dir_name)
+                if isinstance(existing_bundle, dict) and existing_bundle:
+                    bundle_json = existing_bundle
+                self._write_skill_and_bundle_to_s3(skill_json, bundle_json, skill_dir_name)
+                skill_root_uri = self._get_skill_root_uri(skill_dir_name)
+                logger.info(f"[SkillEditorAgent] Saved flowgram to S3 (dual-write): {skill_root_uri}")
+                return str(skill_root_uri)
+            else:
+                # Resolve skill directory paths
+                skills_root = user_skills_root()
+                skill_root = skills_root / skill_dir_name
+                diagram_dir = skill_root / "diagram_dir"
+                diagram_dir.mkdir(parents=True, exist_ok=True)
+                skill_json_path = diagram_dir / f"{skill_dir_name}.json"
+                bundle_path = diagram_dir / f"{skill_dir_name}_bundle.json"
 
-            # Load existing bundle (if any), else default shell
-            bundle_json: Dict[str, Any] = {
-                "mainSheetId": "main",
-                "activeSheetId": "main",
-                "openTabs": ["main"],
-                "sheets": [],
-            }
-            if bundle_path.exists():
-                try:
-                    bundle_json = json.loads(bundle_path.read_text())
-                except Exception:
-                    bundle_json = {
-                        "mainSheetId": "main",
-                        "activeSheetId": "main",
-                        "openTabs": ["main"],
-                        "sheets": [],
-                    }
+                # Load existing bundle (if any), else default shell
+                bundle_json: Dict[str, Any] = {
+                    "mainSheetId": "main",
+                    "activeSheetId": "main",
+                    "openTabs": ["main"],
+                    "sheets": [],
+                }
+                if bundle_path.exists():
+                    try:
+                        bundle_json = json.loads(bundle_path.read_text())
+                    except Exception:
+                        bundle_json = {
+                            "mainSheetId": "main",
+                            "activeSheetId": "main",
+                            "openTabs": ["main"],
+                            "sheets": [],
+                        }
 
-            # Dual-write skill + bundle with mirroring
-            self._write_skill_and_bundle(skill_json, bundle_json, skill_json_path)
+                # Dual-write skill + bundle with mirroring
+                self._write_skill_and_bundle(skill_json, bundle_json, skill_json_path)
 
-            logger.info(f"[SkillEditorAgent] Saved flowgram to disk (dual-write): {skill_json_path}")
-            # Return skill root directory; frontend appends diagram_dir/<name>_skill.json
-            return str(skill_root)
+                logger.info(f"[SkillEditorAgent] Saved flowgram to disk (dual-write): {skill_json_path}")
+                # Return skill root directory; frontend appends diagram_dir/<name>_skill.json
+                return str(skill_root)
         except Exception as e:
             logger.error(f"[SkillEditorAgent] Failed to save flowgram: {e}\n{traceback.format_exc()}")
             return None
@@ -2316,29 +2396,239 @@ class SkillEditorAgent:
         and persist both files.
         """
         try:
-            root_path = Path(skill_root)
-            skill_json_path = root_path / "diagram_dir" / f"{skill_name}_skill.json"
-            bundle_json_path = root_path / "diagram_dir" / f"{skill_name}_skill_bundle.json"
-            if not skill_json_path.exists():
-                logger.warning(f"[SkillEditorAgent] Skill file not found for sync: {skill_json_path}")
-                return
-            skill_json = json.loads(skill_json_path.read_text())
-            bundle_json = {}
-            if bundle_json_path.exists():
-                try:
-                    bundle_json = json.loads(bundle_json_path.read_text())
-                except Exception:
-                    bundle_json = {}
+            if _is_lambda_runtime():
+                skill_dir_name = f"{skill_name}_skill" if not skill_name.endswith("_skill") else skill_name
+                skill_json = self._read_skill_json_from_s3(skill_dir_name)
+                if not skill_json:
+                    logger.warning(f"[SkillEditorAgent] Skill file not found for sync in S3: {skill_dir_name}")
+                    return
+                bundle_json = self._read_bundle_json_from_s3(skill_dir_name) or {}
+            else:
+                root_path = Path(skill_root)
+                skill_json_path = root_path / "diagram_dir" / f"{skill_name}_skill.json"
+                bundle_json_path = root_path / "diagram_dir" / f"{skill_name}_skill_bundle.json"
+                if not skill_json_path.exists():
+                    logger.warning(f"[SkillEditorAgent] Skill file not found for sync: {skill_json_path}")
+                    return
+                skill_json = json.loads(skill_json_path.read_text())
+                bundle_json = {}
+                if bundle_json_path.exists():
+                    try:
+                        bundle_json = json.loads(bundle_json_path.read_text())
+                    except Exception:
+                        bundle_json = {}
             # Ensure minimal bundle structure
             bundle_json.setdefault("mainSheetId", "main")
             bundle_json.setdefault("activeSheetId", "main")
             bundle_json.setdefault("openTabs", ["main"])
             bundle_json.setdefault("sheets", [])
 
-            self._write_skill_and_bundle(skill_json, bundle_json, skill_json_path)
+            if _is_lambda_runtime():
+                self._write_skill_and_bundle_to_s3(skill_json, bundle_json, skill_dir_name)
+            else:
+                self._write_skill_and_bundle(skill_json, bundle_json, skill_json_path)
         except Exception as e:
             logger.error(f"[SkillEditorAgent] Failed to sync skill/bundle for {skill_root}: {e}")
 
+    def _get_skill_root_uri(self, skill_dir_name: str) -> str:
+        if _is_lambda_runtime():
+            bucket, key_root = self._get_s3_bucket_and_root()
+            prefix = _norm_s3_prefix(key_root)
+            user_dir = _safe_user_dir_name(self._get_effective_username())
+            parts = [p for p in [prefix, user_dir, "skills", skill_dir_name] if p]
+            return f"s3://{bucket}/" + "/".join(parts)
+        return str(user_skills_root() / skill_dir_name)
+
+    def _get_s3_bucket_and_root(self) -> Tuple[str, str]:
+        bucket = os.environ.get("S3_BUCKET")
+        key_root = os.environ.get("S3_KEY_ROOT", "")
+        if not bucket:
+            raise ValueError("S3_BUCKET env var is required when running on Lambda")
+        return bucket, key_root
+
+    def _s3_client(self):
+        import boto3
+
+        return boto3.client("s3")
+
+    def _s3_skill_json_key(self, skill_dir_name: str) -> str:
+        bucket, key_root = self._get_s3_bucket_and_root()
+        _ = bucket
+        prefix = _norm_s3_prefix(key_root)
+        user_dir = _safe_user_dir_name(self._get_effective_username())
+        parts = [p for p in [prefix, user_dir, "skills", skill_dir_name, "diagram_dir", f"{skill_dir_name}.json"] if p]
+        return "/".join(parts)
+
+    def _s3_bundle_json_key(self, skill_dir_name: str) -> str:
+        bucket, key_root = self._get_s3_bucket_and_root()
+        _ = bucket
+        prefix = _norm_s3_prefix(key_root)
+        user_dir = _safe_user_dir_name(self._get_effective_username())
+        parts = [p for p in [prefix, user_dir, "skills", skill_dir_name, "diagram_dir", f"{skill_dir_name}_bundle.json"] if p]
+        return "/".join(parts)
+
+    def _s3_put_json(self, key: str, payload: Dict[str, Any]) -> None:
+        bucket, _ = self._get_s3_bucket_and_root()
+        body = json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8")
+        self._s3_client().put_object(Bucket=bucket, Key=key, Body=body, ContentType="application/json")
+
+    def _s3_get_json(self, key: str) -> Optional[Dict[str, Any]]:
+        bucket, _ = self._get_s3_bucket_and_root()
+        try:
+            obj = self._s3_client().get_object(Bucket=bucket, Key=key)
+            raw = obj["Body"].read()
+            return json.loads(raw.decode("utf-8"))
+        except Exception:
+            return None
+
+    def _s3_exists(self, key: str) -> bool:
+        bucket, _ = self._get_s3_bucket_and_root()
+        try:
+            self._s3_client().head_object(Bucket=bucket, Key=key)
+            return True
+        except Exception:
+            return False
+
+    def _read_skill_json_from_s3(self, skill_dir_name: str) -> Optional[Dict[str, Any]]:
+        return self._s3_get_json(self._s3_skill_json_key(skill_dir_name))
+
+    def _read_bundle_json_from_s3(self, skill_dir_name: str) -> Optional[Dict[str, Any]]:
+        return self._s3_get_json(self._s3_bundle_json_key(skill_dir_name))
+
+    def _read_context_json_from_s3(self, skill_dir_name: str, session_id: str) -> Optional[Dict[str, Any]]:
+        return self._s3_get_json(self._s3_context_json_key(skill_dir_name, session_id))
+
+    def _write_context_json_to_s3(self, skill_dir_name: str, session_id: str, payload: Dict[str, Any]) -> None:
+        self._s3_put_json(self._s3_context_json_key(skill_dir_name, session_id), payload)
+
+    def _s3_context_json_key(self, skill_dir_name: str, session_id: str) -> str:
+        bucket, key_root = self._get_s3_bucket_and_root()
+        _ = bucket
+        prefix = _norm_s3_prefix(key_root)
+        user_dir = _safe_user_dir_name(self._get_effective_username())
+        parts = [p for p in [prefix, user_dir, "skills", skill_dir_name, "contexts", f"{session_id}.json"] if p]
+        return "/".join(parts)
+
+    def _skill_exists(self, skill_dir_name: str) -> bool:
+        if _is_lambda_runtime():
+            return self._s3_exists(self._s3_skill_json_key(skill_dir_name))
+        skill_path = user_skills_root() / skill_dir_name / "diagram_dir" / f"{skill_dir_name}.json"
+        return skill_path.exists()
+
+    def _list_available_skills(self) -> List[str]:
+        if _is_lambda_runtime():
+            bucket, key_root = self._get_s3_bucket_and_root()
+            prefix = _norm_s3_prefix(key_root)
+            user_dir = _safe_user_dir_name(self._get_effective_username())
+            list_prefix = "/".join([p for p in [prefix, user_dir, "skills"] if p])
+            if list_prefix:
+                list_prefix = list_prefix + "/"
+            try:
+                resp = self._s3_client().list_objects_v2(Bucket=bucket, Prefix=list_prefix, Delimiter="/")
+                dirs = [
+                    cp.get("Prefix", "")
+                    for cp in (resp.get("CommonPrefixes") or [])
+                    if isinstance(cp, dict)
+                ]
+                out: List[str] = []
+                for d in dirs:
+                    d2 = d[len(list_prefix):] if d.startswith(list_prefix) else d
+                    d2 = d2.rstrip("/")
+                    if d2.endswith("_skill"):
+                        out.append(d2.replace("_skill", ""))
+                return sorted(out)
+            except Exception:
+                return []
+        available_skills: List[str] = []
+        skills_root = user_skills_root()
+        if skills_root.exists():
+            for d in skills_root.iterdir():
+                if d.is_dir() and d.name.endswith("_skill"):
+                    available_skills.append(d.name.replace("_skill", ""))
+        return sorted(available_skills)
+
+    def _get_effective_username(self) -> str:
+        try:
+            env_user = os.environ.get("ECAN_USERNAME") or os.environ.get("ECAN_USER") or os.environ.get("USER_EMAIL")
+            if isinstance(env_user, str) and env_user.strip():
+                return env_user.strip()
+        except Exception:
+            pass
+        try:
+            from utils.env.secure_store import get_current_username
+
+            u = get_current_username()
+            if isinstance(u, str) and u.strip():
+                return u.strip()
+        except Exception:
+            pass
+        try:
+            if isinstance(self._user_name, str) and "@" in self._user_name:
+                return self._user_name
+        except Exception:
+            pass
+        return "unknown"
+
+    def _infer_skill_dir_name(self, canvas_context: Optional[Dict[str, Any]]) -> Optional[str]:
+        try:
+            if canvas_context and isinstance(canvas_context, dict):
+                raw = None
+                if isinstance(canvas_context.get("metadata"), dict):
+                    raw = canvas_context.get("metadata", {}).get("skillName")
+                if not raw:
+                    raw = canvas_context.get("skillName")
+                if isinstance(raw, str) and raw.strip():
+                    name = raw.strip()
+                    if name.endswith("_skill"):
+                        return name
+                    return f"{name}_skill"
+        except Exception:
+            return None
+        return None
+
+    def _infer_skill_dir_name_from_current_flowgram(self) -> Optional[str]:
+        try:
+            fg = self.code_agent.get_current_flowgram() if self._code_agent else None
+            if fg and isinstance(fg.metadata, dict):
+                raw = fg.metadata.get("skillName")
+                if isinstance(raw, str) and raw.strip():
+                    name = raw.strip()
+                    if name.endswith("_skill"):
+                        return name
+                    return f"{name}_skill"
+        except Exception:
+            return None
+        return None
+
+    def _restore_conversation_history(self, skill_dir_name: str, session_id: str) -> None:
+        try:
+            data = None
+            if _is_lambda_runtime():
+                data = self._read_context_json_from_s3(skill_dir_name, session_id)
+            else:
+                path = user_skills_root() / skill_dir_name / "contexts" / f"{session_id}.json"
+                if path.exists():
+                    data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                history = data.get("conversation_history")
+                if isinstance(history, list):
+                    self._conversation_history = history
+        except Exception:
+            return
+
+    def _persist_conversation_history(self, skill_dir_name: str, session_id: str) -> None:
+        payload = {
+            "session_id": session_id,
+            "skill": skill_dir_name,
+            "conversation_history": self._conversation_history,
+        }
+        if _is_lambda_runtime():
+            self._write_context_json_to_s3(skill_dir_name, session_id, payload)
+            return
+        ctx_dir = user_skills_root() / skill_dir_name / "contexts"
+        ctx_dir.mkdir(parents=True, exist_ok=True)
+        path = ctx_dir / f"{session_id}.json"
+        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
     async def _generate_from_plan(
         self,
