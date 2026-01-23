@@ -64,6 +64,20 @@ class InstallationManager:
             logger.error(f"Installation failed: {e}")
             return False
 
+    def _get_windows_standard_install_dir(self) -> Path:
+        if sys.platform != 'win32':
+            return Path('.')
+
+        localappdata = os.environ.get('LOCALAPPDATA')
+        if localappdata:
+            return Path(localappdata) / 'eCan'
+
+        userprofile = os.environ.get('USERPROFILE', '')
+        if userprofile:
+            return Path(userprofile) / 'AppData' / 'Local' / 'eCan'
+
+        return Path.home() / 'AppData' / 'Local' / 'eCan'
+
     def _terminate_processes_in_dir(
         self,
         target_dir: Path,
@@ -257,12 +271,22 @@ class InstallationManager:
             # For OTA updates, use truly silent installation
             if install_options.get('silent', True):
                 if getattr(sys, 'frozen', False):
-                    # Get current installation directory
-                    install_dir = Path(sys.executable).parent
+                    configured_install_dir = install_options.get('install_dir')
+                    if configured_install_dir:
+                        install_dir = Path(str(configured_install_dir)).expanduser()
+                    else:
+                        install_dir = self._get_windows_standard_install_dir()
+
+                    if not install_dir.exists():
+                        try:
+                            install_dir.mkdir(parents=True, exist_ok=True)
+                        except Exception:
+                            install_dir = Path(sys.executable).parent
+
                     logger.info(f"Target installation directory: {install_dir}")
 
-                    # Prevent Inno Setup rollback due to file-in-use errors (MoveFile error 183)
-                    self._terminate_processes_in_dir(install_dir)
+                    # Note: Process termination is handled by Inno Setup's CloseApplications=yes
+                    # No need to manually terminate processes here as it may conflict with installer
                     
                     # Use Inno Setup silent installation parameters with progress
                     # /SILENT = Silent with progress bar (not /VERYSILENT)
@@ -345,12 +369,16 @@ class InstallationManager:
                     from ota.core.download_manager import download_manager
                     download_manager.set_installing(True)
                     
+                    # Use standard install directory even in dev mode
+                    install_dir = self._get_windows_standard_install_dir()
+                    
                     cmd = [
                         str(package_path),
                         '/SILENT',              # Shows progress bar, skips wizard pages
                         '/SUPPRESSMSGBOXES',
                         '/NORESTART',
                         '/SP-',                  # Skip startup message
+                        f'/DIR="{install_dir}"'  # Ensure consistent install directory
                     ]
 
                     self._append_inno_log_if_enabled(cmd)
