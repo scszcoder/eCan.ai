@@ -1503,7 +1503,7 @@ def _create_and_validate_browser_use_llm(bu_config: dict):
     Args:
         bu_config: Configuration dict for BrowserUseChatOpenAI (model, api_key, base_url, etc.)
                    Special keys:
-                   - enable_deepseek_adapter: bool - Enable DeepSeek output format adapter
+                   - adapt_deepseek_output: bool - Apply DeepSeek output format adapter
         
     Returns:
         LoggingBrowserUseChatOpenAI instance or None if creation/validation fails
@@ -1512,7 +1512,7 @@ def _create_and_validate_browser_use_llm(bu_config: dict):
         from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
         
         # Extract special config flags
-        enable_deepseek_adapter = bu_config.pop('enable_deepseek_adapter', False)
+        adapt_deepseek_output = bu_config.pop('adapt_deepseek_output', False)
         
         # Get the logging wrapper class
         LoggingBrowserUseChatOpenAI = _get_logging_browser_use_class()
@@ -1526,13 +1526,13 @@ def _create_and_validate_browser_use_llm(bu_config: dict):
             logger.debug("[_create_and_validate_browser_use_llm] Created LLM with custom logging enabled")
         
         # Apply DeepSeek output format adapter if enabled
-        if enable_deepseek_adapter:
+        if adapt_deepseek_output:
             try:
-                from agent.ec_skills.browser_use_extension.deepseek_adapter import create_deepseek_compatible_llm
-                llm_instance = create_deepseek_compatible_llm(llm_instance)
+                from agent.ec_skills.browser_use_extension.deepseek_adapter import wrap_llm_with_compatible_output
+                llm_instance = wrap_llm_with_compatible_output(llm_instance)
                 logger.info("[_create_and_validate_browser_use_llm] ✅ Applied DeepSeek output format adapter")
             except Exception as e:
-                logger.warning(f"[_create_and_validate_browser_use_llm] Failed to apply DeepSeek adapter: {e}")
+                logger.warning(f"[_create_and_validate_browser_use_llm] Failed to apply DeepSeek output adapter: {e}")
         
         # Validate it's actually BrowserUseChatOpenAI (should always be true if creation succeeded)
         if isinstance(llm_instance, BrowserUseChatOpenAI):
@@ -1649,9 +1649,9 @@ def create_browser_use_llm_by_provider_type(
             logger.info(f"[create_browser_use_llm_by_provider_type] Disabled structured output for {provider_type} (not supported)")
         
         # Enable DeepSeek output format adapter for DeepSeek provider
-        # This adapts output format to match browser-use schema
+        # This adapts DeepSeek's output format to match browser-use schema
         if provider_type == 'deepseek':
-            bu_config['enable_deepseek_adapter'] = True
+            bu_config['adapt_deepseek_output'] = True
             logger.info(f"[create_browser_use_llm_by_provider_type] Enabled DeepSeek output format adapter")
         
         # For Qwen/DashScope providers, pass enable_thinking via extra_body if specified
