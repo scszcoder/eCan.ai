@@ -209,6 +209,9 @@ class ManagedTask(Task):
     
     # Skill reference (Any to avoid strict validation)
     skill: Any = None
+
+    # Cloud execution hint
+    cloud_based: bool = False
     
     # State management
     state: dict = Field(default_factory=dict)

@@ -1,0 +1,374 @@
+import asyncio
+import base64
+import json
+from dataclasses import dataclass
+from typing import Any, Awaitable, Callable, Dict, Optional
+from uuid import uuid4
+
+import aiohttp
+import certifi
+import httpx
+
+from utils.logger_helper import logger_helper as logger
+
+
+@dataclass(frozen=True)
+class AppSyncApiKeyConfig:
+    http_endpoint: str
+    api_key: str
+    ws_endpoint: Optional[str] = None
+    host: Optional[str] = None
+
+    def resolved_ws_endpoint(self) -> str:
+        ws = (self.ws_endpoint or "").strip()
+        if ws:
+            return ws
+        http = (self.http_endpoint or "").strip()
+        if http.startswith("https://") and "appsync-api" in http:
+            rest = http[len("https://") :]
+            rest = rest.replace("appsync-api", "appsync-realtime-api", 1)
+            return "wss://" + rest
+        return http
+
+    def resolved_host(self) -> str:
+        if self.host:
+            return self.host
+        endpoint = (self.http_endpoint or "").strip() or (self.ws_endpoint or "").strip()
+        if not endpoint:
+            return ""
+        from urllib.parse import urlparse
+
+        parsed = urlparse(endpoint)
+        host = parsed.netloc
+        if "appsync-realtime-api" in host:
+            host = host.replace("appsync-realtime-api", "appsync-api")
+        return host
+
+
+def _mk_http_headers(api_key: str) -> Dict[str, str]:
+    return {
+        "Content-Type": "application/json",
+        "cache-control": "no-cache",
+        "x-api-key": api_key,
+    }
+
+
+def _mk_ws_headers(host: str, api_key: str) -> Dict[str, str]:
+    return {
+        "host": host,
+        "x-api-key": api_key,
+    }
+
+
+def _mk_ws_url(ws_endpoint: str, *, host: str, api_key: str) -> str:
+    headers = _mk_ws_headers(host, api_key)
+    header_b64 = base64.b64encode(json.dumps(headers).encode("utf-8")).decode("utf-8")
+    return f"{ws_endpoint}?header={header_b64}&payload=e30="
+
+
+def _graphql_publish_task_status() -> str:
+    return """
+    mutation PublishTaskStatus($input: TaskStatusInput!) {
+      publishTaskStatus(input: $input) {
+        id
+        runID
+        runner
+        error
+        success
+        status
+        timestamp
+      }
+    }
+    """
+
+
+def _graphql_on_task_status() -> str:
+    return """
+    subscription OnTaskStatus($runner: String!) {
+      onTaskStatus(runner: $runner) {
+        id
+        runID
+        runner
+        error
+        success
+        status
+        timestamp
+      }
+    }
+    """
+
+
+def _graphql_run_cloud_tasks_direct() -> str:
+    return """
+    mutation RunCloudTasks($taskIds: [ID!]!) {
+      runCloudTasks(taskIds: $taskIds)
+    }
+    """
+
+
+def _graphql_run_cloud_tasks_input() -> str:
+    return """
+    mutation RunCloudTasks($input: RunCloudTasksInput!) {
+      runCloudTasks(input: $input)
+    }
+    """
+
+
+def _maybe_parse_awsjson(v: Any) -> Any:
+    if isinstance(v, str):
+        try:
+            return json.loads(v)
+        except Exception:
+            return v
+    return v
+
+
+async def _post_graphql(http_endpoint: str, *, api_key: str, query: str, variables: Dict[str, Any]) -> Dict[str, Any]:
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            http_endpoint,
+            json={"query": query, "variables": variables},
+            headers=_mk_http_headers(api_key),
+            timeout=30.0,
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        if isinstance(payload, dict) and payload.get("errors"):
+            raise RuntimeError(payload.get("errors"))
+        return payload
+
+
+async def publish_task_status(
+    *,
+    config: AppSyncApiKeyConfig,
+    runner: str,
+    success: bool,
+    run_id: Optional[str] = None,
+    status: Any = None,
+    error: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await _post_graphql(
+        config.http_endpoint,
+        api_key=config.api_key,
+        query=_graphql_publish_task_status(),
+        variables={
+            "input": {
+                "runID": run_id,
+                "runner": runner,
+                "error": error,
+                "success": bool(success),
+                "status": status,
+            }
+        },
+    )
+
+
+async def run_cloud_tasks(
+    *,
+    config: AppSyncApiKeyConfig,
+    task_ids: list[str],
+) -> Dict[str, str]:
+    """Run tasks in cloud and return mapping task_id -> run_id.
+
+    Note: The backend's exact GraphQL shape may differ (direct args vs input object).
+    This helper tries common shapes and attempts to parse AWSJSON responses.
+    """
+    if not task_ids:
+        return {}
+
+    last_exc: Optional[Exception] = None
+
+    for query, variables in (
+        (_graphql_run_cloud_tasks_direct(), {"taskIds": task_ids}),
+        (_graphql_run_cloud_tasks_input(), {"input": {"taskIds": task_ids}}),
+    ):
+        try:
+            resp = await _post_graphql(config.http_endpoint, api_key=config.api_key, query=query, variables=variables)
+            data = (resp or {}).get("data") or {}
+            raw = data.get("runCloudTasks")
+            payload = _maybe_parse_awsjson(raw)
+
+            if isinstance(payload, dict) and "items" in payload:
+                payload = payload.get("items")
+
+            mapping: Dict[str, str] = {}
+            if isinstance(payload, list):
+                for item in payload:
+                    if not isinstance(item, dict):
+                        continue
+                    task_id = item.get("taskId") or item.get("taskID") or item.get("id")
+                    run_id = item.get("runId") or item.get("runID") or item.get("run_id")
+                    if task_id and run_id:
+                        mapping[str(task_id)] = str(run_id)
+            elif isinstance(payload, dict):
+                # Sometimes backend returns {taskId: runId, ...}
+                for k, v in payload.items():
+                    if k and v:
+                        mapping[str(k)] = str(v)
+
+            if mapping:
+                return mapping
+
+            raise RuntimeError(f"runCloudTasks returned unexpected payload: {type(payload).__name__}")
+        except Exception as e:
+            last_exc = e
+            continue
+
+    raise RuntimeError(f"runCloudTasks failed: {last_exc}")
+
+
+async def _subscribe(
+    *,
+    config: AppSyncApiKeyConfig,
+    query: str,
+    variables: Dict[str, Any],
+    operation_name: str,
+    field_name: str,
+    on_envelope: Callable[[Dict[str, Any]], Awaitable[None]],
+    max_retries: int,
+) -> None:
+    ws_endpoint = config.resolved_ws_endpoint()
+    host = config.resolved_host()
+    ws_url = _mk_ws_url(ws_endpoint, host=host, api_key=config.api_key)
+
+    retry = 0
+    base_backoff = 2
+
+    while retry < max_retries:
+        try:
+            import ssl
+
+            ssl_context = ssl.create_default_context(cafile=certifi.where())
+
+            timeout = aiohttp.ClientTimeout(total=60, connect=60, sock_read=300)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                async with session.ws_connect(
+                    ws_url,
+                    protocols=["graphql-ws"],
+                    ssl=ssl_context,
+                    heartbeat=25,
+                    autoping=True,
+                ) as websocket:
+                    await websocket.send_str(json.dumps({"type": "connection_init"}))
+
+                    while True:
+                        msg = await websocket.receive()
+                        if msg.type == aiohttp.WSMsgType.TEXT:
+                            response_data = json.loads(msg.data)
+                            if response_data.get("type") == "connection_ack":
+                                break
+                        elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                            raise RuntimeError("connection closed during ack")
+
+                    api_headers = _mk_ws_headers(host, config.api_key)
+                    sub_data = {
+                        "query": query,
+                        "operationName": operation_name,
+                        "variables": variables,
+                    }
+
+                    sub_request = {
+                        "id": f"sub-{uuid4().hex}",
+                        "payload": {
+                            "data": json.dumps(sub_data),
+                            "extensions": {
+                                "authorization": {k: v for k, v in api_headers.items() if k != "content-type"}
+                            },
+                        },
+                        "type": "start",
+                    }
+
+                    await websocket.send_str(json.dumps(sub_request))
+
+                    while True:
+                        msg = await websocket.receive()
+                        if msg.type == aiohttp.WSMsgType.TEXT:
+                            response_data = json.loads(msg.data)
+                            if response_data.get("type") == "start_ack":
+                                break
+                        elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                            raise RuntimeError("connection closed during start_ack")
+
+                    while True:
+                        msg = await websocket.receive()
+                        if msg.type == aiohttp.WSMsgType.TEXT:
+                            data = json.loads(msg.data)
+                            if data.get("type") == "data":
+                                payload_data = (data.get("payload") or {}).get("data")
+                                if not isinstance(payload_data, dict):
+                                    continue
+                                envelope = payload_data.get(field_name)
+                                if not isinstance(envelope, dict):
+                                    continue
+                                if "status" in envelope:
+                                    envelope["status"] = _maybe_parse_awsjson(envelope.get("status"))
+
+                                await on_envelope(envelope)
+
+                            elif data.get("type") in ("ka", "keepalive"):
+                                continue
+                        elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                            raise RuntimeError("websocket closed")
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            retry += 1
+            backoff = min(base_backoff * (2 ** (retry - 1)), 30)
+            logger.error(f"[ec_tasks.appsync_pubsub] subscribe error (attempt {retry}/{max_retries}): {e}")
+            if retry >= max_retries:
+                raise
+            await asyncio.sleep(backoff)
+
+
+def start_task_status_streams_for_runs(
+    *,
+    config: AppSyncApiKeyConfig,
+    run_ids: list[str],
+    on_envelope: Callable[[Dict[str, Any]], Awaitable[None]],
+    max_retries: int = 20,
+    runner_from_run_id: Callable[[str], str] | None = None,
+) -> list[asyncio.Task]:
+    """Start multiple TaskStatus subscriptions (one per run_id).
+
+    Returns the created asyncio tasks (caller owns cancellation).
+    Default mapping is runner == run_id.
+    """
+    if runner_from_run_id is None:
+        runner_from_run_id = lambda rid: rid
+
+    tasks: list[asyncio.Task] = []
+    for rid in run_ids or []:
+        rid = (rid or "").strip()
+        if not rid:
+            continue
+        runner = runner_from_run_id(rid)
+        tasks.append(
+            asyncio.create_task(
+                subscribe_task_status(
+                    config=config,
+                    runner=runner,
+                    on_envelope=on_envelope,
+                    max_retries=max_retries,
+                )
+            )
+        )
+    return tasks
+
+
+async def subscribe_task_status(
+    *,
+    config: AppSyncApiKeyConfig,
+    runner: str,
+    on_envelope: Callable[[Dict[str, Any]], Awaitable[None]],
+    max_retries: int = 20,
+) -> None:
+    await _subscribe(
+        config=config,
+        query=_graphql_on_task_status(),
+        variables={"runner": runner},
+        operation_name="OnTaskStatus",
+        field_name="onTaskStatus",
+        on_envelope=on_envelope,
+        max_retries=max_retries,
+    )
