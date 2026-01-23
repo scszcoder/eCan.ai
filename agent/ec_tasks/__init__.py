@@ -79,6 +79,14 @@ from .pending_events import (
     route_callback_to_task,
 )
 
+from .appsync_pubsub import (
+    AppSyncApiKeyConfig,
+    publish_task_status,
+    subscribe_task_status,
+    run_cloud_tasks,
+    start_task_status_streams_for_runs,
+)
+
 from .models import (
     PendingEvent,
     PendingEventStatus,
@@ -139,4 +147,10 @@ __all__ = [
     "parse_correlation_id",
     "build_callback_event",
     "route_callback_to_task",
+    # AppSync pub/sub
+    "AppSyncApiKeyConfig",
+    "publish_task_status",
+    "subscribe_task_status",
+    "run_cloud_tasks",
+    "start_task_status_streams_for_runs",
 ]

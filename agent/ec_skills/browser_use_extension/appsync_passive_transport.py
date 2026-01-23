@@ -22,6 +22,17 @@ class AppSyncPassiveTransportConfig:
     client_id: str
 
 
+def _build_auth_headers(auth_token: str) -> dict[str, str]:
+    tok = (auth_token or "").strip()
+    if not tok:
+        return {}
+    if tok.lower().startswith("bearer "):
+        return {"Authorization": tok}
+    if tok.count(".") >= 2:
+        return {"Authorization": tok}
+    return {"x-api-key": tok}
+
+
 def _derive_realtime_endpoint(http_endpoint: str) -> str:
     http_endpoint = (http_endpoint or "").strip()
     if http_endpoint.startswith("https://") and "appsync-api" in http_endpoint:
@@ -43,9 +54,9 @@ def _derive_api_host(http_endpoint: str, ws_endpoint: str) -> str:
 def _make_signed_ws_url(ws_url: str, *, api_host: str, auth_token: str) -> str:
     parsed = urlparse(ws_url)
 
-    header_obj = {
+    header_obj: dict[str, Any] = {
         "host": api_host,
-        "Authorization": auth_token,
+        **_build_auth_headers(auth_token),
     }
     payload_obj: dict[str, Any] = {}
 
@@ -120,13 +131,15 @@ class AppSyncPassivePubSubTransport:
             "command": cmd.model_dump(),
         }
 
+        auth_headers = _build_auth_headers(self._config.auth_token)
+
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 self._config.http_endpoint,
                 json={"query": _publish_command_mutation(), "variables": {"input": payload}},
                 headers={
                     "Content-Type": "application/json",
-                    "Authorization": self._config.auth_token,
+                    **auth_headers,
                     "cache-control": "no-cache",
                 },
                 timeout=30.0,
@@ -158,6 +171,7 @@ class AppSyncPassivePubSubTransport:
             msg_type = data.get("type")
 
             if msg_type == "connection_ack":
+                auth_headers = _build_auth_headers(self._config.auth_token)
                 data_obj = {
                     "query": _on_step_result_subscription(),
                     "operationName": "OnPassiveStepResult",
@@ -171,7 +185,7 @@ class AppSyncPassivePubSubTransport:
                         "extensions": {
                             "authorization": {
                                 "host": self._config.api_host,
-                                "Authorization": self._config.auth_token,
+                                **auth_headers,
                             }
                         },
                     },

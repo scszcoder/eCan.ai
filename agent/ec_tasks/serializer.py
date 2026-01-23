@@ -78,6 +78,7 @@ class TaskSerializer:
             "priority": task.priority.value if task.priority else None,
             "last_run_datetime": last_run_datetime_str,
             "already_run_flag": task.already_run_flag,
+            "cloud_based": bool(getattr(task, "cloud_based", False)),
         }
     
     def _get_skill_name(self, task: "ManagedTask") -> Optional[str]:
