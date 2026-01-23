@@ -59,10 +59,152 @@ class InstallationManager:
             else:
                 logger.error(f"Unsupported package format: {package_path.suffix}")
                 return False
-                
+
         except Exception as e:
             logger.error(f"Installation failed: {e}")
             return False
+
+    def _terminate_processes_in_dir(
+        self,
+        target_dir: Path,
+        timeout_seconds: float = 10.0,
+        extra_process_names: Optional[set[str]] = None,
+    ) -> None:
+        try:
+            if sys.platform != 'win32':
+                return
+
+            target_dir = Path(target_dir).resolve()
+            logger.info(f"Attempting to terminate running processes under: {target_dir}")
+
+            try:
+                import psutil
+            except Exception:
+                psutil = None
+
+            if psutil is None:
+                return
+
+            # Always include Qt and Python subprocesses that may hold file locks
+            default_names = {'QtWebEngineProcess.exe', 'python.exe', 'pythonw.exe'}
+            extra_names_norm = {str(n).lower() for n in default_names}
+            if extra_process_names:
+                extra_names_norm.update({str(n).lower() for n in extra_process_names if n})
+
+            current_pid = os.getpid()
+            pids = []
+            for proc in psutil.process_iter(['pid', 'name', 'exe']):
+                try:
+                    pid = proc.info.get('pid')
+                    if pid == current_pid:
+                        continue
+                    
+                    exe = proc.info.get('exe')
+                    name = proc.info.get('name')
+
+                    if extra_names_norm and name and str(name).lower() in extra_names_norm:
+                        pids.append(pid)
+                        continue
+
+                    if not exe:
+                        continue
+
+                    exe_path = Path(exe).resolve()
+                    if target_dir in exe_path.parents:
+                        pids.append(pid)
+                except Exception:
+                    continue
+
+            if not pids:
+                logger.info("No running processes found under install directory")
+                return
+
+            logger.info(f"Found {len(pids)} running process(es) under install directory: {pids}")
+
+            # Try graceful terminate first
+            procs = []
+            for pid in pids:
+                try:
+                    procs.append(psutil.Process(pid))
+                except Exception:
+                    pass
+
+            for p in procs:
+                try:
+                    p.terminate()
+                except Exception:
+                    pass
+
+            gone, alive = psutil.wait_procs(procs, timeout=timeout_seconds)
+            if alive:
+                for p in alive:
+                    try:
+                        p.kill()
+                    except Exception:
+                        pass
+                psutil.wait_procs(alive, timeout=timeout_seconds)
+
+            # Give filesystem extra time to release locks and flush buffers
+            # This is critical to avoid MoveFile error 183 (ERROR_ALREADY_EXISTS)
+            logger.info("Waiting 5 seconds for filesystem to release file locks...")
+            time.sleep(5.0)
+        except Exception as e:
+            logger.debug(f"Pre-install process termination failed (safe to ignore): {e}")
+
+    def _append_inno_log_if_enabled(self, cmd: list[str]) -> None:
+        try:
+            if sys.platform != 'win32':
+                return
+
+            if os.environ.get('ECAN_OTA_INNO_LOG', '').strip() != '1':
+                return
+
+            log_path = Path(tempfile.gettempdir()) / f"ecan_ota_install_{int(time.time())}.log"
+            cmd.append(f'/LOG="{log_path}"')
+            logger.info(f"Inno Setup logging enabled: {log_path}")
+        except Exception as e:
+            logger.debug(f"Failed to enable Inno Setup logging (safe to ignore): {e}")
+
+    def _launch_windows_installer_delayed(self, cmd: list[str], delay_seconds: int = 10) -> int:
+        """Launch installer through a detached delayed script.
+
+        Rationale: Inno Setup may start replacing files immediately. If our app still holds
+        locks (or is about to exit), the installer hits MoveFile error 183 and rolls back.
+        Starting the installer after a delay greatly reduces file-in-use failures.
+
+        Returns:
+            PID of the launched script process.
+        """
+        if sys.platform != 'win32':
+            raise RuntimeError("Windows-only helper")
+
+        script_dir = Path(tempfile.gettempdir()) / "ecan_ota"
+        script_dir.mkdir(exist_ok=True)
+
+        script_path = script_dir / f"launch_installer_{int(time.time())}.bat"
+        installer_cmdline = subprocess.list2cmdline(cmd)
+
+        script_content = (
+            "@echo off\r\n"
+            f"timeout /t {int(delay_seconds)} /nobreak >nul\r\n"
+            f"start \"\" {installer_cmdline}\r\n"
+            "del \"%~f0\"\r\n"
+        )
+
+        with open(script_path, 'w', encoding='utf-8') as f:
+            f.write(script_content)
+
+        creation_flags = (
+            subprocess.DETACHED_PROCESS |
+            subprocess.CREATE_NEW_PROCESS_GROUP |
+            subprocess.CREATE_NO_WINDOW
+        )
+
+        p = subprocess.Popen(
+            ["cmd", "/c", str(script_path)],
+            creationflags=creation_flags,
+        )
+        return p.pid
     
     def _create_backup(self) -> bool:
         """Create backup of current application"""
@@ -72,28 +214,36 @@ class InstallationManager:
                 logger.info("Running in development environment, skipping backup")
                 return True
             
-            # Get current application path (packaged application only)
-            app_path = Path(sys.executable).parent
-            
-            # Create backup directory
-            backup_root = Path(tempfile.gettempdir()) / "ecan_backup"
-            backup_root.mkdir(exist_ok=True)
-            
-            timestamp = int(time.time())
-            self.backup_dir = backup_root / f"backup_{timestamp}"
-            
-            logger.info(f"Creating backup: {app_path} -> {self.backup_dir}")
-            
-            # Copy application files
-            shutil.copytree(
-                app_path, 
-                self.backup_dir, 
-                ignore=shutil.ignore_patterns('*.log', '__pycache__'),
-                symlinks=True  # ✅ Copy symlinks as symlinks, don't follow them
-            )
-            
-            logger.info(f"Backup created successfully: {self.backup_dir}")
+            # ⚠️ Skip backup for OTA updates to avoid long blocking operations
+            # Inno Setup installer has built-in rollback mechanism if installation fails
+            # Creating backup of entire app directory (hundreds of MB) can take minutes and block the UI
+            logger.info("OTA update: Skipping backup (Inno Setup has built-in rollback)")
+            logger.info("If installation fails, Inno Setup will automatically restore previous version")
             return True
+            
+            # Original backup code (disabled for OTA updates):
+            # Get current application path (packaged application only)
+            # app_path = Path(sys.executable).parent
+            # 
+            # # Create backup directory
+            # backup_root = Path(tempfile.gettempdir()) / "ecan_backup"
+            # backup_root.mkdir(exist_ok=True)
+            # 
+            # timestamp = int(time.time())
+            # self.backup_dir = backup_root / f"backup_{timestamp}"
+            # 
+            # logger.info(f"Creating backup: {app_path} -> {self.backup_dir}")
+            # 
+            # # Copy application files
+            # shutil.copytree(
+            #     app_path, 
+            #     self.backup_dir, 
+            #     ignore=shutil.ignore_patterns('*.log', '__pycache__'),
+            #     symlinks=True  # ✅ Copy symlinks as symlinks, don't follow them
+            # )
+            # 
+            # logger.info(f"Backup created successfully: {self.backup_dir}")
+            # return True
             
         except Exception as e:
             logger.error(f"Failed to create backup: {e}")
@@ -110,21 +260,28 @@ class InstallationManager:
                     # Get current installation directory
                     install_dir = Path(sys.executable).parent
                     logger.info(f"Target installation directory: {install_dir}")
+
+                    # Prevent Inno Setup rollback due to file-in-use errors (MoveFile error 183)
+                    self._terminate_processes_in_dir(install_dir)
                     
                     # Use Inno Setup silent installation parameters with progress
                     # /SILENT = Silent with progress bar (not /VERYSILENT)
                     # /SUPPRESSMSGBOXES = Suppress message boxes
                     # /NORESTART = Don't restart computer
-                    # /CLOSEAPPLICATIONS = Close running applications
+                    # /SP- = Skip the "This will install..." message box
                     # /DIR= = Installation directory (must use quotes if path has spaces)
+                    # Note: We DON'T use /CLOSEAPPLICATIONS because it may cause the installer to exit
+                    # Instead, we let the parent process exit gracefully first
                     cmd = [
                         str(package_path),
                         '/SILENT',              # ✅ Shows progress bar
                         '/SUPPRESSMSGBOXES',
                         '/NORESTART',
-                        '/CLOSEAPPLICATIONS',
-                        f'/DIR={install_dir}'
+                        '/SP-',                  # ✅ Skip startup message
+                        f'/DIR="{install_dir}"'
                     ]
+
+                    self._append_inno_log_if_enabled(cmd)
                     
                     logger.info(f"Executing OTA update with progress: {' '.join(cmd)}")
                     logger.info("Using Inno Setup parameters: /SILENT (with progress) /SUPPRESSMSGBOXES /NORESTART")
@@ -135,14 +292,22 @@ class InstallationManager:
                     
                     # Launch installer without waiting
                     try:
-                        process = subprocess.Popen(
-                            cmd,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE,
-                            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-                        )
+                        if sys.platform == 'win32':
+                            creation_flags = (
+                                subprocess.DETACHED_PROCESS |
+                                subprocess.CREATE_NEW_PROCESS_GROUP |
+                                subprocess.CREATE_NO_WINDOW
+                            )
+                        else:
+                            creation_flags = 0
+
+                        if sys.platform == 'win32':
+                            pid = self._launch_windows_installer_delayed(cmd, delay_seconds=8)
+                            logger.info(f"Installer launch script started (PID: {pid})")
+                        else:
+                            process = subprocess.Popen(cmd, creationflags=creation_flags)
+                            logger.info(f"Installer launched (PID: {process.pid})")
                         
-                        logger.info(f"Installer launched (PID: {process.pid})")
                         logger.info("Application will exit in 3 seconds for file replacement...")
                         
                         # Schedule application exit
@@ -150,6 +315,13 @@ class InstallationManager:
                         def delayed_exit():
                             time.sleep(3)
                             logger.info("Exiting for installer to replace files...")
+                            # Force flush all file handles and buffers
+                            import sys as sys_module
+                            try:
+                                sys_module.stdout.flush()
+                                sys_module.stderr.flush()
+                            except Exception:
+                                pass
                             os._exit(0)
                         
                         threading.Thread(target=delayed_exit, daemon=True).start()
@@ -163,6 +335,12 @@ class InstallationManager:
                     # Development environment - use /SILENT for OTA testing
                     logger.warning("Running in development mode, using /SILENT for OTA testing")
                     
+                    # Note: We do NOT terminate processes here in dev mode because:
+                    # 1. Dev version runs from workspace, not LOCALAPPDATA\eCan
+                    # 2. Killing LOCALAPPDATA\eCan processes may trigger unexpected exits
+                    # 3. The 6-second delayed installer launch gives enough time for dev app to exit
+                    logger.info("Skipping pre-install process termination in dev mode (relying on delayed launch)")
+                    
                     # Set OTA installation flag to skip exit confirmation dialog
                     from ota.core.download_manager import download_manager
                     download_manager.set_installing(True)
@@ -172,19 +350,44 @@ class InstallationManager:
                         '/SILENT',              # Shows progress bar, skips wizard pages
                         '/SUPPRESSMSGBOXES',
                         '/NORESTART',
+                        '/SP-',                  # Skip startup message
                     ]
+
+                    self._append_inno_log_if_enabled(cmd)
                     logger.info(f"Development OTA command: {' '.join(cmd)}")
-                    subprocess.Popen(cmd)
+
+                    if sys.platform == 'win32':
+                        creation_flags = (
+                            subprocess.DETACHED_PROCESS |
+                            subprocess.CREATE_NEW_PROCESS_GROUP |
+                            subprocess.CREATE_NO_WINDOW
+                        )
+                    else:
+                        creation_flags = 0
+
+                    if sys.platform == 'win32':
+                        pid = self._launch_windows_installer_delayed(cmd, delay_seconds=8)
+                        logger.info(f"Installer launch script started (PID: {pid})")
+                    else:
+                        process = subprocess.Popen(cmd, creationflags=creation_flags)
+                        logger.info(f"Installer launched (PID: {process.pid})")
                     
                     # Schedule application exit for development environment
                     import threading
                     def delayed_exit():
                         time.sleep(3)
                         logger.info("Development mode: Exiting for installer to replace files...")
+                        # Force flush all file handles and buffers
+                        import sys as sys_module
+                        try:
+                            sys_module.stdout.flush()
+                            sys_module.stderr.flush()
+                        except Exception:
+                            pass
                         os._exit(0)
                     
                     threading.Thread(target=delayed_exit, daemon=True).start()
-                    logger.info("Development mode: Application will exit in 3 seconds...")
+                    logger.info("Development mode: Application will exit in 2 seconds...")
                     
                     return True
             else:
@@ -220,13 +423,24 @@ class InstallationManager:
             
             # Execute installation in background
             logger.info(f"Executing silent MSI update: {' '.join(cmd)}")
-            
+
             # Launch installer without waiting
+            # Use DETACHED_PROCESS to make installer independent of parent process
+            if sys.platform == 'win32':
+                # DETACHED_PROCESS: Creates a new console for the child process
+                # CREATE_NEW_PROCESS_GROUP: Creates a new process group
+                # CREATE_NO_WINDOW: Hides the console window
+                creation_flags = (
+                    subprocess.DETACHED_PROCESS |
+                    subprocess.CREATE_NEW_PROCESS_GROUP |
+                    subprocess.CREATE_NO_WINDOW
+                )
+            else:
+                creation_flags = 0
+
             process = subprocess.Popen(
                 cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+                creationflags=creation_flags
             )
             
             logger.info(f"MSI installer launched (PID: {process.pid})")
