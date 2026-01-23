@@ -377,7 +377,7 @@ brotli==1.2.0
 # ============================================================================
 # LIGHTRAG CORE DEPENDENCIES
 # ============================================================================
-lightrag-hku==1.4.9.8
+lightrag-hku==1.4.9.11
 ascii_colors==0.11.4        # Terminal color output (LightRAG internal)
 configparser==7.2.0         # Configuration file parsing
 future==1.0.0               # Python 2/3 compatibility
