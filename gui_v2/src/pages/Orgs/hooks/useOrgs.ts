@@ -18,6 +18,7 @@ interface OrgState {
   orgAgents: any[];
   availableAgents: any[];
   loading: boolean;
+  companyName: string;
 }
 
 // UI Status单独管理
@@ -40,6 +41,7 @@ export const useOrgs = () => {
     orgAgents: [],
     availableAgents: [],
     loading: false,
+    companyName: '',
   });
 
   // UI Status - 独立管理
@@ -63,14 +65,37 @@ export const useOrgs = () => {
   }, []);
 
   // API Function - 使用 ref 避免Dependency
-  const loadOrgs = useCallback(async () => {
+  const loadOrgs = useCallback(async (companyName?: string) => {
     if (!username) return;
 
-    updateDataState({ loading: true });
+    const trimmedCompany = (companyName ?? dataStateRef.current.companyName).trim();
+    if (!trimmedCompany) {
+      message.warning(t('pages.org.messages.companyRequired', 'Company cannot be empty'));
+      try {
+        localStorage.removeItem('org_company_filter');
+      } catch {
+        // ignore storage errors
+      }
+      updateDataState({
+        orgs: [],
+        selectedOrg: null,
+        orgAgents: [],
+        loading: false,
+        companyName: ''
+      });
+      return;
+    }
+
+    updateDataState({ loading: true, companyName: trimmedCompany });
+    try {
+      localStorage.setItem('org_company_filter', trimmedCompany);
+    } catch {
+      // ignore storage errors
+    }
     try {
       const api = get_ipc_api();
       // 使用 getAllOrgAgents 获取包含代理信息的完整树结构
-      const response = await api.getAllOrgAgents(username);
+      const response = await api.getAllOrgAgents(username, trimmedCompany);
 
       if (response.success && response.data) {
         const data = response.data as any;
@@ -129,12 +154,15 @@ export const useOrgs = () => {
   const loadOrgAgents = useCallback(async (orgId: string) => {
     if (!username) return;
 
+    const companyName = dataStateRef.current.companyName.trim();
+    if (!companyName) return;
+
     updateDataState({ loading: true });
     try {
       const api = get_ipc_api();
       
       // 使用 getAllOrgAgents 获取完整的组织和代理树结构
-      const response = await api.getAllOrgAgents(username);
+      const response = await api.getAllOrgAgents(username, companyName);
       
       if (response.success && response.data) {
         const data = response.data as any;
@@ -429,10 +457,16 @@ export const useOrgs = () => {
 
   // InitializeDataLoad
   useEffect(() => {
-    if (username) {
-      loadOrgs();
+    if (!username) {
+      updateDataState({
+        orgs: [],
+        selectedOrg: null,
+        orgAgents: [],
+        loading: false,
+        companyName: ''
+      });
     }
-  }, [username, loadOrgs]);
+  }, [username, updateDataState]);
 
   // 合并Status返回
   const combinedState = {

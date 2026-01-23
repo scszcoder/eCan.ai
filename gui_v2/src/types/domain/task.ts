@@ -32,6 +32,7 @@ export interface Task {
   sessionId?: string;
   name?: string;
   description?: string;
+  cloud_based?: boolean;
   status?: TaskStatus | string;
   priority?: TaskPriority | string;
   source?: 'code' | 'ui'; // Task source: code-generated or UI-created

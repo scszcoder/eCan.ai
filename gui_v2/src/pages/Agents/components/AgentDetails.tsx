@@ -704,6 +704,7 @@ const AgentDetails: React.FC = () => {
   const [form] = Form.useForm<AgentDetailsForm>();
   const [editMode, setEditMode] = useState(isNew);
   const [loading, setLoading] = useState(false);
+  const [orgDataLoaded, setOrgDataLoaded] = useState(false);
   // 使用 ref 追踪初始化状态，避免 KeepAlive 恢复时重置
   const initializedRef = useRef(false);
   const [, forceUpdate] = useState({});
@@ -728,6 +729,7 @@ const AgentDetails: React.FC = () => {
       
       // If已有Data且不NeedRefresh，则跳过
       if (treeOrgs && treeOrgs.length > 0 && !shouldFetchData()) {
+        setOrgDataLoaded(true);
         // 即使使用CacheData，也要确保新建模式下SettingsDefault组织
         if (isNew && defaultOrgId) {
           const currentOrg = form.getFieldValue('org_id');
@@ -762,6 +764,7 @@ const AgentDetails: React.FC = () => {
         setOrgError('Error loading organization data');
       } finally {
         setOrgLoading(false);
+        setOrgDataLoaded(true);
       }
     };
     
@@ -904,7 +907,7 @@ const AgentDetails: React.FC = () => {
     // 防止重复初始化
     if (initRef.current) return;
     
-    if (isNew && organizationTreeData.length > 0) {
+    if (isNew && orgDataLoaded) {
       initRef.current = true;
       
       // Create completely independent initial values object to avoid any possible references
@@ -932,7 +935,7 @@ const AgentDetails: React.FC = () => {
       forceUpdate({});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isNew, organizationTreeData.length]);
+  }, [isNew, orgDataLoaded]);
 
   // Get supervisor candidates (agents from current and parent organizations)
   useEffect(() => {
