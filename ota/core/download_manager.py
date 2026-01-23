@@ -140,6 +140,10 @@ class DownloadManager(QObject):
             logger.info("[DownloadManager] OTA installation flag set - app will exit without confirmation")
         else:
             logger.info("[DownloadManager] OTA installation flag cleared")
+
+    def is_installing(self) -> bool:
+        """Check if OTA installer has been launched and installation is in progress"""
+        return bool(self._ota_installing)
     
     def is_downloading(self) -> bool:
         """Check if currently downloading"""

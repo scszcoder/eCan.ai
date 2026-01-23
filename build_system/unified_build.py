@@ -173,12 +173,17 @@ class UnifiedBuildSystem:
             source_files = [
                 frontend_dir / "package.json",
                 frontend_dir / "package-lock.json",
-                frontend_dir / "vite.config.js"
             ]
+            
+            # Check for vite config (both .js and .ts)
+            for config_file in [frontend_dir / "vite.config.js", frontend_dir / "vite.config.ts"]:
+                if config_file.exists():
+                    source_files.append(config_file)
             
             src_dir = frontend_dir / "src"
             if src_dir.exists():
                 source_files.extend(src_dir.rglob("*.[jt]s"))
+                source_files.extend(src_dir.rglob("*.[jt]sx"))
                 source_files.extend(src_dir.rglob("*.vue"))
                 source_files.extend(src_dir.rglob("*.css"))
             

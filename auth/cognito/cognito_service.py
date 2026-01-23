@@ -1,3 +1,4 @@
+import os
 import boto3
 from botocore.exceptions import ClientError
 from botocore.config import Config
@@ -47,7 +48,8 @@ class CognitoService:
         # In a production environment, this should be cached.
         url = f"https://cognito-idp.{AuthConfig.COGNITO.REGION}.amazonaws.com/{AuthConfig.COGNITO.USER_POOL_ID}/.well-known/jwks.json"
         try:
-            response = requests.get(url)
+            # Increase timeout for China -> AWS (60 seconds)
+            response = requests.get(url, timeout=60)
             response.raise_for_status()
             return response.json()['keys']
         except requests.exceptions.RequestException as e:
@@ -215,12 +217,27 @@ class CognitoService:
             data['code_verifier'] = code_verifier
 
         try:
-            response = requests.post(url, headers=headers, data=data, auth=auth)
+            # Add timeout to prevent infinite waiting (120 seconds for China -> AWS)
+            # requests library automatically uses HTTP_PROXY/HTTPS_PROXY environment variables
+            http_proxy = os.environ.get('HTTP_PROXY') or os.environ.get('http_proxy')
+            https_proxy = os.environ.get('HTTPS_PROXY') or os.environ.get('https_proxy')
+            if https_proxy or http_proxy:
+                logger.info(f"[Cognito] Using proxy for token exchange: {https_proxy or http_proxy}")
+            else:
+                logger.warning("[Cognito] No proxy configured - direct connection to AWS (may be slow from China)")
+            
+            response = requests.post(url, headers=headers, data=data, auth=auth, timeout=120)
             response.raise_for_status()
             # On success, the response body will contain the access_token, id_token, and refresh_token.
+            logger.info("AuthManager: Token exchange successful")
             return {'success': True, 'data': response.json()}
+        except requests.exceptions.Timeout:
+            logger.error("AuthManager: Token exchange timeout after 120 seconds")
+            return {'success': False, 'error': 'Token exchange request timed out after 120 seconds. Please check your network connection or proxy settings.'}
         except requests.exceptions.RequestException as e:
-            return {'success': False, 'error': e.response.json() if e.response else str(e)}
+            error_msg = e.response.json() if e.response else str(e)
+            logger.error(f"AuthManager: Token exchange failed: {error_msg}")
+            return {'success': False, 'error': error_msg}
 
     def forgot_password(self, username):
         try:
@@ -273,7 +290,8 @@ class CognitoService:
         try:
             url = f"{AuthConfig.COGNITO.DOMAIN}/oauth2/userInfo"
             headers = {"Authorization": f"Bearer {access_token}"}
-            resp = requests.get(url, headers=headers, timeout=10)
+            # Increase timeout for China -> AWS (60 seconds)
+            resp = requests.get(url, headers=headers, timeout=60)
             resp.raise_for_status()
             return {"success": True, "data": resp.json()}
         except requests.exceptions.RequestException as e:
