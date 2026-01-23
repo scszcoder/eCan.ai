@@ -273,8 +273,8 @@ const ProviderSelector: React.FC<ProviderSelectorProps> = ({
               size="small"
               disabled={field.disabled}
               min={0}
-              step={field.key.includes('TEMPERATURE') ? 0.1 : 1}
-              precision={field.key.includes('TEMPERATURE') || field.key.includes('THRESHOLD') ? 2 : 0}
+              step={field.key.includes('TEMPERATURE') || field.key.includes('SCORE') ? 0.1 : 1}
+              precision={field.key.includes('TEMPERATURE') || field.key.includes('THRESHOLD') || field.key.includes('SCORE') ? 2 : 0}
             />
           </div>
         );

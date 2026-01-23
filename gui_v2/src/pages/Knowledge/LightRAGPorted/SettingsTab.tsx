@@ -740,7 +740,15 @@ const SettingsTab: React.FC = () => {
     try {
       const response = await get_ipc_api().lightragApi.getSettings();
       if (response.success && response.data) {
-        setSettings(response.data as Record<string, string>);
+        const loadedSettings = response.data as Record<string, string>;
+        
+        // Auto-set RERANK_BY_DEFAULT based on RERANK_BINDING
+        if (!loadedSettings['RERANK_BY_DEFAULT']) {
+          const rerankBinding = loadedSettings['RERANK_BINDING'];
+          loadedSettings['RERANK_BY_DEFAULT'] = (rerankBinding && rerankBinding !== 'null') ? 'true' : 'false';
+        }
+        
+        setSettings(loadedSettings);
       }
     } catch (e) {
       console.error('Failed to load settings:', e);
@@ -999,8 +1007,8 @@ const SettingsTab: React.FC = () => {
               size="small"
               disabled={disabled}
               min={0}
-              step={field.key.includes('TEMPERATURE') ? 0.1 : 1}
-              precision={field.key.includes('TEMPERATURE') || field.key.includes('THRESHOLD') ? 2 : 0}
+              step={field.key.includes('TEMPERATURE') || field.key.includes('SCORE') ? 0.1 : 1}
+              precision={field.key.includes('TEMPERATURE') || field.key.includes('THRESHOLD') || field.key.includes('SCORE') ? 2 : 0}
             />
           </div>
         );
