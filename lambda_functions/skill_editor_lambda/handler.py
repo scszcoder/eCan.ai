@@ -197,6 +197,7 @@ def _to_message_gql(msg: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _handle_create_session(event: Dict[str, Any]) -> Dict[str, Any]:
+    logger.info("[createSkillEditorChatSession] Starting handler")
     env = _load_env()
     args = event.get("arguments") or {}
     input_ = args.get("input") or {}
@@ -204,6 +205,8 @@ def _handle_create_session(event: Dict[str, Any]) -> Dict[str, Any]:
     owner = _owner_from_event(event)
     session_id = str(uuid4())
     now = _utc_now_iso()
+
+    logger.info(f"[createSkillEditorChatSession] owner={owner}, session_id={session_id}, name={input_.get('name')}")
 
     session = {
         "id": session_id,
@@ -219,13 +222,17 @@ def _handle_create_session(event: Dict[str, Any]) -> Dict[str, Any]:
     _save_session(env, owner, session)
     _save_history(env, owner, session_id, {"sessionId": session_id, "messages": []})
 
+    logger.info(f"[createSkillEditorChatSession] Session created successfully: {session_id}")
     return _to_session_gql(session)
 
 
 def _handle_get_sessions(event: Dict[str, Any]) -> List[Dict[str, Any]]:
+    logger.info("[getSkillEditorChatSessions] Starting handler")
     env = _load_env()
     args = event.get("arguments") or {}
     owner = (args.get("userId") or _owner_from_event(event) or "").strip() or _owner_from_event(event)
+
+    logger.info(f"[getSkillEditorChatSessions] owner={owner}")
 
     prefix = _norm_prefix(env.s3_key_root)
     user_dir = _safe_user_dir_name(owner)
@@ -233,7 +240,10 @@ def _handle_get_sessions(event: Dict[str, Any]) -> List[Dict[str, Any]]:
     if sessions_prefix:
         sessions_prefix += "/"
 
+    logger.info(f"[getSkillEditorChatSessions] Listing S3 prefix: {sessions_prefix}")
     keys = _s3_list_keys(bucket=env.s3_bucket, prefix=sessions_prefix)
+    logger.info(f"[getSkillEditorChatSessions] Found {len(keys)} session keys")
+
     sessions: List[Dict[str, Any]] = []
     for k in keys:
         doc = _s3_get_json(bucket=env.s3_bucket, key=k)
@@ -241,14 +251,18 @@ def _handle_get_sessions(event: Dict[str, Any]) -> List[Dict[str, Any]]:
             sessions.append(doc)
 
     sessions.sort(key=lambda s: (s.get("updatedAt") or ""), reverse=True)
+    logger.info(f"[getSkillEditorChatSessions] Returning {len(sessions)} sessions")
     return [_to_session_gql(s) for s in sessions]
 
 
 def _handle_get_history(event: Dict[str, Any]) -> List[Dict[str, Any]]:
+    logger.info("[getSkillEditorChatHistory] Starting handler")
     env = _load_env()
     args = event.get("arguments") or {}
     session_id = str(args.get("sessionId") or "")
     owner = _owner_from_event(event)
+
+    logger.info(f"[getSkillEditorChatHistory] owner={owner}, session_id={session_id}")
 
     limit = args.get("limit")
     offset = int(args.get("offset") or 0)
@@ -258,20 +272,27 @@ def _handle_get_history(event: Dict[str, Any]) -> List[Dict[str, Any]]:
     if not isinstance(messages, list):
         messages = []
 
+    logger.info(f"[getSkillEditorChatHistory] Found {len(messages)} messages, offset={offset}, limit={limit}")
+
     sliced = messages[offset:]
     if isinstance(limit, int) and limit > 0:
         sliced = sliced[:limit]
 
+    logger.info(f"[getSkillEditorChatHistory] Returning {len(sliced)} messages")
     return [_to_message_gql(m) for m in sliced if isinstance(m, dict) and m.get("id")]
 
 
 def _handle_delete_session(event: Dict[str, Any]) -> bool:
+    logger.info("[deleteSkillEditorChatSession] Starting handler")
     env = _load_env()
     args = event.get("arguments") or {}
     session_id = str(args.get("sessionId") or "")
     owner = _owner_from_event(event)
 
+    logger.info(f"[deleteSkillEditorChatSession] owner={owner}, session_id={session_id}")
+
     if not session_id:
+        logger.warning("[deleteSkillEditorChatSession] No session_id provided")
         return False
 
     client = _s3_client()
@@ -282,21 +303,27 @@ def _handle_delete_session(event: Dict[str, Any]) -> bool:
     ):
         try:
             client.delete_object(Bucket=env.s3_bucket, Key=key)
+            logger.info(f"[deleteSkillEditorChatSession] Deleted S3 key: {key}")
             deleted_any = True
-        except Exception:
+        except Exception as e:
+            logger.warning(f"[deleteSkillEditorChatSession] Failed to delete {key}: {e}")
             continue
 
+    logger.info(f"[deleteSkillEditorChatSession] Completed, deleted_any={deleted_any}")
     return deleted_any
 
 
 def _handle_cancel_generation(event: Dict[str, Any]) -> bool:
+    logger.info("[cancelSkillEditorChatGeneration] Starting handler")
     # Best-effort only in Lambda: we cannot cancel an in-flight invocation.
     # Return true so UI can stop waiting / reset local streaming state.
     _ = event
+    logger.info("[cancelSkillEditorChatGeneration] Returning True (best-effort)")
     return True
 
 
 def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
+    logger.info("[sendSkillEditorChatMessage] Starting handler")
     env = _load_env()
     args = event.get("arguments") or {}
     input_ = args.get("input") or {}
@@ -305,164 +332,280 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
     session_id = str(input_.get("sessionId") or "")
     content = str(input_.get("content") or "")
 
+    logger.info(f"[sendSkillEditorChatMessage] owner={owner}, session_id={session_id}, content_len={len(content)}")
+
     if not session_id:
+        logger.error("[sendSkillEditorChatMessage] sessionId is required")
         raise ValueError("sessionId is required")
     if not content.strip():
+        logger.error("[sendSkillEditorChatMessage] content is required")
         raise ValueError("content is required")
 
-    session = _load_session(env, owner, session_id)
-    if not session:
-        # Auto-create session if missing
-        now = _utc_now_iso()
-        session = {
-            "id": session_id,
-            "name": "New Chat",
-            "flowgramId": input_.get("flowgramId"),
-            "createdAt": now,
-            "updatedAt": now,
-            "pipelineState": "idle",
-            "currentPlan": None,
-            "currentRequest": None,
-        }
-
-    history = _load_history(env, owner, session_id)
-
-    now = _utc_now_iso()
-    user_msg = {
-        "id": str(uuid4()),
-        "role": "user",
-        "content": content,
-        "timestamp": now,
-        "attachments": input_.get("attachments"),
-        "metadata": {
-            "canvasContext": input_.get("canvasContext"),
-            "clarificationResponses": input_.get("clarificationResponses"),
-        },
-    }
-    history.setdefault("messages", [])
-    if isinstance(history["messages"], list):
-        history["messages"].append(user_msg)
-
+    # Initialize variables for finally block
+    session: Optional[Dict[str, Any]] = None
+    history: Optional[Dict[str, Any]] = None
+    agent: Optional[SkillEditorAgent] = None
     assistant_message_id = str(uuid4())
-    chunk_index = 0
+    error_occurred: Optional[str] = None
+    response = None
 
-    flowgram_id = input_.get("flowgramId")
+    try:
+        logger.info(f"[sendSkillEditorChatMessage] Loading session from S3...")
+        session = _load_session(env, owner, session_id)
+        if not session:
+            logger.info(f"[sendSkillEditorChatMessage] Session not found, auto-creating...")
+            now = _utc_now_iso()
+            session = {
+                "id": session_id,
+                "name": "New Chat",
+                "flowgramId": input_.get("flowgramId"),
+                "createdAt": now,
+                "updatedAt": now,
+                "pipelineState": "idle",
+                "currentPlan": None,
+                "currentRequest": None,
+            }
+        else:
+            logger.info(f"[sendSkillEditorChatMessage] Session loaded, pipelineState={session.get('pipelineState')}")
 
-    def on_event(evt: Dict[str, Any]) -> None:
-        nonlocal chunk_index
-        if not isinstance(evt, dict):
-            return
-        etype = evt.get("type")
-        if etype not in {"progress", "chunk"}:
-            return
-        data = evt.get("data") or {}
-        text = data.get("message") if etype == "progress" else data.get("content")
-        if not isinstance(text, str) or not text.strip():
-            return
-        payload = {
-            "messageId": assistant_message_id,
-            "chunk": text,
-            "index": chunk_index,
+        history = _load_history(env, owner, session_id)
+        logger.info(f"[sendSkillEditorChatMessage] History loaded, {len(history.get('messages', []))} existing messages")
+
+        now = _utc_now_iso()
+        user_msg = {
+            "id": str(uuid4()),
+            "role": "user",
+            "content": content,
+            "timestamp": now,
+            "attachments": input_.get("attachments"),
+            "metadata": {
+                "canvasContext": input_.get("canvasContext"),
+                "clarificationResponses": input_.get("clarificationResponses"),
+            },
         }
-        _publish(
-            env,
-            owner=owner,
+        history.setdefault("messages", [])
+        if isinstance(history["messages"], list):
+            history["messages"].append(user_msg)
+
+        chunk_index = 0
+        flowgram_id = input_.get("flowgramId")
+
+        def on_event(evt: Dict[str, Any]) -> None:
+            nonlocal chunk_index
+            if not isinstance(evt, dict):
+                return
+            etype = evt.get("type")
+            if etype not in {"progress", "chunk"}:
+                return
+            data = evt.get("data") or {}
+            text = data.get("message") if etype == "progress" else data.get("content")
+            if not isinstance(text, str) or not text.strip():
+                return
+            payload = {
+                "messageId": assistant_message_id,
+                "chunk": text,
+                "index": chunk_index,
+            }
+            try:
+                _publish(
+                    env,
+                    owner=owner,
+                    session_id=session_id,
+                    flowgram_id=flowgram_id,
+                    event_type="skill_editor.chat.stream_chunk",
+                    payload=payload,
+                )
+            except Exception as pub_err:
+                logger.warning(f"[sendSkillEditorChatMessage] Error publishing chunk: {pub_err}")
+            chunk_index += 1
+
+        logger.info("[sendSkillEditorChatMessage] Creating SkillEditorAgent...")
+        agent = SkillEditorAgent(user_name=owner)
+
+        try:
+            pipeline_state = session.get("pipelineState")
+            if isinstance(pipeline_state, str) and pipeline_state and pipeline_state != "idle":
+                logger.info(f"[sendSkillEditorChatMessage] Restoring agent state: {pipeline_state}")
+                agent.restore_state(
+                    pipeline_state=pipeline_state,
+                    current_plan=session.get("currentPlan") if isinstance(session.get("currentPlan"), dict) else session.get("currentPlan"),
+                    current_request=session.get("currentRequest") if isinstance(session.get("currentRequest"), str) else None,
+                )
+        except Exception as e:
+            logger.warning(f"[sendSkillEditorChatMessage] Failed to restore agent state: {e}")
+
+        canvas_context = input_.get("canvasContext")
+        clarification = input_.get("clarificationResponses")
+
+        logger.info(f"[sendSkillEditorChatMessage] Calling agent.process_message_sync, canvas_context_type={type(canvas_context).__name__}")
+        response = agent.process_message_sync(
+            message=content,
+            canvas_context=canvas_context,
             session_id=session_id,
-            flowgram_id=flowgram_id,
-            event_type="skill_editor.chat.stream_chunk",
-            payload=payload,
+            clarification_responses=clarification,
+            on_event=on_event,
         )
-        chunk_index += 1
+        logger.info(f"[sendSkillEditorChatMessage] Agent response received, intent={getattr(response, 'intent', None)}, message_len={len(response.message or '')}")
 
-    agent = SkillEditorAgent(user_name=owner)
-
-    try:
-        pipeline_state = session.get("pipelineState")
-        if isinstance(pipeline_state, str) and pipeline_state and pipeline_state != "idle":
-            agent.restore_state(
-                pipeline_state=pipeline_state,
-                current_plan=session.get("currentPlan") if isinstance(session.get("currentPlan"), dict) else session.get("currentPlan"),
-                current_request=session.get("currentRequest") if isinstance(session.get("currentRequest"), str) else None,
-            )
-    except Exception:
-        pass
-
-    canvas_context = input_.get("canvasContext")
-    clarification = input_.get("clarificationResponses")
-
-    response = agent.process_message_sync(
-        message=content,
-        canvas_context=canvas_context,
-        session_id=session_id,
-        clarification_responses=clarification,
-        on_event=on_event,
-    )
-
-    _publish(
-        env,
-        owner=owner,
-        session_id=session_id,
-        flowgram_id=flowgram_id,
-        event_type="skill_editor.chat.stream_end",
-        payload={
-            "messageId": assistant_message_id,
-            "fullContent": response.message or "",
-        },
-    )
-
-    try:
-        for cmd in response.commands or []:
-            cmd_dict = cmd.to_dict() if hasattr(cmd, "to_dict") else (cmd or {})
+        logger.info("[sendSkillEditorChatMessage] Publishing stream_end event...")
+        try:
             _publish(
                 env,
                 owner=owner,
                 session_id=session_id,
                 flowgram_id=flowgram_id,
-                event_type="skill_editor.event",
+                event_type="skill_editor.chat.stream_end",
                 payload={
-                    "type": cmd_dict.get("type"),
-                    "payload": cmd_dict.get("payload"),
+                    "messageId": assistant_message_id,
+                    "fullContent": response.message or "",
                 },
             )
-    except Exception:
-        pass
+        except Exception as pub_err:
+            logger.warning(f"[sendSkillEditorChatMessage] Error publishing stream_end: {pub_err}")
 
-    assistant_msg = {
-        "id": assistant_message_id,
-        "role": "assistant",
-        "content": response.message or "",
-        "timestamp": _utc_now_iso(),
-        "attachments": None,
-        "metadata": {
-            "state": response.metadata.get("state") if isinstance(getattr(response, "metadata", None), dict) else None,
-            "intent": response.intent.value if getattr(response, "intent", None) is not None else None,
-            "hasClarification": bool(getattr(response, "clarification", None)),
-            "hasPlan": bool(getattr(response, "plan", None)),
-            "hasFlowgram": bool(getattr(response, "flowgram", None)),
-        },
-    }
+        try:
+            commands_count = len(response.commands or [])
+            if commands_count > 0:
+                logger.info(f"[sendSkillEditorChatMessage] Publishing {commands_count} commands...")
+            for cmd in response.commands or []:
+                cmd_dict = cmd.to_dict() if hasattr(cmd, "to_dict") else (cmd or {})
+                _publish(
+                    env,
+                    owner=owner,
+                    session_id=session_id,
+                    flowgram_id=flowgram_id,
+                    event_type="skill_editor.event",
+                    payload={
+                        "type": cmd_dict.get("type"),
+                        "payload": cmd_dict.get("payload"),
+                    },
+                )
+        except Exception as e:
+            logger.warning(f"[sendSkillEditorChatMessage] Error publishing commands: {e}")
 
-    if isinstance(history.get("messages"), list):
-        history["messages"].append(assistant_msg)
+        assistant_msg = {
+            "id": assistant_message_id,
+            "role": "assistant",
+            "content": response.message or "",
+            "timestamp": _utc_now_iso(),
+            "attachments": None,
+            "metadata": {
+                "state": response.metadata.get("state") if isinstance(getattr(response, "metadata", None), dict) else None,
+                "intent": response.intent.value if getattr(response, "intent", None) is not None else None,
+                "hasClarification": bool(getattr(response, "clarification", None)),
+                "hasPlan": bool(getattr(response, "plan", None)),
+                "hasFlowgram": bool(getattr(response, "flowgram", None)),
+            },
+        }
 
-    session["updatedAt"] = _utc_now_iso()
-    session["pipelineState"] = agent.pipeline_state.value
-    session["currentPlan"] = agent.current_plan.model_dump() if agent.current_plan else None
-    session["currentRequest"] = agent.current_request
+        if isinstance(history.get("messages"), list):
+            history["messages"].append(assistant_msg)
 
-    _save_history(env, owner, session_id, history)
-    _save_session(env, owner, session)
+        session["updatedAt"] = _utc_now_iso()
+        session["pipelineState"] = agent.pipeline_state.value
+        session["currentPlan"] = agent.current_plan.model_dump() if agent.current_plan else None
+        session["currentRequest"] = agent.current_request
 
+    except Exception as e:
+        import traceback
+        error_occurred = str(e)
+        error_traceback = traceback.format_exc()
+        logger.error(f"[sendSkillEditorChatMessage] Exception occurred: {error_occurred}")
+        logger.error(f"[sendSkillEditorChatMessage] Traceback: {error_traceback}")
+
+        # Create error message for chat history
+        error_msg = {
+            "id": assistant_message_id,
+            "role": "assistant",
+            "content": f"An error occurred while processing your request: {error_occurred}",
+            "timestamp": _utc_now_iso(),
+            "attachments": None,
+            "metadata": {
+                "error": True,
+                "errorMessage": error_occurred,
+                "errorTraceback": error_traceback,
+            },
+        }
+
+        if history and isinstance(history.get("messages"), list):
+            history["messages"].append(error_msg)
+
+        if session:
+            session["updatedAt"] = _utc_now_iso()
+            session["lastError"] = {
+                "message": error_occurred,
+                "traceback": error_traceback,
+                "timestamp": _utc_now_iso(),
+            }
+
+        # Publish error event to frontend
+        try:
+            _publish(
+                env,
+                owner=owner,
+                session_id=session_id,
+                flowgram_id=input_.get("flowgramId"),
+                event_type="skill_editor.chat.stream_end",
+                payload={
+                    "messageId": assistant_message_id,
+                    "fullContent": f"Error: {error_occurred}",
+                    "error": True,
+                },
+            )
+        except Exception as pub_err:
+            logger.warning(f"[sendSkillEditorChatMessage] Failed to publish error event: {pub_err}")
+
+    finally:
+        # Always save history and session to S3, even on error
+        logger.info(f"[sendSkillEditorChatMessage] Finally block: saving history and session to S3...")
+        try:
+            if history:
+                _save_history(env, owner, session_id, history)
+                logger.info(f"[sendSkillEditorChatMessage] History saved successfully")
+        except Exception as save_err:
+            logger.error(f"[sendSkillEditorChatMessage] Failed to save history: {save_err}")
+
+        try:
+            if session:
+                _save_session(env, owner, session)
+                logger.info(f"[sendSkillEditorChatMessage] Session saved successfully")
+        except Exception as save_err:
+            logger.error(f"[sendSkillEditorChatMessage] Failed to save session: {save_err}")
+
+    # If error occurred, raise it after saving
+    if error_occurred:
+        logger.info(f"[sendSkillEditorChatMessage] Re-raising error after saving state")
+        # Return error response instead of raising to allow frontend to handle gracefully
+        return {
+            "sessionId": session_id,
+            "sessionName": session.get("name") if session else "New Chat",
+            "state": "error",
+            "intent": None,
+            "message": {
+                "id": assistant_message_id,
+                "role": "assistant",
+                "content": f"An error occurred: {error_occurred}",
+                "timestamp": _utc_now_iso(),
+                "attachments": None,
+                "metadata": {"error": True, "errorMessage": error_occurred},
+            },
+            "clarification": None,
+            "plan": None,
+            "flowgram": None,
+            "validation": None,
+        }
+
+    logger.info(f"[sendSkillEditorChatMessage] Completed successfully, returning response")
     return {
         "sessionId": session_id,
         "sessionName": session.get("name") or "New Chat",
-        "state": agent.pipeline_state.value,
-        "intent": response.intent.value if getattr(response, "intent", None) is not None else None,
+        "state": agent.pipeline_state.value if agent else "idle",
+        "intent": response.intent.value if response and getattr(response, "intent", None) is not None else None,
         "message": _to_message_gql(assistant_msg),
-        "clarification": [q.model_dump() for q in (response.clarification or [])] if getattr(response, "clarification", None) else None,
-        "plan": response.plan.model_dump() if getattr(response, "plan", None) else None,
-        "flowgram": response.flowgram.model_dump() if getattr(response, "flowgram", None) else None,
-        "validation": response.validation.model_dump() if getattr(response, "validation", None) else None,
+        "clarification": [q.model_dump() for q in (response.clarification or [])] if response and getattr(response, "clarification", None) else None,
+        "plan": response.plan.model_dump() if response and getattr(response, "plan", None) else None,
+        "flowgram": response.flowgram.model_dump() if response and getattr(response, "flowgram", None) else None,
+        "validation": response.validation.model_dump() if response and getattr(response, "validation", None) else None,
     }
 
 
@@ -562,19 +705,34 @@ def handler(event, context):
     info = event.get("info") or {}
     field = info.get("fieldName")
 
-    if field == "createSkillEditorChatSession":
-        return _handle_create_session(event)
-    if field == "getSkillEditorChatSessions":
-        return _handle_get_sessions(event)
-    if field == "getSkillEditorChatHistory":
-        return _handle_get_history(event)
-    if field == "sendSkillEditorChatMessage":
-        return _handle_send_message(event)
-    if field == "cancelSkillEditorChatGeneration":
-        return _handle_cancel_generation(event)
-    if field == "deleteSkillEditorChatSession":
-        return _handle_delete_session(event)
-    if field == "loadSkillEditorContexts":
-        return _handle_load_skill_editor_contexts(event)
+    logger.info(f"[handler] Lambda invoked, fieldName={field}")
 
-    raise RuntimeError(f"Unsupported fieldName: {field}")
+    try:
+        if field == "createSkillEditorChatSession":
+            return _handle_create_session(event)
+        if field == "getSkillEditorChatSessions":
+            return _handle_get_sessions(event)
+        if field == "getSkillEditorChatHistory":
+            return _handle_get_history(event)
+        if field == "sendSkillEditorChatMessage":
+            return _handle_send_message(event)
+        if field == "cancelSkillEditorChatGeneration":
+            return _handle_cancel_generation(event)
+        if field == "deleteSkillEditorChatSession":
+            return _handle_delete_session(event)
+        if field == "loadSkillEditorContexts":
+            return _handle_load_skill_editor_contexts(event)
+
+        logger.error(f"[handler] Unsupported fieldName: {field}")
+        raise RuntimeError(f"Unsupported fieldName: {field}")
+
+    except Exception as e:
+        import traceback
+        error_msg = str(e)
+        error_tb = traceback.format_exc()
+        logger.error(f"[handler] Unhandled exception in {field}: {error_msg}")
+        logger.error(f"[handler] Traceback: {error_tb}")
+        
+        # For sendSkillEditorChatMessage, the error is already handled with S3 persistence
+        # For other operations, re-raise to let AppSync handle the error
+        raise
