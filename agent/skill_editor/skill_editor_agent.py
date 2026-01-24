@@ -922,11 +922,15 @@ class SkillEditorAgent:
 
         return True
 
-    def _emit_progress(self, on_event: Optional[Callable], message: str) -> None:
+    async def _emit_progress(self, on_event: Optional[Callable], message: str) -> None:
         if not on_event:
             return
         try:
-            on_event({"type": "progress", "data": {"message": message}})
+            import asyncio
+            result = on_event({"type": "progress", "data": {"message": message}})
+            # Handle both sync and async callbacks
+            if asyncio.iscoroutine(result):
+                await result
         except Exception:
             return
 
@@ -1029,7 +1033,7 @@ class SkillEditorAgent:
 
     async def _run_explain(self, message: str, session_id: Optional[str], on_event: Optional[Callable]) -> AgentResponse:
         self._pipeline_state = PipelineState.IDLE
-        self._emit_progress(on_event, "Answering...")
+        await self._emit_progress(on_event, "Answering...")
 
         prompt = (
             "You are a helpful assistant. Answer the user's question directly and concisely. "
@@ -1113,7 +1117,7 @@ class SkillEditorAgent:
         logger.info(f"[SkillEditorAgent] Processing message: {message[:100]}...")
         logger.info(f"[SkillEditorAgent] Pipeline state: {self._pipeline_state.value}")
 
-        self._emit_progress(on_event, "Thinking...")
+        await self._emit_progress(on_event, "Thinking...")
 
         # Restore per-skill chat context (conversation history) once per (skill, session_id)
         try:
@@ -1233,7 +1237,7 @@ class SkillEditorAgent:
                     # Fall through to normal intent classification
             
             # Classify intent
-            self._emit_progress(on_event, "Classifying intent...")
+            await self._emit_progress(on_event, "Classifying intent...")
             intent = self._classify_intent_simple(message)
 
             # If the user returns to work-related actions, reset the casual chat counter.
@@ -1274,9 +1278,9 @@ class SkillEditorAgent:
                 return response
 
             if intent == IntentType.CREATE_FLOWGRAM:
-                self._emit_progress(on_event, "Planning or generating a new workflow...")
+                await self._emit_progress(on_event, "Planning or generating a new workflow...")
             elif intent in [IntentType.ADD_NODE, IntentType.REMOVE_NODE, IntentType.MODIFY_NODE, IntentType.CONNECT_NODES]:
-                self._emit_progress(on_event, "Preparing to modify the current workflow...")
+                await self._emit_progress(on_event, "Preparing to modify the current workflow...")
             
             # Store current request
             self._current_request = message
@@ -1297,7 +1301,7 @@ class SkillEditorAgent:
 
             # Edit confirmation gate: propose an edit plan, then wait for explicit approval.
             if self._should_require_edit_confirmation(intent, message, canvas_context):
-                self._emit_progress(on_event, "Waiting for confirmation...")
+                await self._emit_progress(on_event, "Waiting for confirmation...")
 
                 items = [p.strip() for p in re.split(r"(?:\n+|;)+", (message or "").strip()) if p.strip()]
                 if not items:
@@ -2922,10 +2926,13 @@ class SkillEditorAgent:
         """
         logger.info(f"[SkillEditorAgent] Processing message (streaming): {message[:100]}...")
         
-        # Create a combined event handler
-        def combined_event_handler(event: Dict):
+        # Create a combined event handler that handles both sync and async callbacks
+        async def combined_event_handler(event: Dict):
             if on_event:
-                on_event(event)
+                import asyncio
+                result = on_event(event)
+                if asyncio.iscoroutine(result):
+                    await result
             # Also send chunks if it's a chunk event
             if event.get("type") == "chunk" and on_chunk:
                 on_chunk(event.get("data", {}).get("content", ""), event.get("data", {}).get("index", 0))

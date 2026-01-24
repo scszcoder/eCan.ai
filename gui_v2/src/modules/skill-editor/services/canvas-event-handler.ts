@@ -94,14 +94,36 @@ class CanvasEventHandler {
     
     // Subscribe to eventBus for skill_editor:event (emitted by handlers.ts)
     eventBus.on('skill_editor:event', (data: any) => {
-      console.log('[CanvasEventHandler] Received skill_editor:event from eventBus:', data);
+      console.log('[CanvasEventHandler] 🎯 Received skill_editor:event from eventBus:', data);
+      console.log('[CanvasEventHandler] 🎯 Data keys:', Object.keys(data || {}));
+      console.log('[CanvasEventHandler] 🎯 Has flowgram:', !!data?.flowgram, 'Has type:', !!data?.type, 'Type value:', data?.type);
+      
+      // Extract type from data - it could be at top level or we need to infer from commandType
+      let eventType = data.type as SkillEditorEventType;
+      
+      // If no type, try to map commandType to event type
+      if (!eventType && data.commandType) {
+        const commandTypeMap: Record<string, string> = {
+          'load_flowgram': 'canvas.load_flowgram_data',
+          'clarification': 'chat.clarification',
+          'plan': 'chat.plan',
+        };
+        eventType = (commandTypeMap[data.commandType] || data.commandType) as SkillEditorEventType;
+      }
+      
+      // Skip if we still don't have a valid type
+      if (!eventType) {
+        console.log('[CanvasEventHandler] Skipping event with no type:', data);
+        return;
+      }
+      
       // Convert eventBus data to SkillEditorEvent format
       const event: SkillEditorEvent = {
         eventId: `evt-${Date.now()}`,
-        type: data.type as SkillEditorEventType,
+        type: eventType,
         timestamp: Date.now(),
         sessionId: data.sessionId || '',
-        payload: data.payload,
+        payload: data,
       } as SkillEditorEvent;
       
       this.handleBackendEvent(event);
@@ -201,6 +223,60 @@ class CanvasEventHandler {
       case 'canvas.create_flowgram': {
         const e = event as CanvasCreateFlowgramEvent;
         await canvasController.createFlowgram(e.payload.name, e.payload.description);
+        break;
+      }
+      
+      case 'canvas.load_flowgram_data': {
+        // Load flowgram data directly into canvas (from agent-generated flowgram)
+        const payload = (event as any).payload;
+        console.log('[CanvasEventHandler] Loading flowgram data directly:', payload);
+        if (payload?.flowgram) {
+          try {
+            const { useSheetsStore } = await import('../stores/sheets-store');
+            const { useAutoSaveStore } = await import('../stores/editor-auto-save-store');
+            
+            // Disable auto-save while loading
+            const autoSaveStore = useAutoSaveStore.getState();
+            const wasAutoSaveEnabled = autoSaveStore.autoSaveEnabled;
+            autoSaveStore.setAutoSaveEnabled(false);
+            console.log('[CanvasEventHandler] Auto-save disabled during flowgram data load');
+            
+            const sheetsStore = useSheetsStore.getState();
+            const flowgram = payload.flowgram;
+            
+            // Create a synthetic bundle from the flowgram data
+            const syntheticBundle = {
+              mainSheetId: 'main',
+              sheets: [{
+                id: 'main',
+                name: 'Main',
+                document: {
+                  nodes: flowgram.nodes || [],
+                  edges: flowgram.edges || [],
+                },
+                createdAt: Date.now(),
+                lastOpenedAt: Date.now(),
+              }],
+              openTabs: ['main'],
+              activeSheetId: 'main',
+            };
+            
+            console.log('[CanvasEventHandler] Loading synthetic bundle with', flowgram.nodes?.length, 'nodes');
+            sheetsStore.loadBundle(syntheticBundle as any);
+            
+            // Re-enable auto-save after a delay
+            setTimeout(() => {
+              if (wasAutoSaveEnabled) {
+                autoSaveStore.setAutoSaveEnabled(true);
+                console.log('[CanvasEventHandler] Auto-save re-enabled after flowgram data load');
+              }
+            }, 500);
+            
+            console.log('[CanvasEventHandler] Flowgram data loaded successfully');
+          } catch (error) {
+            console.error('[CanvasEventHandler] Error loading flowgram data:', error);
+          }
+        }
         break;
       }
       

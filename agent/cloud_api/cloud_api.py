@@ -1101,6 +1101,14 @@ def appsync_http_request(query_string, session, token, endpoint=None, timeout=18
     if not endpoint:
         endpoint = get_appsync_endpoint()
 
+    # Diagnostic logging for token debugging
+    if token:
+        token_preview = token[:50] if len(token) > 50 else token
+        is_jwt = token.startswith("eyJ") and token.count(".") == 2
+        logger_helper.info(f"[AppSync] Token present: {len(token)} chars, JWT format: {is_jwt}, preview: {token_preview}...")
+    else:
+        logger_helper.warning("[AppSync] Token is None or empty!")
+
     headers = {
         'Content-Type': "application/graphql",
         'Authorization': token,

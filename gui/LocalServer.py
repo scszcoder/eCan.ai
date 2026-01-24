@@ -19,8 +19,9 @@ if typing.TYPE_CHECKING:
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse, FileResponse, StreamingResponse
 from starlette.staticfiles import StaticFiles
-from starlette.routing import Route, Mount
+from starlette.routing import Route, Mount, WebSocketRoute
 from starlette.middleware.cors import CORSMiddleware
+from starlette.websockets import WebSocket, WebSocketDisconnect
 import uvicorn
 
 from agent.mcp.server.server import (
@@ -61,6 +62,130 @@ response_dict = {}
 IMAGE_FOLDER = os.path.abspath("run_images")  # Ensure this is your intended path
 base_dir = getattr(sys, '_MEIPASS', os.getcwd())
 
+
+# ==================== Skill Editor WebSocket Manager ====================
+class SkillEditorWebSocketManager:
+    """Manages WebSocket connections for skill editor streaming events."""
+    
+    _instance = None
+    _lock = threading.Lock()
+    
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._connections: dict[str, set[WebSocket]] = {}  # channel_id -> set of websockets
+                    cls._instance._all_connections: set[WebSocket] = set()
+        return cls._instance
+    
+    async def connect(self, websocket: WebSocket, channel_id: str = None):
+        """Accept a new WebSocket connection."""
+        await websocket.accept()
+        self._all_connections.add(websocket)
+        if channel_id:
+            if channel_id not in self._connections:
+                self._connections[channel_id] = set()
+            self._connections[channel_id].add(websocket)
+        logger.info(f"[SkillEditorWS] Client connected. Channel: {channel_id}, Total connections: {len(self._all_connections)}")
+    
+    def disconnect(self, websocket: WebSocket, channel_id: str = None):
+        """Remove a WebSocket connection."""
+        self._all_connections.discard(websocket)
+        if channel_id and channel_id in self._connections:
+            self._connections[channel_id].discard(websocket)
+            if not self._connections[channel_id]:
+                del self._connections[channel_id]
+        logger.info(f"[SkillEditorWS] Client disconnected. Total connections: {len(self._all_connections)}")
+    
+    async def broadcast(self, message: dict, channel_id: str = None):
+        """Broadcast a message to all connections or a specific channel."""
+        message_str = json.dumps(message)
+        msg_type = message.get('type', 'unknown')
+        
+        if channel_id and channel_id in self._connections:
+            targets = self._connections[channel_id]
+        else:
+            targets = self._all_connections
+        
+        logger.info(f"[SkillEditorWS] 📤 Broadcasting {msg_type} to {len(targets)} clients (channel: {channel_id})")
+        
+        disconnected = []
+        for websocket in targets:
+            try:
+                await websocket.send_text(message_str)
+            except Exception as e:
+                logger.warning(f"[SkillEditorWS] ❌ Failed to send message: {e}")
+                disconnected.append(websocket)
+        
+        # Clean up disconnected clients
+        for ws in disconnected:
+            self.disconnect(ws, channel_id)
+    
+    async def send_to_session(self, session_id: str, message: dict):
+        """Send a message to a specific session channel."""
+        await self.broadcast(message, channel_id=f"session:{session_id}")
+    
+    async def send_chat_chunk(self, session_id: str, message_id: str, chunk: str, chunk_index: int):
+        """Send a chat streaming chunk."""
+        logger.debug(f"[SkillEditorWS] 📝 Sending chunk #{chunk_index} for message {message_id[:8]}... ({len(chunk)} chars)")
+        # Use same event type as AppSync for compatibility
+        await self.send_to_session(session_id, {
+            "type": "skill_editor.chat.stream_chunk",
+            "eventType": "skill_editor.chat.stream_chunk",
+            "sessionId": session_id,
+            "messageId": message_id,
+            "payload": {
+                "chunk": chunk,
+                "chunkIndex": chunk_index
+            }
+        })
+    
+    async def send_chat_done(self, session_id: str, message_id: str, full_content: str):
+        """Send chat completion message."""
+        logger.info(f"[SkillEditorWS] ✅ Sending done for message {message_id[:8]}... ({len(full_content)} chars total)")
+        # Use same event type as AppSync for compatibility
+        await self.send_to_session(session_id, {
+            "type": "skill_editor.chat.stream_end",
+            "eventType": "skill_editor.chat.stream_end",
+            "sessionId": session_id,
+            "payload": {
+                "messageId": message_id,
+                "fullContent": full_content
+            }
+        })
+    
+    async def send_canvas_command(self, session_id: str, command_type: str, payload: dict):
+        """Send a canvas command."""
+        # Use same event type as AppSync for compatibility
+        await self.send_to_session(session_id, {
+            "type": "skill_editor.event",
+            "eventType": "skill_editor.event",
+            "sessionId": session_id,
+            "payload": {
+                "commandType": command_type,
+                **payload
+            }
+        })
+    
+    async def send_flowgram(self, session_id: str, flowgram: dict):
+        """Send a flowgram event to load on canvas."""
+        logger.info(f"[SkillEditorWS] 🎨 Sending flowgram to session {session_id} ({len(flowgram.get('nodes', []))} nodes)")
+        await self.send_to_session(session_id, {
+            "type": "skill_editor.event",
+            "eventType": "skill_editor.event",
+            "sessionId": session_id,
+            "payload": {
+                "type": "canvas.load_flowgram_data",  # Event type for canvas handler
+                "commandType": "load_flowgram",
+                "flowgram": flowgram
+            }
+        })
+
+
+# Global WebSocket manager instance
+skill_editor_ws_manager = SkillEditorWebSocketManager()
+
 static_dir = os.path.join(base_dir, 'agent', 'agent_files')
 if not os.path.isdir(static_dir):
     # Handle path differences between development and bundled app: fallback to relative path
@@ -74,6 +199,52 @@ class RequestHandlers:
 
     def __init__(self, main_win: 'MainWindow'):
         self.main_win = main_win
+
+    async def skill_editor_websocket(self, websocket: WebSocket):
+        """WebSocket endpoint for skill editor streaming events."""
+        # Get channel_id from query params (e.g., session:xxx)
+        channel_id = websocket.query_params.get('channel', None)
+        
+        await skill_editor_ws_manager.connect(websocket, channel_id)
+        
+        try:
+            while True:
+                # Keep connection alive and handle incoming messages
+                data = await websocket.receive_text()
+                try:
+                    message = json.loads(data)
+                    msg_type = message.get('type', '')
+                    
+                    # Handle subscription to specific channels
+                    if msg_type == 'subscribe':
+                        new_channel = message.get('channel')
+                        if new_channel:
+                            if new_channel not in skill_editor_ws_manager._connections:
+                                skill_editor_ws_manager._connections[new_channel] = set()
+                            skill_editor_ws_manager._connections[new_channel].add(websocket)
+                            logger.info(f"[SkillEditorWS] Subscribed to channel: {new_channel}")
+                            await websocket.send_text(json.dumps({
+                                "type": "subscribed",
+                                "channel": new_channel
+                            }))
+                    
+                    elif msg_type == 'unsubscribe':
+                        old_channel = message.get('channel')
+                        if old_channel and old_channel in skill_editor_ws_manager._connections:
+                            skill_editor_ws_manager._connections[old_channel].discard(websocket)
+                            logger.info(f"[SkillEditorWS] Unsubscribed from channel: {old_channel}")
+                    
+                    elif msg_type == 'ping':
+                        await websocket.send_text(json.dumps({"type": "pong"}))
+                    
+                except json.JSONDecodeError:
+                    logger.warning(f"[SkillEditorWS] Invalid JSON received: {data[:100]}")
+                    
+        except WebSocketDisconnect:
+            skill_editor_ws_manager.disconnect(websocket, channel_id)
+        except Exception as e:
+            logger.error(f"[SkillEditorWS] Error: {e}")
+            skill_editor_ws_manager.disconnect(websocket, channel_id)
 
     async def serve_image(self, request):
         filename = request.path_params['filename']
@@ -114,6 +285,376 @@ class RequestHandlers:
         """
         from gui.ollama_proxy import ollama_rerank_proxy
         return await ollama_rerank_proxy(request)
+
+    async def graphql_handler(self, request):
+        """
+        GraphQL endpoint for skill editor requests.
+        Translates GraphQL queries/mutations to IPC handler calls.
+        """
+        try:
+            body = await request.json()
+            query = body.get('query', '')
+            variables = body.get('variables', {})
+            
+            logger.info(f"[GraphQL] 📥 Received request: {query[:100]}...")
+            
+            # Parse the GraphQL operation to determine which IPC handler to call
+            result = await self._handle_graphql_operation(query, variables)
+            
+            return JSONResponse({
+                "data": result
+            }, status_code=200)
+            
+        except Exception as e:
+            logger.error(f"[GraphQL] Error handling request: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return JSONResponse({
+                "errors": [{"message": str(e)}]
+            }, status_code=200)  # GraphQL returns 200 even for errors
+
+    async def _handle_graphql_operation(self, query: str, variables: dict):
+        """
+        Route GraphQL operations to appropriate IPC handlers.
+        """
+        from gui.ipc.w2p_handlers.skill_editor_chat_handler import (
+            _chat_store, ChatMessage, ChatRole, _process_chat_message
+        )
+        from gui.ipc.w2p_handlers.node_state_schema_handler import NODE_STATE_JSON_SCHEMA
+        import time
+        import uuid
+        
+        query_lower = query.lower()
+        
+        # Node State Schema
+        if 'getnodestateschema' in query_lower:
+            return {
+                "getNodeStateSchema": {
+                    "schemaVersion": "1.0.0",
+                    "schema": NODE_STATE_JSON_SCHEMA
+                }
+            }
+        
+        # Skill Editor Chat Operations
+        elif 'getskilleditorchatsessions' in query_lower:
+            # Get all chat sessions
+            sessions = _chat_store.get_all_sessions()
+            return {
+                "getSkillEditorChatSessions": [s.to_dict() for s in sessions]
+            }
+        
+        elif 'getskilleditorchathist' in query_lower:
+            # Get chat history for a session
+            session_id = variables.get('sessionId', '')
+            limit = variables.get('limit')
+            offset = variables.get('offset', 0)
+            
+            session = _chat_store.get_session(session_id)
+            if not session:
+                return {"getSkillEditorChatHistory": []}
+            
+            messages = session.messages[offset:]
+            if limit:
+                messages = messages[:limit]
+            
+            return {
+                "getSkillEditorChatHistory": [
+                    {
+                        "id": m.id,
+                        "role": m.role.value,
+                        "content": m.content,
+                        "timestamp": m.timestamp,
+                        "attachments": m.attachments,
+                        "metadata": m.metadata
+                    }
+                    for m in messages
+                ]
+            }
+        
+        elif 'createskilleditorchatsession' in query_lower:
+            # Create a new chat session
+            input_data = variables.get('input', {})
+            name = input_data.get('name', 'New Chat')
+            flowgram_id = input_data.get('flowgramId')
+            
+            session = _chat_store.create_session(name=name, flowgram_id=flowgram_id)
+            return {
+                "createSkillEditorChatSession": session.to_dict()
+            }
+        
+        elif 'sendskilleditorchatmessage' in query_lower:
+            # Send a chat message
+            input_data = variables.get('input', {})
+            session_id = input_data.get('sessionId')
+            content = input_data.get('content', '')
+            canvas_context = input_data.get('canvasContext')
+            clarification_responses = input_data.get('clarificationResponses')
+            
+            session = _chat_store.get_session(session_id)
+            if not session:
+                session = _chat_store.create_session()
+                session_id = session.id
+            
+            # Create user message
+            user_message = ChatMessage(
+                id=str(uuid.uuid4()),
+                role=ChatRole.USER,
+                content=content,
+                timestamp=int(time.time() * 1000),
+                attachments=input_data.get('attachments', []),
+                metadata={
+                    "canvasContext": canvas_context,
+                    "clarificationResponses": clarification_responses
+                }
+            )
+            _chat_store.add_message(session_id, user_message)
+            
+            # Process with LLM agent - use async version since we're in async context
+            assistant_message_id = str(uuid.uuid4())
+            chunk_index = [0]  # Use list to allow mutation in nested function
+            
+            async def on_event(event: dict):
+                """Stream events via WebSocket."""
+                try:
+                    if not isinstance(event, dict):
+                        return
+                    event_type = event.get("type")
+                    logger.debug(f"[GraphQL] 🔔 Agent event: type={event_type}")
+                    
+                    data = event.get("data") or {}
+                    
+                    # Handle flowgram events - send to canvas
+                    if event_type == "flowgram":
+                        flowgram_data = data
+                        if flowgram_data:
+                            logger.info(f"[GraphQL] 🎨 Sending flowgram to canvas via WebSocket")
+                            await skill_editor_ws_manager.send_flowgram(
+                                session_id=session_id,
+                                flowgram=flowgram_data
+                            )
+                        return
+                    
+                    # Handle clarification events
+                    if event_type == "clarification":
+                        logger.info(f"[GraphQL] ❓ Sending clarification event via WebSocket")
+                        await skill_editor_ws_manager.send_canvas_command(
+                            session_id=session_id,
+                            command_type="clarification",
+                            payload={"questions": data.get("questions", [])}
+                        )
+                        return
+                    
+                    # Handle plan events
+                    if event_type == "plan":
+                        logger.info(f"[GraphQL] 📋 Sending plan event via WebSocket")
+                        await skill_editor_ws_manager.send_canvas_command(
+                            session_id=session_id,
+                            command_type="plan",
+                            payload={"plan": data}
+                        )
+                        return
+                    
+                    # Handle progress/chunk events - stream text
+                    if event_type not in ["progress", "chunk"]:
+                        return
+                    
+                    chunk_text = data.get("message") if event_type == "progress" else data.get("content")
+                    
+                    if not isinstance(chunk_text, str) or not chunk_text.strip():
+                        return
+                    
+                    logger.debug(f"[GraphQL] 📤 Streaming chunk #{chunk_index[0]} ({len(chunk_text)} chars)")
+                    await skill_editor_ws_manager.send_chat_chunk(
+                        session_id=session_id,
+                        message_id=assistant_message_id,
+                        chunk=chunk_text,
+                        chunk_index=chunk_index[0]
+                    )
+                    chunk_index[0] += 1
+                except Exception as e:
+                    logger.warning(f"[GraphQL] ❌ Error sending event via WebSocket: {e}")
+            
+            try:
+                from agent.skill_editor import get_skill_editor_agent
+                agent = get_skill_editor_agent()
+                
+                # Restore agent state from session
+                if session.pipeline_state and session.pipeline_state != "idle":
+                    agent.restore_state(
+                        pipeline_state=session.pipeline_state,
+                        current_plan=session.current_plan,
+                        current_request=session.current_request
+                    )
+                
+                # Call async method directly with streaming callback
+                response = await agent.process_message(
+                    message=content,
+                    canvas_context=canvas_context,
+                    session_id=session_id,
+                    clarification_responses=clarification_responses,
+                    on_event=on_event
+                )
+                
+                agent_result = {
+                    "message": response.message,
+                    "intent": response.intent.value if response.intent else None,
+                    "state": response.metadata.get("state", "complete") if response.metadata else "complete",
+                }
+                
+                if response.clarification:
+                    agent_result["clarification"] = [q.model_dump() for q in response.clarification]
+                if response.plan:
+                    agent_result["plan"] = response.plan.model_dump()
+                if response.flowgram:
+                    agent_result["flowgram"] = response.flowgram.model_dump()
+                if response.validation:
+                    agent_result["validation"] = response.validation.model_dump()
+                
+                # Save agent state back to session
+                session.pipeline_state = agent.pipeline_state.value
+                session.current_plan = agent.current_plan.model_dump() if agent.current_plan else None
+                session.current_request = agent.current_request
+                _chat_store.update_session(session)
+                
+            except Exception as e:
+                logger.warning(f"[GraphQL] Agent processing failed, using fallback: {e}")
+                # Fallback response
+                agent_result = {
+                    "message": "I'm here to help you build workflows. What would you like to create?",
+                    "state": "complete"
+                }
+            
+            # Create assistant message
+            assistant_message = ChatMessage(
+                id=assistant_message_id,  # Use the same ID we used for streaming
+                role=ChatRole.ASSISTANT,
+                content=agent_result.get("message", ""),
+                timestamp=int(time.time() * 1000),
+                metadata={
+                    "state": agent_result.get("state"),
+                    "intent": agent_result.get("intent"),
+                }
+            )
+            _chat_store.add_message(session_id, assistant_message)
+            
+            # Send completion message via WebSocket
+            await skill_editor_ws_manager.send_chat_done(
+                session_id=session_id,
+                message_id=assistant_message_id,
+                full_content=agent_result.get("message", "")
+            )
+            
+            return {
+                "sendSkillEditorChatMessage": {
+                    "message": {
+                        "id": assistant_message.id,
+                        "role": assistant_message.role.value,
+                        "content": assistant_message.content,
+                        "timestamp": assistant_message.timestamp,
+                        "metadata": assistant_message.metadata
+                    },
+                    "sessionId": session_id,
+                    "state": agent_result.get("state", "complete"),
+                    "clarification": agent_result.get("clarification"),
+                    "plan": agent_result.get("plan"),
+                    "flowgram": agent_result.get("flowgram"),
+                    "validation": agent_result.get("validation")
+                }
+            }
+        
+        elif 'cancelskilleditorchatgeneration' in query_lower:
+            session_id = variables.get('sessionId', '')
+            was_active = _chat_store.is_generation_active(session_id)
+            _chat_store.set_generation_active(session_id, False)
+            return {
+                "cancelSkillEditorChatGeneration": was_active
+            }
+        
+        elif 'deleteskilleditorchatsession' in query_lower:
+            session_id = variables.get('sessionId', '')
+            deleted = _chat_store.delete_session(session_id)
+            return {
+                "deleteSkillEditorChatSession": deleted
+            }
+        
+        # Editor Cache Operations
+        elif 'geteditorcache' in query_lower:
+            # Return empty cache for now - can be enhanced later
+            return {
+                "getEditorCache": {
+                    "cacheData": None,
+                    "recentFiles": []
+                }
+            }
+        
+        elif 'saveeditorcache' in query_lower:
+            # Accept but don't persist for now
+            return {
+                "saveEditorCache": {"success": True}
+            }
+        
+        elif 'cleareditorcache' in query_lower:
+            return {
+                "clearEditorCache": True
+            }
+        
+        # File Operations - direct file I/O
+        elif 'openskillfile' in query_lower or 'readskillfile' in query_lower:
+            file_path = variables.get('filePath', '')
+            if not file_path:
+                raise Exception("filePath is required")
+            
+            if not os.path.isabs(file_path):
+                from config.app_info import app_info
+                file_path = os.path.join(app_info.appdata_path, file_path)
+            
+            if not os.path.exists(file_path):
+                raise Exception(f"File not found: {file_path}")
+            
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            file_name = os.path.basename(file_path)
+            file_size = os.path.getsize(file_path)
+            skill_name = variables.get('skillName') or file_name.replace('_skill.json', '').replace('.json', '')
+            
+            result = {
+                "content": content,
+                "filePath": file_path,
+                "fileName": file_name,
+                "fileSize": file_size,
+                "skillName": skill_name
+            }
+            
+            if 'openskillfile' in query_lower:
+                return {"openSkillFile": result}
+            else:
+                return {"readSkillFile": result}
+        
+        elif 'writeskillfile' in query_lower:
+            file_path = variables.get('filePath', '')
+            content = variables.get('content', '')
+            
+            if not file_path:
+                raise Exception("filePath is required")
+            
+            if not os.path.isabs(file_path):
+                from config.app_info import app_info
+                file_path = os.path.join(app_info.appdata_path, file_path)
+            
+            # Ensure directory exists
+            dir_path = os.path.dirname(file_path)
+            if dir_path:
+                os.makedirs(dir_path, exist_ok=True)
+            
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            return {"writeSkillFile": {"success": True, "filePath": file_path}}
+        
+        else:
+            logger.warning(f"[GraphQL] Unknown operation: {query[:200]}")
+            raise Exception(f"Unknown GraphQL operation")
 
     async def gen_feedbacks(self, request):
         logger.info("serving gen_feedbacks.....")
@@ -347,6 +888,8 @@ class RouteBuilder:
         return [
             Mount("/mcp", app=mcp_asgi),
             Route("/healthz", health_check),
+            Route("/graphql", self.request_handlers.graphql_handler, methods=['POST']),
+            WebSocketRoute("/ws/skill-editor", self.request_handlers.skill_editor_websocket),
             Route('/api/initialize', self.request_handlers.initialize, methods=['POST']),
             Route('/api/gen_feedbacks', self.request_handlers.gen_feedbacks, methods=['GET']),
             Route('/api/get_mission_reports', self.request_handlers.get_mission_reports, methods=['GET']),
