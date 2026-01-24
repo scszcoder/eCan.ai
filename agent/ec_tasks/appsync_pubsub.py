@@ -114,6 +114,22 @@ def _graphql_run_cloud_tasks_input() -> str:
     """
 
 
+def _graphql_publish_skill_editor_stream_event() -> str:
+    return """
+    mutation PublishSkillEditorStreamEvent($input: SkillEditorStreamEventInput!) {
+      publishSkillEditorStreamEvent(input: $input) {
+        eventId
+        owner
+        sessionId
+        flowgramId
+        eventType
+        payload
+        timestamp
+      }
+    }
+    """
+
+
 def _maybe_parse_awsjson(v: Any) -> Any:
     if isinstance(v, str):
         try:
@@ -158,6 +174,47 @@ async def publish_task_status(
                 "error": error,
                 "success": bool(success),
                 "status": status,
+            }
+        },
+    )
+
+
+async def publish_skill_editor_stream_event(
+    *,
+    config: AppSyncApiKeyConfig,
+    owner: str,
+    session_id: str,
+    event_type: str,
+    payload: Any = None,
+    flowgram_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Publish a Skill Editor realtime event.
+
+    Event types are intended to mirror the existing desktop IPC push methods:
+      - skill_editor.chat.stream_chunk
+      - skill_editor.chat.stream_end
+      - skill_editor.chat.error
+      - skill_editor.event
+
+    Note: AppSync's AWSJSON scalar is typically represented as a JSON-encoded string.
+    This helper JSON-encodes dict/list payloads for maximal compatibility.
+    """
+
+    safe_payload = payload
+    if isinstance(payload, (dict, list)):
+        safe_payload = json.dumps(payload, ensure_ascii=False)
+
+    return await _post_graphql(
+        config.http_endpoint,
+        api_key=config.api_key,
+        query=_graphql_publish_skill_editor_stream_event(),
+        variables={
+            "input": {
+                "owner": owner,
+                "sessionId": session_id,
+                "flowgramId": flowgram_id,
+                "eventType": event_type,
+                "payload": safe_payload,
             }
         },
     )

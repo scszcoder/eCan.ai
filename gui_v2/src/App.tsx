@@ -27,6 +27,13 @@ import { tokenRefreshService } from './services/auth/tokenRefreshService';
 import { startWebSubscriptions } from './services/web/appSyncSubscriptions';
 import './utils/videoSupport'; // Initialize video support check on page load
 
+const getEnv = () => (typeof import.meta !== 'undefined' && (import.meta as any).env ? (import.meta as any).env : {});
+
+const isTruthyEnvValue = (value: unknown): boolean => {
+    const normalized = String(value ?? '').trim().toLowerCase();
+    return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+};
+
 
 
 // Configure React Router future flags
@@ -123,6 +130,20 @@ const AppContent = () => {
             // eslint-disable-next-line no-console
             console.warn('[App] Failed to initialize platform, defaulting to env-based config:', e);
         }
+
+        try {
+            const env = getEnv();
+            const detectedMode = ipcClient.getMode?.() ?? null;
+            const platform = detectedMode || (isWebPlatform() ? 'web' : 'desktop');
+            const forceIpcMode = platform === 'desktop' && isTruthyEnvValue(env.VITE_IPC_MODE);
+            logger.info('[App] Platform/IPC mode', {
+                platform,
+                VITE_IPC_MODE: env.VITE_IPC_MODE,
+                forceIpcMode,
+            });
+        } catch (e) {
+            logger.debug('[App] Failed to log platform/IPC mode', e);
+        }
     }, []);
 
     const { theme: currentTheme } = useTheme();
@@ -165,7 +186,10 @@ const AppContent = () => {
     }, []);
 
     React.useEffect(() => {
-        if (!isWebPlatform()) return;
+        const env = getEnv();
+        const forceIpcMode = !isWebPlatform() && isTruthyEnvValue(env.VITE_IPC_MODE);
+        if (forceIpcMode) return;
+
         const cleanup = startWebSubscriptions();
         return () => cleanup?.();
     }, []);

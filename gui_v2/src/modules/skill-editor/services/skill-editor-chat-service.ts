@@ -6,6 +6,7 @@
  */
 
 import { IPCAPI } from '../../../services/ipc/api';
+import { localWebSocketClient } from '../../../services/web/localWebSocketClient';
 import {
   ChatAttachment,
   CanvasPosition,
@@ -141,6 +142,30 @@ class SkillEditorChatService {
   }
   
   /**
+   * Subscribe to streaming events for a session via local WebSocket
+   */
+  subscribeToSession(sessionId: string): void {
+    if (localWebSocketClient.shouldUseLocalWebSocket()) {
+      localWebSocketClient.connect().then(connected => {
+        if (connected) {
+          localWebSocketClient.subscribeToSession(sessionId);
+          console.log('[SkillEditorChat] Subscribed to local WebSocket for session:', sessionId);
+        }
+      });
+    }
+  }
+
+  /**
+   * Unsubscribe from streaming events for a session
+   */
+  unsubscribeFromSession(sessionId: string): void {
+    if (localWebSocketClient.shouldUseLocalWebSocket()) {
+      localWebSocketClient.unsubscribeFromSession(sessionId);
+      console.log('[SkillEditorChat] Unsubscribed from local WebSocket for session:', sessionId);
+    }
+  }
+
+  /**
    * Send a chat message and get AI response
    */
   async sendMessage(
@@ -150,6 +175,10 @@ class SkillEditorChatService {
     canvasContext?: CanvasContext
   ): Promise<ChatMessageResponse | null> {
     console.log('[SkillEditorChat] Sending message:', { sessionId, contentLength: content.length, hasAttachments: !!attachments?.length, hasCanvasContext: !!canvasContext });
+    
+    // Ensure we're subscribed to streaming events for this session
+    this.subscribeToSession(sessionId);
+    
     try {
       const response = await IPCAPI.getInstance().executeRequest<ChatMessageResponse>(
         'skill_editor.chat.send_message',

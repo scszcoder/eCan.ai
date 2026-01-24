@@ -612,16 +612,23 @@ class PlannerAgent:
             
             # Send event if callback provided
             if on_event:
+                import asyncio
                 if output.action == PlannerAction.ASK_CLARIFICATION:
-                    on_event({
+                    result = on_event({
                         "type": "clarification",
                         "data": {"questions": [q.model_dump() for q in output.questions]}
                     })
+                    # Handle both sync and async callbacks
+                    if asyncio.iscoroutine(result):
+                        await result
                 elif output.action == PlannerAction.GENERATE_PLAN:
-                    on_event({
+                    result = on_event({
                         "type": "plan",
                         "data": output.plan.model_dump()
                     })
+                    # Handle both sync and async callbacks
+                    if asyncio.iscoroutine(result):
+                        await result
             
             return output
             

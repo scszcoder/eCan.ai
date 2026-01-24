@@ -11,6 +11,50 @@ import { ipcClient } from './ipcClient';
 import { detectPlatform } from '../../config/platform';
 import { handleWebIpcRequest } from '../web/webIpcBridge';
 
+ const getEnv = () => {
+     try {
+         if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
+             return (import.meta as any).env as Record<string, any>;
+         }
+     } catch {}
+     try {
+         if (typeof process !== 'undefined' && (process as any).env) {
+             return (process as any).env as Record<string, any>;
+         }
+     } catch {}
+     return {} as Record<string, any>;
+ };
+
+ const isTruthyEnvValue = (value: unknown): boolean => {
+     const normalized = String(value ?? '').trim().toLowerCase();
+     return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+ };
+
+ const shouldPreferWebBridgeForMethod = (method: string): boolean => {
+     if (!method) return false;
+     if (method.startsWith('skill_editor.')) return true;
+     if (method.startsWith('skills.')) return true;
+
+     return (
+         method === 'read_skill_file' ||
+         method === 'open_skill_file' ||
+         method === 'write_skill_file' ||
+         method === 'save_editor_cache' ||
+         method === 'load_editor_cache' ||
+         method === 'clear_editor_cache' ||
+         method === 'run_skill' ||
+         method === 'pause_run_skill' ||
+         method === 'resume_run_skill' ||
+         method === 'step_run_skill' ||
+         method === 'cancel_run_skill' ||
+         method === 'request_skill_state' ||
+         method === 'inject_skill_state' ||
+         method === 'load_skill_schemas' ||
+         method === 'set_skill_breakpoints' ||
+         method === 'clear_skill_breakpoints'
+     );
+ };
+
 /**
  * API ResponseType
  */
@@ -136,11 +180,19 @@ export class IPCAPI {
             const detectedMode = ipcClient.getMode?.() ?? null;
             const platform = detectedMode || detectPlatform();
 
-            if (platform === 'web') {
-                const webResponse = await handleWebIpcRequest<T>(method, params as any);
-                if (webResponse) {
-                    console.log('[IPCAPI] executeRequest:web', method, { durationMs: Date.now() - startTs });
-                    return webResponse;
+            const env = getEnv();
+            const forceIpcMode = platform === 'desktop' && isTruthyEnvValue(env.VITE_IPC_MODE);
+            const preferWebBridge = platform === 'web' || (!forceIpcMode && shouldPreferWebBridgeForMethod(method));
+
+            if (preferWebBridge) {
+                try {
+                    const webResponse = await handleWebIpcRequest<T>(method, params as any);
+                    if (webResponse) {
+                        console.log('[IPCAPI] executeRequest:web', method, { durationMs: Date.now() - startTs });
+                        return webResponse;
+                    }
+                } catch (error) {
+                    logger.warn('[IPCAPI] Web bridge failed; falling back to IPC', { method, error });
                 }
             }
 

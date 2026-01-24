@@ -1,6 +1,7 @@
 import { appSyncRequest } from './appSyncClient';
 import { webApi } from './webApi';
 import type { APIResponse } from '../ipc/api';
+import { detectPlatform } from '../../config/platform';
 
 type MutationResult = {
   id?: string;

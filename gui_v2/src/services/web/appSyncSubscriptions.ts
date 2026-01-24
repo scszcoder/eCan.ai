@@ -18,6 +18,8 @@ const SUB_SCENE_COMPLETE = `subscription OnSceneComplete($acctSiteID: String!) {
 
 const SUB_TASK_STATUS = `subscription OnTaskStatus($runner: String!) {\n  onTaskStatus(runner: $runner) {\n    id\n    runID\n    runner\n    error\n    success\n    status\n    timestamp\n  }\n}`;
 
+const SUB_SKILL_EDITOR_STREAM = `subscription OnSkillEditorStreamEvent($owner: ID!) {\n  onSkillEditorStreamEvent(owner: $owner) {\n    eventId\n    owner\n    sessionId\n    flowgramId\n    eventType\n    payload\n    timestamp\n  }\n}`;
+
 let activeSocket: WebSocket | null = null;
 let active = false;
 
@@ -29,6 +31,21 @@ const toBase64 = (value: string) => {
   } catch {
     return window.btoa(value);
   }
+};
+
+const maybeParseAwsJson = (value: any) => {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return value;
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        return JSON.parse(trimmed);
+      } catch {
+        return value;
+      }
+    }
+  }
+  return value;
 };
 
 const buildRealtimeUrl = (endpoint: string, headers: Record<string, string>) => {
@@ -74,6 +91,33 @@ const emitA2AMessage = (message: any) => {
 
 const emitTaskStatus = (taskStatus: any) => {
   eventBus.emit('task:status', taskStatus);
+};
+
+const emitSkillEditorStreamEvent = (evt: any) => {
+  const eventType = String(evt?.eventType || '').trim();
+  const sessionId = String(evt?.sessionId || '').trim();
+  const payload = maybeParseAwsJson(evt?.payload);
+
+  if (!eventType) {
+    return;
+  }
+
+  if (eventType === 'skill_editor.chat.stream_chunk') {
+    eventBus.emit('skill_editor:chat:stream_chunk', { sessionId, ...(payload || {}) });
+    return;
+  }
+  if (eventType === 'skill_editor.chat.stream_end') {
+    eventBus.emit('skill_editor:chat:stream_end', { sessionId, ...(payload || {}) });
+    return;
+  }
+  if (eventType === 'skill_editor.chat.error') {
+    eventBus.emit('skill_editor:chat:error', { sessionId, ...(payload || {}) });
+    return;
+  }
+  if (eventType === 'skill_editor.event') {
+    eventBus.emit('skill_editor:event', { sessionId, ...(payload || {}) });
+    return;
+  }
 };
 
 export const startWebSubscriptions = () => {
@@ -143,6 +187,13 @@ export const startWebSubscriptions = () => {
         logger.warn('[AppSyncSubscriptions] No owner provided; account notification subscription skipped');
       }
 
+      if (owner) {
+        subscriptionIds.skillEditorStream = `sub-skill-editor-stream-${Date.now()}`;
+        sendStart(ws, subscriptionIds.skillEditorStream, SUB_SKILL_EDITOR_STREAM, { owner }, headers);
+      } else {
+        logger.warn('[AppSyncSubscriptions] No owner provided; skill editor subscription skipped');
+      }
+
       if (acctSiteID) {
         subscriptionIds.scene = `sub-scene-${Date.now()}`;
         sendStart(ws, subscriptionIds.scene, SUB_AGENT_SCENE, { acctSiteID }, headers);
@@ -177,6 +228,9 @@ export const startWebSubscriptions = () => {
       }
       if (payload.onTaskStatus) {
         emitTaskStatus(payload.onTaskStatus);
+      }
+      if (payload.onSkillEditorStreamEvent) {
+        emitSkillEditorStreamEvent(payload.onSkillEditorStreamEvent);
       }
       return;
     }

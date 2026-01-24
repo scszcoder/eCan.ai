@@ -1,0 +1,484 @@
+import json
+import os
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+from uuid import uuid4
+
+import boto3
+
+from agent.ec_tasks.appsync_pubsub import AppSyncApiKeyConfig, publish_skill_editor_stream_event
+from agent.skill_editor.skill_editor_agent import SkillEditorAgent, _safe_user_dir_name
+
+
+@dataclass(frozen=True)
+class _Env:
+    s3_bucket: str
+    s3_key_root: str
+    appsync_api_url: str
+    appsync_api_key: str
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _require_env(name: str) -> str:
+    value = (os.environ.get(name) or "").strip()
+    if not value:
+        raise RuntimeError(f"Missing required env var: {name}")
+    return value
+
+
+def _load_env() -> _Env:
+    return _Env(
+        s3_bucket=_require_env("S3_BUCKET"),
+        s3_key_root=(os.environ.get("S3_KEY_ROOT") or "").strip(),
+        appsync_api_url=_require_env("APPSYNC_API_URL"),
+        appsync_api_key=_require_env("APPSYNC_API_KEY"),
+    )
+
+
+def _norm_prefix(prefix: str) -> str:
+    p = (prefix or "").strip().strip("/")
+    return p
+
+
+def _s3_key(prefix: str, *parts: str) -> str:
+    clean = [p.strip("/") for p in [prefix, *parts] if p and str(p).strip("/")]
+    return "/".join(clean)
+
+
+def _s3_client():
+    return boto3.client("s3")
+
+
+def _s3_get_json(*, bucket: str, key: str) -> Optional[Dict[str, Any]]:
+    try:
+        resp = _s3_client().get_object(Bucket=bucket, Key=key)
+        raw = resp["Body"].read().decode("utf-8")
+        return json.loads(raw)
+    except _s3_client().exceptions.NoSuchKey:
+        return None
+    except Exception:
+        return None
+
+
+def _s3_put_json(*, bucket: str, key: str, data: Dict[str, Any]) -> None:
+    body = json.dumps(data, ensure_ascii=False).encode("utf-8")
+    _s3_client().put_object(Bucket=bucket, Key=key, Body=body, ContentType="application/json")
+
+
+def _s3_list_keys(*, bucket: str, prefix: str) -> List[str]:
+    client = _s3_client()
+    keys: List[str] = []
+    continuation: Optional[str] = None
+    while True:
+        kwargs: Dict[str, Any] = {"Bucket": bucket, "Prefix": prefix}
+        if continuation:
+            kwargs["ContinuationToken"] = continuation
+        resp = client.list_objects_v2(**kwargs)
+        for obj in resp.get("Contents") or []:
+            k = obj.get("Key")
+            if k and not k.endswith("/"):
+                keys.append(k)
+        if resp.get("IsTruncated"):
+            continuation = resp.get("NextContinuationToken")
+            continue
+        break
+    return keys
+
+
+def _owner_from_event(event: Dict[str, Any]) -> str:
+    args = (event.get("arguments") or {})
+    if isinstance(args.get("input"), dict):
+        user_id = args["input"].get("userId")
+        if isinstance(user_id, str) and user_id.strip():
+            return user_id.strip()
+
+    ident = event.get("identity") or {}
+    for key in ("username", "sub", "claims"):
+        v = ident.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+        if key == "claims" and isinstance(v, dict):
+            c = v.get("email") or v.get("cognito:username")
+            if isinstance(c, str) and c.strip():
+                return c.strip()
+
+    return "unknown@local"
+
+
+def _session_meta_key(env: _Env, owner: str, session_id: str) -> str:
+    prefix = _norm_prefix(env.s3_key_root)
+    user_dir = _safe_user_dir_name(owner)
+    return _s3_key(prefix, user_dir, "skill_editor_chat", "sessions", f"{session_id}.json")
+
+
+def _session_history_key(env: _Env, owner: str, session_id: str) -> str:
+    prefix = _norm_prefix(env.s3_key_root)
+    user_dir = _safe_user_dir_name(owner)
+    return _s3_key(prefix, user_dir, "skill_editor_chat", "histories", f"{session_id}.json")
+
+
+def _load_session(env: _Env, owner: str, session_id: str) -> Optional[Dict[str, Any]]:
+    return _s3_get_json(bucket=env.s3_bucket, key=_session_meta_key(env, owner, session_id))
+
+
+def _save_session(env: _Env, owner: str, session: Dict[str, Any]) -> None:
+    _s3_put_json(bucket=env.s3_bucket, key=_session_meta_key(env, owner, str(session.get("id"))), data=session)
+
+
+def _load_history(env: _Env, owner: str, session_id: str) -> Dict[str, Any]:
+    return _s3_get_json(bucket=env.s3_bucket, key=_session_history_key(env, owner, session_id)) or {
+        "sessionId": session_id,
+        "messages": [],
+    }
+
+
+def _save_history(env: _Env, owner: str, session_id: str, history: Dict[str, Any]) -> None:
+    _s3_put_json(bucket=env.s3_bucket, key=_session_history_key(env, owner, session_id), data=history)
+
+
+def _mk_appsync_cfg(env: _Env) -> AppSyncApiKeyConfig:
+    return AppSyncApiKeyConfig(http_endpoint=env.appsync_api_url, api_key=env.appsync_api_key)
+
+
+def _publish(env: _Env, *, owner: str, session_id: str, flowgram_id: Optional[str], event_type: str, payload: Any) -> None:
+    cfg = _mk_appsync_cfg(env)
+
+    import asyncio
+
+    async def _do():
+        await publish_skill_editor_stream_event(
+            config=cfg,
+            owner=owner,
+            session_id=session_id,
+            flowgram_id=flowgram_id,
+            event_type=event_type,
+            payload=payload,
+        )
+
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
+
+            run_async_in_sync(_do())
+        else:
+            loop.run_until_complete(_do())
+    except RuntimeError:
+        asyncio.run(_do())
+
+
+def _to_session_gql(session: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": session["id"],
+        "name": session.get("name") or "New Chat",
+        "flowgramId": session.get("flowgramId"),
+        "createdAt": session.get("createdAt") or _utc_now_iso(),
+        "updatedAt": session.get("updatedAt") or session.get("createdAt") or _utc_now_iso(),
+    }
+
+
+def _to_message_gql(msg: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": msg["id"],
+        "role": msg.get("role") or "assistant",
+        "content": msg.get("content") or "",
+        "timestamp": msg.get("timestamp") or _utc_now_iso(),
+        "attachments": msg.get("attachments"),
+        "metadata": msg.get("metadata"),
+    }
+
+
+def _handle_create_session(event: Dict[str, Any]) -> Dict[str, Any]:
+    env = _load_env()
+    args = event.get("arguments") or {}
+    input_ = args.get("input") or {}
+
+    owner = _owner_from_event(event)
+    session_id = str(uuid4())
+    now = _utc_now_iso()
+
+    session = {
+        "id": session_id,
+        "name": (input_.get("name") or "New Chat"),
+        "flowgramId": input_.get("flowgramId"),
+        "createdAt": now,
+        "updatedAt": now,
+        "pipelineState": "idle",
+        "currentPlan": None,
+        "currentRequest": None,
+    }
+
+    _save_session(env, owner, session)
+    _save_history(env, owner, session_id, {"sessionId": session_id, "messages": []})
+
+    return _to_session_gql(session)
+
+
+def _handle_get_sessions(event: Dict[str, Any]) -> List[Dict[str, Any]]:
+    env = _load_env()
+    args = event.get("arguments") or {}
+    owner = (args.get("userId") or _owner_from_event(event) or "").strip() or _owner_from_event(event)
+
+    prefix = _norm_prefix(env.s3_key_root)
+    user_dir = _safe_user_dir_name(owner)
+    sessions_prefix = _s3_key(prefix, user_dir, "skill_editor_chat", "sessions")
+    if sessions_prefix:
+        sessions_prefix += "/"
+
+    keys = _s3_list_keys(bucket=env.s3_bucket, prefix=sessions_prefix)
+    sessions: List[Dict[str, Any]] = []
+    for k in keys:
+        doc = _s3_get_json(bucket=env.s3_bucket, key=k)
+        if isinstance(doc, dict) and doc.get("id"):
+            sessions.append(doc)
+
+    sessions.sort(key=lambda s: (s.get("updatedAt") or ""), reverse=True)
+    return [_to_session_gql(s) for s in sessions]
+
+
+def _handle_get_history(event: Dict[str, Any]) -> List[Dict[str, Any]]:
+    env = _load_env()
+    args = event.get("arguments") or {}
+    session_id = str(args.get("sessionId") or "")
+    owner = _owner_from_event(event)
+
+    limit = args.get("limit")
+    offset = int(args.get("offset") or 0)
+
+    history = _load_history(env, owner, session_id)
+    messages = history.get("messages") or []
+    if not isinstance(messages, list):
+        messages = []
+
+    sliced = messages[offset:]
+    if isinstance(limit, int) and limit > 0:
+        sliced = sliced[:limit]
+
+    return [_to_message_gql(m) for m in sliced if isinstance(m, dict) and m.get("id")]
+
+
+def _handle_delete_session(event: Dict[str, Any]) -> bool:
+    env = _load_env()
+    args = event.get("arguments") or {}
+    session_id = str(args.get("sessionId") or "")
+    owner = _owner_from_event(event)
+
+    if not session_id:
+        return False
+
+    client = _s3_client()
+    deleted_any = False
+    for key in (
+        _session_meta_key(env, owner, session_id),
+        _session_history_key(env, owner, session_id),
+    ):
+        try:
+            client.delete_object(Bucket=env.s3_bucket, Key=key)
+            deleted_any = True
+        except Exception:
+            continue
+
+    return deleted_any
+
+
+def _handle_cancel_generation(event: Dict[str, Any]) -> bool:
+    # Best-effort only in Lambda: we cannot cancel an in-flight invocation.
+    # Return true so UI can stop waiting / reset local streaming state.
+    _ = event
+    return True
+
+
+def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
+    env = _load_env()
+    args = event.get("arguments") or {}
+    input_ = args.get("input") or {}
+
+    owner = _owner_from_event(event)
+    session_id = str(input_.get("sessionId") or "")
+    content = str(input_.get("content") or "")
+
+    if not session_id:
+        raise ValueError("sessionId is required")
+    if not content.strip():
+        raise ValueError("content is required")
+
+    session = _load_session(env, owner, session_id)
+    if not session:
+        # Auto-create session if missing
+        now = _utc_now_iso()
+        session = {
+            "id": session_id,
+            "name": "New Chat",
+            "flowgramId": input_.get("flowgramId"),
+            "createdAt": now,
+            "updatedAt": now,
+            "pipelineState": "idle",
+            "currentPlan": None,
+            "currentRequest": None,
+        }
+
+    history = _load_history(env, owner, session_id)
+
+    now = _utc_now_iso()
+    user_msg = {
+        "id": str(uuid4()),
+        "role": "user",
+        "content": content,
+        "timestamp": now,
+        "attachments": input_.get("attachments"),
+        "metadata": {
+            "canvasContext": input_.get("canvasContext"),
+            "clarificationResponses": input_.get("clarificationResponses"),
+        },
+    }
+    history.setdefault("messages", [])
+    if isinstance(history["messages"], list):
+        history["messages"].append(user_msg)
+
+    assistant_message_id = str(uuid4())
+    chunk_index = 0
+
+    flowgram_id = input_.get("flowgramId")
+
+    def on_event(evt: Dict[str, Any]) -> None:
+        nonlocal chunk_index
+        if not isinstance(evt, dict):
+            return
+        etype = evt.get("type")
+        if etype not in {"progress", "chunk"}:
+            return
+        data = evt.get("data") or {}
+        text = data.get("message") if etype == "progress" else data.get("content")
+        if not isinstance(text, str) or not text.strip():
+            return
+        payload = {
+            "messageId": assistant_message_id,
+            "chunk": text,
+            "index": chunk_index,
+        }
+        _publish(
+            env,
+            owner=owner,
+            session_id=session_id,
+            flowgram_id=flowgram_id,
+            event_type="skill_editor.chat.stream_chunk",
+            payload=payload,
+        )
+        chunk_index += 1
+
+    agent = SkillEditorAgent(user_name=owner)
+
+    try:
+        pipeline_state = session.get("pipelineState")
+        if isinstance(pipeline_state, str) and pipeline_state and pipeline_state != "idle":
+            agent.restore_state(
+                pipeline_state=pipeline_state,
+                current_plan=session.get("currentPlan") if isinstance(session.get("currentPlan"), dict) else session.get("currentPlan"),
+                current_request=session.get("currentRequest") if isinstance(session.get("currentRequest"), str) else None,
+            )
+    except Exception:
+        pass
+
+    canvas_context = input_.get("canvasContext")
+    clarification = input_.get("clarificationResponses")
+
+    response = agent.process_message_sync(
+        message=content,
+        canvas_context=canvas_context,
+        session_id=session_id,
+        clarification_responses=clarification,
+        on_event=on_event,
+    )
+
+    _publish(
+        env,
+        owner=owner,
+        session_id=session_id,
+        flowgram_id=flowgram_id,
+        event_type="skill_editor.chat.stream_end",
+        payload={
+            "messageId": assistant_message_id,
+            "fullContent": response.message or "",
+        },
+    )
+
+    try:
+        for cmd in response.commands or []:
+            cmd_dict = cmd.to_dict() if hasattr(cmd, "to_dict") else (cmd or {})
+            _publish(
+                env,
+                owner=owner,
+                session_id=session_id,
+                flowgram_id=flowgram_id,
+                event_type="skill_editor.event",
+                payload={
+                    "type": cmd_dict.get("type"),
+                    "payload": cmd_dict.get("payload"),
+                },
+            )
+    except Exception:
+        pass
+
+    assistant_msg = {
+        "id": assistant_message_id,
+        "role": "assistant",
+        "content": response.message or "",
+        "timestamp": _utc_now_iso(),
+        "attachments": None,
+        "metadata": {
+            "state": response.metadata.get("state") if isinstance(getattr(response, "metadata", None), dict) else None,
+            "intent": response.intent.value if getattr(response, "intent", None) is not None else None,
+            "hasClarification": bool(getattr(response, "clarification", None)),
+            "hasPlan": bool(getattr(response, "plan", None)),
+            "hasFlowgram": bool(getattr(response, "flowgram", None)),
+        },
+    }
+
+    if isinstance(history.get("messages"), list):
+        history["messages"].append(assistant_msg)
+
+    session["updatedAt"] = _utc_now_iso()
+    session["pipelineState"] = agent.pipeline_state.value
+    session["currentPlan"] = agent.current_plan.model_dump() if agent.current_plan else None
+    session["currentRequest"] = agent.current_request
+
+    _save_history(env, owner, session_id, history)
+    _save_session(env, owner, session)
+
+    return {
+        "sessionId": session_id,
+        "sessionName": session.get("name") or "New Chat",
+        "state": agent.pipeline_state.value,
+        "intent": response.intent.value if getattr(response, "intent", None) is not None else None,
+        "message": _to_message_gql(assistant_msg),
+        "clarification": [q.model_dump() for q in (response.clarification or [])] if getattr(response, "clarification", None) else None,
+        "plan": response.plan.model_dump() if getattr(response, "plan", None) else None,
+        "flowgram": response.flowgram.model_dump() if getattr(response, "flowgram", None) else None,
+        "validation": response.validation.model_dump() if getattr(response, "validation", None) else None,
+    }
+
+
+def handler(event, context):
+    _ = context
+
+    info = event.get("info") or {}
+    field = info.get("fieldName")
+
+    if field == "createSkillEditorChatSession":
+        return _handle_create_session(event)
+    if field == "getSkillEditorChatSessions":
+        return _handle_get_sessions(event)
+    if field == "getSkillEditorChatHistory":
+        return _handle_get_history(event)
+    if field == "sendSkillEditorChatMessage":
+        return _handle_send_message(event)
+    if field == "cancelSkillEditorChatGeneration":
+        return _handle_cancel_generation(event)
+    if field == "deleteSkillEditorChatSession":
+        return _handle_delete_session(event)
+
+    raise RuntimeError(f"Unsupported fieldName: {field}")
