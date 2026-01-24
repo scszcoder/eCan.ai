@@ -254,6 +254,12 @@ class IPCHandlerRegistry:
         if method in cls._whitelist:
             # Reduce log output to improve performance
             return None
+        
+        # Trust requests from local HTTP server (desktop mode)
+        # These come from LocalServer.py which is only accessible on localhost
+        if request.get('source') == 'local_server':
+            logger.debug(f"[registry] Bypassing token validation for local_server request: {method}")
+            return None
 
         # Ensure request object has required fields
         if 'id' not in request:

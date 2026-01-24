@@ -2086,6 +2086,14 @@ Continue the JSON output (do not include any text before the continuation):"""
             logger.debug("[CodeAgent] Invoking LLM for generation")
             response = await self._invoke_llm_async(prompt)
             
+            # Check for empty response
+            if not response or not response.strip():
+                logger.error("[CodeAgent] LLM returned empty response - possible timeout or API error")
+                return CodeAgentOutput(
+                    action=CodeAgentAction.REJECT,
+                    message="I couldn't generate the workflow - the AI model returned an empty response. This might be due to a timeout or API issue. Please try again."
+                )
+            
             # Parse response
             output = self._parse_code_agent_output(response)
             
@@ -2106,10 +2114,20 @@ Continue the JSON output (do not include any text before the continuation):"""
                 
                 # Send flowgram event
                 if on_event and output.flowgram:
-                    on_event({
+                    import asyncio
+                    logger.info(f"[CodeAgent] 🎨 Sending flowgram event with {len(output.flowgram.nodes)} nodes")
+                    result = on_event({
                         "type": "flowgram",
                         "data": output.flowgram.model_dump()
                     })
+                    # Handle both sync and async callbacks
+                    if asyncio.iscoroutine(result):
+                        await result
+                    logger.info("[CodeAgent] 🎨 Flowgram event sent successfully")
+                elif not on_event:
+                    logger.warning("[CodeAgent] ⚠️ No on_event callback provided - flowgram event not sent")
+                elif not output.flowgram:
+                    logger.warning("[CodeAgent] ⚠️ No flowgram in output - flowgram event not sent")
             
             return output
             
@@ -2227,10 +2245,14 @@ Please regenerate the flowgram with these errors fixed.
                 self._current_flowgram = output.flowgram
                 
                 if on_event:
-                    on_event({
+                    import asyncio
+                    result = on_event({
                         "type": "flowgram",
                         "data": output.flowgram.model_dump()
                     })
+                    # Handle both sync and async callbacks
+                    if asyncio.iscoroutine(result):
+                        await result
             
             return output
             

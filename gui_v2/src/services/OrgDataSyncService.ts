@@ -64,10 +64,22 @@ class OrgDataSyncService {
                 return;
             }
 
+            let companyName = '';
+            try {
+                companyName = (localStorage.getItem('org_company_filter') || '').trim();
+            } catch {
+                companyName = '';
+            }
+
+            if (!companyName) {
+                logger.warn('[OrgDataSyncService] ⚠️ No company filter set, skipping org sync');
+                return;
+            }
+
             logger.info(`[OrgDataSyncService] 🔄 Fetching latest org data for user: ${username}`);
 
             // 调用 API Get最新Data
-            const response = await get_ipc_api().getAllOrgAgents(username);
+            const response = await get_ipc_api().getAllOrgAgents(username, companyName);
             
             if (!response.success || !response.data) {
                 logger.error('[OrgDataSyncService] ❌ Failed to fetch org data:', response.error);
