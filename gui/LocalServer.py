@@ -790,6 +790,83 @@ class RequestHandlers:
                 "deleteSkillEditorChatSession": deleted
             }
         
+        # Skill Editor Context Operations
+        elif 'loadskilleditorcontexts' in query_lower:
+            # Load skill editor contexts from local skill directories
+            logger.info("[GraphQL] loadSkillEditorContexts: Starting handler")
+            input_data = variables.get('input', {})
+            skill_names = input_data.get('skillNames') or []
+            skill_ids = input_data.get('skillIds') or []
+            
+            logger.info(f"[GraphQL] loadSkillEditorContexts: skillNames={skill_names}, skillIds={skill_ids}")
+            
+            items = []
+            try:
+                from agent.ec_skills.extern_skills.extern_skills import user_skills_root
+                from datetime import datetime
+                
+                skills_root = user_skills_root()
+                logger.info(f"[GraphQL] loadSkillEditorContexts: skills_root={skills_root}")
+                
+                # If specific skill names requested, load those
+                if skill_names:
+                    logger.info(f"[GraphQL] loadSkillEditorContexts: Loading {len(skill_names)} specific skills")
+                    for skill_name in skill_names:
+                        skill_dir = skills_root / f"{skill_name}_skill"
+                        context_file = skill_dir / "context.json"
+                        logger.info(f"[GraphQL] loadSkillEditorContexts: Checking {context_file}")
+                        if context_file.exists():
+                            try:
+                                with open(context_file, 'r', encoding='utf-8') as f:
+                                    context_data = json.load(f)
+                                mtime = datetime.fromtimestamp(context_file.stat().st_mtime).isoformat()
+                                logger.info(f"[GraphQL] loadSkillEditorContexts: Found context for skill: {skill_name}")
+                                items.append({
+                                    "skillId": skill_ids[skill_names.index(skill_name)] if skill_name in skill_names and skill_names.index(skill_name) < len(skill_ids) else None,
+                                    "skillName": skill_name,
+                                    "context": json.dumps(context_data) if isinstance(context_data, dict) else context_data,
+                                    "updatedAt": mtime
+                                })
+                            except Exception as e:
+                                logger.warning(f"[GraphQL] loadSkillEditorContexts: Error loading context for skill {skill_name}: {e}")
+                        else:
+                            logger.info(f"[GraphQL] loadSkillEditorContexts: No context file at {context_file}")
+                
+                # If no specific skills requested, load all available contexts
+                elif not skill_names and not skill_ids:
+                    logger.info(f"[GraphQL] loadSkillEditorContexts: Listing all contexts in {skills_root}")
+                    if skills_root.exists():
+                        for skill_dir in skills_root.iterdir():
+                            if skill_dir.is_dir() and skill_dir.name.endswith('_skill'):
+                                context_file = skill_dir / "context.json"
+                                if context_file.exists():
+                                    try:
+                                        with open(context_file, 'r', encoding='utf-8') as f:
+                                            context_data = json.load(f)
+                                        skill_name = skill_dir.name.replace('_skill', '')
+                                        mtime = datetime.fromtimestamp(context_file.stat().st_mtime).isoformat()
+                                        logger.info(f"[GraphQL] loadSkillEditorContexts: Found context for skill: {skill_name}")
+                                        items.append({
+                                            "skillId": None,
+                                            "skillName": skill_name,
+                                            "context": json.dumps(context_data) if isinstance(context_data, dict) else context_data,
+                                            "updatedAt": mtime
+                                        })
+                                    except Exception as e:
+                                        logger.warning(f"[GraphQL] loadSkillEditorContexts: Error loading context from {context_file}: {e}")
+                    else:
+                        logger.info(f"[GraphQL] loadSkillEditorContexts: skills_root does not exist: {skills_root}")
+                
+            except Exception as e:
+                logger.error(f"[GraphQL] loadSkillEditorContexts: Error: {e}")
+            
+            logger.info(f"[GraphQL] loadSkillEditorContexts: Returning {len(items)} context items")
+            return {
+                "loadSkillEditorContexts": {
+                    "items": items
+                }
+            }
+        
         # Editor Cache Operations
         elif 'geteditorcache' in query_lower:
             # Return empty cache for now - can be enhanced later
