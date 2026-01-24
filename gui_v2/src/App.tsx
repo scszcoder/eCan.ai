@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, HashRouter, Routes, Route } from 'react-router-dom';
 import { ConfigProvider, theme, App as AntdApp } from 'antd';
 import { registerOnboardingModalApi } from './services/onboarding/onboardingService';
 import { routes, RouteConfig } from './routes';
@@ -238,6 +238,16 @@ const AppContent = () => {
     // Tools are now loaded on-demand when accessing Tools page or skill editor
     // This improves startup performance by removing unnecessary preloading
 
+    // Use Vite's BASE_URL which respects the 'base' config in vite.config.ts
+    // In dev: BASE_URL = '/', in production: BASE_URL = './' (or custom VITE_BASE)
+    // For file:// protocol (PyInstaller), use HashRouter to avoid History API SecurityError
+    const isFileProtocol = window.location.protocol === 'file:';
+    const basename = isFileProtocol ? '/' : (import.meta.env.BASE_URL.replace(/\/$/, '') || '/');
+    
+    // Use HashRouter for file:// protocol, BrowserRouter for http/https
+    const Router = isFileProtocol ? HashRouter : BrowserRouter;
+    const routerProps = isFileProtocol ? {} : { basename };
+
     return (
         <ConfigProvider
             locale={getAntdLocale()}
@@ -245,11 +255,11 @@ const AppContent = () => {
         >
             <AntdApp>
                 <ModalRegistrar />
-                <BrowserRouter basename="/app/gui-v2">
+                <Router {...routerProps}>
                     <Routes>
                         {renderRoutes(routes)}
                     </Routes>
-                </BrowserRouter>
+                </Router>
             </AntdApp>
         </ConfigProvider>
     );

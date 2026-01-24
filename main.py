@@ -133,7 +133,7 @@ if sys.platform == 'win32':
 # WITHOUT loading the entire eCan application (saves ~200-300 MB memory)
 # ============================================================================
 if __name__ == '__main__' and os.getenv('ECAN_RUN_SCRIPT'):
-    # This is a worker process - execute the script and exit immediately
+    # This is a worker process - execute the script and let it run to completion
     # DO NOT import anything else before this check!
     run_script = os.getenv('ECAN_RUN_SCRIPT')
     print(f"[Worker Process] Executing script: {run_script}")
@@ -143,13 +143,12 @@ if __name__ == '__main__' and os.getenv('ECAN_RUN_SCRIPT'):
         with open(run_script, 'r', encoding='utf-8') as f:
             code = f.read()
         exec(compile(code, run_script, 'exec'), {'__name__': '__main__'})
+        # Script completed successfully - let it continue running (e.g., uvicorn server)
+        # DO NOT sys.exit(0) here as it would kill long-running servers
     except Exception as e:
         print(f"[Worker Process] Script execution failed: {e}")
         traceback.print_exc()
         sys.exit(1)
-    finally:
-        print("[Worker Process] Script completed, exiting...")
-        sys.exit(0)
 
 # ============================================================================
 # Main Application Code (only runs if not a worker process)

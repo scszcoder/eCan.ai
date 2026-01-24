@@ -623,11 +623,14 @@ class UpdateDialog(QDialog):
             self.remaining_label.setText(_tr.tr("remaining_time") + ": -")
             
             self.status_label.setText(message)
-            
-            # Auto-start installation after download completes
-            logger.info("[UpdateDialog] Download complete, auto-starting installation...")
-            from PySide6.QtCore import QTimer
-            QTimer.singleShot(1000, self.install_update)  # Wait 1 second then install
+
+            # Auto-start installation after download completes (but avoid double-trigger)
+            if not download_manager.is_installing():
+                logger.info("[UpdateDialog] Download complete, auto-starting installation...")
+                from PySide6.QtCore import QTimer
+                QTimer.singleShot(1000, self.install_update)  # Wait 1 second then install
+            else:
+                logger.warning("[UpdateDialog] Skipping auto-install: installer already launched")
         else:
             self.status_label.setText(message)
             
@@ -678,7 +681,9 @@ class UpdateDialog(QDialog):
             
             if not icon_loaded:
                 # Use default icon from QMessageBox
-                icon_label.setPixmap(QMessageBox.standardIcon(QMessageBox.Icon.Information).pixmap(80, 80))
+                default_icon = QMessageBox.standardIcon(QMessageBox.Icon.Information)
+                default_pixmap = default_icon.pixmap(80, 80)
+                icon_label.setPixmap(default_pixmap)
             
             layout.addWidget(icon_label)
             
@@ -744,7 +749,10 @@ class UpdateDialog(QDialog):
                 logger.info("[UpdateDialog] User confirmed installation, starting auto-install")
                 # Use QTimer to start installation after dialog closes
                 from PySide6.QtCore import QTimer
-                QTimer.singleShot(100, self.install_update)
+                if not download_manager.is_installing():
+                    QTimer.singleShot(100, self.install_update)
+                else:
+                    logger.warning("[UpdateDialog] Skipping confirm-install: installer already launched")
             
         except Exception as e:
             logger.error(f"Error showing download complete dialog: {e}")
@@ -813,6 +821,11 @@ class UpdateDialog(QDialog):
     def install_update(self):
         """Install update - called automatically after download"""
         if not self.update_info:
+            return
+
+        # Global guard: prevent launching installer twice (Inno Setup may rollback/exit on second instance)
+        if download_manager.is_installing():
+            logger.warning("[UpdateDialog] install_update ignored: installer already launched")
             return
         
         # Check if already installing
@@ -928,7 +941,9 @@ class UpdateDialog(QDialog):
                         break
             
             if not icon_loaded:
-                icon_label.setPixmap(QMessageBox.standardIcon(QMessageBox.Icon.Information).pixmap(80, 80))
+                default_icon = QMessageBox.standardIcon(QMessageBox.Icon.Information)
+                default_pixmap = default_icon.pixmap(80, 80)
+                icon_label.setPixmap(default_pixmap)
             
             layout.addWidget(icon_label)
             

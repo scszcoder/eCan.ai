@@ -207,8 +207,8 @@ def convert_agent_dict_to_ec_agent(
             url=agent_data.get('url') or get_a2a_server_url(main_window),
             version=agent_data.get('version') or '1.0.0',
             capabilities=capabilities,
-            default_input_modes=agent_data.get('default_input_modes', SUPPORTED_CONTENT_TYPES),
-            default_output_modes=agent_data.get('default_output_modes', SUPPORTED_CONTENT_TYPES),
+            default_input_modes=agent_data.get('default_input_modes') or SUPPORTED_CONTENT_TYPES,
+            default_output_modes=agent_data.get('default_output_modes') or SUPPORTED_CONTENT_TYPES,
             skills=[]  # DB agents don't have skills initially
         )
         
@@ -216,7 +216,7 @@ def convert_agent_dict_to_ec_agent(
         org_id = agent_data.get('org_id')
         
         # Parse extra_data if it's a JSON string
-        extra_data = agent_data.get('extra_data', {})
+        extra_data = agent_data.get('extra_data') or {}
         if isinstance(extra_data, str):
             try:
                 extra_data = json.loads(extra_data) if extra_data else {}
@@ -239,9 +239,9 @@ def convert_agent_dict_to_ec_agent(
         # - skills: EC_Skill objects (not implemented yet, so keep empty)
         # - tasks: ManagedTask objects (not implemented yet, so keep empty)
         # These relationship data are stored separately for frontend display via to_dict()
-        skills_data = agent_data.get('skills', [])
-        tasks_data = agent_data.get('tasks', [])
-        title = agent_data.get('title', '')
+        skills_data = agent_data.get('skills') or []
+        tasks_data = agent_data.get('tasks') or []
+        title = agent_data.get('title') or ''
         if isinstance(title, str) and title.startswith('['):
             try:
                 title = json.loads(title)
@@ -249,7 +249,7 @@ def convert_agent_dict_to_ec_agent(
                 pass
         
         # Parse personalities if it's a JSON string
-        personalities = agent_data.get('personalities', [])
+        personalities = agent_data.get('personalities') or []
         if isinstance(personalities, str) and personalities.startswith('['):
             try:
                 personalities = json.loads(personalities)
@@ -279,8 +279,8 @@ def convert_agent_dict_to_ec_agent(
         
         # Store additional fields that might not be in __init__ but needed for serialization
         ec_agent.owner = agent_data.get('owner')
-        ec_agent.description = agent_data.get('description', '')
-        ec_agent.status = agent_data.get('status', 'active')
+        ec_agent.description = agent_data.get('description') or ''
+        ec_agent.status = agent_data.get('status') or 'active'
         ec_agent.vehicle_id = agent_data.get('vehicle_id')  # 只使用标准字段
         ec_agent.extra_data = agent_data.get('extra_data', '')
         
