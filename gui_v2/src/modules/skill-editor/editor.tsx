@@ -38,6 +38,10 @@ import { useAutoSave } from './stores/editor-auto-save-store';
 import { BreakpointBinder } from './components/runtime/BreakpointBinder';
 import { useLocation } from 'react-router-dom';
 import { PageRefreshManager } from '../../services/events/PageRefreshManager';
+import { IPCAPI } from '../../services/ipc/api';
+import { isWebPlatform } from '../../config/platform';
+import { useUserStore } from '../../stores/userStore';
+import { eventBus } from '@/utils/eventBus';
 
 const EditorContainer = styled.div`
   position: relative;
@@ -71,6 +75,7 @@ export const Editor = () => {
   const shouldLoadInitialData = process.env.NODE_ENV === 'development' ? true : false;
   const { skillInfo } = useSkillInfoStore();
   const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
+  const username = useUserStore((state) => state.username);
 
   // Editor ready state
   const [editorReady, setEditorReady] = React.useState(false);
@@ -96,6 +101,41 @@ export const Editor = () => {
     editorReadyRef.current = true;
     setEditorReady(true);
   }, []);
+
+  useEffect(() => {
+    if (!isWebPlatform()) return;
+    if (!username) {
+      console.warn('[SkillEditor] Cannot load context: userId missing');
+      return;
+    }
+
+    const input: Record<string, any> = { userId: username };
+    if (skillInfo?.skillName) {
+      input.skillNames = [skillInfo.skillName];
+    }
+    if (skillInfo?.skillId) {
+      input.skillIds = [skillInfo.skillId];
+    }
+
+    IPCAPI.getInstance()
+      .executeRequest<{ items: any[] }>('skill_editor.context.load', input)
+      .then((response) => {
+        if (response.success) {
+          const items = response.data?.items ?? [];
+          console.log('[SkillEditor] Loaded contexts:', items);
+          eventBus.emit('skill_editor:context:loaded', {
+            items,
+            skillId: skillInfo?.skillId,
+            skillName: skillInfo?.skillName,
+          });
+        } else {
+          console.warn('[SkillEditor] Failed to load contexts:', response.error);
+        }
+      })
+      .catch((error) => {
+        console.error('[SkillEditor] Error loading contexts:', error);
+      });
+  }, [username, skillInfo?.skillId, skillInfo?.skillName]);
 
   // Track unsaved changes
   useUnsavedChangesTracker();

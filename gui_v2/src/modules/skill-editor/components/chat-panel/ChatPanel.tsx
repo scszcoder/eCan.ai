@@ -51,6 +51,43 @@ interface ChatSession {
   updatedAt: Date;
 }
 
+const parseMaybeJson = (value: any) => {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (!trimmed) return value;
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return value;
+    }
+  }
+  return value;
+};
+
+const mapContextMessages = (rawMessages: any[]): ChatMessage[] => {
+  if (!Array.isArray(rawMessages)) return [];
+  return rawMessages
+    .filter((m) => m && typeof m === 'object' && m.id)
+    .map((m) => {
+      const metadata = m.metadata && typeof m.metadata === 'string' ? parseMaybeJson(m.metadata) : m.metadata;
+      const attachments = m.attachments && typeof m.attachments === 'string' ? parseMaybeJson(m.attachments) : m.attachments;
+      return {
+        id: String(m.id),
+        role: (m.role as 'user' | 'assistant') || 'assistant',
+        content: String(m.content ?? ''),
+        timestamp: new Date(m.timestamp || Date.now()),
+        attachments: Array.isArray(attachments)
+          ? attachments.map((a: any) => a?.path || a?.name || String(a)).filter(Boolean)
+          : undefined,
+        clarification: metadata?.clarification as ClarificationQuestion[] | undefined,
+        clarificationAnswers: metadata?.clarificationAnswers as Record<string, string[]> | undefined,
+        plan: metadata?.plan as ImplementationPlan | undefined,
+        state: metadata?.state as PipelineState | undefined,
+      } as ChatMessage;
+    });
+};
+
 interface ChatPanelProps {
   isCollapsed: boolean;
   onToggle: () => void;
@@ -489,6 +526,78 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     
     loadSessions();
   }, []); // Only run on mount
+
+  useEffect(() => {
+    const handleContextLoaded = (payload: any) => {
+      try {
+        const items = payload?.items;
+        if (!Array.isArray(items) || items.length === 0) return;
+
+        const matched = items.find((item: any) => {
+          if (!item) return false;
+          if (payload?.skillId && item.skillId === payload.skillId) return true;
+          if (payload?.skillName && item.skillName === payload.skillName) return true;
+          return false;
+        }) || items[0];
+
+        const context = parseMaybeJson(matched?.context) || {};
+        const contextSessions = Array.isArray(context.sessions) ? context.sessions : undefined;
+        const history = contextSessions ? undefined : (context.history || context);
+
+        const newSessions: ChatSession[] = [];
+
+        if (Array.isArray(contextSessions)) {
+          contextSessions.forEach((s: any) => {
+            if (!s?.id) return;
+            const messages = mapContextMessages(s.messages || s.history?.messages || []);
+            newSessions.push({
+              id: String(s.id),
+              topic: s.name || matched?.skillName || 'Chat',
+              messages,
+              createdAt: new Date(s.createdAt || Date.now()),
+              updatedAt: new Date(s.updatedAt || s.createdAt || Date.now()),
+            });
+          });
+        } else if (history && history.sessionId && Array.isArray(history.messages)) {
+          const messages = mapContextMessages(history.messages);
+          newSessions.push({
+            id: String(history.sessionId),
+            topic: matched?.skillName || 'Chat',
+            messages,
+            createdAt: new Date(history.createdAt || Date.now()),
+            updatedAt: new Date(history.updatedAt || history.createdAt || Date.now()),
+          });
+        }
+
+        if (newSessions.length === 0) {
+          console.log('[ChatPanel] Context loaded but no sessions/messages found');
+        } else {
+          setSessions((prev) => {
+            const map = new Map<string, ChatSession>();
+            prev.forEach((s) => map.set(s.id, s));
+            newSessions.forEach((s) => map.set(s.id, s));
+            return Array.from(map.values()).sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+          });
+          if (!activeSessionId && newSessions.length > 0) {
+            setActiveSessionId(newSessions[0].id);
+          }
+        }
+
+        if (context?.flowgram) {
+          canvasController.loadFlowgram(context.flowgram).catch((err) => {
+            console.warn('[ChatPanel] Failed to load flowgram from context:', err);
+          });
+        }
+      } catch (error) {
+        console.warn('[ChatPanel] Failed to apply loaded context:', error);
+      }
+    };
+
+    eventBus.on('skill_editor:context:loaded', handleContextLoaded);
+    return () => {
+      eventBus.off('skill_editor:context:loaded', handleContextLoaded);
+    };
+  }, [activeSessionId]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {

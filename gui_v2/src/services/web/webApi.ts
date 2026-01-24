@@ -256,6 +256,19 @@ const GET_SKILL_EDITOR_EVENTS_QUERY = `
   }
 `;
 
+const LOAD_SKILL_EDITOR_CONTEXTS_QUERY = `
+  query LoadSkillEditorContexts($input: SkillEditorContextRequestInput!) {
+    loadSkillEditorContexts(input: $input) {
+      items {
+        skillId
+        skillName
+        context
+        updatedAt
+      }
+    }
+  }
+`;
+
 const GET_SKILL_EDITOR_CHAT_SESSIONS_QUERY = `
   query GetSkillEditorChatSessions($userId: ID!) {
     getSkillEditorChatSessions(userId: $userId) {
@@ -661,6 +674,14 @@ export const webApi = {
       since,
     });
     return data.getSkillEditorEvents || [];
+  },
+
+  async loadSkillEditorContexts(input: Record<string, any>): Promise<any[]> {
+    const data = await appSyncRequest<{ loadSkillEditorContexts: { items: any[] } }>(
+      LOAD_SKILL_EDITOR_CONTEXTS_QUERY,
+      { input }
+    );
+    return data.loadSkillEditorContexts?.items || [];
   },
 
   async getSkillEditorChatSessions(userId: string): Promise<any[]> {

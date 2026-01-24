@@ -5,9 +5,11 @@ import path from 'path'
 // https://vitejs.dev/config/
 // For PyInstaller bundled apps, use relative path './' instead of absolute '/app/gui-v2/'
 // This allows the HTML to correctly reference assets when loaded via file:// protocol
-const basePath = process.env.VITE_BASE || './';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const basePath = process.env.VITE_BASE || (mode === 'production' ? '/app/gui-v2/' : '/');
+
+  return {
   plugins: [
     react({
       babel: {
@@ -108,4 +110,5 @@ export default defineConfig({
     plugins: () => []
   },
   publicDir: 'public'
+  };
 })
