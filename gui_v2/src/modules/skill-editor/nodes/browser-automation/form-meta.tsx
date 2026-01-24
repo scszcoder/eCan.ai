@@ -1,7 +1,7 @@
 /**
  * Browser Automation node custom form
  */
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
 import { Divider, Select, Button, Tooltip, Checkbox } from '@douyinfe/semi-ui';
@@ -101,16 +101,20 @@ const PromptSelectionDropdown = ({
   onEdit: () => void;
 }) => {
   const [refreshing, setRefreshing] = useState(false);
+  const attemptedIds = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!selected || selected === 'inline') return;
     if (!username) return;
     const exists = prompts.some((p: any) => p?.id === selected);
     if (exists) return;
+    // Prevent infinite loop: only attempt once per ID
+    if (attemptedIds.current.has(selected)) return;
     if (promptStoreLoading || refreshing) return;
+    attemptedIds.current.add(selected);
     setRefreshing(true);
     fetch(username, true).finally(() => setRefreshing(false));
-  }, [selected, username, prompts, fetch, promptStoreLoading, refreshing]);
+  }, [selected, username, prompts, fetch, promptStoreLoading]);
 
   const showEditButton = selected && selected !== 'inline';
 

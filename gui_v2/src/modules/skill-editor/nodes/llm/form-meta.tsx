@@ -2,7 +2,7 @@
  * LLM node custom form: adds Model Provider dropdown above Model Name
  * All LLM configuration is dynamically loaded from backend llm_providers.json
  */
-import { useMemo, useRef, useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Field, FormMeta, FormRenderProps } from '@flowgram.ai/free-layout-editor';
 import { Divider, Select, Button, Space, Tag, Tooltip, Checkbox } from '@douyinfe/semi-ui';
@@ -108,16 +108,20 @@ const PromptSelectionDropdown = ({
   onEdit: () => void;
 }) => {
   const [refreshing, setRefreshing] = useState(false);
+  const attemptedIds = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!selected || selected === 'inline') return;
     if (!username) return;
     const exists = prompts.some((p: any) => p?.id === selected);
     if (exists) return;
+    // Prevent infinite loop: only attempt once per ID
+    if (attemptedIds.current.has(selected)) return;
     if (promptStoreLoading || refreshing) return;
+    attemptedIds.current.add(selected);
     setRefreshing(true);
     fetch(username, true).finally(() => setRefreshing(false));
-  }, [selected, username, prompts, fetch, promptStoreLoading, refreshing]);
+  }, [selected, username, prompts, fetch, promptStoreLoading]);
 
   const showEditButton = selected && selected !== 'inline';
 
