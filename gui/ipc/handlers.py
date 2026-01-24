@@ -35,6 +35,49 @@ def validate_params(params: Optional[Dict[str, Any]], required: list[str]) -> tu
     return True, params, None
 
 
+def resolve_username(request: IPCRequest, params: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Resolve username from params or MainWindow context.
+    
+    For local_server requests (HTTP via LocalServer.py), the username may not be
+    in params, so we try to get it from MainWindow.user or auth_manager.
+    
+    Args:
+        request: IPC request object
+        params: Request parameters
+        
+    Returns:
+        Username string or None if not found
+    """
+    # First try params
+    if params and params.get('username'):
+        return params['username']
+    
+    # For local_server requests, try to get from MainWindow
+    if request.get('source') == 'local_server':
+        try:
+            main_window = AppContext.get_main_window()
+            if main_window:
+                # MainWindow uses 'user' attribute
+                if hasattr(main_window, 'user') and main_window.user:
+                    logger.debug(f"[resolve_username] Got username from MainWindow.user: {main_window.user}")
+                    return main_window.user
+                # Fallback to auth_manager
+                if hasattr(main_window, 'auth_manager') and main_window.auth_manager:
+                    try:
+                        tokens = main_window.auth_manager.get_tokens()
+                        if tokens:
+                            username = tokens.get('email') or tokens.get('username')
+                            if username:
+                                logger.debug(f"[resolve_username] Got username from auth_manager: {username}")
+                                return username
+                    except Exception as e:
+                        logger.debug(f"[resolve_username] Could not get username from auth_manager: {e}")
+        except Exception as e:
+            logger.debug(f"[resolve_username] Error getting username from MainWindow: {e}")
+    
+    return None
+
+
 @IPCHandlerRegistry.handler('get_all')
 def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Handle get all request
@@ -51,19 +94,17 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPC
     try:
         logger.debug(f"Get all called with request: {request}")
 
-        # Validate parameters
-        is_valid, data, error = validate_params(params, ['username'])
-        if not is_valid:
-            logger.warning(f"Invalid parameters for get all: {error}")
+        # Resolve username from params or context (for local_server requests)
+        username = resolve_username(request, params)
+        if not username:
+            logger.warning(f"Invalid parameters for get all: Missing username")
             return create_error_response(
                 request,
                 'INVALID_PARAMS',
-                error
+                'Missing required parameter: username'
             )
 
-        logger.debug("user name:" + data['username'])
-        # Get username
-        username = data['username']
+        logger.debug("user name:" + username)
 
         main_window = AppContext.get_main_window()
         agents = main_window.agents
@@ -82,7 +123,7 @@ def handle_get_all(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPC
             'agents': [agent.to_dict(owner=username) for agent in agents],
             'skills': [sk.to_dict() for sk in skills],
             'tools': [tool.model_dump() for tool in main_window.mcp_tools_schemas],
-            'tasks': [task.to_dict() for task in all_tasks],
+            'tasks': [task.model_dump() if hasattr(task, 'model_dump') else task.to_dict() for task in all_tasks],
             'vehicles': [vehicle.genJson() for vehicle in vehicles],
             'settings': settings,
             'knowledges': knowledges,
