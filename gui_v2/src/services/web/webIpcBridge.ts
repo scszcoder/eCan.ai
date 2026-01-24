@@ -1167,6 +1167,39 @@ export async function handleWebIpcRequest<T>(method: string, params?: any): Prom
       }
       return { success: true, data: { removed: ids } as any };
     }
+    // Phase 1: LLM Providers via HTTP
+    case 'get_llm_providers': {
+      const query = `query GetLlmProviders { getLlmProviders { providers message } }`;
+      const data = await appSyncRequest<{ getLlmProviders: { providers: any[]; message: string } }>(query);
+      return { success: true, data: data.getLlmProviders as any };
+    }
+    case 'get_embedding_providers': {
+      const query = `query GetEmbeddingProviders { getEmbeddingProviders { providers message } }`;
+      const data = await appSyncRequest<{ getEmbeddingProviders: { providers: any[]; message: string } }>(query);
+      return { success: true, data: data.getEmbeddingProviders as any };
+    }
+    case 'get_rerank_providers': {
+      const query = `query GetRerankProviders { getRerankProviders { providers message } }`;
+      const data = await appSyncRequest<{ getRerankProviders: { providers: any[]; message: string } }>(query);
+      return { success: true, data: data.getRerankProviders as any };
+    }
+    // Phase 1: Settings via HTTP
+    case 'get_settings': {
+      const query = `query GetSettings { getSettings { settings message } }`;
+      const data = await appSyncRequest<{ getSettings: { settings: any; message: string } }>(query);
+      return { success: true, data: data.getSettings as any };
+    }
+    case 'save_settings': {
+      const query = `mutation SaveSettings($input: SettingsInput!) { saveSettings(input: $input) { success message } }`;
+      const data = await appSyncRequest<{ saveSettings: { success: boolean; message: string } }>(query, { input: { settings: params?.settings ?? params } });
+      return { success: data.saveSettings?.success ?? false, data: data.saveSettings as any };
+    }
+    // Phase 1: Initialization Progress via HTTP
+    case 'get_initialization_progress': {
+      const query = `query GetInitializationProgress { getInitializationProgress { ui_ready critical_services_ready async_init_complete fully_ready sync_init_complete message } }`;
+      const data = await appSyncRequest<{ getInitializationProgress: any }>(query);
+      return { success: true, data: data.getInitializationProgress as any };
+    }
     default:
       return null;
   }

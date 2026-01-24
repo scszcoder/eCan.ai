@@ -652,9 +652,421 @@ class RequestHandlers:
             
             return {"writeSkillFile": {"success": True, "filePath": file_path}}
         
+        # LLM Provider Operations
+        elif 'getllmproviders' in query_lower:
+            try:
+                from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
+                from gui.ollama_utils import merge_ollama_models_to_providers
+                
+                llm_manager = get_llm_manager()
+                providers = llm_manager.get_all_providers() if llm_manager else []
+                providers = merge_ollama_models_to_providers(providers, provider_type='llm')
+                
+                return {
+                    "getLlmProviders": {
+                        "providers": providers,
+                        "message": "LLM providers retrieved successfully"
+                    }
+                }
+            except Exception as e:
+                logger.error(f"[GraphQL] Error getting LLM providers: {e}")
+                return {
+                    "getLlmProviders": {
+                        "providers": [],
+                        "message": f"Error: {str(e)}"
+                    }
+                }
+        
+        elif 'getllmproviderswithcredentials' in query_lower:
+            # This is used by skill editor to get providers with credential status
+            try:
+                from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
+                from gui.ollama_utils import merge_ollama_models_to_providers
+                
+                llm_manager = get_llm_manager()
+                providers = llm_manager.get_all_providers() if llm_manager else []
+                providers = merge_ollama_models_to_providers(providers, provider_type='llm')
+                
+                # Add credential status to each provider
+                for provider in providers:
+                    env_vars = provider.get('api_key_env_vars', [])
+                    has_credentials = False
+                    if env_vars and llm_manager:
+                        for env_var in env_vars:
+                            if llm_manager.get_api_key(env_var):
+                                has_credentials = True
+                                break
+                    provider['has_credentials'] = has_credentials
+                
+                return {
+                    "getLlmProvidersWithCredentials": {
+                        "providers": providers,
+                        "message": "LLM providers with credentials retrieved successfully"
+                    }
+                }
+            except Exception as e:
+                logger.error(f"[GraphQL] Error getting LLM providers with credentials: {e}")
+                return {
+                    "getLlmProvidersWithCredentials": {
+                        "providers": [],
+                        "message": f"Error: {str(e)}"
+                    }
+                }
+        
+        # Settings Operations
+        elif 'getsettings' in query_lower:
+            try:
+                from gui.ipc.context_bridge import get_handler_context
+                ctx = get_handler_context(None, None)
+                if ctx and ctx.get_config_manager():
+                    general_settings = ctx.get_config_manager().general_settings
+                    settings = general_settings.data.copy() if general_settings else {}
+                else:
+                    settings = {}
+                
+                return {
+                    "getSettings": {
+                        "settings": settings,
+                        "message": "Settings retrieved successfully"
+                    }
+                }
+            except Exception as e:
+                logger.error(f"[GraphQL] Error getting settings: {e}")
+                return {
+                    "getSettings": {
+                        "settings": {},
+                        "message": f"Error: {str(e)}"
+                    }
+                }
+        
+        elif 'savesettings' in query_lower:
+            try:
+                input_data = variables.get('input', {})
+                settings_data = input_data.get('settings', {})
+                
+                from gui.ipc.context_bridge import get_handler_context
+                ctx = get_handler_context(None, None)
+                if ctx and ctx.get_config_manager():
+                    general_settings = ctx.get_config_manager().general_settings
+                    if general_settings:
+                        for key, value in settings_data.items():
+                            general_settings.set(key, value)
+                        general_settings.save()
+                
+                return {
+                    "saveSettings": {
+                        "success": True,
+                        "message": "Settings saved successfully"
+                    }
+                }
+            except Exception as e:
+                logger.error(f"[GraphQL] Error saving settings: {e}")
+                return {
+                    "saveSettings": {
+                        "success": False,
+                        "message": f"Error: {str(e)}"
+                    }
+                }
+        
+        # Initialization Progress
+        elif 'getinitializationprogress' in query_lower:
+            try:
+                from app_context import AppContext
+                main_window = AppContext.get_main_window()
+                
+                if main_window and hasattr(main_window, 'get_main_window_safely'):
+                    is_ready = main_window.get_main_window_safely()
+                else:
+                    is_ready = main_window is not None
+                
+                return {
+                    "getInitializationProgress": {
+                        "ui_ready": is_ready,
+                        "critical_services_ready": is_ready,
+                        "async_init_complete": is_ready,
+                        "fully_ready": is_ready,
+                        "sync_init_complete": is_ready,
+                        "message": "Ready" if is_ready else "Initializing..."
+                    }
+                }
+            except Exception as e:
+                logger.error(f"[GraphQL] Error getting initialization progress: {e}")
+                return {
+                    "getInitializationProgress": {
+                        "ui_ready": False,
+                        "critical_services_ready": False,
+                        "async_init_complete": False,
+                        "fully_ready": False,
+                        "sync_init_complete": False,
+                        "message": f"Error: {str(e)}"
+                    }
+                }
+        
+        # Embedding Provider Operations
+        elif 'getembeddingproviders' in query_lower:
+            try:
+                from gui.ipc.w2p_handlers.llm_handler import get_embedding_manager
+                from gui.ollama_utils import merge_ollama_models_to_providers
+                
+                embedding_manager = get_embedding_manager()
+                providers = embedding_manager.get_all_providers() if embedding_manager else []
+                providers = merge_ollama_models_to_providers(providers, provider_type='embedding')
+                
+                return {
+                    "getEmbeddingProviders": {
+                        "providers": providers,
+                        "message": "Embedding providers retrieved successfully"
+                    }
+                }
+            except Exception as e:
+                logger.error(f"[GraphQL] Error getting embedding providers: {e}")
+                return {
+                    "getEmbeddingProviders": {
+                        "providers": [],
+                        "message": f"Error: {str(e)}"
+                    }
+                }
+        
+        # Rerank Provider Operations
+        elif 'getrerankproviders' in query_lower:
+            try:
+                from gui.ipc.w2p_handlers.llm_handler import get_rerank_manager
+                
+                rerank_manager = get_rerank_manager()
+                providers = rerank_manager.get_all_providers() if rerank_manager else []
+                
+                return {
+                    "getRerankProviders": {
+                        "providers": providers,
+                        "message": "Rerank providers retrieved successfully"
+                    }
+                }
+            except Exception as e:
+                logger.error(f"[GraphQL] Error getting rerank providers: {e}")
+                return {
+                    "getRerankProviders": {
+                        "providers": [],
+                        "message": f"Error: {str(e)}"
+                    }
+                }
+        
         else:
+            # Pass-through to IPC handlers for operations not handled above
+            # This allows CRUD operations to use proven IPC handlers
+            ipc_method = self._graphql_to_ipc_method(query_lower, variables)
+            if ipc_method:
+                logger.info(f"[GraphQL] Passing through to IPC handler: {ipc_method}")
+                return await self._call_ipc_handler(ipc_method, variables, query_lower)
+            
             logger.warning(f"[GraphQL] Unknown operation: {query[:200]}")
             raise Exception(f"Unknown GraphQL operation")
+    
+    def _graphql_to_ipc_method(self, query_lower: str, variables: dict) -> str:
+        """Map GraphQL operation names to IPC method names."""
+        # Map of GraphQL operation patterns to IPC methods
+        mappings = {
+            # Data fetch operations
+            'getallmine': 'get_all',
+            'getall': 'get_all',
+            'getorgagenttree': 'get_all_org_agents',
+            'getallorga': 'get_all_org_agents',
+            'getorgs': 'get_orgs',
+            'getagents': 'get_agents',
+            'getagenttasks': 'get_agent_tasks',
+            'getagentskills': 'get_agent_skills',
+            'gettools': 'get_tools',
+            'getvehicles': 'get_vehicles',
+            'getwarehouses': 'get_warehouses',
+            'getproducts': 'get_products',
+            'getinventories': 'get_inventories',
+            'getavailabletests': 'get_available_tests',
+            # Agent CRUD
+            'addagent': 'new_agent',
+            'createagent': 'new_agent',
+            'updateagent': 'save_agent',
+            'saveagent': 'save_agent',
+            'deleteagent': 'delete_agent',
+            'removeagent': 'delete_agent',
+            # Skill CRUD
+            'addagentskill': 'new_agent_skill',
+            'updateagentskill': 'save_agent_skill',
+            'deleteagentskill': 'delete_agent_skill',
+            'removeagentskill': 'delete_agent_skill',
+            # Task CRUD
+            'addagenttask': 'new_agent_task',
+            'updateagenttask': 'save_agent_task',
+            'deleteagenttask': 'delete_agent_task',
+            'removeagenttask': 'delete_agent_task',
+            # Tool CRUD
+            'addagenttools': 'new_tools',
+            'updateagenttools': 'save_tools',
+            'deleteagenttools': 'delete_tools',
+            'removeagenttools': 'delete_tools',
+            # Knowledge CRUD
+            'addagentknowledges': 'new_knowledges',
+            'updateagentknowledges': 'save_knowledges',
+            'deleteagentknowledges': 'delete_knowledges',
+            'removeagentknowledges': 'delete_knowledges',
+            # Org CRUD
+            'addorgs': 'create_org',
+            'createorg': 'create_org',
+            'updateorgs': 'update_org',
+            'updateorg': 'update_org',
+            'deleteorgs': 'delete_org',
+            'removeorgs': 'delete_org',
+            # Vehicle CRUD
+            'addvehicle': 'add_vehicle',
+            'updatevehicle': 'update_vehicle',
+            'deletevehicle': 'delete_vehicle',
+            'removevehicle': 'delete_vehicle',
+            # Prompt CRUD
+            'addprompts': 'add_prompts',
+            'updateprompts': 'update_prompts',
+            'deleteprompts': 'remove_prompts',
+            'removeprompts': 'remove_prompts',
+            # Warehouse CRUD
+            'addwarehouse': 'save_warehouse',
+            'updatewarehouse': 'save_warehouse',
+            'savewarehouse': 'save_warehouse',
+            'deletewarehouse': 'delete_warehouse',
+            'removewarehouse': 'delete_warehouse',
+            # Product CRUD
+            'addproduct': 'save_product',
+            'updateproduct': 'save_product',
+            'saveproduct': 'save_product',
+            'deleteproduct': 'delete_product',
+            'removeproduct': 'delete_product',
+            # Inventory CRUD
+            'addinventory': 'save_inventory',
+            'updateinventory': 'save_inventory',
+            'saveinventory': 'save_inventory',
+            'deleteinventory': 'delete_inventory',
+            'removeinventory': 'delete_inventory',
+            # Label config
+            'getlabelformats': 'label_config.get_all',
+            'addlabelformat': 'label_config.save',
+            'updatelabelformat': 'label_config.save',
+            'deletelabelformat': 'label_config.delete',
+            'removelabelformat': 'label_config.delete',
+            # Simulation operations
+            'setupsimstep': 'setup_sim_step',
+            'stepsim': 'step_sim',
+            'testlanggraph2flowgram': 'test_langgraph2flowgram',
+            'simtimerevent': 'sim_timer_event',
+            'simwebsocketevent': 'sim_websocket_event',
+            'simsseevent': 'sim_sse_event',
+            'simwebhookevent': 'sim_webhook_event',
+            # Skill run operations
+            'runskill': 'run_skill',
+            'pauserunskill': 'pause_run_skill',
+            'resumerunskill': 'resume_run_skill',
+            'steprunskill': 'step_run_skill',
+            'cancelrunskill': 'cancel_run_skill',
+            'setskillbreakpoints': 'set_skill_breakpoints',
+            'clearskillbreakpoints': 'clear_skill_breakpoints',
+            'requestskillstate': 'request_skill_state',
+            'injectskillstate': 'inject_skill_state',
+            'loadskillschemas': 'load_skill_schemas',
+        }
+        
+        for pattern, method in mappings.items():
+            if pattern in query_lower:
+                logger.debug(f"[GraphQL] Matched pattern '{pattern}' -> IPC method '{method}'")
+                return method
+        
+        # Log unmatched query for debugging
+        logger.debug(f"[GraphQL] No IPC method mapping found for query (first 500 chars): {query_lower[:500]}")
+        return None
+    
+    async def _call_ipc_handler(self, method: str, variables: dict, query_lower: str):
+        """Call an IPC handler and return the result in GraphQL format."""
+        from gui.ipc.registry import IPCHandlerRegistry
+        from gui.ipc.types import create_success_response
+        
+        handler_info = IPCHandlerRegistry.get_handler(method)
+        if not handler_info:
+            logger.warning(f"[GraphQL] No IPC handler found for method: {method}")
+            raise Exception(f"No handler found for method: {method}")
+        
+        handler, handler_type = handler_info
+        
+        # Build IPC request object
+        # Mark as local_server request to bypass token validation
+        request = {
+            'id': f'graphql_{method}_{id(variables)}',
+            'method': method,
+            'params': variables,
+            'source': 'local_server',  # Marker for trusted local requests
+        }
+        
+        try:
+            # Call the handler
+            if handler_type == 'background':
+                # Run background handlers in thread pool
+                import asyncio
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(None, handler, request, variables)
+            else:
+                response = handler(request, variables)
+            
+            # Convert IPC response to GraphQL format
+            if response.get('status') == 'success':
+                result = response.get('result', {})
+                # Sanitize result to ensure JSON serializability
+                result = self._json_safe(result)
+                # Try to determine the GraphQL field name from the query
+                field_name = self._extract_graphql_field(query_lower, method)
+                return {field_name: result}
+            else:
+                error_msg = response.get('error', {}).get('message', 'Unknown error')
+                raise Exception(error_msg)
+                
+        except Exception as e:
+            logger.error(f"[GraphQL] Error calling IPC handler {method}: {e}")
+            raise
+    
+    def _json_safe(self, value, depth=0):
+        """Make a value JSON-safe by converting non-serializable objects to strings."""
+        try:
+            if depth > 10:
+                return str(value)
+            if value is None or isinstance(value, (str, int, float, bool)):
+                return value
+            if isinstance(value, dict):
+                return {str(k): self._json_safe(v, depth + 1) for k, v in value.items()}
+            if isinstance(value, (list, tuple)):
+                return [self._json_safe(v, depth + 1) for v in value]
+            # Pydantic models
+            if hasattr(value, 'model_dump') and callable(getattr(value, 'model_dump')):
+                try:
+                    return self._json_safe(value.model_dump(mode="python"), depth + 1)
+                except Exception:
+                    pass
+            # Objects with __dict__
+            if hasattr(value, '__dict__'):
+                try:
+                    return self._json_safe(vars(value), depth + 1)
+                except Exception:
+                    pass
+            # Fallback to string
+            return str(value)
+        except Exception:
+            return '<unserializable>'
+    
+    def _extract_graphql_field(self, query_lower: str, method: str) -> str:
+        """Extract the GraphQL field name from the query or derive from method."""
+        # Common patterns: query GetAgents -> getAgents, mutation AddAgent -> addAgent
+        import re
+        
+        # Try to find the operation name in the query
+        # Pattern: query/mutation OperationName { fieldName { ... } }
+        match = re.search(r'(?:query|mutation)\s+\w+\s*\{?\s*(\w+)', query_lower)
+        if match:
+            return match.group(1)
+        
+        # Fallback: convert method name to camelCase
+        parts = method.split('_')
+        return parts[0] + ''.join(p.capitalize() for p in parts[1:])
 
     async def gen_feedbacks(self, request):
         logger.info("serving gen_feedbacks.....")
