@@ -1,59 +1,17 @@
 import React, { useCallback, useRef, useEffect, useMemo } from 'react';
 import type { editor } from 'monaco-editor';
-import Editor, { OnChange, loader } from '@monaco-editor/react';
+import Editor, { OnChange } from '@monaco-editor/react';
 import { CodeEditorComponentProps } from './types';
 import { editorStyles } from './styles';
 import { DEFAULT_EDITOR_HEIGHT, DEFAULT_EDITOR_OPTIONS, getPreviewModeOptions } from './config';
 import ReactDOM from 'react-dom';
 
-// Configure Monaco to use local files
-// Note: This is a backup configuration. The main configuration is in monaco-config.ts
+// Monaco configuration is handled centrally in monaco-config.ts
 // which is imported in main.tsx to ensure it runs before any Monaco component mounts.
-const getMonacoBasePath = () => {
-  if (typeof window === 'undefined') return './monaco-editor/vs';
-  
-  const isFileProtocol = window.location.protocol === 'file:';
-  const isProduction = import.meta.env.PROD;
-  
-  if (isFileProtocol || isProduction) {
-    return './monaco-editor/vs';
-  } else {
-    return '/monaco-editor/vs';
-  }
-};
+// DO NOT configure loader here - it will override the CDN configuration!
 
-loader.config({
-  paths: {
-    vs: getMonacoBasePath()
-  }
-});
-
-// Configure Monaco worker
-if (typeof window !== 'undefined') {
-  (window as any).MonacoEnvironment = {
-    getWorkerUrl: function (_moduleId: string, _label: string) {
-      const isFileProtocol = window.location.protocol === 'file:';
-      const isProduction = import.meta.env.PROD;
-      
-      if (isFileProtocol || isProduction) {
-        return './monaco-editor/vs/base/worker/workerMain.js';
-      } else {
-        return '/monaco-editor/vs/base/worker/workerMain.js';
-      }
-    }
-  };
-}
-
-// Add语言ToggleFunction
-export const setMonacoLanguage = (language: 'en' | 'zh-cn') => {
-  loader.config({
-    'vs/nls': {
-      availableLanguages: {
-        '*': language
-      }
-    }
-  });
-};
+// Re-export setMonacoLanguage from monaco-config for backward compatibility
+export { setMonacoLanguage } from './monaco-config';
 
 /**
  * CodeEditor component for displaying and editing code

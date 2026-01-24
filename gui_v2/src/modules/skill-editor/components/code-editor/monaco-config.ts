@@ -21,8 +21,7 @@ const CDN_SOURCES = {
   unpkg: `https://unpkg.com/monaco-editor@${MONACO_VERSION}/min/vs`
 };
 
-// Track CDN fallback state and current source
-let cdnFallbackAttempted = false;
+// Track current Monaco source for debugging
 let currentMonacoSource: {
   type: 'local' | 'jsdelivr' | 'cloudflare' | 'unpkg';
   url: string;
@@ -71,8 +70,8 @@ async function findWorkingCDN(): Promise<string> {
   
   console.log(`%c[Monaco Editor] 🔍 Development Mode - Testing CDN Sources...`, 'color: #3b82f6; font-weight: bold');
   
-  // Development: try local first, then CDN fallbacks (international first, domestic as backup)
-  const sources: Array<keyof typeof CDN_SOURCES> = ['local', 'jsdelivr', 'cloudflare', 'unpkg'];
+  // Development: skip local (not served by Vite), use CDN fallbacks (international first, domestic as backup)
+  const sources: Array<keyof typeof CDN_SOURCES> = ['jsdelivr', 'cloudflare', 'unpkg'];
   
   for (const source of sources) {
     const url = CDN_SOURCES[source];
@@ -137,54 +136,52 @@ const getMonacoBasePath = () => {
   }
 };
 
-// Initial configuration with local path
-loader.config({
-  paths: {
-    vs: getMonacoBasePath()
-  }
-});
+// Monaco initialization promise - components should await this before using Monaco
+export let monacoReady: Promise<void>;
 
-// In development, try CDN fallback asynchronously
-if (import.meta.env.DEV && typeof window !== 'undefined' && !cdnFallbackAttempted) {
-  cdnFallbackAttempted = true;
-  
-  // Set initial source as local
-  currentMonacoSource = { 
-    type: 'local', 
-    url: CDN_SOURCES.local, 
-    timestamp: Date.now() 
-  };
-  
-  findWorkingCDN().then(workingCDN => {
-    if (workingCDN !== CDN_SOURCES.local) {
-      console.log(`%c[Monaco CDN] 🔄 Switching Configuration...`, 'color: #3b82f6; font-weight: bold');
-      console.log(`%c[Monaco CDN] From: Local Files`, 'color: #6b7280');
-      console.log(`%c[Monaco CDN] To: ${currentMonacoSource?.type.toUpperCase()}`, 'color: #10b981');
-      console.log(`%c[Monaco CDN] New URL: ${workingCDN}`, 'color: #6b7280');
-      
-      loader.config({
-        paths: {
-          vs: workingCDN
-        }
-      });
-      
-      console.log(`%c[Monaco CDN] ✅ Configuration Updated Successfully`, 'color: #10b981; font-weight: bold');
-    } else {
-      console.log(`%c[Monaco CDN] ℹ️  Using Local Files (No CDN Switch Needed)`, 'color: #3b82f6');
-    }
+// In development, configure CDN before Monaco tries to load
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+  // Development: find working CDN first, then configure
+  monacoReady = findWorkingCDN().then(workingCDN => {
+    console.log(`%c[Monaco CDN] 🔄 Configuring Monaco with: ${workingCDN}`, 'color: #3b82f6; font-weight: bold');
+    
+    loader.config({
+      paths: {
+        vs: workingCDN
+      }
+    });
+    
+    // Also update worker URL for CDN
+    (window as any).MonacoEnvironment = {
+      getWorkerUrl: function (_moduleId: string, _label: string) {
+        return `${workingCDN}/base/worker/workerMain.js`;
+      }
+    };
+    
+    console.log(`%c[Monaco CDN] ✅ Configuration Complete`, 'color: #10b981; font-weight: bold');
   }).catch(error => {
     console.error(`%c[Monaco CDN] ❌ Error during CDN fallback:`, 'color: #ef4444; font-weight: bold', error);
+    // Fallback to jsdelivr directly
+    const fallbackUrl = CDN_SOURCES.jsdelivr;
+    loader.config({ paths: { vs: fallbackUrl } });
   });
+} else {
+  // Production: use local files
+  loader.config({
+    paths: {
+      vs: getMonacoBasePath()
+    }
+  });
+  monacoReady = Promise.resolve();
 }
 
-// Configure Monaco worker paths
-if (typeof window !== 'undefined') {
+// Configure Monaco worker paths for production only (dev is handled in findWorkingCDN)
+if (typeof window !== 'undefined' && import.meta.env.PROD) {
   (window as any).MonacoEnvironment = {
     getWorkerUrl: function (_moduleId: string, _label: string) {
       const isFileProtocol = window.location.protocol === 'file:';
-      const isProduction = import.meta.env.PROD;
       
-      if (isFileProtocol || isProduction) {
+      if (isFileProtocol) {
         return './monaco-editor/vs/base/worker/workerMain.js';
       } else {
         return '/monaco-editor/vs/base/worker/workerMain.js';
