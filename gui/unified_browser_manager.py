@@ -71,32 +71,150 @@ class LoggingChatOpenAI(ChatOpenAI):
 
 load_dotenv()
 
+# Global Chrome process tracker
+_chrome_process = None
+_chrome_port = None
+
+
+def _is_port_in_use(port: int) -> bool:
+    """Check if a port is already in use."""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.connect(('127.0.0.1', port))
+            return True
+        except (ConnectionRefusedError, OSError):
+            return False
+
+
+def _start_chrome_with_cdp(port: int = 9228, headless: bool = False) -> bool:
+    """
+    Start Chrome with remote debugging enabled.
+    
+    Args:
+        port: CDP port number
+        headless: Whether to run in headless mode
+        
+    Returns:
+        True if Chrome started successfully, False otherwise
+    """
+    global _chrome_process, _chrome_port
+    
+    # Check if Chrome is already running on this port
+    if _is_port_in_use(port):
+        logger.info(f"[BrowserManager] Chrome already running on port {port}")
+        return True
+    
+    import subprocess
+    import platform
+    import time
+    
+    # Determine Chrome executable path
+    system = platform.system()
+    if system == "Darwin":  # macOS
+        chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    elif system == "Windows":
+        chrome_path = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+        if not os.path.exists(chrome_path):
+            chrome_path = "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe"
+    else:  # Linux
+        chrome_path = "/usr/bin/google-chrome"
+        if not os.path.exists(chrome_path):
+            chrome_path = "/usr/bin/chromium-browser"
+    
+    if not os.path.exists(chrome_path):
+        logger.error(f"[BrowserManager] Chrome not found at {chrome_path}")
+        return False
+    
+    # Prepare Chrome arguments
+    user_data_dir = "/tmp/chrome-cdp-profile"
+    args = [
+        chrome_path,
+        f"--remote-debugging-port={port}",
+        f"--user-data-dir={user_data_dir}",
+        "--no-first-run",
+        "--no-default-browser-check",
+    ]
+    
+    if headless:
+        args.append("--headless=new")
+    
+    try:
+        # Start Chrome process
+        logger.info(f"[BrowserManager] Starting Chrome with CDP on port {port}")
+        _chrome_process = subprocess.Popen(
+            args,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True  # Detach from parent process
+        )
+        _chrome_port = port
+        
+        # Wait for Chrome to start and CDP to be ready
+        max_wait = 10  # seconds
+        for i in range(max_wait * 2):
+            if _is_port_in_use(port):
+                logger.info(f"[BrowserManager] Chrome started successfully on port {port}")
+                return True
+            time.sleep(0.5)
+        
+        logger.error(f"[BrowserManager] Chrome started but CDP port {port} not ready after {max_wait}s")
+        return False
+        
+    except Exception as e:
+        logger.error(f"[BrowserManager] Failed to start Chrome: {e}")
+        return False
 
 
 def _build_browser_session(br_type="existing_chrome", adspower_profile="", port="9228", headless=False) -> BrowserSession:
-    """Construct a BrowserSession.
-
-    Priority:
-    1. If ADSPOWER_PROFILE_ID is set, attach to the AdsPower fingerprint browser.
-    2. Otherwise, attach to a generic Chrome instance using BROWSER_USE_CDP_URL
-       (defaults to http://127.0.0.1:9228).
     """
+    Construct a BrowserSession for Native (CDP) mode only.
+    
+    BrowserSession is used to connect to an existing Chrome instance via CDP.
+    Other browser drivers (Selenium, Playwright, Puppeteer) manage their own 
+    browsers and don't need BrowserSession.
+    
+    Args:
+        br_type: Browser type ("existing_chrome", "adspower", "new chromium")
+        adspower_profile: AdsPower profile ID (for adspower mode)
+        port: CDP port number (default: 9228)
+        headless: Whether to run in headless mode
+        
+    Returns:
+        BrowserSession instance for CDP connection, or None if browser_use should create its own
+    """
+    # AdsPower mode: Connect to AdsPower-managed browser
     if br_type == "adspower":
-        adspower_profile = adspower_profile
         if not adspower_profile:
             adspower_profile = os.getenv("ADSPOWER_PROFILE_ID", "")
-
-        print("ads_profile:", adspower_profile)
-
+        
+        logger.info(f"[BrowserManager] Using AdsPower profile: {adspower_profile}")
+        
         if adspower_profile:
             return _build_adspower_browser_session(adspower_profile)
-
-    else:
-        cdp_url = os.getenv("BROWSER_USE_CDP_URL", f"http://127.0.0.1:{port}")
-        print("cdp_url:", cdp_url)
-        profile = BrowserProfile(headless=headless, cdp_url=cdp_url)
-        profile.is_local = False
-        return BrowserSession(browser_profile=profile, id="ec"+uuid7str())
+        else:
+            logger.warning("[BrowserManager] AdsPower profile not specified, falling back to new chromium")
+            return None
+    
+    # New chromium mode: Let browser_use create its own browser
+    if br_type == "new chromium":
+        logger.info("[BrowserManager] Using 'new chromium' mode - browser_use will create browser")
+        return None
+    
+    # Native (CDP) mode: Connect to existing Chrome via CDP, auto-start if needed
+    cdp_port = int(port) if isinstance(port, str) and port.isdigit() else 9228
+    cdp_url = os.getenv("BROWSER_USE_CDP_URL", f"http://127.0.0.1:{cdp_port}")
+    
+    # Auto-start Chrome if not running
+    if not _is_port_in_use(cdp_port):
+        logger.info(f"[BrowserManager] Chrome not detected on port {cdp_port}, auto-starting...")
+        if not _start_chrome_with_cdp(cdp_port, headless):
+            logger.warning(f"[BrowserManager] Failed to auto-start Chrome, will attempt to connect anyway")
+    
+    logger.info(f"[BrowserManager] Using Native (CDP) mode, cdp_url: {cdp_url}")
+    profile = BrowserProfile(headless=headless, cdp_url=cdp_url)
+    profile.is_local = False
+    return BrowserSession(browser_profile=profile, id="ec"+uuid7str())
 
 
 def _build_adspower_browser_session(profile_id: str) -> BrowserSession:

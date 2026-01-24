@@ -1016,6 +1016,15 @@ def extract_provider_config(provider, config_manager=None):
             # Default to provider_name if still empty
             provider_type = provider_name
     
+    # Ensure api_key and base_url are not None (use empty string or placeholder)
+    # This prevents 'NoneType' object is not subscriptable errors in downstream code
+    if api_key is None:
+        # For local providers (Ollama, etc.), use placeholder key
+        if provider_type in ['ollama', 'ryoais']:
+            api_key = 'sk-placeholder-key-for-local-llm'
+        else:
+            api_key = ''
+    
     return {
         'model_name': model_name,
         'api_key': api_key,
@@ -1473,13 +1482,18 @@ def _get_logging_browser_use_class():
                     except AttributeError:
                         pass
                     
-                    # Log actual LLM response content
+                    # Log LLM response
                     try:
-                        if hasattr(response, 'choices') and response.choices:
-                            content = response.choices[0].message.content
-                            logger.debug(f"[BrowserUse] LLM Response: {content}")
-                    except Exception:
-                        pass
+                        if hasattr(response, 'choices') and response.choices and len(response.choices) > 0:
+                            message = response.choices[0].message
+                            if hasattr(message, 'content') and message.content:
+                                content = message.content
+                                logger.debug(f"[BrowserUse] Received LLM response, length: {len(content)}")
+                                logger.debug(f"[BrowserUse] LLM Response preview: {content[:200]}...")
+                            else:
+                                logger.debug(f"[BrowserUse] LLM response has no content")
+                    except Exception as e:
+                        logger.error(f"[BrowserUse] ❌ Failed to log response: {e}", exc_info=True)
                     
                     return response
                 
@@ -1513,6 +1527,7 @@ def _create_and_validate_browser_use_llm(bu_config: dict):
         
         # Extract special config flags
         adapt_deepseek_output = bu_config.pop('adapt_deepseek_output', False)
+        adapt_qwen_output = bu_config.pop('adapt_qwen_output', False)
         
         # Get the logging wrapper class
         LoggingBrowserUseChatOpenAI = _get_logging_browser_use_class()
@@ -1533,6 +1548,15 @@ def _create_and_validate_browser_use_llm(bu_config: dict):
                 logger.info("[_create_and_validate_browser_use_llm] ✅ Applied DeepSeek output format adapter")
             except Exception as e:
                 logger.warning(f"[_create_and_validate_browser_use_llm] Failed to apply DeepSeek output adapter: {e}")
+        
+        # Apply Qwen/Ollama output format adapter if enabled
+        if adapt_qwen_output:
+            try:
+                from agent.ec_skills.browser_use_extension.qwen_adapter import wrap_qwen_llm
+                llm_instance = wrap_qwen_llm(llm_instance)
+                logger.info("[_create_and_validate_browser_use_llm] ✅ Applied Qwen/Ollama output format adapter")
+            except Exception as e:
+                logger.warning(f"[_create_and_validate_browser_use_llm] Failed to apply Qwen output adapter: {e}")
         
         # Validate it's actually BrowserUseChatOpenAI (should always be true if creation succeeded)
         if isinstance(llm_instance, BrowserUseChatOpenAI):
@@ -1637,7 +1661,8 @@ def create_browser_use_llm_by_provider_type(
     elif provider_type in ['deepseek', 'dashscope', 'ollama', 'qwen', 'qwq', 'baidu_qianfan', 'bytedance', 'zhipuai']:
         bu_config = {
             'model': model_name or default_config['model'],
-            'api_key': api_key or default_config['api_key'] or 'dummy-key'
+            'api_key': api_key or default_config['api_key'] or 'dummy-key',
+            'timeout': 180.0  # 3 minutes timeout for slow inference (especially for Ollama/local models)
         }
         
         # DeepSeek and some other providers don't support response_format (JSON mode)
@@ -1652,6 +1677,13 @@ def create_browser_use_llm_by_provider_type(
         if provider_type == 'deepseek':
             bu_config['adapt_deepseek_output'] = True
             logger.info(f"[create_browser_use_llm_by_provider_type] Enabled DeepSeek output format adapter")
+        
+        # Enable Qwen/Ollama output format adapter
+        # This fixes common Qwen output issues (numeric keys, markdown blocks, XML tags)
+        if provider_type in ['ollama', 'qwen', 'qwq']:
+            bu_config['adapt_qwen_output'] = True
+            logger.info(f"[create_browser_use_llm_by_provider_type] Enabled Qwen/Ollama output format adapter")
+            logger.info(f"[create_browser_use_llm_by_provider_type] Set timeout=180s for {provider_type} (slow inference support)")
                 
         if base_url:
             # Special handling for Ollama: convert native URL to OpenAI-compatible endpoint
@@ -1759,14 +1791,17 @@ def create_browser_use_llm_by_provider_type(
 
 def get_use_vision_from_llm(llm, context="") -> bool:
     """
-    Get use_vision value from LLM object, defaulting to True if not found.
+    Get use_vision value from LLM object, defaulting to False if not found.
+    
+    Vision is disabled by default to avoid compatibility issues with models that don't support it.
+    Only models with explicit supports_vision=True will enable vision.
     
     Args:
         llm: LLM instance that may have supports_vision attribute
         context: Optional context string for logging (e.g., "EC_Agent", "build_node")
     
     Returns:
-        bool: use_vision value (True by default)
+        bool: use_vision value (False by default for safety)
     """
     if llm and hasattr(llm, 'supports_vision'):
         use_vision = llm.supports_vision
@@ -1774,10 +1809,10 @@ def get_use_vision_from_llm(llm, context="") -> bool:
             logger.debug(f"[{context}] Auto-set use_vision={use_vision} from LLM config")
         return use_vision
     else:
-        # Default to True if not found (browser-use default behavior)
+        # Default to False if not found (safer default, avoids API compatibility issues)
         if context:
-            logger.debug(f"[{context}] Auto-set use_vision=True (default, no config found)")
-        return True
+            logger.debug(f"[{context}] Auto-set use_vision=False (default, no config found)")
+        return False
 
 
 def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_check=False):
