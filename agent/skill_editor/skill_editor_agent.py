@@ -782,6 +782,15 @@ class SkillEditorAgent:
     def _format_canvas_context_for_intent(self, canvas_context: Optional[Dict]) -> str:
         if not canvas_context:
             return "Empty canvas"
+        # Handle case where canvas_context is a JSON string (from web/AppSync)
+        if isinstance(canvas_context, str):
+            try:
+                import json
+                canvas_context = json.loads(canvas_context)
+            except (json.JSONDecodeError, TypeError):
+                return "Empty canvas"
+        if not isinstance(canvas_context, dict):
+            return "Empty canvas"
         nodes = canvas_context.get("nodes", [])
         edges = canvas_context.get("edges", [])
         selected = canvas_context.get("selectedNodes", [])
@@ -1116,6 +1125,19 @@ class SkillEditorAgent:
         """
         logger.info(f"[SkillEditorAgent] Processing message: {message[:100]}...")
         logger.info(f"[SkillEditorAgent] Pipeline state: {self._pipeline_state.value}")
+
+        # Normalize canvas_context: parse JSON string if needed (from web/AppSync)
+        if isinstance(canvas_context, str):
+            try:
+                import json
+                canvas_context = json.loads(canvas_context)
+                logger.info("[SkillEditorAgent] Parsed canvas_context from JSON string")
+            except (json.JSONDecodeError, TypeError):
+                logger.warning("[SkillEditorAgent] Failed to parse canvas_context string, setting to None")
+                canvas_context = None
+        if canvas_context is not None and not isinstance(canvas_context, dict):
+            logger.warning(f"[SkillEditorAgent] canvas_context is not a dict ({type(canvas_context)}), setting to None")
+            canvas_context = None
 
         await self._emit_progress(on_event, "Thinking...")
 

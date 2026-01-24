@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -9,6 +10,9 @@ import boto3
 
 from agent.ec_tasks.appsync_pubsub import AppSyncApiKeyConfig, publish_skill_editor_stream_event
 from agent.skill_editor.skill_editor_agent import SkillEditorAgent, _safe_user_dir_name
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
 @dataclass(frozen=True)
@@ -462,6 +466,96 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _skill_context_key(env: _Env, owner: str, skill_name: str) -> str:
+    """S3 key for skill context: <prefix>/<user>/skill_contexts/<skill_name>/context.json"""
+    prefix = _norm_prefix(env.s3_key_root)
+    user_dir = _safe_user_dir_name(owner)
+    return _s3_key(prefix, user_dir, "skill_contexts", skill_name, "context.json")
+
+
+def _handle_load_skill_editor_contexts(event: Dict[str, Any]) -> Dict[str, Any]:
+    """Load skill editor contexts from S3 (per user, per skill)."""
+    logger.info("[loadSkillEditorContexts] Starting handler")
+    env = _load_env()
+    args = event.get("arguments") or {}
+    input_ = args.get("input") or {}
+    
+    owner = _owner_from_event(event)
+    skill_names = input_.get("skillNames") or []
+    skill_ids = input_.get("skillIds") or []
+    
+    logger.info(f"[loadSkillEditorContexts] owner={owner}, skillNames={skill_names}, skillIds={skill_ids}")
+    
+    items: List[Dict[str, Any]] = []
+    
+    # If specific skill names requested, load those
+    if skill_names:
+        logger.info(f"[loadSkillEditorContexts] Loading {len(skill_names)} specific skills")
+        for idx, skill_name in enumerate(skill_names):
+            key = _skill_context_key(env, owner, skill_name)
+            logger.info(f"[loadSkillEditorContexts] Fetching S3 key: {key}")
+            context_data = _s3_get_json(bucket=env.s3_bucket, key=key)
+            if context_data is not None:
+                logger.info(f"[loadSkillEditorContexts] Found context for skill: {skill_name}")
+                # Get object metadata for updatedAt
+                try:
+                    resp = _s3_client().head_object(Bucket=env.s3_bucket, Key=key)
+                    last_modified = resp.get("LastModified")
+                    updated_at = last_modified.isoformat() if last_modified else _utc_now_iso()
+                except Exception as e:
+                    logger.warning(f"[loadSkillEditorContexts] Failed to get LastModified for {key}: {e}")
+                    updated_at = _utc_now_iso()
+                
+                items.append({
+                    "skillId": skill_ids[idx] if idx < len(skill_ids) else None,
+                    "skillName": skill_name,
+                    "context": json.dumps(context_data) if isinstance(context_data, dict) else context_data,
+                    "updatedAt": updated_at,
+                })
+            else:
+                logger.info(f"[loadSkillEditorContexts] No context found for skill: {skill_name}")
+    
+    # If no specific skills requested, list all available contexts for this user
+    elif not skill_names and not skill_ids:
+        prefix = _norm_prefix(env.s3_key_root)
+        user_dir = _safe_user_dir_name(owner)
+        contexts_prefix = _s3_key(prefix, user_dir, "skill_contexts")
+        if contexts_prefix:
+            contexts_prefix += "/"
+        
+        logger.info(f"[loadSkillEditorContexts] Listing all contexts with prefix: {contexts_prefix}")
+        keys = _s3_list_keys(bucket=env.s3_bucket, prefix=contexts_prefix)
+        logger.info(f"[loadSkillEditorContexts] Found {len(keys)} keys")
+        
+        for key in keys:
+            if key.endswith("/context.json"):
+                # Extract skill name from key path
+                # Format: <prefix>/<user>/skill_contexts/<skill_name>/context.json
+                parts = key.split("/")
+                if len(parts) >= 2:
+                    skill_name = parts[-2]  # skill_name is second to last
+                    logger.info(f"[loadSkillEditorContexts] Loading context for skill: {skill_name} from {key}")
+                    context_data = _s3_get_json(bucket=env.s3_bucket, key=key)
+                    if context_data is not None:
+                        try:
+                            resp = _s3_client().head_object(Bucket=env.s3_bucket, Key=key)
+                            last_modified = resp.get("LastModified")
+                            updated_at = last_modified.isoformat() if last_modified else _utc_now_iso()
+                        except Exception as e:
+                            logger.warning(f"[loadSkillEditorContexts] Failed to get LastModified for {key}: {e}")
+                            updated_at = _utc_now_iso()
+                        
+                        items.append({
+                            "skillId": None,
+                            "skillName": skill_name,
+                            "context": json.dumps(context_data) if isinstance(context_data, dict) else context_data,
+                            "updatedAt": updated_at,
+                        })
+    
+    logger.info(f"[loadSkillEditorContexts] Returning {len(items)} context items")
+    return {"items": items}
+
+
 def handler(event, context):
     _ = context
 
@@ -480,5 +574,7 @@ def handler(event, context):
         return _handle_cancel_generation(event)
     if field == "deleteSkillEditorChatSession":
         return _handle_delete_session(event)
+    if field == "loadSkillEditorContexts":
+        return _handle_load_skill_editor_contexts(event)
 
     raise RuntimeError(f"Unsupported fieldName: {field}")
