@@ -328,6 +328,90 @@ class LocalWebSocketClient {
           ...eventPayload
         });
         break;
+      
+      // ==================== Data Update Events ====================
+      case 'update_agents':
+        console.log('[LocalWS] 👥 Emitting update_agents');
+        eventBus.emit('ws:update_agents', eventPayload);
+        break;
+        
+      case 'update_skills':
+        console.log('[LocalWS] 🛠️ Emitting update_skills');
+        eventBus.emit('ws:update_skills', eventPayload);
+        break;
+        
+      case 'update_tasks':
+        console.log('[LocalWS] 📋 Emitting update_tasks');
+        eventBus.emit('ws:update_tasks', eventPayload);
+        break;
+        
+      case 'update_tools':
+        console.log('[LocalWS] 🔧 Emitting update_tools');
+        eventBus.emit('ws:update_tools', eventPayload);
+        break;
+        
+      case 'update_settings':
+        console.log('[LocalWS] ⚙️ Emitting update_settings');
+        eventBus.emit('ws:update_settings', eventPayload);
+        break;
+        
+      case 'update_vehicles':
+        console.log('[LocalWS] 🚗 Emitting update_vehicles');
+        eventBus.emit('ws:update_vehicles', eventPayload);
+        break;
+        
+      case 'update_knowledge':
+        console.log('[LocalWS] 📚 Emitting update_knowledge');
+        eventBus.emit('ws:update_knowledge', eventPayload);
+        break;
+        
+      case 'update_chats':
+        console.log('[LocalWS] 💬 Emitting update_chats');
+        eventBus.emit('ws:update_chats', eventPayload);
+        break;
+        
+      case 'update_all':
+        console.log('[LocalWS] 🔄 Emitting update_all');
+        eventBus.emit('ws:update_all', eventPayload);
+        break;
+      
+      // ==================== Chat Events ====================
+      case 'push_chat_message':
+        console.log('[LocalWS] 💬 Emitting push_chat_message');
+        eventBus.emit('ws:push_chat_message', eventPayload);
+        break;
+        
+      case 'push_chat_notification':
+        console.log('[LocalWS] 🔔 Emitting push_chat_notification');
+        eventBus.emit('ws:push_chat_notification', eventPayload);
+        break;
+      
+      // ==================== Skill Run Events ====================
+      case 'update_skill_run_stat':
+        console.log('[LocalWS] 📊 Emitting update_skill_run_stat:', { agentTaskId: eventPayload.agentTaskId, currentNode: eventPayload.currentNode });
+        eventBus.emit('ws:update_skill_run_stat', eventPayload);
+        break;
+        
+      case 'update_tasks_stat':
+        console.log('[LocalWS] 📈 Emitting update_tasks_stat');
+        eventBus.emit('ws:update_tasks_stat', eventPayload);
+        break;
+      
+      // ==================== LightRAG Events ====================
+      case 'lightrag.queryStream.chunk':
+        console.log('[LocalWS] 💡 Emitting lightrag chunk');
+        eventBus.emit('ws:lightrag:chunk', eventPayload);
+        break;
+        
+      case 'lightrag.queryStream.done':
+        console.log('[LocalWS] ✅ Emitting lightrag done');
+        eventBus.emit('ws:lightrag:done', eventPayload);
+        break;
+        
+      case 'lightrag.queryStream.error':
+        console.log('[LocalWS] ❌ Emitting lightrag error');
+        eventBus.emit('ws:lightrag:error', eventPayload);
+        break;
         
       default:
         console.log('[LocalWS] ⚠️ Unknown event type:', eventType);
@@ -356,8 +440,12 @@ export const localWebSocketClient = LocalWebSocketClient.getInstance();
 // Auto-connect when module loads if conditions are met
 if (typeof window !== 'undefined') {
   // Delay connection to allow settings to load
-  setTimeout(() => {
+  setTimeout(async () => {
     if (localWebSocketClient.shouldUseLocalWebSocket()) {
+      // Initialize WebSocket event listeners first
+      const { initWebSocketEventListeners } = await import('./wsEventListeners');
+      initWebSocketEventListeners();
+      
       localWebSocketClient.connect().then(connected => {
         if (connected) {
           console.log('[LocalWS] Auto-connected to local WebSocket server');

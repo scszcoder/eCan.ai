@@ -64,8 +64,16 @@ base_dir = getattr(sys, '_MEIPASS', os.getcwd())
 
 
 # ==================== Skill Editor WebSocket Manager ====================
-class SkillEditorWebSocketManager:
-    """Manages WebSocket connections for skill editor streaming events."""
+class AppWebSocketManager:
+    """Manages WebSocket connections for all backend-to-frontend push events.
+    
+    Handles:
+    - Skill editor streaming (chat chunks, canvas commands, flowgrams)
+    - Data updates (agents, skills, tasks, tools, settings, etc.)
+    - Chat messages and notifications
+    - Skill run statistics
+    - LightRAG streaming
+    """
     
     _instance = None
     _lock = threading.Lock()
@@ -77,7 +85,12 @@ class SkillEditorWebSocketManager:
                     cls._instance = super().__new__(cls)
                     cls._instance._connections: dict[str, set[WebSocket]] = {}  # channel_id -> set of websockets
                     cls._instance._all_connections: set[WebSocket] = set()
+                    cls._instance._event_loop = None
         return cls._instance
+    
+    def set_event_loop(self, loop):
+        """Set the event loop for async operations from sync context."""
+        self._event_loop = loop
     
     async def connect(self, websocket: WebSocket, channel_id: str = None):
         """Accept a new WebSocket connection."""
@@ -170,7 +183,7 @@ class SkillEditorWebSocketManager:
     
     async def send_flowgram(self, session_id: str, flowgram: dict):
         """Send a flowgram event to load on canvas."""
-        logger.info(f"[SkillEditorWS] 🎨 Sending flowgram to session {session_id} ({len(flowgram.get('nodes', []))} nodes)")
+        logger.info(f"[AppWS] 🎨 Sending flowgram to session {session_id} ({len(flowgram.get('nodes', []))} nodes)")
         await self.send_to_session(session_id, {
             "type": "skill_editor.event",
             "eventType": "skill_editor.event",
@@ -181,10 +194,210 @@ class SkillEditorWebSocketManager:
                 "flowgram": flowgram
             }
         })
+    
+    # ==================== Data Update Events ====================
+    
+    async def send_update_agents(self, agents: list):
+        """Broadcast agents update to all clients."""
+        await self.broadcast({
+            "type": "update_agents",
+            "eventType": "update_agents",
+            "payload": {"agents": agents}
+        })
+    
+    async def send_update_skills(self, skills: list):
+        """Broadcast skills update to all clients."""
+        await self.broadcast({
+            "type": "update_skills",
+            "eventType": "update_skills",
+            "payload": {"skills": skills}
+        })
+    
+    async def send_update_tasks(self, tasks: list):
+        """Broadcast tasks update to all clients."""
+        await self.broadcast({
+            "type": "update_tasks",
+            "eventType": "update_tasks",
+            "payload": {"tasks": tasks}
+        })
+    
+    async def send_update_tools(self, tools: list):
+        """Broadcast tools update to all clients."""
+        await self.broadcast({
+            "type": "update_tools",
+            "eventType": "update_tools",
+            "payload": {"tools": tools}
+        })
+    
+    async def send_update_settings(self, settings: dict):
+        """Broadcast settings update to all clients."""
+        await self.broadcast({
+            "type": "update_settings",
+            "eventType": "update_settings",
+            "payload": {"settings": settings}
+        })
+    
+    async def send_update_vehicles(self, vehicles: list):
+        """Broadcast vehicles update to all clients."""
+        await self.broadcast({
+            "type": "update_vehicles",
+            "eventType": "update_vehicles",
+            "payload": {"vehicles": vehicles}
+        })
+    
+    async def send_update_knowledge(self, knowledge: list):
+        """Broadcast knowledge update to all clients."""
+        await self.broadcast({
+            "type": "update_knowledge",
+            "eventType": "update_knowledge",
+            "payload": {"knowledge": knowledge}
+        })
+    
+    async def send_update_chats(self, chats: list):
+        """Broadcast chats update to all clients."""
+        await self.broadcast({
+            "type": "update_chats",
+            "eventType": "update_chats",
+            "payload": {"chats": chats}
+        })
+    
+    async def send_update_all(self, data: dict):
+        """Broadcast full data update to all clients."""
+        await self.broadcast({
+            "type": "update_all",
+            "eventType": "update_all",
+            "payload": data
+        })
+    
+    # ==================== Chat Events ====================
+    
+    async def send_push_chat_message(self, chat_id: str, message: dict):
+        """Push a chat message to clients."""
+        await self.broadcast({
+            "type": "push_chat_message",
+            "eventType": "push_chat_message",
+            "payload": {"chatId": chat_id, "message": message}
+        }, channel_id=f"chat:{chat_id}")
+    
+    async def send_push_chat_notification(self, chat_id: str, content: dict, is_read: bool, timestamp: int, uid: str):
+        """Push a chat notification to clients."""
+        await self.broadcast({
+            "type": "push_chat_notification",
+            "eventType": "push_chat_notification",
+            "payload": {
+                "chatId": chat_id,
+                "content": content,
+                "isRead": is_read,
+                "timestamp": timestamp,
+                "uid": uid
+            }
+        }, channel_id=f"chat:{chat_id}")
+    
+    # ==================== Skill Run Events ====================
+    
+    async def send_update_skill_run_stat(self, agent_task_id: str, current_node: str, status: str, langgraph_state: dict, timestamp: int = None):
+        """Push skill run statistics update."""
+        logger.debug(f"[AppWS] 📊 Sending skill run stat: task={agent_task_id}, node={current_node}, status={status}")
+        await self.broadcast({
+            "type": "update_skill_run_stat",
+            "eventType": "update_skill_run_stat",
+            "payload": {
+                "agentTaskId": agent_task_id,
+                "currentNode": current_node,
+                "current_node": current_node,  # Legacy compatibility
+                "status": status,
+                "langgraphState": langgraph_state,
+                "nodeState": langgraph_state,  # Legacy compatibility
+                "timestamp": timestamp
+            }
+        }, channel_id=f"task:{agent_task_id}")
+    
+    async def send_update_task_stat(self, agent_task_id: str, langgraph_state: dict, timestamp: int = None):
+        """Push task statistics update."""
+        await self.broadcast({
+            "type": "update_tasks_stat",
+            "eventType": "update_tasks_stat",
+            "payload": {
+                "agentTaskId": agent_task_id,
+                "langgraphState": langgraph_state,
+                "timestamp": timestamp
+            }
+        }, channel_id=f"task:{agent_task_id}")
+    
+    # ==================== LightRAG Events ====================
+    
+    async def send_lightrag_chunk(self, stream_id: str, chunk_data: str):
+        """Push LightRAG stream chunk."""
+        await self.broadcast({
+            "type": "lightrag.queryStream.chunk",
+            "eventType": "lightrag.queryStream.chunk",
+            "payload": {"id": stream_id, "chunk": chunk_data}
+        }, channel_id=f"lightrag:{stream_id}")
+    
+    async def send_lightrag_done(self, stream_id: str):
+        """Push LightRAG stream done event."""
+        await self.broadcast({
+            "type": "lightrag.queryStream.done",
+            "eventType": "lightrag.queryStream.done",
+            "payload": {"id": stream_id}
+        }, channel_id=f"lightrag:{stream_id}")
+    
+    async def send_lightrag_error(self, stream_id: str, error: str):
+        """Push LightRAG stream error event."""
+        await self.broadcast({
+            "type": "lightrag.queryStream.error",
+            "eventType": "lightrag.queryStream.error",
+            "payload": {"id": stream_id, "error": error}
+        }, channel_id=f"lightrag:{stream_id}")
+    
+    # ==================== UI Events ====================
+    
+    async def send_refresh_dashboard(self, data: dict):
+        """Push dashboard refresh event."""
+        await self.broadcast({
+            "type": "refresh_dashboard",
+            "eventType": "refresh_dashboard",
+            "payload": data
+        })
+    
+    async def send_update_screens(self, screens: list):
+        """Push screens update event."""
+        await self.broadcast({
+            "type": "update_screens",
+            "eventType": "update_screens",
+            "payload": {"screens": screens}
+        })
+    
+    # ==================== Sync Helper for IPCAPI ====================
+    
+    def broadcast_sync(self, event_type: str, payload: dict, channel_id: str = None):
+        """Synchronous wrapper for broadcasting from IPCAPI (runs in thread)."""
+        message = {
+            "type": event_type,
+            "eventType": event_type,
+            "payload": payload
+        }
+        
+        if self._event_loop and self._event_loop.is_running():
+            # Schedule the coroutine on the event loop
+            import asyncio
+            future = asyncio.run_coroutine_threadsafe(
+                self.broadcast(message, channel_id),
+                self._event_loop
+            )
+            try:
+                # Wait briefly for completion (non-blocking for caller)
+                future.result(timeout=0.5)
+            except Exception as e:
+                logger.warning(f"[AppWS] broadcast_sync timeout/error: {e}")
+        else:
+            logger.warning(f"[AppWS] No event loop available for broadcast_sync, event: {event_type}")
 
 
 # Global WebSocket manager instance
-skill_editor_ws_manager = SkillEditorWebSocketManager()
+app_ws_manager = AppWebSocketManager()
+# Alias for backward compatibility
+skill_editor_ws_manager = app_ws_manager
 
 static_dir = os.path.join(base_dir, 'agent', 'agent_files')
 if not os.path.isdir(static_dir):
@@ -1552,7 +1765,17 @@ class ServerManager:
 
                 self.uvicorn_server = server
                 logger.info(f"✅ Server configured, starting on {host_bind}:{port}")
-                server.run()
+                
+                # Run server with event loop capture for WebSocket broadcasting
+                import asyncio
+                async def serve_with_loop():
+                    # Capture the event loop for WebSocket manager
+                    loop = asyncio.get_running_loop()
+                    app_ws_manager.set_event_loop(loop)
+                    logger.info(f"[AppWS] Event loop captured for WebSocket broadcasting")
+                    await server.serve()
+                
+                asyncio.run(serve_with_loop())
                 logger.info(f"✅ Uvicorn server exited normally on {host_bind}:{port}")
                 last_err = None
                 break
