@@ -3325,6 +3325,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             agent_kwargs = {
                 'use_vision': node_use_vision,  # Pass use_vision from node config to browser_use Agent
                 'use_thinking': node_use_thinking,  # Pass use_thinking from node config to browser_use Agent
+                'use_judge': node_use_vision,  # Disable judge when vision is off (judge sends screenshots)
             }
             
             # Check if extensions should be disabled (dev mode)
@@ -3469,14 +3470,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             
             # Truncate long output for logging
             history_str = str(history)
-            if len(history_str) > 1000:
-                history_str = history_str[:1000] + '... (truncated)'
+            if len(history_str) > 10000:
+                history_str = history_str[:10000] + '... (truncated)'
             logger.debug(f"[BROWSER USE]Agent Run History: {history_str}")
             
             final = history.final_result() if hasattr(history, 'final_result') else None
             final_str = str(final)
-            if len(final_str) > 1000:
-                final_str = final_str[:1000] + '... (truncated)'
+            if len(final_str) > 10000:
+                final_str = final_str[:10000] + '... (truncated)'
             logger.debug(f"[BROWSER USE]Agent Run Results: {final_str}")
             
             return {"final": final, "history": str(history)}

@@ -106,25 +106,24 @@ def clean_qwen_response(content: str) -> str:
     
     original_content = content
     
-    # 1. Try to convert reasoning model output first
-    content = convert_reasoning_to_browser_action(content)
-    if content != original_content:
-        # Already converted, return
-        return content
-    
-    # 2. Remove <think>...</think> blocks (including nested content)
+    # 1. Remove <think>...</think> blocks first (before JSON parsing)
     content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL | re.IGNORECASE)
     
-    # 3. Remove other common XML-style tags that might interfere with JSON parsing
+    # 2. Remove other common XML-style tags that might interfere with JSON parsing
     content = re.sub(r'<step>.*?</step>', '', content, flags=re.DOTALL | re.IGNORECASE)
     content = re.sub(r'<reasoning>.*?</reasoning>', '', content, flags=re.DOTALL | re.IGNORECASE)
     
-    # 4. Remove markdown code blocks if present
+    # 3. Remove markdown code blocks if present
     if '```json' in content or '```' in content:
         content = re.sub(r'```json\s*', '', content)
         content = re.sub(r'```\s*', '', content)
     
-    # 5. Fix numeric JSON keys: convert "123:" to '"123":'
+    # 3.5. Fix bullet points replacing quotes (Qwen sometimes outputs • instead of ")
+    # Pattern: • key" → "key"
+    content = re.sub(r'•\s*([a-zA-Z_][a-zA-Z0-9_]*)"', r'"\1"', content)
+    
+    # 4. Fix numeric JSON keys BEFORE trying to parse JSON
+    # This is critical: must fix numeric keys before convert_reasoning_to_browser_action
     # This fixes the "key must be a string" error
     try:
         content_before_fix = content
@@ -153,16 +152,22 @@ def clean_qwen_response(content: str) -> str:
         
         if content != content_before_fix:
             logger.info(f"[QwenAdapter] ✅ Fixed numeric JSON keys")
-            logger.debug(f"[QwenAdapter] Before: {content_before_fix[:200]}")
-            logger.debug(f"[QwenAdapter] After: {content[:200]}")
-            # Log the full content for debugging (truncated)
-            logger.debug(f"[QwenAdapter] Full content length: {len(content)}, first 500 chars:\n{content[:500]}")
+            logger.debug(f"[QwenAdapter] Before (first 10k):\n{content_before_fix[:10000]}")
+            logger.debug(f"[QwenAdapter] After (first 10k):\n{content[:10000]}")
         else:
-            logger.debug(f"[QwenAdapter] No numeric keys to fix")
-            # Log content sample for debugging
-            logger.debug(f"[QwenAdapter] Content sample (first 300 chars):\n{content[:300]}")
+            logger.warning(f"[QwenAdapter] ⚠️ No numeric keys detected by regex")
+            # Log full content (up to 10k) to debug why regex didn't match
+            logger.warning(f"[QwenAdapter] Content length: {len(content)} chars")
+            logger.warning(f"[QwenAdapter] Full content (first 10k chars):\n{content[:10000]}")
     except Exception as e:
         logger.warning(f"[QwenAdapter] Failed to fix numeric keys: {e}")
+    
+    # 5. Try to convert reasoning model output (after fixing numeric keys)
+    converted_content = convert_reasoning_to_browser_action(content)
+    if converted_content != content:
+        # Already converted, return
+        logger.info(f"[QwenAdapter] ✅ Applied reasoning model conversion")
+        return converted_content
     
     # 6. Clean up extra whitespace
     content = content.strip()
