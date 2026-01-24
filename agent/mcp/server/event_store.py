@@ -19,7 +19,7 @@ from mcp.server.streamable_http import (
 )
 from mcp.types import JSONRPCMessage
 
-logger = logging.getLogger(__name__)
+from utils.logger_helper import logger_helper as logger
 
 
 @dataclass
