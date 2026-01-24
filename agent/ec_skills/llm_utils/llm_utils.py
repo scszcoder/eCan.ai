@@ -1559,8 +1559,7 @@ def create_browser_use_llm_by_provider_type(
     class_name: str = "",
     default_config: dict = None,
     fallback_llm = None,
-    mainwin = None,
-    enable_thinking: bool = None
+    mainwin = None
 ):
     """
     Create browser_use-compatible LLM based on provider type.
@@ -1653,14 +1652,7 @@ def create_browser_use_llm_by_provider_type(
         if provider_type == 'deepseek':
             bu_config['adapt_deepseek_output'] = True
             logger.info(f"[create_browser_use_llm_by_provider_type] Enabled DeepSeek output format adapter")
-        
-        # For Qwen/DashScope providers, pass enable_thinking via extra_body if specified
-        qwen_providers = ['dashscope', 'qwen', 'qwq']
-        if provider_type in qwen_providers and enable_thinking is not None:
-            # Pass enable_thinking to Qwen API via extra_body
-            bu_config['extra_body'] = {'enable_thinking': enable_thinking}
-            logger.info(f"[create_browser_use_llm_by_provider_type] Set enable_thinking={enable_thinking} for {provider_type}")
-        
+                
         if base_url:
             # Special handling for Ollama: convert native URL to OpenAI-compatible endpoint
             if provider_type == 'ollama':
@@ -1873,15 +1865,13 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                 
                 # Get supports_vision from config (default True if not found)
                 supports_vision = config.get('supports_vision', True)
-
-                # Get enable_thinking from provider settings for Qwen providers
-                provider_enable_thinking = config_manager.llm_manager.get_provider_enable_thinking(provider_type)
                 
-                log_msg = f"[create_browser_use_llm] provider_type:{provider_type}, model_name:{model_name}, api_key:{api_key}, base_url:{base_url}, class_name:{class_name}, supports_vision:{supports_vision}, enable_thinking:{provider_enable_thinking}"
+                log_msg = f"[create_browser_use_llm] provider_type:{provider_type}, model_name:{model_name}, api_key:{api_key}, base_url:{base_url}, class_name:{class_name}, supports_vision:{supports_vision}"
                 logger.debug(log_msg)
                 web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
                 # Use centralized function (already validates BrowserUseChatOpenAI type)
+                # Note: thinking control is handled via task prompt in build_node.py
                 llm_instance = create_browser_use_llm_by_provider_type(
                     provider_type=provider_type,
                     model_name=model_name,
@@ -1890,8 +1880,7 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                     class_name=class_name,
                     default_config=None,  # No fallback config needed when using mainwin
                     fallback_llm=None,  # Don't pass fallback_llm as it may be incompatible
-                    mainwin=mainwin,
-                    enable_thinking=provider_enable_thinking
+                    mainwin=mainwin
                 )
                 # Final type check before returning
                 if llm_instance is not None and not isinstance(llm_instance, BrowserUseChatOpenAI):
