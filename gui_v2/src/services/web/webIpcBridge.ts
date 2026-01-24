@@ -445,6 +445,39 @@ const mapChatResponseFromApi = (resp: any) => ({
   validation: resp?.validation ?? undefined,
 });
 
+const sanitizeAwsJson = (value: any): any => {
+  if (value === undefined) return undefined;
+  return JSON.parse(JSON.stringify(value, (_key, v) => {
+    if (v === undefined) return undefined;
+    if (typeof v === 'function') return undefined;
+    if (typeof v === 'bigint') return v.toString();
+    if (v instanceof Map) return Object.fromEntries(v);
+    if (v instanceof Set) return Array.from(v);
+    if (v instanceof Date) return v.toISOString();
+    return v;
+  }));
+};
+
+const serializeAwsJson = (value: any): string | undefined => {
+  if (value === undefined) return undefined;
+  if (typeof value === 'string') return value;
+  return JSON.stringify(sanitizeAwsJson(value));
+};
+
+const parseAwsJson = (value: any): any => {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (!trimmed) return value;
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return value;
+    }
+  }
+  return value;
+};
+
 const runMutation = async <T>(mutation: string, variables: Record<string, any>, field: string): Promise<T> => {
   const data = await appSyncRequest<Record<string, T>>(mutation, variables);
   return data[field];
@@ -895,16 +928,54 @@ export async function handleWebIpcRequest<T>(method: string, params?: any): Prom
         name: params?.name,
         flowgramId: params?.flowgramId,
         content: params?.content,
-        attachments: params?.attachments,
-        canvasContext: params?.canvasContext,
-        clarificationResponses: params?.clarificationResponses,
+        attachments: serializeAwsJson(params?.attachments),
+        canvasContext: serializeAwsJson(params?.canvasContext),
+        clarificationResponses: serializeAwsJson(params?.clarificationResponses),
         userId: params?.userId ?? params?.username,
       };
-      const response = await webApi.sendSkillEditorChatMessage(input);
-      if (!response) {
-        return { success: false, error: { code: 'MUTATION_FAILED', message: 'sendSkillEditorChatMessage failed.' } } as any;
+      try {
+        const response = await webApi.sendSkillEditorChatMessage(input);
+        if (!response) {
+          return { success: false, error: { code: 'MUTATION_FAILED', message: 'sendSkillEditorChatMessage failed.' } } as any;
+        }
+        return { success: true, data: mapChatResponseFromApi(response) as any };
+      } catch (error) {
+        console.error('[WebIpcBridge] sendSkillEditorChatMessage error:', error);
+        return {
+          success: false,
+          error: {
+            code: 'WEB_API_ERROR',
+            message: error instanceof Error ? error.message : 'sendSkillEditorChatMessage failed.'
+          }
+        } as any;
       }
-      return { success: true, data: mapChatResponseFromApi(response) as any };
+    }
+    case 'skill_editor.context.load': {
+      const input = {
+        userId: params?.userId ?? params?.username,
+        skillNames: params?.skillNames,
+        skillIds: params?.skillIds,
+      };
+      if (!input.userId) {
+        return { success: false, error: { code: 'INVALID_PARAMS', message: 'userId is required.' } } as any;
+      }
+      try {
+        const items = await webApi.loadSkillEditorContexts(input);
+        const normalized = (items || []).map((item: any) => ({
+          ...item,
+          context: parseAwsJson(item?.context),
+        }));
+        return { success: true, data: { items: normalized } as any };
+      } catch (error) {
+        console.error('[WebIpcBridge] loadSkillEditorContexts error:', error);
+        return {
+          success: false,
+          error: {
+            code: 'WEB_API_ERROR',
+            message: error instanceof Error ? error.message : 'loadSkillEditorContexts failed.'
+          }
+        } as any;
+      }
     }
     case 'skill_editor.chat.cancel_generation': {
       const sessionId = String(params?.sessionId ?? '');

@@ -242,11 +242,14 @@ const AppContent = () => {
     // In dev: BASE_URL = '/', in production: BASE_URL = './' (or custom VITE_BASE)
     // For file:// protocol (PyInstaller), use HashRouter to avoid History API SecurityError
     const isFileProtocol = window.location.protocol === 'file:';
-    const basename = isFileProtocol ? '/' : (import.meta.env.BASE_URL.replace(/\/$/, '') || '/');
+    const hasHashRoute = typeof window !== 'undefined' && window.location.hash.startsWith('#/');
+    const rawBase = import.meta.env.BASE_URL;
+    const normalizedBase = rawBase.startsWith('./') ? '/' : rawBase;
+    const basename = isFileProtocol ? '/' : (normalizedBase.replace(/\/$/, '') || '/');
     
-    // Use HashRouter for file:// protocol, BrowserRouter for http/https
-    const Router = isFileProtocol ? HashRouter : BrowserRouter;
-    const routerProps = isFileProtocol ? {} : { basename };
+    // Use HashRouter for file:// protocol or when hash routing is present
+    const Router = (isFileProtocol || hasHashRoute) ? HashRouter : BrowserRouter;
+    const routerProps = (isFileProtocol || hasHashRoute) ? {} : { basename };
 
     return (
         <ConfigProvider

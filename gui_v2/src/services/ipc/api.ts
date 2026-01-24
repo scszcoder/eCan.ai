@@ -267,6 +267,16 @@ export class IPCAPI {
                         return webResponse;
                     }
                 } catch (error) {
+                    if (platform === 'web') {
+                        logger.error('[IPCAPI] Web bridge failed; IPC disabled in web mode', { method, error });
+                        return {
+                            success: false,
+                            error: {
+                                code: 'WEB_BRIDGE_FAILED',
+                                message: 'Web bridge failed; IPC is not available in web mode.'
+                            }
+                        };
+                    }
                     logger.warn('[IPCAPI] Web bridge failed; falling back to IPC', { method, error });
                 }
             }
