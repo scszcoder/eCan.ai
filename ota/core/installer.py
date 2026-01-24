@@ -192,21 +192,15 @@ class InstallationManager:
         if sys.platform != 'win32':
             raise RuntimeError("Windows-only helper")
 
-        script_dir = Path(tempfile.gettempdir()) / "ecan_ota"
-        script_dir.mkdir(exist_ok=True)
+        exe_path = cmd[0]
+        args_list = cmd[1:]
+        args_cmdline = subprocess.list2cmdline(args_list) if args_list else ""
 
-        script_path = script_dir / f"launch_installer_{int(time.time())}.bat"
-        installer_cmdline = subprocess.list2cmdline(cmd)
-
-        script_content = (
-            "@echo off\r\n"
-            f"timeout /t {int(delay_seconds)} /nobreak >nul\r\n"
-            f"start \"\" {installer_cmdline}\r\n"
-            "del \"%~f0\"\r\n"
+        ps_cmd = (
+            f"Start-Sleep -Seconds {int(delay_seconds)}; "
+            f"Start-Process -FilePath {exe_path!r}"
+            + (f" -ArgumentList {args_cmdline!r}" if args_cmdline else "")
         )
-
-        with open(script_path, 'w', encoding='utf-8') as f:
-            f.write(script_content)
 
         creation_flags = (
             subprocess.DETACHED_PROCESS |
@@ -215,7 +209,16 @@ class InstallationManager:
         )
 
         p = subprocess.Popen(
-            ["cmd", "/c", str(script_path)],
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                ps_cmd,
+            ],
             creationflags=creation_flags,
         )
         return p.pid
@@ -326,7 +329,7 @@ class InstallationManager:
                             creation_flags = 0
 
                         if sys.platform == 'win32':
-                            pid = self._launch_windows_installer_delayed(cmd, delay_seconds=8)
+                            pid = self._launch_windows_installer_delayed(cmd, delay_seconds=5)
                             logger.info(f"Installer launch script started (PID: {pid})")
                         else:
                             process = subprocess.Popen(cmd, creationflags=creation_flags)
@@ -394,7 +397,7 @@ class InstallationManager:
                         creation_flags = 0
 
                     if sys.platform == 'win32':
-                        pid = self._launch_windows_installer_delayed(cmd, delay_seconds=8)
+                        pid = self._launch_windows_installer_delayed(cmd, delay_seconds=5)
                         logger.info(f"Installer launch script started (PID: {pid})")
                     else:
                         process = subprocess.Popen(cmd, creationflags=creation_flags)
