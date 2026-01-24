@@ -70,10 +70,15 @@ def handle_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
         from agent.ec_skills.dev_utils.skill_dev_utils import run_dev_skill
 
         ctx = get_handler_context(request, params)
-        # Prefer params['skill'] (sent by FE) over legacy request.meta key
-        skill_src = "params.skill" if isinstance(params, dict) and params.get("skill") is not None else "meta.skill_flowgram"
-        skill = (params or {}).get("skill") if skill_src == "params.skill" else request.meta.get("skill_flowgram")
-        logger.debug(f"[IPC][run_skill] skill source used: {skill_src}")
+        # Extract skill from params.input.skill (GraphQL format) or params.skill (direct format)
+        input_data = (params or {}).get("input") or {}
+        skill = input_data.get("skill") or (params or {}).get("skill")
+        
+        if skill:
+            logger.debug(f"[IPC][run_skill] skill source: params.input.skill or params.skill")
+        else:
+            logger.warning(f"[IPC][run_skill] No skill found in params: {params}")
+            raise ValueError("No skill data provided in request")
         try:
             diagram = (skill or {}).get("diagram") or {}
             wf = diagram.get("workFlow") or {}

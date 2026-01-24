@@ -382,6 +382,29 @@ export const FormRender = (_props: FormRenderProps<any>) => {
           </Field>
         </FormItem>
 
+        {/* Use Vision checkbox */}
+        <FormItem name="useVision" type="boolean" vertical>
+          <Field<boolean | null> name="inputsValues.useVision.content">
+            {({ field }) => (
+              <Checkbox
+                checked={field.value === true}
+                indeterminate={field.value === null}
+                onChange={() => {
+                  if (field.value === null) {
+                    field.onChange(true);
+                  } else if (field.value === true) {
+                    field.onChange(false);
+                  } else {
+                    field.onChange(null);
+                  }
+                }}
+              >
+                Use Vision (send screenshots to LLM, requires vision-capable model)
+              </Checkbox>
+            )}
+          </Field>
+        </FormItem>
+
         {/* Browser Profile selector */}
         <FormItem name="profile" type="string" vertical>
           <Field<string> name="inputsValues.profile.content">
