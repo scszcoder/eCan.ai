@@ -6,6 +6,7 @@ import asyncio
 import keyring
 import json
 import os
+import sys
 import base64
 from os.path import exists
 
@@ -28,6 +29,27 @@ class AuthManager:
         self.machine_role = "Platoon"  # Default role
         self.ecb_data_homepath = getECBotDataHome()
         self.acct_file = self.ecb_data_homepath + "/uli.json"
+
+        if not exists(self.acct_file):
+            candidate_files: list[str] = []
+
+            try:
+                localappdata = os.environ.get('LOCALAPPDATA', '').strip()
+                if localappdata:
+                    candidate_files.append(os.path.join(localappdata, 'eCan', 'uli.json'))
+            except Exception:
+                pass
+
+            try:
+                repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                candidate_files.append(os.path.join(repo_root, 'uli.json'))
+            except Exception:
+                pass
+
+            for candidate in candidate_files:
+                if candidate and exists(candidate):
+                    self.acct_file = candidate
+                    break
         self.refresh_task = None
 
         # Check keychain access on startup

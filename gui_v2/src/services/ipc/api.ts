@@ -11,6 +11,125 @@ import { ipcClient } from './ipcClient';
 import { detectPlatform } from '../../config/platform';
 import { handleWebIpcRequest } from '../web/webIpcBridge';
 
+ const getEnv = () => {
+     try {
+         if (typeof import.meta !== 'undefined' && (import.meta as any).env) {
+             return (import.meta as any).env as Record<string, any>;
+         }
+     } catch {}
+     try {
+         if (typeof process !== 'undefined' && (process as any).env) {
+             return (process as any).env as Record<string, any>;
+         }
+     } catch {}
+     return {} as Record<string, any>;
+ };
+
+ const isTruthyEnvValue = (value: unknown): boolean => {
+     const normalized = String(value ?? '').trim().toLowerCase();
+     return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+ };
+
+ const shouldPreferWebBridgeForMethod = (method: string): boolean => {
+     if (!method) return false;
+     // Prefix matches for skill editor, skills, and label config operations
+     if (method.startsWith('skill_editor.')) return true;
+     if (method.startsWith('skills.')) return true;
+     if (method.startsWith('label_config.')) return true;
+
+     return (
+         // File operations (local file I/O)
+         method === 'read_skill_file' ||
+         method === 'open_skill_file' ||
+         method === 'write_skill_file' ||
+         // Editor cache
+         method === 'save_editor_cache' ||
+         method === 'load_editor_cache' ||
+         method === 'clear_editor_cache' ||
+         // Skill run operations
+         method === 'run_skill' ||
+         method === 'pause_run_skill' ||
+         method === 'resume_run_skill' ||
+         method === 'step_run_skill' ||
+         method === 'cancel_run_skill' ||
+         method === 'request_skill_state' ||
+         method === 'inject_skill_state' ||
+         method === 'load_skill_schemas' ||
+         method === 'set_skill_breakpoints' ||
+         method === 'clear_skill_breakpoints' ||
+         // LLM/Settings/Init operations
+         method === 'get_llm_providers' ||
+         method === 'get_embedding_providers' ||
+         method === 'get_rerank_providers' ||
+         method === 'get_settings' ||
+         method === 'save_settings' ||
+         method === 'get_initialization_progress' ||
+         // Data fetch operations (GET) - routed to LocalServer.py which calls IPC handlers
+         method === 'get_all' ||
+         method === 'get_all_org_agents' ||
+         method === 'get_orgs' ||
+         method === 'get_agents' ||
+         method === 'get_agent_tasks' ||
+         method === 'get_agent_skills' ||
+         method === 'get_tools' ||
+         method === 'get_vehicles' ||
+         method === 'get_warehouses' ||
+         method === 'get_products' ||
+         method === 'get_inventories' ||
+         method === 'get_available_tests' ||
+         // Agent CRUD operations
+         method === 'new_agent' ||
+         method === 'save_agent' ||
+         method === 'delete_agent' ||
+         // Skill CRUD operations
+         method === 'new_agent_skill' ||
+         method === 'save_agent_skill' ||
+         method === 'delete_agent_skill' ||
+         // Task CRUD operations
+         method === 'new_agent_task' ||
+         method === 'save_agent_task' ||
+         method === 'delete_agent_task' ||
+         // Tool CRUD operations
+         method === 'new_tools' ||
+         method === 'save_tools' ||
+         method === 'delete_tools' ||
+         // Knowledge CRUD operations
+         method === 'new_knowledges' ||
+         method === 'save_knowledges' ||
+         method === 'delete_knowledges' ||
+         // Org CRUD operations
+         method === 'create_org' ||
+         method === 'update_org' ||
+         method === 'delete_org' ||
+         // Vehicle CRUD operations
+         method === 'add_vehicle' ||
+         method === 'update_vehicle' ||
+         method === 'update_vehicle_status' ||
+         method === 'delete_vehicle' ||
+         // Prompt CRUD operations
+         method === 'add_prompts' ||
+         method === 'update_prompts' ||
+         method === 'remove_prompts' ||
+         // Warehouse CRUD operations
+         method === 'save_warehouse' ||
+         method === 'delete_warehouse' ||
+         // Product CRUD operations
+         method === 'save_product' ||
+         method === 'delete_product' ||
+         // Inventory CRUD operations
+         method === 'save_inventory' ||
+         method === 'delete_inventory' ||
+         // Simulation operations
+         method === 'setup_sim_step' ||
+         method === 'step_sim' ||
+         method === 'test_langgraph2flowgram' ||
+         method === 'sim_timer_event' ||
+         method === 'sim_websocket_event' ||
+         method === 'sim_sse_event' ||
+         method === 'sim_webhook_event'
+     );
+ };
+
 /**
  * API ResponseType
  */
@@ -136,15 +255,34 @@ export class IPCAPI {
             const detectedMode = ipcClient.getMode?.() ?? null;
             const platform = detectedMode || detectPlatform();
 
-            if (platform === 'web') {
-                const webResponse = await handleWebIpcRequest<T>(method, params as any);
-                if (webResponse) {
-                    console.log('[IPCAPI] executeRequest:web', method, { durationMs: Date.now() - startTs });
-                    return webResponse;
+            const env = getEnv();
+            const forceIpcMode = platform === 'desktop' && isTruthyEnvValue(env.VITE_IPC_MODE);
+            const preferWebBridge = platform === 'web' || (!forceIpcMode && shouldPreferWebBridgeForMethod(method));
+
+            if (preferWebBridge) {
+                try {
+                    const webResponse = await handleWebIpcRequest<T>(method, params as any);
+                    if (webResponse) {
+                        console.log('[IPCAPI] executeRequest:web', method, { durationMs: Date.now() - startTs });
+                        return webResponse;
+                    }
+                } catch (error) {
+                    logger.warn('[IPCAPI] Web bridge failed; falling back to IPC', { method, error });
                 }
             }
 
             await this.ensureInitialized();
+
+            const currentMode = ipcClient.getMode?.() ?? detectPlatform();
+            if (currentMode === 'web' && !ipcClient.isConnected()) {
+                return {
+                    success: false,
+                    error: {
+                        code: 'NOT_CONNECTED',
+                        message: 'WebSocket not connected. Call connect() first.'
+                    }
+                };
+            }
 
             // 对于 get_initialization_progress，使用 invoke Method以利用队列和并发控制
             let response: IPCResponse;
@@ -265,8 +403,18 @@ export class IPCAPI {
         return this.executeRequest<T>('get_all', { username });
     }
 
-    public async getAllOrgAgents<T>(username: string): Promise<APIResponse<T>> {
-        return this.executeRequest<T>('get_all_org_agents', { username });
+    public async getAllOrgAgents<T>(username: string, companyName?: string): Promise<APIResponse<T>> {
+        let company = companyName;
+        if (!company) {
+            try {
+                company = localStorage.getItem('org_company_filter') || undefined;
+            } catch {
+                company = undefined;
+            }
+        }
+
+        const params = company ? { username, company } : { username };
+        return this.executeRequest<T>('get_all_org_agents', params);
     }
     
     public async getAgents<T>(username: string, agent_id: string[]): Promise<APIResponse<T>> {

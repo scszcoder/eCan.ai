@@ -16,6 +16,10 @@ const SUB_AGENT_SCENE = `subscription OnAgentSceneEvent($acctSiteID: String!) {\
 
 const SUB_SCENE_COMPLETE = `subscription OnSceneComplete($acctSiteID: String!) {\n  onSceneComplete(acctSiteID: $acctSiteID) {\n    id\n    scene_id\n    request_id\n    acctSiteID\n    agent_ids\n    status\n    description\n    actions\n    dialogs\n    duration_ms\n    error\n    emotion\n    mind_state\n    thumbnail\n    timestamp\n    video\n  }\n}`;
 
+const SUB_TASK_STATUS = `subscription OnTaskStatus($runner: String!) {\n  onTaskStatus(runner: $runner) {\n    id\n    runID\n    runner\n    error\n    success\n    status\n    timestamp\n  }\n}`;
+
+const SUB_SKILL_EDITOR_STREAM = `subscription OnSkillEditorStreamEvent($owner: ID!) {\n  onSkillEditorStreamEvent(owner: $owner) {\n    eventId\n    owner\n    sessionId\n    flowgramId\n    eventType\n    payload\n    timestamp\n  }\n}`;
+
 let activeSocket: WebSocket | null = null;
 let active = false;
 
@@ -27,6 +31,21 @@ const toBase64 = (value: string) => {
   } catch {
     return window.btoa(value);
   }
+};
+
+const maybeParseAwsJson = (value: any) => {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return value;
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        return JSON.parse(trimmed);
+      } catch {
+        return value;
+      }
+    }
+  }
+  return value;
 };
 
 const buildRealtimeUrl = (endpoint: string, headers: Record<string, string>) => {
@@ -70,6 +89,37 @@ const emitA2AMessage = (message: any) => {
   eventBus.emit('a2a:message', message);
 };
 
+const emitTaskStatus = (taskStatus: any) => {
+  eventBus.emit('task:status', taskStatus);
+};
+
+const emitSkillEditorStreamEvent = (evt: any) => {
+  const eventType = String(evt?.eventType || '').trim();
+  const sessionId = String(evt?.sessionId || '').trim();
+  const payload = maybeParseAwsJson(evt?.payload);
+
+  if (!eventType) {
+    return;
+  }
+
+  if (eventType === 'skill_editor.chat.stream_chunk') {
+    eventBus.emit('skill_editor:chat:stream_chunk', { sessionId, ...(payload || {}) });
+    return;
+  }
+  if (eventType === 'skill_editor.chat.stream_end') {
+    eventBus.emit('skill_editor:chat:stream_end', { sessionId, ...(payload || {}) });
+    return;
+  }
+  if (eventType === 'skill_editor.chat.error') {
+    eventBus.emit('skill_editor:chat:error', { sessionId, ...(payload || {}) });
+    return;
+  }
+  if (eventType === 'skill_editor.event') {
+    eventBus.emit('skill_editor:event', { sessionId, ...(payload || {}) });
+    return;
+  }
+};
+
 export const startWebSubscriptions = () => {
   if (active) {
     logger.warn('[AppSyncSubscriptions] Already running');
@@ -87,6 +137,7 @@ export const startWebSubscriptions = () => {
   const channelId = (env.VITE_A2A_CHANNEL_ID || '').trim();
   const owner = (env.VITE_ACCOUNT_OWNER || username || '').trim();
   const acctSiteID = (env.VITE_ACCT_SITE_ID || '').trim();
+  const taskRunner = (env.VITE_TASK_RUNNER || '').trim();
 
   if (!apiKey) {
     logger.warn('[AppSyncSubscriptions] Missing API key; subscriptions disabled');
@@ -136,6 +187,13 @@ export const startWebSubscriptions = () => {
         logger.warn('[AppSyncSubscriptions] No owner provided; account notification subscription skipped');
       }
 
+      if (owner) {
+        subscriptionIds.skillEditorStream = `sub-skill-editor-stream-${Date.now()}`;
+        sendStart(ws, subscriptionIds.skillEditorStream, SUB_SKILL_EDITOR_STREAM, { owner }, headers);
+      } else {
+        logger.warn('[AppSyncSubscriptions] No owner provided; skill editor subscription skipped');
+      }
+
       if (acctSiteID) {
         subscriptionIds.scene = `sub-scene-${Date.now()}`;
         sendStart(ws, subscriptionIds.scene, SUB_AGENT_SCENE, { acctSiteID }, headers);
@@ -143,6 +201,13 @@ export const startWebSubscriptions = () => {
         sendStart(ws, subscriptionIds.sceneComplete, SUB_SCENE_COMPLETE, { acctSiteID }, headers);
       } else {
         logger.warn('[AppSyncSubscriptions] No acctSiteID provided; agent scene subscription skipped');
+      }
+
+      if (taskRunner) {
+        subscriptionIds.taskStatus = `sub-task-status-${Date.now()}`;
+        sendStart(ws, subscriptionIds.taskStatus, SUB_TASK_STATUS, { runner: taskRunner }, headers);
+      } else {
+        logger.warn('[AppSyncSubscriptions] Missing runner; task status subscription skipped');
       }
       return;
     }
@@ -160,6 +225,12 @@ export const startWebSubscriptions = () => {
       }
       if (payload.onSceneComplete) {
         emitSceneComplete(payload.onSceneComplete);
+      }
+      if (payload.onTaskStatus) {
+        emitTaskStatus(payload.onTaskStatus);
+      }
+      if (payload.onSkillEditorStreamEvent) {
+        emitSkillEditorStreamEvent(payload.onSkillEditorStreamEvent);
       }
       return;
     }

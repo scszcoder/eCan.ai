@@ -672,7 +672,7 @@ export function isChatEvent(event: SkillEditorEvent): event is
   | ChatStreamChunkEvent 
   | ChatStreamEndEvent 
   | ChatErrorEvent {
-  return event.type.startsWith('chat.');
+  return event.type?.startsWith('chat.') ?? false;
 }
 
 export function isCanvasEvent(event: SkillEditorEvent): event is
@@ -688,7 +688,7 @@ export function isCanvasEvent(event: SkillEditorEvent): event is
   | CanvasRemoveEdgeEvent
   | CanvasClearCanvasEvent
   | CanvasLayoutNodesEvent {
-  return event.type.startsWith('canvas.');
+  return event.type?.startsWith('canvas.') ?? false;
 }
 
 export function isRunEvent(event: SkillEditorEvent): event is
@@ -699,7 +699,7 @@ export function isRunEvent(event: SkillEditorEvent): event is
   | RunStopEvent
   | RunStatusUpdateEvent
   | RunNodeStatusEvent {
-  return event.type.startsWith('run.');
+  return event.type?.startsWith('run.') ?? false;
 }
 
 // ============================================================

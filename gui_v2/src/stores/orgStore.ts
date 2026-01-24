@@ -74,8 +74,7 @@ export const useOrgStore = create<OrgStoreState>((set, get) => ({
     console.log('[OrgStore] setAllOrgAgents called with data:', data);
     console.log('[OrgStore] data.orgs:', data.orgs);
 
-    // Use raw data (avoid data loss from JSON serialization)
-    const treeRoot = data.orgs || {
+    const emptyRoot: TreeOrgNode = {
       id: 'root',
       name: 'Organizations',
       description: 'Root',
@@ -89,6 +88,33 @@ export const useOrgStore = create<OrgStoreState>((set, get) => ({
       children: [],
       agents: []
     };
+
+    const ensureTreeShape = (node: any): TreeOrgNode => {
+      const children = Array.isArray(node?.children) ? node.children : [];
+      return {
+        ...node,
+        children: children.map(ensureTreeShape),
+        agents: Array.isArray(node?.agents) ? node.agents : []
+      } as TreeOrgNode;
+    };
+
+    const buildTreeFromFlat = (orgs: Org[]): TreeOrgNode => {
+      const roots = buildOrgTree(orgs);
+      const normalizedRoots = roots.map(ensureTreeShape);
+      if (normalizedRoots.length === 1) return normalizedRoots[0];
+      return {
+        ...emptyRoot,
+        children: normalizedRoots
+      };
+    };
+
+    // Normalize raw data (avoid data loss from JSON serialization)
+    let treeRoot: TreeOrgNode = emptyRoot;
+    if (Array.isArray(data.orgs)) {
+      treeRoot = data.orgs.length > 0 ? buildTreeFromFlat(data.orgs as Org[]) : emptyRoot;
+    } else if (data.orgs) {
+      treeRoot = ensureTreeShape(data.orgs as TreeOrgNode);
+    }
     
     // Extract flat organization list and all agents from tree structure (backward compatible)
     const flattenTree = (treeNode: TreeOrgNode): { orgs: Org[], agents: OrgAgent[] } => {

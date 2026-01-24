@@ -32,8 +32,8 @@ export interface IPCClientConfig {
     wsConfig?: Partial<WSClientConfig>;
 }
 
-// Default WebSocket URL (hardcoded for current deployment)
-const DEFAULT_WS_URL = 'wss://www.eCan.ai/ws';
+// Default WebSocket URL (override via VITE_IPC_WS_URL; empty disables IPC WS in web mode)
+const DEFAULT_WS_URL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_IPC_WS_URL) || '';
 
 /**
  * Detect deployment mode based on environment
@@ -115,6 +115,11 @@ class UnifiedIPCClient {
             
             // Connect to WebSocket server
             const wsUrl = config?.wsUrl ?? DEFAULT_WS_URL;
+            if (!wsUrl) {
+                logger.info('[IPCClient] IPC WS disabled (no wsUrl configured)');
+                this.initialized = true;
+                return;
+            }
             try {
                 await this.wsClient.connect(wsUrl, config?.wsConfig);
                 this.initialized = true;

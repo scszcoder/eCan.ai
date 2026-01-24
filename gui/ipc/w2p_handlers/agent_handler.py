@@ -764,18 +764,17 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
     try:
         logger.debug(f"[agent_handler] get_all_org_agents called with request: {request}")
         
-        # Validate required parameters
-        is_valid, data, error = validate_params(request.get('params'), ['username'])
-        if not is_valid:
-            logger.warning(f"[agent_handler] Invalid parameters for get_all_org_agents: {error}")
+        # Resolve username from params or context (for local_server requests)
+        from gui.ipc.handlers import resolve_username
+        username = resolve_username(request, params)
+        
+        if not username:
+            logger.warning(f"[agent_handler] No username provided and could not determine from context")
             return create_error_response(
-                request_id=request['id'],
-                method=request['method'],
-                error_code='INVALID_PARAMS',
-                error_message=error
+                request,
+                'INVALID_PARAMS',
+                'Missing required parameter: username'
             )
-
-        username = data['username']
         logger.info(f"[agent_handler] Getting all organizations and agents for user: {username}")
         
         # Get ctx to access integrated agents list

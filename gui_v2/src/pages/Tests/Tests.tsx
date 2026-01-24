@@ -253,6 +253,8 @@ const Tests: React.FC = () => {
         const acctSiteID = parsedArgs.acctSiteID || parsedArgs.acctSiteId || `site-${username || 'web'}`;
         const sceneId = parsedArgs.scene_id || `scene-${Date.now()}`;
         const requestId = parsedArgs.request_id || `req-${Date.now()}`;
+        const runId = parsedArgs.runId || parsedArgs.run_id || parsedArgs.runID || `run-${Date.now()}`;
+        const runner = parsedArgs.runner || username || 'web-client';
 
         const a2aSubscriptionQuery = `subscription OnA2AMessageReceived($channelId: String!) {\n  onA2AMessageReceived(channelId: $channelId) {\n    id\n    channelId\n    senderId\n    sessionId\n    timestamp\n    message {\n      role\n      parts {\n        type\n        text\n        data\n        metadata\n        file {\n          name\n          uri\n          mimeType\n          bytes\n        }\n      }\n    }\n  }\n}`;
 
@@ -273,16 +275,21 @@ const Tests: React.FC = () => {
             }
         };
 
-        const accountSubscriptionQuery = `subscription OnAccountNotification($owner: ID!) {\n  onAccountNotification(owner: $owner) {\n    id\n    owner\n    type\n    title\n    message\n    payload\n    created_at\n    cta_url\n  }\n}`;
+        const accountSubscriptionQuery = `subscription OnAccountNotification($owner: String!) {\n  onAccountNotification(owner: $owner) {\n    id\n    owner\n    ntype\n    title\n    message\n    payload\n    created_at\n    cta_url\n  }\n}`;
 
-        const accountMutationQuery = `mutation PublishAccountNotification($input: AccountNotificationInput!) {\n  publishAccountNotification(input: $input) {\n    id\n    owner\n    type\n    title\n    message\n    payload\n    created_at\n    cta_url\n  }\n}`;
+        const accountMutationQuery = `mutation PublishAccountNotification($input: AccountNotificationInput!) {\n  publishAccountNotification(input: $input) {\n    id\n    owner\n    ntype\n    title\n    message\n    payload\n    created_at\n    cta_url\n  }\n}`;
+
+        const accountPayloadValue = parsedArgs.accountPayload ?? { source: 'websocket-test' };
+        const accountPayload = typeof accountPayloadValue === 'string'
+            ? accountPayloadValue
+            : JSON.stringify(accountPayloadValue);
 
         const accountInput = {
             owner,
-            type: parsedArgs.accountType || 'TEST',
+            ntype: parsedArgs.accountType || 'TEST',
             title: parsedArgs.accountTitle || 'WebSocket Test',
             message: parsedArgs.accountMessage || 'Account notification echo test',
-            payload: parsedArgs.accountPayload || { source: 'websocket-test' },
+            payload: accountPayload,
             cta_url: parsedArgs.accountCtaUrl || ''
         };
 
@@ -329,6 +336,23 @@ const Tests: React.FC = () => {
             error: parsedArgs.result_error,
             mind_state: parsedArgs.result_mind_state,
             thumbnail: parsedArgs.result_thumbnail
+        };
+
+        const taskStatusSubscriptionQuery = `subscription OnTaskStatus($runner: String!) {\n  onTaskStatus(runner: $runner) {\n    id\n    runID\n    runner\n    error\n    success\n    status\n    timestamp\n  }\n}`;
+
+        const taskStatusMutationQuery = `mutation PublishTaskStatus($input: TaskStatusInput!) {\n  publishTaskStatus(input: $input) {\n    id\n    runID\n    runner\n    error\n    success\n    status\n    timestamp\n  }\n}`;
+
+        const taskStatusInput = {
+            runID: runId,
+            runner,
+            success: parsedArgs.taskSuccess ?? true,
+            error: parsedArgs.taskError || undefined,
+            status: JSON.stringify({
+                runID: runId,
+                runner,
+                echo: parsedArgs.taskStatus || 'task-status-echo',
+                timestamp: new Date().toISOString()
+            })
         };
 
         const toBase64 = (value: string) => {
@@ -468,6 +492,14 @@ const Tests: React.FC = () => {
                 subscriptionVariables: { acctSiteID },
                 mutationQuery: sceneCompleteMutationQuery,
                 mutationVariables: { input: sceneResultInput }
+            },
+            {
+                key: 'taskStatus',
+                label: 'Task Status',
+                subscriptionQuery: taskStatusSubscriptionQuery,
+                subscriptionVariables: { runner },
+                mutationQuery: taskStatusMutationQuery,
+                mutationVariables: { input: taskStatusInput }
             }
         ];
 
@@ -509,7 +541,7 @@ const Tests: React.FC = () => {
 
                 const timeoutId = window.setTimeout(() => {
                     finish(`WebSocket Test (${test.label}): Timeout waiting for data`);
-                }, parsedArgs.timeoutMs || 15000);
+                }, parsedArgs.timeoutMs || 30000);
 
                 ws.onopen = () => {
                     appendTestOutput(`WebSocket Test (${test.label}): Socket open, sending connection_init`);

@@ -5,7 +5,7 @@ import {
   DeleteOutlined,
   LockOutlined,
 } from '@ant-design/icons';
-import { Button, Space, Form, Input, Row, Col, Select, DatePicker, App } from 'antd';
+import { Button, Space, Form, Input, Row, Col, Select, DatePicker, App, Checkbox } from 'antd';
 import { useTranslation } from 'react-i18next';
 import React, { useRef } from 'react';
 import { useEffectOnActive } from 'keepalive-for-react';
@@ -30,6 +30,7 @@ const DEFAULT_TASK = {
   id: '',
   name: '',
   description: '',
+  cloud_based: false,
   priority: 'none',
   trigger: 'schedule',
   schedule: {
@@ -259,6 +260,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         name: (values as any).name || t('pages.tasks.newTaskName', 'New Task'),
         owner: username,
         description: (values as any).description || '',
+        cloud_based: !!(values as any).cloud_based,
         latest_version: (values as any).latest_version || '1.0.0',
         priority: (values as any).priority || 'medium',
         trigger: (values as any).trigger || 'manual',
@@ -447,6 +449,15 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                       options={TRIGGER_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.trigger.${v}`, v) }))}
                       aria-label={t('pages.tasks.triggerLabel', 'Trigger')}
                     />
+                  </StyledFormItem>
+                </Col>
+                <Col span={12}>
+                  <StyledFormItem
+                    label={t('pages.tasks.cloudRun', 'Cloud Run')}
+                    name="cloud_based"
+                    valuePropName="checked"
+                  >
+                    <Checkbox>{t('pages.tasks.cloudRun', 'Cloud Run')}</Checkbox>
                   </StyledFormItem>
                 </Col>
                 <Col span={24}>

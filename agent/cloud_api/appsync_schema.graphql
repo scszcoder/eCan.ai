@@ -600,10 +600,73 @@ type WanChatMessage @aws_api_key @aws_cognito_user_pools {
 	chatID: String
 	sender: String
 	receiver: String
-	type: String
-	contents: String
-	parameters: String
+	msg: String
+	options: AWSJSON
+	background: String
 	timestamp: String
+}
+
+type SkillEditorStreamEvent @aws_api_key @aws_cognito_user_pools {
+  eventId: ID!
+  owner: ID!
+  sessionId: ID!
+  flowgramId: ID
+  eventType: String!
+  payload: AWSJSON
+  timestamp: AWSDateTime!
+}
+
+type SkillEditorChatSession @aws_api_key @aws_cognito_user_pools {
+  id: ID!
+  name: String!
+  flowgramId: ID
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+}
+
+type SkillEditorChatMessage @aws_api_key @aws_cognito_user_pools {
+  id: ID!
+  role: String!
+  content: String!
+  timestamp: AWSDateTime!
+  attachments: AWSJSON
+  metadata: AWSJSON
+}
+
+type SkillEditorChatMessageResponse @aws_api_key @aws_cognito_user_pools {
+  sessionId: ID!
+  sessionName: String!
+  state: String!
+  intent: String
+  message: SkillEditorChatMessage!
+  clarification: AWSJSON
+  plan: AWSJSON
+  flowgram: AWSJSON
+  validation: AWSJSON
+}
+
+input SkillEditorChatSessionInput @aws_api_key @aws_cognito_user_pools {
+  name: String
+  flowgramId: ID
+  userId: ID!
+}
+
+input SkillEditorChatMessageInput @aws_api_key @aws_cognito_user_pools {
+  sessionId: ID!
+  content: String!
+  attachments: AWSJSON
+  canvasContext: AWSJSON
+  clarificationResponses: AWSJSON
+  userId: ID!
+  flowgramId: ID
+}
+
+input SkillEditorStreamEventInput @aws_api_key @aws_cognito_user_pools {
+  owner: ID!
+  sessionId: ID!
+  flowgramId: ID
+  eventType: String!
+  payload: AWSJSON
 }
 
 input WanChatMessageInput @aws_api_key @aws_cognito_user_pools {
@@ -699,6 +762,10 @@ type Mutation {
   # -------------------- Account Operations --------------------
   addAccts(input: [Account]!): AWSJSON!
   removeAccts(input: [RemoveOrder]!): AWSJSON!
+
+  # -------------------- Skill Editor Realtime Streaming --------------------
+  publishSkillEditorStreamEvent(input: SkillEditorStreamEventInput!): SkillEditorStreamEvent
+    @aws_api_key @aws_cognito_user_pools
   updateAccts(input: [Account]!): AWSJSON!
   makeOrder(input: [Order]!): AWSJSON!
   
@@ -819,6 +886,16 @@ type Mutation {
     @aws_cognito_user_pools
   endLongLLMTask(input: LongLLMTaskResultInput!): LongLLMTaskResult!
     @aws_api_key @aws_cognito_user_pools
+
+  # -------------------- Skill Editor Chat Operations --------------------
+  createSkillEditorChatSession(input: SkillEditorChatSessionInput!): SkillEditorChatSession
+    @aws_lambda @aws_api_key @aws_cognito_user_pools
+  sendSkillEditorChatMessage(input: SkillEditorChatMessageInput!): SkillEditorChatMessageResponse
+    @aws_lambda @aws_api_key @aws_cognito_user_pools
+  cancelSkillEditorChatGeneration(sessionId: ID!): Boolean
+    @aws_lambda @aws_api_key @aws_cognito_user_pools
+  deleteSkillEditorChatSession(sessionId: ID!): Boolean
+    @aws_lambda @aws_api_key @aws_cognito_user_pools
 }
 
 # ============================================
@@ -828,56 +905,82 @@ type Mutation {
 type Query {
   # -------------------- Agent Queries --------------------
   queryAgents(qb: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   getAgents(ids: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   
   # -------------------- AgentSkill Entity Queries --------------------
   queryAgentSkills(qb: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   getAgentSkills(ids: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   
   # -------------------- AgentTask Entity Queries --------------------
   queryAgentTasks(qb: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   getAgentTasks(ids: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   
   # -------------------- AgentTool Entity Queries --------------------
   queryAgentTools(qb: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   getAgentTools(ids: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   
   # -------------------- Agent-Skill Relationship Queries --------------------
   queryAgentSkillRelations(qb: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   getAgentSkillRelations(ids: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   
   # -------------------- Agent-Task Relationship Queries --------------------
   queryAgentTaskRelations(qb: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   getAgentTaskRelations(ids: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   
   # -------------------- Agent-Tool Relationship Queries --------------------
   queryAgentToolRelations(qb: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   getAgentToolRelations(ids: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   
   # -------------------- Knowledge Queries --------------------
   queryKnowledges(qb: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   getKnowledges(ids: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   
   # -------------------- Avatar Resource Queries --------------------
   queryAvatarResources(qb: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   getAvatarResources(ids: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   
   # -------------------- Organization Queries --------------------
   queryOrganizations(qb: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   getOrganizations(ids: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   
   # -------------------- Nested Relationship Queries --------------------
   # Skill-Tool relationship queries
   querySkillToolRelations(qb: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   getSkillToolRelations(ids: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   
   # Skill-Knowledge relationship queries
   querySkillKnowledgeRelations(qb: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   getSkillKnowledgeRelations(ids: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   
   # Task-Skill relationship queries
   queryTaskSkillRelations(qb: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   getTaskSkillRelations(ids: String): AWSJSON
+    @aws_api_key @aws_cognito_user_pools
   
   # -------------------- Other Queries (from original schema) --------------------
   getLongLLMTask(id: ID!): AWSJSON!
@@ -908,6 +1011,12 @@ type Query {
     @aws_lambda @aws_api_key @aws_cognito_user_pools
   reqFileOp(fo: [FileOp!]): AWSJSON!
     @aws_lambda @aws_api_key @aws_cognito_user_pools
+
+  # -------------------- Skill Editor Chat Queries --------------------
+  getSkillEditorChatSessions(userId: ID!): [SkillEditorChatSession]
+    @aws_lambda @aws_api_key @aws_cognito_user_pools
+  getSkillEditorChatHistory(sessionId: ID!, limit: Int, offset: Int): [SkillEditorChatMessage]
+    @aws_lambda @aws_api_key @aws_cognito_user_pools
 }
 
 # ============================================
@@ -936,6 +1045,9 @@ type Subscription {
     @aws_subscribe(mutations: ["confirmPuzzleSolver"])
   onLongLLMTaskComplete(acctSiteID: String!): LongLLMTaskResult
     @aws_subscribe(mutations: ["endLongLLMTask"])
+
+  onSkillEditorStreamEvent(owner: ID!): SkillEditorStreamEvent
+    @aws_subscribe(mutations: ["publishSkillEditorStreamEvent"])
 }
 
 schema {

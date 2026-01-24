@@ -4,9 +4,9 @@
  */
 
 import React from 'react';
-import { Row, Col, Typography } from 'antd';
+import { Row, Col, Typography, Input, Button, Space } from 'antd';
 import { useTranslation } from 'react-i18next';
-import { ApartmentOutlined } from '@ant-design/icons';
+import { SearchOutlined } from '@ant-design/icons';
 import { useOrgs } from './hooks/useOrgs';
 import OrgTree from './components/OrgTree';
 import OrgDetails from './components/OrgDetails';
@@ -19,6 +19,7 @@ const { Title } = Typography;
 const Orgs: React.FC = () => {
   const { t } = useTranslation();
   const { state, actions } = useOrgs();
+  const [companyName, setCompanyName] = React.useState('');
 
 
 
@@ -110,6 +111,22 @@ const Orgs: React.FC = () => {
       <Row gutter={[16, 16]} style={{ flex: 1, minHeight: 0 }}>
         {/* Org Tree */}
         <Col span={8} style={{ height: '100%' }}>
+          <Space direction="vertical" size="small" style={{ width: '100%', marginBottom: 12 }}>
+            <Input
+              placeholder={t('pages.org.search.companyPlaceholder', 'Company name')}
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              onPressEnter={() => actions.loadOrgs(companyName)}
+              allowClear
+            />
+            <Button
+              icon={<SearchOutlined />}
+              onClick={() => actions.loadOrgs(companyName)}
+              style={{ alignSelf: 'flex-start' }}
+            >
+              {t('pages.org.search.find', 'Find')}
+            </Button>
+          </Space>
           <OrgTree
             orgs={state.orgs}
             loading={state.loading}
