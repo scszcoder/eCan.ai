@@ -898,49 +898,111 @@ class RequestHandlers:
                 from config.app_info import app_info
                 file_path = os.path.join(app_info.appdata_path, file_path)
             
-            if not os.path.exists(file_path):
-                raise Exception(f"File not found: {file_path}")
-            
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            
-            file_name = os.path.basename(file_path)
-            file_size = os.path.getsize(file_path)
-            skill_name = variables.get('skillName') or file_name.replace('_skill.json', '').replace('.json', '')
-            
-            result = {
-                "content": content,
-                "filePath": file_path,
-                "fileName": file_name,
-                "fileSize": file_size,
-                "skillName": skill_name
+            def derive_related_paths(path: str) -> list:
+                norm = path.replace('\\', '/')
+                is_mapping = norm.endswith('/data_mapping.json') or norm.endswith('data_mapping.json')
+                is_bundle = norm.endswith('_bundle.json') or norm.endswith('_skill_bundle.json')
+
+                file_name_local = os.path.basename(norm)
+                skill_name_local = file_name_local.replace('.json', '').replace('_skill', '')
+
+                if '/diagram_dir/' in norm:
+                    root = norm.split('/diagram_dir/')[0]
+                else:
+                    root = os.path.dirname(norm)
+
+                if is_mapping:
+                    main_path = os.path.join(root, 'diagram_dir', f"{skill_name_local}_skill.json")
+                elif is_bundle:
+                    main_path = norm.replace('_skill_bundle.json', '_skill.json').replace('_bundle.json', '.json')
+                else:
+                    main_path = norm
+
+                bundle_path = main_path.replace('_skill.json', '_skill_bundle.json')
+                if bundle_path == main_path:
+                    bundle_path = main_path.replace('.json', '_bundle.json')
+
+                mapping_path = os.path.join(root, 'data_mapping.json')
+                return [main_path, bundle_path, mapping_path]
+
+            default_mapping = {
+                "developing": {"mappings": [], "options": {"strict": False, "apply_order": "top_down"}},
+                "released": {"mappings": [], "options": {"strict": True, "apply_order": "top_down"}},
+                "node_transfers": {},
+                "event_routing": {},
             }
-            
+
+            results = []
+            derived_paths = derive_related_paths(file_path)
+            logger.info(f"[GraphQL] readSkillFile derived paths: {derived_paths}")
+            for path in derived_paths:
+                is_mapping = path.endswith('data_mapping.json')
+                is_bundle = path.endswith('_bundle.json') or path.endswith('_skill_bundle.json')
+
+                if not os.path.exists(path):
+                    if is_mapping:
+                        logger.info(f"[GraphQL] readSkillFile creating default mapping: {path}")
+                        os.makedirs(os.path.dirname(path), exist_ok=True)
+                        content = json.dumps(default_mapping, ensure_ascii=False, indent=2)
+                        with open(path, 'w', encoding='utf-8') as f:
+                            f.write(content)
+                        file_size = len(content.encode('utf-8'))
+                    elif is_bundle:
+                        logger.info(f"[GraphQL] readSkillFile bundle missing, returning empty content: {path}")
+                        content = ""
+                        file_size = 0
+                    else:
+                        raise Exception(f"File not found: {path}")
+                else:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    file_size = os.path.getsize(path)
+
+                file_name = os.path.basename(path)
+                skill_name = variables.get('skillName') or file_name.replace('_skill.json', '').replace('.json', '')
+
+                results.append({
+                    "content": content,
+                    "filePath": path,
+                    "fileName": file_name,
+                    "fileSize": file_size,
+                    "skillName": skill_name
+                })
+
             if 'openskillfile' in query_lower:
-                return {"openSkillFile": result}
+                return {"openSkillFile": results[0] if results else None}
             else:
-                return {"readSkillFile": result}
+                return {"readSkillFile": results}
         
         elif 'writeskillfile' in query_lower:
-            file_path = variables.get('filePath', '')
-            content = variables.get('content', '')
-            
-            if not file_path:
-                raise Exception("filePath is required")
-            
-            if not os.path.isabs(file_path):
-                from config.app_info import app_info
-                file_path = os.path.join(app_info.appdata_path, file_path)
-            
-            # Ensure directory exists
-            dir_path = os.path.dirname(file_path)
-            if dir_path:
-                os.makedirs(dir_path, exist_ok=True)
-            
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            
-            return {"writeSkillFile": {"success": True, "filePath": file_path}}
+            input_payload = variables.get('input') or variables
+            items = input_payload if isinstance(input_payload, list) else [input_payload]
+            results = []
+
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                file_path = item.get('filePath', '')
+                content = item.get('content', '')
+
+                if not file_path:
+                    raise Exception("filePath is required")
+
+                if not os.path.isabs(file_path):
+                    from config.app_info import app_info
+                    file_path = os.path.join(app_info.appdata_path, file_path)
+
+                # Ensure directory exists
+                dir_path = os.path.dirname(file_path)
+                if dir_path:
+                    os.makedirs(dir_path, exist_ok=True)
+
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+
+                results.append({"success": True, "filePath": file_path})
+
+            return {"writeSkillFile": results}
         
         # LLM Provider Operations
         elif 'getllmproviders' in query_lower:

@@ -10,12 +10,46 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import React from 'react';
 import { ChatPanel, FloatingToggleButton, ResizableDivider } from './components/chat-panel';
 
+// Error boundary specifically for ChatPanel to isolate its crashes
+class ChatPanelErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean; error?: Error }> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('[ChatPanelErrorBoundary] ChatPanel crashed:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 16, background: '#1e293b', color: '#ef4444', minWidth: 280 }}>
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>Chat Panel Error</div>
+          <div style={{ fontSize: 12, color: '#94a3b8' }}>
+            {this.state.error?.message || 'An unknown error occurred'}
+          </div>
+          <button
+            onClick={() => this.setState({ hasError: false, error: undefined })}
+            style={{ marginTop: 12, padding: '6px 12px', cursor: 'pointer' }}
+          >
+            Try Again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 import '@flowgram.ai/free-layout-editor/index.css';
 import './styles/index.css';
 import { nodeRegistries } from './nodes';
 import { initialData } from './initial-data';
 import { useEditorProps } from './hooks';
 import { Tools } from './components/tools';
+import { OpenPickerModal } from './components/tools/open-picker-modal';
 import { SidebarProvider, SidebarRenderer } from './components/sidebar';
 import { FlowDocumentJSON } from './typings';
 import emptyFlowData from './data/empty-flow.json';
@@ -102,20 +136,42 @@ export const Editor = () => {
     setEditorReady(true);
   }, []);
 
+  // Load context from backend - only run ONCE on mount
+  // IMPORTANT: We intentionally do NOT depend on skillInfo changes here.
+  // When loadFlowgram() calls setSkillInfo(), we must NOT re-run this effect
+  // because it would cause a feedback loop that destabilizes the FreeLayoutEditorProvider.
+  const contextLoadedRef = useRef(false);
+  
   useEffect(() => {
+    // TEMPORARILY DISABLED: Testing if context loading causes the crash
+    console.log('[SkillEditor] Context loading DISABLED for testing');
+    return;
+    
     if (!isWebPlatform()) return;
     if (!username) {
       console.warn('[SkillEditor] Cannot load context: userId missing');
       return;
     }
+    
+    // Only load context ONCE per editor mount
+    if (contextLoadedRef.current) {
+      console.log('[SkillEditor] Context already loaded, skipping');
+      return;
+    }
+    contextLoadedRef.current = true;
 
+    // Capture skillInfo at the time of initial load
+    const currentSkillInfo = skillInfo;
+    
     const input: Record<string, any> = { userId: username };
-    if (skillInfo?.skillName) {
-      input.skillNames = [skillInfo.skillName];
+    if (currentSkillInfo?.skillName) {
+      input.skillNames = [currentSkillInfo.skillName];
     }
-    if (skillInfo?.skillId) {
-      input.skillIds = [skillInfo.skillId];
+    if (currentSkillInfo?.skillId) {
+      input.skillIds = [currentSkillInfo.skillId];
     }
+
+    console.log('[SkillEditor] Loading context with input:', input);
 
     IPCAPI.getInstance()
       .executeRequest<{ items: any[] }>('skill_editor.context.load', input)
@@ -125,8 +181,8 @@ export const Editor = () => {
           console.log('[SkillEditor] Loaded contexts:', items);
           eventBus.emit('skill_editor:context:loaded', {
             items,
-            skillId: skillInfo?.skillId,
-            skillName: skillInfo?.skillName,
+            skillId: currentSkillInfo?.skillId,
+            skillName: currentSkillInfo?.skillName,
           });
         } else {
           console.warn('[SkillEditor] Failed to load contexts:', response.error);
@@ -135,7 +191,8 @@ export const Editor = () => {
       .catch((error) => {
         console.error('[SkillEditor] Error loading contexts:', error);
       });
-  }, [username, skillInfo?.skillId, skillInfo?.skillName]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [username]); // Only depend on username - NOT skillInfo to prevent feedback loop
 
   // Track unsaved changes
   useUnsavedChangesTracker();
@@ -152,11 +209,13 @@ export const Editor = () => {
   });
 
   // Determine the initial document: prefer current skill's workflow if available
-  const preferredDoc: FlowDocumentJSON = useMemo(
-    () => (skillInfo?.workFlow as FlowDocumentJSON) || (shouldLoadInitialData ? initialData : emptyData),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [skillInfo?.workFlow]
-  );
+  // IMPORTANT: Use a ref to capture initial value ONCE to prevent provider remounting
+  // when skillInfo.workFlow changes (which would cause React error #321)
+  const initialDocRef = useRef<FlowDocumentJSON | null>(null);
+  if (initialDocRef.current === null) {
+    initialDocRef.current = (skillInfo?.workFlow as FlowDocumentJSON) || (shouldLoadInitialData ? initialData : emptyData);
+  }
+  const preferredDoc: FlowDocumentJSON = initialDocRef.current;
 
   // Seed the store only once if it's empty
   const seededRef = useRef(false);
@@ -251,15 +310,28 @@ export const Editor = () => {
   );
 
 
+  console.log('[Editor] Rendering Editor component', { editorReady, chatCollapsed, activeSheetId, skillInfo: !!skillInfo });
+  
+  // Log when component is about to unmount (for debugging)
+  useEffect(() => {
+    console.log('[Editor] Editor component MOUNTED');
+    return () => {
+      console.log('[Editor] Editor component UNMOUNTING - this should NOT happen during normal operation');
+    };
+  }, []);
+  
   return (
     <EditorContainer>
       <SplitLayoutContainer>
         {/* Left side: Collapsible Chat Panel */}
-        <ChatPanel
-          isCollapsed={chatCollapsed}
-          onToggle={handleChatToggle}
-          width={chatWidth}
-        />
+        {console.log('[Editor] About to render ChatPanel')}
+        <ChatPanelErrorBoundary>
+          <ChatPanel
+            isCollapsed={chatCollapsed}
+            onToggle={handleChatToggle}
+            width={chatWidth}
+          />
+        </ChatPanelErrorBoundary>
         
         {/* Resizable divider between chat and editor */}
         <ResizableDivider
@@ -268,9 +340,11 @@ export const Editor = () => {
         />
         
         {/* Right side: Canvas + Console */}
+        {console.log('[Editor] About to render RightPanelContainer')}
         <RightPanelContainer>
           <div className="doc-free-feature-overview">
             <SkillEditorErrorBoundary>
+              {console.log('[Editor] About to render FreeLayoutEditorProvider')}
               <FreeLayoutEditorProvider {...editorProps}>
                 <EditorBridge />
                 <AnchorProbe />
@@ -283,13 +357,16 @@ export const Editor = () => {
                 {/* Ensure breakpoint-stalled nodes still show visuals when no running node is set */}
                 <BreakpointBinder />
                 <RunningNodeNavigator />
+                {console.log('[Editor] About to render SidebarProvider')}
                 <SidebarProvider>
                   <NodeInfoDisplay />
                   <div className="demo-container">
                     {/* Sheets toolbar: tab bar and sheets menu */}
                     <div style={{ display: 'flex', alignItems: 'center', padding: '4px 8px', gap: 8, flexShrink: 0, minHeight: 48 }}>
+                      {console.log('[Editor] About to render SheetsTabBar')}
                       <SheetsTabBar />
                       <div style={{ marginLeft: 'auto' }}>
+                        {console.log('[Editor] About to render SheetsMenu')}
                         <SheetsMenu />
                       </div>
                     </div>
@@ -318,6 +395,9 @@ export const Editor = () => {
           />
         </RightPanelContainer>
       </SplitLayoutContainer>
+      
+      {/* Open Skill Picker Modal - rendered via portal, completely isolated from flowgram context */}
+      <OpenPickerModal />
     </EditorContainer>
   );
 };

@@ -8,7 +8,6 @@ import { Tooltip, Tag, Space } from '@douyinfe/semi-ui';
 import { IconFile, IconEdit } from '@douyinfe/semi-icons';
 import styled from 'styled-components';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
-import { hasFullFilePaths } from '../../../../config/platform';
 
 const FilePathContainer = styled.div`
   position: absolute;
@@ -68,11 +67,6 @@ export const FilePathDisplay: React.FC = () => {
   const currentFilePath = useSkillInfoStore((state) => state.currentFilePath);
   const hasUnsavedChanges = useSkillInfoStore((state) => state.hasUnsavedChanges);
   const skillInfo = useSkillInfoStore((state) => state.skillInfo);
-
-  // Only show if we have full file path support (desktop mode)
-  if (!hasFullFilePaths()) {
-    return null;
-  }
 
   // Don't show if no file is loaded
   if (!currentFilePath && !skillInfo) {

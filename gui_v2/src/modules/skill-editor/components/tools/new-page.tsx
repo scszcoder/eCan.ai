@@ -7,6 +7,9 @@ import { usePlaygroundTools } from '@flowgram.ai/free-layout-editor';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { createSkillInfo } from '../../typings/skill-info';
 import { IPCAPI } from '../../../../services/ipc/api';
+import { detectPlatform } from '../../../../config/platform';
+import { webApi } from '../../../../services/web/webApi';
+import { useUserStore } from '../../../../stores/userStore';
 
 interface NewPageProps {
   disabled?: boolean;
@@ -19,6 +22,21 @@ export const NewPage = ({ disabled }: NewPageProps) => {
   const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
   const setPreviewMode = useSkillInfoStore((state) => state.setPreviewMode);
   const breakpoints = useSkillInfoStore((state) => state.breakpoints);
+  const setDataMappingJson = useSkillInfoStore((state) => state.setDataMappingJson);
+  const setDataMappingDirty = useSkillInfoStore((state) => state.setDataMappingDirty);
+  const setDataMappingPath = useSkillInfoStore((state) => state.setDataMappingPath);
+  const username = useUserStore((state) => state.username);
+
+  const normalizeSkillBaseName = (name: string) => {
+    const raw = (name || 'untitled').trim();
+    return raw.replace(/_skill$/i, '') || 'untitled';
+  };
+
+  const buildWebSkillPath = (skillName: string, user?: string | null) => {
+    const base = normalizeSkillBaseName(skillName);
+    const ownerPrefix = user ? `${user}/` : '';
+    return `${ownerPrefix}my_skills/${base}/diagram_dir/${base}_skill.json`;
+  };
 
   const handleNewPage = useCallback(async () => {
     // 1. Save current skill if exists
@@ -119,15 +137,25 @@ export const NewPage = ({ disabled }: NewPageProps) => {
 
     // 3. Check if skill already exists
     try {
-      const ipcApi = IPCAPI.getInstance();
-      
-      const checkResult = await ipcApi.checkSkillExists(skillBaseName);
-      if (checkResult.success && checkResult.data?.exists) {
-        Modal.warning({
-          title: 'Skill Already Exists',
-          content: `A skill named "${skillBaseName}" already exists. Please choose a different name.`,
-        });
-        return;
+      if (detectPlatform() === 'web') {
+        const checkResult = await webApi.checkSkillExists(skillBaseName);
+        if (checkResult?.exists) {
+          Modal.warning({
+            title: 'Skill Already Exists',
+            content: `A skill named "${skillBaseName}" already exists. Please choose a different name.`,
+          });
+          return;
+        }
+      } else {
+        const ipcApi = IPCAPI.getInstance();
+        const checkResult = await ipcApi.checkSkillExists(skillBaseName);
+        if (checkResult.success && checkResult.data?.exists) {
+          Modal.warning({
+            title: 'Skill Already Exists',
+            content: `A skill named "${skillBaseName}" already exists. Please choose a different name.`,
+          });
+          return;
+        }
       }
     } catch (e) {
       console.warn('[NEW_SKILL] Failed to check skill existence:', e);
@@ -141,14 +169,13 @@ export const NewPage = ({ disabled }: NewPageProps) => {
     // - skillName in JSON should be the user input (without _skill suffix)
     let skillRoot: string | null = null;
     let diagramJsonPath: string | null = null;
+    let mappingJsonForStore: any = null;
     
     try {
-      const ipcApi = IPCAPI.getInstance();
-      
       // Generate skill JSON and bundle JSON with correct skillName (no _skill suffix)
       const now = Date.now();
       const skillJson = {
-        skillName: skillBaseName,  // User input, no _skill suffix
+        skillName: skillBaseName,
         description: '',
         owner: '',
         version: '1.0.0',
@@ -157,7 +184,7 @@ export const NewPage = ({ disabled }: NewPageProps) => {
         mode: 'development',
         run_mode: 'developing'
       };
-      
+
       const bundleJson = {
         mainSheetId: 'main',
         sheets: [
@@ -172,9 +199,8 @@ export const NewPage = ({ disabled }: NewPageProps) => {
         openTabs: ['main'],
         activeSheetId: 'main'
       };
-      
-      // Create empty mapping JSON with correct structure
-      const mappingJson = {
+
+      let mappingJson = {
         developing: {
           mappings: [],
           options: {
@@ -192,24 +218,56 @@ export const NewPage = ({ disabled }: NewPageProps) => {
         node_transfers: {},
         event_routing: {}
       };
-      
-      const scaffoldResponse = await ipcApi.scaffoldSkill(skillBaseName, '', 'diagram', skillJson, bundleJson, mappingJson);
-      
-      if (scaffoldResponse.success && scaffoldResponse.data) {
-        // Creating a new skill exits preview mode
+
+      if (detectPlatform() === 'web') {
+        try {
+          const resp = await fetch('/skills/data_mapping.json', { cache: 'no-store' });
+          if (resp.ok) {
+            const text = await resp.text();
+            mappingJson = JSON.parse(text);
+          }
+        } catch (e) {
+          console.warn('[NEW_SKILL] Failed to load default data_mapping.json', e);
+        }
+
+        const diagramPath = buildWebSkillPath(skillBaseName, username || undefined);
+        const skillRootPath = diagramPath.split('/diagram_dir/')[0];
+        const bundlePath = diagramPath.replace(/_skill\.json$/i, '_skill_bundle.json');
+        const mappingPath = `${skillRootPath}/data_mapping.json`;
+
+        await webApi.writeSkillFile([
+          { filePath: diagramPath, content: JSON.stringify(skillJson, null, 2) },
+          { filePath: bundlePath, content: JSON.stringify(bundleJson, null, 2) },
+          { filePath: mappingPath, content: JSON.stringify(mappingJson, null, 2) },
+        ]);
+
+        setDataMappingJson(JSON.stringify(mappingJson, null, 2), false);
+        setDataMappingDirty(false);
+        mappingJsonForStore = mappingJson;
+
         setPreviewMode(false);
-        skillRoot = (scaffoldResponse.data as any).skillRoot;
-        // Use diagramPath from backend response (more reliable)
-        diagramJsonPath = (scaffoldResponse.data as any).diagramPath || 
-          `${skillRoot}/diagram_dir/${skillBaseName}_skill.json`;
-        console.log('[NEW_SKILL] Scaffolded skill structure:', { skillRoot, diagramJsonPath });
+        skillRoot = skillRootPath;
+        diagramJsonPath = diagramPath;
+        console.log('[NEW_SKILL] Scaffolded web skill structure:', { skillRoot, diagramJsonPath });
       } else {
-        console.error('[NEW_SKILL] Failed to scaffold skill:', scaffoldResponse.error);
-        Modal.error({
-          title: 'Error',
-          content: `Failed to create skill: ${scaffoldResponse.error?.message || 'Unknown error'}`,
-        });
-        return;
+        const ipcApi = IPCAPI.getInstance();
+        const scaffoldResponse = await ipcApi.scaffoldSkill(skillBaseName, '', 'diagram', skillJson, bundleJson, mappingJson);
+
+        if (scaffoldResponse.success && scaffoldResponse.data) {
+          setPreviewMode(false);
+          skillRoot = (scaffoldResponse.data as any).skillRoot;
+          diagramJsonPath = (scaffoldResponse.data as any).diagramPath || 
+            `${skillRoot}/diagram_dir/${skillBaseName}_skill.json`;
+          console.log('[NEW_SKILL] Scaffolded skill structure:', { skillRoot, diagramJsonPath });
+          mappingJsonForStore = mappingJson;
+        } else {
+          console.error('[NEW_SKILL] Failed to scaffold skill:', scaffoldResponse.error);
+          Modal.error({
+            title: 'Error',
+            content: `Failed to create skill: ${scaffoldResponse.error?.message || 'Unknown error'}`,
+          });
+          return;
+        }
       }
     } catch (e) {
       console.error('[NEW_SKILL] Scaffold error:', e);
@@ -229,9 +287,15 @@ export const NewPage = ({ disabled }: NewPageProps) => {
     const info = createSkillInfo(emptyFlow);
     info.skillName = skillBaseName;  // User input, no _skill suffix
     setSkillInfo(info);
+    if (mappingJsonForStore) {
+      setDataMappingJson(JSON.stringify(mappingJsonForStore, null, 2), false);
+      setDataMappingDirty(false);
+    }
     
     // Set file path
     useSkillInfoStore.getState().setCurrentFilePath(diagramJsonPath!);
+    const mappingPath = diagramJsonPath ? `${diagramJsonPath.split('/diagram_dir/')[0]}/data_mapping.json` : null;
+    setDataMappingPath(mappingPath);
     useSkillInfoStore.getState().setHasUnsavedChanges(false);
     
     console.log('[NEW_SKILL] Created new skill:', diagramJsonPath);
@@ -240,7 +304,18 @@ export const NewPage = ({ disabled }: NewPageProps) => {
       title: 'Success',
       content: `Skill "${skillBaseName}" created successfully!`,
     });
-  }, [workflowDocument, tools, setSkillInfo, setPreviewMode, skillInfo, breakpoints]);
+  }, [
+    workflowDocument,
+    tools,
+    setSkillInfo,
+    setPreviewMode,
+    skillInfo,
+    breakpoints,
+    setDataMappingJson,
+    setDataMappingDirty,
+    setDataMappingPath,
+    username,
+  ]);
 
   return (
     <Tooltip content="New Skill">

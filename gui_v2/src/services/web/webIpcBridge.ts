@@ -433,16 +433,37 @@ const mapChatMessageFromApi = (message: any) => ({
   metadata: message?.metadata ?? undefined,
 });
 
+const parseMaybeAwsJson = (value: any): any => {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  if (!trimmed) return value;
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      return JSON.parse(trimmed);
+    } catch {
+      return value;
+    }
+  }
+  return value;
+};
+
+const normalizeClarification = (value: any): any[] | undefined => {
+  const parsed = parseMaybeAwsJson(value);
+  if (Array.isArray(parsed)) return parsed;
+  if (parsed && Array.isArray(parsed.questions)) return parsed.questions;
+  return undefined;
+};
+
 const mapChatResponseFromApi = (resp: any) => ({
   sessionId: resp?.sessionId ?? '',
   sessionName: resp?.sessionName ?? '',
   state: resp?.state ?? 'idle',
   intent: resp?.intent ?? undefined,
   message: mapChatMessageFromApi(resp?.message ?? {}),
-  clarification: resp?.clarification ?? undefined,
-  plan: resp?.plan ?? undefined,
-  flowgram: resp?.flowgram ?? undefined,
-  validation: resp?.validation ?? undefined,
+  clarification: normalizeClarification(resp?.clarification),
+  plan: parseMaybeAwsJson(resp?.plan) ?? undefined,
+  flowgram: parseMaybeAwsJson(resp?.flowgram) ?? undefined,
+  validation: parseMaybeAwsJson(resp?.validation) ?? undefined,
 });
 
 const sanitizeAwsJson = (value: any): any => {
@@ -709,10 +730,13 @@ export async function handleWebIpcRequest<T>(method: string, params?: any): Prom
         return { success: false, error: { code: 'INVALID_PARAMS', message: 'filePath is required.' } } as any;
       }
       const content = await webApi.readSkillFile(filePath);
-      if (!content) {
+      const list = Array.isArray(content) ? content : content ? [content] : [];
+      const normalized = String(filePath).replace(/\\/g, '/');
+      const match = list.find((item) => String(item?.filePath || '').replace(/\\/g, '/') === normalized) || list[0];
+      if (!match) {
         return { success: false, error: { code: 'NOT_FOUND', message: 'Skill file not found.' } } as any;
       }
-      return { success: true, data: content as any };
+      return { success: true, data: match as any };
     }
     case 'open_skill_file': {
       const filePath = String(params?.filePath ?? params?.path ?? '');

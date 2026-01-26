@@ -11,6 +11,7 @@ import { IPCAPI } from '../../../../services/ipc/api';
  * MVP uses prompt dialogs for simplicity.
  */
 export const SheetsMenu: React.FC = () => {
+  console.log('[SheetsMenu] Rendering...');
   const ctx = useClientContext();
   const playground = usePlayground();
   const workflowDocument = useService(WorkflowDocument);
@@ -29,7 +30,11 @@ export const SheetsMenu: React.FC = () => {
   const getAllSheets = useSheetsStore((s) => s.getAllSheets);
 
   const [visible, setVisible] = React.useState(false);
-  const sheetList = React.useMemo(() => sheetOrder.map((id) => sheetMap[id]).filter(Boolean), [sheetOrder, sheetMap]);
+  const sheetList = React.useMemo(() => {
+    console.log('[SheetsMenu] Computing sheetList:', { orderCount: sheetOrder.length, mapKeys: Object.keys(sheetMap) });
+    return sheetOrder.map((id) => sheetMap[id]).filter(Boolean);
+  }, [sheetOrder, sheetMap]);
+  console.log('[SheetsMenu] State:', { visible, sheetListCount: sheetList.length, activeId });
 
   const handleOpen = () => {
     const id = window.prompt('Open sheet by ID:');

@@ -14,6 +14,8 @@ import { SkillInfo } from '../typings/skill-info';
 import { migrateDocument, migrateBundle, CURRENT_SCHEMA_VERSION } from './schema-migration';
 import { normalizeBundle, looksLikeBundle, SheetsBundle } from '../utils/bundle-utils';
 import { sanitizeApiKeysDeep } from '../utils/sanitize-utils';
+import { detectPlatform } from '../../../config/platform';
+import { webApi } from '../../../services/web/webApi';
 
 export interface SkillLoadResult {
   success: boolean;
@@ -21,8 +23,72 @@ export interface SkillLoadResult {
   bundle?: SheetsBundle;
   filePath: string;
   bundlePath?: string;
+  dataMapping?: string;
+  dataMappingPath?: string;
   migrated: boolean;
   error?: string;
+}
+
+const DEFAULT_DATA_MAPPING = {
+  developing: { mappings: [], options: { strict: false, apply_order: 'top_down' } },
+  released: { mappings: [], options: { strict: true, apply_order: 'top_down' } },
+  node_transfers: {},
+  event_routing: {},
+};
+
+const DEFAULT_DATA_MAPPING_JSON = JSON.stringify(DEFAULT_DATA_MAPPING, null, 2);
+
+function deriveDataMappingPath(filePath: string): string {
+  const normalized = String(filePath || '').replace(/\\/g, '/');
+  if (normalized.includes('/diagram_dir/')) {
+    const root = normalized.split('/diagram_dir/')[0];
+    return `${root}/data_mapping.json`;
+  }
+  const baseDir = normalized.replace(/\/[^/]+$/, '');
+  return `${baseDir}/data_mapping.json`;
+}
+
+async function loadDefaultDataMappingJson(isWeb: boolean): Promise<string> {
+  if (!isWeb) {
+    return DEFAULT_DATA_MAPPING_JSON;
+  }
+  try {
+    const resp = await fetch('/skills/data_mapping.json', { cache: 'no-store' });
+    if (resp.ok) {
+      const text = await resp.text();
+      return text || DEFAULT_DATA_MAPPING_JSON;
+    }
+  } catch {
+    // ignore
+  }
+  return DEFAULT_DATA_MAPPING_JSON;
+}
+
+function applyDataMappingToSkillInfo(skillInfo: SkillInfo, dataMapping: any) {
+  if (!dataMapping || typeof dataMapping !== 'object') return;
+
+  const developing = dataMapping.developing || DEFAULT_DATA_MAPPING.developing;
+  const released = dataMapping.released || DEFAULT_DATA_MAPPING.released;
+  const eventRouting = dataMapping.event_routing || {};
+
+  skillInfo.config = {
+    ...(skillInfo.config || {}),
+    skill_mapping: {
+      developing,
+      released,
+      event_routing: eventRouting,
+    },
+  } as any;
+
+  const nodeTransfers = dataMapping.node_transfers || {};
+  const nodes = (skillInfo as any)?.workFlow?.nodes || [];
+  nodes.forEach((node: any) => {
+    const nodeKey = (node?.data?.name || node?.id || '').toString();
+    const mappingRules = nodeTransfers[nodeKey];
+    if (mappingRules && typeof mappingRules === 'object') {
+      node.data = { ...(node.data || {}), mapping_rules: mappingRules };
+    }
+  });
 }
 
 /**
@@ -35,7 +101,8 @@ export async function loadSkillFile(
     autoSaveMigrated?: boolean;
   } = {}
 ): Promise<SkillLoadResult> {
-  const ipcApi = IPCAPI.getInstance();
+  const isWeb = detectPlatform() === 'web';
+  const ipcApi = isWeb ? null : IPCAPI.getInstance();
   const autoSaveMigrated = options.autoSaveMigrated !== false;
   const nowIso = new Date().toISOString();
   
@@ -43,23 +110,48 @@ export async function loadSkillFile(
     console.log('[SkillLoader] Loading skill file:', filePath);
     
     // 1. Read the main skill file
-    let fileResponse = await ipcApi.openSkillFile(filePath).catch((e: any) => {
-      return {
-        success: false,
-        error: e?.message || String(e),
-      } as any;
-    });
+    const openSkillFile = async () => {
+      if (isWeb) {
+        const data = await webApi.openSkillFile(filePath).catch(() => null);
+        if (!data) {
+          return { success: false, error: 'Failed to read skill file', data: null } as any;
+        }
+        return { success: true, data } as any;
+      }
+      return ipcApi!.openSkillFile(filePath).catch((e: any) => {
+        return { success: false, error: e?.message || String(e) } as any;
+      });
+    };
+
+    const readSkillFile = async (path: string) => {
+      if (isWeb) {
+        const data = await webApi.readSkillFile(path).catch(() => null);
+        if (!data) return null;
+        const list = Array.isArray(data) ? data : [data];
+        const normalized = String(path).replace(/\\/g, '/');
+        const match = list.find((item) => String(item?.filePath || '').replace(/\\/g, '/') === normalized) || list[0];
+        return match ? ({ success: true, data: match } as any) : null;
+      }
+      return ipcApi!.readSkillFile(path);
+    };
+
+    const writeSkillFile = async (path: string, content: string) => {
+      if (isWeb) {
+        return webApi.writeSkillFile({ filePath: path, content });
+      }
+      return ipcApi!.writeSkillFile(path, content);
+    };
+
+    let fileResponse = await openSkillFile();
     if (!fileResponse.success || !fileResponse.data) {
-      // Fallback for older backends that don't implement open_skill_file yet
-      const fallbackResp = await ipcApi.readSkillFile(filePath);
-      if (!fallbackResp.success || !fallbackResp.data) {
+      const fallbackResp = await readSkillFile(filePath);
+      if (!fallbackResp || !fallbackResp.success || !fallbackResp.data) {
         const err1 = typeof (fileResponse as any).error === 'string' ? (fileResponse as any).error : '';
-        const err2 = typeof fallbackResp.error === 'string' ? fallbackResp.error : '';
         return {
           success: false,
           filePath,
           migrated: false,
-          error: err2 || err1 || 'Failed to read skill file',
+          error: err1 || 'Failed to read skill file',
         };
       }
       fileResponse = fallbackResp as any;
@@ -69,6 +161,8 @@ export async function loadSkillFile(
     let migrated = false;
     let bundle: SheetsBundle | undefined;
     let bundlePath: string | undefined;
+    let dataMappingPath: string | undefined;
+    let dataMappingJson: string | undefined;
 
     // Derive a stable skill name from file path (folder before diagram_dir or filename)
     let nameFromPath = '';
@@ -131,11 +225,32 @@ export async function loadSkillFile(
           const sanitizedBundle = JSON.parse(JSON.stringify(bundleFromMainFile));
           (sanitizedBundle as any).schemaVersion = CURRENT_SCHEMA_VERSION;
           sanitizeApiKeysDeep(sanitizedBundle);
-          await ipcApi.writeSkillFile(bundlePath, JSON.stringify(sanitizedBundle, null, 2));
+          await writeSkillFile(bundlePath, JSON.stringify(sanitizedBundle, null, 2));
           console.log('[SkillLoader] Saved migrated bundle file (main file bundle):', bundlePath);
         } catch (saveErr) {
           console.warn('[SkillLoader] Failed to auto-save migrated bundle (main file bundle):', saveErr);
         }
+      }
+
+      try {
+        dataMappingPath = deriveDataMappingPath(filePath);
+        const mappingResp = await readSkillFile(dataMappingPath);
+        if (mappingResp?.success && mappingResp.data?.content) {
+          dataMappingJson = mappingResp.data.content as string;
+        } else {
+          dataMappingJson = await loadDefaultDataMappingJson(isWeb);
+        }
+      } catch {
+        dataMappingJson = await loadDefaultDataMappingJson(isWeb);
+      }
+
+      try {
+        const parsedMapping = dataMappingJson ? JSON.parse(dataMappingJson) : null;
+        if (parsedMapping) {
+          applyDataMappingToSkillInfo(syntheticSkillInfo, parsedMapping);
+        }
+      } catch {
+        // ignore invalid mapping JSON
       }
 
       return {
@@ -144,6 +259,8 @@ export async function loadSkillFile(
         bundle,
         filePath,
         bundlePath,
+        dataMapping: dataMappingJson,
+        dataMappingPath,
         migrated,
       };
     }
@@ -166,7 +283,7 @@ export async function loadSkillFile(
     
     for (const candidatePath of bundleCandidates) {
       try {
-        const bundleResp = await ipcApi.readSkillFile(candidatePath);
+        const bundleResp = await readSkillFile(candidatePath);
         if (bundleResp.success && bundleResp.data) {
           const maybeBundle = JSON.parse(bundleResp.data.content);
           if (looksLikeBundle(maybeBundle)) {
@@ -222,7 +339,7 @@ export async function loadSkillFile(
         sanitizeApiKeysDeep(sanitizedSkillInfo);
         
         // Save main skill file
-        await ipcApi.writeSkillFile(filePath, JSON.stringify(sanitizedSkillInfo, null, 2));
+        await writeSkillFile(filePath, JSON.stringify(sanitizedSkillInfo, null, 2));
         console.log('[SkillLoader] Saved migrated skill file:', filePath);
         
         // Save bundle file if exists
@@ -231,13 +348,34 @@ export async function loadSkillFile(
           sanitizedBundle.schemaVersion = CURRENT_SCHEMA_VERSION;
           sanitizeApiKeysDeep(sanitizedBundle);
           
-          await ipcApi.writeSkillFile(bundlePath, JSON.stringify(sanitizedBundle, null, 2));
+          await writeSkillFile(bundlePath, JSON.stringify(sanitizedBundle, null, 2));
           console.log('[SkillLoader] Saved migrated bundle file:', bundlePath);
         }
       } catch (saveErr) {
         console.warn('[SkillLoader] Failed to auto-save migrated files:', saveErr);
         // Continue even if save fails - data is migrated in memory
       }
+    }
+
+    try {
+      dataMappingPath = deriveDataMappingPath(filePath);
+      const mappingResp = await readSkillFile(dataMappingPath);
+      if (mappingResp?.success && mappingResp.data?.content) {
+        dataMappingJson = mappingResp.data.content as string;
+      } else {
+        dataMappingJson = await loadDefaultDataMappingJson(isWeb);
+      }
+    } catch {
+      dataMappingJson = await loadDefaultDataMappingJson(isWeb);
+    }
+
+    try {
+      const parsedMapping = dataMappingJson ? JSON.parse(dataMappingJson) : null;
+      if (parsedMapping) {
+        applyDataMappingToSkillInfo(skillInfo, parsedMapping);
+      }
+    } catch {
+      // ignore invalid mapping JSON
     }
     
     return {
@@ -246,6 +384,8 @@ export async function loadSkillFile(
       bundle,
       filePath,
       bundlePath,
+      dataMapping: dataMappingJson,
+      dataMappingPath,
       migrated,
     };
   } catch (error) {

@@ -188,13 +188,25 @@ export const PlanCard: React.FC<PlanCardProps> = ({
   // Read-only mode when submittedAction is provided
   const isReadOnly = !!submittedAction;
 
+  const safePlan = React.useMemo(() => {
+    const safeComplexity = (plan as ImplementationPlan | undefined)?.complexity || 'simple';
+    const safeSteps = Array.isArray(plan?.steps) ? plan.steps : [];
+    const safeEstimatedNodes = Array.isArray(plan?.estimated_nodes) ? plan.estimated_nodes : [];
+    return {
+      summary: plan?.summary || 'No summary provided yet.',
+      steps: safeSteps,
+      estimated_nodes: safeEstimatedNodes,
+      complexity: safeComplexity,
+    } as ImplementationPlan;
+  }, [plan]);
+
   // Log when component mounts with plan
   React.useEffect(() => {
     console.log('[PlanCard] Mounted with plan:', {
-      summary: plan.summary,
-      complexity: plan.complexity,
-      stepsCount: plan.steps.length,
-      estimatedNodes: plan.estimated_nodes,
+      summary: safePlan.summary,
+      complexity: safePlan.complexity,
+      stepsCount: safePlan.steps.length,
+      estimatedNodes: safePlan.estimated_nodes,
       isReadOnly,
       submittedAction,
     });
@@ -222,22 +234,22 @@ export const PlanCard: React.FC<PlanCardProps> = ({
             ? (submittedAction === 'approved' ? '✅ Plan Approved' : '📝 Plan Revised')
             : 'Implementation Plan'}
         </CardTitle>
-        <ComplexityBadge $complexity={plan.complexity}>
-          {plan.complexity.charAt(0).toUpperCase() + plan.complexity.slice(1)}
+        <ComplexityBadge $complexity={safePlan.complexity}>
+          {safePlan.complexity.charAt(0).toUpperCase() + safePlan.complexity.slice(1)}
         </ComplexityBadge>
       </CardHeader>
       
-      <Summary>{plan.summary}</Summary>
+      <Summary>{safePlan.summary}</Summary>
       
       <StepsContainer>
         <StepsTitle>Steps</StepsTitle>
-        {plan.steps.map((step, index) => (
+        {safePlan.steps.map((step, index) => (
           <StepItem key={index}>
             <StepNumber>{index + 1}</StepNumber>
             <StepContent>
               <StepTitle>{step.title}</StepTitle>
               <StepDescription>{step.description}</StepDescription>
-              {step.node_types.length > 0 && (
+              {Array.isArray(step.node_types) && step.node_types.length > 0 && (
                 <NodeTags>
                   {step.node_types.map((nodeType, i) => (
                     <NodeTag key={i}>{nodeType}</NodeTag>
@@ -249,11 +261,11 @@ export const PlanCard: React.FC<PlanCardProps> = ({
         ))}
       </StepsContainer>
       
-      {plan.estimated_nodes.length > 0 && (
+      {safePlan.estimated_nodes.length > 0 && (
         <EstimatedNodes>
           <EstimatedNodesTitle>Estimated nodes:</EstimatedNodesTitle>
           <Space size={4} wrap>
-            {plan.estimated_nodes.map((node, i) => (
+            {safePlan.estimated_nodes.map((node, i) => (
               <NodeTag key={i}>{node}</NodeTag>
             ))}
           </Space>

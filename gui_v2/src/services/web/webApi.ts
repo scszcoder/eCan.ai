@@ -295,7 +295,7 @@ const GET_SKILL_EDITOR_CHAT_HISTORY_QUERY = `
 `;
 
 const WRITE_SKILL_FILE_MUTATION = `
-  mutation WriteSkillFile($input: SkillFileInput!) {
+  mutation WriteSkillFile($input: [SkillFileInput!]!) {
     writeSkillFile(input: $input) {
       filePath
       fileName
@@ -634,8 +634,8 @@ export const webApi = {
     return data.getNodeStateSchema || null;
   },
 
-  async readSkillFile(filePath: string): Promise<any | null> {
-    const data = await appSyncRequest<{ readSkillFile: any }>(READ_SKILL_FILE_QUERY, { filePath });
+  async readSkillFile(filePath: string): Promise<any[] | null> {
+    const data = await appSyncRequest<{ readSkillFile: any[] }>(READ_SKILL_FILE_QUERY, { filePath });
     return data.readSkillFile || null;
   },
 
@@ -700,9 +700,38 @@ export const webApi = {
     return data.getSkillEditorChatHistory || [];
   },
 
-  async writeSkillFile(input: Record<string, any>): Promise<any | null> {
-    const data = await appSyncRequest<{ writeSkillFile: any }>(WRITE_SKILL_FILE_MUTATION, { input });
-    return data.writeSkillFile || null;
+  async writeSkillFile(input: Record<string, any> | Array<Record<string, any>>): Promise<any | null> {
+    const payload = Array.isArray(input) ? input : [input];
+    try {
+      const data = await appSyncRequest<{ writeSkillFile: any[] }>(WRITE_SKILL_FILE_MUTATION, { input: payload });
+      const result = data.writeSkillFile || [];
+      return Array.isArray(input) ? result : (result[0] || null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const normalized = message.toLowerCase();
+      const isNullFilePathError =
+        normalized.includes('cannot return null for non-nullable type') &&
+        normalized.includes('skillfileinfo') &&
+        normalized.includes('/writeskillfile/filepath');
+      if (isNullFilePathError) {
+        console.warn('[AppSyncClient] writeSkillFile returned null filePath. Using fallback response.', message);
+        const fallback = payload.map((item) => {
+          const filePath = String(item?.filePath || '').trim();
+          const fileName = filePath.split('/').pop() || '';
+          const content = item?.content;
+          const fileSize = typeof content === 'string' ? content.length : undefined;
+          return {
+            filePath,
+            fileName,
+            fileSize,
+            skillName: item?.skillName,
+            updatedAt: new Date().toISOString(),
+          };
+        });
+        return Array.isArray(input) ? fallback : (fallback[0] || null);
+      }
+      throw error;
+    }
   },
 
   async scaffoldSkill(input: Record<string, any>): Promise<any | null> {

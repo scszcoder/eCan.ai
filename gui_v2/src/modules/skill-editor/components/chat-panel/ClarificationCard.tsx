@@ -114,16 +114,31 @@ export const ClarificationCard: React.FC<ClarificationCardProps> = ({
   const isReadOnly = !!submittedAnswers;
   const displayAnswers = submittedAnswers || answers;
 
+  // Defensive: ensure questions is a valid array with proper structure
+  const safeQuestions = React.useMemo(() => {
+    if (!Array.isArray(questions)) return [];
+    return questions.filter(q => 
+      q && 
+      typeof q === 'object' && 
+      q.id && 
+      q.question && 
+      Array.isArray(q.choices)
+    ).map(q => ({
+      ...q,
+      choices: q.choices.filter((c: any) => c && typeof c === 'object' && c.id && c.label)
+    }));
+  }, [questions]);
+
   // Log when component mounts with questions
   React.useEffect(() => {
     console.log('[ClarificationCard] Mounted with questions:', {
-      count: questions.length,
-      questionIds: questions.map(q => q.id),
+      count: safeQuestions.length,
+      questionIds: safeQuestions.map(q => q.id),
     });
     return () => {
       console.log('[ClarificationCard] Unmounting');
     };
-  }, [questions]);
+  }, [safeQuestions]);
 
   const handleChoiceToggle = useCallback((questionId: string, choiceId: string, allowMultiple: boolean) => {
     console.log('[ClarificationCard] Choice toggled:', { questionId, choiceId, allowMultiple });
@@ -166,7 +181,13 @@ export const ClarificationCard: React.FC<ClarificationCardProps> = ({
     }
   }, [answers, onSubmit]);
 
-  const isComplete = questions.every(q => (displayAnswers[q.id] || []).length > 0);
+  const isComplete = safeQuestions.every(q => (displayAnswers[q.id] || []).length > 0);
+
+  // Don't render anything if no valid questions
+  if (safeQuestions.length === 0) {
+    console.warn('[ClarificationCard] No valid questions to render');
+    return null;
+  }
 
   return (
     <CardContainer>
@@ -179,7 +200,7 @@ export const ClarificationCard: React.FC<ClarificationCardProps> = ({
         </CardTitle>
       </CardHeader>
       
-      {questions.map((question, index) => (
+      {safeQuestions.map((question, index) => (
         <QuestionContainer key={question.id}>
           <QuestionText>
             {index + 1}. {question.question}

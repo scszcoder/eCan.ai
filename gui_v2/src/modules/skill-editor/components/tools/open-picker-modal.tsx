@@ -1,20 +1,20 @@
-import { useCallback, useMemo } from 'react';
-import { useClientContext } from '@flowgram.ai/free-layout-editor';
-import { Tooltip, IconButton, Toast } from '@douyinfe/semi-ui';
-import { IconOpenColored } from './colored-icons';
+/**
+ * Open Skill Picker Modal - Rendered via Portal outside React tree
+ * to prevent modal from being affected by flowgram context issues.
+ * 
+ * This component does NOT use useClientContext at all.
+ * Instead, it gets the workflow document from the global store,
+ * which is set by the Open button when the picker is opened.
+ */
+import React, { useCallback, useMemo, useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { Toast, Modal, Input, List } from '@douyinfe/semi-ui';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
-import '../../../../services/ipc/file-api'; // Import file API extensions
 import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files-store';
 import { useSheetsStore } from '../../stores/sheets-store';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
 import { useOpenPickerStore } from '../../stores/open-picker-store';
 import { loadSkillFile, SkillLoadResult } from '../../services/skill-loader';
-import { IPCAPI } from '../../../../services/ipc/api';
-import { detectPlatform } from '../../../../config/platform';
-import { webApi } from '../../../../services/web/webApi';
-
-// Note: The Modal is now rendered in OpenPickerModal component at Editor level
-// to prevent it from being unmounted during Tools error boundary recovery
 
 type SkillFileItem = {
   filePath: string;
@@ -24,12 +24,13 @@ type SkillFileItem = {
   updatedAt?: string;
 };
 
-interface OpenProps {
-  disabled?: boolean;
-}
+// No bridge component needed anymore - document comes from store
 
-export const Open = ({ disabled }: OpenProps) => {
-  const { document: workflowDocument } = useClientContext();
+// The actual modal content - does NOT use any flowgram hooks
+const OpenPickerModalContent = () => {
+  // Get the workflow document from the store (set by Open button)
+  const workflowDocument = useOpenPickerStore((s) => s.workflowDocument);
+  
   const setSkillInfo = useSkillInfoStore((state) => state.setSkillInfo);
   const setBreakpoints = useSkillInfoStore((state) => state.setBreakpoints);
   const setCurrentFilePath = useSkillInfoStore((state) => state.setCurrentFilePath);
@@ -41,20 +42,17 @@ export const Open = ({ disabled }: OpenProps) => {
   const loadBundle = useSheetsStore((s) => s.loadBundle);
   const { setFlipped, clear: clearFlipStore } = useNodeFlipStore();
   
-  // Use global store for picker state so it persists across error boundary recoveries
+  // Use global store for picker state
   const pickerVisible = useOpenPickerStore((s) => s.visible);
   const setPickerVisible = useOpenPickerStore((s) => s.setVisible);
   const pickerLoading = useOpenPickerStore((s) => s.loading);
-  const setPickerLoading = useOpenPickerStore((s) => s.setLoading);
   const pickerOpenLoading = useOpenPickerStore((s) => s.openLoading);
   const setPickerOpenLoading = useOpenPickerStore((s) => s.setOpenLoading);
   const pickerQuery = useOpenPickerStore((s) => s.query);
   const setPickerQuery = useOpenPickerStore((s) => s.setQuery);
   const pickerItems = useOpenPickerStore((s) => s.items);
-  const setPickerItems = useOpenPickerStore((s) => s.setItems);
   const selectedItem = useOpenPickerStore((s) => s.selectedItem);
   const setSelectedItem = useOpenPickerStore((s) => s.setSelectedItem);
-  const setStoreWorkflowDocument = useOpenPickerStore((s) => s.setWorkflowDocument);
 
   const filteredItems = useMemo(() => {
     const query = pickerQuery.trim().toLowerCase();
@@ -74,18 +72,11 @@ export const Open = ({ disabled }: OpenProps) => {
 
   const applyLoadedSkill = useCallback((filePath: string, result: SkillLoadResult) => {
     if (result.success && result.skillInfo) {
-      // Open explicitly exits preview mode
       setPreviewMode(false);
       const data = result.skillInfo;
-      // skillName is already normalized by skill-loader.ts
       console.log('[SKILL_IO][FRONTEND][SKILL_NAME]', data.skillName);
 
-      // CRITICAL: Defer bundle loading and document operations to next event loop tick.
-      // This prevents React state updates from happening during the current render cycle,
-      // which can cause flowgram's internal async operations to access context in a
-      // transitional state, leading to React error #321 (Invalid hook call).
       setTimeout(() => {
-        // Load bundle if available
         if (result.bundle) {
           loadBundle(result.bundle);
           console.log('[SKILL_IO][FRONTEND][BUNDLE_LOADED]', result.bundlePath);
@@ -93,7 +84,7 @@ export const Open = ({ disabled }: OpenProps) => {
 
         const diagram = data.workFlow;
         if (diagram) {
-          console.log('[Open] Loading skill diagram. Nodes=', Array.isArray(diagram.nodes) ? diagram.nodes.length : 'n/a');
+          console.log('[OpenPickerModal] Loading skill diagram. Nodes=', Array.isArray(diagram.nodes) ? diagram.nodes.length : 'n/a');
           
           setSkillInfo(data);
           setDataMappingJson(result.dataMapping || null, false);
@@ -106,18 +97,17 @@ export const Open = ({ disabled }: OpenProps) => {
             .map((node: any) => node.id);
           setBreakpoints(breakpointIds);
           
-          // Load diagram into editor (only if no bundle, bundle loading handles this)
-          if (!result.bundle) {
+          if (!result.bundle && workflowDocument) {
             workflowDocument.clear();
             workflowDocument.fromJSON(diagram);
           }
           
-          // Restore flip states from saved node data
           clearFlipStore();
           setTimeout(() => {
+            if (!workflowDocument) return;
             diagram.nodes.forEach((node: any) => {
               if (node?.data?.hFlip === true) {
-                console.log('[Open] Restoring hFlip state for node:', node.id);
+                console.log('[OpenPickerModal] Restoring hFlip state for node:', node.id);
                 setFlipped(node.id, true);
                 const loadedNode = workflowDocument.getNode(node.id) as any;
                 if (loadedNode) {
@@ -135,33 +125,35 @@ export const Open = ({ disabled }: OpenProps) => {
             });
           }, 100);
           
-          workflowDocument.fitView && workflowDocument.fitView();
+          if (workflowDocument?.fitView) workflowDocument.fitView();
           addRecentFile(createRecentFile(filePath, data.skillName || 'Skill'));
         } else {
-          // Fallback for older formats
-          workflowDocument.clear();
-          workflowDocument.fromJSON(data as any);
+          if (workflowDocument) {
+            workflowDocument.clear();
+            workflowDocument.fromJSON(data as any);
+          }
           clearFlipStore();
-          if ((data as any).nodes) {
+          if ((data as any).nodes && workflowDocument) {
             (data as any).nodes.forEach((node: any) => {
               if (node?.data?.hFlip === true) setFlipped(node.id, true);
             });
           }
-          workflowDocument.fitView && workflowDocument.fitView();
+          if (workflowDocument?.fitView) workflowDocument.fitView();
           setSkillInfo(data);
           setDataMappingJson(result.dataMapping || null, false);
           setDataMappingPath(result.dataMappingPath || null);
           setCurrentFilePath(filePath);
           setHasUnsavedChanges(false);
         }
-      }, 0); // End of setTimeout - delay to allow React to settle
+      }, 0);
     } else {
-      console.error('[Open] Failed to load file:', result.error);
+      console.error('[OpenPickerModal] Failed to load file:', result.error);
       try { Toast.error({ content: result.error || 'Failed to load skill file.' }); } catch {}
     }
   }, [
     addRecentFile,
     clearFlipStore,
+    workflowDocument,
     loadBundle,
     setBreakpoints,
     setCurrentFilePath,
@@ -169,27 +161,9 @@ export const Open = ({ disabled }: OpenProps) => {
     setPreviewMode,
     setSkillInfo,
     setFlipped,
-    workflowDocument,
     setDataMappingJson,
     setDataMappingPath,
   ]);
-
-  const openWebPicker = useCallback(async () => {
-    // Store the workflow document reference in global store so the modal can access it
-    setStoreWorkflowDocument(workflowDocument);
-    setPickerVisible(true);
-    setSelectedItem(null);
-    setPickerLoading(true);
-    try {
-      const items = await webApi.listSkillFiles(undefined, 200);
-      setPickerItems(items || []);
-    } catch (error) {
-      console.error('[Open][WebPicker] Failed to list skills:', error);
-      try { Toast.error({ content: 'Failed to load skills from S3.' }); } catch {}
-    } finally {
-      setPickerLoading(false);
-    }
-  }, [workflowDocument, setStoreWorkflowDocument]);
 
   const handlePickerOpen = useCallback(async () => {
     if (!selectedItem?.filePath) return;
@@ -199,59 +173,98 @@ export const Open = ({ disabled }: OpenProps) => {
       applyLoadedSkill(selectedItem.filePath, result);
       setPickerVisible(false);
     } catch (error) {
-      console.error('[Open][WebPicker] Failed to open skill:', error);
+      console.error('[OpenPickerModal] Failed to open skill:', error);
       try { Toast.error({ content: 'Failed to open selected skill.' }); } catch {}
     } finally {
       setPickerOpenLoading(false);
     }
-  }, [applyLoadedSkill, selectedItem]);
+  }, [applyLoadedSkill, selectedItem, setPickerOpenLoading, setPickerVisible]);
 
-  const handleOpen = useCallback(async () => {
-    if (detectPlatform() === 'web') {
-      await openWebPicker();
-      return;
-    }
+  // Don't render when not visible
+  if (!pickerVisible) {
+    return null;
+  }
 
-    // Desktop path uses IPC dialogs
-    try {
-        const ipcApi = IPCAPI.getInstance();
-        console.log('[SKILL_IO][FRONTEND][IPC_ATTEMPT] showOpenDialog');
-        const dialogResponse = await ipcApi.showOpenDialog([
-          { name: 'Skill Files', extensions: ['json'] },
-          { name: 'All Files', extensions: ['*'] }
-        ]);
-
-        if (dialogResponse.success && dialogResponse.data && !dialogResponse.data.cancelled) {
-          const filePath = (dialogResponse.data as any).filePaths?.[0] || (dialogResponse.data as any).filePath;
-          // 需求2: GetBackend返回的 skillName（从文件夹Name提取）
-          const skillNameFromBackend = (dialogResponse.data as any).skillName;
-          if (!filePath) { console.warn('[Open] No filePath from dialog'); return; }
-          console.log('[SKILL_IO][FRONTEND][SELECTED_MAIN_JSON]', filePath);
-          console.log('[SKILL_IO][FRONTEND][SKILL_NAME_FROM_BACKEND]', skillNameFromBackend);
-          try { Toast.info({ content: `Opening: ${skillNameFromBackend || String(filePath).split('\\').pop()}` }); } catch {}
-
-          // Use unified skill loader (handles migration and auto-save automatically)
-          const result = await loadSkillFile(filePath);
-          console.log('[SKILL_IO][FRONTEND][LOAD_RESULT]', { success: result.success, migrated: result.migrated });
-          applyLoadedSkill(filePath, result);
-        }
-        return; // handled IPC path in desktop mode
-    } catch (e) {
-      console.warn('[SKILL_IO][FRONTEND][IPC_ERROR]', e);
-      try { Toast.error({ content: 'Failed to open file dialog.' }); } catch {}
-    };
-  }, [applyLoadedSkill, openWebPicker]);
-
-  // Modal is now rendered in OpenPickerModal at Editor level to survive error boundary recovery
   return (
-    <Tooltip content="Open">
-      <IconButton
-        type="tertiary"
-        theme="borderless"
-        icon={<IconOpenColored size={18} />}
-        disabled={disabled}
-        onClick={handleOpen}
-      />
-    </Tooltip>
+    <Modal
+      title="Open Skill from S3"
+      visible={pickerVisible}
+      onOk={handlePickerOpen}
+      onCancel={() => setPickerVisible(false)}
+      okText="Open"
+      cancelText="Cancel"
+      okButtonProps={{ disabled: !selectedItem || pickerOpenLoading, loading: pickerOpenLoading }}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <Input
+          placeholder="Search skills"
+          value={pickerQuery}
+          onChange={setPickerQuery}
+          showClear
+          disabled={pickerLoading}
+        />
+        {pickerLoading ? (
+          <div>Loading...</div>
+        ) : (
+          <div style={{ maxHeight: 300, overflow: 'auto' }}>
+            {filteredItems.map((item: SkillFileItem) => {
+              const isSelected = selectedItem?.filePath === item.filePath;
+              const title = item.skillName || item.fileName || item.filePath.split('/').pop() || 'Skill';
+              return (
+                <div
+                  key={item.filePath}
+                  onClick={() => setSelectedItem(item)}
+                  style={{
+                    cursor: 'pointer',
+                    background: isSelected ? 'var(--semi-color-fill-0)' : 'transparent',
+                    borderRadius: 6,
+                    padding: '8px 12px',
+                    marginBottom: 4,
+                    border: isSelected ? '1px solid var(--semi-color-primary)' : '1px solid transparent',
+                  }}
+                >
+                  <div style={{ fontWeight: 500 }}>{title}</div>
+                  <div style={{ fontSize: 12, color: 'var(--semi-color-text-2)' }}>{item.filePath}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {!pickerLoading && filteredItems.length === 0 && (
+          <div style={{ color: 'var(--semi-color-text-2)' }}>
+            No skills found in S3.
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+};
+
+// Get or create a portal container
+const getPortalContainer = () => {
+  let container = document.getElementById('open-picker-portal');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'open-picker-portal';
+    document.body.appendChild(container);
+  }
+  return container;
+};
+
+// The main export - renders via portal to be completely isolated from React tree
+export const OpenPickerModal = () => {
+  const [mounted, setMounted] = useState(false);
+  
+  useEffect(() => {
+    // Delay mounting to ensure portal container is ready
+    const timer = setTimeout(() => setMounted(true), 50);
+    return () => clearTimeout(timer);
+  }, []);
+  
+  if (!mounted) return null;
+  
+  return createPortal(
+    <OpenPickerModalContent />,
+    getPortalContainer()
   );
 };

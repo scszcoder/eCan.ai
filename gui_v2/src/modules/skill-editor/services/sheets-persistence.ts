@@ -1,8 +1,9 @@
-import { hasIPCSupport, hasFullFilePaths } from '../../../config/platform';
+import { hasIPCSupport, hasFullFilePaths, detectPlatform } from '../../../config/platform';
 import '../../../services/ipc/file-api';
 import type { SheetsBundle } from '../utils/bundle-utils';
 import { IPCAPI } from '../../../services/ipc/api';
 import { sanitizeNodeApiKeys, sanitizeApiKeysDeep } from '../utils/sanitize-utils';
+import { webApi } from '../../../services/web/webApi';
 // Re-export SheetsBundle for backward compatibility
 export type { SheetsBundle };
 
@@ -22,6 +23,15 @@ export async function saveSheetsBundleToPath(
   }
   sanitizeApiKeysDeep(sanitizedBundle);
   const jsonString = JSON.stringify(sanitizedBundle, null, 2);
+  // Web mode: save to S3 via API
+  if (detectPlatform() === 'web') {
+    const info = await webApi.writeSkillFile({ filePath: targetPathOrName, content: jsonString });
+    if (!info) {
+      throw new Error('writeSkillFile failed.');
+    }
+    return { success: true, filePath: targetPathOrName, mode: 'web' };
+  }
+
   // Try IPC write first; if anything fails, fall back to download method
   try {
     const ipcApi = IPCAPI.getInstance();
