@@ -732,10 +732,47 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     }
   }, []);
 
-  // Select session
-  const handleSelectSession = useCallback((sessionId: string) => {
+  // Select session and load its history
+  const handleSelectSession = useCallback(async (sessionId: string) => {
     setActiveSessionId(sessionId);
-  }, []);
+    setHistoryExpanded(false); // Collapse history panel after selection
+    
+    // Check if session already has messages loaded
+    const existingSession = sessions.find(s => s.id === sessionId);
+    if (existingSession && existingSession.messages && existingSession.messages.length > 0) {
+      console.log(`[ChatPanel] Session ${sessionId} already has ${existingSession.messages.length} messages loaded`);
+      return;
+    }
+    
+    // Fetch history from backend
+    console.log(`[ChatPanel] Fetching history for session ${sessionId}...`);
+    try {
+      const history = await skillEditorChatService.getHistory(sessionId);
+      if (history && history.length > 0) {
+        const mappedMessages: ChatMessage[] = history.map(m => ({
+          id: m.id,
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+          timestamp: new Date(m.timestamp),
+          attachments: m.attachments?.map((a: any) => a.path || a.name) as string[] | undefined,
+          clarification: m.metadata?.clarification as ClarificationQuestion[] | undefined,
+          plan: m.metadata?.plan as ImplementationPlan | undefined,
+          state: m.metadata?.state as PipelineState | undefined,
+        }));
+        
+        // Update session with loaded messages
+        setSessions(prev => prev.map(s => 
+          s.id === sessionId ? { ...s, messages: mappedMessages } : s
+        ));
+        
+        console.log(`[ChatPanel] Loaded ${mappedMessages.length} messages for session ${sessionId}`);
+      } else {
+        console.log(`[ChatPanel] No history found for session ${sessionId}`);
+      }
+    } catch (error) {
+      console.error(`[ChatPanel] Failed to load history for session ${sessionId}:`, error);
+    }
+  }, [sessions]);
 
   // Toggle history panel
   const handleToggleHistory = useCallback(() => {

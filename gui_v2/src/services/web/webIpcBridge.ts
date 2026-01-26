@@ -2,6 +2,7 @@ import { appSyncRequest } from './appSyncClient';
 import { webApi } from './webApi';
 import type { APIResponse } from '../ipc/api';
 import { detectPlatform } from '../../config/platform';
+import { useUserStore } from '../../stores/userStore';
 
 type MutationResult = {
   id?: string;
@@ -922,10 +923,11 @@ export async function handleWebIpcRequest<T>(method: string, params?: any): Prom
       return { success: true, data: result as any };
     }
     case 'skill_editor.chat.create_session': {
+      const storeUsername = useUserStore.getState().username;
       const input = {
         name: params?.name,
         flowgramId: params?.flowgramId,
-        userId: params?.userId ?? params?.username,
+        userId: params?.userId ?? params?.username ?? storeUsername,
       };
       const session = await webApi.createSkillEditorChatSession(input);
       if (!session) {
@@ -934,7 +936,8 @@ export async function handleWebIpcRequest<T>(method: string, params?: any): Prom
       return { success: true, data: { session: mapChatSessionFromApi(session) } as any };
     }
     case 'skill_editor.chat.get_sessions': {
-      const userId = String(params?.userId ?? params?.username ?? 'default');
+      const storeUsername = useUserStore.getState().username;
+      const userId = String(params?.userId ?? params?.username ?? storeUsername ?? 'default');
       const sessions = await webApi.getSkillEditorChatSessions(userId);
       return { success: true, data: { sessions: (sessions || []).map(mapChatSessionFromApi) } as any };
     }
