@@ -56,16 +56,8 @@ export const hasFullFilePaths = () => PLATFORM_CONFIG.features.fullFilePaths;
 export const detectPlatform = (): PlatformType => {
   // Check if we're in a desktop environment with IPC
   if (typeof window !== 'undefined') {
-    // If served over http/https, treat as web even if IPC globals exist
-    try {
-      const protocol = window.location?.protocol || '';
-      if (protocol.startsWith('http')) {
-        return 'web';
-      }
-    } catch {
-      // ignore
-    }
-    // Check for window.ipc (Qt WebChannel) as indicator of desktop mode
+    // Check for window.ipc (Qt WebChannel) FIRST as indicator of desktop mode
+    // This takes priority over protocol check because desktop app serves over http://localhost
     try {
       // Primary check: window.ipc from Qt WebChannel
       if ((window as any).ipc) {
@@ -75,11 +67,11 @@ export const detectPlatform = (): PlatformType => {
       if ((window as any).__WEBCHANNEL_READY__) {
         return 'desktop';
       }
-      return 'web';
     } catch (error) {
       console.debug('[Platform] IPC check failed:', error);
-      return 'web';
     }
+    // If no IPC detected, treat as web
+    return 'web';
   }
   return 'web';
 };
