@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
 
-import { Tooltip, IconButton, Toast } from '@douyinfe/semi-ui';
+import { Tooltip, IconButton, Toast, Modal, Input } from '@douyinfe/semi-ui';
 import { IconSaveColored, IconSaveAsColored } from './colored-icons';
 import { useUserStore } from '../../../../stores/userStore';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
@@ -14,6 +14,8 @@ import { saveSheetsBundleToPath } from '../../services/sheets-persistence';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
 import { sanitizeNodeApiKeys, sanitizeApiKeysDeep } from '../../utils/sanitize-utils';
 import { IPCAPI } from '../../../../services/ipc/api';
+import { detectPlatform } from '../../../../config/platform';
+import { webApi } from '../../../../services/web/webApi';
 import { CURRENT_SCHEMA_VERSION } from '../../services/schema-migration';
 
 // ============================================================================
@@ -84,6 +86,73 @@ function deriveBundlePath(skillFilePath: string | null, skillName?: string): str
     }
   }
   return skillName ? `${skillName}_skill_bundle.json` : 'skill_bundle.json';
+}
+
+const DEFAULT_DATA_MAPPING = {
+  developing: { mappings: [], options: { strict: false, apply_order: 'top_down' } },
+  released: { mappings: [], options: { strict: true, apply_order: 'top_down' } },
+  node_transfers: {},
+  event_routing: {},
+};
+
+function deriveDataMappingPath(skillFilePath: string | null, skillName?: string): string {
+  if (skillFilePath) {
+    const normalized = String(skillFilePath).replace(/\\/g, '/');
+    if (normalized.includes('/diagram_dir/')) {
+      const root = normalized.split('/diagram_dir/')[0];
+      return `${root}/data_mapping.json`;
+    }
+    const baseDir = normalized.replace(/\/[^/]+$/, '');
+    return `${baseDir}/data_mapping.json`;
+  }
+  if (skillName) {
+    const base = normalizeSkillBaseName(skillName);
+    return `my_skills/${base}/data_mapping.json`;
+  }
+  return 'data_mapping.json';
+}
+
+function buildDataMappingFromState(skillInfo: SkillInfo, diagram: any) {
+  const skillMapping = (skillInfo as any)?.config?.skill_mapping || {
+    developing: DEFAULT_DATA_MAPPING.developing,
+    released: DEFAULT_DATA_MAPPING.released,
+    event_routing: {},
+  };
+
+  const node_transfers: Record<string, any> = {};
+  try {
+    for (const n of diagram.nodes || []) {
+      const data = n?.data || {};
+      if (data.mapping_rules) {
+        const key = (data.name || n.id || '').toString();
+        if (key) {
+          node_transfers[key] = data.mapping_rules;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[Save] node_transfers build skipped', e);
+  }
+
+  return {
+    developing: skillMapping.developing || DEFAULT_DATA_MAPPING.developing,
+    released: skillMapping.released || DEFAULT_DATA_MAPPING.released,
+    node_transfers,
+    event_routing: skillMapping.event_routing || {},
+  };
+}
+
+function buildBundleJsonForSave(bundle: any): string {
+  const sanitizedBundle = JSON.parse(JSON.stringify(bundle));
+  if (sanitizedBundle.sheets) {
+    sanitizedBundle.sheets.forEach((sheet: any) => {
+      if (sheet.document?.nodes) {
+        sanitizeNodeApiKeys(sheet.document.nodes);
+      }
+    });
+  }
+  sanitizeApiKeysDeep(sanitizedBundle);
+  return JSON.stringify(sanitizedBundle, null, 2);
 }
 
 /**
@@ -159,11 +228,56 @@ interface SaveProps {
 // 是否EnabledLocal下载 SkillInfo 文件
 const ENABLE_LOCAL_DOWNLOAD = true;
 
-export async function saveFile(dataToSave: SkillInfo, _username?: string, currentFilePath?: string | null) {
+function normalizeSkillBaseName(skillName?: string): string {
+  const raw = (skillName || 'untitled').trim();
+  return raw.replace(/_skill$/i, '') || 'untitled';
+}
+
+function buildWebSkillPath(skillName: string, username?: string | null): string {
+  const base = normalizeSkillBaseName(skillName);
+  const ownerPrefix = username ? `${username}/` : '';
+  return `${ownerPrefix}my_skills/${base}/diagram_dir/${base}_skill.json`;
+}
+
+export async function saveFile(
+  dataToSave: SkillInfo,
+  _username?: string,
+  currentFilePath?: string | null,
+  dataMappingJson?: string | null,
+  bundleJson?: string | null
+) {
   try {
     console.log('--- Debug Save: Data to Save ---', dataToSave);
     const jsonString = JSON.stringify(dataToSave, null, 2);
     // console.log('--- Debug Save: Final JSON String ---', jsonString);
+
+    if (detectPlatform() === 'web') {
+      try {
+        let filePath = currentFilePath;
+        if (!filePath) {
+          filePath = buildWebSkillPath(dataToSave.skillName, _username);
+          console.log('[SKILL_IO][FRONTEND][WEB_DEFAULT_PATH]', filePath);
+        }
+        const mappingPath = dataMappingJson ? deriveDataMappingPath(filePath, dataToSave.skillName) : null;
+        const bundlePath = deriveBundlePath(filePath, dataToSave.skillName);
+        const batch = [
+          { filePath, content: jsonString },
+          ...(dataMappingJson && mappingPath ? [{ filePath: mappingPath, content: dataMappingJson }] : []),
+          ...(bundleJson ? [{ filePath: bundlePath, content: bundleJson }] : []),
+        ];
+
+        const writeResult = await webApi.writeSkillFile(batch);
+        const firstResult = Array.isArray(writeResult) ? writeResult[0] : writeResult;
+        if (!firstResult) {
+          throw new Error('writeSkillFile failed.');
+        }
+        console.log('[SKILL_IO][FRONTEND][WEB_SAVE_OK]', filePath);
+        return { success: true, filePath, skillName: firstResult.skillName };
+      } catch (error) {
+        console.error('[SKILL_IO][FRONTEND][WEB_SAVE_ERROR]', error);
+        throw error;
+      }
+    }
 
     if (ENABLE_LOCAL_DOWNLOAD) {
       // Try IPC first regardless of platform flags
@@ -204,6 +318,14 @@ export async function saveFile(dataToSave: SkillInfo, _username?: string, curren
             // 需求4: 使用Backend返回的 skillName UpdateFrontend
             const savedSkillName = writeResponse.data?.skillName;
             console.log('[SKILL_IO][FRONTEND][SKILL_NAME_FROM_BACKEND]', savedSkillName);
+            if (dataMappingJson) {
+              const mappingPath = deriveDataMappingPath(filePath, dataToSave.skillName);
+              try {
+                await ipcApi.writeSkillFile(mappingPath, dataMappingJson);
+              } catch (e) {
+                console.warn('[SKILL_IO][FRONTEND][MAPPING_SAVE_ERROR]', e);
+              }
+            }
             return { 
               success: true, 
               filePath,
@@ -266,6 +388,10 @@ export const Save = ({ disabled }: SaveProps) => {
   const currentFilePath = useSkillInfoStore((state) => state.currentFilePath);
   const setCurrentFilePath = useSkillInfoStore((state) => state.setCurrentFilePath);
   const setHasUnsavedChanges = useSkillInfoStore((state) => state.setHasUnsavedChanges);
+  const dataMappingJson = useSkillInfoStore((state) => state.dataMappingJson);
+  const dataMappingDirty = useSkillInfoStore((state) => state.dataMappingDirty);
+  const setDataMappingJson = useSkillInfoStore((state) => state.setDataMappingJson);
+  const setDataMappingDirty = useSkillInfoStore((state) => state.setDataMappingDirty);
   const addRecentFile = useRecentFilesStore((state) => state.addRecentFile);
   const username = useUserStore((state) => state.username);
   const getAllSheets = useSheetsStore((s) => s.getAllSheets);
@@ -302,6 +428,23 @@ export const Save = ({ disabled }: SaveProps) => {
       const skillInfoForSave = { ...updatedSkillInfo, workFlow: sanitizedDiagram } as any;
       sanitizeApiKeysDeep(skillInfoForSave);
 
+      let dataMappingForSave: string | null = null;
+      if (dataMappingDirty && dataMappingJson) {
+        try {
+          const parsed = JSON.parse(dataMappingJson);
+          dataMappingForSave = JSON.stringify(parsed, null, 2);
+        } catch (e) {
+          console.error('[Save] data_mapping.json invalid', e);
+          try { Toast.error({ content: 'data_mapping.json is invalid JSON. Fix it before saving.' }); } catch {}
+          return;
+        }
+      } else {
+        const mappingObj = buildDataMappingFromState(updatedSkillInfo, diagram);
+        dataMappingForSave = JSON.stringify(mappingObj, null, 2);
+        setDataMappingJson(dataMappingForSave, false);
+        setDataMappingDirty(false);
+      }
+
       // 4. Handle skill rename if name changed
       let effectivePath = currentFilePath || null;
       try {
@@ -327,8 +470,21 @@ export const Save = ({ disabled }: SaveProps) => {
         console.warn('[Save] rename flow failed or skipped', e);
       }
 
+      let bundleJsonForSave: string | null = null;
+      if (detectPlatform() === 'web') {
+        saveActiveSheetDoc(diagram);
+        const bundle = getAllSheets();
+        bundleJsonForSave = buildBundleJsonForSave(bundle);
+      }
+
       // 5. Save the file
-      const saveResult = await saveFile(skillInfoForSave, username || undefined, effectivePath);
+      const saveResult = await saveFile(
+        skillInfoForSave,
+        username || undefined,
+        effectivePath,
+        dataMappingForSave,
+        bundleJsonForSave
+      );
 
       if (saveResult && !saveResult.cancelled) {
         const finalPath = saveResult.filePath || effectivePath || '';
@@ -342,6 +498,9 @@ export const Save = ({ disabled }: SaveProps) => {
           setCurrentFilePath(saveResult.filePath);
         }
 
+        const mappingPath = deriveDataMappingPath(finalPath, finalSkillInfo.skillName);
+        try { useSkillInfoStore.getState().setDataMappingPath(mappingPath); } catch {}
+
         if (finalPath) {
           addRecentFile(createRecentFile(finalPath, finalSkillInfo.skillName));
         }
@@ -349,14 +508,33 @@ export const Save = ({ disabled }: SaveProps) => {
         console.log('[SKILL_IO][SAVE_DONE]');
         try { Toast.success({ content: 'Skill saved.' }); } catch {}
 
-        // 6. Save bundle
-        const bundlePath = deriveBundlePath(finalPath, finalSkillInfo.skillName);
-        await saveBundleFile(bundlePath, diagram, saveActiveSheetDoc, getAllSheets);
+        // 6. Save bundle (web mode batch already handled)
+        if (detectPlatform() !== 'web') {
+          const bundlePath = deriveBundlePath(finalPath, finalSkillInfo.skillName);
+          await saveBundleFile(bundlePath, diagram, saveActiveSheetDoc, getAllSheets);
+        }
       }
     } catch (error) {
       console.error('Failed to save skill:', error);
     }
-  }, [skillInfo, username, document, currentFilePath, setSkillInfo, setCurrentFilePath, setHasUnsavedChanges, isFlipped, addRecentFile, getAllSheets, saveActiveSheetDoc]);
+  }, [
+    skillInfo,
+    username,
+    document,
+    currentFilePath,
+    setSkillInfo,
+    setCurrentFilePath,
+    setHasUnsavedChanges,
+    isFlipped,
+    addRecentFile,
+    getAllSheets,
+    saveActiveSheetDoc,
+    dataMappingJson,
+    dataMappingDirty,
+    setDataMappingJson,
+    setDataMappingDirty,
+    username,
+  ]);
 
   return (
     <Tooltip content="Save">
@@ -378,10 +556,15 @@ export const SaveAs = ({ disabled }: SaveProps) => {
   const currentFilePath = useSkillInfoStore((state) => state.currentFilePath);
   const setCurrentFilePath = useSkillInfoStore((state) => state.setCurrentFilePath);
   const setHasUnsavedChanges = useSkillInfoStore((state) => state.setHasUnsavedChanges);
+  const dataMappingJson = useSkillInfoStore((state) => state.dataMappingJson);
+  const dataMappingDirty = useSkillInfoStore((state) => state.dataMappingDirty);
+  const setDataMappingJson = useSkillInfoStore((state) => state.setDataMappingJson);
+  const setDataMappingDirty = useSkillInfoStore((state) => state.setDataMappingDirty);
   const addRecentFile = useRecentFilesStore((state) => state.addRecentFile);
   const getAllSheets = useSheetsStore((s) => s.getAllSheets);
   const saveActiveSheetDoc = useSheetsStore((s) => s.saveActiveDocument);
   const { isFlipped } = useNodeFlipStore();
+  const username = useUserStore((state) => state.username);
 
   const handleSaveAs = useCallback(async () => {
     if (!skillInfo) {
@@ -401,41 +584,99 @@ export const SaveAs = ({ disabled }: SaveProps) => {
       // 3. Extract config nodes
       const configNodes = extractConfigNodes(diagram);
 
-      // 4. Show system save dialog to let user choose path and filename
-      const ipcApi = IPCAPI.getInstance();
-      let currentName = (skillInfo as any).skillName || 'untitled';
-      // Remove _skill suffix if present (skillName should not have it)
-      if (currentName.endsWith('_skill')) {
-        currentName = currentName.slice(0, -6);
-      }
-      // Default filename uses base name without _skill suffix
-      // User can modify it in the dialog, and we'll extract the name from the final path
-      const defaultFilename = `${currentName}.json`;
-      
-      const dialogResult = await ipcApi.showSaveDialog(defaultFilename, [
-        { name: 'Skill Files', extensions: ['json'] }
-      ]);
+      // 4. Determine save target (web uses modal input, desktop uses native dialog)
+      let selectedPath: string | null = null;
+      let newSkillName = '';
 
-      if (!dialogResult.success || !dialogResult.data?.filePath) {
-        console.log('[SAVEAS] User cancelled save dialog');
-        return;
+      if (detectPlatform() === 'web') {
+        const requestedName = await new Promise<string | null>((resolve) => {
+          let inputValue = '';
+          let modalInstance: ReturnType<typeof Modal.confirm> | null = null;
+
+          modalInstance = Modal.confirm({
+            title: 'Save Skill As',
+            content: (
+              <div style={{ marginTop: 16 }}>
+                <p style={{ marginBottom: 8 }}>Enter new skill name (without _skill suffix):</p>
+                <Input
+                  placeholder="e.g., shopify_fulfill"
+                  autoFocus
+                  onChange={(value) => { inputValue = value; }}
+                  onEnterPress={() => {
+                    if (inputValue.trim()) {
+                      modalInstance?.destroy();
+                      resolve(inputValue.trim());
+                    }
+                  }}
+                />
+              </div>
+            ),
+            okText: 'Save',
+            cancelText: 'Cancel',
+            onOk: () => {
+              modalInstance?.destroy();
+              resolve(inputValue.trim() || null);
+            },
+            onCancel: () => {
+              modalInstance?.destroy();
+              resolve(null);
+            },
+          });
+        });
+
+        if (!requestedName) {
+          console.log('[SAVEAS] User cancelled save-as modal');
+          return;
+        }
+
+        newSkillName = requestedName.endsWith('_skill')
+          ? requestedName.slice(0, -6)
+          : requestedName;
+
+        try {
+          const exists = await webApi.checkSkillExists(newSkillName);
+          if (exists?.exists) {
+            Modal.warning({
+              title: 'Skill Already Exists',
+              content: `A skill named "${newSkillName}" already exists. Please choose a different name.`,
+            });
+            return;
+          }
+        } catch (e) {
+          console.warn('[SAVEAS] Failed to check skill existence:', e);
+        }
+
+        selectedPath = buildWebSkillPath(newSkillName, username);
+      } else {
+        const ipcApi = IPCAPI.getInstance();
+        let currentName = (skillInfo as any).skillName || 'untitled';
+        if (currentName.endsWith('_skill')) {
+          currentName = currentName.slice(0, -6);
+        }
+        const defaultFilename = `${currentName}.json`;
+
+        const dialogResult = await ipcApi.showSaveDialog(defaultFilename, [
+          { name: 'Skill Files', extensions: ['json'] }
+        ]);
+
+        if (!dialogResult.success || !dialogResult.data?.filePath) {
+          console.log('[SAVEAS] User cancelled save dialog');
+          return;
+        }
+
+        selectedPath = dialogResult.data.filePath;
+        console.log('[SAVEAS] User selected path:', selectedPath);
+
+        const fileName = selectedPath.split('/').pop() || '';
+        newSkillName = fileName
+          .replace(/\.json$/i, '')
+          .replace(/_skill$/i, '');
+
+        if (!newSkillName) {
+          newSkillName = (skillInfo as any).skillName || 'untitled';
+        }
       }
 
-      const selectedPath = dialogResult.data.filePath;
-      console.log('[SAVEAS] User selected path:', selectedPath);
-
-      // 5. Extract skill name from the selected file path
-      // User may have changed the filename in the save dialog
-      const fileName = selectedPath.split('/').pop() || '';
-      let newSkillName = fileName
-        .replace(/\.json$/i, '')           // Remove .json extension
-        .replace(/_skill$/i, '');          // Remove _skill suffix
-      
-      // Fallback to original name if extraction failed
-      if (!newSkillName) {
-        newSkillName = (skillInfo as any).skillName || 'untitled';
-      }
-      
       console.log('[SAVEAS] Extracted skill name from path:', newSkillName);
 
       // 6. Create updated skillInfo with new name
@@ -455,43 +696,85 @@ export const SaveAs = ({ disabled }: SaveProps) => {
 
       sanitizeApiKeysDeep(updatedSkillInfo);
 
+      let dataMappingForSave: string | null = null;
+      if (dataMappingDirty && dataMappingJson) {
+        try {
+          const parsed = JSON.parse(dataMappingJson);
+          dataMappingForSave = JSON.stringify(parsed, null, 2);
+        } catch (e) {
+          console.error('[SaveAs] data_mapping.json invalid', e);
+          Toast.error({ content: 'data_mapping.json is invalid JSON. Fix it before saving.' });
+          return;
+        }
+      } else {
+        const mappingObj = buildDataMappingFromState(updatedSkillInfo, diagram);
+        dataMappingForSave = JSON.stringify(mappingObj, null, 2);
+        setDataMappingJson(dataMappingForSave, false);
+        setDataMappingDirty(false);
+      }
+
       // 7. Prepare bundle data
       saveActiveSheetDoc(diagram);
       const bundle = getAllSheets();
 
-      // 8. Copy skill directory to new location
-      // Backend will check if destination already exists
+      // 8. Save to new location
       let finalDiagramPath: string;
-      
-      // Extract target directory from selected path
-      const targetDir = selectedPath.replace(/\/[^/]+$/, '');  // Remove filename to get directory
-      
-      if (currentFilePath) {
-        // Use copySkillTo to copy entire skill directory
-        const copyResult = await ipcApi.copySkillTo(
-          currentFilePath,
-          newSkillName,
-          updatedSkillInfo,
-          bundle,
-          targetDir
-        );
+      if (!selectedPath) {
+        throw new Error('Save As path is missing');
+      }
 
-        if (copyResult.success && copyResult.data) {
-          finalDiagramPath = (copyResult.data as any).diagramPath;
-        } else {
-          const errorMsg = (copyResult.error as any)?.message || 'Unknown error';
-          console.error('[SAVEAS] Copy failed:', errorMsg);
-          Toast.error({ content: `Save As failed: ${errorMsg}` });
-          return;
-        }
-      } else {
-        // No current path - just save to selected location
+      if (detectPlatform() === 'web') {
         finalDiagramPath = selectedPath;
-        await ipcApi.writeSkillFile(selectedPath, JSON.stringify(updatedSkillInfo, null, 2));
-        
-        // Also save bundle
-        const bundlePath = selectedPath.replace(/_skill\.json$/i, '_skill_bundle.json').replace(/\.json$/i, '_bundle.json');
-        await ipcApi.writeSkillFile(bundlePath, JSON.stringify(bundle, null, 2));
+        const mappingPath = dataMappingForSave ? deriveDataMappingPath(finalDiagramPath, newSkillName) : null;
+        const bundlePath = deriveBundlePath(finalDiagramPath, newSkillName);
+        const bundleJsonForSave = buildBundleJsonForSave(bundle);
+
+        const batch = [
+          { filePath: finalDiagramPath, content: JSON.stringify(updatedSkillInfo, null, 2) },
+          ...(dataMappingForSave && mappingPath ? [{ filePath: mappingPath, content: dataMappingForSave }] : []),
+          { filePath: bundlePath, content: bundleJsonForSave },
+        ];
+
+        await webApi.writeSkillFile(batch);
+      } else {
+        const ipcApi = IPCAPI.getInstance();
+        const targetDir = selectedPath.replace(/\/[^/]+$/, '');
+
+        if (currentFilePath) {
+          const copyResult = await ipcApi.copySkillTo(
+            currentFilePath,
+            newSkillName,
+            updatedSkillInfo,
+            bundle,
+            targetDir
+          );
+
+          if (copyResult.success && copyResult.data) {
+            finalDiagramPath = (copyResult.data as any).diagramPath;
+            if (dataMappingForSave) {
+              const mappingPath = deriveDataMappingPath(finalDiagramPath, newSkillName);
+              try {
+                await ipcApi.writeSkillFile(mappingPath, dataMappingForSave);
+              } catch (e) {
+                console.warn('[SAVEAS] Failed to save data_mapping.json', e);
+              }
+            }
+          } else {
+            const errorMsg = (copyResult.error as any)?.message || 'Unknown error';
+            console.error('[SAVEAS] Copy failed:', errorMsg);
+            Toast.error({ content: `Save As failed: ${errorMsg}` });
+            return;
+          }
+        } else {
+          finalDiagramPath = selectedPath;
+          await ipcApi.writeSkillFile(selectedPath, JSON.stringify(updatedSkillInfo, null, 2));
+          const bundlePath = selectedPath.replace(/_skill\.json$/i, '_skill_bundle.json').replace(/\.json$/i, '_bundle.json');
+          await ipcApi.writeSkillFile(bundlePath, JSON.stringify(bundle, null, 2));
+          if (dataMappingForSave) {
+            const mappingPath = deriveDataMappingPath(selectedPath, newSkillName);
+            await ipcApi.writeSkillFile(mappingPath, dataMappingForSave);
+          }
+        }
       }
 
       // 9. Update in-memory state
@@ -510,6 +793,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
 
       setSkillInfo(finalSkillInfo);
       setCurrentFilePath(finalDiagramPath);
+      try { useSkillInfoStore.getState().setDataMappingPath(deriveDataMappingPath(finalDiagramPath, newSkillName)); } catch {}
       setHasUnsavedChanges(false);
       addRecentFile(createRecentFile(finalDiagramPath, newSkillName));
 
@@ -520,7 +804,22 @@ export const SaveAs = ({ disabled }: SaveProps) => {
       console.error('Failed to save as:', error);
       Toast.error({ content: `Save As failed: ${error}` });
     }
-  }, [skillInfo, currentFilePath, document, setSkillInfo, setCurrentFilePath, setHasUnsavedChanges, isFlipped, addRecentFile, getAllSheets, saveActiveSheetDoc]);
+  }, [
+    skillInfo,
+    currentFilePath,
+    document,
+    setSkillInfo,
+    setCurrentFilePath,
+    setHasUnsavedChanges,
+    isFlipped,
+    addRecentFile,
+    getAllSheets,
+    saveActiveSheetDoc,
+    dataMappingJson,
+    dataMappingDirty,
+    setDataMappingJson,
+    setDataMappingDirty,
+  ]);
 
   return (
     <Tooltip content="Save As">

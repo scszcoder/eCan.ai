@@ -134,6 +134,7 @@ const TabInput = styled.input`
 `;
 
 export const SheetsTabBar: React.FC = () => {
+  console.log('[SheetsTabBar] Rendering...');
   const sheets = useSheetsStore((s) => s.sheets);
   const openTabs = useSheetsStore((s) => s.openTabs);
   const activeId = useSheetsStore((s) => s.activeSheetId);
@@ -143,6 +144,7 @@ export const SheetsTabBar: React.FC = () => {
   const openSheet = useSheetsStore((s) => s.openSheet);
   const reorderTabs = useSheetsStore((s) => s.reorderTabs);
   const renameSheet = useSheetsStore((s) => s.renameSheet);
+  console.log('[SheetsTabBar] State:', { sheetsCount: Object.keys(sheets).length, openTabsCount: openTabs.length, activeId, openTabs });
 
   const [offset, setOffset] = React.useState(0);
   const tabsRef = React.useRef<HTMLDivElement>(null);
@@ -232,12 +234,14 @@ export const SheetsTabBar: React.FC = () => {
     setEditingName('');
   };
 
+  console.log('[SheetsTabBar] About to render Bar');
   return (
     <Bar>
       <Tooltip content="Scroll tabs left"><IconButton icon={<IconChevronLeft />} onClick={scrollLeft} /></Tooltip>
       <ScrollArea ref={scrollRef}>
         <TabsRow ref={tabsRef} style={{ transform: `translateX(${offset}px)` }}>
           {openTabs.map((id, idx) => {
+            console.log('[SheetsTabBar] Rendering tab:', { id, idx, hasSheet: !!sheets[id] });
             const sh = sheets[id];
             if (!sh) return null;
             return (

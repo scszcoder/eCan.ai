@@ -9,6 +9,12 @@ import type { SkillInfo } from '../typings/skill-info';
 interface SkillInfoStoreState {
   skillInfo: SkillInfo | null;
   setSkillInfo: (info: SkillInfo) => void;
+  dataMappingJson: string | null;
+  dataMappingPath: string | null;
+  dataMappingDirty: boolean;
+  setDataMappingJson: (json: string | null, dirty?: boolean) => void;
+  setDataMappingPath: (path: string | null) => void;
+  setDataMappingDirty: (dirty: boolean) => void;
   breakpoints: string[];
   addBreakpoint: (nodeId: string) => void;
   removeBreakpoint: (nodeId: string) => void;
@@ -25,6 +31,12 @@ interface SkillInfoStoreState {
 export const useSkillInfoStore = create<SkillInfoStoreState>((set) => ({
   skillInfo: null,
   setSkillInfo: (info) => set({ skillInfo: info }),
+  dataMappingJson: null,
+  dataMappingPath: null,
+  dataMappingDirty: false,
+  setDataMappingJson: (json, dirty = false) => set({ dataMappingJson: json, dataMappingDirty: dirty }),
+  setDataMappingPath: (path) => set({ dataMappingPath: path }),
+  setDataMappingDirty: (dirty) => set({ dataMappingDirty: dirty }),
   breakpoints: [],
   addBreakpoint: (nodeId) =>
     set((state) => ({ breakpoints: [...new Set([...state.breakpoints, nodeId])] })), // Avoid duplicates

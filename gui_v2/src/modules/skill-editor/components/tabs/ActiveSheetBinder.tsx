@@ -32,6 +32,18 @@ export const ActiveSheetBinder = () => {
   const playgroundRef = useRef(playground);
   toolsRef.current = tools;
   playgroundRef.current = playground;
+  
+  // Track all timeouts for cleanup
+  const timeoutsRef = useRef<NodeJS.Timeout[]>([]);
+  const clearAllTimeouts = () => {
+    timeoutsRef.current.forEach(clearTimeout);
+    timeoutsRef.current = [];
+  };
+  const addTimeout = (fn: () => void, delay: number) => {
+    const id = setTimeout(fn, delay);
+    timeoutsRef.current.push(id);
+    return id;
+  };
 
   useEffect(() => {
     if (!ctx?.document) return;
@@ -79,21 +91,48 @@ export const ActiveSheetBinder = () => {
 
     // Load active sheet document into editor
     const nextDoc = getActiveDocument();
-    try { console.log('[ActiveSheetBinder] Loading active sheet', { activeSheetId, hasDoc: !!nextDoc, nodes: nextDoc?.nodes?.length, edges: nextDoc?.edges?.length, revision }); } catch {}
-    // Always clear to ensure blank sheets start empty
-    ctx.document.clear();
-    // If no saved document, load an explicit blank flow (no nodes/edges)
-    const docToLoad = nextDoc ?? (blankFlowData as any);
-    if (docToLoad) {
-      try { console.log('[ActiveSheetBinder] fromJSON()', { nodeCount: Array.isArray(docToLoad?.nodes) ? docToLoad.nodes.length : 'n/a' }); } catch {}
+    console.log('[ActiveSheetBinder] Loading active sheet', { activeSheetId, hasDoc: !!nextDoc, nodes: nextDoc?.nodes?.length, edges: nextDoc?.edges?.length, revision });
+    
+    // Clear any previous timeouts before starting new ones
+    clearAllTimeouts();
+    
+    // CRITICAL: Defer document operations to next event loop tick.
+    // This prevents React state updates and flowgram's internal async operations
+    // from accessing context during React's transitional render phase,
+    // which causes React error #321 (Invalid hook call).
+    addTimeout(() => {
+      // Check if document is still valid (not disposed)
+      if (ctx?.document?.disposed) {
+        console.log('[ActiveSheetBinder] Document disposed, skipping load');
+        return;
+      }
+      
+      console.log('[ActiveSheetBinder] About to clear document - this will trigger DELETE_NODE events');
+      console.log('[ActiveSheetBinder] Current document state before clear:', { disposed: ctx?.document?.disposed, nodesCount: ctx?.document?.toJSON?.()?.nodes?.length });
+      // Always clear to ensure blank sheets start empty
       try {
-        console.time('[ActiveSheetBinder] fromJSON duration');
-        ctx.document.fromJSON(docToLoad);
-        console.timeEnd('[ActiveSheetBinder] fromJSON duration');
+        ctx.document.clear();
+        console.log('[ActiveSheetBinder] Document cleared successfully');
+      } catch (clearErr) {
+        console.error('[ActiveSheetBinder] Error during document.clear():', clearErr);
+        return; // Don't proceed if clear failed
+      }
+      console.log('[ActiveSheetBinder] Document state after clear:', { disposed: ctx?.document?.disposed });
+      // If no saved document, load an explicit blank flow (no nodes/edges)
+      const docToLoad = nextDoc ?? (blankFlowData as any);
+      if (docToLoad) {
+        console.log('[ActiveSheetBinder] fromJSON()', { nodeCount: Array.isArray(docToLoad?.nodes) ? docToLoad.nodes.length : 'n/a' });
+        console.log('[ActiveSheetBinder] docToLoad nodes:', docToLoad?.nodes?.map((n: any) => ({ id: n.id, type: n.type })));
+        try {
+          console.time('[ActiveSheetBinder] fromJSON duration');
+          console.log('[ActiveSheetBinder] Calling ctx.document.fromJSON...');
+          ctx.document.fromJSON(docToLoad);
+          console.log('[ActiveSheetBinder] ctx.document.fromJSON completed');
+          console.timeEnd('[ActiveSheetBinder] fromJSON duration');
         
         // Restore flip states from loaded document
         if (docToLoad?.nodes && Array.isArray(docToLoad.nodes)) {
-          setTimeout(() => {
+          addTimeout(() => {
             docToLoad.nodes.forEach((node: any) => {
               if (node?.data?.hFlip === true) {
                 console.log('[ActiveSheetBinder] Restoring hFlip for node:', node.id);
@@ -147,7 +186,7 @@ export const ActiveSheetBinder = () => {
         // Check if tools are ready
         if (!currentTools?.fitView && retryCount < 5) {
           console.log('[ActiveSheetBinder] tools.fitView not ready, retrying...', retryCount);
-          setTimeout(() => doFitView(retryCount + 1), 200);
+          addTimeout(() => doFitView(retryCount + 1), 200);
           return;
         }
         
@@ -158,17 +197,31 @@ export const ActiveSheetBinder = () => {
           currentPlayground.config.updateZoom(view.zoom);
           console.log('[ActiveSheetBinder] Restored zoom for sheet switch:', view.zoom);
         } else {
+          // TEMPORARILY DISABLED: fitView is causing context invalidation that crashes Tools
+          // TODO: Find a way to call fitView without triggering cascading re-renders
+          console.log('[ActiveSheetBinder] fitView DISABLED for debugging - skipping...');
+          /*
           // For initial load, refresh, or new file: always fitView
-          console.log('[ActiveSheetBinder] Executing fitView (initial/refresh)...');
-          if (currentTools?.fitView) {
-            currentTools.fitView();
-            console.log('[ActiveSheetBinder] fitView completed via tools');
-          } else if ((ctx.document as any).fitView) {
-            (ctx.document as any).fitView();
-            console.log('[ActiveSheetBinder] fitView completed via ctx.document');
-          } else {
-            console.warn('[ActiveSheetBinder] No fitView method available');
-          }
+          // CRITICAL: Use requestAnimationFrame to ensure React has finished its render cycle
+          // before triggering fitView, which causes internal state updates in flowgram
+          // that can invalidate context during React's transitional state.
+          console.log('[ActiveSheetBinder] Scheduling fitView via requestAnimationFrame...');
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              // Double RAF to ensure we're after React's commit phase
+              console.log('[ActiveSheetBinder] Executing fitView (initial/refresh)...');
+              if (currentTools?.fitView) {
+                currentTools.fitView();
+                console.log('[ActiveSheetBinder] fitView completed via tools');
+              } else if ((ctx.document as any).fitView) {
+                (ctx.document as any).fitView();
+                console.log('[ActiveSheetBinder] fitView completed via ctx.document');
+              } else {
+                console.warn('[ActiveSheetBinder] No fitView method available');
+              }
+            });
+          });
+          */
         }
         initialFitViewDoneRef.current = true;
       } catch (err) {
@@ -177,7 +230,7 @@ export const ActiveSheetBinder = () => {
     };
     
     // Delay fitView to ensure nodes are rendered (longer delay for initial load)
-    const fitViewTimeout = setTimeout(() => doFitView(0), isInitialLoad ? 300 : 100);
+    addTimeout(() => doFitView(0), isInitialLoad ? 300 : 100);
 
     // Restore selection for this sheet if any
     try {
@@ -197,9 +250,11 @@ export const ActiveSheetBinder = () => {
 
     lastSheetIdRef.current = activeSheetId ?? null;
     
-    // Cleanup timeout on unmount or re-run
+    }, 0); // End of documentLoadTimeoutId setTimeout - defer to next event loop tick
+    
+    // Cleanup all timeouts on unmount or re-run
     return () => {
-      clearTimeout(fitViewTimeout);
+      clearAllTimeouts();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSheetId, revision, ctx, getActiveDocument]);

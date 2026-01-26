@@ -72,6 +72,21 @@ const mapContextMessages = (rawMessages: any[]): ChatMessage[] => {
     .map((m) => {
       const metadata = m.metadata && typeof m.metadata === 'string' ? parseMaybeJson(m.metadata) : m.metadata;
       const attachments = m.attachments && typeof m.attachments === 'string' ? parseMaybeJson(m.attachments) : m.attachments;
+      
+      // Validate clarification data structure
+      let clarification = metadata?.clarification;
+      if (clarification && (!Array.isArray(clarification) || !clarification.every((q: any) => q?.id && q?.question && Array.isArray(q?.choices)))) {
+        console.warn('[mapContextMessages] Invalid clarification data, skipping:', clarification);
+        clarification = undefined;
+      }
+      
+      // Validate plan data structure
+      let plan = metadata?.plan;
+      if (plan && (!plan.summary || !Array.isArray(plan.steps))) {
+        console.warn('[mapContextMessages] Invalid plan data, skipping:', plan);
+        plan = undefined;
+      }
+      
       return {
         id: String(m.id),
         role: (m.role as 'user' | 'assistant') || 'assistant',
@@ -80,9 +95,10 @@ const mapContextMessages = (rawMessages: any[]): ChatMessage[] => {
         attachments: Array.isArray(attachments)
           ? attachments.map((a: any) => a?.path || a?.name || String(a)).filter(Boolean)
           : undefined,
-        clarification: metadata?.clarification as ClarificationQuestion[] | undefined,
+        clarification: clarification as ClarificationQuestion[] | undefined,
         clarificationAnswers: metadata?.clarificationAnswers as Record<string, string[]> | undefined,
-        plan: metadata?.plan as ImplementationPlan | undefined,
+        plan: plan as ImplementationPlan | undefined,
+        planAction: metadata?.planAction as 'approved' | 'revised' | undefined,
         state: metadata?.state as PipelineState | undefined,
       } as ChatMessage;
     });
@@ -402,7 +418,8 @@ const renderMessageContent = (msg: ChatMessage) => {
   const raw = msg.content ?? '';
 
   // If message has clarification with submitted answers, render read-only ClarificationCard
-  if (msg.clarification && msg.clarification.length > 0 && msg.clarificationAnswers) {
+  // Only render if clarification data is valid
+  if (msg.clarification && Array.isArray(msg.clarification) && msg.clarification.length > 0 && msg.clarificationAnswers) {
     return (
       <>
         {renderTextContent(raw)}
@@ -415,7 +432,8 @@ const renderMessageContent = (msg: ChatMessage) => {
   }
 
   // If message has plan with action taken, render read-only PlanCard
-  if (msg.plan && msg.planAction) {
+  // Only render if plan data is valid
+  if (msg.plan && msg.plan.summary && Array.isArray(msg.plan.steps) && msg.planAction) {
     return (
       <>
         {renderTextContent(raw)}
@@ -584,9 +602,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         }
 
         if (context?.flowgram) {
+          console.log('[ChatPanel] Context has flowgram, calling loadFlowgram...');
           canvasController.loadFlowgram(context.flowgram).catch((err) => {
             console.warn('[ChatPanel] Failed to load flowgram from context:', err);
           });
+        } else {
+          console.log('[ChatPanel] Context has no flowgram');
         }
       } catch (error) {
         console.warn('[ChatPanel] Failed to apply loaded context:', error);

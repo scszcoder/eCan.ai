@@ -11,6 +11,7 @@ import { IconMinus } from '@douyinfe/semi-icons';
 import iconVariable from '../../../assets/icon-variable.png';
 import { GlobalVariableEditor } from './global-variable-editor';
 import { FullVariableList } from './full-variable-list';
+import { DataMappingEditor } from './data-mapping-editor';
 
 import styles from './index.module.less';
 
@@ -36,6 +37,9 @@ export function VariablePanel() {
             </Tabs.TabPane>
             <Tabs.TabPane itemKey="global" tab="Global Editor">
               <GlobalVariableEditor />
+            </Tabs.TabPane>
+            <Tabs.TabPane itemKey="data-mapping" tab="Data Mapping">
+              <DataMappingEditor />
             </Tabs.TabPane>
           </Tabs>
         </div>
