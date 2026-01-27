@@ -39,6 +39,7 @@ const Tools: React.FC = () => {
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
   const username = useUserStore((state) => state.username);
   const { tools, loading, fetchTools, forceRefresh } = useToolStore();
+  const hasFetchedRef = React.useRef(false);
 
   // Debug: log raw tools payload including schemas
   useEffect(() => {
@@ -66,12 +67,13 @@ const Tools: React.FC = () => {
 
   // Auto-load tools when component mounts or username changes
   useEffect(() => {
-    if (username && tools.length === 0 && !loading) {
+    if (username && !hasFetchedRef.current) {
+      hasFetchedRef.current = true;
       console.log('[Tools] Auto-loading tools for user:', username);
       fetchTools(username).catch(console.error);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [username, tools.length, loading]); // Remove fetchTools 避免无限Loop
+  }, [username]); // Only depend on username, use ref to prevent duplicate fetches
 
   useEffect(() => {
     if (tools.length > 0 && !selectedTool) {

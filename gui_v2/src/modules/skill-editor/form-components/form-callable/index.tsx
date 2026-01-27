@@ -17,7 +17,8 @@ export function FormCallable() {
     if (username) {
       fetchTools(username);
     }
-  }, [username, fetchTools]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [username]); // Remove fetchTools to avoid infinite loop
 
   // Map the tools from the store to the format expected by CallableSelector
   const realSystemFunctions: CallableFunction[] = tools.map(tool => ({
