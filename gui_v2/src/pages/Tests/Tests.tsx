@@ -711,6 +711,40 @@ const Tests: React.FC = () => {
         }
     };
 
+    const handleC2LWebsocketTest = async () => {
+        setTestOutput('');
+        appendTestOutput('C2L WS Test: Starting...');
+        appendTestOutput('C2L WS Test: This sends a runTest mutation to cloud AppSync');
+        
+        // Get the local server port from settings
+        const port = settings?.local_server_port || '4668';
+        const testUrl = `http://localhost:${port}/api/c2l-ws-test`;
+        
+        appendTestOutput(`C2L WS Test: Calling ${testUrl}`);
+        
+        try {
+            const response = await fetch(testUrl, { method: 'GET' });
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                appendTestOutput(`C2L WS Test: SUCCESS - Test ID: ${result.testId}`);
+                appendTestOutput(`C2L WS Test: Cloud Response: ${JSON.stringify(result.cloudResponse, null, 2)}`);
+                appendTestOutput('C2L WS Test: Check browser console (F12) for any WebSocket messages pushed from cloud');
+            } else {
+                appendTestOutput(`C2L WS Test: FAILED - ${result.error || 'Unknown error'}`);
+                if (result.errors) {
+                    appendTestOutput(`C2L WS Test: Errors: ${JSON.stringify(result.errors, null, 2)}`);
+                }
+                if (result.traceback) {
+                    appendTestOutput(result.traceback);
+                }
+            }
+        } catch (error) {
+            appendTestOutput(`C2L WS Test: ERROR - ${error instanceof Error ? error.message : String(error)}`);
+            appendTestOutput('Make sure the local server is running and you are logged in.');
+        }
+    };
+
     const handlePageClick: React.MouseEventHandler<HTMLDivElement> = (e) => {
         const target = e.target as HTMLElement;
         console.log('[Tests] Page click:', {
@@ -811,6 +845,9 @@ const Tests: React.FC = () => {
                         </Button>
                         <Button onClick={handleLocalWebsocketTest} style={{ marginLeft: 8 }}>
                             Local WS Test
+                        </Button>
+                        <Button onClick={handleC2LWebsocketTest} style={{ marginLeft: 8 }}>
+                            C2L WS Test
                         </Button>
                     </Space>
                     {/* Test Selection */}

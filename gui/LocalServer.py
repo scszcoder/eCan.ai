@@ -1710,6 +1710,79 @@ async def local_ws_test(request):
         }, status_code=500)
 
 
+async def c2l_ws_test(request):
+    """C2L (Cloud to Local) WebSocket Test endpoint.
+    
+    This sends a runTest mutation to cloud AppSync to test the cloud-to-local
+    WebSocket push mechanism. The cloud should receive this request and can
+    push messages back to the local client via WebSocket subscriptions.
+    """
+    import time
+    import uuid
+    import requests
+    
+    timestamp = int(time.time() * 1000)
+    test_id = f"c2l-test-{timestamp}"
+    
+    try:
+        # Get auth token from app context
+        from app_context import AppContext
+        main_window = AppContext.get_main_window()
+        
+        if not main_window:
+            return JSONResponse({
+                "status": "error",
+                "error": "MainWindow not available"
+            }, status_code=500)
+        
+        token = main_window.get_auth_token()
+        if not token:
+            return JSONResponse({
+                "status": "error",
+                "error": "No authentication token available. Please log in."
+            }, status_code=401)
+        
+        # Import cloud_api function
+        from agent.cloud_api.cloud_api import send_run_test_to_cloud
+        
+        # Create test payload
+        tests = [{
+            "id": test_id,
+            "name": "C2L_WS_TEST",
+            "description": "",
+            "input": "{}"
+        }]
+        
+        # Create a session and send to cloud
+        session = requests.Session()
+        
+        logger.info(f"[C2L-WS-Test] Sending test to cloud: {test_id}")
+        result = send_run_test_to_cloud(session, token, tests)
+        
+        if result.get("success"):
+            return JSONResponse({
+                "status": "success",
+                "testId": test_id,
+                "timestamp": timestamp,
+                "cloudResponse": result.get("data")
+            })
+        else:
+            return JSONResponse({
+                "status": "error",
+                "testId": test_id,
+                "errors": result.get("errors", [])
+            }, status_code=500)
+            
+    except Exception as e:
+        logger.error(f"[C2L-WS-Test] Error: {e}")
+        import traceback
+        return JSONResponse({
+            "status": "error",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }, status_code=500)
+
+
 # Wrap the raw ASGI handler for POST
 # messages_router = Router([
 #     Route("/", endpoint=sse_handle_messages, methods=["POST"])
@@ -1846,6 +1919,7 @@ class RouteBuilder:
             Mount("/mcp", app=mcp_asgi),
             Route("/healthz", health_check),
             Route("/api/local-ws-test", local_ws_test, methods=['GET', 'POST']),
+            Route("/api/c2l-ws-test", c2l_ws_test, methods=['GET', 'POST']),
             Route("/graphql", self.request_handlers.graphql_handler, methods=['POST']),
             WebSocketRoute("/ws/skill-editor", self.request_handlers.skill_editor_websocket),
             Route('/api/initialize', self.request_handlers.initialize, methods=['POST']),
