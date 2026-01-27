@@ -157,6 +157,7 @@ class AppWebSocketManager:
     async def send_chat_done(self, session_id: str, message_id: str, full_content: str):
         """Send chat completion message."""
         logger.info(f"[SkillEditorWS] ✅ Sending done for message {message_id[:8]}... ({len(full_content)} chars total)")
+        logger.info(f"[SkillEditorWS] ✅ full content:::{(full_content)}")
         # Use same event type as AppSync for compatibility
         await self.send_to_session(session_id, {
             "type": "skill_editor.chat.stream_end",
