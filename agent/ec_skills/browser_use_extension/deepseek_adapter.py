@@ -28,7 +28,6 @@ class DeepSeekOutputAdapter:
     
     Usage:
         adapter = DeepSeekOutputAdapter()
-        adapted_output = adapter.adapt_output(raw_llm_response)
     """
     
     # Valid browser-use action types
@@ -48,15 +47,20 @@ class DeepSeekOutputAdapter:
         self.adapt_count = 0
         self.error_count = 0
     
-    def adapt_output(self, raw_output: str) -> str:
+    def make_compatible_output(self, raw_output: str) -> str:
         """
-        Adapt DeepSeek output format to browser-use schema.
+        Transform DeepSeek output to browser-use compatible format.
+        
+        This is the main entry point for output adaptation. It handles:
+        - Invalid action types removal
+        - Missing 'done' field addition
+        - Multiple action types normalization
         
         Args:
-            raw_output: Raw JSON string from DeepSeek
+            raw_output: Raw JSON string from DeepSeek LLM
             
         Returns:
-            Adapted JSON string compatible with browser-use schema
+            Browser-use compatible JSON string
         """
         try:
             # Parse JSON
@@ -76,6 +80,7 @@ class DeepSeekOutputAdapter:
             logger.error(f"[DeepSeekAdapter] Unexpected error: {e}")
             self.error_count += 1
             return raw_output
+
     
     def _adapt_structure(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Adapt the overall structure of the output."""
@@ -219,15 +224,24 @@ class DeepSeekOutputAdapter:
         }
 
 
-def create_deepseek_compatible_llm(llm: Any) -> Any:
+def wrap_llm_with_compatible_output(llm: Any) -> Any:
     """
-    Wrap an LLM instance to automatically adapt DeepSeek output format.
+    Wrap an LLM to automatically transform output to browser-use compatible format.
+    
+    This wrapper intercepts LLM responses and applies the DeepSeekOutputAdapter
+    to ensure all outputs conform to browser-use's Pydantic schema.
     
     Args:
         llm: Original LLM instance (ChatDeepSeek or ChatOpenAI with DeepSeek endpoint)
         
     Returns:
-        Wrapped LLM instance with output adaptation
+        Wrapped LLM instance with automatic output adaptation
+        
+    Example:
+        >>> from langchain_openai import ChatOpenAI
+        >>> base_llm = ChatOpenAI(model="deepseek-chat")
+        >>> compatible_llm = wrap_llm_with_compatible_output(base_llm)
+        >>> # Now compatible_llm will auto-adapt all DeepSeek outputs
     """
     from langchain_core.language_models.chat_models import BaseChatModel
     from langchain_core.messages import AIMessage, BaseMessage
@@ -250,14 +264,14 @@ def create_deepseek_compatible_llm(llm: Any) -> Any:
             """Synchronous generation with output adaptation."""
             result = self._base_llm._generate(messages, **kwargs)
             
-            # Adapt the output content
+            # Transform output to compatible format
             if result.generations and result.generations[0]:
                 original_content = result.generations[0][0].text
-                adapted_content = self._adapter.adapt_output(original_content)
+                compatible_content = self._adapter.make_compatible_output(original_content)
                 
-                if original_content != adapted_content:
-                    logger.info("[DeepSeekAdapter] Applied output format adaptation")
-                    result.generations[0][0].text = adapted_content
+                if original_content != compatible_content:
+                    logger.info("[DeepSeekAdapter] Transformed output to compatible format")
+                    result.generations[0][0].text = compatible_content
             
             return result
         
@@ -265,14 +279,14 @@ def create_deepseek_compatible_llm(llm: Any) -> Any:
             """Async generation with output adaptation."""
             result = await self._base_llm._agenerate(messages, **kwargs)
             
-            # Adapt the output content
+            # Transform output to compatible format
             if result.generations and result.generations[0]:
                 original_content = result.generations[0][0].text
-                adapted_content = self._adapter.adapt_output(original_content)
+                compatible_content = self._adapter.make_compatible_output(original_content)
                 
-                if original_content != adapted_content:
-                    logger.info("[DeepSeekAdapter] Applied output format adaptation")
-                    result.generations[0][0].text = adapted_content
+                if original_content != compatible_content:
+                    logger.info("[DeepSeekAdapter] Transformed output to compatible format")
+                    result.generations[0][0].text = compatible_content
             
             return result
         
@@ -303,7 +317,7 @@ def test_adapter():
     
     print("Test 1 - Invalid file operations:")
     print("Input:", test1)
-    print("Output:", adapter.adapt_output(test1))
+    print("Output:", adapter.make_compatible_output(test1))
     print()
     
     # Test case 2: Missing done field
@@ -316,7 +330,7 @@ def test_adapter():
     
     print("Test 2 - Missing done field:")
     print("Input:", test2)
-    print("Output:", adapter.adapt_output(test2))
+    print("Output:", adapter.make_compatible_output(test2))
     print()
     
     # Test case 3: Multiple action types
@@ -331,7 +345,7 @@ def test_adapter():
     
     print("Test 3 - Multiple action types:")
     print("Input:", test3)
-    print("Output:", adapter.adapt_output(test3))
+    print("Output:", adapter.make_compatible_output(test3))
     print()
     
     print("Stats:", adapter.get_stats())

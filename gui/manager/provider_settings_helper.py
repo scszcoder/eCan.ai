@@ -117,7 +117,7 @@ def get_ollama_api_key(provider_type: str) -> str:
         API key string (or 'ollama' as dummy if not configured)
     """
     try:
-        from utils.env.env_utils import get_api_key
+        from utils.env.secure_store import get_current_username, secure_store
         
         # Determine the environment variable name based on provider type
         if provider_type == 'llm':
@@ -130,8 +130,9 @@ def get_ollama_api_key(provider_type: str) -> str:
             logger.warning(f"[ProviderUtils] Unknown provider_type: {provider_type}")
             return "ollama"
         
-        api_key = get_api_key(env_var)
-        if not api_key:
+        username = get_current_username()
+        api_key = secure_store.get(env_var, username=username)
+        if not api_key or not api_key.strip():
             # For local Ollama without authentication, use dummy key
             logger.debug(f"[ProviderUtils] {env_var} not configured, using dummy key for local access")
             return "ollama"

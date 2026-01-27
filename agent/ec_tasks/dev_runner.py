@@ -359,21 +359,34 @@ class DevRunner:
                 log_msg = "task already done!"
                 logger.debug(log_msg)
                 _send_skill_editor_log("log", log_msg)
-                return {"success": True}
-            
-            try:
+            else:
                 log_msg = "task to be cancelled."
                 logger.debug(log_msg)
                 _send_skill_editor_log("log", log_msg)
                 
-                if hasattr(self._dev_task, "cancel"):
-                    self._dev_task.cancel()
-                if hasattr(self._dev_task, "exit"):
-                    self._dev_task.exit()
-            except Exception:
-                pass
+                try:
+                    if hasattr(self._dev_task, "cancel"):
+                        self._dev_task.cancel()
+                    if hasattr(self._dev_task, "exit"):
+                        self._dev_task.exit()
+                except Exception:
+                    pass
+                
+                self._dev_task = None
             
-            self._dev_task = None
+            # Send status update to frontend (unified for both cases)
+            ipc = _get_ipc()
+            if ipc:
+                try:
+                    ipc.send_skill_run_status_update(
+                        agent_task_id="dev_run_singleton",
+                        current_node="",
+                        status="cancelled",
+                        node_state={}
+                    )
+                except Exception as e:
+                    logger.debug(f"Failed to send status update: {e}")
+            
             return {"success": True}
             
         except Exception as e:

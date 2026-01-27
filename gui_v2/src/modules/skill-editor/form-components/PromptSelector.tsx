@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Select, Button, Tooltip } from '@douyinfe/semi-ui';
 import { IconEdit } from '@douyinfe/semi-icons';
@@ -24,6 +24,8 @@ export const PromptSelector: React.FC<PromptSelectorProps> = ({
   const username = useUserStore((s) => s.username || 'user');
   const { prompts, fetch, fetched, loading: storeLoading } = usePromptStore();
   const [loading, setLoading] = useState(false);
+  // Track which prompt IDs we've already attempted to fetch to prevent infinite loops
+  const attemptedFetchIds = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!fetched) {
@@ -35,12 +37,30 @@ export const PromptSelector: React.FC<PromptSelectorProps> = ({
   useEffect(() => {
     const selected = value;
     if (!selected || selected === IN_LINE_PROMPT_ID) return;
+    
+    // If prompts are already fetched and the selected ID exists, no need to refetch
     const exists = prompts.some((p: Prompt) => p.id === selected);
     if (exists) return;
+    
+    // If we haven't fetched at all yet, wait for the first fetch to complete
+    if (!fetched) return;
+    
+    // Prevent infinite retry loop: only attempt to fetch each ID once
+    if (attemptedFetchIds.current.has(selected)) {
+      console.warn(`[PromptSelector] Prompt ID "${selected}" not found after fetch attempt, skipping retry to prevent infinite loop`);
+      return;
+    }
+    
+    // Don't fetch if already loading
     if (storeLoading || loading) return;
+    
+    console.log(`[PromptSelector] Attempting to fetch missing prompt ID: ${selected}`);
+    
+    // Mark this ID as attempted before fetching
+    attemptedFetchIds.current.add(selected);
     setLoading(true);
     fetch(username, true).finally(() => setLoading(false));
-  }, [value, prompts, fetch, username, storeLoading, loading]);
+  }, [value, prompts, fetch, username, storeLoading, fetched]);
 
   const options = useMemo(() => {
     const promptOptions = prompts.map((p: Prompt) => ({

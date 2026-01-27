@@ -76,7 +76,7 @@ pytesseract==0.3.13
 # ============================================================================
 selenium==4.32.0
 playwright==1.54.0
-browser-use==0.11.2
+browser-use==0.11.4
 # crawl4ai==0.8.0  # Commented out - no Python 3.14 wheels (requires lxml~=5.3 which lacks cp314 support)
 webdriver-manager==4.0.2
 fake-useragent==2.2.0
@@ -377,7 +377,7 @@ brotli==1.2.0
 # ============================================================================
 # LIGHTRAG CORE DEPENDENCIES
 # ============================================================================
-lightrag-hku==1.4.9.8
+lightrag-hku==1.4.9.11
 ascii_colors==0.11.4        # Terminal color output (LightRAG internal)
 configparser==7.2.0         # Configuration file parsing
 future==1.0.0               # Python 2/3 compatibility

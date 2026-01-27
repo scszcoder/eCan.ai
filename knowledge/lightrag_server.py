@@ -730,11 +730,11 @@ class LightragServer:
                     cmd = [python_executable, "-u", "-m", "lightrag.api.lightrag_server"]
 
             # Log final environment variables (masked) for debugging
-            try:
-                debug_env = {k: self._mask_env_value(k, v) for k, v in env.items()}
-                logger.info(f"[LightragServer] Process Environment:\n{json.dumps(debug_env, ensure_ascii=False, indent=2)}")
-            except Exception as e:
-                logger.warning(f"[LightragServer] Failed to log environment: {e}")
+            # try:
+            #     debug_env = {k: self._mask_env_value(k, v) for k, v in env.items()}
+            #     logger.info(f"[LightragServer] Process Environment:\n{json.dumps(debug_env, ensure_ascii=False, indent=2)}")
+            # except Exception as e:
+            #     logger.warning(f"[LightragServer] Failed to log environment: {e}")
 
             # Log useful configuration summary
             try:

@@ -32,26 +32,87 @@ class RyoAISServiceListener(ServiceListener):
                 properties = {k.decode('utf-8'): v.decode('utf-8') 
                              for k, v in info.properties.items()}
                 
-                device_uuid = properties.get('device_uuid', 'unknown')
+                # Get primary IP address
+                local_ip = addresses[0] if addresses else 'unknown'
+                
+                # mDNS TXT record fields - 设备标识
+                sn = properties.get('sn', 'unknown')
+                uuid = properties.get('uuid', 'unknown')
+                mac = properties.get('mac', 'unknown')
+                hostname = properties.get('hostname', 'unknown')
+                model = properties.get('model', 'unknown')
+                device_name = properties.get('name', 'unknown')
+                
+                # mDNS TXT record fields - 版本信息
+                version = properties.get('version', 'unknown')
+                build_time = properties.get('build_time', 'unknown')
+                git_commit = properties.get('git_commit', 'unknown')
+                
+                # mDNS TXT record fields - 服务信息
+                environment = properties.get('environment', 'unknown')
+                api_types = properties.get('api_types', '')
+                api_version = properties.get('api_version', 'unknown')
+                services = properties.get('services', '')
+                
+                # mDNS TXT record fields - 系统信息
+                platform = properties.get('platform', 'unknown')
+                python_version = properties.get('python_version', 'unknown')
+                
+                # mDNS TXT record fields - 网络信息
+                ip = properties.get('ip', local_ip)
+                port_str = properties.get('port', str(port))
+                url = properties.get('url', f"http://{ip}:{port_str}")
+                
+                # mDNS TXT record fields - 描述
+                description = properties.get('description', '')
                 
                 device_info = {
-                    'name': name,
-                    'device_uuid': device_uuid,
-                    'short_uuid': properties.get('device_uuid', 'unknown')[:8],
-                    'hostname': properties.get('hostname', 'unknown'),
+                    # mDNS TXT record fields - 设备标识
+                    'sn': sn,
+                    'uuid': uuid,
+                    'mac': mac,
+                    'hostname': hostname,
+                    'model': model,
+                    'name': device_name,
+                    
+                    # mDNS TXT record fields - 版本信息
+                    'version': version,
+                    'build_time': build_time,
+                    'git_commit': git_commit,
+                    
+                    # mDNS TXT record fields - 服务信息
+                    'environment': environment,
+                    'api_types': api_types.split(',') if api_types else [],
+                    'api_version': api_version,
+                    'services': services.split(',') if services else [],
+                    
+                    # mDNS TXT record fields - 系统信息
+                    'platform': platform,
+                    'python_version': python_version,
+                    
+                    # mDNS TXT record fields - 网络信息
+                    'ip': ip,
+                    'port': port_str,
+                    'url': url,
+                    
+                    # mDNS TXT record fields - 描述
+                    'description': description,
+                    
+                    # mDNS Discovery metadata
+                    'service_name': name,
+                    'service_type': service_type,
+                    
+                    # Legacy fields for backward compatibility
+                    'device_uuid': uuid,  # 向后兼容
+                    'short_uuid': uuid[:12] if uuid != 'unknown' else 'unknown',
                     'addresses': addresses,
-                    'port': port,
-                    'url': f"http://{addresses[0]}:{port}" if addresses else None,
-                    'environment': properties.get('environment', 'unknown'),
-                    'version': properties.get('version', 'unknown'),
-                    'api_types': properties.get('api_types', '').split(','),
-                    'description': properties.get('description', ''),
+                    'local_ip': local_ip,
                     'properties': properties,
                     'discovered_at': time.time()
                 }
                 
-                self.devices[device_uuid] = device_info
-                logger.info(f"[ryoais] Discovered device: {name} ({device_uuid[:8]}...) at {device_info['url']}")
+                self.devices[uuid] = device_info
+                logger.info(f"[ryoais] Discovered device: {device_name} ({sn}) at {url}")
                 
         except Exception as e:
             logger.error(f"[ryoais] Error processing service {name}: {e}")
