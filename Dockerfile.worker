@@ -1,28 +1,133 @@
+# eCan.ai Cloud Worker Dockerfile
+#
+# This Dockerfile builds a headless worker image for Fargate/ECS deployment.
+# Supports two modes: long-poll (SQS) and single (on-demand task).
+# Includes Xvfb and browser automation support.
+#
+# Build:
+#   docker build -f Dockerfile.worker -t ecan-cloud-worker .
+#
+# Run (long-poll mode):
+#   docker run -e ECAN_SQS_QUEUE_URL=https://sqs... ecan-cloud-worker
+#
+# Run (single mode):
+#   docker run -e ECAN_WORKER_MODE=single -e ECAN_WORKER_MESSAGE_JSON='{"user_email":...}' ecan-cloud-worker
+
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     ECAN_MODE=worker \
-    AWS_DEFAULT_REGION=us-east-1
+    AWS_DEFAULT_REGION=us-east-1 \
+    XDG_DATA_HOME=/app/data \
+    # Xvfb display configuration
+    DISPLAY=:99 \
+    XVFB_RESOLUTION=1920x1080x24
 
 WORKDIR /app
 
+# Install system dependencies
+# - gcc, libffi-dev: Build dependencies for some Python packages
+# - libgl1, libglib2.0-0: Required by opencv-python
+# - ca-certificates: SSL certificate verification
+# - xvfb, x11-utils: Virtual framebuffer for headless GUI
+# - scrot, python3-tk, python3-dev: Required by PyAutoGUI
+# - libxkbcommon-x11-0, libxcb-*: X11 libraries for Qt/automation
+# - chromium, chromium-driver: Browser for automation
+# - fonts-liberation: Fonts for proper rendering
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libffi-dev \
+    libgl1 \
+    libglib2.0-0 \
+    ca-certificates \
+    # Xvfb and X11 support
+    xvfb \
+    x11-utils \
+    xauth \
+    # PyAutoGUI dependencies
+    scrot \
+    python3-tk \
+    python3-dev \
+    # X11 libraries for automation
+    libxkbcommon-x11-0 \
+    libxcb-icccm4 \
+    libxcb-image0 \
+    libxcb-keysyms1 \
+    libxcb-randr0 \
+    libxcb-render-util0 \
+    libxcb-shape0 \
+    libxcb-xfixes0 \
+    libxcb-xinerama0 \
+    libxcb-cursor0 \
+    # Browser for automation (Chromium is lighter than Chrome)
+    chromium \
+    chromium-driver \
+    # Fonts for proper browser rendering
+    fonts-liberation \
+    fonts-noto-color-emoji \
+    # Optional: tesseract for OCR
+    # tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd --create-home --shell /bin/bash ecan
-RUN chown -R ecan:ecan /app
-
+# Copy and install requirements first (better layer caching)
 COPY requirements-base.txt ./
 
+# Install Python dependencies, filtering out only desktop-specific packages
+# Keep: PyAutoGUI, pynput, keyboard, mss (needed for browser automation)
 RUN pip install --no-cache-dir --upgrade pip && \
-    grep -v -E "^(PySide6|PyQt|qtpy)" requirements-base.txt > requirements-worker.txt && \
-    pip install --no-cache-dir -r requirements-worker.txt
+    grep -v -E "^(PySide6|shiboken6|PyQt|qtpy|qasync|pyinstaller)" requirements-base.txt > requirements-worker.txt && \
+    pip install --no-cache-dir -r requirements-worker.txt && \
+    # Install Playwright Chromium browser (skip install-deps as we've installed deps manually)
+    playwright install chromium
 
+# Install additional fonts that Playwright might need (using correct Debian Trixie names)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    fonts-unifont \
+    fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user and required directories
+RUN useradd --create-home --shell /bin/bash ecan && \
+    mkdir -p /app/data /app/runlogs /tmp/.X11-unix && \
+    chown -R ecan:ecan /app && \
+    chmod 1777 /tmp/.X11-unix
+
+# Copy application code
 COPY --chown=ecan:ecan . .
 
+# Copy entrypoint script
+COPY --chown=ecan:ecan <<'EOF' /app/entrypoint.sh
+#!/bin/bash
+set -e
+
+# Start Xvfb in the background
+Xvfb :99 -screen 0 ${XVFB_RESOLUTION} -ac +extension GLX +render -noreset &
+XVFB_PID=$!
+
+# Wait for Xvfb to be ready
+sleep 1
+
+# Verify display is working
+if ! xdpyinfo -display :99 >/dev/null 2>&1; then
+    echo "ERROR: Xvfb failed to start"
+    exit 1
+fi
+
+echo "Xvfb started successfully on display :99"
+
+# Run the main command
+exec "$@"
+EOF
+
+RUN chmod +x /app/entrypoint.sh
+
+# Switch to non-root user
 USER ecan
 
-CMD ["python", "-m", "agent.cloud_worker.worker_main"]
+# Use entrypoint to start Xvfb before the worker
+ENTRYPOINT ["/app/entrypoint.sh"]
+
+# Default command - keep container running for testing
+# Override with: CMD ["python", "-m", "agent.cloud_worker.worker_main", "--mode", "long-poll", "--queue-url", "https://sqs..."]
+CMD ["tail", "-f", "/dev/null"]

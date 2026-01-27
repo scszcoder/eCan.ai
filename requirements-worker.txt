@@ -1,17 +1,22 @@
 # ============================================================================
-# eCan.ai Linux Ubuntu Desktop Requirements
+# eCan.ai Cloud Worker Requirements
 # ============================================================================
-# This file contains dependencies for running eCan.ai desktop application
-# on Ubuntu Linux with full GUI support (PySide6/Qt).
+# This file contains dependencies for running the cloud worker with browser
+# automation support (Xvfb, PyAutoGUI, Playwright, Selenium).
 #
 # Usage:
-#   pip install -r requirements-linux-ubuntu.txt
+#   pip install -r requirements-worker.txt
 #
 # System dependencies required (Ubuntu/Debian):
-#   apt-get install -y gcc libffi-dev libgl1 libglib2.0-0 \
+#   apt-get install -y xvfb x11-utils xauth scrot python3-tk \
 #       libxkbcommon-x11-0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
 #       libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 \
-#       libxcb-xinerama0 libxcb-cursor0 scrot python3-tk tesseract-ocr
+#       libxcb-xinerama0 libxcb-cursor0 chromium chromium-driver \
+#       fonts-liberation fonts-noto-color-emoji libgl1 libglib2.0-0
+#
+# After pip install, also run:
+#   playwright install chromium
+#   playwright install-deps chromium
 # ============================================================================
 
 # ============================================================================
@@ -91,18 +96,14 @@ pytesseract==0.3.13
 selenium==4.32.0
 playwright==1.54.0
 browser-use==0.11.2
-crawl4ai==0.8.0
 webdriver-manager==4.0.2
 fake-useragent==2.2.0
 beautifulsoup4==4.13.3
 soupsieve==2.5
 
 # ============================================================================
-# GUI & DESKTOP AUTOMATION
+# GUI & DESKTOP AUTOMATION (For Xvfb-based automation)
 # ============================================================================
-PySide6==6.10.1
-shiboken6==6.10.1
-qasync==0.27.1
 PyAutoGUI==0.9.54
 pynput==1.7.7
 keyboard==0.13.5
@@ -132,7 +133,6 @@ h11==0.16.0
 trio-websocket==0.11.1
 wsproto==1.2.0
 ping3==4.0.8
-zeroconf==0.148.0
 
 # ============================================================================
 # ASYNC & CONCURRENCY
@@ -182,14 +182,6 @@ pypika-tortoise==0.6.3
 posthog==3.20.0
 
 # ============================================================================
-# DEVELOPMENT & BUILD TOOLS
-# ============================================================================
-pyinstaller==6.15.0
-pyproject_hooks==1.2.0
-setuptools>=80.9.0
-wheel==0.45.1
-
-# ============================================================================
 # DATA FORMATS & SERIALIZATION
 # ============================================================================
 PyYAML==6.0.3
@@ -209,7 +201,6 @@ flatbuffers==25.2.10
 openpyxl==3.1.2
 PyPDF2==3.0.1
 lzstring==1.0.4
-xlrd==2.0.1
 
 # ============================================================================
 # DOCUMENT PROCESSING
@@ -219,7 +210,6 @@ python-pptx==1.0.2
 pycryptodome==3.21.0
 PyMuPDF==1.24.14
 lxml~=5.3
-markdown==3.5.1
 
 # ============================================================================
 # UTILITIES & HELPERS
@@ -230,9 +220,6 @@ rich==14.2.0
 tqdm==4.67.1
 tenacity==8.5.0
 backoff==2.2.1
-colorlog==6.8.2
-colorama==0.4.6
-schedule==1.2.2
 
 # ============================================================================
 # SYSTEM & PROCESS MANAGEMENT
@@ -248,7 +235,11 @@ distro==1.9.0
 # CONFIGURATION & ENVIRONMENT
 # ============================================================================
 python-dotenv==1.2.1
-configparser==7.2.0
+
+# ============================================================================
+# LOGGING & OUTPUT
+# ============================================================================
+colorlog==6.8.2
 
 # ============================================================================
 # CORE PYTHON UTILITIES
@@ -326,6 +317,7 @@ mcp==1.20.0
 # ============================================================================
 lightrag-hku==1.4.9.8
 ascii_colors==0.11.4
+configparser==7.2.0
 future==1.0.0
 google-genai>=1.0.0,<2.0.0
 json_repair==0.53.0
@@ -361,14 +353,15 @@ deepdiff>=8.6.1
 defusedxml==0.7.1
 TwoCaptcha==0.0.1
 asteval==1.0.6
+markdown==3.5.1
 fastuuid==0.14.0
 brotli==1.2.0
-pyperclip==1.9.0
-pyzmq==27.1.0
 
 # ============================================================================
-# TESTING
+# EXCLUDED PACKAGES (Not needed for cloud worker)
 # ============================================================================
-pytest>=8.2.2
-pytest-asyncio>=1.0.0
-pytest-cov>=4.1.0
+# The following packages are intentionally excluded:
+# - PySide6, shiboken6 (Qt GUI framework - using Xvfb instead)
+# - qasync (Qt async integration)
+# - pyinstaller (Build tool)
+# - zeroconf (Local network discovery)
