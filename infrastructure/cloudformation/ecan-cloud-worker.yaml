@@ -1,0 +1,362 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'eCan.ai Cloud Worker - ECS Fargate Infrastructure'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues:
+      - production
+      - staging
+      - development
+    Description: Deployment environment
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID where ECS tasks will run
+
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subnet IDs for ECS tasks (must have internet access)
+
+  WorkerImageUri:
+    Type: String
+    Default: 667118410653.dkr.ecr.us-east-1.amazonaws.com/ecan.ai/ecan-cloud-worker:v1.0.1
+    Description: ECR image URI for the cloud worker
+
+  DesiredCount:
+    Type: Number
+    Default: 1
+    MinValue: 0
+    MaxValue: 10
+    Description: Number of worker tasks to run
+
+  TaskCpu:
+    Type: String
+    Default: '2048'
+    AllowedValues:
+      - '1024'
+      - '2048'
+      - '4096'
+    Description: CPU units for the task (1024 = 1 vCPU)
+
+  TaskMemory:
+    Type: String
+    Default: '4096'
+    AllowedValues:
+      - '2048'
+      - '4096'
+      - '8192'
+      - '16384'
+    Description: Memory (MB) for the task
+
+Resources:
+  #############################################
+  # CloudWatch Log Group
+  #############################################
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/ecan-cloud-worker
+      RetentionInDays: 30
+      Tags:
+        - Key: Project
+          Value: eCan.ai
+        - Key: Component
+          Value: cloud-worker
+
+  #############################################
+  # Secrets Manager Secrets
+  #############################################
+  OpenAIApiKeySecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: ecan/openai-api-key
+      Description: OpenAI API Key for eCan.ai cloud worker
+      SecretString: '{"api_key": "REPLACE_WITH_YOUR_KEY"}'
+      Tags:
+        - Key: Project
+          Value: eCan.ai
+
+  AnthropicApiKeySecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: ecan/anthropic-api-key
+      Description: Anthropic API Key for eCan.ai cloud worker
+      SecretString: '{"api_key": "REPLACE_WITH_YOUR_KEY"}'
+      Tags:
+        - Key: Project
+          Value: eCan.ai
+
+  #############################################
+  # IAM Roles
+  #############################################
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ecsTaskExecutionRole
+      Description: ECS Task Execution Role for pulling images and writing logs
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: SecretsManagerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref OpenAIApiKeySecret
+                  - !Ref AnthropicApiKeySecret
+      Tags:
+        - Key: Project
+          Value: eCan.ai
+
+  EcanCloudWorkerTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ecanCloudWorkerTaskRole
+      Description: Task role for eCan.ai cloud worker with access to AWS services
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudWorkerPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: S3Access
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - arn:aws:s3:::ecan-*
+                  - arn:aws:s3:::ecan-*/*
+              - Sid: SQSAccess
+                Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                  - sqs:GetQueueUrl
+                Resource: !Sub arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:ecan-*
+              - Sid: DynamoDBAccess
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                Resource: !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/ecan-*
+              - Sid: BedrockAccess
+                Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                Resource: '*'
+              - Sid: CloudWatchLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/ecs/ecan-*:*
+      Tags:
+        - Key: Project
+          Value: eCan.ai
+
+  #############################################
+  # Security Group
+  #############################################
+  WorkerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: ecan-cloud-worker-sg
+      GroupDescription: Security group for eCan.ai cloud worker ECS tasks
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: '-1'
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: ecan-cloud-worker-sg
+        - Key: Project
+          Value: eCan.ai
+
+  #############################################
+  # ECS Cluster
+  #############################################
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: ecan-cluster
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+      CapacityProviders:
+        - FARGATE
+        - FARGATE_SPOT
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: FARGATE
+          Weight: 1
+      Tags:
+        - Key: Project
+          Value: eCan.ai
+
+  #############################################
+  # ECS Task Definition
+  #############################################
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: ecan-cloud-worker
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: !Ref TaskCpu
+      Memory: !Ref TaskMemory
+      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt EcanCloudWorkerTaskRole.Arn
+      ContainerDefinitions:
+        - Name: ecan-cloud-worker
+          Image: !Ref WorkerImageUri
+          Essential: true
+          PortMappings:
+            - ContainerPort: 8080
+              Protocol: tcp
+          Environment:
+            - Name: ENVIRONMENT
+              Value: !Ref Environment
+            - Name: DISPLAY
+              Value: ':99'
+            - Name: PYTHONUNBUFFERED
+              Value: '1'
+            - Name: AWS_DEFAULT_REGION
+              Value: !Ref AWS::Region
+          Secrets:
+            - Name: OPENAI_API_KEY
+              ValueFrom: !Ref OpenAIApiKeySecret
+            - Name: ANTHROPIC_API_KEY
+              ValueFrom: !Ref AnthropicApiKeySecret
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: worker
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - pgrep -f 'python|Xvfb' || exit 1
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+          LinuxParameters:
+            InitProcessEnabled: true
+          Ulimits:
+            - Name: nofile
+              SoftLimit: 65536
+              HardLimit: 65536
+      Tags:
+        - Key: Project
+          Value: eCan.ai
+        - Key: Component
+          Value: cloud-worker
+
+  #############################################
+  # ECS Service
+  #############################################
+  ECSService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: ecan-cloud-worker
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: !Ref DesiredCount
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref WorkerSecurityGroup
+          Subnets: !Ref SubnetIds
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      EnableExecuteCommand: true
+      Tags:
+        - Key: Project
+          Value: eCan.ai
+        - Key: Component
+          Value: cloud-worker
+
+Outputs:
+  ClusterArn:
+    Description: ECS Cluster ARN
+    Value: !GetAtt ECSCluster.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-ClusterArn
+
+  ClusterName:
+    Description: ECS Cluster Name
+    Value: !Ref ECSCluster
+    Export:
+      Name: !Sub ${AWS::StackName}-ClusterName
+
+  ServiceArn:
+    Description: ECS Service ARN
+    Value: !Ref ECSService
+    Export:
+      Name: !Sub ${AWS::StackName}-ServiceArn
+
+  TaskDefinitionArn:
+    Description: Task Definition ARN
+    Value: !Ref TaskDefinition
+    Export:
+      Name: !Sub ${AWS::StackName}-TaskDefinitionArn
+
+  ExecutionRoleArn:
+    Description: ECS Task Execution Role ARN
+    Value: !GetAtt ECSTaskExecutionRole.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-ExecutionRoleArn
+
+  TaskRoleArn:
+    Description: Cloud Worker Task Role ARN
+    Value: !GetAtt EcanCloudWorkerTaskRole.Arn
+    Export:
+      Name: !Sub ${AWS::StackName}-TaskRoleArn
+
+  SecurityGroupId:
+    Description: Security Group ID for worker tasks
+    Value: !Ref WorkerSecurityGroup
+    Export:
+      Name: !Sub ${AWS::StackName}-SecurityGroupId
+
+  LogGroupName:
+    Description: CloudWatch Log Group Name
+    Value: !Ref LogGroup
+    Export:
+      Name: !Sub ${AWS::StackName}-LogGroupName

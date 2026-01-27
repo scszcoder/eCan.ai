@@ -1,0 +1,87 @@
+{
+  "family": "ecan-cloud-worker",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "2048",
+  "memory": "4096",
+  "executionRoleArn": "${ECS_EXECUTION_ROLE_ARN}",
+  "taskRoleArn": "${ECS_TASK_ROLE_ARN}",
+  "containerDefinitions": [
+    {
+      "name": "ecan-cloud-worker",
+      "image": "${ECR_IMAGE_URI}",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "ENVIRONMENT",
+          "value": "production"
+        },
+        {
+          "name": "DISPLAY",
+          "value": ":99"
+        },
+        {
+          "name": "PYTHONUNBUFFERED",
+          "value": "1"
+        },
+        {
+          "name": "AWS_DEFAULT_REGION",
+          "value": "${AWS_REGION}"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "OPENAI_API_KEY",
+          "valueFrom": "${OPENAI_SECRET_ARN}"
+        },
+        {
+          "name": "ANTHROPIC_API_KEY",
+          "valueFrom": "${ANTHROPIC_SECRET_ARN}"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/ecan-cloud-worker",
+          "awslogs-region": "${AWS_REGION}",
+          "awslogs-stream-prefix": "worker",
+          "awslogs-create-group": "true"
+        }
+      },
+      "healthCheck": {
+        "command": ["CMD-SHELL", "pgrep -f 'python|Xvfb' || exit 1"],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      },
+      "linuxParameters": {
+        "initProcessEnabled": true,
+        "sharedMemorySize": 2048
+      },
+      "ulimits": [
+        {
+          "name": "nofile",
+          "softLimit": 65536,
+          "hardLimit": 65536
+        }
+      ]
+    }
+  ],
+  "tags": [
+    {
+      "key": "Project",
+      "value": "eCan.ai"
+    },
+    {
+      "key": "Component",
+      "value": "cloud-worker"
+    }
+  ]
+}
