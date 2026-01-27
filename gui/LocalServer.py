@@ -555,7 +555,15 @@ class RequestHandlers:
                 logger.info(f"[GraphQL] 📋 OperationName: {operation_name}")
             
             # 合并参数：variables + extensions（排除 method 和 operationName）
-            request_params = dict(graphql_variables)
+            # GraphQL mutations often wrap params in 'input', unwrap if present
+            if 'input' in graphql_variables and isinstance(graphql_variables.get('input'), dict):
+                request_params = dict(graphql_variables['input'])
+                # Preserve any top-level variables that aren't 'input'
+                for k, v in graphql_variables.items():
+                    if k != 'input':
+                        request_params[k] = v
+            else:
+                request_params = dict(graphql_variables)
 
             # Extract token from Authorization header (AppSync-style) and inject into params.token
             # so IPC registry can validate it.

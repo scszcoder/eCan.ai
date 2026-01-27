@@ -857,7 +857,9 @@ export const webApi = {
   async createSkillEditorChatSession(input: Record<string, any>): Promise<any | null> {
     const data = await appSyncRequest<{ createSkillEditorChatSession: any }>(
       CREATE_SKILL_EDITOR_CHAT_SESSION_MUTATION,
-      { input }
+      { input },
+      undefined,
+      'skill_editor.chat.create_session'
     );
     return data.createSkillEditorChatSession || null;
   },
@@ -865,7 +867,9 @@ export const webApi = {
   async sendSkillEditorChatMessage(input: Record<string, any>): Promise<any | null> {
     const data = await appSyncRequest<{ sendSkillEditorChatMessage: any }>(
       SEND_SKILL_EDITOR_CHAT_MESSAGE_MUTATION,
-      { input }
+      { input },
+      undefined,
+      'skill_editor.chat.send_message'
     );
     return data.sendSkillEditorChatMessage || null;
   },
@@ -873,7 +877,9 @@ export const webApi = {
   async cancelSkillEditorChatGeneration(sessionId: string): Promise<boolean> {
     const data = await appSyncRequest<{ cancelSkillEditorChatGeneration: boolean }>(
       CANCEL_SKILL_EDITOR_CHAT_GENERATION_MUTATION,
-      { sessionId }
+      { sessionId },
+      undefined,
+      'skill_editor.chat.cancel_generation'
     );
     return !!data.cancelSkillEditorChatGeneration;
   },
@@ -881,7 +887,9 @@ export const webApi = {
   async deleteSkillEditorChatSession(sessionId: string): Promise<boolean> {
     const data = await appSyncRequest<{ deleteSkillEditorChatSession: boolean }>(
       DELETE_SKILL_EDITOR_CHAT_SESSION_MUTATION,
-      { sessionId }
+      { sessionId },
+      undefined,
+      'skill_editor.chat.delete_session'
     );
     return !!data.deleteSkillEditorChatSession;
   },
