@@ -30,6 +30,15 @@ from typing import Any, Literal, cast, overload
 from langchain_core.messages.base import BaseMessage, BaseMessageChunk
 
 
+# ==================== Module-level Constants ====================
+# Thinking control system instruction (used in SystemMessage)
+THINKING_SUPPRESSION_INSTRUCTION = (
+    "You must respond directly without using <think> tags, reasoning steps, or internal monologue. "
+    "Provide only the final answer or action."
+)
+
+
+# ==================== Helper Functions ====================
 def resolve_timeout(
     node_name: str,
     state: dict,
@@ -987,48 +996,93 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
                 key_preview = "" if not key else f"{key[:6]}...{key[-6:]}"
                 logger.debug(f"real llm settings: api_key={key_preview} host={host} llm_provider={prov}")
+                
+                # ==================== Unified LLM Parameter Preparation ====================
+                def prepare_llm_extra_params(provider: str, use_thinking: bool) -> dict:
+                    """
+                    Prepare extra parameters for LLM creation based on provider and settings.
+                    This centralizes all provider-specific parameter handling.
+                    
+                    Args:
+                        provider: Provider name (e.g., 'qwen', 'openai', 'deepseek')
+                        use_thinking: Whether to enable thinking mode
+                    
+                    Returns:
+                        Dictionary of extra parameters to merge into LLM kwargs
+                    """
+                    extra_params = {}
+                    
+                    # Qwen providers: Use extra_body for thinking control
+                    if provider in ("dashscope", "qwen", "qwq", "ollama"):
+                        # Qwen default is enable_thinking=True, only set False when disabled
+                        if not use_thinking:
+                            extra_params["extra_body"] = {"enable_thinking": False}
+                            logger.info(f"[LLM] Qwen enable_thinking=False via extra_body")
+                        else:
+                            logger.info(f"[LLM] Qwen enable_thinking=True (default)")
+                    
+                    # Future: Add other provider-specific parameters here
+                    # Example:
+                    # elif provider in ("deepseek",):
+                    #     extra_params["some_param"] = some_value
+                    
+                    return extra_params
+                
+                # Prepare extra parameters for this LLM
+                llm_extra_params = prepare_llm_extra_params(prov, node_use_thinking)
+                # ==================== End Parameter Preparation ====================
+                
                 # Provider-specific construction
                 if prov in ("azure", "azure_openai"):
                     azure_endpoint = host or (secure_store.get("AZURE_ENDPOINT", username=get_current_username()) if key else None)
                     if not azure_endpoint or not key:
                         raise ValueError("Azure OpenAI requires AZURE_ENDPOINT and API key")
-                    llm = AzureChatOpenAI(
-                        azure_endpoint=azure_endpoint,
-                        api_key=key,
-                        azure_deployment=model_name,
-                        api_version="2024-02-15-preview",
-                        temperature=temperature
-                    )
+                    kwargs = {
+                        "azure_endpoint": azure_endpoint,
+                        "api_key": key,
+                        "azure_deployment": model_name,
+                        "api_version": "2024-02-15-preview",
+                        "temperature": temperature
+                    }
+                    kwargs.update(llm_extra_params)
+                    llm = AzureChatOpenAI(**kwargs)
                 elif prov in ("openai",):
                     logger.debug("setting up for openai......")
                     kwargs = {"model": model_name, "api_key": key, "temperature": temperature}
                     if host:
                         kwargs["base_url"] = host
+                    kwargs.update(llm_extra_params)
                     llm = ChatOpenAI(**kwargs)
                 elif prov in ("anthropic", "claude"):
                     if not key:
                         raise ValueError("Anthropic API key missing")
-                    llm = ChatAnthropic(model=model_name, api_key=key, temperature=temperature)
+                    kwargs = {"model": model_name, "api_key": key, "temperature": temperature}
+                    kwargs.update(llm_extra_params)
+                    llm = ChatAnthropic(**kwargs)
                 elif prov in ("google", "gemini"):
                     if ChatGoogleGenerativeAI is None:
                         raise ImportError("langchain-google-genai not installed")
                     if not key:
                         raise ValueError("Gemini API key missing")
-                    llm = ChatGoogleGenerativeAI(model=model_name or "gemini-pro", google_api_key=key, temperature=temperature)
+                    kwargs = {"model": model_name or "gemini-pro", "google_api_key": key, "temperature": temperature}
+                    kwargs.update(llm_extra_params)
+                    llm = ChatGoogleGenerativeAI(**kwargs)
                 elif prov in ("deepseek",):
                     if not key:
                         raise ValueError("DeepSeek API key missing")
                     base_url = host or "https://api.deepseek.com"
                     from agent.ec_skills.llm_utils.llm_utils import _create_no_proxy_http_client
                     sync_client, async_client = _create_no_proxy_http_client()
-                    llm = ChatDeepSeek(
-                        model=model_name or "deepseek-chat",
-                        api_key=key,
-                        base_url=base_url,
-                        temperature=temperature,
-                        http_client=sync_client,
-                        http_async_client=async_client
-                    )
+                    kwargs = {
+                        "model": model_name or "deepseek-chat",
+                        "api_key": key,
+                        "base_url": base_url,
+                        "temperature": temperature,
+                        "http_client": sync_client,
+                        "http_async_client": async_client
+                    }
+                    kwargs.update(llm_extra_params)
+                    llm = ChatDeepSeek(**kwargs)
                 elif prov in ("dashscope", "qwen", "qwq"):
                     if ChatQwQ is None:
                         raise ImportError("langchain-qwq not installed")
@@ -1047,10 +1101,8 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         kw["http_client"] = sync_client
                     if async_client:
                         kw["http_async_client"] = async_client
-                    # Pass enable_thinking via extra_body for Qwen3 models
-                    if node_use_thinking:
-                        kw["extra_body"] = {"enable_thinking": True}
-                        logger.info(f"[LLM] Qwen enable_thinking=True (from node useThinking setting)")
+                    # Merge extra parameters from unified preparation
+                    kw.update(llm_extra_params)
                     llm = ChatQwQ(**kw)
                 elif prov in ("bytedance", "doubao"):
                     if not key:
@@ -1068,6 +1120,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         kwargs["http_client"] = sync_client
                     if async_client:
                         kwargs["http_async_client"] = async_client
+                    kwargs.update(llm_extra_params)
                     llm = ChatOpenAI(**kwargs)
                 elif prov in ("baidu", "qianfan", "baidu_qianfan"):
                     if not key:
@@ -1085,15 +1138,19 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         kwargs["http_client"] = sync_client
                     if async_client:
                         kwargs["http_async_client"] = async_client
+                    kwargs.update(llm_extra_params)
                     llm = ChatOpenAI(**kwargs)
                 elif prov in ("ollama",):
                     base_url = host or "http://localhost:11434"
-                    llm = ChatOllama(model=model_name or "llama3.2", base_url=base_url, temperature=temperature)
+                    kwargs = {"model": model_name or "llama3.2", "base_url": base_url, "temperature": temperature}
+                    kwargs.update(llm_extra_params)
+                    llm = ChatOllama(**kwargs)
                 else:
                     # Default to OpenAI-compatible
                     kwargs = {"model": model_name, "api_key": key, "temperature": temperature}
                     if host:
                         kwargs["base_url"] = host
+                    kwargs.update(llm_extra_params)
                     llm = ChatOpenAI(**kwargs)
 
                 _perf_llm(
@@ -1114,8 +1171,48 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
             # so far we have get API key, LLM model setup among difference possible choices.
 
+            # ==================== Unified Thinking Control (Prompt Injection) ====================
+            # Apply thinking control via prompt injection for all providers when disabled
+            # Note: Qwen also uses extra_body parameter (set during LLM creation above) as primary control,
+            #       but prompt injection provides additional reinforcement
+            def apply_thinking_control_prompt(use_thinking: bool, context_messages: list):
+                """
+                Apply thinking control via SystemMessage for all providers.
+                Adds suppression instruction to SystemMessage when thinking is disabled.
+                
+                Args:
+                    use_thinking: Whether to enable thinking mode
+                    context_messages: List of messages to modify
+                
+                Note: Using SystemMessage keeps user messages clean and follows best practices
+                """
+                if not use_thinking:
+                    suppression_text = THINKING_SUPPRESSION_INSTRUCTION.strip()
+                    
+                    # Find existing SystemMessage or create new one
+                    system_msg_found = False
+                    if context_messages and len(context_messages) > 0:
+                        # Check if first message is SystemMessage
+                        if isinstance(context_messages[0], SystemMessage):
+                            # Append to existing SystemMessage
+                            original_content = context_messages[0].content
+                            context_messages[0].content = original_content + "\n\n" + suppression_text
+                            system_msg_found = True
+                            logger.info(f"[LLM] Applied thinking suppression to existing SystemMessage")
+                    
+                    # If no SystemMessage exists, create one at the beginning
+                    if not system_msg_found:
+                        context_messages.insert(0, SystemMessage(content=suppression_text))
+                        logger.info(f"[LLM] Created new SystemMessage with thinking suppression")
+                else:
+                    logger.debug(f"[LLM] Thinking enabled (no suppression)")
+            
+            # Apply thinking control (modifies recent_context in-place)
+            apply_thinking_control_prompt(node_use_thinking, recent_context)
+            # ==================== End Thinking Control ====================
+
             # Log LLM configuration for debugging
-            log_msg = f"🔧 LLM Config (node_config): provider={llm_provider}, model={model_name}, temperature={temperature}"
+            log_msg = f"🔧 LLM Config (node_config): provider={llm_provider}, model={model_name}, temperature={temperature}, use_thinking={node_use_thinking}"
             logger.info(log_msg)
             web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
@@ -2926,10 +3023,18 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     except Exception:
         node_use_thinking = False
     
+    # Extract useVision setting from node editor (for browser_use Agent)
+    node_use_vision = False
+    try:
+        use_vision_val = (inputs.get("useVision") or {}).get("content")
+        node_use_vision = str(use_vision_val).lower() in ('true', '1', 'yes', 'on') if use_vision_val is not None else False
+    except Exception:
+        node_use_vision = False
+    
     # Extract browser profile setting from node editor
     node_profile = ((inputs.get("profile") or {}).get("content") or "").strip()
     
-    logger.info(f"[BrowserAutomation] Extracted from node editor: provider={node_llm_provider}, model={node_model_name}, use_thinking={node_use_thinking}, profile={node_profile}")
+    logger.info(f"[BrowserAutomation] Extracted from node editor: provider={node_llm_provider}, model={node_model_name}, use_thinking={node_use_thinking}, use_vision={node_use_vision}, profile={node_profile}")
     web_gui.get_ipc_api().send_skill_editor_log("log", f"[BrowserAutomation] Node LLM settings: provider={node_llm_provider}, model={node_model_name}")
     
     # Extract shop_name and build downloads_path
@@ -3076,6 +3181,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     async def _run_browser_use(task: str, mainwin, state: dict | None = None, calling_agent_id: str | None = None) -> dict:
         try:
             from browser_use import Agent as BUAgent
+            from browser_use.browser.profile import BrowserProfile
             from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller
             # from browser_use.browser.context import BrowserContext as BUBrowserContext
             log_msg = f"🤖 Executing node Browser Automation node: {node_name}"
@@ -3162,7 +3268,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 raise ValueError("mainwin is required. Must use mainwin configuration for browser_use LLM.")
 
             # Use node-specific LLM provider/model if configured, otherwise fall back to mainwin default
-            from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm, create_browser_use_llm_by_provider_type, extract_provider_config
+            from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm, create_browser_use_llm_by_provider_type
             
             llm = None
             if node_llm_provider and node_model_name:
@@ -3171,15 +3277,26 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 
                 # Get API key and base_url from mainwin's config for this provider
                 try:
+                    from agent.ec_skills.llm_utils.llm_utils import extract_provider_config
+                    
                     config_manager = mainwin.config_manager
                     provider_dict = config_manager.llm_manager.get_provider(node_llm_provider)
+                    logger.info(f"[BrowserAutomation] get_provider('{node_llm_provider}') returned: {provider_dict is not None}")
+                    
                     if provider_dict:
+                        logger.debug(f"[BrowserAutomation] provider_dict keys: {list(provider_dict.keys())}")
+                        
+                        # Use extract_provider_config to get configuration
                         config = extract_provider_config(provider_dict, config_manager=config_manager)
+                        logger.info(f"[BrowserAutomation] extract_provider_config returned: {config is not None}")
+                        logger.debug(f"[BrowserAutomation] config keys: {list(config.keys()) if config else 'None'}")
+                        
+                        # Get api_key and base_url from config
+                        # extract_provider_config already ensures these are not None
                         api_key = config.get('api_key')
                         base_url = config.get('base_url')
                         
-                        # Get enable_thinking from provider settings for Qwen providers
-                        provider_enable_thinking = config_manager.llm_manager.get_provider_enable_thinking(node_llm_provider.lower())
+                        logger.debug(f"[BrowserAutomation] api_key: {'***' if api_key else 'None'}, base_url: {base_url}")
                         
                         # Use node-selected model, not the default from config
                         llm = create_browser_use_llm_by_provider_type(
@@ -3187,10 +3304,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             model_name=node_model_name,
                             api_key=api_key,
                             base_url=base_url,
-                            mainwin=mainwin,
-                            enable_thinking=provider_enable_thinking
+                            mainwin=mainwin
                         )
-                        logger.info(f"[BrowserAutomation] Created LLM with node settings: provider={node_llm_provider}, model={node_model_name}, enable_thinking={provider_enable_thinking}")
+                        logger.info(f"[BrowserAutomation] Created LLM with node settings: provider={node_llm_provider}, model={node_model_name}")
                     else:
                         logger.warning(f"[BrowserAutomation] Provider '{node_llm_provider}' not found in config, falling back to default")
                 except Exception as e:
@@ -3205,15 +3321,34 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 raise ValueError("Failed to create browser_use LLM. Please configure LLM provider API key in Settings.")
 
             controller = custom_controller
-            print("[BROWSER USE]Agent task:", task)
-            
-            # Auto-detect model vision support and set use_vision accordingly to avoid warnings
-            from agent.ec_skills.llm_utils.llm_utils import get_use_vision_from_llm
+                        
             agent_kwargs = {
-                'use_vision': get_use_vision_from_llm(llm, context="build_browser_automation_node"),
+                'use_vision': node_use_vision,  # Pass use_vision from node config to browser_use Agent
                 'use_thinking': node_use_thinking,  # Pass use_thinking from node config to browser_use Agent
+                'use_judge': node_use_vision,  # Disable judge when vision is off (judge sends screenshots)
             }
-            logger.info(f"[BrowserAutomation] Agent kwargs: use_thinking={node_use_thinking}")
+            
+            # Check if extensions should be disabled (dev mode)
+            # In dev mode: default to disabled (avoid network timeout)
+            from config.app_settings import app_settings
+            disable_extensions = app_settings.is_dev_mode
+            
+            # Create browser profile with extensions control
+            # Note: BrowserProfile uses enable_default_extensions (not disable_extensions)
+            browser_profile = BrowserProfile(enable_default_extensions=not disable_extensions)
+            logger.info(f"[BrowserAutomation] Extensions {'disabled (dev mode)' if disable_extensions else 'enabled (production mode)'}")
+           
+            if browser_profile:
+                agent_kwargs['browser_profile'] = browser_profile
+            
+            # Apply thinking control via extend_system_message (BEST PRACTICE)
+            # This keeps user task clean and puts constraint in SystemMessage
+            if not node_use_thinking:
+                agent_kwargs['extend_system_message'] = THINKING_SUPPRESSION_INSTRUCTION.strip()
+                logger.info("[BrowserAutomation] Applied thinking suppression via extend_system_message")
+            
+            logger.info(f"[BrowserAutomation] Agent kwargs: {agent_kwargs}")
+            logger.debug("[BROWSER USE]Agent task:", task)
 
             if cloud_agent_enabled:
                 try:
@@ -3299,37 +3434,52 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 except Exception as _cloud_kwargs_exc:
                     logger.warning(f"[BrowserAutomation] Failed to configure cloud LLM mode: {_cloud_kwargs_exc}")
             
-            # Get or create browser session based on node editor settings
-            browser_session = await _get_or_create_browser_session(mainwin)
+            # Browser session creation logic:
+            # - "new chromium": browser-use creates its own browser (no BrowserManager needed)
+            # - Other types: connect to existing browser via CDP (requires BrowserManager)
             
             if browser_type_setting == 'new chromium':
-                # For new chromium, let browser_use create its own browser
-                logger.info("[BrowserAutomation] Using new chromium - browser_use will create browser")
+                # Mode 1: Let browser-use create and manage its own Chromium browser
+                logger.info("[BrowserAutomation] Mode: new chromium - browser-use will create browser")
                 agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
-            elif browser_driver_setting == 'native' and browser_session:
-                # For native (CDP) mode with existing browser session
-                log_msg = f"🤖 [BrowserAutomation] Using existing browser session via CDP: {browser_type_setting}"
-                logger.debug(log_msg)
-                web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
-
-                # Create browser_use Browser with CDP connection
-                cdp_port = int(cdp_port_setting) if cdp_port_setting and cdp_port_setting.isdigit() else 9228
-                cdp_url = f"http://127.0.0.1:{cdp_port}"
                 
-                # browser_use expects a Browser instance for existing browsers
-                # browser = BUBrowser(config={"cdp_url": cdp_url})
-                await browser_session.start()
-                # browser_context = BUBrowserContext(browser=browser)
-                agent = AgentClass(task=task, llm=llm, controller=controller, browser_session=browser_session, **agent_kwargs)
             else:
-                # Fallback: let browser_use create its own browser
-                logger.info(f"[BrowserAutomation] Fallback - browser_use will create browser (driver={browser_driver_setting})")
-                agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
+                # Mode 2: Connect to existing browser via CDP
+                logger.info(f"[BrowserAutomation] Mode: existing browser - connecting via CDP (type={browser_type_setting}, driver={browser_driver_setting})")
+                
+                # Get or create browser session through BrowserManager
+                browser_session = await _get_or_create_browser_session(mainwin)
+                
+                if browser_session and browser_driver_setting == 'native':
+                    # Successfully connected to existing browser via CDP
+                    log_msg = f"[BrowserAutomation] Connected to browser session: {getattr(browser_session, 'id', 'unknown')}"
+                    logger.info(log_msg)
+                    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                    
+                    # Start the browser session
+                    await browser_session.start()
+                    
+                    # Create agent with existing browser session
+                    agent = AgentClass(task=task, llm=llm, controller=controller, browser_session=browser_session, **agent_kwargs)
+                else:
+                    # Fallback: browser session creation failed or unsupported driver
+                    logger.warning(f"[BrowserAutomation] Failed to connect to existing browser, falling back to new browser (session={browser_session}, driver={browser_driver_setting})")
+                    agent = AgentClass(task=task, llm=llm, controller=controller, **agent_kwargs)
             
             history = await agent.run()
-            print("[BROWSER USE]Agent Run History:", history)
+            
+            # Truncate long output for logging
+            history_str = str(history)
+            if len(history_str) > 10000:
+                history_str = history_str[:10000] + '... (truncated)'
+            logger.debug(f"[BROWSER USE]Agent Run History: {history_str}")
+            
             final = history.final_result() if hasattr(history, 'final_result') else None
-            print("[BROWSER USE]Agent Run Results:", final)
+            final_str = str(final)
+            if len(final_str) > 10000:
+                final_str = final_str[:10000] + '... (truncated)'
+            logger.debug(f"[BROWSER USE]Agent Run Results: {final_str}")
+            
             return {"final": final, "history": str(history)}
         except Exception as e:
             err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNode")
@@ -3379,7 +3529,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
         # print("final_system_prompt:", final_system_prompt)
         # print("final_user_prompt:", final_user_prompt)
-        print("combined_task:", combined_task)
+        logger.debug("combined_task:", combined_task)
         if provider == 'browser-use':
             # Get mainwin from agent via state
             mainwin = None

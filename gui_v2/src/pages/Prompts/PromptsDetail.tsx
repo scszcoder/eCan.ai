@@ -144,7 +144,8 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
     if (username) {
       fetchTools(username).catch(() => {});
     }
-  }, [username, fetchTools]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [username]); // Remove fetchTools to avoid infinite loop
 
   const pushUndoStack = useCallback((snapshot: Prompt) => {
     const stack = undoStackRef.current;

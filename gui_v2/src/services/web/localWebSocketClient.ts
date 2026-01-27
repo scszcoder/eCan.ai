@@ -73,6 +73,12 @@ class LocalWebSocketClient {
    * Get the WebSocket URL for the local server
    */
   private getWebSocketUrl(): string {
+    try {
+      if (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV) {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        return `${protocol}//${window.location.host}/ws/skill-editor`;
+      }
+    } catch {}
     const settings = getSettings();
     const port = settings?.local_server_port || '4668';
     return `ws://localhost:${port}/ws/skill-editor`;
@@ -80,9 +86,10 @@ class LocalWebSocketClient {
 
   /**
    * Connect to the local WebSocket server
+   * @param force - If true, bypasses the shouldUseLocalWebSocket check (for testing)
    */
-  async connect(): Promise<boolean> {
-    if (!this.shouldUseLocalWebSocket()) {
+  async connect(force: boolean = false): Promise<boolean> {
+    if (!force && !this.shouldUseLocalWebSocket()) {
       console.log('[LocalWS] Not using local WebSocket (not desktop or IPC mode is ON)');
       return false;
     }
@@ -411,6 +418,17 @@ class LocalWebSocketClient {
       case 'lightrag.queryStream.error':
         console.log('[LocalWS] ❌ Emitting lightrag error');
         eventBus.emit('ws:lightrag:error', eventPayload);
+        break;
+      
+      // ==================== UI Events ====================
+      case 'refresh_dashboard':
+        console.log('[LocalWS] 🔄 Emitting refresh_dashboard');
+        eventBus.emit('ws:refresh_dashboard', eventPayload);
+        break;
+        
+      case 'update_screens':
+        console.log('[LocalWS] 🖥️ Emitting update_screens');
+        eventBus.emit('ws:update_screens', eventPayload);
         break;
         
       default:

@@ -43,7 +43,7 @@ export function initWebSocketEventListeners(): void {
     console.log('[WSListeners] Received update_skills:', data);
     const skillStore = useSkillStore.getState();
     if (data.skills && Array.isArray(data.skills)) {
-      skillStore.setSkills(data.skills);
+      skillStore.setItems(data.skills);
     }
   });
 
@@ -51,7 +51,7 @@ export function initWebSocketEventListeners(): void {
     console.log('[WSListeners] Received update_tasks:', data);
     const taskStore = useTaskStore.getState();
     if (data.tasks && Array.isArray(data.tasks)) {
-      taskStore.setTasks(data.tasks);
+      taskStore.setItems(data.tasks);
     }
   });
 
@@ -80,15 +80,15 @@ export function initWebSocketEventListeners(): void {
     console.log('[WSListeners] Received update_knowledge:', data);
     const knowledgeStore = useKnowledgeStore.getState();
     if (data.knowledge && Array.isArray(data.knowledge)) {
-      knowledgeStore.setKnowledge(data.knowledge);
+      knowledgeStore.setItems(data.knowledge);
     }
   });
 
   eventBus.on('ws:update_chats', (data: any) => {
     console.log('[WSListeners] Received update_chats:', data);
     const chatStore = useChatStore.getState();
-    if (data.chats) {
-      chatStore.setChats(data.chats);
+    if (data.chats && Array.isArray(data.chats)) {
+      chatStore.setItems(data.chats);
     }
   });
 
@@ -99,19 +99,19 @@ export function initWebSocketEventListeners(): void {
       useAgentStore.getState().setAgents(data.agents);
     }
     if (data.skills) {
-      useSkillStore.getState().setSkills(data.skills);
+      useSkillStore.getState().setItems(data.skills);
     }
     if (data.tasks) {
-      useTaskStore.getState().setTasks(data.tasks);
+      useTaskStore.getState().setItems(data.tasks);
     }
     if (data.settings) {
       useSettingsStore.getState().setSettings(data.settings);
     }
     if (data.knowledge) {
-      useKnowledgeStore.getState().setKnowledge(data.knowledge);
+      useKnowledgeStore.getState().setItems(data.knowledge);
     }
     if (data.chats) {
-      useChatStore.getState().setChats(data.chats);
+      useChatStore.getState().setItems(data.chats);
     }
   });
 

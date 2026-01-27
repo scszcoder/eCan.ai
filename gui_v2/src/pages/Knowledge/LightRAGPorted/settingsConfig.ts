@@ -105,7 +105,7 @@ export const BASIC_FIELDS: FieldConfig[] = [
 export const RAG_FIELDS: FieldConfig[] = [
   // Query Configuration
   { key: 'ENABLE_LLM_CACHE', type: 'boolean', defaultValue: 'true', section: 'query', tooltip: 'tooltips.enableLlmCache' },
-  { key: 'COSINE_THRESHOLD', type: 'number', placeholder: '0.4', section: 'query' },
+  { key: 'COSINE_THRESHOLD', type: 'number', placeholder: '0.3', section: 'query' },
   { key: 'TOP_K', type: 'number', placeholder: '15', section: 'query', tooltip: 'tooltips.topK' },
   { key: 'CHUNK_TOP_K', type: 'number', placeholder: '10', section: 'query', tooltip: 'tooltips.chunkTopK' },
   { key: 'MAX_ENTITY_TOKENS', type: 'number', placeholder: '6000', section: 'query', tooltip: 'tooltips.maxEntityTokens' },
@@ -158,7 +158,7 @@ export const RERANKING_FIELDS: FieldConfig[] = [
     { value: 'aliyun', label: 'Aliyun' }
   ], tooltip: 'settings.tooltips.rerankBinding' },
   { key: 'RERANK_BY_DEFAULT', type: 'boolean', placeholder: 'True', tooltip: 'settings.tooltips.rerankByDefault' },
-  { key: 'MIN_RERANK_SCORE', type: 'number', placeholder: '0.25', tooltip: 'settings.tooltips.minRerankScore' },
+  { key: 'MIN_RERANK_SCORE', type: 'number', placeholder: '0.15', tooltip: 'settings.tooltips.minRerankScore' },
   { key: 'RERANK_MODEL', type: 'text', placeholder: 'BAAI/bge-reranker-v2-m3', section: 'model' },
   { key: 'RERANK_BINDING_HOST', type: 'text', placeholder: 'http://localhost:8000/v1/rerank', section: 'model' },
   { key: 'RERANK_BINDING_API_KEY', type: 'password', placeholder: 'your_rerank_api_key_here', section: 'model' }

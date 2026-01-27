@@ -1636,9 +1636,25 @@ def gen_query_agent_tasks_string(query):
 
 def gen_get_agent_tasks_string():
     """Generate GraphQL query string for getting all tasks for current user"""
-    # Use queryAgentTasks with qb parameter (byowneruser: true to get current user's tasks)
-    qb = json.dumps({"byowneruser": True}, ensure_ascii=False).replace('"', '\\"')
-    query_string = f'query MyGetAgentTasksQuery {{ queryAgentTasks(qb: "{qb}") }}'
+    # AppSync schema requires a selection set for queryAgentTasks and does not support legacy qb argument.
+    # Query tasks without filters (server should scope by auth context), request common fields.
+    query_string = '''query MyGetAgentTasksQuery {
+  queryAgentTasks {
+    id
+    owner
+    name
+    description
+    status
+    priority
+    org_id
+    source
+    task_type
+    trigger_type
+    metadata
+    result
+    schedule
+  }
+}'''
     logger.debug(query_string)
     return query_string
 
@@ -3198,9 +3214,13 @@ def send_get_agent_tasks_request_to_cloud(session, token, endpoint):
             if tasks_data is None:
                 logger.info("queryAgentTasks returned null - user has no agent tasks data")
                 jresponse = {}
-            else:
+            elif isinstance(tasks_data, str):
+                # Backward compatible: some old schema returned JSON string.
                 jresponse = json.loads(tasks_data)
-        except (json.JSONDecodeError, TypeError) as e:
+            else:
+                # New schema: returns list/dict directly.
+                jresponse = tasks_data
+        except (json.JSONDecodeError, TypeError, KeyError) as e:
             logger.error(f"Failed to parse queryAgentTasks response: {e}")
             jresponse = {}
 
@@ -6829,3 +6849,98 @@ def send_query_prompts_request_to_cloud(session, token, q_settings, endpoint):
     queryInfo = gen_query_prompts_string(q_settings)
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
     return safe_parse_response(jresp, "queryPrompts", "queryPrompts")
+
+
+# ==========================================================
+# C2L (Cloud to Local) WebSocket Test
+# ==========================================================
+
+def gen_run_test_mutation_string(tests):
+    """
+    Generate GraphQL mutation string for runTest.
+    
+    Schema:
+    input TestInput {
+        id: String!
+        name: String!
+        description: String
+        input: AWSJSON
+    }
+    runTest(input: [TestInput]!): AWSJSON!
+    """
+    import uuid
+    import time
+    
+    query_string = """
+        mutation RunTestMutation {
+      runTest (input:[
+    """
+    rec_string = ""
+    for i, test in enumerate(tests):
+        test_id = test.get('id') or str(uuid.uuid4())
+        name = test.get('name', 'C2L_WS_TEST')
+        description = test.get('description') or ''
+        input_json = test.get('input') or '{}'
+        
+        # Escape strings for GraphQL
+        name = name.replace('"', '\\"')
+        description = description.replace('"', '\\"')
+        if isinstance(input_json, dict):
+            input_json = json.dumps(input_json).replace('"', '\\"')
+        else:
+            input_json = str(input_json).replace('"', '\\"')
+        
+        rec_string += '{'
+        rec_string += f'id: "{test_id}", '
+        rec_string += f'name: "{name}", '
+        rec_string += f'description: "{description}", '
+        rec_string += f'input: "{input_json}"'
+        rec_string += '}'
+        if i < len(tests) - 1:
+            rec_string += ','
+    
+    query_string += rec_string
+    query_string += """
+      ])
+    }
+    """
+    return query_string
+
+
+def send_run_test_to_cloud(session, token, tests, endpoint=None, timeout=60):
+    """
+    Send runTest mutation to cloud AppSync.
+    
+    This is used for C2L (Cloud to Local) WebSocket testing.
+    The cloud will receive this test request and can push messages back
+    to the local client via WebSocket subscriptions.
+    
+    Args:
+        session: requests.Session object
+        token: Authentication token
+        tests: List of test configurations, each with id, name, description, input
+        endpoint: API endpoint URL (optional)
+        timeout: Request timeout in seconds
+    
+    Returns:
+        Response from cloud
+    """
+    mutation_string = gen_run_test_mutation_string(tests)
+    logger.info(f"[C2L-WS-Test] Sending runTest mutation to cloud: {len(tests)} tests")
+    logger.debug(f"[C2L-WS-Test] Mutation: {mutation_string[:200]}...")
+    
+    jresp = appsync_http_request(mutation_string, session, token, endpoint, timeout=timeout)
+    
+    if "errors" in jresp:
+        logger.error(f"[C2L-WS-Test] Error from cloud: {jresp['errors']}")
+        return {"success": False, "errors": jresp["errors"]}
+    
+    try:
+        result = jresp.get("data", {}).get("runTest")
+        if result and isinstance(result, str):
+            result = json.loads(result)
+        logger.info(f"[C2L-WS-Test] Success: {result}")
+        return {"success": True, "data": result}
+    except Exception as e:
+        logger.error(f"[C2L-WS-Test] Failed to parse response: {e}")
+        return {"success": True, "data": jresp.get("data", {}).get("runTest")}
