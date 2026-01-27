@@ -122,6 +122,27 @@ def clean_qwen_response(content: str) -> str:
     # Pattern: • key" → "key"
     content = re.sub(r'•\s*([a-zA-Z_][a-zA-Z0-9_]*)"', r'"\1"', content)
     
+    # 3.6. Fix missing quotes around URLs
+    # Pattern: "key": https://example.com, → "key": "https://example.com",
+    # Match: colon + optional whitespace + URL (not already quoted) + delimiter
+    # Use word boundary \b before https to ensure clean match
+    content = re.sub(
+        r':\s*(?!")(\bhttps?://[^\s,}\]"]+)(\s*[,}\]])',
+        r': "\1"\2',
+        content
+    )
+    
+    # 3.7. Fix missing quotes around unquoted string values (Chinese text, etc.)
+    # Pattern: "key": unquoted text, → "key": "unquoted text",
+    # Exclude: valid JSON literals, numbers, objects, arrays, already quoted strings, URLs
+    # This catches values that start with letters/Chinese characters
+    # IMPORTANT: Must not match URLs (already handled above)
+    content = re.sub(
+        r':\s*(?!true\b|false\b|null\b|\d+|"|\{|\[|\bhttps?://)([^,}\]"]+?)(\s*[,}\]])',
+        r': "\1"\2',
+        content
+    )
+    
     # 4. Fix numeric JSON keys BEFORE trying to parse JSON
     # This is critical: must fix numeric keys before convert_reasoning_to_browser_action
     # This fixes the "key must be a string" error
