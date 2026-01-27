@@ -1629,6 +1629,87 @@ async def health_check(request):
     return JSONResponse({"status": "ok"})
 
 
+async def local_ws_test(request):
+    """Test endpoint to publish test messages to all local WebSocket pub/sub channels.
+    
+    This broadcasts test messages to all connected WebSocket clients for each event type,
+    allowing frontend developers to verify their subscription handlers are working.
+    """
+    import time
+    timestamp = int(time.time() * 1000)
+    test_id = f"test-{timestamp}"
+    
+    results = []
+    
+    try:
+        # Test all pub/sub event types
+        test_events = [
+            # Data update events
+            ("update_agents", {"agents": [{"id": test_id, "name": "Test Agent", "status": "active"}]}),
+            ("update_skills", {"skills": [{"id": test_id, "name": "Test Skill", "level": 1}]}),
+            ("update_tasks", {"tasks": [{"id": test_id, "name": "Test Task", "status": "pending"}]}),
+            ("update_tools", {"tools": [{"id": test_id, "name": "Test Tool", "tool_type": "test"}]}),
+            ("update_settings", {"settings": {"test_key": "test_value", "timestamp": timestamp}}),
+            ("update_vehicles", {"vehicles": [{"id": test_id, "name": "Test Vehicle", "status": "idle"}]}),
+            ("update_knowledge", {"knowledge": [{"id": test_id, "name": "Test Knowledge", "type": "test"}]}),
+            ("update_chats", {"chats": [{"id": test_id, "name": "Test Chat"}]}),
+            ("update_all", {"test": True, "timestamp": timestamp}),
+            # Chat events
+            ("push_chat_message", {"chatId": test_id, "message": {"role": "system", "content": "Test message"}}),
+            ("push_chat_notification", {"chatId": test_id, "content": {"text": "Test notification"}, "isRead": False, "timestamp": timestamp, "uid": test_id}),
+            # Skill run events
+            ("update_skill_run_stat", {"agentTaskId": test_id, "currentNode": "test_node", "current_node": "test_node", "status": "running", "langgraphState": {}, "nodeState": {}, "timestamp": timestamp}),
+            ("update_tasks_stat", {"agentTaskId": test_id, "langgraphState": {"test": True}, "timestamp": timestamp}),
+            # LightRAG events
+            ("lightrag.queryStream.chunk", {"id": test_id, "chunk": "Test LightRAG chunk data"}),
+            ("lightrag.queryStream.done", {"id": test_id}),
+            ("lightrag.queryStream.error", {"id": test_id, "error": "Test error message"}),
+            # Skill editor events
+            ("skill_editor.chat.stream_chunk", {"sessionId": test_id, "messageId": f"msg-{test_id}", "chunk": "Test stream chunk", "chunkIndex": 0}),
+            ("skill_editor.chat.stream_end", {"sessionId": test_id, "messageId": f"msg-{test_id}", "fullContent": "Test complete message"}),
+            ("skill_editor.chat.error", {"sessionId": test_id, "error": "Test error", "code": "TEST_ERROR"}),
+            ("skill_editor.event", {"sessionId": test_id, "commandType": "test", "type": "canvas_command", "payload": {"action": "test"}}),
+            # UI events
+            ("refresh_dashboard", {"source": "local_ws_test", "timestamp": timestamp}),
+            ("update_screens", {"screens": [{"id": test_id, "name": "Test Screen"}]}),
+        ]
+        
+        for event_type, payload in test_events:
+            try:
+                message = {
+                    "type": event_type,
+                    "eventType": event_type,
+                    "payload": payload,
+                    "_test": True,
+                    "_testId": test_id,
+                    "_timestamp": timestamp
+                }
+                await app_ws_manager.broadcast(message)
+                results.append({"event": event_type, "status": "sent"})
+                logger.info(f"[LocalWSTest] Sent test event: {event_type}")
+            except Exception as e:
+                results.append({"event": event_type, "status": "error", "error": str(e)})
+                logger.error(f"[LocalWSTest] Error sending {event_type}: {e}")
+        
+        return JSONResponse({
+            "status": "success",
+            "testId": test_id,
+            "timestamp": timestamp,
+            "eventsSent": len([r for r in results if r["status"] == "sent"]),
+            "eventsTotal": len(test_events),
+            "results": results
+        })
+        
+    except Exception as e:
+        logger.error(f"[LocalWSTest] Error: {e}")
+        import traceback
+        return JSONResponse({
+            "status": "error",
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }, status_code=500)
+
+
 # Wrap the raw ASGI handler for POST
 # messages_router = Router([
 #     Route("/", endpoint=sse_handle_messages, methods=["POST"])
@@ -1764,6 +1845,7 @@ class RouteBuilder:
         return [
             Mount("/mcp", app=mcp_asgi),
             Route("/healthz", health_check),
+            Route("/api/local-ws-test", local_ws_test, methods=['GET', 'POST']),
             Route("/graphql", self.request_handlers.graphql_handler, methods=['POST']),
             WebSocketRoute("/ws/skill-editor", self.request_handlers.skill_editor_websocket),
             Route('/api/initialize', self.request_handlers.initialize, methods=['POST']),
