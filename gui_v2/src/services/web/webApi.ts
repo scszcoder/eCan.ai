@@ -659,7 +659,7 @@ export const webApi = {
   },
 
   async getEditorCache(userId: string): Promise<any | null> {
-    const data = await appSyncRequest<{ getEditorCache: any }>(GET_EDITOR_CACHE_QUERY, { userId });
+    const data = await appSyncRequest<{ getEditorCache: any }>(GET_EDITOR_CACHE_QUERY, { userId }, undefined, 'load_editor_cache');
     return data.getEditorCache || null;
   },
 
@@ -687,7 +687,9 @@ export const webApi = {
   async getSkillEditorChatSessions(userId: string): Promise<any[]> {
     const data = await appSyncRequest<{ getSkillEditorChatSessions: any[] }>(
       GET_SKILL_EDITOR_CHAT_SESSIONS_QUERY,
-      { userId }
+      { userId },
+      undefined,
+      'skill_editor.chat.get_sessions'
     );
     return data.getSkillEditorChatSessions || [];
   },
@@ -695,7 +697,9 @@ export const webApi = {
   async getSkillEditorChatHistory(sessionId: string, limit?: number, offset?: number): Promise<any[]> {
     const data = await appSyncRequest<{ getSkillEditorChatHistory: any[] }>(
       GET_SKILL_EDITOR_CHAT_HISTORY_QUERY,
-      { sessionId, limit, offset }
+      { sessionId, limit, offset },
+      undefined,
+      'skill_editor.chat.get_history'
     );
     return data.getSkillEditorChatHistory || [];
   },
@@ -745,112 +749,122 @@ export const webApi = {
   },
 
   async saveEditorCache(input: Record<string, any>): Promise<any | null> {
-    const data = await appSyncRequest<{ saveEditorCache: any }>(SAVE_EDITOR_CACHE_MUTATION, { input });
+    const data = await appSyncRequest<{ saveEditorCache: any }>(SAVE_EDITOR_CACHE_MUTATION, { input }, undefined, 'save_editor_cache');
     return data.saveEditorCache || null;
   },
 
   async clearEditorCache(userId: string): Promise<boolean> {
-    const data = await appSyncRequest<{ clearEditorCache: boolean }>(CLEAR_EDITOR_CACHE_MUTATION, { userId });
+    const data = await appSyncRequest<{ clearEditorCache: boolean }>(CLEAR_EDITOR_CACHE_MUTATION, { userId }, undefined, 'clear_editor_cache');
     return !!data.clearEditorCache;
   },
 
   async runSkill(input: Record<string, any>): Promise<any | null> {
-    const data = await appSyncRequest<{ runSkill: any }>(RUN_SKILL_MUTATION, { input });
+    const data = await appSyncRequest<{ runSkill: any }>(RUN_SKILL_MUTATION, { input }, undefined, 'run_skill');
     return data.runSkill || null;
   },
 
   async pauseRunSkill(input: Record<string, any>): Promise<any | null> {
-    const data = await appSyncRequest<{ pauseRunSkill: any }>(PAUSE_RUN_SKILL_MUTATION, { input });
+    const data = await appSyncRequest<{ pauseRunSkill: any }>(PAUSE_RUN_SKILL_MUTATION, { input }, undefined, 'pause_run_skill');
     return data.pauseRunSkill || null;
   },
 
   async resumeRunSkill(input: Record<string, any>): Promise<any | null> {
-    const data = await appSyncRequest<{ resumeRunSkill: any }>(RESUME_RUN_SKILL_MUTATION, { input });
+    const data = await appSyncRequest<{ resumeRunSkill: any }>(RESUME_RUN_SKILL_MUTATION, { input }, undefined, 'resume_run_skill');
     return data.resumeRunSkill || null;
   },
 
   async stepRunSkill(input: Record<string, any>): Promise<any | null> {
-    const data = await appSyncRequest<{ stepRunSkill: any }>(STEP_RUN_SKILL_MUTATION, { input });
+    const data = await appSyncRequest<{ stepRunSkill: any }>(STEP_RUN_SKILL_MUTATION, { input }, undefined, 'step_run_skill');
     return data.stepRunSkill || null;
   },
 
   async cancelRunSkill(input: Record<string, any>): Promise<any | null> {
-    const data = await appSyncRequest<{ cancelRunSkill: any }>(CANCEL_RUN_SKILL_MUTATION, { input });
+    const data = await appSyncRequest<{ cancelRunSkill: any }>(CANCEL_RUN_SKILL_MUTATION, { input }, undefined, 'cancel_run_skill');
     return data.cancelRunSkill || null;
   },
 
   async setupSimStep(bundle: any): Promise<any | null> {
-    const data = await appSyncRequest<{ setupSimStep: any }>(SETUP_SIM_STEP_MUTATION, { bundle });
+    const data = await appSyncRequest<{ setupSimStep: any }>(SETUP_SIM_STEP_MUTATION, { bundle }, undefined, 'setup_sim_step');
     return data.setupSimStep || null;
   },
 
   async stepSim(): Promise<any | null> {
-    const data = await appSyncRequest<{ stepSim: any }>(STEP_SIM_MUTATION);
+    const data = await appSyncRequest<{ stepSim: any }>(STEP_SIM_MUTATION, undefined, undefined, 'step_sim');
     return data.stepSim || null;
   },
 
   async testLanggraph2Flowgram(): Promise<any | null> {
-    const data = await appSyncRequest<{ testLanggraph2Flowgram: any }>(TEST_LANGGRAPH2_FLOWGRAM_MUTATION);
+    const data = await appSyncRequest<{ testLanggraph2Flowgram: any }>(TEST_LANGGRAPH2_FLOWGRAM_MUTATION, undefined, undefined, 'test_langgraph2flowgram');
     return data.testLanggraph2Flowgram || null;
   },
 
   async simTimerEvent(): Promise<any | null> {
-    const data = await appSyncRequest<{ simTimerEvent: any }>(SIM_TIMER_EVENT_MUTATION);
+    const data = await appSyncRequest<{ simTimerEvent: any }>(SIM_TIMER_EVENT_MUTATION, undefined, undefined, 'sim_timer_event');
     return data.simTimerEvent || null;
   },
 
   async simWebsocketEvent(): Promise<any | null> {
-    const data = await appSyncRequest<{ simWebsocketEvent: any }>(SIM_WEBSOCKET_EVENT_MUTATION);
+    const data = await appSyncRequest<{ simWebsocketEvent: any }>(SIM_WEBSOCKET_EVENT_MUTATION, undefined, undefined, 'sim_websocket_event');
     return data.simWebsocketEvent || null;
   },
 
   async simSseEvent(): Promise<any | null> {
-    const data = await appSyncRequest<{ simSseEvent: any }>(SIM_SSE_EVENT_MUTATION);
+    const data = await appSyncRequest<{ simSseEvent: any }>(SIM_SSE_EVENT_MUTATION, undefined, undefined, 'sim_sse_event');
     return data.simSseEvent || null;
   },
 
   async simWebhookEvent(): Promise<any | null> {
-    const data = await appSyncRequest<{ simWebhookEvent: any }>(SIM_WEBHOOK_EVENT_MUTATION);
+    const data = await appSyncRequest<{ simWebhookEvent: any }>(SIM_WEBHOOK_EVENT_MUTATION, undefined, undefined, 'sim_webhook_event');
     return data.simWebhookEvent || null;
   },
 
   async setSkillBreakpoints(username: string, nodeName: string): Promise<any | null> {
-    const data = await appSyncRequest<{ setSkillBreakpoints: any }>(SET_SKILL_BREAKPOINTS_MUTATION, {
-      username,
-      nodeName,
-    });
+    const data = await appSyncRequest<{ setSkillBreakpoints: any }>(
+      SET_SKILL_BREAKPOINTS_MUTATION,
+      { username, nodeName },
+      undefined,
+      'set_skill_breakpoints'
+    );
     return data.setSkillBreakpoints || null;
   },
 
   async clearSkillBreakpoints(username: string, nodeName: string): Promise<any | null> {
-    const data = await appSyncRequest<{ clearSkillBreakpoints: any }>(CLEAR_SKILL_BREAKPOINTS_MUTATION, {
-      username,
-      nodeName,
-    });
+    const data = await appSyncRequest<{ clearSkillBreakpoints: any }>(
+      CLEAR_SKILL_BREAKPOINTS_MUTATION,
+      { username, nodeName },
+      undefined,
+      'clear_skill_breakpoints'
+    );
     return data.clearSkillBreakpoints || null;
   },
 
   async requestSkillState(username: string, skill: any): Promise<any | null> {
-    const data = await appSyncRequest<{ requestSkillState: any }>(REQUEST_SKILL_STATE_MUTATION, {
-      username,
-      skill,
-    });
+    const data = await appSyncRequest<{ requestSkillState: any }>(
+      REQUEST_SKILL_STATE_MUTATION,
+      { username, skill },
+      undefined,
+      'request_skill_state'
+    );
     return data.requestSkillState || null;
   },
 
   async injectSkillState(username: string, skill: any): Promise<any | null> {
-    const data = await appSyncRequest<{ injectSkillState: any }>(INJECT_SKILL_STATE_MUTATION, {
-      username,
-      skill,
-    });
+    const data = await appSyncRequest<{ injectSkillState: any }>(
+      INJECT_SKILL_STATE_MUTATION,
+      { username, skill },
+      undefined,
+      'inject_skill_state'
+    );
     return data.injectSkillState || null;
   },
 
   async loadSkillSchemas(username: string, skill: any): Promise<any | null> {
-    const data = await appSyncRequest<{ loadSkillSchemas: any }>(LOAD_SKILL_SCHEMAS_MUTATION, {
-      username,
-      skill,
-    });
+    const data = await appSyncRequest<{ loadSkillSchemas: any }>(
+      LOAD_SKILL_SCHEMAS_MUTATION,
+      { username, skill },
+      undefined,
+      'load_skill_schemas'
+    );
     return data.loadSkillSchemas || null;
   },
 
