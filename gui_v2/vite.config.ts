@@ -8,6 +8,8 @@ import path from 'path'
 
 export default defineConfig(({ mode }) => {
   const basePath = process.env.VITE_BASE || (mode === 'production' ? '/app/gui-v2/' : '/');
+  const localServerPort = process.env.VITE_LOCAL_SERVER_PORT || '4668';
+  const localServerTarget = `http://localhost:${localServerPort}`;
 
   return {
   plugins: [
@@ -25,6 +27,17 @@ export default defineConfig(({ mode }) => {
     port: 3000,
     strictPort: true, // 如果端口被占用，则直接退出
     host: true, // 监听所有地址
+    proxy: {
+      '/graphql': {
+        target: localServerTarget,
+        changeOrigin: true,
+      },
+      '/ws': {
+        target: localServerTarget,
+        ws: true,
+        changeOrigin: true,
+      },
+    },
     fs: {
       // 允许访问项目根目录之外的文件
       strict: true,

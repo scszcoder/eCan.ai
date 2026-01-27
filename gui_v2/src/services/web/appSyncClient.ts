@@ -18,6 +18,10 @@ export type AppSyncAuthMode = 'auto' | 'bearer' | 'apiKey' | 'none';
 export interface AppSyncRequestOptions {
   authMode?: AppSyncAuthMode;
   apiKey?: string;
+  /** GraphQL 操作名称 */
+  operationName?: string;
+  /** 自定义扩展字段 */
+  extensions?: Record<string, any>;
 }
 
 const getEnv = () => {
@@ -46,6 +50,12 @@ const shouldUseLocalServer = (): boolean => {
 };
 
 const getLocalServerEndpoint = (): string => {
+  // In dev mode, prefer same-origin path so Vite proxy can handle forwarding.
+  try {
+    if (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV) {
+      return '/graphql';
+    }
+  } catch {}
   const settings = getSettings();
   const port = settings?.local_server_port || '4668';
   return `http://localhost:${port}/graphql`;
@@ -72,7 +82,8 @@ const getAppSyncApiKey = (overrideKey?: string): string => {
 export const appSyncRequest = async <T>(
   query: string,
   variables?: Record<string, any>,
-  options?: AppSyncRequestOptions
+  options?: AppSyncRequestOptions,
+  method?: string
 ): Promise<T> => {
   // Determine endpoint: local server (desktop + IPC mode OFF) or AppSync (web / desktop + IPC mode ON)
   const useLocalServer = shouldUseLocalServer();
@@ -90,6 +101,10 @@ export const appSyncRequest = async <T>(
   // Local server doesn't need authentication
   if (useLocalServer) {
     console.log('[AppSyncClient] Using local server (no auth):', endpoint);
+    const token = userStorageManager.getToken();
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
   } else {
     // AppSync needs authentication
     const accessToken = userStorageManager.getToken();
@@ -115,10 +130,53 @@ export const appSyncRequest = async <T>(
     }
   }
 
+  const finalVariables: Record<string, any> = (variables && typeof variables === 'object') ? { ...variables } : {};
+
+  const normalizedQuery = (query ?? '').trim();
+  const isPlaceholderQuery = !normalizedQuery;
+  const optionOperationName = (options?.operationName ?? '').trim();
+
+  // Only use `method` as operationName when we had to synthesize a placeholder query.
+  // When the caller provides a real GraphQL document, do NOT override operationName;
+  // otherwise LocalServer will use that name as response field and break resultPath extraction.
+  const normalizedOperationName = (
+    optionOperationName || (isPlaceholderQuery ? (method ?? '') : '')
+  ).trim();
+
+  const effectiveQuery = normalizedQuery
+    ? normalizedQuery
+    : `query ${normalizedOperationName || 'Anonymous'} { __typename }`;
+
+  // 构建请求 body
+  const body: Record<string, any> = { query: effectiveQuery, variables: finalVariables };
+  
+  // 添加可选字段
+  if (normalizedOperationName) {
+    body.operationName = normalizedOperationName;
+  }
+  
+  // 构建 extensions
+  const extensions: Record<string, any> = {};
+  
+  // 添加 method 到 extensions
+  if (method) {
+    extensions.method = method;
+  }
+  
+  // 合并用户提供的 extensions
+  if (options?.extensions) {
+    Object.assign(extensions, options.extensions);
+  }
+  
+  // 如果有 extensions，添加到 body
+  if (Object.keys(extensions).length > 0) {
+    body.extensions = extensions;
+  }
+
   const response = await fetch(endpoint, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ query, variables }),
+    body: JSON.stringify(body),
   });
 
   const payload = (await response.json()) as GraphQLResponse<T>;

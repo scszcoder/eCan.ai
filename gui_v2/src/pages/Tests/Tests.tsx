@@ -656,6 +656,95 @@ const Tests: React.FC = () => {
         }
     };
 
+    const handleLocalWebsocketTest = async () => {
+        setTestOutput('');
+        appendTestOutput('Local WS Test: Starting...');
+        
+        // Force-connect the local WebSocket client first
+        appendTestOutput('Local WS Test: Connecting to local WebSocket...');
+        try {
+            const { localWebSocketClient } = await import('../../services/web/localWebSocketClient');
+            const { initWebSocketEventListeners } = await import('../../services/web/wsEventListeners');
+            initWebSocketEventListeners();
+            const connected = await localWebSocketClient.connect(true); // force=true bypasses platform check
+            if (connected) {
+                appendTestOutput('Local WS Test: WebSocket connected successfully');
+            } else {
+                appendTestOutput('Local WS Test: WebSocket connection failed or already connecting');
+            }
+            // Give WebSocket a moment to fully establish
+            await new Promise(resolve => setTimeout(resolve, 500));
+        } catch (wsError) {
+            appendTestOutput(`Local WS Test: WebSocket connect error - ${wsError}`);
+        }
+        
+        // Get the local server port from settings
+        const port = settings?.local_server_port || '4668';
+        const testUrl = `http://localhost:${port}/api/local-ws-test`;
+        
+        appendTestOutput(`Local WS Test: Calling ${testUrl}`);
+        appendTestOutput('Local WS Test: Make sure local WebSocket is connected (check console for [LocalWS] logs)');
+        
+        try {
+            const response = await fetch(testUrl, { method: 'GET' });
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                appendTestOutput(`Local WS Test: SUCCESS - Test ID: ${result.testId}`);
+                appendTestOutput(`Local WS Test: Sent ${result.eventsSent}/${result.eventsTotal} events`);
+                appendTestOutput('Local WS Test: Check browser console (F12) for received messages');
+                appendTestOutput('Local WS Test: Look for [LocalWS] logs showing received events');
+                appendTestOutput('');
+                appendTestOutput('Events sent:');
+                result.results.forEach((r: any) => {
+                    appendTestOutput(`  - ${r.event}: ${r.status}`);
+                });
+            } else {
+                appendTestOutput(`Local WS Test: FAILED - ${result.error}`);
+                if (result.traceback) {
+                    appendTestOutput(result.traceback);
+                }
+            }
+        } catch (error) {
+            appendTestOutput(`Local WS Test: ERROR - ${error instanceof Error ? error.message : String(error)}`);
+            appendTestOutput('Make sure the local server is running and accessible.');
+        }
+    };
+
+    const handleC2LWebsocketTest = async () => {
+        setTestOutput('');
+        appendTestOutput('C2L WS Test: Starting...');
+        appendTestOutput('C2L WS Test: This sends a runTest mutation to cloud AppSync');
+        
+        // Get the local server port from settings
+        const port = settings?.local_server_port || '4668';
+        const testUrl = `http://localhost:${port}/api/c2l-ws-test`;
+        
+        appendTestOutput(`C2L WS Test: Calling ${testUrl}`);
+        
+        try {
+            const response = await fetch(testUrl, { method: 'GET' });
+            const result = await response.json();
+            
+            if (result.status === 'success') {
+                appendTestOutput(`C2L WS Test: SUCCESS - Test ID: ${result.testId}`);
+                appendTestOutput(`C2L WS Test: Cloud Response: ${JSON.stringify(result.cloudResponse, null, 2)}`);
+                appendTestOutput('C2L WS Test: Check browser console (F12) for any WebSocket messages pushed from cloud');
+            } else {
+                appendTestOutput(`C2L WS Test: FAILED - ${result.error || 'Unknown error'}`);
+                if (result.errors) {
+                    appendTestOutput(`C2L WS Test: Errors: ${JSON.stringify(result.errors, null, 2)}`);
+                }
+                if (result.traceback) {
+                    appendTestOutput(result.traceback);
+                }
+            }
+        } catch (error) {
+            appendTestOutput(`C2L WS Test: ERROR - ${error instanceof Error ? error.message : String(error)}`);
+            appendTestOutput('Make sure the local server is running and you are logged in.');
+        }
+    };
+
     const handlePageClick: React.MouseEventHandler<HTMLDivElement> = (e) => {
         const target = e.target as HTMLElement;
         console.log('[Tests] Page click:', {
@@ -748,8 +837,17 @@ const Tests: React.FC = () => {
                         <Button onClick={handleRunMinimal} style={{ marginLeft: 8 }}>
                             Run Minimal
                         </Button>
-                        <Button onClick={handleWebsocketTest} style={{ marginLeft: 8 }}>
+                        </Space>
+                    {/* WebSocket Test Buttons - 2nd row */}
+                    <Space style={{ marginBottom: '8px' }}>
+                        <Button onClick={handleWebsocketTest}>
                             WebSocket Test
+                        </Button>
+                        <Button onClick={handleLocalWebsocketTest} style={{ marginLeft: 8 }}>
+                            Local WS Test
+                        </Button>
+                        <Button onClick={handleC2LWebsocketTest} style={{ marginLeft: 8 }}>
+                            C2L WS Test
                         </Button>
                     </Space>
                     {/* Test Selection */}

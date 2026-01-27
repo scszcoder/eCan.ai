@@ -359,7 +359,12 @@ def flowgram2langgraph(flow: dict, bundle_json: dict | None = None, bp_mgr: Brea
         # Ensure flow is a dict and log
         if not isinstance(flow, dict):
             raise ValueError("flow must be a dict")
-        logger.debug(f"flowgram raw: {flow}")
+        
+        # Truncate long output for logging
+        flow_str = str(flow)
+        if len(flow_str) > 10000:
+            flow_str = flow_str[:10000] + '... (truncated)'
+        logger.debug(f"flowgram raw: {flow_str}")
         # If bundle is provided by caller, attach for reference (v2 may already have preprocessed)
         if bundle_json is not None:
             flow["bundle"] = bundle_json

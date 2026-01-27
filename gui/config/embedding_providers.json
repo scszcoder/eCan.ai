@@ -313,9 +313,9 @@
         }
       ]
     },
-    "Ollama (Local)": {
-      "name": "Ollama (Local)",
-      "display_name": "Ollama (Local)",
+    "Ollama": {
+      "name": "Ollama",
+      "display_name": "Ollama",
       "provider": "ollama",
       "class_name": "OpenAIEmbeddings",
       "api_key_env_vars": [

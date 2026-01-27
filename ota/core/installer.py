@@ -64,6 +64,20 @@ class InstallationManager:
             logger.error(f"Installation failed: {e}")
             return False
 
+    def _get_windows_standard_install_dir(self) -> Path:
+        if sys.platform != 'win32':
+            return Path('.')
+
+        localappdata = os.environ.get('LOCALAPPDATA')
+        if localappdata:
+            return Path(localappdata) / 'eCan'
+
+        userprofile = os.environ.get('USERPROFILE', '')
+        if userprofile:
+            return Path(userprofile) / 'AppData' / 'Local' / 'eCan'
+
+        return Path.home() / 'AppData' / 'Local' / 'eCan'
+
     def _terminate_processes_in_dir(
         self,
         target_dir: Path,
@@ -178,21 +192,15 @@ class InstallationManager:
         if sys.platform != 'win32':
             raise RuntimeError("Windows-only helper")
 
-        script_dir = Path(tempfile.gettempdir()) / "ecan_ota"
-        script_dir.mkdir(exist_ok=True)
+        exe_path = cmd[0]
+        args_list = cmd[1:]
+        args_cmdline = subprocess.list2cmdline(args_list) if args_list else ""
 
-        script_path = script_dir / f"launch_installer_{int(time.time())}.bat"
-        installer_cmdline = subprocess.list2cmdline(cmd)
-
-        script_content = (
-            "@echo off\r\n"
-            f"timeout /t {int(delay_seconds)} /nobreak >nul\r\n"
-            f"start \"\" {installer_cmdline}\r\n"
-            "del \"%~f0\"\r\n"
+        ps_cmd = (
+            f"Start-Sleep -Seconds {int(delay_seconds)}; "
+            f"Start-Process -FilePath {exe_path!r}"
+            + (f" -ArgumentList {args_cmdline!r}" if args_cmdline else "")
         )
-
-        with open(script_path, 'w', encoding='utf-8') as f:
-            f.write(script_content)
 
         creation_flags = (
             subprocess.DETACHED_PROCESS |
@@ -201,7 +209,16 @@ class InstallationManager:
         )
 
         p = subprocess.Popen(
-            ["cmd", "/c", str(script_path)],
+            [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-WindowStyle",
+                "Hidden",
+                "-Command",
+                ps_cmd,
+            ],
             creationflags=creation_flags,
         )
         return p.pid
@@ -257,12 +274,22 @@ class InstallationManager:
             # For OTA updates, use truly silent installation
             if install_options.get('silent', True):
                 if getattr(sys, 'frozen', False):
-                    # Get current installation directory
-                    install_dir = Path(sys.executable).parent
+                    configured_install_dir = install_options.get('install_dir')
+                    if configured_install_dir:
+                        install_dir = Path(str(configured_install_dir)).expanduser()
+                    else:
+                        install_dir = self._get_windows_standard_install_dir()
+
+                    if not install_dir.exists():
+                        try:
+                            install_dir.mkdir(parents=True, exist_ok=True)
+                        except Exception:
+                            install_dir = Path(sys.executable).parent
+
                     logger.info(f"Target installation directory: {install_dir}")
 
-                    # Prevent Inno Setup rollback due to file-in-use errors (MoveFile error 183)
-                    self._terminate_processes_in_dir(install_dir)
+                    # Note: Process termination is handled by Inno Setup's CloseApplications=yes
+                    # No need to manually terminate processes here as it may conflict with installer
                     
                     # Use Inno Setup silent installation parameters with progress
                     # /SILENT = Silent with progress bar (not /VERYSILENT)
@@ -302,7 +329,7 @@ class InstallationManager:
                             creation_flags = 0
 
                         if sys.platform == 'win32':
-                            pid = self._launch_windows_installer_delayed(cmd, delay_seconds=8)
+                            pid = self._launch_windows_installer_delayed(cmd, delay_seconds=5)
                             logger.info(f"Installer launch script started (PID: {pid})")
                         else:
                             process = subprocess.Popen(cmd, creationflags=creation_flags)
@@ -345,12 +372,16 @@ class InstallationManager:
                     from ota.core.download_manager import download_manager
                     download_manager.set_installing(True)
                     
+                    # Use standard install directory even in dev mode
+                    install_dir = self._get_windows_standard_install_dir()
+                    
                     cmd = [
                         str(package_path),
                         '/SILENT',              # Shows progress bar, skips wizard pages
                         '/SUPPRESSMSGBOXES',
                         '/NORESTART',
                         '/SP-',                  # Skip startup message
+                        f'/DIR="{install_dir}"'  # Ensure consistent install directory
                     ]
 
                     self._append_inno_log_if_enabled(cmd)
@@ -366,7 +397,7 @@ class InstallationManager:
                         creation_flags = 0
 
                     if sys.platform == 'win32':
-                        pid = self._launch_windows_installer_delayed(cmd, delay_seconds=8)
+                        pid = self._launch_windows_installer_delayed(cmd, delay_seconds=5)
                         logger.info(f"Installer launch script started (PID: {pid})")
                     else:
                         process = subprocess.Popen(cmd, creationflags=creation_flags)

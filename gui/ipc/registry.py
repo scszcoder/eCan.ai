@@ -445,3 +445,52 @@ class IPCHandlerRegistry:
         cls._handlers.clear()
         cls._background_handlers.clear()
         logger.info("[registry] Cleared all handlers")
+
+    @classmethod
+    def handle_graphql_request(cls, method: str, variables: Dict[str, Any]) -> Any:
+        """Handle GraphQL request from LocalServer or AppSync Lambda
+        
+        Converts GraphQL request to IPC format, processes it, and returns result directly.
+        
+        Args:
+            method: API method name (e.g., 'readSkillFile', 'getAgents')
+            variables: GraphQL variables/arguments
+            
+        Returns:
+            Direct result data (for GraphQL response wrapping)
+            
+        Raises:
+            Exception: If handler execution fails (GraphQL will wrap as error)
+        """
+        try:
+            # Create IPC request format
+            ipc_request: IPCRequest = {
+                'id': f'graphql_{method}',
+                'method': method,
+                'params': variables,
+                'source': 'graphql'
+            }
+            
+            # Get handler
+            handler_info = cls.get_handler(method)
+            if not handler_info:
+                logger.warning(f"[registry] No handler found for GraphQL method: {method}")
+                raise RuntimeError(f"No handler registered for method: {method}")
+            
+            handler, handler_type = handler_info
+            
+            # Execute handler
+            logger.debug(f"[registry] Executing {handler_type} handler for GraphQL method: {method}")
+            ipc_response = handler(ipc_request, variables)
+            
+            # For GraphQL, return data directly or raise exception
+            if ipc_response.get('status') == 'success':
+                return ipc_response.get('result')
+            else:
+                error_info = ipc_response.get('error', {})
+                error_message = error_info.get('message', 'Request failed')
+                raise RuntimeError(error_message)
+                
+        except Exception as e:
+            logger.error(f"[registry] Error handling GraphQL request for {method}: {e}", exc_info=True)
+            raise

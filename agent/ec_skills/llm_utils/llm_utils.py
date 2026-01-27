@@ -1016,6 +1016,15 @@ def extract_provider_config(provider, config_manager=None):
             # Default to provider_name if still empty
             provider_type = provider_name
     
+    # Ensure api_key and base_url are not None (use empty string or placeholder)
+    # This prevents 'NoneType' object is not subscriptable errors in downstream code
+    if api_key is None:
+        # For local providers (Ollama, etc.), use placeholder key
+        if provider_type in ['ollama', 'ryoais']:
+            api_key = 'sk-placeholder-key-for-local-llm'
+        else:
+            api_key = ''
+    
     return {
         'model_name': model_name,
         'api_key': api_key,
@@ -1473,13 +1482,18 @@ def _get_logging_browser_use_class():
                     except AttributeError:
                         pass
                     
-                    # Log actual LLM response content
+                    # Log LLM response
                     try:
-                        if hasattr(response, 'choices') and response.choices:
-                            content = response.choices[0].message.content
-                            logger.debug(f"[BrowserUse] LLM Response: {content}")
-                    except Exception:
-                        pass
+                        if hasattr(response, 'choices') and response.choices and len(response.choices) > 0:
+                            message = response.choices[0].message
+                            if hasattr(message, 'content') and message.content:
+                                content = message.content
+                                logger.debug(f"[BrowserUse] Received LLM response, length: {len(content)}")
+                                logger.debug(f"[BrowserUse] LLM Response preview: {content[:200]}...")
+                            else:
+                                logger.debug(f"[BrowserUse] LLM response has no content")
+                    except Exception as e:
+                        logger.error(f"[BrowserUse] ❌ Failed to log response: {e}", exc_info=True)
                     
                     return response
                 
@@ -1503,7 +1517,7 @@ def _create_and_validate_browser_use_llm(bu_config: dict):
     Args:
         bu_config: Configuration dict for BrowserUseChatOpenAI (model, api_key, base_url, etc.)
                    Special keys:
-                   - enable_deepseek_adapter: bool - Enable DeepSeek output format adapter
+                   - adapt_deepseek_output: bool - Apply DeepSeek output format adapter
         
     Returns:
         LoggingBrowserUseChatOpenAI instance or None if creation/validation fails
@@ -1512,7 +1526,8 @@ def _create_and_validate_browser_use_llm(bu_config: dict):
         from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
         
         # Extract special config flags
-        enable_deepseek_adapter = bu_config.pop('enable_deepseek_adapter', False)
+        adapt_deepseek_output = bu_config.pop('adapt_deepseek_output', False)
+        adapt_qwen_output = bu_config.pop('adapt_qwen_output', False)
         
         # Get the logging wrapper class
         LoggingBrowserUseChatOpenAI = _get_logging_browser_use_class()
@@ -1526,13 +1541,22 @@ def _create_and_validate_browser_use_llm(bu_config: dict):
             logger.debug("[_create_and_validate_browser_use_llm] Created LLM with custom logging enabled")
         
         # Apply DeepSeek output format adapter if enabled
-        if enable_deepseek_adapter:
+        if adapt_deepseek_output:
             try:
-                from agent.ec_skills.browser_use_extension.deepseek_adapter import create_deepseek_compatible_llm
-                llm_instance = create_deepseek_compatible_llm(llm_instance)
+                from agent.ec_skills.browser_use_extension.deepseek_adapter import wrap_llm_with_compatible_output
+                llm_instance = wrap_llm_with_compatible_output(llm_instance)
                 logger.info("[_create_and_validate_browser_use_llm] ✅ Applied DeepSeek output format adapter")
             except Exception as e:
-                logger.warning(f"[_create_and_validate_browser_use_llm] Failed to apply DeepSeek adapter: {e}")
+                logger.warning(f"[_create_and_validate_browser_use_llm] Failed to apply DeepSeek output adapter: {e}")
+        
+        # Apply Qwen/Ollama output format adapter if enabled
+        if adapt_qwen_output:
+            try:
+                from agent.ec_skills.browser_use_extension.qwen_adapter import wrap_qwen_llm
+                llm_instance = wrap_qwen_llm(llm_instance)
+                logger.info("[_create_and_validate_browser_use_llm] ✅ Applied Qwen/Ollama output format adapter")
+            except Exception as e:
+                logger.warning(f"[_create_and_validate_browser_use_llm] Failed to apply Qwen output adapter: {e}")
         
         # Validate it's actually BrowserUseChatOpenAI (should always be true if creation succeeded)
         if isinstance(llm_instance, BrowserUseChatOpenAI):
@@ -1559,8 +1583,7 @@ def create_browser_use_llm_by_provider_type(
     class_name: str = "",
     default_config: dict = None,
     fallback_llm = None,
-    mainwin = None,
-    enable_thinking: bool = None
+    mainwin = None
 ):
     """
     Create browser_use-compatible LLM based on provider type.
@@ -1638,7 +1661,8 @@ def create_browser_use_llm_by_provider_type(
     elif provider_type in ['deepseek', 'dashscope', 'ollama', 'qwen', 'qwq', 'baidu_qianfan', 'bytedance', 'zhipuai']:
         bu_config = {
             'model': model_name or default_config['model'],
-            'api_key': api_key or default_config['api_key'] or 'dummy-key'
+            'api_key': api_key or default_config['api_key'] or 'dummy-key',
+            'timeout': 180.0  # 3 minutes timeout for slow inference (especially for Ollama/local models)
         }
         
         # DeepSeek and some other providers don't support response_format (JSON mode)
@@ -1649,18 +1673,18 @@ def create_browser_use_llm_by_provider_type(
             logger.info(f"[create_browser_use_llm_by_provider_type] Disabled structured output for {provider_type} (not supported)")
         
         # Enable DeepSeek output format adapter for DeepSeek provider
-        # This adapts output format to match browser-use schema
+        # This adapts DeepSeek's output format to match browser-use schema
         if provider_type == 'deepseek':
-            bu_config['enable_deepseek_adapter'] = True
+            bu_config['adapt_deepseek_output'] = True
             logger.info(f"[create_browser_use_llm_by_provider_type] Enabled DeepSeek output format adapter")
         
-        # For Qwen/DashScope providers, pass enable_thinking via extra_body if specified
-        qwen_providers = ['dashscope', 'qwen', 'qwq']
-        if provider_type in qwen_providers and enable_thinking is not None:
-            # Pass enable_thinking to Qwen API via extra_body
-            bu_config['extra_body'] = {'enable_thinking': enable_thinking}
-            logger.info(f"[create_browser_use_llm_by_provider_type] Set enable_thinking={enable_thinking} for {provider_type}")
-        
+        # Enable Qwen/Ollama output format adapter
+        # This fixes common Qwen output issues (numeric keys, markdown blocks, XML tags)
+        if provider_type in ['ollama', 'qwen', 'qwq']:
+            bu_config['adapt_qwen_output'] = True
+            logger.info(f"[create_browser_use_llm_by_provider_type] Enabled Qwen/Ollama output format adapter")
+            logger.info(f"[create_browser_use_llm_by_provider_type] Set timeout=180s for {provider_type} (slow inference support)")
+                
         if base_url:
             # Special handling for Ollama: convert native URL to OpenAI-compatible endpoint
             if provider_type == 'ollama':
@@ -1767,14 +1791,17 @@ def create_browser_use_llm_by_provider_type(
 
 def get_use_vision_from_llm(llm, context="") -> bool:
     """
-    Get use_vision value from LLM object, defaulting to True if not found.
+    Get use_vision value from LLM object, defaulting to False if not found.
+    
+    Vision is disabled by default to avoid compatibility issues with models that don't support it.
+    Only models with explicit supports_vision=True will enable vision.
     
     Args:
         llm: LLM instance that may have supports_vision attribute
         context: Optional context string for logging (e.g., "EC_Agent", "build_node")
     
     Returns:
-        bool: use_vision value (True by default)
+        bool: use_vision value (False by default for safety)
     """
     if llm and hasattr(llm, 'supports_vision'):
         use_vision = llm.supports_vision
@@ -1782,10 +1809,10 @@ def get_use_vision_from_llm(llm, context="") -> bool:
             logger.debug(f"[{context}] Auto-set use_vision={use_vision} from LLM config")
         return use_vision
     else:
-        # Default to True if not found (browser-use default behavior)
+        # Default to False if not found (safer default, avoids API compatibility issues)
         if context:
-            logger.debug(f"[{context}] Auto-set use_vision=True (default, no config found)")
-        return True
+            logger.debug(f"[{context}] Auto-set use_vision=False (default, no config found)")
+        return False
 
 
 def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_check=False):
@@ -1873,15 +1900,13 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                 
                 # Get supports_vision from config (default True if not found)
                 supports_vision = config.get('supports_vision', True)
-
-                # Get enable_thinking from provider settings for Qwen providers
-                provider_enable_thinking = config_manager.llm_manager.get_provider_enable_thinking(provider_type)
                 
-                log_msg = f"[create_browser_use_llm] provider_type:{provider_type}, model_name:{model_name}, api_key:{api_key}, base_url:{base_url}, class_name:{class_name}, supports_vision:{supports_vision}, enable_thinking:{provider_enable_thinking}"
+                log_msg = f"[create_browser_use_llm] provider_type:{provider_type}, model_name:{model_name}, api_key:{api_key}, base_url:{base_url}, class_name:{class_name}, supports_vision:{supports_vision}"
                 logger.debug(log_msg)
                 web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
 
                 # Use centralized function (already validates BrowserUseChatOpenAI type)
+                # Note: thinking control is handled via task prompt in build_node.py
                 llm_instance = create_browser_use_llm_by_provider_type(
                     provider_type=provider_type,
                     model_name=model_name,
@@ -1890,8 +1915,7 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                     class_name=class_name,
                     default_config=None,  # No fallback config needed when using mainwin
                     fallback_llm=None,  # Don't pass fallback_llm as it may be incompatible
-                    mainwin=mainwin,
-                    enable_thinking=provider_enable_thinking
+                    mainwin=mainwin
                 )
                 # Final type check before returning
                 if llm_instance is not None and not isinstance(llm_instance, BrowserUseChatOpenAI):

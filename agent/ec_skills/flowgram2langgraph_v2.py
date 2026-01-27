@@ -620,7 +620,7 @@ def flowgram2langgraph_v2(flow: dict, bundle_json: Optional[dict] = None, enable
     """
     # Prepare sheets list like v1
     sheets: List[dict] = []
-    base = flow
+    base = flow or {}
     b = (bundle_json or base.get('bundle') or {})
     if isinstance(b, dict) and isinstance(b.get('sheets'), list):
         for s in b['sheets']:
@@ -731,7 +731,7 @@ def flowgram2langgraph_v2(flow: dict, bundle_json: Optional[dict] = None, enable
 
     # Delegate to v1 by re-wrapping as a single-sheet flow
     new_flow = {
-        **{k: v for k, v in flow.items() if k not in ('workFlow', 'bundle')},
+        **{k: v for k, v in base.items() if k not in ('workFlow', 'bundle')},
         'workFlow': stitched,
     }
     logger.debug('[v2] Delegating to v1 after preprocessing (flat mode)')
