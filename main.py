@@ -75,6 +75,19 @@ def _patch_browser_use_to_utf8():
     except Exception as e:
         # Non-critical - log but continue
         print(f"[GBK_FIX] Warning: Could not apply browser-use encoding fix: {e}")
+
+
+def _wait_for_port_ready(port: int, host: str = '127.0.0.1', timeout_s: float = 8.0) -> bool:
+    start_ts = time.time()
+    while (time.time() - start_ts) < timeout_s:
+        try:
+            import socket
+            sock = socket.create_connection((host, int(port)), timeout=0.3)
+            sock.close()
+            return True
+        except Exception:
+            time.sleep(0.05)
+    return False
 # Note: _apply_browser_use_encoding_fix() will be called after GUI imports
 
 # ============================================================================
@@ -601,6 +614,16 @@ try:
             print("Set NO_PROXY='*' (direct connection baseline)")
     except Exception as e:
         print(f"Warning: Failed to enforce direct-connection baseline: {e}")
+
+    progress_manager.update_progress(28, "Starting local server...")
+    try:
+        from gui.LocalServer import start_local_server_early
+        local_server_port = int(os.environ.get('ECAN_LOCAL_SERVER_PORT', os.environ.get('VITE_LOCAL_SERVER_PORT', '4668')))
+        start_local_server_early(local_server_port)
+        if not _wait_for_port_ready(local_server_port):
+            print(f"Warning: local server not ready on 127.0.0.1:{local_server_port}")
+    except Exception as e:
+        print(f"Warning: Failed to start local server early: {e}")
 
     # Import other necessary modules
     progress_manager.update_progress(30, "Loading Login components...")

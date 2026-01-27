@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { Row, Col, Typography, Input, Button, Space } from 'antd';
+import { Row, Col, Input, Button, Space } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { SearchOutlined } from '@ant-design/icons';
 import { useOrgs } from './hooks/useOrgs';
@@ -14,14 +14,31 @@ import OrgModal from './components/OrgModal';
 import AgentBindingModal from './components/AgentBindingModal';
 import type { Org, OrgAgent, OrgFormData, AgentBindingFormData } from './types';
 
-const { Title } = Typography;
-
 const Orgs: React.FC = () => {
   const { t } = useTranslation();
   const { state, actions } = useOrgs();
   const [companyName, setCompanyName] = React.useState('');
 
+  // 页面加载时从 localStorage 恢复 companyName 并自动加载组织数据
+  React.useEffect(() => {
+    try {
+      const savedCompanyName = localStorage.getItem('org_company_filter');
+      if (savedCompanyName && savedCompanyName.trim()) {
+        setCompanyName(savedCompanyName);
+        // 自动加载组织数据
+        actions.loadOrgs(savedCompanyName);
+      }
+    } catch (error) {
+      console.error('Error loading saved company filter:', error);
+    }
+  }, []); // 只在组件挂载时执行一次
 
+  // 同步 hook 中的 companyName 到本地 state
+  React.useEffect(() => {
+    if (state.companyName && state.companyName !== companyName) {
+      setCompanyName(state.companyName);
+    }
+  }, [state.companyName]);
 
   // Tree selection handler
   const handleTreeSelect = (selectedKeys: React.Key[]) => {
@@ -47,8 +64,8 @@ const Orgs: React.FC = () => {
 
   // Tree drag & drop handler
   const handleTreeDrop = (info: any) => {
-    const { dragNode, node, dropToGap } = info;
-    actions.moveOrg(dragNode.key, node.key, dropToGap);
+    const { dragNode, node } = info;
+    actions.moveOrg(dragNode.key, node.key);
   };
 
   // Modal handlers
