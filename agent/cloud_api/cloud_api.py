@@ -1636,9 +1636,25 @@ def gen_query_agent_tasks_string(query):
 
 def gen_get_agent_tasks_string():
     """Generate GraphQL query string for getting all tasks for current user"""
-    # Use queryAgentTasks with qb parameter (byowneruser: true to get current user's tasks)
-    qb = json.dumps({"byowneruser": True}, ensure_ascii=False).replace('"', '\\"')
-    query_string = f'query MyGetAgentTasksQuery {{ queryAgentTasks(qb: "{qb}") }}'
+    # AppSync schema requires a selection set for queryAgentTasks and does not support legacy qb argument.
+    # Query tasks without filters (server should scope by auth context), request common fields.
+    query_string = '''query MyGetAgentTasksQuery {
+  queryAgentTasks {
+    id
+    owner
+    name
+    description
+    status
+    priority
+    org_id
+    source
+    task_type
+    trigger_type
+    metadata
+    result
+    schedule
+  }
+}'''
     logger.debug(query_string)
     return query_string
 
@@ -3198,9 +3214,13 @@ def send_get_agent_tasks_request_to_cloud(session, token, endpoint):
             if tasks_data is None:
                 logger.info("queryAgentTasks returned null - user has no agent tasks data")
                 jresponse = {}
-            else:
+            elif isinstance(tasks_data, str):
+                # Backward compatible: some old schema returned JSON string.
                 jresponse = json.loads(tasks_data)
-        except (json.JSONDecodeError, TypeError) as e:
+            else:
+                # New schema: returns list/dict directly.
+                jresponse = tasks_data
+        except (json.JSONDecodeError, TypeError, KeyError) as e:
             logger.error(f"Failed to parse queryAgentTasks response: {e}")
             jresponse = {}
 

@@ -73,6 +73,12 @@ class LocalWebSocketClient {
    * Get the WebSocket URL for the local server
    */
   private getWebSocketUrl(): string {
+    try {
+      if (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV) {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        return `${protocol}//${window.location.host}/ws/skill-editor`;
+      }
+    } catch {}
     const settings = getSettings();
     const port = settings?.local_server_port || '4668';
     return `ws://localhost:${port}/ws/skill-editor`;
