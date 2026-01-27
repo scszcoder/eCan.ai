@@ -375,13 +375,13 @@ class InstallerBuilder:
             onedir_dir = self.project_root / 'dist' / 'eCan'
             onefile_exe = self.project_root / 'dist' / 'eCan.exe'
             if onedir_dir.exists():
-                files_section = "Source: \"..\\dist\\eCan\\*\"; DestDir: \"{app}\"; Flags: ignoreversion recursesubdirs createallsubdirs"
+                files_section = "Source: \"..\\dist\\eCan\\*\"; DestDir: \"{app}\"; Flags: ignoreversion recursesubdirs createallsubdirs restartreplace overwritereadonly"
                 run_target = "{app}\\eCan.exe"
             elif onefile_exe.exists():
-                files_section = "Source: \"..\\dist\\eCan.exe\"; DestDir: \"{app}\"; Flags: ignoreversion"
+                files_section = "Source: \"..\\dist\\eCan.exe\"; DestDir: \"{app}\"; Flags: ignoreversion restartreplace overwritereadonly"
                 run_target = "{app}\\eCan.exe"
             else:
-                files_section = "Source: \"..\\dist\\*.exe\"; DestDir: \"{app}\"; Flags: ignoreversion"
+                files_section = "Source: \"..\\dist\\*.exe\"; DestDir: \"{app}\"; Flags: ignoreversion restartreplace overwritereadonly"
                 run_target = "{app}\\eCan.exe"
 
             # Create standardized installer filename with platform and architecture
@@ -447,6 +447,16 @@ class InstallerBuilder:
                         )
                 registry_section += "\n"
 
+            # Define Inno Setup custom message constants to avoid f-string interpretation issues
+            cm_create_desktop = "{cm:CreateDesktopIcon}"
+            cm_additional_icons = "{cm:AdditionalIcons}"
+            cm_initialize_caption = "{cm:InitializeCaption}"
+            cm_remove_user_data = "{cm:RemoveUserDataPrompt}"
+            cm_launch_program = "{cm:LaunchProgram,eCan}"
+            const_group = "{group}"
+            const_userdesktop = "{userdesktop}"
+            const_app = "{app}"
+
             iss_content = f"""
 ; eCan Installer Script
 ; Compression: LZMA2 + Non-Solid + Normal level (with splash screen, 4-6s startup)
@@ -468,7 +478,7 @@ UsePreviousAppDir=yes
 PrivilegesRequired={privileges_required}
 InternalCompressLevel={internal_compress_level}
 SetupIconFile=..\eCan.ico
-UninstallDisplayIcon={{app}}\eCan.exe
+UninstallDisplayIcon={{{{app}}}}\eCan.exe
 CreateUninstallRegKey=yes
 AllowNoIcons=yes
 CloseApplications=yes
@@ -484,8 +494,9 @@ ShowLanguageDialog=auto
 ; Prevent multiple installer instances when user double-clicks repeatedly
 SetupMutex=eCanInstallerMutex
 ; Silent install support for OTA updates
-; Only close eCan processes, not all Python processes to avoid affecting user's other work
-CloseApplicationsFilter=eCan.exe,eCan*.exe
+; Allow Inno Setup to automatically close ALL processes holding file locks in {{{{app}}}}
+; This is critical for overwriting files like app_context.py held by Python subprocesses
+; Note: CloseApplicationsFilter is intentionally NOT set to allow automatic detection
 ; Allow silent install to overwrite files in use
 AlwaysRestart=no
 ; Uninstall previous version before installing new one
@@ -506,22 +517,22 @@ english.CreateDesktopIcon=Create a &desktop icon
 chinesesimplified.CreateDesktopIcon=创建桌面图标(&D)
 
 [Tasks]
-Name: "desktopicon"; Description: "{{cm:CreateDesktopIcon}}"; GroupDescription: "{{cm:AdditionalIcons}}"; Flags: unchecked
+Name: "desktopicon"; Description: "{cm_create_desktop}"; GroupDescription: "{cm_additional_icons}"; Flags: unchecked
 
 {dirs_section}[Files]
 {files_section}
 
 [Icons]
-Name: "{{group}}\eCan"; Filename: "{run_target}"; IconFilename: "{run_target}"; IconIndex: 0
-Name: "{{userdesktop}}\eCan"; Filename: "{run_target}"; IconFilename: "{run_target}"; IconIndex: 0; Tasks: desktopicon
+Name: "{const_group}\eCan"; Filename: "{run_target}"; IconFilename: "{run_target}"; IconIndex: 0
+Name: "{const_userdesktop}\eCan"; Filename: "{run_target}"; IconFilename: "{run_target}"; IconIndex: 0; Tasks: desktopicon
 
 {registry_section}[UninstallDelete]
-Type: filesandordirs; Name: "{{localappdata}}\eCan"
+Type: filesandordirs; Name: "{{{{localappdata}}}}\\eCan"
 
 [Code]
 var
-  SplashForm: TSetupForm;
-  SplashLabel: TNewStaticText;
+SplashForm: TSetupForm;
+SplashLabel: TNewStaticText;
 
 // Show splash screen to improve perceived startup speed
 function InitializeSetup(): Boolean;
@@ -538,7 +549,7 @@ begin
 
     SplashLabel := TNewStaticText.Create(SplashForm);
     SplashLabel.Parent := SplashForm;
-    SplashLabel.Caption := ExpandConstant('{{cm:InitializeCaption}}');
+    SplashLabel.Caption := ExpandConstant('{cm_initialize_caption}');
     SplashLabel.AutoSize := True;
     SplashLabel.Left := (SplashForm.ClientWidth - SplashLabel.Width) div 2;
     SplashLabel.Top := (SplashForm.ClientHeight - SplashLabel.Height) div 2;
@@ -582,40 +593,30 @@ begin
   end;
 end;
 
-// Force close eCan processes before installation
-// This ensures all three installation scenarios work correctly:
-// 1. Fresh install: No processes to close
-// 2. Manual reinstall: Force close running app
-// 3. OTA upgrade: Force close running app (already handled by app itself, but double-check here)
+// PrepareToInstall: Force close eCan processes to prevent MoveFile 183 errors
+// This is critical for both normal and silent installations
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
   RetryCount: Integer;
-  ProcessFound: Boolean;
 begin
   Result := '';
   NeedsRestart := False;
-  
-  // Always force close eCan processes (both silent and normal mode)
-  // This prevents MoveFile error 183 in all scenarios
+
+  // Force terminate all eCan.exe processes to release file locks
+  // This prevents MoveFile error 183 (file already exists and cannot be overwritten)
   RetryCount := 0;
-  repeat
-    // Force terminate eCan.exe and related processes
-    Exec('taskkill', '/F /IM eCan.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    
-    // Wait for processes to fully terminate and release file locks
-    // Increased from 500ms to 3000ms to ensure file handles are released
-    Sleep(3000);
-    
-    // Check if process still exists
-    Exec('tasklist', '/FI "IMAGENAME eq eCan.exe"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-    ProcessFound := (ResultCode = 0);
-    
+  while RetryCount < 3 do
+  begin
+    // Use taskkill to forcefully terminate eCan processes
+    Exec('taskkill.exe', '/F /IM eCan.exe /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    // Give processes time to fully terminate and release file handles
+    Sleep(1500);
     RetryCount := RetryCount + 1;
-  until (not ProcessFound) or (RetryCount >= 3);
-  
-  // Final wait to ensure filesystem releases all locks
-  Sleep(2000);
+  end;
+
+  // Additional wait for file system to release locks
+  Sleep(1500);
 end;
 
 // Skip wizard pages in silent mode (OTA updates)
@@ -651,18 +652,18 @@ var
   ResultCode: Integer;
 begin
   Result := True;
-  if MsgBox(ExpandConstant('{{cm:RemoveUserDataPrompt}}'), mbConfirmation, MB_YESNO) = IDYES then
+  if MsgBox(ExpandConstant('{cm_remove_user_data}'), mbConfirmation, MB_YESNO) = IDYES then
   begin
-    if DirExists(ExpandConstant('{{localappdata}}\\eCan')) then
+    if DirExists(ExpandConstant('{{{{localappdata}}}}\\eCan')) then
     begin
-      if not DelTree(ExpandConstant('{{localappdata}}\\eCan'), True, True, True) then
+      if not DelTree(ExpandConstant('{{{{localappdata}}}}\\eCan'), True, True, True) then
         MsgBox('Could not remove user data directory. You may need to remove it manually.', mbInformation, MB_OK);
     end;
   end;
 end;
 
 [Run]
-Filename: "{run_target}"; Description: "{{cm:LaunchProgram,eCan}}"; Flags: nowait postinstall
+Filename: "{run_target}"; Description: "{cm_launch_program}"; Flags: nowait postinstall
 """
 
             iss_file = self.project_root / "build" / "setup.iss"

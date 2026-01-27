@@ -106,7 +106,7 @@ export const RERANKING_PROVIDERS: ProviderConfig[] = [
 
 export const RERANKING_COMMON_FIELDS: ProviderFieldConfig[] = [
   { key: 'RERANK_BY_DEFAULT', label: 'fields.enableByDefault', type: 'boolean', placeholder: 'True', tooltip: 'tooltips.rerankByDefault' },
-  { key: 'MIN_RERANK_SCORE', label: 'fields.minRerankScore', type: 'number', placeholder: '0.25', tooltip: 'tooltips.minRerankScore' }
+  { key: 'MIN_RERANK_SCORE', label: 'fields.minRerankScore', type: 'number', placeholder: '0.15', tooltip: 'tooltips.minRerankScore' }
 ];
 
 // ==================== LLM Providers ====================

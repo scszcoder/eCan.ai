@@ -29,6 +29,24 @@ def configure_browser_use_logger():
         'browser_use.dom',
     ]
     
+    # Create a custom formatter that limits message length
+    class TruncatedFormatter(logging.Formatter):
+        """Custom Formatter that truncates long messages"""
+        
+        def __init__(self, fmt=None, datefmt=None, max_length=1000):
+            super().__init__(fmt, datefmt)
+            self.max_length = max_length
+        
+        def format(self, record):
+            # Format the message normally
+            msg = super().format(record)
+            
+            # Truncate if too long
+            if len(msg) > self.max_length:
+                msg = msg[:self.max_length] + '... (truncated)'
+            
+            return msg
+    
     # Create a custom handler that forwards logs to logger_helper
     class LoggerHelperHandler(logging.Handler):
         """Custom Handler that forwards logs to logger_helper"""
@@ -65,8 +83,8 @@ def configure_browser_use_logger():
         handler = LoggerHelperHandler()
         handler.setLevel(logging.DEBUG)
         
-        # Set format (optional, as logger_helper will reformat)
-        formatter = logging.Formatter('[browser_use] %(message)s')
+        # Set format with truncation (max 1000 characters)
+        formatter = TruncatedFormatter('[browser_use] %(message)s', max_length=1000)
         handler.setFormatter(formatter)
         
         third_party_logger.addHandler(handler)
