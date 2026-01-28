@@ -1079,6 +1079,28 @@ def load_skill_from_folder(skill_folder_path: Path, mainwin=None) -> Optional[EC
                 core_path = diagram_dir / f"{name}_skill.json"
                 bundle_path = diagram_dir / f"{name}_skill_bundle.json"
 
+                # If core_path doesn't exist, try to find any *_skill.json or *.json file
+                # This handles cases like cloud temp directories where folder name doesn't match skill name
+                if not core_path.exists():
+                    # First try *_skill.json pattern
+                    skill_jsons = list(diagram_dir.glob("*_skill.json"))
+                    if not skill_jsons:
+                        # Fall back to any .json that's not a bundle
+                        skill_jsons = [p for p in diagram_dir.glob("*.json") if "_bundle" not in p.name]
+                    
+                    if skill_jsons:
+                        core_path = skill_jsons[0]
+                        # Derive name from the found file
+                        fname = core_path.stem  # e.g., "unnamed_skill" or "unnamed"
+                        if fname.endswith("_skill"):
+                            name = fname[:-6]
+                        else:
+                            name = fname
+                        bundle_path = diagram_dir / f"{name}_skill_bundle.json"
+                        if not bundle_path.exists():
+                            bundle_path = diagram_dir / f"{name}_bundle.json"
+                        logger.debug(f"[build_agent_skills] Found skill JSON by scan: {core_path}")
+
                 if not core_path.exists():
                     logger.warning(f"[build_agent_skills] Diagram core JSON not found: {core_path}")
                     return None

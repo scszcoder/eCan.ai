@@ -118,6 +118,19 @@ const emitSkillEditorStreamEvent = (evt: any) => {
     eventBus.emit('skill_editor:event', { sessionId, ...(payload || {}) });
     return;
   }
+  // Handle skill editor log events from cloud worker
+  if (eventType === 'skill_editor.log') {
+    const level = String(payload?.level || 'log').toLowerCase();
+    const message = String(payload?.message || '');
+    const entry = {
+      type: level as 'log' | 'warning' | 'error',
+      text: message,
+      timestamp: payload?.timestamp || Date.now(),
+      nodeId: payload?.node_id,
+    };
+    eventBus.emit('skill-editor:log', entry);
+    return;
+  }
 };
 
 export const startWebSubscriptions = () => {

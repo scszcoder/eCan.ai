@@ -1,7 +1,13 @@
+from __future__ import annotations
+
 import asyncio
+from typing import TYPE_CHECKING
+
 from agent.db.services.db_chat_service import DBChatService
-from agent.ec_agent import EC_Agent
 from utils.logger_helper import logger_helper as logger
+
+if TYPE_CHECKING:
+    from agent.ec_agent import EC_Agent
 
 # supposed data structure
 request= {'params': None}

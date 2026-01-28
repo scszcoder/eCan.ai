@@ -40,6 +40,12 @@ class _Env:
     s3_key_root: str
     appsync_api_url: str
     appsync_api_key: str
+    # Run control config (optional - may not be set in all environments)
+    sqs_queue_url: Optional[str] = None
+    ecs_cluster: Optional[str] = None
+    ecs_task_definition: Optional[str] = None
+    ecs_subnets: Optional[List[str]] = None
+    ecs_security_groups: Optional[List[str]] = None
 
 
 def _utc_now_iso() -> str:
@@ -54,11 +60,21 @@ def _require_env(name: str) -> str:
 
 
 def _load_env() -> _Env:
+    # Parse comma-separated lists for ECS networking
+    subnets_str = os.environ.get("ECS_SUBNETS", "").strip()
+    security_groups_str = os.environ.get("ECS_SECURITY_GROUPS", "").strip()
+    
     return _Env(
         s3_bucket=_require_env("S3_BUCKET"),
         s3_key_root=(os.environ.get("S3_KEY_ROOT") or "").strip(),
         appsync_api_url=_require_env("APPSYNC_API_URL"),
         appsync_api_key=_require_env("APPSYNC_API_KEY"),
+        # Optional run control config
+        sqs_queue_url=os.environ.get("SQS_WORKER_QUEUE_URL", "").strip() or None,
+        ecs_cluster=os.environ.get("ECS_CLUSTER", "").strip() or None,
+        ecs_task_definition=os.environ.get("ECS_TASK_DEFINITION", "").strip() or None,
+        ecs_subnets=[s.strip() for s in subnets_str.split(",") if s.strip()] or None,
+        ecs_security_groups=[s.strip() for s in security_groups_str.split(",") if s.strip()] or None,
     )
 
 
@@ -853,6 +869,524 @@ def _handle_cancel_generation(event: Dict[str, Any]) -> bool:
     return True
 
 
+# =============================================================================
+# Skill Run Control Handlers
+# =============================================================================
+
+def _sqs_client():
+    return boto3.client("sqs")
+
+
+def _ecs_client():
+    return boto3.client("ecs")
+
+
+def _get_run_state_key(env: _Env, username: str, run_id: str) -> str:
+    """S3 key for storing run state metadata."""
+    safe_user = _safe_user_dir_name(username)
+    prefix = _norm_prefix(env.s3_key_root)
+    return _s3_key(prefix, "users", safe_user, "runs", f"{run_id}.json")
+
+
+def _save_run_state(env: _Env, username: str, run_state: Dict[str, Any]) -> None:
+    """Save run state to S3."""
+    run_id = run_state.get("run_id")
+    if not run_id:
+        raise ValueError("run_state must have run_id")
+    key = _get_run_state_key(env, username, run_id)
+    _s3_client().put_object(
+        Bucket=env.s3_bucket,
+        Key=key,
+        Body=json.dumps(run_state, ensure_ascii=False, indent=2),
+        ContentType="application/json",
+    )
+    logger.info(f"[_save_run_state] Saved run state: {key}")
+
+
+def _load_run_state(env: _Env, username: str, run_id: str) -> Optional[Dict[str, Any]]:
+    """Load run state from S3."""
+    key = _get_run_state_key(env, username, run_id)
+    return _s3_get_json(bucket=env.s3_bucket, key=key)
+
+
+def _find_active_run_by_skill(env: _Env, username: str, skill_id: str) -> Optional[Dict[str, Any]]:
+    """Find the most recent active run for a skill (queued or running)."""
+    safe_user = _safe_user_dir_name(username)
+    prefix = _norm_prefix(env.s3_key_root)
+    runs_prefix = _s3_key(prefix, "users", safe_user, "runs") + "/"
+    
+    try:
+        client = _s3_client()
+        response = client.list_objects_v2(Bucket=env.s3_bucket, Prefix=runs_prefix)
+        
+        active_runs = []
+        for obj in response.get("Contents", []):
+            try:
+                run_data = _s3_get_json(bucket=env.s3_bucket, key=obj["Key"])
+                if run_data and run_data.get("skill_id") == skill_id:
+                    status = run_data.get("status")
+                    if status in ("queued", "running"):
+                        active_runs.append(run_data)
+            except Exception as e:
+                logger.warning(f"[_find_active_run_by_skill] Error reading {obj['Key']}: {e}")
+                continue
+        
+        # Return most recent by created_at
+        if active_runs:
+            active_runs.sort(key=lambda r: r.get("created_at", ""), reverse=True)
+            return active_runs[0]
+        return None
+    except Exception as e:
+        logger.error(f"[_find_active_run_by_skill] Error listing runs: {e}")
+        return None
+
+
+def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle runSkill mutation.
+    
+    Starts a Fargate task to execute the skill. The task runs asynchronously
+    and reports progress via AppSync subscriptions.
+    
+    Input (RunSkillInput):
+        username: String
+        skill: AWSJSON! containing:
+            - skill_id: string
+            - skill_name: string
+            - skill_run_mode: string (local/cloud/hybrid)
+            - diagram: object (the workflow definition)
+            - testInputs: object (optional test inputs)
+    
+    Returns:
+        RunControlResult: { runId, status, message, data }
+    """
+    logger.info("[runSkill] Starting handler")
+    env = _load_env()
+    
+    args = event.get("arguments") or {}
+    input_data = args.get("input") or {}
+    username = input_data.get("username") or _owner_from_event(event)
+    skill_json = input_data.get("skill")
+    
+    # Parse skill if it's a string
+    if isinstance(skill_json, str):
+        try:
+            skill = json.loads(skill_json)
+        except json.JSONDecodeError as e:
+            logger.error(f"[runSkill] Failed to parse skill JSON: {e}")
+            return {
+                "runId": None,
+                "status": "error",
+                "message": f"Invalid skill JSON: {e}",
+                "data": None,
+            }
+    else:
+        skill = skill_json or {}
+    
+    skill_id = skill.get("skill_id") or str(uuid4())
+    skill_name = skill.get("skill_name") or "unnamed_skill"
+    skill_run_mode = skill.get("skill_run_mode") or "cloud"
+    # Dev mode enables breakpoint/step support in cloud worker
+    dev_mode = input_data.get("dev_mode", False) or skill.get("dev_mode", False)
+    
+    logger.info(f"[runSkill] username={username}, skill_id={skill_id}, skill_name={skill_name}, mode={skill_run_mode}, dev_mode={dev_mode}")
+    
+    # Validate environment for cloud runs
+    if skill_run_mode in ("cloud", "hybrid"):
+        if not env.ecs_cluster or not env.ecs_task_definition:
+            logger.error("[runSkill] ECS_CLUSTER or ECS_TASK_DEFINITION not configured")
+            return {
+                "runId": None,
+                "status": "error",
+                "message": "Cloud worker not configured (missing ECS settings)",
+                "data": None,
+            }
+        if not env.ecs_subnets:
+            logger.error("[runSkill] ECS_SUBNETS not configured")
+            return {
+                "runId": None,
+                "status": "error",
+                "message": "Cloud worker not configured (missing network settings)",
+                "data": None,
+            }
+    
+    # Generate run ID
+    run_id = str(uuid4())
+    created_at = _utc_now_iso()
+    
+    # Create the skill run payload
+    run_payload = {
+        "run_id": run_id,
+        "username": username,
+        "skill_id": skill_id,
+        "skill_name": skill_name,
+        "skill_run_mode": skill_run_mode,
+        "dev_mode": dev_mode,  # Enable breakpoint/step support in worker
+        "skill": skill,  # Full skill payload including diagram
+        "created_at": created_at,
+    }
+    
+    # Save the run payload to S3 (to avoid ECS container override 8KB limit)
+    # The worker will fetch this from S3 using the reference
+    user_dir = _safe_user_dir_name(username)
+    payload_s3_key = _s3_key(_norm_prefix(env.s3_key_root), user_dir, "run_payloads", f"{run_id}.json")
+    try:
+        _s3_put_json(bucket=env.s3_bucket, key=payload_s3_key, data=run_payload)
+        logger.info(f"[runSkill] Saved run payload to S3: s3://{env.s3_bucket}/{payload_s3_key}")
+    except Exception as e:
+        logger.error(f"[runSkill] Failed to save run payload to S3: {e}")
+        return {
+            "runId": run_id,
+            "status": "error",
+            "message": f"Failed to save run payload: {e}",
+            "data": None,
+        }
+    
+    # Create a small reference payload for the container override
+    # This stays well under the 8KB limit
+    ref_payload = {
+        "run_id": run_id,
+        "username": username,
+        "skill_id": skill_id,
+        "skill_name": skill_name,
+        "payload_s3_bucket": env.s3_bucket,
+        "payload_s3_key": payload_s3_key,
+        "created_at": created_at,
+    }
+    
+    # Start Fargate task
+    ecs_task_arn = None
+    try:
+        ecs = _ecs_client()
+        
+        # Build container overrides with reference to S3 payload
+        container_overrides = {
+            "name": "ecan-cloud-worker",  # Must match container name in task def
+            "environment": [
+                {"name": "ECAN_WORKER_MODE", "value": "single"},
+                {"name": "ECAN_WORKER_MESSAGE_JSON", "value": json.dumps(ref_payload, ensure_ascii=False)},
+                {"name": "ECAN_RUN_ID", "value": run_id},
+                {"name": "ECAN_USERNAME", "value": username},
+                # Pass AppSync config for real-time status updates
+                {"name": "APPSYNC_API_URL", "value": env.appsync_api_url},
+                {"name": "APPSYNC_API_KEY", "value": env.appsync_api_key},
+            ],
+        }
+        
+        # Build network configuration
+        network_config = {
+            "awsvpcConfiguration": {
+                "subnets": env.ecs_subnets,
+                "assignPublicIp": "ENABLED",  # Required for pulling images from ECR
+            }
+        }
+        if env.ecs_security_groups:
+            network_config["awsvpcConfiguration"]["securityGroups"] = env.ecs_security_groups
+        
+        # Start the task (async - returns immediately)
+        response = ecs.run_task(
+            cluster=env.ecs_cluster,
+            taskDefinition=env.ecs_task_definition,
+            launchType="FARGATE",
+            networkConfiguration=network_config,
+            overrides={
+                "containerOverrides": [container_overrides],
+            },
+            tags=[
+                {"key": "run_id", "value": run_id},
+                {"key": "username", "value": username},
+                {"key": "skill_name", "value": skill_name[:128]},  # Tag value max 256 chars
+            ],
+        )
+        
+        # Get task ARN from response
+        tasks = response.get("tasks") or []
+        if tasks:
+            ecs_task_arn = tasks[0].get("taskArn")
+            logger.info(f"[runSkill] Fargate task started: {ecs_task_arn}")
+        else:
+            failures = response.get("failures") or []
+            failure_reason = failures[0].get("reason") if failures else "Unknown"
+            logger.error(f"[runSkill] Failed to start Fargate task: {failure_reason}")
+            return {
+                "runId": run_id,
+                "status": "error",
+                "message": f"Failed to start cloud worker: {failure_reason}",
+                "data": None,
+            }
+            
+    except Exception as e:
+        logger.error(f"[runSkill] Failed to start Fargate task: {e}")
+        return {
+            "runId": run_id,
+            "status": "error",
+            "message": f"Failed to start cloud worker: {e}",
+            "data": None,
+        }
+    
+    # Save run state to S3 for tracking
+    run_state = {
+        "run_id": run_id,
+        "username": username,
+        "skill_id": skill_id,
+        "skill_name": skill_name,
+        "status": "starting",
+        "ecs_task_arn": ecs_task_arn,
+        "created_at": created_at,
+        "updated_at": created_at,
+        "started_at": created_at,
+        "completed_at": None,
+        "error": None,
+    }
+    
+    try:
+        _save_run_state(env, username, run_state)
+    except Exception as e:
+        logger.warning(f"[runSkill] Failed to save run state (non-fatal): {e}")
+    
+    logger.info(f"[runSkill] Skill run started successfully: run_id={run_id}, task_arn={ecs_task_arn}")
+    return {
+        "runId": run_id,
+        "status": "starting",
+        "message": f"Skill '{skill_name}' starting on cloud worker",
+        "data": json.dumps({"ecs_task_arn": ecs_task_arn}),
+    }
+
+
+def _handle_cancel_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle cancelRunSkill mutation.
+    
+    Cancels a skill run:
+    1. If queued: attempts to delete from SQS (best effort - message may have been consumed)
+    2. If running: stops the ECS Fargate task
+    
+    Input (RunControlInput):
+        username: String
+        skill: AWSJSON containing:
+            - skill_id: string (to find the active run)
+            - run_id: string (optional, if known)
+    
+    Returns:
+        RunControlResult: { runId, status, message, data }
+    """
+    logger.info("[cancelRunSkill] Starting handler")
+    env = _load_env()
+    
+    args = event.get("arguments") or {}
+    input_data = args.get("input") or {}
+    username = input_data.get("username") or _owner_from_event(event)
+    skill_json = input_data.get("skill")
+    
+    # Parse skill if it's a string
+    if isinstance(skill_json, str):
+        try:
+            skill = json.loads(skill_json)
+        except json.JSONDecodeError:
+            skill = {}
+    else:
+        skill = skill_json or {}
+    
+    run_id = skill.get("run_id")
+    skill_id = skill.get("skill_id")
+    
+    logger.info(f"[cancelRunSkill] username={username}, run_id={run_id}, skill_id={skill_id}")
+    
+    # Find the run to cancel
+    run_state = None
+    if run_id:
+        run_state = _load_run_state(env, username, run_id)
+    elif skill_id:
+        run_state = _find_active_run_by_skill(env, username, skill_id)
+    
+    if not run_state:
+        logger.warning("[cancelRunSkill] No active run found to cancel")
+        return {
+            "runId": run_id,
+            "status": "not_found",
+            "message": "No active run found to cancel",
+            "data": None,
+        }
+    
+    run_id = run_state.get("run_id")
+    status = run_state.get("status")
+    
+    logger.info(f"[cancelRunSkill] Found run: run_id={run_id}, status={status}")
+    
+    # Already terminal state
+    if status in ("completed", "failed", "cancelled"):
+        return {
+            "runId": run_id,
+            "status": status,
+            "message": f"Run already in terminal state: {status}",
+            "data": None,
+        }
+    
+    cancelled = False
+    cancel_message = ""
+    
+    # Case 1: Queued - try to remove from SQS
+    if status == "queued":
+        # Note: We can't easily delete a specific message from SQS without the receipt handle.
+        # The receipt handle is only available when the message is received by a consumer.
+        # Best we can do is mark it as cancelled in our state so the worker skips it.
+        cancelled = True
+        cancel_message = "Run marked as cancelled (worker will skip if it picks up the message)"
+        logger.info(f"[cancelRunSkill] Marked queued run as cancelled: {run_id}")
+    
+    # Case 2: Running - stop the ECS task
+    elif status == "running":
+        ecs_task_arn = run_state.get("ecs_task_arn")
+        if ecs_task_arn and env.ecs_cluster:
+            try:
+                ecs = _ecs_client()
+                ecs.stop_task(
+                    cluster=env.ecs_cluster,
+                    task=ecs_task_arn,
+                    reason=f"Cancelled by user {username}",
+                )
+                cancelled = True
+                cancel_message = f"ECS task stopped: {ecs_task_arn}"
+                logger.info(f"[cancelRunSkill] Stopped ECS task: {ecs_task_arn}")
+            except Exception as e:
+                logger.error(f"[cancelRunSkill] Failed to stop ECS task: {e}")
+                cancel_message = f"Failed to stop ECS task: {e}"
+        else:
+            cancelled = True
+            cancel_message = "Run marked as cancelled (no ECS task ARN available)"
+            logger.warning(f"[cancelRunSkill] No ECS task ARN for running task: {run_id}")
+    
+    # Update run state
+    run_state["status"] = "cancelled"
+    run_state["updated_at"] = _utc_now_iso()
+    run_state["completed_at"] = _utc_now_iso()
+    
+    try:
+        _save_run_state(env, username, run_state)
+    except Exception as e:
+        logger.warning(f"[cancelRunSkill] Failed to update run state (non-fatal): {e}")
+    
+    # Publish cancellation event via AppSync for real-time UI update
+    try:
+        appsync_config = AppSyncApiKeyConfig(
+            api_url=env.appsync_api_url,
+            api_key=env.appsync_api_key,
+        )
+        publish_skill_editor_stream_event(
+            config=appsync_config,
+            owner=username,
+            session_id=run_id,
+            payload={
+                "type": "run_cancelled",
+                "run_id": run_id,
+                "skill_id": skill_id,
+                "message": cancel_message,
+            },
+        )
+    except Exception as e:
+        logger.warning(f"[cancelRunSkill] Failed to publish AppSync event (non-fatal): {e}")
+    
+    return {
+        "runId": run_id,
+        "status": "cancelled" if cancelled else "error",
+        "message": cancel_message,
+        "data": None,
+    }
+
+
+def _handle_pause_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle pauseRunSkill mutation.
+    
+    Placeholder - pause functionality requires worker-side support.
+    """
+    logger.info("[pauseRunSkill] Starting handler (placeholder)")
+    
+    args = event.get("arguments") or {}
+    input_data = args.get("input") or {}
+    skill_json = input_data.get("skill")
+    
+    if isinstance(skill_json, str):
+        try:
+            skill = json.loads(skill_json)
+        except json.JSONDecodeError:
+            skill = {}
+    else:
+        skill = skill_json or {}
+    
+    run_id = skill.get("run_id")
+    
+    # TODO: Implement pause via worker communication (e.g., SQS control message or DynamoDB flag)
+    return {
+        "runId": run_id,
+        "status": "not_implemented",
+        "message": "Pause functionality not yet implemented for cloud runs",
+        "data": None,
+    }
+
+
+def _handle_resume_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle resumeRunSkill mutation.
+    
+    Placeholder - resume functionality requires worker-side support.
+    """
+    logger.info("[resumeRunSkill] Starting handler (placeholder)")
+    
+    args = event.get("arguments") or {}
+    input_data = args.get("input") or {}
+    skill_json = input_data.get("skill")
+    
+    if isinstance(skill_json, str):
+        try:
+            skill = json.loads(skill_json)
+        except json.JSONDecodeError:
+            skill = {}
+    else:
+        skill = skill_json or {}
+    
+    run_id = skill.get("run_id")
+    
+    # TODO: Implement resume via worker communication
+    return {
+        "runId": run_id,
+        "status": "not_implemented",
+        "message": "Resume functionality not yet implemented for cloud runs",
+        "data": None,
+    }
+
+
+def _handle_step_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle stepRunSkill mutation.
+    
+    Placeholder - step functionality requires worker-side support.
+    """
+    logger.info("[stepRunSkill] Starting handler (placeholder)")
+    
+    args = event.get("arguments") or {}
+    input_data = args.get("input") or {}
+    skill_json = input_data.get("skill")
+    
+    if isinstance(skill_json, str):
+        try:
+            skill = json.loads(skill_json)
+        except json.JSONDecodeError:
+            skill = {}
+    else:
+        skill = skill_json or {}
+    
+    run_id = skill.get("run_id")
+    
+    # TODO: Implement step via worker communication
+    return {
+        "runId": run_id,
+        "status": "not_implemented",
+        "message": "Step functionality not yet implemented for cloud runs",
+        "data": None,
+    }
+
+
 def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
     logger.info("[sendSkillEditorChatMessage] Starting handler")
     env = _load_env()
@@ -1315,6 +1849,18 @@ def handler(event, context):
             return _handle_read_skill_file(event, allow_skill_name=False)
         if field == "writeSkillFile":
             return _handle_write_skill_file(event)
+        
+        # Skill Run Control
+        if field == "runSkill":
+            return _handle_run_skill(event)
+        if field == "cancelRunSkill":
+            return _handle_cancel_run_skill(event)
+        if field == "pauseRunSkill":
+            return _handle_pause_run_skill(event)
+        if field == "resumeRunSkill":
+            return _handle_resume_run_skill(event)
+        if field == "stepRunSkill":
+            return _handle_step_run_skill(event)
 
         logger.error(f"[handler] Unsupported fieldName: {field}")
         raise RuntimeError(f"Unsupported fieldName: {field}")

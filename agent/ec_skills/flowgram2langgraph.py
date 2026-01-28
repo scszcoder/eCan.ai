@@ -5,6 +5,7 @@ from agent.ec_skills.build_node import *
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
 from agent.ec_skill import NodeState
+from agent.cloud_worker.cloud_logger import send_skill_editor_log
 
 
 # Simulated function registry to map node types to actual Python functions.
@@ -139,7 +140,7 @@ def _safe_eval_expr(expr: str, state: dict) -> bool:
         log_msg = f"🤖 Executing conditional edge: {expr}"
         # print(state['result']['llm_result']['request_to_work'])
         logger.debug(log_msg)
-        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+        send_skill_editor_log("log", log_msg)
 
         safe_globals = {"__builtins__": {}}
         attrs = state.get("attributes", {}) if isinstance(state, dict) else {}

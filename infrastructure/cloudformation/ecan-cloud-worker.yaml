@@ -50,6 +50,32 @@ Parameters:
       - '16384'
     Description: Memory (MB) for the task
 
+  S3Bucket:
+    Type: String
+    Default: ecan-skills
+    Description: S3 bucket name for skills storage
+
+  S3KeyRoot:
+    Type: String
+    Default: ''
+    Description: S3 key prefix for skills storage
+
+  SQSQueueUrl:
+    Type: String
+    Default: ''
+    Description: SQS queue URL for worker task queue
+
+  AppSyncApiUrl:
+    Type: String
+    Default: ''
+    Description: AppSync API URL for real-time updates
+
+  AppSyncApiKey:
+    Type: String
+    Default: ''
+    NoEcho: true
+    Description: AppSync API Key for authentication
+
 Resources:
   #############################################
   # CloudWatch Log Group
@@ -251,6 +277,16 @@ Resources:
               Value: '1'
             - Name: AWS_DEFAULT_REGION
               Value: !Ref AWS::Region
+            - Name: S3_BUCKET
+              Value: !Ref S3Bucket
+            - Name: S3_KEY_ROOT
+              Value: !Ref S3KeyRoot
+            - Name: SQS_QUEUE_URL
+              Value: !Ref SQSQueueUrl
+            - Name: APPSYNC_API_URL
+              Value: !Ref AppSyncApiUrl
+            - Name: APPSYNC_API_KEY
+              Value: !Ref AppSyncApiKey
           Secrets:
             - Name: OPENAI_API_KEY
               ValueFrom: !Ref OpenAIApiKeySecret
