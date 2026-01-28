@@ -1,0 +1,166 @@
+#!/bin/bash
+# deploy-all.sh - Deploy Lambda, Cloud Worker, and Frontend in one go
+#
+# Usage:
+#   ./scripts/deploy-all.sh              # Deploy all (lambda, worker, frontend)
+#   ./scripts/deploy-all.sh lambda       # Deploy only Lambda
+#   ./scripts/deploy-all.sh worker       # Deploy only Cloud Worker
+#   ./scripts/deploy-all.sh frontend     # Deploy only Frontend
+#   ./scripts/deploy-all.sh lambda worker # Deploy Lambda and Worker
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+AWS_PROFILE="${AWS_PROFILE:-maipps8}"
+AWS_REGION="${AWS_REGION:-us-east-1}"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+# ECR config
+ECR_REPO="667118410653.dkr.ecr.${AWS_REGION}.amazonaws.com/ecan-cloud-worker"
+
+deploy_lambda() {
+    log_info "=========================================="
+    log_info "Deploying Lambda: skill_editor_agent"
+    log_info "=========================================="
+    
+    cd "$REPO_ROOT/lambda_functions/skill_editor_lambda"
+    
+    # Build the Lambda package
+    log_info "Building Lambda package..."
+    ./build_lambda.sh
+    
+    # Deploy to AWS
+    log_info "Deploying to AWS Lambda..."
+    aws lambda update-function-code \
+        --function-name skill_editor_agent \
+        --region "$AWS_REGION" \
+        --zip-file fileb:///tmp/skill_editor_agent.zip \
+        --profile "$AWS_PROFILE" \
+        --no-cli-pager
+    
+    log_success "Lambda deployed successfully!"
+}
+
+deploy_worker() {
+    log_info "=========================================="
+    log_info "Deploying Cloud Worker"
+    log_info "=========================================="
+    
+    cd "$REPO_ROOT"
+    
+    # Get current revision from worker_main.py
+    REVISION=$(grep -oP 'WORKER_REVISION = "\K[^"]+' agent/cloud_worker/worker_main.py || echo "unknown")
+    log_info "Worker revision: $REVISION"
+    
+    # Build Docker image
+    log_info "Building Docker image..."
+    docker build -f Dockerfile.worker -t ecan-cloud-worker:latest .
+    
+    # Login to ECR
+    log_info "Logging in to ECR..."
+    aws ecr get-login-password --region "$AWS_REGION" --profile "$AWS_PROFILE" | \
+        docker login --username AWS --password-stdin "667118410653.dkr.ecr.${AWS_REGION}.amazonaws.com"
+    
+    # Tag and push
+    log_info "Pushing to ECR..."
+    docker tag ecan-cloud-worker:latest "$ECR_REPO:latest"
+    docker push "$ECR_REPO:latest"
+    
+    log_success "Cloud Worker deployed successfully! (rev: $REVISION)"
+}
+
+deploy_frontend() {
+    log_info "=========================================="
+    log_info "Deploying Frontend (gui_v2)"
+    log_info "=========================================="
+    
+    cd "$REPO_ROOT/gui_v2"
+    
+    # Build frontend (use npx pnpm or direct path)
+    # Increase Node memory to handle large builds
+    log_info "Building frontend..."
+    export NODE_OPTIONS="--max-old-space-size=4096"
+    if command -v pnpm &> /dev/null; then
+        pnpm run build
+    elif [ -f "$HOME/.local/share/pnpm/pnpm" ]; then
+        "$HOME/.local/share/pnpm/pnpm" run build
+    else
+        npx pnpm run build
+    fi
+    
+    # Deploy to web server
+    log_info "Deploying to /var/www/html/app/gui-v2/..."
+    sudo cp -r dist/* /var/www/html/app/gui-v2/
+    
+    log_success "Frontend deployed successfully!"
+}
+
+# Parse arguments
+DEPLOY_LAMBDA=false
+DEPLOY_WORKER=false
+DEPLOY_FRONTEND=false
+
+if [ $# -eq 0 ]; then
+    # No arguments - deploy all
+    DEPLOY_LAMBDA=true
+    DEPLOY_WORKER=true
+    DEPLOY_FRONTEND=true
+else
+    for arg in "$@"; do
+        case $arg in
+            lambda|Lambda|LAMBDA)
+                DEPLOY_LAMBDA=true
+                ;;
+            worker|Worker|WORKER)
+                DEPLOY_WORKER=true
+                ;;
+            frontend|Frontend|FRONTEND|fe|FE)
+                DEPLOY_FRONTEND=true
+                ;;
+            all|ALL)
+                DEPLOY_LAMBDA=true
+                DEPLOY_WORKER=true
+                DEPLOY_FRONTEND=true
+                ;;
+            *)
+                log_error "Unknown argument: $arg"
+                echo "Usage: $0 [lambda] [worker] [frontend] [all]"
+                exit 1
+                ;;
+        esac
+    done
+fi
+
+# Show what we're deploying
+log_info "Deployment targets:"
+$DEPLOY_LAMBDA && log_info "  - Lambda"
+$DEPLOY_WORKER && log_info "  - Cloud Worker"
+$DEPLOY_FRONTEND && log_info "  - Frontend"
+echo ""
+
+START_TIME=$(date +%s)
+
+# Run deployments
+$DEPLOY_LAMBDA && deploy_lambda
+$DEPLOY_WORKER && deploy_worker
+$DEPLOY_FRONTEND && deploy_frontend
+
+END_TIME=$(date +%s)
+ELAPSED=$((END_TIME - START_TIME))
+
+echo ""
+log_success "=========================================="
+log_success "All deployments completed in ${ELAPSED}s"
+log_success "=========================================="

@@ -1,11 +1,16 @@
 /**
  * Skill Editor Chat Service
  * 
- * Provides IPC communication for the skill editor chat feature.
+ * Provides API communication for the skill editor chat feature.
  * Handles sending messages, managing sessions, and receiving responses.
+ * 
+ * Uses apiRouter for unified routing:
+ * - Web mode: GraphQL/AppSync
+ * - Desktop mode (VITE_IPC_MODE): IPC
  */
 
-import { IPCAPI } from '../../../services/ipc/api';
+import { apiRouter } from '../../../services/api/api-router';
+import { GRAPHQL_QUERIES, GRAPHQL_MUTATIONS } from '../../../services/api/api-config';
 import { localWebSocketClient } from '../../../services/web/localWebSocketClient';
 import {
   ChatAttachment,
@@ -76,15 +81,29 @@ class SkillEditorChatService {
   async createSession(name?: string, flowgramId?: string): Promise<ChatSession | null> {
     console.log('[SkillEditorChat] Creating session:', { name, flowgramId });
     try {
-      const response = await IPCAPI.getInstance().executeRequest<{ session: ChatSession }>(
-        'skill_editor.chat.create_session',
-        { name, flowgramId }
+      const response = await apiRouter.execute<{ id: string; name: string; flowgramId?: string; createdAt: string; updatedAt: string }>(
+        {
+          method: 'skill_editor.chat.create_session',
+          graphql: {
+            mutation: GRAPHQL_MUTATIONS.CREATE_SKILL_EDITOR_CHAT_SESSION,
+            resultPath: 'createSkillEditorChatSession'
+          }
+        },
+        { input: { name, flowgramId } }
       );
       
       if (response.success && response.data) {
-        const result = response.data as { session: ChatSession };
-        console.log('[SkillEditorChat] Session created:', result.session.id);
-        return result.session;
+        const data = response.data;
+        const session: ChatSession = {
+          id: data.id,
+          name: data.name,
+          flowgramId: data.flowgramId,
+          messages: [],
+          createdAt: new Date(data.createdAt).getTime(),
+          updatedAt: new Date(data.updatedAt).getTime()
+        };
+        console.log('[SkillEditorChat] Session created:', session.id);
+        return session;
       }
       
       console.error('[SkillEditorChat] Failed to create session:', response.error);
@@ -100,14 +119,30 @@ class SkillEditorChatService {
    */
   async getSessions(): Promise<ChatSession[]> {
     try {
-      const response = await IPCAPI.getInstance().executeRequest<{ sessions: ChatSession[] }>(
-        'skill_editor.chat.get_sessions',
-        {}
+      // Get user ID from storage
+      const { userStorageManager } = await import('../../../services/storage/UserStorageManager');
+      const userId = userStorageManager.getUserId() || '';
+      
+      const response = await apiRouter.execute<Array<{ id: string; name: string; flowgramId?: string; createdAt: string; updatedAt: string }>>(
+        {
+          method: 'skill_editor.chat.get_sessions',
+          graphql: {
+            query: GRAPHQL_QUERIES.GET_SKILL_EDITOR_CHAT_SESSIONS,
+            resultPath: 'getSkillEditorChatSessions'
+          }
+        },
+        { userId }
       );
       
       if (response.success && response.data) {
-        const result = response.data as { sessions: ChatSession[] };
-        return result.sessions;
+        return response.data.map(s => ({
+          id: s.id,
+          name: s.name,
+          flowgramId: s.flowgramId,
+          messages: [],
+          createdAt: new Date(s.createdAt).getTime(),
+          updatedAt: new Date(s.updatedAt).getTime()
+        }));
       }
       
       console.error('[SkillEditorChat] Failed to get sessions:', response.error);
@@ -123,14 +158,26 @@ class SkillEditorChatService {
    */
   async getHistory(sessionId: string, limit?: number, offset?: number): Promise<ChatMessage[]> {
     try {
-      const response = await IPCAPI.getInstance().executeRequest<{ messages: ChatMessage[] }>(
-        'skill_editor.chat.get_history',
+      const response = await apiRouter.execute<Array<{ id: string; role: string; content: string; timestamp: string; attachments?: any[]; metadata?: any }>>(
+        {
+          method: 'skill_editor.chat.get_history',
+          graphql: {
+            query: GRAPHQL_QUERIES.GET_SKILL_EDITOR_CHAT_HISTORY,
+            resultPath: 'getSkillEditorChatHistory'
+          }
+        },
         { sessionId, limit, offset }
       );
       
       if (response.success && response.data) {
-        const result = response.data as { messages: ChatMessage[] };
-        return result.messages;
+        return response.data.map(m => ({
+          id: m.id,
+          role: m.role as 'user' | 'assistant' | 'system',
+          content: m.content,
+          timestamp: new Date(m.timestamp).getTime(),
+          attachments: m.attachments,
+          metadata: m.metadata
+        }));
       }
       
       console.error('[SkillEditorChat] Failed to get history:', response.error);
@@ -180,10 +227,25 @@ class SkillEditorChatService {
     this.subscribeToSession(sessionId);
     
     try {
-      const response = await IPCAPI.getInstance().executeRequest<ChatMessageResponse>(
-        'skill_editor.chat.send_message',
-        { sessionId, content, attachments, canvasContext },
-        300000
+      // Serialize AWSJSON fields as JSON strings for GraphQL
+      const input: Record<string, any> = { sessionId, content };
+      if (attachments && attachments.length > 0) {
+        input.attachments = JSON.stringify(attachments);
+      }
+      if (canvasContext) {
+        input.canvasContext = JSON.stringify(canvasContext);
+      }
+      
+      const response = await apiRouter.execute<ChatMessageResponse>(
+        {
+          method: 'skill_editor.chat.send_message',
+          graphql: {
+            mutation: GRAPHQL_MUTATIONS.SEND_SKILL_EDITOR_CHAT_MESSAGE,
+            resultPath: 'sendSkillEditorChatMessage'
+          }
+        },
+        { input },
+        { timeout: 300000 }
       );
       console.log('[SkillEditorChat] Message response received:', { success: response.success });
       
@@ -215,10 +277,25 @@ class SkillEditorChatService {
       numResponses: Object.keys(clarificationResponses).length 
     });
     try {
-      const response = await IPCAPI.getInstance().executeRequest<ChatMessageResponse>(
-        'skill_editor.chat.send_message',
-        { sessionId, content, canvasContext, clarificationResponses },
-        300000
+      // Serialize AWSJSON fields as JSON strings for GraphQL
+      const input: Record<string, any> = { sessionId, content };
+      if (canvasContext) {
+        input.canvasContext = JSON.stringify(canvasContext);
+      }
+      if (clarificationResponses && Object.keys(clarificationResponses).length > 0) {
+        input.clarificationResponses = JSON.stringify(clarificationResponses);
+      }
+      
+      const response = await apiRouter.execute<ChatMessageResponse>(
+        {
+          method: 'skill_editor.chat.send_message',
+          graphql: {
+            mutation: GRAPHQL_MUTATIONS.SEND_SKILL_EDITOR_CHAT_MESSAGE,
+            resultPath: 'sendSkillEditorChatMessage'
+          }
+        },
+        { input },
+        { timeout: 300000 }
       );
       console.log('[SkillEditorChat] Clarification response received:', { success: response.success });
       
@@ -240,14 +317,19 @@ class SkillEditorChatService {
    */
   async cancelGeneration(sessionId: string): Promise<boolean> {
     try {
-      const response = await IPCAPI.getInstance().executeRequest<{ cancelled: boolean }>(
-        'skill_editor.chat.cancel_generation',
+      const response = await apiRouter.execute<boolean>(
+        {
+          method: 'skill_editor.chat.cancel_generation',
+          graphql: {
+            mutation: GRAPHQL_MUTATIONS.CANCEL_SKILL_EDITOR_CHAT_GENERATION,
+            resultPath: 'cancelSkillEditorChatGeneration'
+          }
+        },
         { sessionId }
       );
       
-      if (response.success && response.data) {
-        const result = response.data as { cancelled: boolean };
-        return result.cancelled;
+      if (response.success) {
+        return response.data === true;
       }
       
       return false;
@@ -262,14 +344,19 @@ class SkillEditorChatService {
    */
   async deleteSession(sessionId: string): Promise<boolean> {
     try {
-      const response = await IPCAPI.getInstance().executeRequest<{ deleted: boolean }>(
-        'skill_editor.chat.delete_session',
+      const response = await apiRouter.execute<boolean>(
+        {
+          method: 'skill_editor.chat.delete_session',
+          graphql: {
+            mutation: GRAPHQL_MUTATIONS.DELETE_SKILL_EDITOR_CHAT_SESSION,
+            resultPath: 'deleteSkillEditorChatSession'
+          }
+        },
         { sessionId }
       );
       
-      if (response.success && response.data) {
-        const result = response.data as { deleted: boolean };
-        return result.deleted;
+      if (response.success) {
+        return response.data === true;
       }
       
       return false;
