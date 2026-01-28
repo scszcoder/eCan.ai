@@ -1661,6 +1661,10 @@
         "department": "部门",
         "team": "团队",
         "group": "小组"
+      },
+      "search": {
+        "companyPlaceholder": "输入公司名称",
+        "findTooltip": "搜索组织"
       }
     },
     "search": {

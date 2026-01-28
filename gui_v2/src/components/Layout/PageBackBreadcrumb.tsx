@@ -459,7 +459,7 @@ const PageBackBreadcrumb: React.FC<PageBackBreadcrumbProps> = ({ searchQuery = '
             const platform = detectPlatform();
 
             if (platform === 'web') {
-                await refreshAllMineStores();
+                await refreshAllMineStores(username);
             } else {
                 const api = get_ipc_api();
 

@@ -9,9 +9,8 @@ import { useSheetsStore } from '../../stores/sheets-store';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
 import { useOpenPickerStore } from '../../stores/open-picker-store';
 import { loadSkillFile, SkillLoadResult } from '../../services/skill-loader';
-import { IPCAPI } from '../../../../services/ipc/api';
+import { ipcApi, IPCAPI } from '../../../../services/ipc/api';
 import { detectPlatform } from '../../../../config/platform';
-import { webApi } from '../../../../services/web/webApi';
 
 // Note: The Modal is now rendered in OpenPickerModal component at Editor level
 // to prevent it from being unmounted during Tools error boundary recovery
@@ -181,7 +180,9 @@ export const Open = ({ disabled }: OpenProps) => {
     setSelectedItem(null);
     setPickerLoading(true);
     try {
-      const items = await webApi.listSkillFiles(undefined, 200);
+      const ipcApi = IPCAPI.getInstance();
+      const response = await ipcApi.listSkillFiles(undefined, 200);
+      const items = response.success ? response.data : [];
       setPickerItems(items || []);
     } catch (error) {
       console.error('[Open][WebPicker] Failed to list skills:', error);

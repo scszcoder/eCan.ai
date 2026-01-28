@@ -15,7 +15,6 @@ import { migrateDocument, migrateBundle, CURRENT_SCHEMA_VERSION } from './schema
 import { normalizeBundle, looksLikeBundle, SheetsBundle } from '../utils/bundle-utils';
 import { sanitizeApiKeysDeep } from '../utils/sanitize-utils';
 import { detectPlatform } from '../../../config/platform';
-import { webApi } from '../../../services/web/webApi';
 
 export interface SkillLoadResult {
   success: boolean;
@@ -112,7 +111,7 @@ export async function loadSkillFile(
     // 1. Read the main skill file
     const openSkillFile = async () => {
       if (isWeb) {
-        const data = await webApi.openSkillFile(filePath).catch(() => null);
+        const data = await ipcApi!.openSkillFile(filePath).catch(() => null);
         if (!data) {
           return { success: false, error: 'Failed to read skill file', data: null } as any;
         }
@@ -125,7 +124,7 @@ export async function loadSkillFile(
 
     const readSkillFile = async (path: string) => {
       if (isWeb) {
-        const data = await webApi.readSkillFile(path).catch(() => null);
+        const data = await ipcApi!.readSkillFile(path).catch(() => null);
         if (!data) return null;
         const list = Array.isArray(data) ? data : [data];
         const normalized = String(path).replace(/\\/g, '/');
@@ -136,10 +135,7 @@ export async function loadSkillFile(
     };
 
     const writeSkillFile = async (path: string, content: string) => {
-      if (isWeb) {
-        return webApi.writeSkillFile({ filePath: path, content });
-      }
-      return ipcApi!.writeSkillFile(path, content);
+      return ipcApi!.writeSkillFile({ filePath: path, content });
     };
 
     let fileResponse = await openSkillFile();
@@ -451,7 +447,7 @@ export async function loadBundleFile(bundlePath: string): Promise<{
       // Auto-save
       try {
         (bundle as any).schemaVersion = CURRENT_SCHEMA_VERSION;
-        await ipcApi.writeSkillFile(bundlePath, JSON.stringify(bundle, null, 2));
+        await ipcApi.writeSkillFile({ filePath: bundlePath, content: JSON.stringify(bundle, null, 2) });
         console.log('[SkillLoader] Saved migrated bundle file:', bundlePath);
       } catch (saveErr) {
         console.warn('[SkillLoader] Failed to auto-save migrated bundle:', saveErr);

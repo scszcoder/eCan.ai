@@ -8,7 +8,6 @@ import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { createSkillInfo } from '../../typings/skill-info';
 import { IPCAPI } from '../../../../services/ipc/api';
 import { detectPlatform } from '../../../../config/platform';
-import { webApi } from '../../../../services/web/webApi';
 import { useUserStore } from '../../../../stores/userStore';
 
 interface NewPageProps {
@@ -65,7 +64,7 @@ export const NewPage = ({ disabled }: NewPageProps) => {
 
         const ipcApi = IPCAPI.getInstance();
         const jsonString = JSON.stringify(updatedSkillInfo, null, 2);
-        await ipcApi.writeSkillFile(currentFilePath, jsonString);
+        await ipcApi.writeSkillFile({ filePath: currentFilePath, content: jsonString });
         console.log('[NEW_SKILL] Saved current skill to:', currentFilePath);
       } catch (e) {
         console.warn('[NEW_SKILL] Failed to save current skill:', e);
@@ -137,9 +136,10 @@ export const NewPage = ({ disabled }: NewPageProps) => {
 
     // 3. Check if skill already exists
     try {
+      const ipcApi = IPCAPI.getInstance();
       if (detectPlatform() === 'web') {
-        const checkResult = await webApi.checkSkillExists(skillBaseName);
-        if (checkResult?.exists) {
+        const checkResult = await ipcApi.checkSkillExists(skillBaseName);
+        if (checkResult.success && checkResult.data?.exists) {
           Modal.warning({
             title: 'Skill Already Exists',
             content: `A skill named "${skillBaseName}" already exists. Please choose a different name.`,
@@ -147,7 +147,6 @@ export const NewPage = ({ disabled }: NewPageProps) => {
           return;
         }
       } else {
-        const ipcApi = IPCAPI.getInstance();
         const checkResult = await ipcApi.checkSkillExists(skillBaseName);
         if (checkResult.success && checkResult.data?.exists) {
           Modal.warning({
@@ -235,7 +234,8 @@ export const NewPage = ({ disabled }: NewPageProps) => {
         const bundlePath = diagramPath.replace(/_skill\.json$/i, '_skill_bundle.json');
         const mappingPath = `${skillRootPath}/data_mapping.json`;
 
-        await webApi.writeSkillFile([
+        const ipcApi = IPCAPI.getInstance();
+        await ipcApi.writeSkillFile([
           { filePath: diagramPath, content: JSON.stringify(skillJson, null, 2) },
           { filePath: bundlePath, content: JSON.stringify(bundleJson, null, 2) },
           { filePath: mappingPath, content: JSON.stringify(mappingJson, null, 2) },

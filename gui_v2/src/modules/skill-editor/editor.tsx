@@ -264,7 +264,6 @@ export const Editor = () => {
     sheetsInitializedRef.current = true;
 
     // Initialize with preferredDoc (auto-load will override if file is loaded)
-    console.log('[Editor] Initializing sheets with preferredDoc');
     initMain(preferredDoc);
     openSheet('main');
   }, [editorReady, preferredDoc, initMain, openSheet]);
@@ -308,23 +307,11 @@ export const Editor = () => {
     null, // viewState - can be added later if needed
     emptySelectionIds
   );
-
-
-  console.log('[Editor] Rendering Editor component', { editorReady, chatCollapsed, activeSheetId, skillInfo: !!skillInfo });
-  
-  // Log when component is about to unmount (for debugging)
-  useEffect(() => {
-    console.log('[Editor] Editor component MOUNTED');
-    return () => {
-      console.log('[Editor] Editor component UNMOUNTING - this should NOT happen during normal operation');
-    };
-  }, []);
   
   return (
     <EditorContainer>
       <SplitLayoutContainer>
         {/* Left side: Collapsible Chat Panel */}
-        {console.log('[Editor] About to render ChatPanel')}
         <ChatPanelErrorBoundary>
           <ChatPanel
             isCollapsed={chatCollapsed}
@@ -340,11 +327,9 @@ export const Editor = () => {
         />
         
         {/* Right side: Canvas + Console */}
-        {console.log('[Editor] About to render RightPanelContainer')}
         <RightPanelContainer>
           <div className="doc-free-feature-overview">
             <SkillEditorErrorBoundary>
-              {console.log('[Editor] About to render FreeLayoutEditorProvider')}
               <FreeLayoutEditorProvider {...editorProps}>
                 <EditorBridge />
                 <AnchorProbe />
@@ -357,16 +342,13 @@ export const Editor = () => {
                 {/* Ensure breakpoint-stalled nodes still show visuals when no running node is set */}
                 <BreakpointBinder />
                 <RunningNodeNavigator />
-                {console.log('[Editor] About to render SidebarProvider')}
                 <SidebarProvider>
                   <NodeInfoDisplay />
                   <div className="demo-container">
                     {/* Sheets toolbar: tab bar and sheets menu */}
                     <div style={{ display: 'flex', alignItems: 'center', padding: '4px 8px', gap: 8, flexShrink: 0, minHeight: 48 }}>
-                      {console.log('[Editor] About to render SheetsTabBar')}
                       <SheetsTabBar />
                       <div style={{ marginLeft: 'auto' }}>
-                        {console.log('[Editor] About to render SheetsMenu')}
                         <SheetsMenu />
                       </div>
                     </div>
