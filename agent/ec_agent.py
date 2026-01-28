@@ -42,8 +42,7 @@ import base64
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
 from agent.db.services.db_avatar_service import DBAvatarService
-from app_context import AppContext
-web_gui = AppContext.get_web_gui()
+from agent.cloud_worker.cloud_logger import send_skill_editor_log
 
 # Thread pool for non-blocking A2A message sending
 _a2a_send_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="a2a_send_")
@@ -823,7 +822,7 @@ class EC_Agent(Agent):
 
 		log_msg = f"[EC_Agent] WAN subscription started in background for channel: {channel_id}"
 		logger.info(log_msg)
-		web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+		send_skill_editor_log("log", log_msg)
 
 		return task
 

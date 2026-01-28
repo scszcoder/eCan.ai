@@ -16,6 +16,7 @@ from langgraph.types import Command
 
 from a2a.types import TaskState
 from agent.ec_skills.dev_defs import BreakpointManager
+from agent.cloud_worker.cloud_logger import send_skill_editor_log
 from utils.logger_helper import logger_helper as logger
 from utils.logger_helper import get_traceback
 
@@ -24,23 +25,17 @@ if TYPE_CHECKING:
     from .executor import TaskExecutor
 
 
-def _get_ipc():
-    """Lazy IPC instance getter to avoid initialization issues."""
-    try:
-        from gui.ipc.api import IPCAPI
-        return IPCAPI.get_instance()
-    except Exception:
-        return None
-
-
 def _send_skill_editor_log(level: str, msg: str):
-    """Safely send log to skill editor."""
-    ipc = _get_ipc()
-    if ipc:
-        try:
-            ipc.send_skill_editor_log(level, msg)
-        except Exception:
-            pass
+    """
+    Send log to skill editor.
+    
+    Works in both desktop (IPC) and cloud (AppSync) modes.
+    The cloud_logger module handles mode detection internally.
+    """
+    try:
+        send_skill_editor_log(level, msg)
+    except Exception:
+        pass
 
 
 class DevRunner:

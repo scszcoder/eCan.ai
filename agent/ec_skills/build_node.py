@@ -20,9 +20,9 @@ from langchain_openai import ChatOpenAI, AzureChatOpenAI
 from langchain_community.chat_models import ChatAnthropic
 from langchain_ollama import ChatOllama
 from langchain_deepseek import ChatDeepSeek
-from gui.ipc.w2p_handlers import prompt_handler
-from app_context import AppContext
-web_gui = AppContext.get_web_gui()
+# NOTE: prompt_handler is imported lazily to avoid PySide6 dependency in cloud worker
+# from gui.ipc.w2p_handlers import prompt_handler
+from agent.cloud_worker.cloud_logger import send_skill_editor_log
 
 
 from typing import Any, Literal, cast, overload
@@ -246,27 +246,80 @@ STANDARD_SYS_PROMPT = "You are a helpful AI assistant."
 BROWSER_AUTOMATION_SYS_PROMPT = "You are a helpful browser automation agent."
 
 
+def _load_prompt_data(selection: str) -> tuple[dict | None, Any]:
+    """
+    Load prompt data either from cloud (S3) or local (GUI prompt_handler).
+    
+    Returns:
+        (prompt_data, normalizer_module) - prompt_data is the raw prompt dict,
+        normalizer_module has _normalize_prompt function
+    """
+    # First, check if we're in cloud context
+    try:
+        from agent.cloud.cloud_prompt_loader import (
+            get_cloud_prompt_context,
+            get_cloud_prompt_loader,
+            _normalize_prompt as cloud_normalize_prompt,
+        )
+        
+        cloud_ctx = get_cloud_prompt_context()
+        if cloud_ctx is not None:
+            # We're in cloud mode - use S3-based prompt loading
+            logger.debug(f"[prompts] Using cloud prompt loader for selection '{selection}'")
+            loader = get_cloud_prompt_loader(
+                bucket=cloud_ctx.bucket,
+                user_prefix=cloud_ctx.user_prefix,
+                region=cloud_ctx.region,
+            )
+            prompt_data = loader.get_prompt_by_id(selection)
+            
+            # Create a simple normalizer wrapper
+            class CloudNormalizer:
+                @staticmethod
+                def _normalize_prompt(data, *, source, read_only, last_modified_ts):
+                    return cloud_normalize_prompt(data, source=source, read_only=read_only, last_modified_ts=last_modified_ts)
+            
+            return prompt_data, CloudNormalizer
+    except ImportError:
+        pass  # Cloud loader not available
+    except Exception as e:
+        logger.warning(f"[prompts] Cloud prompt loading failed: {e}")
+    
+    # Fall back to local GUI prompt_handler
+    try:
+        from gui.ipc.w2p_handlers import prompt_handler
+        prompts = prompt_handler._load_all_prompts()
+        prompt_data = next((p for p in prompts if p.get("id") == selection), None)
+        return prompt_data, prompt_handler
+    except ImportError:
+        # PySide6 not available
+        logger.warning(f"[prompts] Neither cloud context nor GUI prompt_handler available")
+        return None, None
+    except Exception as e:
+        logger.warning(f"[prompts] Failed to load prompts: {e}")
+        return None, None
+
+
 def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_user: str) -> tuple[str, str]:
     """Resolve system/user prompt templates based on selection."""
     selection = (prompt_selection or "inline").strip()
     if selection in ("", "inline"):
         return inline_system, inline_user
 
-    try:
-        prompts = prompt_handler._load_all_prompts()
-    except Exception as exc:  # pragma: no cover - defensive fallback
-        logger.warning(f"Failed to load prompts from disk for selection '{selection}': {exc}")
-        prompts = []
-
-    prompt_data = next((p for p in prompts if p.get("id") == selection), None)
+    # Load prompt data from cloud or local
+    prompt_data, normalizer = _load_prompt_data(selection)
+    
     if not prompt_data:
         logger.warning(f"Prompt selection '{selection}' not found. Falling back to inline prompts.")
         return inline_system, inline_user
 
     normalized = prompt_data
     if not isinstance(normalized, dict) or "sections" not in normalized:
+        if normalizer is None:
+            logger.warning(f"No normalizer available for prompt '{selection}'. Falling back to inline prompts.")
+            return inline_system, inline_user
         try:
-            normalized = prompt_handler._normalize_prompt(
+            normalized = normalizer._normalize_prompt(
                 prompt_data,
                 source=str(prompt_data.get("source") or "inline"),
                 read_only=bool(prompt_data.get("readOnly")),
@@ -735,11 +788,11 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
         log_msg = f"🤖 Executing node LLM node: {node_name}"
         logger.info(log_msg)
-        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+        send_skill_editor_log("log", log_msg)
 
         log_msg = f"State: {state}"
         logger.debug(log_msg)
-        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+        send_skill_editor_log("log", log_msg)
 
         # obtain code from code based workflow.
         current_node_name = runtime.context["this_node"].get("name")
@@ -749,7 +802,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
         log_msg = f"full_node_name: {full_node_name}"
         logger.debug(log_msg)
-        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+        send_skill_editor_log("log", log_msg)
 
 
         # Use the already-resolved templates from build time (which include full tool schemas)
@@ -798,7 +851,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         except Exception as e:
             err_msg = f"Error formatting prompt: {e}"
             logger.error(err_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            send_skill_editor_log("error", err_msg)
             state['error'] = err_msg
             return state
 
@@ -852,12 +905,12 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     
                     log_msg = f"📦 ContextBuilder: built {len(structured_context)} chars from {len(builder_config.enabled_providers)} providers"
                     logger.debug(log_msg)
-                    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                    send_skill_editor_log("log", log_msg)
                     
                 except Exception as e:
                     err_msg = f"[ContextBuilder] Failed to build context: {e}"
                     logger.warning(err_msg)
-                    web_gui.get_ipc_api().send_skill_editor_log("warning", err_msg)
+                    send_skill_editor_log("warning", err_msg)
             # =================================================================
             # End Context Engineering
             # =================================================================
@@ -909,7 +962,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
             log_msg = f"recent_context: [{len(recent_context)} messages] {recent_context}"
             logger.debug(log_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+            send_skill_editor_log("log", log_msg)
 
             # Build LLM from node config (do NOT depend on mainwin.llm)
             llm = None
@@ -1165,7 +1218,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             except Exception as e:
                 err = f"Failed to create LLM from node config (provider={llm_provider}, model={model_name}): {e}"
                 logger.error(f"[build_llm_node] {err}")
-                web_gui.get_ipc_api().send_skill_editor_log("error", f"[build_llm_node] {err}")
+                send_skill_editor_log("error", f"[build_llm_node] {err}")
                 state['error'] = err
                 return state
 
@@ -1214,11 +1267,11 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             # Log LLM configuration for debugging
             log_msg = f"🔧 LLM Config (node_config): provider={llm_provider}, model={model_name}, temperature={temperature}, use_thinking={node_use_thinking}"
             logger.info(log_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+            send_skill_editor_log("log", log_msg)
 
             log_msg = f"📝 Prompt length: system={len(final_system_prompt)}, user={len(final_user_prompt)}"
             logger.debug(log_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+            send_skill_editor_log("log", log_msg)
 
             # Invoke the LLM and update the state
             try:
@@ -1236,7 +1289,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         try:
                             log_msg = "🔄 LLM invocation thread started"
                             logger.debug(log_msg)
-                            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                            send_skill_editor_log("log", log_msg)
 
                             logger.debug(f"llm_to_use: {llm_to_use}")
                             result = llm_to_use.invoke(recent_context)
@@ -1244,11 +1297,11 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
                             log_msg = f"✅ LLM invocation thread completed {result}"
                             logger.debug(log_msg)
-                            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                            send_skill_editor_log("log", log_msg)
                         except Exception as e:
                             err_msg = get_traceback(e, "ErrorInvokeWithThread❌")
                             logger.error(err_msg)
-                            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+                            send_skill_editor_log("error", err_msg)
                             exception_queue.put(e)
 
                     start_time = time.time()
@@ -1260,7 +1313,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     if th.is_alive():
                         err_msg = f"⏱️ LLM request timed out after {timeout_sec}s (thread still running)"
                         logger.error(err_msg)
-                        web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+                        send_skill_editor_log("error", err_msg)
                         raise TimeoutError(err_msg)
                     if not exception_queue.empty():
                         raise exception_queue.get()
@@ -1269,14 +1322,14 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     resp = result_queue.get()
                     log_msg = f"⏱️ Request completed in {elapsed:.2f}s"
                     logger.debug(log_msg)
-                    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                    send_skill_editor_log("log", log_msg)
                     return resp
 
                 async def _invoke_async(llm_to_use, timeout_sec: float):
                     """Async LLM invocation using ainvoke with timeout."""
                     log_msg = "LLM async invocation started"
                     logger.debug(f"🔄{log_msg}")
-                    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                    send_skill_editor_log("log", log_msg)
                     
                     start_time = time.time()
                     try:
@@ -1289,13 +1342,13 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         
                         log_msg = f"✅ LLM async invocation completed in {elapsed:.2f}s {result}"
                         logger.debug(log_msg)
-                        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                        send_skill_editor_log("log", log_msg)
                         return result
                         
                     except asyncio.TimeoutError:
                         err_msg = f"⏱️ LLM async request timed out after {timeout_sec}s"
                         logger.error(err_msg)
-                        web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+                        send_skill_editor_log("error", err_msg)
                         raise TimeoutError(err_msg)
 
                 def _invoke_hybrid(llm_to_use, timeout_sec: float):
@@ -1388,7 +1441,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             )
                             log_msg = f"[LLM_GUARDRAIL] Started timer {correlation_id} ({effective_timeout}s)"
                             logger.info(log_msg)
-                            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                            send_skill_editor_log("log", log_msg)
                     except Exception as e:
                         logger.warning(f"[LLM_GUARDRAIL] Failed to start timer: {e}")
                 
@@ -1397,7 +1450,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     import asyncio
                     log_msg = f"[LLM_HARD_TIMEOUT] Using hard timeout ({effective_timeout}s) - will cancel on timeout"
                     logger.info(log_msg)
-                    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                    send_skill_editor_log("log", log_msg)
                     try:
                         # Hard timeout: cancel operation if it exceeds timeout
                         async def _invoke_with_hard_timeout():
@@ -1424,7 +1477,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     except asyncio.TimeoutError:
                         error_msg = f"LLM call timed out after {effective_timeout}s (hard timeout)"
                         logger.error(f"[LLM_HARD_TIMEOUT] {error_msg}")
-                        web_gui.get_ipc_api().send_skill_editor_log("error", error_msg)
+                        send_skill_editor_log("error", error_msg)
                         # Record failure if task available
                         try:
                             task = state.get('_managed_task')
@@ -1455,7 +1508,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
                 log_msg = f"✅ LLM response received from {llm_provider} {response}"
                 logger.info(log_msg)
-                web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                send_skill_editor_log("log", log_msg)
 
                 # It's good practice to put results in specific keys
                 _t_stage = _time.perf_counter()
@@ -1475,37 +1528,37 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     err_msg = (f"❌ LLM Authentication Failed: Invalid API key for {llm_provider}. "
                                      "Please check your API key configuration.")
                     logger.error(f"{err_msg} | Original error: {error_str}")
-                    web_gui.get_ipc_api().send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
+                    send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
                 elif "RateLimitError" in error_type or "rate limit" in error_str.lower() or "quota" in error_str.lower():
                     err_msg = (f"❌ LLM Rate Limit Exceeded: {llm_provider} quota exhausted or rate limit reached. "
                                      "Please check your usage limits.")
                     logger.error(f"{err_msg} | Original error: {error_str}")
-                    web_gui.get_ipc_api().send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
+                    send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
                 elif "timeout" in error_str.lower() or "timed out" in error_str.lower():
                     err_msg = (f"⏱️ LLM Request Timeout: Connection to {llm_provider} timed out. "
                                      "This may be due to network issues or API endpoint unreachable.")
                     logger.error(f"{err_msg} | Original error: {error_str}")
-                    web_gui.get_ipc_api().send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
+                    send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
                 elif "connection" in error_str.lower() or "network" in error_str.lower():
                     err_msg = (f"🌐 LLM Connection Error: Cannot connect to {llm_provider} API. "
                                      "Please check your network connection and API endpoint configuration.")
                     logger.error(f"{err_msg} | Original error: {error_str}")
-                    web_gui.get_ipc_api().send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
+                    send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
                 elif "InvalidRequestError" in error_type or "invalid" in error_str.lower() or "model" in error_str.lower():
                     err_msg = (f"⚠️ LLM Invalid Request: The request to {llm_provider} was invalid. "
                                      f"Model: '{model_name}'. Error: {error_str}")
                     logger.error(f"{err_msg}")
-                    web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+                    send_skill_editor_log("error", err_msg)
                     # Check if it's a model not found error
                     if "model" in error_str.lower() and ("not found" in error_str.lower() or "does not exist" in error_str.lower()):
                         err_msg = f"💡 Hint: Model '{model_name}' does not exist. Common OpenAI models: gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-3.5-turbo"
                         logger.error(err_msg)
-                        web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+                        send_skill_editor_log("error", err_msg)
                 else:
                     # Generic error with full details
                     err_msg = f"❌ LLM Invocation Failed  for {llm_provider}/{model_name}: ({error_type}): {error_str}"
                     logger.error(err_msg)
-                    web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+                    send_skill_editor_log("error", err_msg)
                 state['error'] = err_msg
 
                 # Add detailed error info for debugging
@@ -1532,7 +1585,7 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
     """
     log_msg = f"building basic node: {config_metadata}"
     logger.debug(log_msg)
-    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+    send_skill_editor_log("log", log_msg)
 
     # Safely extract inline script content; tolerate missing keys and fall back to no-op
     try:
@@ -1542,12 +1595,12 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
 
     log_msg = f"code_source: {code_source}"
     logger.debug(log_msg)
-    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+    send_skill_editor_log("log", log_msg)
 
     if not code_source or not isinstance(code_source, str):
         err_msg = "Error: 'code' key is missing or invalid in config_metadata for basic_node."
         logger.error(err_msg)
-        web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+        send_skill_editor_log("error", err_msg)
         # Return a no-op function that just passes the state through
         return lambda state: state
 
@@ -1569,12 +1622,12 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
             else:
                 log_msg = f"Basic node file {code_source} is missing a 'run(state)' function."
                 logger.warning(log_msg)
-                web_gui.get_ipc_api().send_skill_editor_log("warning", log_msg)
+                send_skill_editor_log("warning", log_msg)
 
         except Exception as e:
             err_msg = get_traceback(e, f"ErrorBuildBasicNode {code_source}")
             logger.error(err_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            send_skill_editor_log("error", err_msg)
 
     # Scenario 2: Code is an inline script
     else:
@@ -1589,16 +1642,16 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
                 node_callable = main_func
                 log_msg = "Callable obtained from inline basic node code"
                 logger.debug(log_msg)
-                web_gui.get_ipc_api().send_skill_editor_log("debug", log_msg)
+                send_skill_editor_log("debug", log_msg)
             else:
                 log_msg = "No function definition found in inline code for basic node."
                 logger.warning(log_msg)
-                web_gui.get_ipc_api().send_skill_editor_log("warning", log_msg)
+                send_skill_editor_log("warning", log_msg)
 
         except Exception as e:
             err_msg = get_traceback(e, "ErrorExecutingInlineCodeForBasicNode")
             logger.error(err_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            send_skill_editor_log("error", err_msg)
             node_callable = None
 
     # If callable creation failed, return a no-op function
@@ -1607,7 +1660,7 @@ def build_basic_node(config_metadata: dict, node_id: str, skill_name: str, owner
 
     log_msg = f"done building basic node {node_name}"
     logger.debug(log_msg)
-    web_gui.get_ipc_api().send_skill_editor_log("debug", log_msg)
+    send_skill_editor_log("debug", log_msg)
     full_node_callable = node_builder(node_callable, node_name, skill_name, owner, bp_manager)
 
     return full_node_callable
@@ -1631,7 +1684,7 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     # Extract configuration (support legacy `{http: {...}}` and new flowgram schema)
     log_msg = f"building api node... {config_metadata}"
     logger.debug(log_msg)
-    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+    send_skill_editor_log("log", log_msg)
     cfg_http = config_metadata.get("http") if isinstance(config_metadata, dict) else None
     if isinstance(cfg_http, dict):
         api_endpoint = cfg_http.get('apiUrl') or cfg_http.get('url') or ""
@@ -1665,7 +1718,7 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     if not api_endpoint:
         err_msg = "'api_endpoint' is missing in config_metadata for api_node."
         logger.error(err_msg)
-        web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+        send_skill_editor_log("error", err_msg)
         return lambda state, runtime=None, store=None, **kwargs: {**state, 'error': 'API endpoint not configured'}
 
     def _format_from_state(template, attributes):
@@ -1892,7 +1945,7 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         except Exception as e:
             err_msg = get_traceback(e, "ErrorPrepareRequestArgs build_api_node api_key injection skipped")
             logger.error(err_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            send_skill_editor_log("error", err_msg)
 
         # Handle file attachments for multipart/form-data
         opened_files = []
@@ -1924,7 +1977,7 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             # If attachments setup fails, close any opened files and continue without files
             err_msg = get_traceback(e, "ErrorPrepareRequestArgs build_api_node attachments setup")
             logger.debug(err_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            send_skill_editor_log("error", err_msg)
 
             for fh in opened_files:
                 try:
@@ -1968,16 +2021,16 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 })
                 log_msg = f"received response payload: {payload}"
                 logger.debug(log_msg)
-                web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                send_skill_editor_log("log", log_msg)
         except httpx.HTTPStatusError as e:
             err_msg = f"API call failed with status {e.response.status_code}: {e.response.text}"
             logger.error(err_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            send_skill_editor_log("error", err_msg)
             state['error'] = err_msg
         except Exception as e:
             err_msg = get_traceback(e, "ErrorSyncAPICallable")
             logger.error(err_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            send_skill_editor_log("error", err_msg)
             state['error'] = err_msg
         finally:
             for fh in file_handles:
@@ -2004,12 +2057,12 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         except httpx.HTTPStatusError as e:
             err_msg = f"API call failed with status {e.response.status_code}: {e.response.text}"
             logger.error(err_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            send_skill_editor_log("error", err_msg)
             state['error'] = err_msg
         except Exception as e:
             err_msg = get_traceback(e, "ErrorASyncAPICallable")
             logger.error(err_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            send_skill_editor_log("error", err_msg)
             state['error'] = err_msg
         finally:
             for fh in file_handles:
@@ -2049,7 +2102,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
     # Accept multiple shapes from GUI/legacy formats
     log_msg = f"building mcp tool node: {config_metadata}"
     logger.debug(log_msg)
-    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+    send_skill_editor_log("log", log_msg)
 
     tool_name = None
     use_llm_auto_select = False
@@ -2097,7 +2150,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         use_llm_auto_select = True
         log_msg = f"[MCP] Node '{node_name}' using LLM auto-select mode - tool will be determined at runtime from state['result']['llm_result']"
         logger.info(log_msg)
-        web_gui.get_ipc_api().send_skill_editor_log("info", log_msg)
+        send_skill_editor_log("info", log_msg)
 
     # --- MCP tool input helpers (schema-aware) ---
 
@@ -2377,7 +2430,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         if use_llm_auto_select:
             log_msg = f"🤖 Executing MCP node '{node_name}' in LLM auto-select mode"
             logger.info(log_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+            send_skill_editor_log("log", log_msg)
             
             # Extract LLM result from state
             llm_result = (state.get('result') or {}).get('llm_result') or {}
@@ -2438,13 +2491,13 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             
             log_msg = f"[MCP Auto-Select] work_done={work_done}, next_tool_name='{next_tool_name}', next_tool_input={next_tool_input}"
             logger.debug(log_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+            send_skill_editor_log("log", log_msg)
             
             # Check if work is done - skip tool call
             if work_done:
                 log_msg = f"[MCP Auto-Select] work_done=True, skipping tool call for node '{node_name}'"
                 logger.info(log_msg)
-                web_gui.get_ipc_api().send_skill_editor_log("info", log_msg)
+                send_skill_editor_log("info", log_msg)
                 return state
             
             # Check if next_tool_name is empty or not provided
@@ -2457,16 +2510,16 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 if 'message' in llm_result and not llm_result.get('message', '').strip():
                     log_msg = f"[MCP Auto-Select] WARNING: LLM returned empty message with no next_tool_name. Setting work_done=True to exit loop gracefully."
                     logger.warning(log_msg)
-                    web_gui.get_ipc_api().send_skill_editor_log("warning", log_msg)
+                    send_skill_editor_log("warning", log_msg)
                 # Case 2: LLM returned just the input schema without required fields
                 elif 'input' in llm_result and 'next_tool_name' not in llm_result:
                     log_msg = f"[MCP Auto-Select] WARNING: LLM returned invalid format (just 'input' without 'next_tool_name'). Expected format: {{work_done, next_tool_name, next_tool_input}}. Got: {list(llm_result.keys())}. Setting work_done=True."
                     logger.warning(log_msg)
-                    web_gui.get_ipc_api().send_skill_editor_log("warning", log_msg)
+                    send_skill_editor_log("warning", log_msg)
                 else:
                     log_msg = f"[MCP Auto-Select] next_tool_name is empty or not provided. LLM result keys: {list(llm_result.keys())}. Skipping tool call for node '{node_name}'"
                     logger.info(log_msg)
-                    web_gui.get_ipc_api().send_skill_editor_log("info", log_msg)
+                    send_skill_editor_log("info", log_msg)
                 
                 # Set work_done to True so the loop condition exits gracefully
                 if 'result' in state and isinstance(state['result'], dict):
@@ -2482,7 +2535,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             if not tool_schema:
                 log_msg = f"[MCP Auto-Select] Tool '{actual_tool_name}' not found in MCP tool registry, skipping tool call for node '{node_name}'"
                 logger.warning(log_msg)
-                web_gui.get_ipc_api().send_skill_editor_log("warning", log_msg)
+                send_skill_editor_log("warning", log_msg)
                 return state
             
             # Use next_tool_input from LLM result
@@ -2491,11 +2544,11 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             
             log_msg = f"[MCP Auto-Select] Resolved tool: '{actual_tool_name}' with input: {actual_tool_input}"
             logger.info(log_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+            send_skill_editor_log("log", log_msg)
         else:
             log_msg = f"🤖 Executing node MCP tool node for tool: {actual_tool_name}"
             logger.info(log_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+            send_skill_editor_log("log", log_msg)
 
         # Schema-aware compile-time fallback from node editor config
         try:
@@ -2513,12 +2566,12 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
 
             log_msg = f"tool_input backfilled for {actual_tool_name}: {state['tool_input']}"
             logger.debug(log_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+            send_skill_editor_log("log", log_msg)
 
         except Exception as e:
             err_msg = get_traceback(e, "ErrorMCPToolCallable")
             logger.debug(err_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            send_skill_editor_log("error", err_msg)
 
         # Capture for closure
         _actual_tool_name = actual_tool_name
@@ -2528,7 +2581,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             """A local async function to perform the actual tool call."""
             log_msg = f"Calling MCP tool '{_actual_tool_name}' with input: {_actual_tool_input}"
             logger.info(log_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+            send_skill_editor_log("log", log_msg)
             from config.constants import DEFAULT_API_TIMEOUT
             timeout = config_metadata.get('timeout', DEFAULT_API_TIMEOUT)
             return await mcp_call_tool(_actual_tool_name, _actual_tool_input, timeout=timeout)
@@ -2553,7 +2606,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 if task is None:
                     log_msg = f"[ASYNC_MODE] No task context available for async tracking, falling back to sync mode"
                     logger.warning(log_msg)
-                    web_gui.get_ipc_api().send_skill_editor_log("warning", log_msg)
+                    send_skill_editor_log("warning", log_msg)
                 else:
                     # Register pending event and get correlation ID
                     full_node_name = f"{owner}:{skill_name}:{node_name}"
@@ -2579,7 +2632,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     
                     log_msg = f"[ASYNC_MODE] Registered pending event {correlation_id} for {_actual_tool_name} (timeout={effective_timeout}s)"
                     logger.info(log_msg)
-                    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                    send_skill_editor_log("log", log_msg)
                     
                     # Make the tool call (fire-and-forget - we don't wait for full completion)
                     from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
@@ -2605,14 +2658,14 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     
                     log_msg = f"[ASYNC_MODE] Tool call initiated, workflow continues. Completion will be tracked via correlation_id={correlation_id}"
                     logger.info(log_msg)
-                    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                    send_skill_editor_log("log", log_msg)
                     
                     return state
                     
             except Exception as e:
                 err_msg = get_traceback(e, f"ErrorAsyncMCPToolCallable({_actual_tool_name})")
                 logger.error(err_msg)
-                web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+                send_skill_editor_log("error", err_msg)
                 # Fall through to sync mode on error
         
         # ============================================================
@@ -2625,7 +2678,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
 
             log_msg = f"mcp tool call results: {tool_result}"
             logger.debug(log_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+            send_skill_editor_log("log", log_msg)
 
             # Add the result to the state (result is a dict, not a list)
             state["tool_result"] = tool_result
@@ -2637,12 +2690,12 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             # Also update attributes for easier access by subsequent nodes
             log_msg = f"state tool_result: {state['tool_result']}"
             logger.debug(log_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+            send_skill_editor_log("log", log_msg)
 
         except Exception as e:
             err_msg = get_traceback(e, f"ErrorMCPToolCallable({_actual_tool_name})")
             logger.error(err_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            send_skill_editor_log("error", err_msg)
             state['error'] = err_msg
 
         return state
@@ -2659,7 +2712,7 @@ def build_condition_node(config_metadata: dict, node_name: str, skill_name: str,
     """
     log_msg = f"building condition node : {config_metadata}"
     logger.debug(log_msg)
-    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+    send_skill_editor_log("log", log_msg)
 
     def _noop(state: dict, *, runtime=None, store=None, **kwargs):
         return state
@@ -2671,7 +2724,7 @@ def build_loop_node(config_metadata: dict, node_name: str, skill_name: str, owne
     """Loops are translated structurally by the compiler; runtime callable is a no-op."""
     log_msg = f"building loop node : {config_metadata}"
     logger.debug(log_msg)
-    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+    send_skill_editor_log("log", log_msg)
 
     def _noop(state: dict, *, runtime=None, store=None, **kwargs):
         return state
@@ -2687,7 +2740,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
     """
     log_msg = f"building pend event node : {config_metadata}"
     logger.debug(log_msg)
-    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+    send_skill_editor_log("log", log_msg)
 
     prompt = (config_metadata or {}).get("prompt") or "Action required to continue."
     tag = (config_metadata or {}).get("tag") or node_name
@@ -2699,12 +2752,12 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
     def _pend(state: dict, *, runtime=None, store=None, **kwargs):
         log_msg = f"🤖 Executing node pending event node: {node_name}"
         logger.debug(log_msg)
-        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+        send_skill_editor_log("log", log_msg)
 
         current_node_name = runtime.context["this_node"].get("name")
         log_msg = f"[Pending For Event Node] pend_for_event_node: {current_node_name}, {state}"
         logger.debug(log_msg)
-        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+        send_skill_editor_log("log", log_msg)
         if state.get("metadata"):
             qa_form = state.get("metadata").get("qa_form", None)
             notification = state.get("metadata").get("notification", None)
@@ -2725,7 +2778,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         # If resumer supplied a state patch (e.g., via Command(resume={... "_state_patch": {...}})), merge it
         log_msg = f"[pend_event_node] resume payload immediately after resuming: {resume_payload}"
         logger.debug(log_msg)
-        # web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+        # send_skill_editor_log("log", log_msg)
 
         try:
             state["events"].append({"event_type": resume_payload["event_type"]})
@@ -2754,7 +2807,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
 
         log_msg = f"[pend_event_node] resume payload after deep merge: {resume_payload}"
         logger.debug(log_msg)
-        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+        send_skill_editor_log("log", log_msg)
 
         # Enrich state with chat metadata, if available
         try:
@@ -2802,7 +2855,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
 
         log_msg = f"[pend_event_node] resumed, state: {state}"
         logger.debug(log_msg)
-        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+        send_skill_editor_log("log", log_msg)
 
         # Normalize human_text and parse
         raw_ht = resume_payload.get("human_text")
@@ -2848,7 +2901,7 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
     """Chat node sends messages via TaskRunner GUI methods."""
     log_msg = f"building chat node : {config_metadata}"
     logger.debug(log_msg)
-    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+    send_skill_editor_log("log", log_msg)
 
     role = ((config_metadata or {}).get("role") or "assistant").lower()
     msg_tpl = (config_metadata or {}).get("message") or ""
@@ -2858,7 +2911,7 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
         attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
         log_msg = f"🤖 Executing node Chat node: {node_name}"
         logger.debug(log_msg)
-        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+        send_skill_editor_log("log", log_msg)
 
         logger.debug("in chat node....", state)
 
@@ -2883,7 +2936,7 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
         except Exception as e:
             err_msg = get_traceback(e, "ErrorBuildChatNode")
             logger.error(err_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            send_skill_editor_log("error", err_msg)
 
         return state
 
@@ -2894,7 +2947,7 @@ def build_rag_node(config_metadata: dict, node_name: str, skill_name: str, owner
     """RAG node with optional LIGHTRAG API."""
     log_msg = f"building rag node : {config_metadata}"
     logger.debug(log_msg)
-    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+    send_skill_editor_log("log", log_msg)
 
     query_path = (config_metadata or {}).get("query_path") or "attributes.query"
     def _rag(state: dict, *, runtime=None, store=None, **kwargs):
@@ -2925,7 +2978,7 @@ def build_rag_node(config_metadata: dict, node_name: str, skill_name: str, owner
         except Exception as e:
             err_msg = get_traceback(e, "ErrorBuildRagNode")
             logger.error(err_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            send_skill_editor_log("error", err_msg)
         # Ensure tool_result is a dict; previous nodes may set non-dict objects here
         try:
             tr = state.get("tool_result") if isinstance(state, dict) else None
@@ -2939,11 +2992,11 @@ def build_rag_node(config_metadata: dict, node_name: str, skill_name: str, owner
                 from utils.logger_helper import get_traceback as _gt
                 err_msg = _gt(_e, "ErrorRAGNodeToolResult")
                 logger.error(err_msg)
-                web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+                send_skill_editor_log("error", err_msg)
             except Exception as _e_:
                 err_msg = get_traceback(_e_, "ErrorRAGNodeToolResult")
                 logger.debug(f"RAG node tool_result set failed: {err_msg}")
-                web_gui.get_ipc_api().send_skill_editor_log("error", f"RAG node tool_result set failed: {err_msg}")
+                send_skill_editor_log("error", f"RAG node tool_result set failed: {err_msg}")
             state["error"] = f"rag node failed to set tool_result: {err_msg}"
 
         add_to_history(state, ActionMessage(content=f"action: rag {str(query)}; result: {results}; {err_msg}"))
@@ -3035,7 +3088,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     node_profile = ((inputs.get("profile") or {}).get("content") or "").strip()
     
     logger.info(f"[BrowserAutomation] Extracted from node editor: provider={node_llm_provider}, model={node_model_name}, use_thinking={node_use_thinking}, use_vision={node_use_vision}, profile={node_profile}")
-    web_gui.get_ipc_api().send_skill_editor_log("log", f"[BrowserAutomation] Node LLM settings: provider={node_llm_provider}, model={node_model_name}")
+    send_skill_editor_log("log", f"[BrowserAutomation] Node LLM settings: provider={node_llm_provider}, model={node_model_name}")
     
     # Extract shop_name and build downloads_path
     from pathlib import Path
@@ -3068,7 +3121,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     logger.debug("[BrowserAutomation]inline_system_prompt:", inline_system_prompt)
     logger.debug("[BrowserAutomation]inline_user_prompt:", inline_user_prompt)
     log_msg = f"[BrowserAutomation]inline_system_prompt: {inline_system_prompt}\n\n{inline_user_prompt}"
-    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+    send_skill_editor_log("log", log_msg)
     # Load prompts using prompt loader (handles both inline and saved prompts)
     # Resolve prompt templates based on the selected prompt id first for initial config preview
     resolved_system_prompt, resolved_user_prompt = _resolve_prompt_templates(
@@ -3118,11 +3171,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         if profile_settings:
             log_msg = f"[BrowserAutomation] Using profile: {profile_settings.get('name', node_profile)}"
             logger.info(log_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+            send_skill_editor_log("log", log_msg)
         
         log_msg = f"[BrowserAutomation] Getting browser session: browser={browser_type_setting}, driver={browser_driver_setting}, cdp_port={cdp_port_setting}"
         logger.debug(log_msg)
-        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+        send_skill_editor_log("log", log_msg)
         # Get or create BrowserManager
         if not hasattr(mainwin, 'browser_manager') or mainwin.browser_manager is None:
             mainwin.browser_manager = BrowserManager(default_webdriver_path=mainwin.getWebDriverPath())
@@ -3163,12 +3216,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             if browser_driver_setting == 'native' and auto_browser.browser_session:
                 log_msg = f"[BrowserAutomation] Starting browser session: {auto_browser.browser_session.id}"
                 logger.info(log_msg)
-                web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                send_skill_editor_log("log", log_msg)
 
                 await auto_browser.browser_session.start()
                 log_msg = f"[BrowserAutomation] Browser session started!"
                 logger.info(log_msg)
-                web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                send_skill_editor_log("log", log_msg)
 
                 return auto_browser.browser_session
             
@@ -3186,7 +3239,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             # from browser_use.browser.context import BrowserContext as BUBrowserContext
             log_msg = f"🤖 Executing node Browser Automation node: {node_name}"
             logger.debug(log_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+            send_skill_editor_log("log", log_msg)
 
             try:
                 passive_enabled = os.environ.get("EC_BROWSER_USE_PASSIVE", "").strip().lower() in {"1", "true", "yes", "on"}
@@ -3252,7 +3305,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 except Exception as e:
                     err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNodePassive")
                     logger.error(err_msg)
-                    web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+                    send_skill_editor_log("error", err_msg)
                     return {"error": str(err_msg)}
 
             # Prefer privacy-aware wrapper if available; fall back to vanilla Agent.
@@ -3396,7 +3449,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 except Exception as e:
                     err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNodeCloudAgent")
                     logger.error(err_msg)
-                    web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+                    send_skill_editor_log("error", err_msg)
                     return {"error": str(err_msg)}
 
             # Optional: Cloud LLM mode for browser-use via PrivacyAgent (feature flagged)
@@ -3454,7 +3507,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     # Successfully connected to existing browser via CDP
                     log_msg = f"[BrowserAutomation] Connected to browser session: {getattr(browser_session, 'id', 'unknown')}"
                     logger.info(log_msg)
-                    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                    send_skill_editor_log("log", log_msg)
                     
                     # Start the browser session
                     await browser_session.start()
@@ -3484,7 +3537,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         except Exception as e:
             err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNode")
             logger.error(err_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            send_skill_editor_log("error", err_msg)
             return {"error": str(err_msg)}
 
     def _auto(state: dict, *, runtime=None, store=None, **kwargs):
@@ -3515,7 +3568,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         except Exception as exc:
             err_msg = f"Error formatting browser automation prompt: {exc}"
             logger.error(err_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            send_skill_editor_log("error", err_msg)
             state['error'] = err_msg
             final_system_prompt = active_system_prompt
             final_user_prompt = active_user_prompt
@@ -3543,12 +3596,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             except Exception as e:
                 err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNode brower-use")
                 logger.warning(err_msg)
-                web_gui.get_ipc_api().send_skill_editor_log("warning", err_msg)
+                send_skill_editor_log("warning", err_msg)
 
             if not mainwin:
                 err_msg = "Cannot create browser_use LLM: mainwin not available. Please ensure agent is properly initialized."
                 logger.error(f"[build_browser_automation_node] {err_msg}")
-                web_gui.get_ipc_api().send_skill_editor_log("error", f"[build_browser_automation_node] {err_msg}")
+                send_skill_editor_log("error", f"[build_browser_automation_node] {err_msg}")
                 state.setdefault("tool_result", {})
                 state["tool_result"][node_name] = {"provider": provider, "task": task_instructions, "error": err_msg}
 
@@ -3597,7 +3650,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         )
                         log_msg = f"[BROWSER_GUARDRAIL] Started timer {correlation_id} ({effective_timeout}s)"
                         logger.info(log_msg)
-                        web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                        send_skill_editor_log("log", log_msg)
                 except Exception as e:
                     logger.warning(f"[BROWSER_GUARDRAIL] Failed to start timer: {e}")
             
@@ -3607,7 +3660,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     import asyncio
                     log_msg = f"[BROWSER_HARD_TIMEOUT] Using hard timeout ({effective_timeout}s) - will cancel on timeout"
                     logger.info(log_msg)
-                    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                    send_skill_editor_log("log", log_msg)
                     try:
                         async def _run_with_hard_timeout():
                             return await asyncio.wait_for(
@@ -3619,7 +3672,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     except asyncio.TimeoutError:
                         error_msg = f"Browser automation timed out after {effective_timeout}s (hard timeout)"
                         logger.error(f"[BROWSER_HARD_TIMEOUT] {error_msg}")
-                        web_gui.get_ipc_api().send_skill_editor_log("error", error_msg)
+                        send_skill_editor_log("error", error_msg)
                         # Record failure if task available
                         try:
                             task = state.get('_managed_task')
@@ -3701,7 +3754,7 @@ def build_task_node(config_metadata: dict, node_name: str, skill_name: str, owne
     """
     log_msg = f"building task node : {config_metadata}"
     logger.debug(log_msg)
-    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+    send_skill_editor_log("log", log_msg)
     
     description = (config_metadata or {}).get('description', '')
     
@@ -3719,12 +3772,12 @@ def build_task_node(config_metadata: dict, node_name: str, skill_name: str, owne
             
             log_msg = f"Task node '{node_name}' executed: {description}"
             logger.debug(log_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("debug", log_msg)
+            send_skill_editor_log("debug", log_msg)
             
         except Exception as e:
             err_msg = get_traceback(e, f"ErrorInTaskNode_{node_name}")
             logger.error(err_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            send_skill_editor_log("error", err_msg)
         
         return state
     
@@ -3773,7 +3826,7 @@ def build_tool_picker_node(config_metadata: dict, node_name: str, skill_name: st
     """
     log_msg = f"building tool-picker node : {config_metadata}"
     logger.debug(log_msg)
-    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+    send_skill_editor_log("log", log_msg)
     
     # Get LLM config from node metadata or use defaults
     model_name = (config_metadata or {}).get('model', 'gpt-4o-mini')
@@ -3784,7 +3837,7 @@ def build_tool_picker_node(config_metadata: dict, node_name: str, skill_name: st
         try:
             log_msg = f"🤖 Executing node LLM assisted tool picker node: {node_name}"
             logger.debug(log_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+            send_skill_editor_log("log", log_msg)
 
             # Step 1: Extract next_actions from previous LLM result
             logger.debug("[ToolPickerNode] Extracting next_actions from state")
@@ -3796,13 +3849,13 @@ def build_tool_picker_node(config_metadata: dict, node_name: str, skill_name: st
             if not next_actions:
                 log_msg = f"[{node_name}] No next_actions found in state['result']['llm_result']"
                 logger.warning(log_msg)
-                web_gui.get_ipc_api().send_skill_editor_log("warning", log_msg)
+                send_skill_editor_log("warning", log_msg)
                 state.setdefault('tool_calls', [])
                 return state
             
             log_msg = f"[{node_name}] Processing {len(next_actions)} action(s)"
             logger.debug(log_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("debug", log_msg)
+            send_skill_editor_log("debug", log_msg)
             
             # Step 2: Get all available tool schemas from MCP
             try:
@@ -3811,7 +3864,7 @@ def build_tool_picker_node(config_metadata: dict, node_name: str, skill_name: st
             except Exception as e:
                 err_msg = get_traceback(e, f"ErrorLoadingToolSchemas_{node_name}")
                 logger.error(err_msg)
-                web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+                send_skill_editor_log("error", err_msg)
                 all_tools = []
             
             # Step 3: Process each action
@@ -3824,7 +3877,7 @@ def build_tool_picker_node(config_metadata: dict, node_name: str, skill_name: st
                 
                 log_msg = f"[{node_name}] Selecting tool for category={category}, sub_category={sub_category}, action={action_name}"
                 logger.debug(log_msg)
-                web_gui.get_ipc_api().send_skill_editor_log("debug", log_msg)
+                send_skill_editor_log("debug", log_msg)
                 
                 # Step 4: Filter tools by category and sub_category
                 filtered_tools = []
@@ -3844,12 +3897,12 @@ def build_tool_picker_node(config_metadata: dict, node_name: str, skill_name: st
                 
                 log_msg = f"[{node_name}] Filtered {len(filtered_tools)} tools from {len(all_tools)} total"
                 logger.debug(log_msg)
-                web_gui.get_ipc_api().send_skill_editor_log("debug", log_msg)
+                send_skill_editor_log("debug", log_msg)
                 
                 if not filtered_tools:
                     log_msg = f"[{node_name}] No tools found for category={category}, sub_category={sub_category}"
                     logger.warning(log_msg)
-                    web_gui.get_ipc_api().send_skill_editor_log("warning", log_msg)
+                    send_skill_editor_log("warning", log_msg)
                     continue
                 
                 # Step 5: Build prompt for LLM to select exact tool
@@ -3898,7 +3951,7 @@ Requirements:
                     
                     log_msg = f"[{node_name}] LLM selected tool: {tool_name}"
                     logger.debug(log_msg)
-                    web_gui.get_ipc_api().send_skill_editor_log("debug", log_msg)
+                    send_skill_editor_log("debug", log_msg)
                     
                     # Add to tool_calls list
                     tool_calls.append({
@@ -3914,7 +3967,7 @@ Requirements:
                 except Exception as e:
                     err_msg = get_traceback(e, f"ErrorLLMToolSelection_{node_name}")
                     logger.error(err_msg)
-                    web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+                    send_skill_editor_log("error", err_msg)
                     continue
             
             # Step 7: Store tool_calls in state
@@ -3922,7 +3975,7 @@ Requirements:
             
             log_msg = f"[{node_name}] Generated {len(tool_calls)} tool call(s)"
             logger.info(log_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("info", log_msg)
+            send_skill_editor_log("info", log_msg)
             
             # Store in metadata for debugging
             metadata = state.setdefault('metadata', {})
@@ -3935,7 +3988,7 @@ Requirements:
         except Exception as e:
             err_msg = get_traceback(e, f"ErrorInToolPickerNode_{node_name}")
             logger.error(err_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("error", err_msg)
+            send_skill_editor_log("error", err_msg)
             state.setdefault('tool_calls', [])
         
         return state

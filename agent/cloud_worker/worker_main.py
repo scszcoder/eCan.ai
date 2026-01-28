@@ -3,13 +3,17 @@ import asyncio
 import json
 import os
 import tempfile
+import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
 
 from utils.logger_helper import logger_helper as logger
+
+# Revision marker for tracking deployments
+WORKER_REVISION = "20260128j"
 
 from agent.cloud.s3_settings_loader import (
     DEFAULT_ECAN_SKILLS_BUCKET,
@@ -20,6 +24,245 @@ from agent.cloud.s3_settings_loader import (
     build_appsync_a2a_worker_config,
 )
 
+from agent.cloud_worker.cloud_logger import (
+    configure_cloud_logger,
+    stop_cloud_logger,
+    get_skill_editor_logger,
+)
+
+
+# =============================================================================
+# Run State Management
+# =============================================================================
+
+@dataclass
+class RunState:
+    """Tracks the state of a skill run for coordination with Lambda/frontend."""
+    run_id: str
+    username: str
+    skill_id: str
+    skill_name: str
+    status: str = "queued"  # queued, running, paused, completed, failed, cancelled
+    sqs_message_id: Optional[str] = None
+    ecs_task_arn: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    error: Optional[str] = None
+    current_node: Optional[str] = None
+    
+    # Control flags (set by subscription listener)
+    cancel_requested: bool = False
+    pause_requested: bool = False
+    step_requested: bool = False
+
+
+class RunStateManager:
+    """Manages run state persistence to S3 and real-time updates via AppSync."""
+    
+    def __init__(self, bucket: str, key_root: str, region: str):
+        self.bucket = bucket
+        self.key_root = key_root
+        self.region = region
+        self._s3_client = None
+    
+    @property
+    def s3_client(self):
+        if self._s3_client is None:
+            import boto3
+            self._s3_client = boto3.client("s3", region_name=self.region)
+        return self._s3_client
+    
+    def _get_run_key(self, username: str, run_id: str) -> str:
+        from agent.skill_editor.skill_editor_agent import _safe_user_dir_name
+        safe_user = _safe_user_dir_name(username)
+        prefix = (self.key_root or "").strip().strip("/")
+        parts = [p for p in [prefix, "users", safe_user, "runs", f"{run_id}.json"] if p]
+        return "/".join(parts)
+    
+    def load(self, username: str, run_id: str) -> Optional[RunState]:
+        """Load run state from S3."""
+        key = self._get_run_key(username, run_id)
+        try:
+            resp = self.s3_client.get_object(Bucket=self.bucket, Key=key)
+            data = json.loads(resp["Body"].read().decode("utf-8"))
+            return RunState(
+                run_id=data.get("run_id", run_id),
+                username=data.get("username", username),
+                skill_id=data.get("skill_id", ""),
+                skill_name=data.get("skill_name", ""),
+                status=data.get("status", "queued"),
+                sqs_message_id=data.get("sqs_message_id"),
+                ecs_task_arn=data.get("ecs_task_arn"),
+                created_at=data.get("created_at"),
+                updated_at=data.get("updated_at"),
+                started_at=data.get("started_at"),
+                completed_at=data.get("completed_at"),
+                error=data.get("error"),
+                current_node=data.get("current_node"),
+                cancel_requested=data.get("status") == "cancelled",
+            )
+        except Exception as e:
+            logger.warning(f"[RunStateManager] Failed to load run state: {e}")
+            return None
+    
+    def save(self, state: RunState) -> None:
+        """Save run state to S3."""
+        key = self._get_run_key(state.username, state.run_id)
+        data = {
+            "run_id": state.run_id,
+            "username": state.username,
+            "skill_id": state.skill_id,
+            "skill_name": state.skill_name,
+            "status": state.status,
+            "sqs_message_id": state.sqs_message_id,
+            "ecs_task_arn": state.ecs_task_arn,
+            "created_at": state.created_at,
+            "updated_at": state.updated_at,
+            "started_at": state.started_at,
+            "completed_at": state.completed_at,
+            "error": state.error,
+            "current_node": state.current_node,
+        }
+        try:
+            self.s3_client.put_object(
+                Bucket=self.bucket,
+                Key=key,
+                Body=json.dumps(data, ensure_ascii=False, indent=2),
+                ContentType="application/json",
+            )
+            logger.info(f"[RunStateManager] Saved run state: {key}")
+        except Exception as e:
+            logger.error(f"[RunStateManager] Failed to save run state: {e}")
+
+
+# =============================================================================
+# AppSync Subscription Listener for Run Control Commands
+# =============================================================================
+
+class RunControlListener:
+    """
+    Listens to AppSync subscriptions for run control commands (cancel, pause, resume, step).
+    Runs in a background thread/task and updates the RunState when commands are received.
+    """
+    
+    def __init__(
+        self,
+        appsync_url: str,
+        appsync_api_key: str,
+        run_state: RunState,
+        on_command: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+    ):
+        self.appsync_url = appsync_url
+        self.appsync_api_key = appsync_api_key
+        self.run_state = run_state
+        self.on_command = on_command
+        self._task: Optional[asyncio.Task] = None
+        self._stop_event = asyncio.Event()
+    
+    async def _handle_envelope(self, envelope: Dict[str, Any]) -> None:
+        """Handle incoming subscription envelope."""
+        try:
+            event_type = envelope.get("eventType") or ""
+            payload_raw = envelope.get("payload")
+            
+            if isinstance(payload_raw, str):
+                try:
+                    payload = json.loads(payload_raw)
+                except json.JSONDecodeError:
+                    payload = {"raw": payload_raw}
+            else:
+                payload = payload_raw or {}
+            
+            logger.info(f"[RunControlListener] Received event: type={event_type}")
+            
+            # Check if this event is for our run
+            event_run_id = payload.get("run_id") or envelope.get("sessionId")
+            if event_run_id and event_run_id != self.run_state.run_id:
+                return  # Not for us
+            
+            # Handle control commands
+            if event_type == "run_cancelled" or payload.get("type") == "run_cancelled":
+                logger.info(f"[RunControlListener] Cancel requested for run {self.run_state.run_id}")
+                self.run_state.cancel_requested = True
+                
+            elif event_type == "run_paused" or payload.get("type") == "run_paused":
+                logger.info(f"[RunControlListener] Pause requested for run {self.run_state.run_id}")
+                self.run_state.pause_requested = True
+                
+            elif event_type == "run_resumed" or payload.get("type") == "run_resumed":
+                logger.info(f"[RunControlListener] Resume requested for run {self.run_state.run_id}")
+                self.run_state.pause_requested = False
+                
+            elif event_type == "run_step" or payload.get("type") == "run_step":
+                logger.info(f"[RunControlListener] Step requested for run {self.run_state.run_id}")
+                self.run_state.step_requested = True
+            
+            # Call custom handler if provided
+            if self.on_command:
+                self.on_command(event_type, payload)
+                
+        except Exception as e:
+            logger.error(f"[RunControlListener] Error handling envelope: {e}")
+    
+    async def start(self) -> None:
+        """Start listening for run control commands."""
+        from agent.ec_tasks.appsync_pubsub import AppSyncApiKeyConfig, _subscribe
+        
+        config = AppSyncApiKeyConfig(
+            http_endpoint=self.appsync_url,
+            api_key=self.appsync_api_key,
+        )
+        
+        # Subscribe to skill editor stream events for this user
+        # The subscription filters by owner (username)
+        query = """
+        subscription OnSkillEditorStreamEvent($owner: String!) {
+          onSkillEditorStreamEvent(owner: $owner) {
+            eventId
+            owner
+            sessionId
+            flowgramId
+            eventType
+            payload
+            timestamp
+          }
+        }
+        """
+        
+        try:
+            await _subscribe(
+                config=config,
+                query=query,
+                variables={"owner": self.run_state.username},
+                operation_name="OnSkillEditorStreamEvent",
+                field_name="onSkillEditorStreamEvent",
+                on_envelope=self._handle_envelope,
+                max_retries=5,
+            )
+        except asyncio.CancelledError:
+            logger.info("[RunControlListener] Subscription cancelled")
+        except Exception as e:
+            logger.error(f"[RunControlListener] Subscription error: {e}")
+    
+    def start_background(self, loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
+        """Start the listener in the background."""
+        if loop is None:
+            loop = asyncio.get_event_loop()
+        self._task = loop.create_task(self.start())
+        logger.info(f"[RunControlListener] Started background listener for run {self.run_state.run_id}")
+    
+    def stop(self) -> None:
+        """Stop the listener."""
+        if self._task and not self._task.done():
+            self._task.cancel()
+            logger.info("[RunControlListener] Stopped listener")
+
+
+# =============================================================================
+# Original WorkerMessage (kept for backwards compatibility)
+# =============================================================================
 
 @dataclass(frozen=True)
 class WorkerMessage:
@@ -190,6 +433,7 @@ def _run_skill_once(*, msg: WorkerMessage, skill_root: Path) -> Dict[str, Any]:
     from agent.ec_skills.prep_skills_run import prep_skills_run
     from agent.ec_tasks.executor import execute_task_hybrid
     from agent.ec_tasks.models import ManagedTask
+    from a2a.types import TaskState, TaskStatus
 
     skill = load_skill_from_folder(skill_root, mainwin=None)
     if skill is None:
@@ -221,7 +465,15 @@ def _run_skill_once(*, msg: WorkerMessage, skill_root: Path) -> Dict[str, Any]:
         },
     }
 
-    task = ManagedTask(name=skill.name or msg.skill_name, description="cloud_worker_run", skill=skill, metadata={})
+    # Create task with required a2a.types.Task fields
+    task = ManagedTask(
+        name=skill.name or msg.skill_name,
+        description="cloud_worker_run",
+        skill=skill,
+        metadata={},
+        contextId=msg.chat_id,  # Required by a2a.types.Task
+        status=TaskStatus(state=TaskState.submitted),  # Required by a2a.types.Task
+    )
 
     state = prep_skills_run(skill, agent, task.id, in_msg, None)
     task.metadata["state"] = state
@@ -311,8 +563,25 @@ async def handle_one_message(
 async def run_long_poll(*, queue_url: str, bucket: str, base_prefix: str, region: str) -> None:
     import boto3
     from botocore.config import Config
+    from datetime import datetime, timezone
 
     client = boto3.client("sqs", config=Config(region_name=region, retries={"max_attempts": 5, "mode": "standard"}))
+    
+    # Initialize run state manager
+    state_manager = RunStateManager(bucket=bucket, key_root=base_prefix, region=region)
+    
+    # Get ECS task ARN from metadata service (if running in Fargate)
+    ecs_task_arn = None
+    try:
+        import urllib.request
+        metadata_uri = os.environ.get("ECS_CONTAINER_METADATA_URI_V4")
+        if metadata_uri:
+            with urllib.request.urlopen(f"{metadata_uri}/task", timeout=2) as resp:
+                task_meta = json.loads(resp.read().decode("utf-8"))
+                ecs_task_arn = task_meta.get("TaskARN")
+                logger.info(f"[cloud_worker] Running as ECS task: {ecs_task_arn}")
+    except Exception as e:
+        logger.debug(f"[cloud_worker] Not running in ECS or failed to get task ARN: {e}")
 
     while True:
         resp = client.receive_message(
@@ -320,6 +589,7 @@ async def run_long_poll(*, queue_url: str, bucket: str, base_prefix: str, region
             MaxNumberOfMessages=1,
             WaitTimeSeconds=20,
             VisibilityTimeout=300,
+            MessageAttributeNames=["All"],
         )
 
         msgs = resp.get("Messages") or []
@@ -329,22 +599,755 @@ async def run_long_poll(*, queue_url: str, bucket: str, base_prefix: str, region
         m = msgs[0]
         receipt = m.get("ReceiptHandle")
         body = m.get("Body")
-
+        msg_attrs = m.get("MessageAttributes") or {}
+        
+        # Extract run metadata from message attributes
+        run_id = msg_attrs.get("run_id", {}).get("StringValue")
+        username = msg_attrs.get("username", {}).get("StringValue")
+        skill_id = msg_attrs.get("skill_id", {}).get("StringValue")
+        
+        run_state: Optional[RunState] = None
+        control_listener: Optional[RunControlListener] = None
+        
         try:
-            await handle_one_message(raw_message=body, bucket=bucket, base_prefix=base_prefix, region=region)
+            # Parse message body
+            if isinstance(body, str):
+                msg_data = json.loads(body)
+            else:
+                msg_data = body or {}
+            
+            # Check if this is a new-format message from Lambda (runSkill)
+            if "run_id" in msg_data:
+                run_id = run_id or msg_data.get("run_id")
+                username = username or msg_data.get("username")
+                skill_id = skill_id or msg_data.get("skill_id")
+                skill_name = msg_data.get("skill_name", "unnamed")
+                
+                logger.info(f"[cloud_worker] Processing skill run: run_id={run_id}, skill={skill_name}")
+                
+                # Check if run was cancelled before we started
+                existing_state = state_manager.load(username, run_id) if (username and run_id) else None
+                if existing_state and existing_state.status == "cancelled":
+                    logger.info(f"[cloud_worker] Run {run_id} was cancelled, skipping")
+                    if receipt:
+                        client.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt)
+                    continue
+                
+                # Create/update run state
+                now_iso = datetime.now(timezone.utc).isoformat()
+                run_state = RunState(
+                    run_id=run_id,
+                    username=username,
+                    skill_id=skill_id,
+                    skill_name=skill_name,
+                    status="running",
+                    ecs_task_arn=ecs_task_arn,
+                    created_at=msg_data.get("created_at", now_iso),
+                    updated_at=now_iso,
+                    started_at=now_iso,
+                )
+                
+                # Save running state
+                if username and run_id:
+                    state_manager.save(run_state)
+                
+                # Start AppSync subscription listener for control commands
+                appsync_url = os.environ.get("APPSYNC_API_URL", "")
+                appsync_key = os.environ.get("APPSYNC_API_KEY", "")
+                if appsync_url and appsync_key and run_state:
+                    control_listener = RunControlListener(
+                        appsync_url=appsync_url,
+                        appsync_api_key=appsync_key,
+                        run_state=run_state,
+                    )
+                    control_listener.start_background()
+                
+                # Publish start event
+                await _publish_run_status_event(
+                    bucket=bucket,
+                    base_prefix=base_prefix,
+                    region=region,
+                    run_state=run_state,
+                    event_type="run_started",
+                    message=f"Skill '{skill_name}' started",
+                )
+                
+                # Process the skill run
+                await handle_skill_run_message(
+                    msg_data=msg_data,
+                    run_state=run_state,
+                    bucket=bucket,
+                    base_prefix=base_prefix,
+                    region=region,
+                )
+                
+                # Update state to completed
+                run_state.status = "completed"
+                run_state.completed_at = datetime.now(timezone.utc).isoformat()
+                run_state.updated_at = run_state.completed_at
+                if username and run_id:
+                    state_manager.save(run_state)
+                
+                # Publish completion event
+                await _publish_run_status_event(
+                    bucket=bucket,
+                    base_prefix=base_prefix,
+                    region=region,
+                    run_state=run_state,
+                    event_type="run_completed",
+                    message=f"Skill '{skill_name}' completed successfully",
+                )
+            else:
+                # Legacy message format - use old handler
+                await handle_one_message(raw_message=body, bucket=bucket, base_prefix=base_prefix, region=region)
+            
+            # Delete message on success
             if receipt:
                 client.delete_message(QueueUrl=queue_url, ReceiptHandle=receipt)
-        except Exception:
+                
+        except Exception as e:
             logger.error("[cloud_worker] message processing failed", exc_info=True)
+            
+            # Update run state to failed
+            if run_state:
+                run_state.status = "failed"
+                run_state.error = str(e)
+                run_state.completed_at = datetime.now(timezone.utc).isoformat()
+                run_state.updated_at = run_state.completed_at
+                if username and run_id:
+                    try:
+                        state_manager.save(run_state)
+                    except Exception:
+                        pass
+                
+                # Publish failure event
+                try:
+                    await _publish_run_status_event(
+                        bucket=bucket,
+                        base_prefix=base_prefix,
+                        region=region,
+                        run_state=run_state,
+                        event_type="run_failed",
+                        message=f"Skill run failed: {e}",
+                    )
+                except Exception:
+                    pass
+            
+            # Make message visible again for retry
             try:
                 if receipt:
                     client.change_message_visibility(QueueUrl=queue_url, ReceiptHandle=receipt, VisibilityTimeout=0)
             except Exception:
                 pass
+        finally:
+            # Stop the control listener
+            if control_listener:
+                control_listener.stop()
+
+
+async def _publish_run_status_event(
+    *,
+    bucket: str,
+    base_prefix: str,
+    region: str,
+    run_state: RunState,
+    event_type: str,
+    message: str,
+) -> None:
+    """Publish run status event via AppSync for real-time UI updates."""
+    appsync_url = os.environ.get("APPSYNC_API_URL", "")
+    appsync_key = os.environ.get("APPSYNC_API_KEY", "")
+    
+    if not appsync_url or not appsync_key:
+        logger.debug("[cloud_worker] AppSync not configured, skipping status publish")
+        return
+    
+    try:
+        from agent.ec_tasks.appsync_pubsub import AppSyncApiKeyConfig, publish_skill_editor_stream_event
+        
+        config = AppSyncApiKeyConfig(
+            http_endpoint=appsync_url,
+            api_key=appsync_key,
+        )
+        
+        await publish_skill_editor_stream_event(
+            config=config,
+            owner=run_state.username,
+            session_id=run_state.run_id,
+            event_type=event_type,
+            payload={
+                "run_id": run_state.run_id,
+                "skill_id": run_state.skill_id,
+                "skill_name": run_state.skill_name,
+                "status": run_state.status,
+                "current_node": run_state.current_node,
+                "message": message,
+                "error": run_state.error,
+                "ecs_task_arn": run_state.ecs_task_arn,
+            },
+        )
+        logger.info(f"[cloud_worker] Published {event_type} event for run {run_state.run_id}")
+    except Exception as e:
+        logger.warning(f"[cloud_worker] Failed to publish status event: {e}")
+
+
+async def handle_skill_run_message(
+    *,
+    msg_data: Dict[str, Any],
+    run_state: RunState,
+    bucket: str,
+    base_prefix: str,
+    region: str,
+) -> None:
+    """
+    Handle a skill run message from the Lambda runSkill handler.
+    
+    Expected msg_data format:
+    {
+        "run_id": str,
+        "username": str,
+        "skill_id": str,
+        "skill_name": str,
+        "skill_run_mode": str,
+        "dev_mode": bool,  # If true, run with dev runner (breakpoints, step, etc.)
+        "skill": {
+            "skill_id": str,
+            "skill_name": str,
+            "diagram": {...},  # Flowgram diagram (nodes, edges, etc.)
+            "bundle": {...},   # Optional bundle JSON (sheets data)
+            "testInputs": {...},  # Optional test inputs
+        },
+        "created_at": str,
+    }
+    
+    Strategy:
+    - If dev_mode is true, use _run_skill_dev_mode() which sets up a TaskRunner
+      with DevRunner for breakpoint/step support
+    - Otherwise, save flowgram to S3 and use _run_skill_once() for simple execution
+    """
+    skill_data = msg_data.get("skill") or {}
+    skill_name = skill_data.get("skill_name") or msg_data.get("skill_name") or "unnamed"
+    diagram = skill_data.get("diagram") or {}
+    # Bundle is nested inside diagram (frontend structure: diagram.bundle.sheets)
+    bundle = diagram.get("bundle") or skill_data.get("bundle") or {}
+    # Data mapping can come from skill_data or diagram
+    data_mapping = skill_data.get("dataMapping") or skill_data.get("data_mapping") or diagram.get("dataMapping") or {}
+    test_inputs = skill_data.get("testInputs") or {}
+    dev_mode = msg_data.get("dev_mode", False)
+    
+    username = msg_data.get("username", "")
+    
+    # Check for cancellation before starting
+    if run_state.cancel_requested:
+        logger.info(f"[cloud_worker] Run {run_state.run_id} cancelled before execution")
+        run_state.status = "cancelled"
+        return
+    
+    # Build skills prefix for this user
+    skills_prefix = build_user_skills_s3_prefix(user_email=username, base_prefix=base_prefix)
+    
+    # Normalize skill name (ensure it ends with _skill for folder name)
+    skill_folder_name = skill_name if skill_name.endswith("_skill") else f"{skill_name}_skill"
+    skill_base_name = skill_name[:-6] if skill_name.endswith("_skill") else skill_name
+    
+    # If we have a diagram from frontend, save it to S3 first
+    if diagram and diagram.get("nodes"):
+        logger.info(f"[cloud_worker] Saving flowgram to S3 before execution: {skill_name}")
+        await _save_flowgram_to_s3(
+            bucket=bucket,
+            skills_prefix=skills_prefix,
+            skill_folder_name=skill_folder_name,
+            skill_base_name=skill_base_name,
+            diagram=diagram,
+            bundle=bundle,
+            data_mapping=data_mapping,
+            region=region,
+        )
+    
+    # Choose execution mode
+    # Set up cloud prompt context for S3-based prompt loading
+    from agent.cloud.cloud_prompt_loader import set_cloud_prompt_context, clear_cloud_prompt_context
+    set_cloud_prompt_context(bucket=bucket, user_prefix=username, region=region)
+    
+    try:
+        if dev_mode and diagram and diagram.get("nodes"):
+            # Dev mode: use TaskRunner with DevRunner for breakpoint/step support
+            logger.info(f"[cloud_worker] Running in DEV MODE: {skill_name}")
+            await _run_skill_dev_mode(
+                diagram=diagram,
+                bundle=bundle,
+                test_inputs=test_inputs,
+                run_state=run_state,
+                bucket=bucket,
+                base_prefix=base_prefix,
+                region=region,
+            )
+        else:
+            # Standard mode: download from S3 and run with _run_skill_once
+            logger.info(f"[cloud_worker] Loading skill from S3: {skill_name}")
+            skill_prefix = f"{skills_prefix}/{skill_folder_name}"
+            
+            tmp_dir = Path(tempfile.mkdtemp(prefix="ecan_skill_"))
+            try:
+                _download_s3_prefix_to_dir(bucket=bucket, prefix=skill_prefix, dest_dir=tmp_dir, region=region)
+                skill_folder = _find_skill_folder(tmp_dir)
+                
+                # Create a compatible WorkerMessage for the skill runner
+                legacy_msg = WorkerMessage(
+                    user_email=username,
+                    chat_id=run_state.run_id,
+                    sender_id=run_state.skill_id or "cloud_worker",
+                    skill_name=skill_base_name,
+                    prompt=json.dumps(test_inputs) if test_inputs else "",
+                )
+                
+                result = _run_skill_once(msg=legacy_msg, skill_root=skill_folder)
+                logger.info(f"[cloud_worker] Skill result: success={result.get('success', True)}")
+            finally:
+                # Cleanup temp directory
+                import shutil
+                try:
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+                except Exception:
+                    pass
+    finally:
+        # Always clear cloud prompt context
+        clear_cloud_prompt_context()
+
+
+async def _save_flowgram_to_s3(
+    *,
+    bucket: str,
+    skills_prefix: str,
+    skill_folder_name: str,
+    skill_base_name: str,
+    diagram: Dict[str, Any],
+    bundle: Dict[str, Any],
+    data_mapping: Dict[str, Any],
+    region: str,
+) -> None:
+    """
+    Save a flowgram diagram to S3 in the proper skill folder structure.
+    
+    This creates:
+        <skills_prefix>/<skill_folder_name>/diagram_dir/<skill_base_name>_skill.json
+        <skills_prefix>/<skill_folder_name>/diagram_dir/<skill_base_name>_skill_bundle.json (if bundle provided)
+        <skills_prefix>/<skill_folder_name>/data_mapping.json (if data_mapping provided)
+    
+    The flowgram can then be loaded by _run_skill_once() which will convert it
+    to a LangGraph CompiledGraph for execution.
+    """
+    import boto3
+    from botocore.config import Config
+    
+    client = boto3.client("s3", config=Config(region_name=region, retries={"max_attempts": 5, "mode": "standard"}))
+    
+    # Build the S3 key paths
+    skill_root_prefix = f"{skills_prefix}/{skill_folder_name}"
+    diagram_dir_prefix = f"{skill_root_prefix}/diagram_dir"
+    skill_json_key = f"{diagram_dir_prefix}/{skill_base_name}_skill.json"
+    bundle_json_key = f"{diagram_dir_prefix}/{skill_base_name}_skill_bundle.json"
+    data_mapping_key = f"{skill_root_prefix}/data_mapping.json"
+    
+    # Save the main skill JSON (the flowgram diagram)
+    skill_json_content = json.dumps(diagram, indent=2, ensure_ascii=False)
+    logger.info(f"[cloud_worker] Saving skill JSON to s3://{bucket}/{skill_json_key}")
+    client.put_object(
+        Bucket=bucket,
+        Key=skill_json_key,
+        Body=skill_json_content.encode("utf-8"),
+        ContentType="application/json",
+    )
+    
+    # Save the bundle JSON if provided
+    if bundle:
+        bundle_json_content = json.dumps(bundle, indent=2, ensure_ascii=False)
+        logger.info(f"[cloud_worker] Saving bundle JSON to s3://{bucket}/{bundle_json_key}")
+        client.put_object(
+            Bucket=bucket,
+            Key=bundle_json_key,
+            Body=bundle_json_content.encode("utf-8"),
+            ContentType="application/json",
+        )
+    
+    # Save the data_mapping.json at skill root level (not in diagram_dir)
+    if data_mapping:
+        data_mapping_content = json.dumps(data_mapping, indent=2, ensure_ascii=False)
+        logger.info(f"[cloud_worker] Saving data_mapping.json to s3://{bucket}/{data_mapping_key}")
+        client.put_object(
+            Bucket=bucket,
+            Key=data_mapping_key,
+            Body=data_mapping_content.encode("utf-8"),
+            ContentType="application/json",
+        )
+    
+    logger.info(f"[cloud_worker] Flowgram saved to S3: {skill_folder_name}")
+
+
+async def _run_skill_dev_mode(
+    *,
+    diagram: Dict[str, Any],
+    bundle: Dict[str, Any],
+    test_inputs: Dict[str, Any],
+    run_state: RunState,
+    bucket: str,
+    base_prefix: str,
+    region: str,
+) -> None:
+    """
+    Run a skill in development mode with breakpoint and step support.
+    
+    This mirrors what the desktop app does in skill_dev_utils.py:
+    1. Convert flowgram to langgraph using flowgram2langgraph_v2()
+    2. Set up a DevRunner with breakpoint manager
+    3. Create a ManagedTask
+    4. Launch via the dev runner loop
+    
+    The key difference from _run_skill_once() is that dev mode:
+    - Honors breakpoints marked in nodes (node.data.break_point = true)
+    - Supports pause/step/resume via AppSync subscription
+    - Publishes node-by-node progress events
+    """
+    from agent.ec_skill import EC_Skill, NodeState
+    from agent.ec_skills.flowgram2langgraph_v2 import flowgram2langgraph_v2
+    from agent.ec_skills.dev_defs import BreakpointManager
+    from agent.ec_tasks.models import ManagedTask
+    from agent.ec_tasks.dev_runner import DevRunner
+    
+    # Get skill editor logger for dev mode logs
+    skill_logger = get_skill_editor_logger()
+    
+    logger.info(f"[cloud_worker] Setting up dev mode execution for run {run_state.run_id}")
+    skill_logger.log(f"Starting dev mode execution for skill: {run_state.skill_name}")
+    
+    # Initialize breakpoint manager
+    bp_manager = BreakpointManager()
+    
+    # Convert flowgram to langgraph (this also extracts breakpoints)
+    try:
+        skill_logger.log("Converting flowgram to LangGraph...")
+        workflow, breakpoints = flowgram2langgraph_v2(
+            diagram,
+            bundle_json=bundle,
+            enable_subgraph=False,
+            bp_mgr=bp_manager,
+        )
+        if not workflow:
+            raise RuntimeError("flowgram2langgraph_v2 returned empty workflow")
+        logger.info(f"[cloud_worker] Converted flowgram to langgraph, breakpoints: {breakpoints}")
+        skill_logger.log(f"Flowgram converted successfully. Breakpoints: {breakpoints}")
+    except Exception as e:
+        logger.error(f"[cloud_worker] Failed to convert flowgram: {e}")
+        skill_logger.error(f"Failed to convert flowgram: {e}")
+        raise
+    
+    # Set breakpoints if any were extracted from nodes
+    if breakpoints:
+        bp_manager.set_breakpoints(breakpoints)
+        logger.info(f"[cloud_worker] Breakpoints set: {bp_manager.get_breakpoints()}")
+    
+    # Create an EC_Skill with the workflow
+    skill = EC_Skill(
+        name=run_state.skill_name or "dev_skill",
+        description="Cloud worker dev run",
+        source="ui",
+    )
+    skill.set_work_flow(workflow)
+    
+    # Create a ManagedTask for the dev run
+    dev_task = ManagedTask(
+        id=run_state.run_id,
+        run_id=run_state.run_id,
+        name=f"dev:run task for skill {run_state.skill_name}",
+        description="Cloud worker development run",
+        skill=skill,
+        metadata={"state": {}},
+    )
+    
+    # Create initial state (similar to skill_dev_utils.run_dev_skill)
+    init_state = NodeState(
+        messages=[],
+        input=json.dumps(test_inputs) if test_inputs else "",
+        attachments=[],
+        prompts=[],
+        history=[],
+        attributes={},
+        result={},
+        tool_input=test_inputs if isinstance(test_inputs, dict) else {},
+        tool_result={},
+        threads=[],
+        metadata={
+            "run_id": run_state.run_id,
+            "username": run_state.username,
+            "skill_id": run_state.skill_id,
+        },
+        error="",
+        retries=3,
+        condition=False,
+        case="",
+        goals=[],
+    )
+    
+    # Initialize DevRunner
+    dev_runner = DevRunner()
+    dev_runner.bp_manager = bp_manager
+    
+    # Execute the workflow in dev mode
+    # We'll run it using the compiled graph directly, checking for control signals
+    logger.info(f"[cloud_worker] Starting dev mode execution")
+    skill_logger.log("Starting workflow execution...")
+    
+    try:
+        # Get the compiled graph from the skill
+        compiled_graph = skill.get_work_flow()
+        if not compiled_graph:
+            raise RuntimeError("Skill has no compiled workflow")
+        
+        # Convert NodeState to dict for langgraph
+        state_dict = init_state.model_dump() if hasattr(init_state, 'model_dump') else dict(init_state)
+        
+        # Stream through the graph, checking for control signals at each step
+        current_node = None
+        async for event in compiled_graph.astream(state_dict, stream_mode="updates"):
+            # Check for cancellation
+            if run_state.cancel_requested:
+                logger.info(f"[cloud_worker] Cancellation requested at node {current_node}")
+                skill_logger.warning(f"Execution cancelled at node: {current_node}")
+                run_state.status = "cancelled"
+                return
+            
+            # Extract current node info from event
+            for node_name, node_output in event.items():
+                current_node = node_name
+                run_state.current_node = node_name
+                logger.info(f"[cloud_worker] Dev mode executing node: {node_name}")
+                skill_logger.log(f"Executing node: {node_name}")
+                
+                # Publish progress event
+                await _publish_run_status_event(
+                    bucket=bucket,
+                    base_prefix=base_prefix,
+                    region=region,
+                    run_state=run_state,
+                    event_type="run_progress",
+                    message=f"Executing node: {node_name}",
+                )
+                
+                # Check if this node is a breakpoint
+                if bp_manager.has_breakpoint(node_name):
+                    logger.info(f"[cloud_worker] Hit breakpoint at node: {node_name}")
+                    skill_logger.log(f"⏸️ Breakpoint hit at node: {node_name}")
+                    run_state.pause_requested = True
+                    
+                    # Publish breakpoint hit event
+                    await _publish_run_status_event(
+                        bucket=bucket,
+                        base_prefix=base_prefix,
+                        region=region,
+                        run_state=run_state,
+                        event_type="run_breakpoint",
+                        message=f"Breakpoint hit at node: {node_name}",
+                    )
+                
+                # Handle pause/step
+                while run_state.pause_requested and not run_state.cancel_requested:
+                    logger.debug(f"[cloud_worker] Paused at node {node_name}, waiting...")
+                    await asyncio.sleep(0.5)
+                    
+                    # Check for step request
+                    if run_state.step_requested:
+                        logger.info(f"[cloud_worker] Step requested, continuing one node")
+                        run_state.step_requested = False
+                        run_state.pause_requested = True  # Will pause again after next node
+                        break
+        
+        logger.info(f"[cloud_worker] Dev mode execution completed successfully")
+        skill_logger.log("✅ Workflow execution completed successfully")
+        
+    except Exception as e:
+        logger.error(f"[cloud_worker] Dev mode execution failed: {e}", exc_info=True)
+        skill_logger.error(f"❌ Workflow execution failed: {e}")
+        raise
 
 
 async def run_single(*, message_json: str, bucket: str, base_prefix: str, region: str) -> None:
-    await handle_one_message(raw_message=message_json, bucket=bucket, base_prefix=base_prefix, region=region)
+    """
+    Run a single skill execution (one-shot mode for Fargate tasks).
+    
+    This mode is used when Lambda starts a Fargate task directly.
+    The task processes one skill run and exits.
+    """
+    from datetime import datetime, timezone
+    import boto3
+    
+    # Parse the message
+    if isinstance(message_json, str):
+        msg_data = json.loads(message_json)
+    else:
+        msg_data = message_json or {}
+    
+    # Check if this is a reference to S3 payload (to handle large skill data)
+    if "payload_s3_bucket" in msg_data and "payload_s3_key" in msg_data:
+        payload_bucket = msg_data["payload_s3_bucket"]
+        payload_key = msg_data["payload_s3_key"]
+        logger.info(f"[cloud_worker] Fetching full payload from S3: s3://{payload_bucket}/{payload_key}")
+        try:
+            s3_client = boto3.client("s3", region_name=region)
+            resp = s3_client.get_object(Bucket=payload_bucket, Key=payload_key)
+            full_payload = json.loads(resp["Body"].read().decode("utf-8"))
+            # Merge full payload into msg_data (full payload takes precedence)
+            msg_data = {**msg_data, **full_payload}
+            logger.info(f"[cloud_worker] Loaded full payload from S3 successfully")
+        except Exception as e:
+            logger.error(f"[cloud_worker] Failed to fetch payload from S3: {e}")
+            raise RuntimeError(f"Failed to fetch run payload from S3: {e}")
+    
+    # Initialize run state manager
+    state_manager = RunStateManager(bucket=bucket, key_root=base_prefix, region=region)
+    
+    # Get ECS task ARN from metadata service (if running in Fargate)
+    ecs_task_arn = None
+    try:
+        import urllib.request
+        metadata_uri = os.environ.get("ECS_CONTAINER_METADATA_URI_V4")
+        if metadata_uri:
+            with urllib.request.urlopen(f"{metadata_uri}/task", timeout=2) as resp:
+                task_meta = json.loads(resp.read().decode("utf-8"))
+                ecs_task_arn = task_meta.get("TaskARN")
+                logger.info(f"[cloud_worker] Running as ECS task: {ecs_task_arn}")
+    except Exception as e:
+        logger.debug(f"[cloud_worker] Not running in ECS or failed to get task ARN: {e}")
+    
+    # Check if this is a new-format message (from Lambda runSkill)
+    if "run_id" in msg_data:
+        run_id = msg_data.get("run_id")
+        username = msg_data.get("username", "")
+        skill_id = msg_data.get("skill_id", "")
+        skill_name = msg_data.get("skill_name", "unnamed")
+        
+        logger.info(f"[cloud_worker] Processing skill run: run_id={run_id}, skill={skill_name}")
+        
+        # Check if run was cancelled before we started
+        existing_state = state_manager.load(username, run_id) if (username and run_id) else None
+        if existing_state and existing_state.status == "cancelled":
+            logger.info(f"[cloud_worker] Run {run_id} was already cancelled, exiting")
+            return
+        
+        # Create run state
+        now_iso = datetime.now(timezone.utc).isoformat()
+        run_state = RunState(
+            run_id=run_id,
+            username=username,
+            skill_id=skill_id,
+            skill_name=skill_name,
+            status="running",
+            ecs_task_arn=ecs_task_arn,
+            created_at=msg_data.get("created_at", now_iso),
+            updated_at=now_iso,
+            started_at=now_iso,
+        )
+        
+        # Save running state
+        if username and run_id:
+            state_manager.save(run_state)
+        
+        # Start AppSync subscription listener for control commands
+        control_listener: Optional[RunControlListener] = None
+        appsync_url = os.environ.get("APPSYNC_API_URL", "")
+        appsync_key = os.environ.get("APPSYNC_API_KEY", "")
+        if appsync_url and appsync_key:
+            control_listener = RunControlListener(
+                appsync_url=appsync_url,
+                appsync_api_key=appsync_key,
+                run_state=run_state,
+            )
+            control_listener.start_background()
+            
+            # Configure cloud logger for skill editor logs
+            configure_cloud_logger(
+                appsync_url=appsync_url,
+                appsync_api_key=appsync_key,
+                owner=username,
+                session_id=run_id,
+                flowgram_id=skill_id,
+            )
+            logger.info(f"[cloud_worker] Cloud logger configured for run {run_id}")
+        
+        try:
+            # Publish start event
+            await _publish_run_status_event(
+                bucket=bucket,
+                base_prefix=base_prefix,
+                region=region,
+                run_state=run_state,
+                event_type="run_started",
+                message=f"Skill '{skill_name}' started",
+            )
+            
+            # Process the skill run
+            await handle_skill_run_message(
+                msg_data=msg_data,
+                run_state=run_state,
+                bucket=bucket,
+                base_prefix=base_prefix,
+                region=region,
+            )
+            
+            # Update state to completed (unless cancelled)
+            if run_state.status != "cancelled":
+                run_state.status = "completed"
+            run_state.completed_at = datetime.now(timezone.utc).isoformat()
+            run_state.updated_at = run_state.completed_at
+            if username and run_id:
+                state_manager.save(run_state)
+            
+            # Publish completion event
+            await _publish_run_status_event(
+                bucket=bucket,
+                base_prefix=base_prefix,
+                region=region,
+                run_state=run_state,
+                event_type="run_completed" if run_state.status == "completed" else "run_cancelled",
+                message=f"Skill '{skill_name}' {run_state.status}",
+            )
+            
+        except Exception as e:
+            logger.error("[cloud_worker] skill run failed", exc_info=True)
+            
+            # Update run state to failed
+            run_state.status = "failed"
+            run_state.error = str(e)
+            run_state.completed_at = datetime.now(timezone.utc).isoformat()
+            run_state.updated_at = run_state.completed_at
+            if username and run_id:
+                try:
+                    state_manager.save(run_state)
+                except Exception:
+                    pass
+            
+            # Publish failure event
+            try:
+                await _publish_run_status_event(
+                    bucket=bucket,
+                    base_prefix=base_prefix,
+                    region=region,
+                    run_state=run_state,
+                    event_type="run_failed",
+                    message=f"Skill run failed: {e}",
+                )
+            except Exception:
+                pass
+            
+            raise
+        finally:
+            # Stop the control listener
+            if control_listener:
+                control_listener.stop()
+            # Stop the cloud logger
+            stop_cloud_logger()
+    else:
+        # Legacy message format
+        await handle_one_message(raw_message=message_json, bucket=bucket, base_prefix=base_prefix, region=region)
 
 
 def main() -> None:
@@ -364,7 +1367,7 @@ def main() -> None:
         raise SystemExit("--message-json is required for --mode single")
 
     t0 = time.time()
-    logger.info(f"[cloud_worker] starting mode={args.mode} bucket={args.bucket} region={args.region}")
+    logger.info(f"[cloud_worker] starting rev={WORKER_REVISION} mode={args.mode} bucket={args.bucket} region={args.region}")
 
     try:
         if args.mode == "long-poll":

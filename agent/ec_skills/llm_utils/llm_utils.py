@@ -38,13 +38,11 @@ from agent.memory.models import MemoryItem
 from utils.env.secure_store import secure_store, get_current_username
 from utils.logger_helper import get_traceback
 from utils.logger_helper import logger_helper as logger
-from app_context import AppContext
+from agent.cloud_worker.cloud_logger import send_skill_editor_log
 
 # Type-only imports to avoid circular dependency
 if TYPE_CHECKING:
     from agent.ec_skill import NodeState
-
-web_gui = AppContext.get_web_gui()
 
 def build_a2a_response_message(
     agent_id: str,
@@ -1903,7 +1901,7 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                 
                 log_msg = f"[create_browser_use_llm] provider_type:{provider_type}, model_name:{model_name}, api_key:{api_key}, base_url:{base_url}, class_name:{class_name}, supports_vision:{supports_vision}"
                 logger.debug(log_msg)
-                web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                send_skill_editor_log("log", log_msg)
 
                 # Use centralized function (already validates BrowserUseChatOpenAI type)
                 # Note: thinking control is handled via task prompt in build_node.py
@@ -1921,7 +1919,7 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                 if llm_instance is not None and not isinstance(llm_instance, BrowserUseChatOpenAI):
                     log_msg = f"[create_browser_use_llm] Type check failed: expected BrowserUseChatOpenAI, got {type(llm_instance).__name__}, returning None"
                     logger.error(log_msg)
-                    web_gui.get_ipc_api().send_skill_editor_log("error", log_msg)
+                    send_skill_editor_log("error", log_msg)
                     return None
                 
                 # Attach supports_vision to LLM instance for later use
@@ -1929,7 +1927,7 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                     llm_instance.supports_vision = supports_vision
                     log_msg = f"🤖 [create_browser_use_llm] Model {model_name} supports_vision: {supports_vision}"
                     logger.debug(log_msg)
-                    web_gui.get_ipc_api().send_skill_editor_log("log", log_msg)
+                    send_skill_editor_log("log", log_msg)
                 return llm_instance
                         
             except Exception as e:
@@ -1939,7 +1937,7 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                 import traceback
                 log_msg = f"[create_browser_use_llm] Exception details: {traceback.format_exc()}"
                 logger.error(log_msg)
-                web_gui.get_ipc_api().send_skill_editor_log("error", log_msg)
+                send_skill_editor_log("error", log_msg)
                 return None
         else:
             if not mainwin:
@@ -1947,7 +1945,7 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
             else:
                 log_msg = "[create_browser_use_llm] mainwin has no config_manager - cannot create LLM"
             logger.error(log_msg)
-            web_gui.get_ipc_api().send_skill_editor_log("error", log_msg)
+            send_skill_editor_log("error", log_msg)
             return None
         
     except Exception as e:

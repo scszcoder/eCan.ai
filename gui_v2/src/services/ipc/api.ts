@@ -875,6 +875,8 @@ export class IPCAPI {
     }
 
     public async runSkill<T>(username: string, skill: T): Promise<APIResponse<void>> {
+        // skill must be JSON-stringified for AWSJSON type in GraphQL schema
+        const skillJson = typeof skill === 'string' ? skill : JSON.stringify(skill);
         return apiRouter.execute(
       {
         method: 'run_skill',
@@ -883,11 +885,12 @@ export class IPCAPI {
           resultPath: 'runSkill'
         }
       },
-      {username, skill}
+      { input: { username, skill: skillJson } }
     );
     }
 
     public async cancelRunSkill<T>(username: string, skill: T): Promise<APIResponse<void>> {
+        const skillJson = typeof skill === 'string' ? skill : JSON.stringify(skill);
         return apiRouter.execute(
       {
         method: 'cancel_run_skill',
@@ -896,11 +899,12 @@ export class IPCAPI {
           resultPath: 'cancelRunSkill'
         }
       },
-      {username, skill}
+      { input: { username, skill: skillJson } }
     );
     }
 
     public async pauseRunSkill<T>(username: string, skill: T): Promise<APIResponse<void>> {
+        const skillJson = typeof skill === 'string' ? skill : JSON.stringify(skill);
         return apiRouter.execute(
       {
         method: 'pause_run_skill',
@@ -909,11 +913,12 @@ export class IPCAPI {
           resultPath: 'pauseRunSkill'
         }
       },
-      {username, skill}
+      { input: { username, skill: skillJson } }
     );
     }
 
     public async resumeRunSkill<T>(username: string, skill: T): Promise<APIResponse<void>> {
+        const skillJson = typeof skill === 'string' ? skill : JSON.stringify(skill);
         return apiRouter.execute(
       {
         method: 'resume_run_skill',
@@ -922,11 +927,12 @@ export class IPCAPI {
           resultPath: 'resumeRunSkill'
         }
       },
-      {username, skill}
+      { input: { username, skill: skillJson } }
     );
     }
 
     public async stepRunSkill<T>(username: string, skill: T): Promise<APIResponse<void>> {
+        const skillJson = typeof skill === 'string' ? skill : JSON.stringify(skill);
         return apiRouter.execute(
       {
         method: 'step_run_skill',
@@ -935,7 +941,7 @@ export class IPCAPI {
           resultPath: 'stepRunSkill'
         }
       },
-      {username, skill}
+      { input: { username, skill: skillJson } }
     );
     }
 
