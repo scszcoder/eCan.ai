@@ -711,6 +711,85 @@ const Tests: React.FC = () => {
         }
     };
 
+    const handleC2CWebsocketTest = async () => {
+        const defaultWanEndpoint = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql';
+        
+        setTestOutput('');
+        appendTestOutput('C2C WS Test: Starting...');
+        appendTestOutput('C2C WS Test: This calls cloud runTest mutation directly from web frontend');
+        appendTestOutput('C2C WS Test: The cloud_tester lambda will publish skill_editor.log events');
+        appendTestOutput('C2C WS Test: If pub/sub works, you should see a log message in Skill Editor Console');
+        
+        const wanEndpoint = (settings?.wan_api_endpoint?.trim() || defaultWanEndpoint);
+        const wanApiKey = (settings?.wan_api_key?.trim() || '');
+        const owner = username || '';
+        
+        if (!wanApiKey) {
+            appendTestOutput('C2C WS Test: ERROR - Missing wan_api_key in Settings');
+            return;
+        }
+        if (!owner) {
+            appendTestOutput('C2C WS Test: ERROR - Not logged in (no username)');
+            return;
+        }
+        
+        appendTestOutput(`C2C WS Test: owner=${owner}`);
+        appendTestOutput(`C2C WS Test: Calling runTest mutation...`);
+        
+        const runTestMutation = `
+            mutation RunTest($input: [TestInput]!) {
+                runTest(input: $input)
+            }
+        `;
+        
+        const testInput = [{
+            id: `c2c-ws-test-${Date.now()}`,
+            name: 'C2C_WS_Test',
+            description: 'Cloud to Cloud WebSocket Test',
+            input: JSON.stringify({
+                owner: owner,
+                acctSiteID: `site-${owner}`,
+                runner: owner,
+            })
+        }];
+        
+        try {
+            const response = await fetch(wanEndpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': wanApiKey,
+                },
+                body: JSON.stringify({
+                    query: runTestMutation,
+                    variables: { input: testInput },
+                }),
+            });
+            
+            const result = await response.json();
+            
+            if (result.errors) {
+                appendTestOutput(`C2C WS Test: GraphQL Errors: ${JSON.stringify(result.errors, null, 2)}`);
+            }
+            
+            if (result.data?.runTest) {
+                const parsed = typeof result.data.runTest === 'string' 
+                    ? JSON.parse(result.data.runTest) 
+                    : result.data.runTest;
+                appendTestOutput(`C2C WS Test: SUCCESS`);
+                appendTestOutput(`C2C WS Test: Response: ${JSON.stringify(parsed, null, 2)}`);
+                appendTestOutput('');
+                appendTestOutput('>>> Now check the Skill Editor Console (bottom panel) for a log message! <<<');
+                appendTestOutput('>>> The message should say: "[C2C_WS_Test] Cloud tester log message..." <<<');
+            } else {
+                appendTestOutput(`C2C WS Test: No data returned`);
+                appendTestOutput(`C2C WS Test: Full response: ${JSON.stringify(result, null, 2)}`);
+            }
+        } catch (error) {
+            appendTestOutput(`C2C WS Test: ERROR - ${error instanceof Error ? error.message : String(error)}`);
+        }
+    };
+
     const handleC2LWebsocketTest = async () => {
         setTestOutput('');
         appendTestOutput('C2L WS Test: Starting...');
@@ -848,6 +927,9 @@ const Tests: React.FC = () => {
                         </Button>
                         <Button onClick={handleC2LWebsocketTest} style={{ marginLeft: 8 }}>
                             C2L WS Test
+                        </Button>
+                        <Button onClick={handleC2CWebsocketTest} style={{ marginLeft: 8 }} type="primary">
+                            C2C WS Test
                         </Button>
                     </Space>
                     {/* Test Selection */}
