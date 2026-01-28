@@ -7,11 +7,9 @@ import { SelectZoom } from './styles';
 import { IconZoomColored } from './colored-icons';
 
 export const ZoomSelect = () => {
-  console.log('[ZoomSelect] Rendering...');
   const tools = usePlaygroundTools({ maxZoom: 2, minZoom: 0.25 });
   const playground = usePlayground();
   const [dropDownVisible, openDropDown] = useState(false);
-  console.log('[ZoomSelect] State:', { dropDownVisible, zoom: tools?.zoom });
   return (
     <Dropdown
       position="top"
@@ -20,7 +18,6 @@ export const ZoomSelect = () => {
       onClickOutSide={() => openDropDown(false)}
       render={
         <Dropdown.Menu>
-          {console.log('[ZoomSelect] Rendering Dropdown.Menu')}
           <Dropdown.Item onClick={() => tools.zoomin()}>Zoom in</Dropdown.Item>
           <Dropdown.Item onClick={() => tools.zoomout()}>Zoom out</Dropdown.Item>
           <Divider layout="horizontal" />
