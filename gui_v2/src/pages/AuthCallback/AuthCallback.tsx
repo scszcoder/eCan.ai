@@ -88,7 +88,7 @@ const AuthCallback: React.FC = () => {
         });
 
         try {
-          await refreshAllMineStores();
+          await refreshAllMineStores(userInfo.username);
         } catch (loadError) {
           console.warn('[AuthCallback] getAllMine failed:', loadError);
         }

@@ -69,33 +69,26 @@ export const useOrgs = () => {
     if (!username) return;
 
     const trimmedCompany = (companyName ?? dataStateRef.current.companyName).trim();
-    if (!trimmedCompany) {
-      message.warning(t('pages.org.messages.companyRequired', 'Company cannot be empty'));
-      try {
-        localStorage.removeItem('org_company_filter');
-      } catch {
-        // ignore storage errors
-      }
-      updateDataState({
-        orgs: [],
-        selectedOrg: null,
-        orgAgents: [],
-        loading: false,
-        companyName: ''
-      });
-      return;
-    }
-
+    
+    // 允许空 companyName，加载所有组织
     updateDataState({ loading: true, companyName: trimmedCompany });
+    
+    // 保存或清除 localStorage
     try {
-      localStorage.setItem('org_company_filter', trimmedCompany);
+      if (trimmedCompany) {
+        localStorage.setItem('org_company_filter', trimmedCompany);
+      } else {
+        localStorage.removeItem('org_company_filter');
+      }
     } catch {
       // ignore storage errors
     }
+    
     try {
       const api = get_ipc_api();
       // 使用 getAllOrgAgents 获取包含代理信息的完整树结构
-      const response = await api.getAllOrgAgents(username, trimmedCompany);
+      // companyName 参数可选，后端会返回所有组织
+      const response = await api.getAllOrgAgents(username, trimmedCompany || undefined);
 
       if (response.success && response.data) {
         const data = response.data as any;

@@ -1,7 +1,5 @@
-import { webAuthSession } from '../auth/webAuthSession';
 import { getSettings } from '../../stores/settingsStore';
 import { userStorageManager } from '../storage/UserStorageManager';
-import { detectPlatform } from '../../config/platform';
 
 interface GraphQLError {
   message: string;
@@ -33,50 +31,39 @@ const getEnv = () => {
   return {} as Record<string, any>;
 };
 
-const isTruthyEnvValue = (value: unknown): boolean => {
-  const normalized = String(value ?? '').trim().toLowerCase();
-  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
-};
-
-// Check if we should use local server (desktop + VITE_IPC_MODE OFF)
-const shouldUseLocalServer = (): boolean => {
-  const platform = detectPlatform();
-  if (platform !== 'desktop') return false;
-  
+/**
+ * Get GraphQL endpoint for Web mode (AppSync style)
+ * - If AWS AppSync endpoint is configured: use it
+ * - Otherwise: use local server GraphQL endpoint
+ */
+const getGraphQLEndpoint = (): string => {
   const env = getEnv();
-  const ipcModeOn = isTruthyEnvValue(env.VITE_IPC_MODE);
-  // Use local server when on desktop AND IPC mode is OFF
-  return !ipcModeOn;
-};
-
-const getLocalServerEndpoint = (): string => {
-  // In dev mode, prefer same-origin path so Vite proxy can handle forwarding.
+  const settings = getSettings();
+  
+  // Try AWS AppSync endpoint first (from env or settings)
+  const appSyncEndpoint = (env.VITE_APPSYNC_ENDPOINT as string) || settings?.wan_api_endpoint || '';
+  if (appSyncEndpoint.trim()) {
+    return appSyncEndpoint.trim();
+  }
+  
+  // Fallback to local server GraphQL endpoint
+  // In dev mode, use same-origin path for Vite proxy
   try {
     if (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV) {
       return '/graphql';
     }
   } catch {}
-  const settings = getSettings();
+  
   const port = settings?.local_server_port || '4668';
   return `http://localhost:${port}/graphql`;
 };
 
-const getAppSyncEndpoint = (): string => {
-  const env = getEnv();
-  // Try env var first, then fall back to settings
-  const fromEnv = (env.VITE_APPSYNC_ENDPOINT as string) || '';
-  if (fromEnv) return fromEnv;
-  
-  const settings = getSettings();
-  return (settings?.wan_api_endpoint || '').trim();
-};
-
 const getAppSyncApiKey = (overrideKey?: string): string => {
   if (overrideKey) return overrideKey;
-  const env = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : {};
+  const env = getEnv();
   const settings = getSettings();
-  const fromSettings = settings?.wan_api_key || settings?.api_key;
-  return (fromSettings || env.VITE_APPSYNC_API_KEY || '').trim();
+  const fromSettings = settings?.wan_api_key;
+  return (fromSettings || (env as any).VITE_APPSYNC_API_KEY || '').trim();
 };
 
 export const appSyncRequest = async <T>(
@@ -85,48 +72,44 @@ export const appSyncRequest = async <T>(
   options?: AppSyncRequestOptions,
   method?: string
 ): Promise<T> => {
-  // Determine endpoint: local server (desktop + IPC mode OFF) or AppSync (web / desktop + IPC mode ON)
-  const useLocalServer = shouldUseLocalServer();
-  const endpoint = useLocalServer ? getLocalServerEndpoint() : getAppSyncEndpoint();
+  // Get GraphQL endpoint (AWS AppSync or local server)
+  const endpoint = getGraphQLEndpoint();
   
   if (!endpoint) {
-    console.error('[AppSyncClient] No endpoint available. Check VITE_APPSYNC_ENDPOINT or settings.wan_api_endpoint');
-    throw new Error('AppSync endpoint missing. Set VITE_APPSYNC_ENDPOINT or configure wan_api_endpoint in settings.');
+    console.error('[AppSyncClient] No GraphQL endpoint available');
+    throw new Error('GraphQL endpoint missing. Configure VITE_APPSYNC_ENDPOINT or wan_api_endpoint in settings.');
   }
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json'
   };
 
-  // Local server doesn't need authentication
-  if (useLocalServer) {
-    console.log('[AppSyncClient] Using local server (no auth):', endpoint);
-    const token = userStorageManager.getToken();
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
-    }
-  } else {
-    // AppSync needs authentication
-    const accessToken = userStorageManager.getToken();
-    const apiKey = getAppSyncApiKey(options?.apiKey);
-    const authMode = options?.authMode ?? 'auto';
+  // Determine if using local server or AWS AppSync
+  const isLocalServer = endpoint.includes('localhost') || endpoint.startsWith('/graphql');
+  
+  // Authentication
+  const accessToken = userStorageManager.getToken();
+  const apiKey = getAppSyncApiKey(options?.apiKey);
+  const authMode = options?.authMode ?? 'auto';
 
-    if (authMode === 'apiKey') {
-      if (!apiKey) {
-        throw new Error('Missing API key for AppSync request.');
-      }
-      headers['x-api-key'] = apiKey;
-    } else if (authMode === 'bearer') {
-      if (!accessToken) {
-        throw new Error('Missing access token for AppSync request.');
-      }
+  if (authMode === 'none') {
+    // No authentication
+  } else if (authMode === 'apiKey') {
+    if (!apiKey) {
+      throw new Error('Missing API key for AppSync request.');
+    }
+    headers['x-api-key'] = apiKey;
+  } else if (authMode === 'bearer') {
+    if (!accessToken) {
+      throw new Error('Missing access token for AppSync request.');
+    }
+    headers.Authorization = `Bearer ${accessToken}`;
+  } else {
+    // Auto mode: prefer token, fallback to API key
+    if (accessToken) {
       headers.Authorization = `Bearer ${accessToken}`;
-    } else if (accessToken) {
-      headers.Authorization = `Bearer ${accessToken}`;
-    } else if (apiKey) {
+    } else if (apiKey && !isLocalServer) {
       headers['x-api-key'] = apiKey;
-    } else {
-      throw new Error('Missing AppSync credentials (access token or API key).');
     }
   }
 

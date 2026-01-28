@@ -261,8 +261,6 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
     React.useEffect(() => {
         if (skill) {
             const s = skill as ExtendedSkill;
-            const sTrialDays = (s as any)?.extra_data?.trial_days;
-            const parsedTrialDays = typeof sTrialDays === 'number' ? sTrialDays : (sTrialDays !== undefined ? Number(sTrialDays) : undefined);
 
             form.setFieldsValue({
                 // BaseField
@@ -297,11 +295,6 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 objectives_json: toJsonString(s.objectives),
                 need_inputs_json: toJsonString(s.need_inputs),
                 mapping_rules_json: toJsonString(s.mapping_rules),
-            });
-
-            publishForm.setFieldsValue({
-                price_model: s.price_model,
-                trial_days: Number.isFinite(parsedTrialDays) ? parsedTrialDays : undefined,
             });
         } else if (isNew) {
             form.setFieldsValue({
@@ -1119,7 +1112,7 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                 onOk={handlePublishSave}
                 okText={t('common.save', 'Save')}
                 cancelText={t('common.cancel', 'Cancel')}
-                destroyOnClose
+                destroyOnHidden
             >
                 <Form
                     form={publishForm}

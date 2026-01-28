@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { Row, Col, Input, Button, Space } from 'antd';
+import { Row, Col, Input, Button, Tooltip } from 'antd';
 import { useTranslation } from 'react-i18next';
 import { SearchOutlined } from '@ant-design/icons';
 import { useOrgs } from './hooks/useOrgs';
@@ -25,11 +25,16 @@ const Orgs: React.FC = () => {
       const savedCompanyName = localStorage.getItem('org_company_filter');
       if (savedCompanyName && savedCompanyName.trim()) {
         setCompanyName(savedCompanyName);
-        // 自动加载组织数据
+        // 自动加载组织数据（带过滤）
         actions.loadOrgs(savedCompanyName);
+      } else {
+        // 没有保存的 companyName，加载所有组织
+        actions.loadOrgs('');
       }
     } catch (error) {
       console.error('Error loading saved company filter:', error);
+      // 出错时也尝试加载所有组织
+      actions.loadOrgs('');
     }
   }, []); // 只在组件挂载时执行一次
 
@@ -128,22 +133,23 @@ const Orgs: React.FC = () => {
       <Row gutter={[16, 16]} style={{ flex: 1, minHeight: 0 }}>
         {/* Org Tree */}
         <Col span={8} style={{ height: '100%' }}>
-          <Space direction="vertical" size="small" style={{ width: '100%', marginBottom: 12 }}>
+          <div style={{ display: 'flex', gap: '8px', marginBottom: 12 }}>
             <Input
               placeholder={t('pages.org.search.companyPlaceholder', 'Company name')}
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
               onPressEnter={() => actions.loadOrgs(companyName)}
               allowClear
+              style={{ flex: 1 }}
             />
-            <Button
-              icon={<SearchOutlined />}
-              onClick={() => actions.loadOrgs(companyName)}
-              style={{ alignSelf: 'flex-start' }}
-            >
-              {t('pages.org.search.find', 'Find')}
-            </Button>
-          </Space>
+            <Tooltip title={t('pages.org.search.findTooltip', 'Search organizations')}>
+              <Button
+                type="primary"
+                icon={<SearchOutlined />}
+                onClick={() => actions.loadOrgs(companyName)}
+              />
+            </Tooltip>
+          </div>
           <OrgTree
             orgs={state.orgs}
             loading={state.loading}

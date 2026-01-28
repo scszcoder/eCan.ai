@@ -53,7 +53,6 @@ export const ActiveSheetBinder = () => {
     if (lastId && lastId !== activeSheetId) {
       try {
         const currentJson = ctx.document.toJSON();
-        try { console.log('[ActiveSheetBinder] Saving previous sheet document', { sheetId: lastId, nodes: currentJson?.nodes?.length, edges: currentJson?.edges?.length }); } catch {}
         // Merge breakpoint flags from store into node JSON before saving
         try {
           const bpSet = new Set<string>(useSkillInfoStore.getState().breakpoints || []);
@@ -91,7 +90,6 @@ export const ActiveSheetBinder = () => {
 
     // Load active sheet document into editor
     const nextDoc = getActiveDocument();
-    console.log('[ActiveSheetBinder] Loading active sheet', { activeSheetId, hasDoc: !!nextDoc, nodes: nextDoc?.nodes?.length, edges: nextDoc?.edges?.length, revision });
     
     // Clear any previous timeouts before starting new ones
     clearAllTimeouts();
@@ -103,39 +101,27 @@ export const ActiveSheetBinder = () => {
     addTimeout(() => {
       // Check if document is still valid (not disposed)
       if (ctx?.document?.disposed) {
-        console.log('[ActiveSheetBinder] Document disposed, skipping load');
         return;
       }
       
-      console.log('[ActiveSheetBinder] About to clear document - this will trigger DELETE_NODE events');
-      console.log('[ActiveSheetBinder] Current document state before clear:', { disposed: ctx?.document?.disposed, nodesCount: ctx?.document?.toJSON?.()?.nodes?.length });
       // Always clear to ensure blank sheets start empty
       try {
         ctx.document.clear();
-        console.log('[ActiveSheetBinder] Document cleared successfully');
       } catch (clearErr) {
-        console.error('[ActiveSheetBinder] Error during document.clear():', clearErr);
+        console.error('[ActiveSheetBinder] Error clearing document:', clearErr);
         return; // Don't proceed if clear failed
       }
-      console.log('[ActiveSheetBinder] Document state after clear:', { disposed: ctx?.document?.disposed });
       // If no saved document, load an explicit blank flow (no nodes/edges)
       const docToLoad = nextDoc ?? (blankFlowData as any);
       if (docToLoad) {
-        console.log('[ActiveSheetBinder] fromJSON()', { nodeCount: Array.isArray(docToLoad?.nodes) ? docToLoad.nodes.length : 'n/a' });
-        console.log('[ActiveSheetBinder] docToLoad nodes:', docToLoad?.nodes?.map((n: any) => ({ id: n.id, type: n.type })));
         try {
-          console.time('[ActiveSheetBinder] fromJSON duration');
-          console.log('[ActiveSheetBinder] Calling ctx.document.fromJSON...');
           ctx.document.fromJSON(docToLoad);
-          console.log('[ActiveSheetBinder] ctx.document.fromJSON completed');
-          console.timeEnd('[ActiveSheetBinder] fromJSON duration');
         
         // Restore flip states from loaded document
         if (docToLoad?.nodes && Array.isArray(docToLoad.nodes)) {
           addTimeout(() => {
             docToLoad.nodes.forEach((node: any) => {
               if (node?.data?.hFlip === true) {
-                console.log('[ActiveSheetBinder] Restoring hFlip for node:', node.id);
                 const loadedNode = ctx.document.getNode(node.id);
                 if (loadedNode) {
                   // Set in raw data
@@ -157,12 +143,9 @@ export const ActiveSheetBinder = () => {
                     const formControl = formModel?.formControl as any;
                     if (formControl?.setFieldValue) {
                       formControl.setFieldValue('data.hFlip', true);
-                      console.log('[ActiveSheetBinder] Set hFlip via setFieldValue for node:', node.id);
-                    } else {
-                      console.warn('[ActiveSheetBinder] formControl.setFieldValue not available for node:', node.id);
                     }
                   } catch (err) {
-                    console.warn('[ActiveSheetBinder] Could not set form field:', err);
+                    console.warn('[ActiveSheetBinder] Could not set hFlip form field:', err);
                   }
                 }
               }
@@ -170,7 +153,7 @@ export const ActiveSheetBinder = () => {
           }, 200); // Increased delay to ensure forms are ready
         }
       } catch (err) {
-        console.error('[ActiveSheetBinder] fromJSON error', err);
+        console.error('[ActiveSheetBinder] Error loading document:', err);
       }
     }
     // Restore view state (zoom) if available, otherwise fit view
@@ -185,7 +168,6 @@ export const ActiveSheetBinder = () => {
         
         // Check if tools are ready
         if (!currentTools?.fitView && retryCount < 5) {
-          console.log('[ActiveSheetBinder] tools.fitView not ready, retrying...', retryCount);
           addTimeout(() => doFitView(retryCount + 1), 200);
           return;
         }
@@ -195,11 +177,9 @@ export const ActiveSheetBinder = () => {
         const view = activeSheetId ? getViewStateFor(activeSheetId) : null;
         if (isSheetSwitch && view?.zoom && currentPlayground?.config?.updateZoom) {
           currentPlayground.config.updateZoom(view.zoom);
-          console.log('[ActiveSheetBinder] Restored zoom for sheet switch:', view.zoom);
         } else {
           // TEMPORARILY DISABLED: fitView is causing context invalidation that crashes Tools
           // TODO: Find a way to call fitView without triggering cascading re-renders
-          console.log('[ActiveSheetBinder] fitView DISABLED for debugging - skipping...');
           /*
           // For initial load, refresh, or new file: always fitView
           // CRITICAL: Use requestAnimationFrame to ensure React has finished its render cycle
@@ -225,7 +205,7 @@ export const ActiveSheetBinder = () => {
         }
         initialFitViewDoneRef.current = true;
       } catch (err) {
-        console.error('[ActiveSheetBinder] fitView error', err);
+        console.error('[ActiveSheetBinder] Error in fitView:', err);
       }
     };
     
