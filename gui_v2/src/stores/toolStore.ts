@@ -33,10 +33,17 @@ export const useToolStore = create<ToolStoreState>((set, get) => ({
 
     set({ loading: true, error: null });
     try {
-      const response: APIResponse<{ tools: Tool[] }> = await IPCAPI.getInstance().getTools(username, []);
-      if (response && response.success && response.data && Array.isArray(response.data.tools)) {
-        const incoming = response.data.tools;
-        set({ tools: incoming, loading: false, lastFetched: Date.now() });
+      const response: APIResponse<Tool[] | { tools: Tool[] }> = await IPCAPI.getInstance().getTools(username, []);
+      if (response && response.success && response.data) {
+        // Handle both formats: direct array (from resultPath extraction) or { tools: [...] }
+        const incoming = Array.isArray(response.data) 
+          ? response.data 
+          : (response.data as { tools: Tool[] }).tools;
+        if (Array.isArray(incoming)) {
+          set({ tools: incoming, loading: false, lastFetched: Date.now() });
+        } else {
+          throw new Error('Invalid tools data format');
+        }
       } else {
         throw new Error(response?.error?.message || 'Failed to fetch tools');
       }

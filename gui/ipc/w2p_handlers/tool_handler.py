@@ -11,52 +11,44 @@ from agent.mcp.server import tool_schemas as mcp_tool_schemas
 
 @IPCHandlerRegistry.handler('get_tools')
 def handle_get_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Handle login request
-
-    Validate user credentials and return access token.
+    """Handle get_tools request - returns MCP tool schemas.
 
     Args:
         request: IPC request object
-        params: Request parameters, must contain 'username' and 'password' fields
+        params: Request parameters (username optional)
 
     Returns:
-        str: JSON formatted response message
+        IPCResponse with tools list
     """
     try:
-        logger.debug(f"Get tools handler called with request: {request}")
-
-        # Validate parameters
-        is_valid, data, error = validate_params(params, ['username'])
-        if not is_valid:
-            logger.warning(f"Invalid parameters for get tools: {error}")
-            return create_error_response(
-                request,
-                'INVALID_PARAMS',
-                error
-            )
-
-        # Get username and password
-        username = data['username']
-        logger.info(f"get tools successful for user: {username}")
+        logger.info(f"[get_tools] Handler called with params: {params}")
 
         ctx = get_handler_context(request, params)
+        schemas = ctx.get_mcp_tools_schemas()
+        
+        logger.info(f"[get_tools] Retrieved {len(schemas) if schemas else 0} tool schemas")
+        
+        if not schemas:
+            logger.warning("[get_tools] No tool schemas found - schemas list is empty")
+            # Try to rebuild schemas if empty
+            from agent.mcp.server.tool_schemas import get_tool_schemas
+            schemas = get_tool_schemas()
+            logger.info(f"[get_tools] After rebuild: {len(schemas) if schemas else 0} tool schemas")
+        
         resultJS = {
-            'tools': [tool.model_dump() for tool in ctx.get_mcp_tools_schemas()],
-            'message': 'Get all successful'
+            'tools': [tool.model_dump() for tool in schemas] if schemas else [],
+            'message': f'Retrieved {len(schemas) if schemas else 0} tools'
         }
-        resultJS_str = str(resultJS)
-        truncated_resultJS = resultJS_str[:800] + "..." if len(resultJS_str) > 500 else resultJS_str
-        logger.debug('get tools resultJS:' + str(truncated_resultJS))
+        logger.info(f"[get_tools] Returning {len(resultJS['tools'])} tools")
         return create_success_response(request, resultJS)
 
     except Exception as e:
         logger.error(f"Error in get tools handler: {e} {traceback.format_exc()}")
         return create_error_response(
             request,
-            'LOGIN_ERROR',
+            'GET_TOOLS_ERROR',
             f"Error during get tools: {str(e)}"
         )
-
 
 @IPCHandlerRegistry.handler('new_tools')
 def handle_new_tools(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
