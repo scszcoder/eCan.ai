@@ -100,6 +100,12 @@ class InitializationProgressManager {
       return; // Already polling
     }
 
+    // Don't restart polling if already fully ready
+    if (this.currentProgress?.fully_ready) {
+      logger.debug('[InitProgressManager] Already fully ready, skipping polling');
+      return;
+    }
+
     this.isPolling = true;
     this.pollingStartTime = Date.now(); // 记录开始Time
     logger.debug(`[InitProgressManager] Starting polling... (subscribers: ${this.subscribers.size})`);
