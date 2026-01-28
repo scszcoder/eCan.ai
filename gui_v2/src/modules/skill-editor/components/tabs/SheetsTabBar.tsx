@@ -134,7 +134,6 @@ const TabInput = styled.input`
 `;
 
 export const SheetsTabBar: React.FC = () => {
-  console.log('[SheetsTabBar] Rendering...');
   const sheets = useSheetsStore((s) => s.sheets);
   const openTabs = useSheetsStore((s) => s.openTabs);
   const activeId = useSheetsStore((s) => s.activeSheetId);
@@ -234,7 +233,6 @@ export const SheetsTabBar: React.FC = () => {
     setEditingName('');
   };
 
-  console.log('[SheetsTabBar] About to render Bar');
   return (
     <Bar>
       <Tooltip content="Scroll tabs left"><IconButton icon={<IconChevronLeft />} onClick={scrollLeft} /></Tooltip>

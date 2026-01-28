@@ -94,9 +94,9 @@ export class APIRouter {
     const startTime = Date.now();
     const method = definition.method;
     
-    if (this.config.enableLogging) {
-      logger.debug(`[APIRouter] Executing: ${method}`, { params });
-    }
+    // if (this.config.enableLogging) {
+    //   logger.debug(`[APIRouter] Executing: ${method}`, { params });
+    // }
 
     try {
       // 选择通信通道

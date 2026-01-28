@@ -13,9 +13,8 @@ import { useSheetsStore } from '../../stores/sheets-store';
 import { saveSheetsBundleToPath } from '../../services/sheets-persistence';
 import { useNodeFlipStore } from '../../stores/node-flip-store';
 import { sanitizeNodeApiKeys, sanitizeApiKeysDeep } from '../../utils/sanitize-utils';
-import { IPCAPI } from '../../../../services/ipc/api';
+import { ipcApi, IPCAPI } from '../../../../services/ipc/api';
 import { detectPlatform } from '../../../../config/platform';
-import { webApi } from '../../../../services/web/webApi';
 import { CURRENT_SCHEMA_VERSION } from '../../services/schema-migration';
 
 // ============================================================================
@@ -266,8 +265,9 @@ export async function saveFile(
           ...(bundleJson ? [{ filePath: bundlePath, content: bundleJson }] : []),
         ];
 
-        const writeResult = await webApi.writeSkillFile(batch);
-        const firstResult = Array.isArray(writeResult) ? writeResult[0] : writeResult;
+        const ipcApi = IPCAPI.getInstance();
+        const writeResult = await ipcApi.writeSkillFile(batch);
+        const firstResult = Array.isArray(writeResult.data) ? writeResult.data[0] : writeResult.data;
         if (!firstResult) {
           throw new Error('writeSkillFile failed.');
         }
@@ -312,16 +312,17 @@ export async function saveFile(
         }
         if (filePath) {
           console.log('[SKILL_IO][FRONTEND][IPC_ATTEMPT] writeSkillFile', filePath);
-          const writeResponse = await ipcApi.writeSkillFile(filePath, jsonString);
+          const writeResponse = await ipcApi.writeSkillFile({ filePath, content: jsonString });
           if (writeResponse.success) {
             console.log('[SKILL_IO][FRONTEND][MAIN_SAVE_OK]', filePath);
             // 需求4: 使用Backend返回的 skillName UpdateFrontend
-            const savedSkillName = writeResponse.data?.skillName;
+            const responseData = Array.isArray(writeResponse.data) ? writeResponse.data[0] : writeResponse.data;
+            const savedSkillName = responseData?.skillName;
             console.log('[SKILL_IO][FRONTEND][SKILL_NAME_FROM_BACKEND]', savedSkillName);
             if (dataMappingJson) {
               const mappingPath = deriveDataMappingPath(filePath, dataToSave.skillName);
               try {
-                await ipcApi.writeSkillFile(mappingPath, dataMappingJson);
+                await ipcApi.writeSkillFile({ filePath: mappingPath, content: dataMappingJson });
               } catch (e) {
                 console.warn('[SKILL_IO][FRONTEND][MAPPING_SAVE_ERROR]', e);
               }
@@ -634,8 +635,8 @@ export const SaveAs = ({ disabled }: SaveProps) => {
           : requestedName;
 
         try {
-          const exists = await webApi.checkSkillExists(newSkillName);
-          if (exists?.exists) {
+          const exists = await ipcApi.checkSkillExists(newSkillName);
+          if (exists?.data?.exists) {
             Modal.warning({
               title: 'Skill Already Exists',
               content: `A skill named "${newSkillName}" already exists. Please choose a different name.`,
@@ -735,7 +736,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
           { filePath: bundlePath, content: bundleJsonForSave },
         ];
 
-        await webApi.writeSkillFile(batch);
+        await ipcApi.writeSkillFile(batch);
       } else {
         const ipcApi = IPCAPI.getInstance();
         const targetDir = selectedPath.replace(/\/[^/]+$/, '');
@@ -754,7 +755,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
             if (dataMappingForSave) {
               const mappingPath = deriveDataMappingPath(finalDiagramPath, newSkillName);
               try {
-                await ipcApi.writeSkillFile(mappingPath, dataMappingForSave);
+                await ipcApi.writeSkillFile({ filePath: mappingPath, content: dataMappingForSave });
               } catch (e) {
                 console.warn('[SAVEAS] Failed to save data_mapping.json', e);
               }
@@ -767,12 +768,12 @@ export const SaveAs = ({ disabled }: SaveProps) => {
           }
         } else {
           finalDiagramPath = selectedPath;
-          await ipcApi.writeSkillFile(selectedPath, JSON.stringify(updatedSkillInfo, null, 2));
+          await ipcApi.writeSkillFile({ filePath: selectedPath, content: JSON.stringify(updatedSkillInfo, null, 2) });
           const bundlePath = selectedPath.replace(/_skill\.json$/i, '_skill_bundle.json').replace(/\.json$/i, '_bundle.json');
-          await ipcApi.writeSkillFile(bundlePath, JSON.stringify(bundle, null, 2));
+          await ipcApi.writeSkillFile({ filePath: bundlePath, content: JSON.stringify(bundle, null, 2) });
           if (dataMappingForSave) {
             const mappingPath = deriveDataMappingPath(selectedPath, newSkillName);
-            await ipcApi.writeSkillFile(mappingPath, dataMappingForSave);
+            await ipcApi.writeSkillFile({ filePath: mappingPath, content: dataMappingForSave });
           }
         }
       }

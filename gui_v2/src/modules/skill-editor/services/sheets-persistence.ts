@@ -3,7 +3,6 @@ import '../../../services/ipc/file-api';
 import type { SheetsBundle } from '../utils/bundle-utils';
 import { IPCAPI } from '../../../services/ipc/api';
 import { sanitizeNodeApiKeys, sanitizeApiKeysDeep } from '../utils/sanitize-utils';
-import { webApi } from '../../../services/web/webApi';
 // Re-export SheetsBundle for backward compatibility
 export type { SheetsBundle };
 
@@ -23,26 +22,34 @@ export async function saveSheetsBundleToPath(
   }
   sanitizeApiKeysDeep(sanitizedBundle);
   const jsonString = JSON.stringify(sanitizedBundle, null, 2);
-  // Web mode: save to S3 via API
-  if (detectPlatform() === 'web') {
-    const info = await webApi.writeSkillFile({ filePath: targetPathOrName, content: jsonString });
-    if (!info) {
-      throw new Error('writeSkillFile failed.');
-    }
-    return { success: true, filePath: targetPathOrName, mode: 'web' };
-  }
-
-  // Try IPC write first; if anything fails, fall back to download method
+  
+  // Try IPCAPI write first; if anything fails, fall back to download method
   try {
     const ipcApi = IPCAPI.getInstance();
-    const writeResponse = await ipcApi.writeSkillFile(targetPathOrName, jsonString);
+    const writeResponse = await ipcApi.writeSkillFile({ filePath: targetPathOrName, content: jsonString });
+    
+    console.log('[sheets-persistence] writeSkillFile response:', {
+      success: writeResponse.success,
+      hasData: !!writeResponse.data,
+      hasError: !!writeResponse.error,
+      errorType: typeof writeResponse.error,
+      error: writeResponse.error
+    });
+    
     if (!writeResponse.success) {
-      throw new Error(writeResponse.error || 'Failed to write bundle');
+      const errorMsg = typeof writeResponse.error === 'string' 
+        ? writeResponse.error 
+        : (writeResponse.error as any)?.message || JSON.stringify(writeResponse.error) || 'Failed to write bundle';
+      console.error('[sheets-persistence] Write failed:', errorMsg);
+      throw new Error(errorMsg);
     }
+    
+    console.log('[sheets-persistence] Write succeeded');
     return { success: true, filePath: targetPathOrName, mode: 'ipc' };
   } catch (e) {
     // Fall through to browser download
-    console.warn('[sheets-persistence] IPC write failed, falling back to download:', e);
+    const errorMsg = e instanceof Error ? e.message : String(e);
+    console.warn('[sheets-persistence] IPC write failed, falling back to download:', errorMsg);
   }
   // Browser/Web fallback: force a download using the provided name
   const blob = new Blob([jsonString], { type: 'application/json' });
@@ -87,7 +94,7 @@ export async function saveSheetsBundle(bundle: SheetsBundle, suggestedName?: str
       return { cancelled: true };
     }
     const filePath = dialogResponse.data.filePath;
-    const writeResponse = await ipcApi.writeSkillFile(filePath, jsonString);
+    const writeResponse = await ipcApi.writeSkillFile({ filePath, content: jsonString });
     if (!writeResponse.success) {
       throw new Error(writeResponse.error || 'Failed to write bundle');
     }
