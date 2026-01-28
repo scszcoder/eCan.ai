@@ -2914,16 +2914,37 @@ class SkillEditorAgent:
     ) -> AgentResponse:
         """Synchronous wrapper for process_message.
         
-        This is called from a background_handler thread, so we use asyncio.run()
-        which handles event loop creation and cleanup automatically.
+        Handles both cases:
+        - When called from a thread without an event loop: uses asyncio.run()
+        - When called from within a running event loop (e.g., desktop app with PyQt): 
+          uses nest_asyncio or runs in a new thread
         """
         import asyncio
         
-        # asyncio.run() is the recommended way to run async code from sync context
-        # It automatically creates a new event loop, runs the coroutine, and cleans up
-        return asyncio.run(
-            self.process_message(message, canvas_context, session_id, clarification_responses, on_event)
-        )
+        coro = self.process_message(message, canvas_context, session_id, clarification_responses, on_event)
+        
+        try:
+            # Check if there's already a running event loop
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop - safe to use asyncio.run()
+            return asyncio.run(coro)
+        
+        # There's a running loop (e.g., PyQt/PySide desktop app)
+        # Run the coroutine in a separate thread with its own event loop
+        import concurrent.futures
+        
+        def run_in_new_loop():
+            new_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(new_loop)
+            try:
+                return new_loop.run_until_complete(coro)
+            finally:
+                new_loop.close()
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(run_in_new_loop)
+            return future.result()
     
     async def process_message_streaming(
         self,
