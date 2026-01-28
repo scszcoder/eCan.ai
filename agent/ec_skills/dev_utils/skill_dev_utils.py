@@ -60,6 +60,14 @@ def setup_dev_skill(mainwin, skill):
         tester_agent = next((ag for ag in mainwin.agents if "test" in ag.card.name.lower()), None)
         logger.debug("tester_agent: ", type(skill), tester_agent)
         
+        # Parse skill if it's a JSON string
+        if isinstance(skill, str):
+            import json
+            try:
+                skill = json.loads(skill)
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(f"[setup_dev_skill] Failed to parse skill as JSON, using as-is")
+        
         # Unpack the workflow and the list of breakpoints
         # Accept either a top-level flow or a wrapper with a 'diagram' containing workFlow/bundle
         flow_payload = skill.get("diagram") if isinstance(skill, dict) else None
