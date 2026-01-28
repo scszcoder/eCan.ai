@@ -638,913 +638,6 @@ class RequestHandlers:
         
         return None
 
-    # async def _handle_graphql_operation(self, query: str, variables: dict):
-    #     """
-    #     Route GraphQL operations to appropriate IPC handlers.
-    #     """
-    #     from gui.ipc.w2p_handlers.skill_editor_chat_handler import (
-    #         _chat_store, ChatMessage, ChatRole, _process_chat_message
-    #     )
-    #     from gui.ipc.w2p_handlers.node_state_schema_handler import NODE_STATE_JSON_SCHEMA
-    #     import time
-    #     import uuid
-        
-    #     query_lower = query.lower()
-        
-    #     # Node State Schema
-    #     if 'getnodestateschema' in query_lower:
-    #         return {
-    #             "getNodeStateSchema": {
-    #                 "schemaVersion": "1.0.0",
-    #                 "schema": NODE_STATE_JSON_SCHEMA
-    #             }
-    #         }
-        
-    #     # Skill Editor Chat Operations
-    #     elif 'getskilleditorchatsessions' in query_lower:
-    #         # Get all chat sessions
-    #         sessions = _chat_store.get_all_sessions()
-    #         return {
-    #             "getSkillEditorChatSessions": [s.to_dict() for s in sessions]
-    #         }
-        
-    #     elif 'getskilleditorchathist' in query_lower:
-    #         # Get chat history for a session
-    #         session_id = variables.get('sessionId', '')
-    #         limit = variables.get('limit')
-    #         offset = variables.get('offset', 0)
-            
-    #         session = _chat_store.get_session(session_id)
-    #         if not session:
-    #             return {"getSkillEditorChatHistory": []}
-            
-    #         messages = session.messages[offset:]
-    #         if limit:
-    #             messages = messages[:limit]
-            
-    #         return {
-    #             "getSkillEditorChatHistory": [
-    #                 {
-    #                     "id": m.id,
-    #                     "role": m.role.value,
-    #                     "content": m.content,
-    #                     "timestamp": m.timestamp,
-    #                     "attachments": m.attachments,
-    #                     "metadata": m.metadata
-    #                 }
-    #                 for m in messages
-    #             ]
-    #         }
-        
-    #     elif 'createskilleditorchatsession' in query_lower:
-    #         # Create a new chat session
-    #         input_data = variables.get('input', {})
-    #         name = input_data.get('name', 'New Chat')
-    #         flowgram_id = input_data.get('flowgramId')
-            
-    #         session = _chat_store.create_session(name=name, flowgram_id=flowgram_id)
-    #         return {
-    #             "createSkillEditorChatSession": session.to_dict()
-    #         }
-        
-    #     elif 'sendskilleditorchatmessage' in query_lower:
-    #         # Send a chat message
-    #         input_data = variables.get('input', {})
-    #         session_id = input_data.get('sessionId')
-    #         content = input_data.get('content', '')
-    #         canvas_context = input_data.get('canvasContext')
-    #         clarification_responses = input_data.get('clarificationResponses')
-            
-    #         session = _chat_store.get_session(session_id)
-    #         if not session:
-    #             session = _chat_store.create_session()
-    #             session_id = session.id
-            
-    #         # Create user message
-    #         user_message = ChatMessage(
-    #             id=str(uuid.uuid4()),
-    #             role=ChatRole.USER,
-    #             content=content,
-    #             timestamp=int(time.time() * 1000),
-    #             attachments=input_data.get('attachments', []),
-    #             metadata={
-    #                 "canvasContext": canvas_context,
-    #                 "clarificationResponses": clarification_responses
-    #             }
-    #         )
-    #         _chat_store.add_message(session_id, user_message)
-            
-    #         # Process with LLM agent - use async version since we're in async context
-    #         assistant_message_id = str(uuid.uuid4())
-    #         chunk_index = [0]  # Use list to allow mutation in nested function
-            
-    #         async def on_event(event: dict):
-    #             """Stream events via WebSocket."""
-    #             try:
-    #                 if not isinstance(event, dict):
-    #                     return
-    #                 event_type = event.get("type")
-    #                 logger.debug(f"[GraphQL] 🔔 Agent event: type={event_type}")
-                    
-    #                 data = event.get("data") or {}
-                    
-    #                 # Handle flowgram events - send to canvas
-    #                 if event_type == "flowgram":
-    #                     flowgram_data = data
-    #                     if flowgram_data:
-    #                         logger.info(f"[GraphQL] 🎨 Sending flowgram to canvas via WebSocket")
-    #                         await skill_editor_ws_manager.send_flowgram(
-    #                             session_id=session_id,
-    #                             flowgram=flowgram_data
-    #                         )
-    #                     return
-                    
-    #                 # Handle clarification events
-    #                 if event_type == "clarification":
-    #                     logger.info(f"[GraphQL] ❓ Sending clarification event via WebSocket")
-    #                     await skill_editor_ws_manager.send_canvas_command(
-    #                         session_id=session_id,
-    #                         command_type="clarification",
-    #                         payload={"questions": data.get("questions", [])}
-    #                     )
-    #                     return
-                    
-    #                 # Handle plan events
-    #                 if event_type == "plan":
-    #                     logger.info(f"[GraphQL] 📋 Sending plan event via WebSocket")
-    #                     await skill_editor_ws_manager.send_canvas_command(
-    #                         session_id=session_id,
-    #                         command_type="plan",
-    #                         payload={"plan": data}
-    #                     )
-    #                     return
-                    
-    #                 # Handle progress/chunk events - stream text
-    #                 if event_type not in ["progress", "chunk"]:
-    #                     return
-                    
-    #                 chunk_text = data.get("message") if event_type == "progress" else data.get("content")
-                    
-    #                 if not isinstance(chunk_text, str) or not chunk_text.strip():
-    #                     return
-                    
-    #                 logger.debug(f"[GraphQL] 📤 Streaming chunk #{chunk_index[0]} ({len(chunk_text)} chars)")
-    #                 await skill_editor_ws_manager.send_chat_chunk(
-    #                     session_id=session_id,
-    #                     message_id=assistant_message_id,
-    #                     chunk=chunk_text,
-    #                     chunk_index=chunk_index[0]
-    #                 )
-    #                 chunk_index[0] += 1
-    #             except Exception as e:
-    #                 logger.warning(f"[GraphQL] ❌ Error sending event via WebSocket: {e}")
-            
-    #         try:
-    #             from agent.skill_editor import get_skill_editor_agent
-    #             agent = get_skill_editor_agent()
-                
-    #             # Restore agent state from session
-    #             if session.pipeline_state and session.pipeline_state != "idle":
-    #                 agent.restore_state(
-    #                     pipeline_state=session.pipeline_state,
-    #                     current_plan=session.current_plan,
-    #                     current_request=session.current_request
-    #                 )
-                
-    #             # Call async method directly with streaming callback
-    #             response = await agent.process_message(
-    #                 message=content,
-    #                 canvas_context=canvas_context,
-    #                 session_id=session_id,
-    #                 clarification_responses=clarification_responses,
-    #                 on_event=on_event
-    #             )
-                
-    #             agent_result = {
-    #                 "message": response.message,
-    #                 "intent": response.intent.value if response.intent else None,
-    #                 "state": response.metadata.get("state", "complete") if response.metadata else "complete",
-    #             }
-                
-    #             if response.clarification:
-    #                 agent_result["clarification"] = [q.model_dump() for q in response.clarification]
-    #             if response.plan:
-    #                 agent_result["plan"] = response.plan.model_dump()
-    #             if response.flowgram:
-    #                 agent_result["flowgram"] = response.flowgram.model_dump()
-    #             if response.validation:
-    #                 agent_result["validation"] = response.validation.model_dump()
-                
-    #             # Save agent state back to session
-    #             session.pipeline_state = agent.pipeline_state.value
-    #             session.current_plan = agent.current_plan.model_dump() if agent.current_plan else None
-    #             session.current_request = agent.current_request
-    #             _chat_store.update_session(session)
-                
-    #         except Exception as e:
-    #             logger.warning(f"[GraphQL] Agent processing failed, using fallback: {e}")
-    #             # Fallback response
-    #             agent_result = {
-    #                 "message": "I'm here to help you build workflows. What would you like to create?",
-    #                 "state": "complete"
-    #             }
-            
-    #         # Create assistant message
-    #         assistant_message = ChatMessage(
-    #             id=assistant_message_id,  # Use the same ID we used for streaming
-    #             role=ChatRole.ASSISTANT,
-    #             content=agent_result.get("message", ""),
-    #             timestamp=int(time.time() * 1000),
-    #             metadata={
-    #                 "state": agent_result.get("state"),
-    #                 "intent": agent_result.get("intent"),
-    #             }
-    #         )
-    #         _chat_store.add_message(session_id, assistant_message)
-            
-    #         # Send completion message via WebSocket
-    #         await skill_editor_ws_manager.send_chat_done(
-    #             session_id=session_id,
-    #             message_id=assistant_message_id,
-    #             full_content=agent_result.get("message", "")
-    #         )
-            
-    #         return {
-    #             "sendSkillEditorChatMessage": {
-    #                 "message": {
-    #                     "id": assistant_message.id,
-    #                     "role": assistant_message.role.value,
-    #                     "content": assistant_message.content,
-    #                     "timestamp": assistant_message.timestamp,
-    #                     "metadata": assistant_message.metadata
-    #                 },
-    #                 "sessionId": session_id,
-    #                 "state": agent_result.get("state", "complete"),
-    #                 "clarification": agent_result.get("clarification"),
-    #                 "plan": agent_result.get("plan"),
-    #                 "flowgram": agent_result.get("flowgram"),
-    #                 "validation": agent_result.get("validation")
-    #             }
-    #         }
-        
-    #     elif 'cancelskilleditorchatgeneration' in query_lower:
-    #         session_id = variables.get('sessionId', '')
-    #         was_active = _chat_store.is_generation_active(session_id)
-    #         _chat_store.set_generation_active(session_id, False)
-    #         return {
-    #             "cancelSkillEditorChatGeneration": was_active
-    #         }
-        
-    #     elif 'deleteskilleditorchatsession' in query_lower:
-    #         session_id = variables.get('sessionId', '')
-    #         deleted = _chat_store.delete_session(session_id)
-    #         return {
-    #             "deleteSkillEditorChatSession": deleted
-    #         }
-        
-    #     # Skill Editor Context Operations
-    #     elif 'loadskilleditorcontexts' in query_lower:
-    #         # Load skill editor contexts from local skill directories
-    #         logger.info("[GraphQL] loadSkillEditorContexts: Starting handler")
-    #         input_data = variables.get('input', {})
-    #         skill_names = input_data.get('skillNames') or []
-    #         skill_ids = input_data.get('skillIds') or []
-            
-    #         logger.info(f"[GraphQL] loadSkillEditorContexts: skillNames={skill_names}, skillIds={skill_ids}")
-            
-    #         items = []
-    #         try:
-    #             from agent.ec_skills.extern_skills.extern_skills import user_skills_root
-    #             from datetime import datetime
-                
-    #             skills_root = user_skills_root()
-    #             logger.info(f"[GraphQL] loadSkillEditorContexts: skills_root={skills_root}")
-                
-    #             # If specific skill names requested, load those
-    #             if skill_names:
-    #                 logger.info(f"[GraphQL] loadSkillEditorContexts: Loading {len(skill_names)} specific skills")
-    #                 for skill_name in skill_names:
-    #                     skill_dir = skills_root / f"{skill_name}_skill"
-    #                     context_file = skill_dir / "context.json"
-    #                     logger.info(f"[GraphQL] loadSkillEditorContexts: Checking {context_file}")
-    #                     if context_file.exists():
-    #                         try:
-    #                             with open(context_file, 'r', encoding='utf-8') as f:
-    #                                 context_data = json.load(f)
-    #                             mtime = datetime.fromtimestamp(context_file.stat().st_mtime).isoformat()
-    #                             logger.info(f"[GraphQL] loadSkillEditorContexts: Found context for skill: {skill_name}")
-    #                             items.append({
-    #                                 "skillId": skill_ids[skill_names.index(skill_name)] if skill_name in skill_names and skill_names.index(skill_name) < len(skill_ids) else None,
-    #                                 "skillName": skill_name,
-    #                                 "context": json.dumps(context_data) if isinstance(context_data, dict) else context_data,
-    #                                 "updatedAt": mtime
-    #                             })
-    #                         except Exception as e:
-    #                             logger.warning(f"[GraphQL] loadSkillEditorContexts: Error loading context for skill {skill_name}: {e}")
-    #                     else:
-    #                         logger.info(f"[GraphQL] loadSkillEditorContexts: No context file at {context_file}")
-                
-    #             # If no specific skills requested, load all available contexts
-    #             elif not skill_names and not skill_ids:
-    #                 logger.info(f"[GraphQL] loadSkillEditorContexts: Listing all contexts in {skills_root}")
-    #                 if skills_root.exists():
-    #                     for skill_dir in skills_root.iterdir():
-    #                         if skill_dir.is_dir() and skill_dir.name.endswith('_skill'):
-    #                             context_file = skill_dir / "context.json"
-    #                             if context_file.exists():
-    #                                 try:
-    #                                     with open(context_file, 'r', encoding='utf-8') as f:
-    #                                         context_data = json.load(f)
-    #                                     skill_name = skill_dir.name.replace('_skill', '')
-    #                                     mtime = datetime.fromtimestamp(context_file.stat().st_mtime).isoformat()
-    #                                     logger.info(f"[GraphQL] loadSkillEditorContexts: Found context for skill: {skill_name}")
-    #                                     items.append({
-    #                                         "skillId": None,
-    #                                         "skillName": skill_name,
-    #                                         "context": json.dumps(context_data) if isinstance(context_data, dict) else context_data,
-    #                                         "updatedAt": mtime
-    #                                     })
-    #                                 except Exception as e:
-    #                                     logger.warning(f"[GraphQL] loadSkillEditorContexts: Error loading context from {context_file}: {e}")
-    #                 else:
-    #                     logger.info(f"[GraphQL] loadSkillEditorContexts: skills_root does not exist: {skills_root}")
-                
-    #         except Exception as e:
-    #             logger.error(f"[GraphQL] loadSkillEditorContexts: Error: {e}")
-            
-    #         logger.info(f"[GraphQL] loadSkillEditorContexts: Returning {len(items)} context items")
-    #         return {
-    #             "loadSkillEditorContexts": {
-    #                 "items": items
-    #             }
-    #         }
-        
-    #     # Editor Cache Operations
-    #     elif 'geteditorcache' in query_lower:
-    #         # Return empty cache for now - can be enhanced later
-    #         return {
-    #             "getEditorCache": {
-    #                 "cacheData": None,
-    #                 "recentFiles": []
-    #             }
-    #         }
-        
-    #     elif 'saveeditorcache' in query_lower:
-    #         # Accept but don't persist for now
-    #         return {
-    #             "saveEditorCache": {"success": True}
-    #         }
-        
-    #     elif 'cleareditorcache' in query_lower:
-    #         return {
-    #             "clearEditorCache": True
-    #         }
-        
-    #     # File Operations - direct file I/O
-    #     elif 'openskillfile' in query_lower or 'readskillfile' in query_lower:
-    #         file_path = variables.get('filePath', '')
-    #         if not file_path:
-    #             raise Exception("filePath is required")
-            
-    #         if not os.path.isabs(file_path):
-    #             from config.app_info import app_info
-    #             file_path = os.path.join(app_info.appdata_path, file_path)
-            
-    #         def derive_related_paths(path: str) -> list:
-    #             norm = path.replace('\\', '/')
-    #             is_mapping = norm.endswith('/data_mapping.json') or norm.endswith('data_mapping.json')
-    #             is_bundle = norm.endswith('_bundle.json') or norm.endswith('_skill_bundle.json')
-
-    #             file_name_local = os.path.basename(norm)
-    #             skill_name_local = file_name_local.replace('.json', '').replace('_skill', '')
-
-    #             if '/diagram_dir/' in norm:
-    #                 root = norm.split('/diagram_dir/')[0]
-    #             else:
-    #                 root = os.path.dirname(norm)
-
-    #             if is_mapping:
-    #                 main_path = os.path.join(root, 'diagram_dir', f"{skill_name_local}_skill.json")
-    #             elif is_bundle:
-    #                 main_path = norm.replace('_skill_bundle.json', '_skill.json').replace('_bundle.json', '.json')
-    #             else:
-    #                 main_path = norm
-
-    #             bundle_path = main_path.replace('_skill.json', '_skill_bundle.json')
-    #             if bundle_path == main_path:
-    #                 bundle_path = main_path.replace('.json', '_bundle.json')
-
-    #             mapping_path = os.path.join(root, 'data_mapping.json')
-    #             return [main_path, bundle_path, mapping_path]
-
-    #         default_mapping = {
-    #             "developing": {"mappings": [], "options": {"strict": False, "apply_order": "top_down"}},
-    #             "released": {"mappings": [], "options": {"strict": True, "apply_order": "top_down"}},
-    #             "node_transfers": {},
-    #             "event_routing": {},
-    #         }
-
-    #         results = []
-    #         derived_paths = derive_related_paths(file_path)
-    #         logger.info(f"[GraphQL] readSkillFile derived paths: {derived_paths}")
-    #         for path in derived_paths:
-    #             is_mapping = path.endswith('data_mapping.json')
-    #             is_bundle = path.endswith('_bundle.json') or path.endswith('_skill_bundle.json')
-
-    #             if not os.path.exists(path):
-    #                 if is_mapping:
-    #                     logger.info(f"[GraphQL] readSkillFile creating default mapping: {path}")
-    #                     os.makedirs(os.path.dirname(path), exist_ok=True)
-    #                     content = json.dumps(default_mapping, ensure_ascii=False, indent=2)
-    #                     with open(path, 'w', encoding='utf-8') as f:
-    #                         f.write(content)
-    #                     file_size = len(content.encode('utf-8'))
-    #                 elif is_bundle:
-    #                     logger.info(f"[GraphQL] readSkillFile bundle missing, returning empty content: {path}")
-    #                     content = ""
-    #                     file_size = 0
-    #                 else:
-    #                     raise Exception(f"File not found: {path}")
-    #             else:
-    #                 with open(path, 'r', encoding='utf-8') as f:
-    #                     content = f.read()
-    #                 file_size = os.path.getsize(path)
-
-    #             file_name = os.path.basename(path)
-    #             skill_name = variables.get('skillName') or file_name.replace('_skill.json', '').replace('.json', '')
-
-    #             results.append({
-    #                 "content": content,
-    #                 "filePath": path,
-    #                 "fileName": file_name,
-    #                 "fileSize": file_size,
-    #                 "skillName": skill_name
-    #             })
-
-    #         if 'openskillfile' in query_lower:
-    #             return {"openSkillFile": results[0] if results else None}
-    #         else:
-    #             return {"readSkillFile": results}
-        
-    #     elif 'writeskillfile' in query_lower:
-    #         input_payload = variables.get('input') or variables
-    #         items = input_payload if isinstance(input_payload, list) else [input_payload]
-    #         results = []
-
-    #         for item in items:
-    #             if not isinstance(item, dict):
-    #                 continue
-    #             file_path = item.get('filePath', '')
-    #             content = item.get('content', '')
-
-    #             if not file_path:
-    #                 raise Exception("filePath is required")
-
-    #             if not os.path.isabs(file_path):
-    #                 from config.app_info import app_info
-    #                 file_path = os.path.join(app_info.appdata_path, file_path)
-
-    #             # Ensure directory exists
-    #             dir_path = os.path.dirname(file_path)
-    #             if dir_path:
-    #                 os.makedirs(dir_path, exist_ok=True)
-
-    #             with open(file_path, 'w', encoding='utf-8') as f:
-    #                 f.write(content)
-
-    #             results.append({"success": True, "filePath": file_path})
-
-    #         return {"writeSkillFile": results}
-        
-    #     # LLM Provider Operations
-    #     elif 'getllmproviders' in query_lower:
-    #         try:
-    #             from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
-    #             from gui.ollama_utils import merge_ollama_models_to_providers
-                
-    #             llm_manager = get_llm_manager()
-    #             providers = llm_manager.get_all_providers() if llm_manager else []
-    #             providers = merge_ollama_models_to_providers(providers, provider_type='llm')
-                
-    #             return {
-    #                 "getLlmProviders": {
-    #                     "providers": providers,
-    #                     "message": "LLM providers retrieved successfully"
-    #                 }
-    #             }
-    #         except Exception as e:
-    #             logger.error(f"[GraphQL] Error getting LLM providers: {e}")
-    #             return {
-    #                 "getLlmProviders": {
-    #                     "providers": [],
-    #                     "message": f"Error: {str(e)}"
-    #                 }
-    #             }
-        
-    #     elif 'getllmproviderswithcredentials' in query_lower:
-    #         # This is used by skill editor to get providers with credential status
-    #         try:
-    #             from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
-    #             from gui.ollama_utils import merge_ollama_models_to_providers
-                
-    #             llm_manager = get_llm_manager()
-    #             providers = llm_manager.get_all_providers() if llm_manager else []
-    #             providers = merge_ollama_models_to_providers(providers, provider_type='llm')
-                
-    #             # Add credential status to each provider
-    #             for provider in providers:
-    #                 env_vars = provider.get('api_key_env_vars', [])
-    #                 has_credentials = False
-    #                 if env_vars and llm_manager:
-    #                     for env_var in env_vars:
-    #                         if llm_manager.get_api_key(env_var):
-    #                             has_credentials = True
-    #                             break
-    #                 provider['has_credentials'] = has_credentials
-                
-    #             return {
-    #                 "getLlmProvidersWithCredentials": {
-    #                     "providers": providers,
-    #                     "message": "LLM providers with credentials retrieved successfully"
-    #                 }
-    #             }
-    #         except Exception as e:
-    #             logger.error(f"[GraphQL] Error getting LLM providers with credentials: {e}")
-    #             return {
-    #                 "getLlmProvidersWithCredentials": {
-    #                     "providers": [],
-    #                     "message": f"Error: {str(e)}"
-    #                 }
-    #             }
-        
-    #     # Settings Operations
-    #     elif 'getsettings' in query_lower:
-    #         try:
-    #             from gui.ipc.context_bridge import get_handler_context
-    #             ctx = get_handler_context(None, None)
-    #             if ctx and ctx.get_config_manager():
-    #                 general_settings = ctx.get_config_manager().general_settings
-    #                 settings = general_settings.data.copy() if general_settings else {}
-    #             else:
-    #                 settings = {}
-                
-    #             return {
-    #                 "getSettings": {
-    #                     "settings": settings,
-    #                     "message": "Settings retrieved successfully"
-    #                 }
-    #             }
-    #         except Exception as e:
-    #             logger.error(f"[GraphQL] Error getting settings: {e}")
-    #             return {
-    #                 "getSettings": {
-    #                     "settings": {},
-    #                     "message": f"Error: {str(e)}"
-    #                 }
-    #             }
-        
-    #     elif 'savesettings' in query_lower:
-    #         try:
-    #             input_data = variables.get('input', {})
-    #             settings_data = input_data.get('settings', {})
-                
-    #             from gui.ipc.context_bridge import get_handler_context
-    #             ctx = get_handler_context(None, None)
-    #             if ctx and ctx.get_config_manager():
-    #                 general_settings = ctx.get_config_manager().general_settings
-    #                 if general_settings:
-    #                     for key, value in settings_data.items():
-    #                         general_settings.set(key, value)
-    #                     general_settings.save()
-                
-    #             return {
-    #                 "saveSettings": {
-    #                     "success": True,
-    #                     "message": "Settings saved successfully"
-    #                 }
-    #             }
-    #         except Exception as e:
-    #             logger.error(f"[GraphQL] Error saving settings: {e}")
-    #             return {
-    #                 "saveSettings": {
-    #                     "success": False,
-    #                     "message": f"Error: {str(e)}"
-    #                 }
-    #             }
-        
-    #     # Initialization Progress
-    #     elif 'getinitializationprogress' in query_lower:
-    #         try:
-    #             from app_context import AppContext
-    #             main_window = AppContext.get_main_window()
-                
-    #             if main_window and hasattr(main_window, 'get_main_window_safely'):
-    #                 is_ready = main_window.get_main_window_safely()
-    #             else:
-    #                 is_ready = main_window is not None
-                
-    #             return {
-    #                 "getInitializationProgress": {
-    #                     "ui_ready": is_ready,
-    #                     "critical_services_ready": is_ready,
-    #                     "async_init_complete": is_ready,
-    #                     "fully_ready": is_ready,
-    #                     "sync_init_complete": is_ready,
-    #                     "message": "Ready" if is_ready else "Initializing..."
-    #                 }
-    #             }
-    #         except Exception as e:
-    #             logger.error(f"[GraphQL] Error getting initialization progress: {e}")
-    #             return {
-    #                 "getInitializationProgress": {
-    #                     "ui_ready": False,
-    #                     "critical_services_ready": False,
-    #                     "async_init_complete": False,
-    #                     "fully_ready": False,
-    #                     "sync_init_complete": False,
-    #                     "message": f"Error: {str(e)}"
-    #                 }
-    #             }
-        
-    #     # Embedding Provider Operations
-    #     elif 'getembeddingproviders' in query_lower:
-    #         try:
-    #             from gui.ipc.w2p_handlers.llm_handler import get_embedding_manager
-    #             from gui.ollama_utils import merge_ollama_models_to_providers
-                
-    #             embedding_manager = get_embedding_manager()
-    #             providers = embedding_manager.get_all_providers() if embedding_manager else []
-    #             providers = merge_ollama_models_to_providers(providers, provider_type='embedding')
-                
-    #             return {
-    #                 "getEmbeddingProviders": {
-    #                     "providers": providers,
-    #                     "message": "Embedding providers retrieved successfully"
-    #                 }
-    #             }
-    #         except Exception as e:
-    #             logger.error(f"[GraphQL] Error getting embedding providers: {e}")
-    #             return {
-    #                 "getEmbeddingProviders": {
-    #                     "providers": [],
-    #                     "message": f"Error: {str(e)}"
-    #                 }
-    #             }
-        
-    #     # Rerank Provider Operations
-    #     elif 'getrerankproviders' in query_lower:
-    #         try:
-    #             from gui.ipc.w2p_handlers.llm_handler import get_rerank_manager
-                
-    #             rerank_manager = get_rerank_manager()
-    #             providers = rerank_manager.get_all_providers() if rerank_manager else []
-                
-    #             return {
-    #                 "getRerankProviders": {
-    #                     "providers": providers,
-    #                     "message": "Rerank providers retrieved successfully"
-    #                 }
-    #             }
-    #         except Exception as e:
-    #             logger.error(f"[GraphQL] Error getting rerank providers: {e}")
-    #             return {
-    #                 "getRerankProviders": {
-    #                     "providers": [],
-    #                     "message": f"Error: {str(e)}"
-    #                 }
-    #             }
-        
-    #     else:
-    #         # Pass-through to IPC handlers for operations not handled above
-    #         # This allows CRUD operations to use proven IPC handlers
-    #         ipc_method = self._graphql_to_ipc_method(query_lower, variables)
-    #         if ipc_method:
-    #             logger.info(f"[GraphQL] Passing through to IPC handler: {ipc_method}")
-    #             return await self._call_ipc_handler(ipc_method, variables, query_lower)
-            
-    #         logger.warning(f"[GraphQL] Unknown operation: {query[:200]}")
-    #         raise Exception(f"Unknown GraphQL operation")
-    
-    # def _graphql_to_ipc_method(self, query_lower: str, variables: dict) -> str:
-    #     """Map GraphQL operation names to IPC method names."""
-    #     # Map of GraphQL operation patterns to IPC methods
-    #     mappings = {
-    #         # Data fetch operations
-    #         'getallmine': 'get_all',
-    #         'getall': 'get_all',
-    #         'getorgagenttree': 'get_all_org_agents',
-    #         'getallorga': 'get_all_org_agents',
-    #         'getorgs': 'get_orgs',
-    #         'getagents': 'get_agents',
-    #         'getagenttasks': 'get_agent_tasks',
-    #         'getagentskills': 'get_agent_skills',
-    #         'gettools': 'get_tools',
-    #         'getvehicles': 'get_vehicles',
-    #         'getwarehouses': 'get_warehouses',
-    #         'getproducts': 'get_products',
-    #         'getinventories': 'get_inventories',
-    #         'getavailabletests': 'get_available_tests',
-    #         # Agent CRUD
-    #         'addagent': 'new_agent',
-    #         'createagent': 'new_agent',
-    #         'updateagent': 'save_agent',
-    #         'saveagent': 'save_agent',
-    #         'deleteagent': 'delete_agent',
-    #         'removeagent': 'delete_agent',
-    #         # Skill CRUD
-    #         'addagentskill': 'new_agent_skill',
-    #         'updateagentskill': 'save_agent_skill',
-    #         'deleteagentskill': 'delete_agent_skill',
-    #         'removeagentskill': 'delete_agent_skill',
-    #         # Task CRUD
-    #         'addagenttask': 'new_agent_task',
-    #         'updateagenttask': 'save_agent_task',
-    #         'deleteagenttask': 'delete_agent_task',
-    #         'removeagenttask': 'delete_agent_task',
-    #         # Tool CRUD
-    #         'addagenttools': 'new_tools',
-    #         'updateagenttools': 'save_tools',
-    #         'deleteagenttools': 'delete_tools',
-    #         'removeagenttools': 'delete_tools',
-    #         # Knowledge CRUD
-    #         'addagentknowledges': 'new_knowledges',
-    #         'updateagentknowledges': 'save_knowledges',
-    #         'deleteagentknowledges': 'delete_knowledges',
-    #         'removeagentknowledges': 'delete_knowledges',
-    #         # Org CRUD
-    #         'addorgs': 'create_org',
-    #         'createorg': 'create_org',
-    #         'updateorgs': 'update_org',
-    #         'updateorg': 'update_org',
-    #         'deleteorgs': 'delete_org',
-    #         'removeorgs': 'delete_org',
-    #         # Vehicle CRUD
-    #         'addvehicle': 'add_vehicle',
-    #         'updatevehicle': 'update_vehicle',
-    #         'deletevehicle': 'delete_vehicle',
-    #         'removevehicle': 'delete_vehicle',
-    #         # Prompt CRUD
-    #         'addprompts': 'add_prompts',
-    #         'updateprompts': 'update_prompts',
-    #         'deleteprompts': 'remove_prompts',
-    #         'removeprompts': 'remove_prompts',
-    #         # Warehouse CRUD
-    #         'addwarehouse': 'save_warehouse',
-    #         'updatewarehouse': 'save_warehouse',
-    #         'savewarehouse': 'save_warehouse',
-    #         'deletewarehouse': 'delete_warehouse',
-    #         'removewarehouse': 'delete_warehouse',
-    #         # Product CRUD
-    #         'addproduct': 'save_product',
-    #         'updateproduct': 'save_product',
-    #         'saveproduct': 'save_product',
-    #         'deleteproduct': 'delete_product',
-    #         'removeproduct': 'delete_product',
-    #         # Inventory CRUD
-    #         'addinventory': 'save_inventory',
-    #         'updateinventory': 'save_inventory',
-    #         'saveinventory': 'save_inventory',
-    #         'deleteinventory': 'delete_inventory',
-    #         'removeinventory': 'delete_inventory',
-    #         # Label config
-    #         'getlabelformats': 'label_config.get_all',
-    #         'addlabelformat': 'label_config.save',
-    #         'updatelabelformat': 'label_config.save',
-    #         'deletelabelformat': 'label_config.delete',
-    #         'removelabelformat': 'label_config.delete',
-    #         # Simulation operations
-    #         'setupsimstep': 'setup_sim_step',
-    #         'stepsim': 'step_sim',
-    #         'testlanggraph2flowgram': 'test_langgraph2flowgram',
-    #         'simtimerevent': 'sim_timer_event',
-    #         'simwebsocketevent': 'sim_websocket_event',
-    #         'simsseevent': 'sim_sse_event',
-    #         'simwebhookevent': 'sim_webhook_event',
-    #         # Skill run operations
-    #         'runskill': 'run_skill',
-    #         'pauserunskill': 'pause_run_skill',
-    #         'resumerunskill': 'resume_run_skill',
-    #         'steprunskill': 'step_run_skill',
-    #         'cancelrunskill': 'cancel_run_skill',
-    #         'setskillbreakpoints': 'set_skill_breakpoints',
-    #         'clearskillbreakpoints': 'clear_skill_breakpoints',
-    #         'requestskillstate': 'request_skill_state',
-    #         'injectskillstate': 'inject_skill_state',
-    #         'loadskillschemas': 'load_skill_schemas',
-    #     }
-        
-    #     for pattern, method in mappings.items():
-    #         if pattern in query_lower:
-    #             logger.debug(f"[GraphQL] Matched pattern '{pattern}' -> IPC method '{method}'")
-    #             return method
-        
-    #     # Log unmatched query for debugging
-    #     logger.debug(f"[GraphQL] No IPC method mapping found for query (first 500 chars): {query_lower[:500]}")
-    #     return None
-    
-    # async def _call_ipc_handler(self, method: str, variables: dict, query_lower: str):
-    #     """Call an IPC handler and return the result in GraphQL format."""
-    #     from gui.ipc.registry import IPCHandlerRegistry
-    #     from gui.ipc.types import create_success_response
-        
-    #     handler_info = IPCHandlerRegistry.get_handler(method)
-    #     if not handler_info:
-    #         logger.warning(f"[GraphQL] No IPC handler found for method: {method}")
-    #         raise Exception(f"No handler found for method: {method}")
-        
-    #     handler, handler_type = handler_info
-        
-    #     # Build IPC request object
-    #     # Mark as local_server request to bypass token validation
-    #     request = {
-    #         'id': f'graphql_{method}_{id(variables)}',
-    #         'method': method,
-    #         'params': variables,
-    #         'source': 'local_server',  # Marker for trusted local requests
-    #     }
-        
-    #     try:
-    #         # Call the handler
-    #         if handler_type == 'background':
-    #             # Run background handlers in thread pool
-    #             import asyncio
-    #             loop = asyncio.get_event_loop()
-    #             response = await loop.run_in_executor(None, handler, request, variables)
-    #         else:
-    #             response = handler(request, variables)
-            
-    #         # Convert IPC response to GraphQL format
-    #         if response.get('status') == 'success':
-    #             result = response.get('result', {})
-    #             # Sanitize result to ensure JSON serializability
-    #             result = self._json_safe(result)
-    #             # Try to determine the GraphQL field name from the query
-    #             field_name = self._extract_graphql_field(query_lower, method)
-    #             return {field_name: result}
-    #         else:
-    #             error_msg = response.get('error', {}).get('message', 'Unknown error')
-    #             raise Exception(error_msg)
-                
-    #     except Exception as e:
-    #         logger.error(f"[GraphQL] Error calling IPC handler {method}: {e}")
-    #         raise
-    
-    # def _json_safe(self, value, depth=0):
-    #     """Make a value JSON-safe by converting non-serializable objects to strings."""
-    #     try:
-    #         if depth > 10:
-    #             return str(value)
-    #         if value is None or isinstance(value, (str, int, float, bool)):
-    #             return value
-    #         if isinstance(value, dict):
-    #             return {str(k): self._json_safe(v, depth + 1) for k, v in value.items()}
-    #         if isinstance(value, (list, tuple)):
-    #             return [self._json_safe(v, depth + 1) for v in value]
-    #         # Pydantic models
-    #         if hasattr(value, 'model_dump') and callable(getattr(value, 'model_dump')):
-    #             try:
-    #                 return self._json_safe(value.model_dump(mode="python"), depth + 1)
-    #             except Exception:
-    #                 pass
-    #         # Objects with __dict__
-    #         if hasattr(value, '__dict__'):
-    #             try:
-    #                 return self._json_safe(vars(value), depth + 1)
-    #             except Exception:
-    #                 pass
-    #         # Fallback to string
-    #         return str(value)
-    #     except Exception:
-    #         return '<unserializable>'
-    
-    # def _extract_graphql_field(self, query_lower: str, method: str) -> str:
-    #     """Extract the GraphQL field name from the query or derive from method."""
-    #     # Common patterns: query GetAgents -> getAgents, mutation AddAgent -> addAgent
-    #     import re
-        
-    #     # Try to find the operation name in the query
-    #     # Pattern: query/mutation OperationName { fieldName { ... } }
-    #     match = re.search(r'(?:query|mutation)\s+\w+\s*\{?\s*(\w+)', query_lower)
-    #     if match:
-    #         return match.group(1)
-        
-    #     # Fallback: convert method name to camelCase
-    #     parts = method.split('_')
-    #     return parts[0] + ''.join(p.capitalize() for p in parts[1:])
-
-    async def gen_feedbacks(self, request):
-        logger.info("serving gen_feedbacks.....")
-        mids = request.query_params.get('mids', "-1")
-        logger.info(f"mids: {mids}")
-        data = run_on_main_thread(lambda: self.main_win.genFeedbacks(mids))
-        return JSONResponse(data, status_code=200)
-
-    async def get_mission_reports(self, request):
-        start_date = request.query_params.get('start_date', "-1")
-        end_date = request.query_params.get('end_date', "-1")
-        data = run_on_main_thread(lambda: self.main_win.getRPAReports(start_date, end_date))
-        return JSONResponse(data, status_code=200)
-
     async def post_data(self, request):
         incoming_data = await request.json()
         logger.info(f"Received data: {incoming_data}")
@@ -1557,61 +650,6 @@ class RequestHandlers:
         }))
         result = await asyncio.wait_for(future, timeout=30)
         return JSONResponse({"status": "success", "result": result})
-
-    async def stream(self, request):
-        async def event_stream():
-            while True:
-                await asyncio.sleep(1)
-                yield f"data: The current time is {time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-        return StreamingResponse(event_stream(), media_type="text/event-stream")
-
-    async def sync_bots_missions(self, request):
-        try:
-            incoming_data = await request.json()
-            logger.info(f"sync_bots_missions Received data: {incoming_data}")
-            b_emails = incoming_data.get('bots', [])
-            minfos = incoming_data.get('missions', [])
-            m_asin_srcs = []
-            for minfo in minfos:
-                infos = minfo.split("|")
-                m_asin_srcs.append({"asin": infos[0].strip(), "src": infos[1].strip()})
-            bots_data = self.main_win.bot_service.find_bots_by_emails(b_emails)
-            missions_data = self.main_win.mission_service.find_missions_by_asin_srcs(m_asin_srcs)
-            result = {"bots": bots_data, "missions": missions_data}
-            return JSONResponse({"status": "success", "result": result}, status_code=200)
-        except Exception as e:
-            ex_stat = f"ErrorFetchSchedule: {traceback.format_exc()} {str(e)}"
-            logger.error(ex_stat)
-            return JSONResponse({"status": "failure", "result": ex_stat}, status_code=500)
-
-    async def get_skill_graph(self, request):
-        # Default file path if not provided in query
-        skg_file = request.query_params.get('file', 'skills/skill_graph.json')
-        if not os.path.exists(skg_file):
-            return JSONResponse({"error": f"Skill graph file not found: {skg_file}"}, status_code=404)
-
-        try:
-            with open(skg_file, "r", encoding="utf-8") as skf:
-                skill_graph = json.load(skf)
-            return JSONResponse(skill_graph)
-        except Exception as e:
-            logger.error(f"Error loading skill graph: {e}")
-            return JSONResponse({"error": "Failed to load or parse skill graph."}, status_code=500)
-
-    async def save_skill_graph(self, request):
-        skg_file = request.query_params.get('file', 'skills/skill_graph.json')
-        try:
-            skill_graph = await request.json()
-            with open(skg_file, "w") as outfile:
-                json.dump(skill_graph, outfile, indent=4)
-            return JSONResponse({"status": "success"}, status_code=200)
-        except json.JSONDecodeError:
-            return JSONResponse({"error": "Invalid JSON in request body."}, status_code=400)
-        except Exception as e:
-            error_message = f"ErrorSaveSkillGraph: {traceback.format_exc()} {str(e)}"
-            logger.error(error_message)
-            return JSONResponse({"error": "Failed to save skill graph."}, status_code=500)
-
 
     async def initialize(self, request):
         # Perform whatever server-side initialization you want
@@ -1923,12 +961,6 @@ class RouteBuilder:
             Route("/graphql", self.request_handlers.graphql_handler, methods=['POST']),
             WebSocketRoute("/ws/skill-editor", self.request_handlers.skill_editor_websocket),
             Route('/api/initialize', self.request_handlers.initialize, methods=['POST']),
-            Route('/api/gen_feedbacks', self.request_handlers.gen_feedbacks, methods=['GET']),
-            Route('/api/get_mission_reports', self.request_handlers.get_mission_reports, methods=['GET']),
-            Route('/api/load_graph', self.request_handlers.get_skill_graph, methods=['GET']),
-            Route('/api/stream', self.request_handlers.stream),
-            Route('/api/sync_bots_missions', self.request_handlers.sync_bots_missions, methods=['POST']),
-            Route('/api/save_graph', self.request_handlers.save_skill_graph, methods=['POST']),
             Route('/api/avatar', self.request_handlers.serve_avatar, methods=['GET']),
             Route('/api/rerank', self.request_handlers.ollama_rerank_proxy, methods=['POST'])
         ]
@@ -2053,9 +1085,11 @@ class ServerManager:
 
     def __init__(self, main_win: 'MainWindow'):
         self.main_win: MainWindow = main_win
+        self.port = int(main_win.get_local_server_port())  # 初始化时保存端口
         self.uvicorn_server = None
         self.server_thread = None
         self.request_handlers = None
+        self.server_ready = threading.Event()  # 服务器启动完成信号
 
     def get_server_url(self) -> str:
         """Get local server URL"""
@@ -2068,13 +1102,17 @@ class ServerManager:
 
     def start_in_thread(self):
         """Start server in a separate thread"""
-        port = int(self.main_win.get_local_server_port())
-
         # Optimization: Set higher thread priority for faster startup
-        self.server_thread = threading.Thread(target=self._run_starlette, args=(port,))
+        self.server_thread = threading.Thread(target=self._run_starlette, args=(self.port,))
         self.server_thread.daemon = False  # Allow proper cleanup instead of forced termination
         self.server_thread.start()
-        logger.info(f"🚀 Optimized local server starting on port {port} in separate thread")
+        logger.info(f"🚀 Optimized local server starting on port {self.port} in separate thread")
+        
+        # 等待服务器就绪（最多 10 秒）
+        if self.server_ready.wait(timeout=10):
+            logger.info("[ServerManager] ✅ Server started successfully and event loop ready")
+        else:
+            logger.warning("[ServerManager] ⚠️ Server startup timeout after 10s")
 
     def stop(self):
         """Request Uvicorn server to shut down gracefully"""
@@ -2164,11 +1202,24 @@ class ServerManager:
                     log_level="warning",  # Reduce log output
                     access_log=False,     # Disable access log
                     loop="asyncio",
-                    http="h11",
+                    # Use httptools in production for better performance, h11 in dev for debugging
+                    http="h11" if mcp_server_config.is_development else "h11",  # h11 for compatibility
                     log_config=None,
                     workers=1,            # Single process mode
                     reload=False,         # Disable auto-reload
                     use_colors=False,     # Disable color output
+                    # Timeout configuration
+                    timeout_keep_alive=5,        # Keep-alive timeout (seconds)
+                    timeout_graceful_shutdown=3, # Graceful shutdown timeout
+                    # Concurrency limits
+                    limit_concurrency=100,       # Max concurrent connections (desktop app)
+                    limit_max_requests=None,     # No request limit (long-running)
+                    # WebSocket configuration
+                    ws_ping_interval=20,         # WebSocket ping interval (seconds)
+                    ws_ping_timeout=20,          # WebSocket ping timeout (seconds)
+                    ws_max_size=16777216,        # WebSocket max message size (16MB)
+                    # Connection backlog
+                    backlog=2048,                # Connection queue length
                 )
                 server = uvicorn.Server(config)
 
@@ -2182,16 +1233,33 @@ class ServerManager:
                     loop = asyncio.get_running_loop()
                     app_ws_manager.set_event_loop(loop)
                     logger.info(f"[AppWS] Event loop captured for WebSocket broadcasting")
+                    
+                    # 标记服务器就绪
+                    self.server_ready.set()
+                    
                     await server.serve()
                 
                 asyncio.run(serve_with_loop())
                 logger.info(f"✅ Uvicorn server exited normally on {host_bind}:{port}")
                 last_err = None
                 break
-            except Exception as e1:
-                last_err = str(e1)
-                logger.warning(f"⚠️  Failed to bind {host_bind}:{port} - {e1}")
-                continue
+            except OSError as e:
+                import errno
+                if e.errno == errno.EADDRINUSE:
+                    # 端口被占用，不要尝试其他 host
+                    logger.error(f"❌ Port {port} is already in use")
+                    raise RuntimeError(f"Port {port} is already in use") from e
+                else:
+                    # 其他网络错误，尝试下一个 host
+                    last_err = str(e)
+                    logger.warning(f"⚠️  Failed to bind {host_bind}:{port} - {e}")
+                    continue
+            except Exception as e:
+                last_err = str(e)
+                logger.error(f"❌ Unexpected error on {host_bind}:{port} - {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                raise
 
         if last_err:
             logger.error(f"❌ All server startup attempts failed. Last error: {last_err}")
