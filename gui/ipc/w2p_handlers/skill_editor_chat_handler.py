@@ -772,6 +772,15 @@ def _process_fallback(
 ) -> str:
     """Fallback processing with basic pattern matching (no LLM)"""
     logger.info(f"[SkillEditorChat] _process_fallback called - using pattern matching (no LLM)")
+    
+    # Parse canvas_context if it's a JSON string
+    if isinstance(canvas_context, str):
+        try:
+            import json
+            canvas_context = json.loads(canvas_context)
+        except (json.JSONDecodeError, TypeError):
+            canvas_context = None
+    
     content = message.content.lower()
     
     if "hello" in content or "hi" in content:
