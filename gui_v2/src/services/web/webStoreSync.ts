@@ -1,4 +1,4 @@
-import { webApi, type GetAllMineResponse } from './webApi';
+import { IPCAPI } from '../ipc/api';
 import { useAgentStore } from '../../stores/agentStore';
 import { useTaskStore } from '../../stores/domain/taskStore';
 import { useSkillStore } from '../../stores/domain/skillStore';
@@ -8,6 +8,21 @@ import { usePromptStore } from '../../stores/promptStore';
 import { useOrgStore } from '../../stores/orgStore';
 import { useVehicleStore } from '../../stores/domain/vehicleStore';
 import { useAccountStore } from '../../stores/accountStore';
+
+/**
+ * Response type for getAll API call
+ */
+export interface GetAllMineResponse {
+  agents?: any[];
+  tasks?: any[];
+  skills?: any[];
+  tools?: any[];
+  knowledges?: any[];
+  prompts?: any[];
+  orgs?: any;
+  vehicles?: any[];
+  accountInfo?: any;
+}
 
 export const hydrateStoresFromAllMine = (allMine: GetAllMineResponse) => {
   if (Array.isArray(allMine.agents)) {
@@ -39,8 +54,33 @@ export const hydrateStoresFromAllMine = (allMine: GetAllMineResponse) => {
   }
 };
 
-export const refreshAllMineStores = async () => {
-  const allMine = await webApi.getAllMine();
-  hydrateStoresFromAllMine(allMine);
-  return allMine;
+export const refreshAllMineStores = async (username: string): Promise<GetAllMineResponse> => {
+  try {
+    const ipcApi = IPCAPI.getInstance();
+    const response = await ipcApi.getAll<GetAllMineResponse>(username);
+    
+    if (response.success && response.data) {
+      hydrateStoresFromAllMine(response.data);
+      console.log('[webStoreSync] Successfully refreshed all stores');
+      return response.data;
+    } else {
+      console.error('[webStoreSync] Failed to get all data:', response.error);
+      // Return empty data structure on failure
+      const emptyData: GetAllMineResponse = {
+        agents: [],
+        tasks: [],
+        skills: [],
+        tools: [],
+        knowledges: [],
+        prompts: [],
+        orgs: [],
+        vehicles: [],
+        accountInfo: null
+      } as GetAllMineResponse;
+      return emptyData;
+    }
+  } catch (error) {
+    console.error('[webStoreSync] Error refreshing stores:', error);
+    throw error;
+  }
 };

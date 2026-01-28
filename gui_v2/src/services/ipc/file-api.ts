@@ -33,13 +33,22 @@ export interface FileContentResponse {
 }
 
 /**
+ * File write input interface
+ */
+export interface FileWriteInput {
+  filePath: string;
+  content: string;
+}
+
+/**
  * File write response interface
  */
 export interface FileWriteResponse {
   filePath: string;
   fileName: string;
   fileSize: number;
-  success: boolean;
+  skillName?: string;
+  updatedAt?: string;
 }
 
 /**
@@ -61,6 +70,25 @@ export interface SkillCopyResponse {
 }
 
 /**
+ * Skill file list item interface
+ */
+export interface SkillFileItem {
+  filePath: string;
+  fileName?: string;
+  fileSize?: number;
+  skillName?: string;
+  updatedAt?: string;
+}
+
+/**
+ * Check skill exists response interface
+ */
+export interface CheckSkillExistsResponse {
+  exists: boolean;
+  name: string;
+}
+
+/**
  * Extend IPCAPI with file operation methods
  */
 declare module './api' {
@@ -69,7 +97,9 @@ declare module './api' {
     showSaveDialog<T = FileDialogResponse>(defaultFilename?: string, filters?: FileFilter[]): Promise<APIResponse<T>>;
     readSkillFile<T = FileContentResponse>(filePath: string): Promise<APIResponse<T>>;
     openSkillFile<T = FileContentResponse>(filePath: string, skillName?: string): Promise<APIResponse<T>>;
-    writeSkillFile<T = FileWriteResponse>(filePath: string, content: string): Promise<APIResponse<T>>;
+    writeSkillFile<T = FileWriteResponse | FileWriteResponse[]>(input: FileWriteInput | FileWriteInput[]): Promise<APIResponse<T>>;
+    listSkillFiles<T = SkillFileItem[]>(prefix?: string, limit?: number, nextToken?: string): Promise<APIResponse<T>>;
+    checkSkillExists<T = CheckSkillExistsResponse>(name: string): Promise<APIResponse<T>>;
     /**
      * Scaffold a new skill with standard directory structure
      * Creates: my_skills/<name>_skill/diagram_dir/<name>_skill.json + <name>_skill_bundle.json + <name>_data_mapping.json
@@ -152,11 +182,26 @@ IPCAPI.prototype.openSkillFile = function<T = FileContentResponse>(
   return this.executeRequest<T>('open_skill_file', { filePath, skillName });
 };
 
-IPCAPI.prototype.writeSkillFile = function<T = FileWriteResponse>(
-  filePath: string, 
-  content: string
+IPCAPI.prototype.writeSkillFile = function<T = FileWriteResponse | FileWriteResponse[]>(
+  input: FileWriteInput | FileWriteInput[]
 ): Promise<APIResponse<T>> {
-  return this.executeRequest<T>('write_skill_file', { filePath, content });
+  // Support both single file and batch write
+  const payload = Array.isArray(input) ? input : [input];
+  return this.executeRequest<T>('write_skill_file', { input: payload });
+};
+
+IPCAPI.prototype.listSkillFiles = function<T = SkillFileItem[]>(
+  prefix?: string,
+  limit?: number,
+  nextToken?: string
+): Promise<APIResponse<T>> {
+  return this.executeRequest<T>('list_skill_files', { prefix, limit, nextToken });
+};
+
+IPCAPI.prototype.checkSkillExists = function<T = CheckSkillExistsResponse>(
+  name: string
+): Promise<APIResponse<T>> {
+  return this.executeRequest<T>('check_skill_exists', { name });
 };
 
 IPCAPI.prototype.scaffoldSkill = function<T = SkillScaffoldResponse>(

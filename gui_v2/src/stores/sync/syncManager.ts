@@ -162,7 +162,7 @@ export class StoreSyncManager {
     try {
       if (detectPlatform() === 'web') {
         try {
-          await refreshAllMineStores();
+          await refreshAllMineStores(username);
           return storeNames.map((name) => ({
             success: true,
             storeName: name,

@@ -484,27 +484,92 @@ def handle_read_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]]
 
 @IPCHandlerRegistry.handler('write_skill_file')
 def handle_write_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Handle writing a skill file.
+    """Handle writing skill file(s) - supports both single and batch write.
 
     Args:
         request: IPC request object
-        params: Request params, must include filePath and content
+        params: Request params, can be:
+            - New format: { input: [{ filePath, content }, ...] }
+            - Old format: { filePath, content } (for backward compatibility)
 
     Returns:
-        IPCResponse: Write result
+        IPCResponse: Write result(s)
     """
     try:
-        # logger.debug(f"Write skill file handler called with request: {request}")
+        # Check if it's the new batch format or old single file format
+        if 'input' in params:
+            # New format: batch write
+            input_list = params['input']
+            if not isinstance(input_list, list):
+                return create_error_response(
+                    request,
+                    'INVALID_PARAMS',
+                    'input must be an array'
+                )
+            
+            results = []
+            for item in input_list:
+                result = _write_single_file(item)
+                if result['success']:
+                    results.append(result['data'])
+                else:
+                    # If any file fails, return error
+                    return create_error_response(
+                        request,
+                        result['error_code'],
+                        result['error_message']
+                    )
+            
+            return create_success_response(request, results)
+        else:
+            # Old format: single file (backward compatibility)
+            is_valid, data, error = validate_params(params, ['filePath', 'content'])
+            if not is_valid:
+                logger.warning(f"Invalid parameters for write skill file: {error}")
+                return create_error_response(
+                    request,
+                    'INVALID_PARAMS',
+                    error
+                )
+            
+            result = _write_single_file(data)
+            if result['success']:
+                return create_success_response(request, result['data'])
+            else:
+                return create_error_response(
+                    request,
+                    result['error_code'],
+                    result['error_message']
+                )
+            
+    except Exception as e:
+        logger.error(f"Error in write_skill_file handler: {e}")
+        return create_error_response(
+            request,
+            'WRITE_SKILL_FILE_ERROR',
+            f"Error writing skill file: {str(e)}"
+        )
+
+
+def _write_single_file(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Write a single skill file.
+    
+    Args:
+        data: Dict with 'filePath' and 'content'
+    
+    Returns:
+        Dict with 'success', 'data' (if success), or 'error_code' and 'error_message' (if failed)
+    """
+    try:
+        file_path = data.get('filePath')
+        content = data.get('content')
         
-        # Validate parameters
-        is_valid, data, error = validate_params(params, ['filePath', 'content'])
-        if not is_valid:
-            logger.warning(f"Invalid parameters for write skill file: {error}")
-            return create_error_response(
-                request,
-                'INVALID_PARAMS',
-                error
-            )
+        if not file_path or not content:
+            return {
+                'success': False,
+                'error_code': 'INVALID_PARAMS',
+                'error_message': 'Missing required parameters: filePath, content'
+            }
         
         file_path = data['filePath']
         content = data['content']
@@ -535,11 +600,11 @@ def handle_write_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]
             else:
                 content = json.dumps(content, indent=2, ensure_ascii=False)
         except json.JSONDecodeError as e:
-            return create_error_response(
-                request,
-                'INVALID_JSON',
-                f'Invalid JSON content: {str(e)}'
-            )
+            return {
+                'success': False,
+                'error_code': 'INVALID_JSON',
+                'error_message': f'Invalid JSON content: {str(e)}'
+            }
         
         # Ensure directory exists
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
@@ -580,29 +645,33 @@ def handle_write_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]
             else:
                 skill_name_only = final_file_name[:-5] if final_file_name.endswith('.json') else final_file_name
             
-            return create_success_response(request, {
-                'filePath': file_path,
-                'fileName': os.path.basename(file_path),
-                'skillName': skill_name_only,  # 需求4: 返回不带后缀的 skill 名称
-                'fileSize': os.path.getsize(file_path),
-                'success': True
-            })
+            from datetime import datetime
+            return {
+                'success': True,
+                'data': {
+                    'filePath': file_path,
+                    'fileName': os.path.basename(file_path),
+                    'skillName': skill_name_only,
+                    'fileSize': os.path.getsize(file_path),
+                    'updatedAt': datetime.now().isoformat()
+                }
+            }
             
         except IOError as e:
             logger.error(f"[SKILL_IO][BACKEND][WRITE_ERROR] {file_path} {str(e)}")
-            return create_error_response(
-                request,
-                'WRITE_ERROR',
-                f'Failed to write file: {str(e)}'
-            )
+            return {
+                'success': False,
+                'error_code': 'WRITE_ERROR',
+                'error_message': f'Failed to write file: {str(e)}'
+            }
             
     except Exception as e:
-        logger.error(f"Error in write_skill_file handler: {e}")
-        return create_error_response(
-            request,
-            'WRITE_SKILL_FILE_ERROR',
-            f"Error writing skill file: {str(e)}"
-        )
+        logger.error(f"Error in _write_single_file: {e}")
+        return {
+            'success': False,
+            'error_code': 'WRITE_SINGLE_FILE_ERROR',
+            'error_message': f"Error writing file: {str(e)}"
+        }
 
 
 logger.info("File operation handlers registered successfully")
