@@ -2178,4 +2178,43 @@ def build_agent_mcp_tools_schemas():
     add_gcloud_read_billing_tool_schema(tool_schemas)
     add_gcloud_shutdown_tool_schema(tool_schemas)
 
+    # Save schema to JSON file in working directory
+    _save_tool_schemas_to_json(tool_schemas)
+
     return tool_schemas
+
+
+def _save_tool_schemas_to_json(schemas: list):
+    """Save tool schemas to JSON file in the working directory for debugging/reference."""
+    import json
+    import os
+    from datetime import datetime
+    
+    try:
+        # Get working directory - use current working directory
+        working_dir = os.getcwd()
+        output_file = os.path.join(working_dir, "mcp_tools_schema.json")
+        
+        # Convert Tool objects to dictionaries
+        schema_dicts = []
+        for tool in schemas:
+            if hasattr(tool, 'model_dump'):
+                schema_dicts.append(tool.model_dump())
+            elif hasattr(tool, 'dict'):
+                schema_dicts.append(tool.dict())
+            else:
+                schema_dicts.append(str(tool))
+        
+        # Add metadata
+        output_data = {
+            "generated_at": datetime.now().isoformat(),
+            "total_tools": len(schema_dicts),
+            "tools": schema_dicts
+        }
+        
+        with open(output_file, 'w', encoding='utf-8') as f:
+            json.dump(output_data, f, indent=2, ensure_ascii=False)
+        
+        print(f"[tool_schemas] Saved {len(schema_dicts)} tool schemas to: {output_file}")
+    except Exception as e:
+        print(f"[tool_schemas] Failed to save tool schemas to JSON: {e}")
