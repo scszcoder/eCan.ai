@@ -60,14 +60,29 @@ class LocalWebSocketClient {
 
   /**
    * Check if we should use local WebSocket (desktop + VITE_IPC_MODE OFF)
+   * Also returns true in dev mode when IPC is OFF (desktop development without Qt WebChannel)
    */
   shouldUseLocalWebSocket(): boolean {
-    const platform = detectPlatform();
-    if (platform !== 'desktop') return false;
-    
     const env = getEnv();
     const ipcModeOn = isTruthyEnvValue(env.VITE_IPC_MODE);
-    return !ipcModeOn;
+    
+    // If IPC mode is ON, we don't need local WebSocket (using IPC directly)
+    if (ipcModeOn) return false;
+    
+    const platform = detectPlatform();
+    
+    // Desktop mode (Qt WebChannel available)
+    if (platform === 'desktop') return true;
+    
+    // Dev mode with IPC OFF - this is desktop development without Qt WebChannel
+    // In this case, we use local WebSocket for real-time push events
+    const isDev = (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV) || false;
+    if (isDev && !ipcModeOn) {
+      console.log('[LocalWS] Dev mode with IPC OFF - using local WebSocket');
+      return true;
+    }
+    
+    return false;
   }
 
   /**
