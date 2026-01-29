@@ -794,6 +794,185 @@ const Tests: React.FC = () => {
         }
     };
 
+    const handleSendPassiveCmd = async () => {
+        const defaultWanEndpoint = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql';
+        const getEnv = () => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {});
+        const env = getEnv();
+        
+        setTestOutput('');
+        appendTestOutput('Send PASSIVE CMD: Starting...');
+        appendTestOutput('Send PASSIVE CMD: This calls cloud runTest mutation to send a passive command');
+        
+        const wanEndpoint = (settings?.wan_api_endpoint?.trim() || env.VITE_APPSYNC_HTTP_ENDPOINT || defaultWanEndpoint);
+        const wanApiKey = (settings?.wan_api_key?.trim() || env.VITE_APPSYNC_API_KEY || '');
+        const owner = username || env.VITE_ACCOUNT_OWNER || '';
+        
+        appendTestOutput(`Send PASSIVE CMD: endpoint=${wanEndpoint}`);
+        
+        if (!wanApiKey) {
+            appendTestOutput('Send PASSIVE CMD: ERROR - Missing API key');
+            return;
+        }
+        if (!owner) {
+            appendTestOutput('Send PASSIVE CMD: ERROR - Not logged in');
+            return;
+        }
+        
+        appendTestOutput(`Send PASSIVE CMD: owner=${owner}`);
+        
+        const runTestMutation = `mutation RunTest($input: [TestInput]!) { runTest(input: $input) }`;
+        
+        let parsedArgs: any = {};
+        try { parsedArgs = testArgument ? JSON.parse(testArgument) : {}; } catch (e) { }
+        
+        const testInput = [{
+            id: `passive-cmd-${Date.now()}`,
+            name: 'Send_PASSIVE_CMD',
+            description: 'Send a passive command to cloud worker',
+            input: JSON.stringify({
+                owner, acctSiteID: parsedArgs.acctSiteID || `site-${owner}`, runner: owner,
+                command: parsedArgs.command || 'passive_ping', payload: parsedArgs.payload || {},
+            })
+        }];
+        
+        try {
+            const response = await fetch(wanEndpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-api-key': wanApiKey },
+                body: JSON.stringify({ query: runTestMutation, variables: { input: testInput } }),
+            });
+            const result = await response.json();
+            if (result.errors) appendTestOutput(`Send PASSIVE CMD: Errors: ${JSON.stringify(result.errors, null, 2)}`);
+            if (result.data?.runTest) {
+                const parsed = typeof result.data.runTest === 'string' ? JSON.parse(result.data.runTest) : result.data.runTest;
+                appendTestOutput(`Send PASSIVE CMD: SUCCESS\n${JSON.stringify(parsed, null, 2)}`);
+            } else {
+                appendTestOutput(`Send PASSIVE CMD: No data returned\n${JSON.stringify(result, null, 2)}`);
+            }
+        } catch (error) {
+            appendTestOutput(`Send PASSIVE CMD: ERROR - ${error instanceof Error ? error.message : String(error)}`);
+        }
+    };
+
+    const handlePingCloudWorker = async () => {
+        const defaultWanEndpoint = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql';
+        const getEnv = () => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {});
+        const env = getEnv();
+        
+        setTestOutput('');
+        appendTestOutput('Ping Cloud Worker: Starting...');
+        
+        const wanEndpoint = (settings?.wan_api_endpoint?.trim() || env.VITE_APPSYNC_HTTP_ENDPOINT || defaultWanEndpoint);
+        const wanApiKey = (settings?.wan_api_key?.trim() || env.VITE_APPSYNC_API_KEY || '');
+        const owner = username || env.VITE_ACCOUNT_OWNER || '';
+        
+        appendTestOutput(`Ping Cloud Worker: endpoint=${wanEndpoint}`);
+        
+        if (!wanApiKey) {
+            appendTestOutput('Ping Cloud Worker: ERROR - Missing API key');
+            return;
+        }
+        if (!owner) {
+            appendTestOutput('Ping Cloud Worker: ERROR - Not logged in');
+            return;
+        }
+        
+        appendTestOutput(`Ping Cloud Worker: owner=${owner}`);
+        
+        const runTestMutation = `mutation RunTest($input: [TestInput]!) { runTest(input: $input) }`;
+        
+        const testInput = [{
+            id: `ping-worker-${Date.now()}`,
+            name: 'Ping_Cloud_Worker',
+            description: 'Ping cloud worker lambda to check health',
+            input: JSON.stringify({
+                owner, acctSiteID: `site-${owner}`, runner: owner,
+                action: 'ping', timestamp: new Date().toISOString(),
+            })
+        }];
+        
+        try {
+            const response = await fetch(wanEndpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-api-key': wanApiKey },
+                body: JSON.stringify({ query: runTestMutation, variables: { input: testInput } }),
+            });
+            const result = await response.json();
+            if (result.errors) appendTestOutput(`Ping Cloud Worker: Errors: ${JSON.stringify(result.errors, null, 2)}`);
+            if (result.data?.runTest) {
+                const parsed = typeof result.data.runTest === 'string' ? JSON.parse(result.data.runTest) : result.data.runTest;
+                appendTestOutput(`Ping Cloud Worker: SUCCESS\n${JSON.stringify(parsed, null, 2)}`);
+                appendTestOutput('>>> Cloud worker is alive! <<<');
+            } else {
+                appendTestOutput(`Ping Cloud Worker: No data returned\n${JSON.stringify(result, null, 2)}`);
+            }
+        } catch (error) {
+            appendTestOutput(`Ping Cloud Worker: ERROR - ${error instanceof Error ? error.message : String(error)}`);
+        }
+    };
+
+    
+    const handleStepCloudWorker = async () => {
+        const defaultWanEndpoint = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql';
+        const getEnv = () => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {});
+        const env = getEnv();
+        
+        setTestOutput('');
+        appendTestOutput('Step Cloud Worker: Starting...');
+        
+        const wanEndpoint = (settings?.wan_api_endpoint?.trim() || env.VITE_APPSYNC_HTTP_ENDPOINT || defaultWanEndpoint);
+        const wanApiKey = (settings?.wan_api_key?.trim() || env.VITE_APPSYNC_API_KEY || '');
+        const owner = username || env.VITE_ACCOUNT_OWNER || '';
+        
+        appendTestOutput(`Step Cloud Worker: endpoint=${wanEndpoint}`);
+        
+        if (!wanApiKey) {
+            appendTestOutput('Step Cloud Worker: ERROR - Missing API key');
+            return;
+        }
+        if (!owner) {
+            appendTestOutput('Step Cloud Worker: ERROR - Not logged in');
+            return;
+        }
+        
+        appendTestOutput(`Step Cloud Worker: owner=${owner}`);
+        
+        const runTestMutation = `mutation RunTest($input: [TestInput]!) { runTest(input: $input) }`;
+        
+        let parsedArgs: any = {};
+        try { parsedArgs = testArgument ? JSON.parse(testArgument) : {}; } catch (e) { }
+        
+        const testInput = [{
+            id: `step-worker-${Date.now()}`,
+            name: 'Step_Cloud_Worker',
+            description: 'Step cloud worker to execute next action',
+            input: JSON.stringify({
+                owner, acctSiteID: parsedArgs.acctSiteID || `site-${owner}`, runner: owner,
+                action: 'step', step_id: parsedArgs.step_id || 'default',
+                payload: parsedArgs.payload || {},
+            })
+        }];
+        
+        try {
+            const response = await fetch(wanEndpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-api-key': wanApiKey },
+                body: JSON.stringify({ query: runTestMutation, variables: { input: testInput } }),
+            });
+            const result = await response.json();
+            if (result.errors) appendTestOutput(`Step Cloud Worker: Errors: ${JSON.stringify(result.errors, null, 2)}`);
+            if (result.data?.runTest) {
+                const parsed = typeof result.data.runTest === 'string' ? JSON.parse(result.data.runTest) : result.data.runTest;
+                appendTestOutput(`Step Cloud Worker: SUCCESS\n${JSON.stringify(parsed, null, 2)}`);
+                appendTestOutput('>>> Cloud worker step executed! <<<');
+            } else {
+                appendTestOutput(`Step Cloud Worker: No data returned\n${JSON.stringify(result, null, 2)}`);
+            }
+        } catch (error) {
+            appendTestOutput(`Step Cloud Worker: ERROR - ${error instanceof Error ? error.message : String(error)}`);
+        }
+    };
+
     const handleC2LWebsocketTest = async () => {
         setTestOutput('');
         appendTestOutput('C2L WS Test: Starting...');
@@ -934,6 +1113,18 @@ const Tests: React.FC = () => {
                         </Button>
                         <Button onClick={handleC2CWebsocketTest} style={{ marginLeft: 8 }} type="primary">
                             C2C WS Test
+                        </Button>
+                        <Button onClick={handleSendPassiveCmd} style={{ marginLeft: 8 }}>
+                            Send PASSIVE CMD
+                        </Button>
+                        <Button onClick={handlePingCloudWorker} style={{ marginLeft: 8 }}>
+                            Ping Cloud Worker
+                        </Button>
+                    </Space>
+                    {/* Cloud Worker Test Buttons - 3rd row */}
+                    <Space style={{ marginBottom: '8px' }}>
+                        <Button onClick={handleStepCloudWorker} style={{ marginLeft: 8 }}>
+                            Step Cloud Worker
                         </Button>
                     </Space>
                     {/* Test Selection */}
