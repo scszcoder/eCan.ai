@@ -321,7 +321,9 @@ def _resolve_user_key(env: _Env, owner: str, file_path: str) -> str:
 def _resolve_user_prefix(env: _Env, owner: str, prefix: Optional[str]) -> str:
     base = _user_base_prefix(env, owner)
     if not prefix:
-        return _s3_key(base, "my_skills")
+        # Search entire user folder to find skills at any nesting level
+        # (skills may be at base/my_skills/ or base/C_/.../my_skills/ due to desktop saves)
+        return base
 
     normalized = _normalize_rel_path(prefix)
     if normalized.startswith(base + "/") or normalized == base:
@@ -351,23 +353,16 @@ def _infer_skill_name_from_key(key: str) -> Optional[str]:
     return None
 
 
-def _handle_list_skill_files(event: Dict[str, Any]) -> List[Dict[str, Any]]:
-    logger.info("[listSkillFiles] Starting handler")
-    env = _load_env()
-    args = event.get("arguments") or {}
-    owner = _owner_from_event(event)
-
-    prefix = _resolve_user_prefix(env, owner, args.get("prefix"))
-    limit = args.get("limit")
-    continuation = args.get("nextToken")
-    if prefix:
-        prefix = prefix.rstrip("/") + "/"
-
-    items: List[Dict[str, Any]] = []
-    logger.info(f"[listSkillFiles] Listing S3 prefix: {prefix}")
-
+def _list_skills_from_prefix(
+    bucket: str, 
+    prefix: str, 
+    limit: Optional[int], 
+    continuation: Optional[str],
+    items: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """Helper to list skill files from a given S3 prefix."""
     while True:
-        objects, next_token = _s3_list_objects(bucket=env.s3_bucket, prefix=prefix, continuation=continuation)
+        objects, next_token = _s3_list_objects(bucket=bucket, prefix=prefix, continuation=continuation)
         for obj in objects:
             key = obj.get("Key")
             if not key or key.endswith("/"):
@@ -402,7 +397,6 @@ def _handle_list_skill_files(event: Dict[str, Any]) -> List[Dict[str, Any]]:
             })
 
             if isinstance(limit, int) and limit > 0 and len(items) >= limit:
-                logger.info(f"[listSkillFiles] Reached limit: {limit}")
                 return items
 
         if not next_token:
@@ -410,6 +404,42 @@ def _handle_list_skill_files(event: Dict[str, Any]) -> List[Dict[str, Any]]:
         if isinstance(limit, int) and limit > 0 and len(items) >= limit:
             break
         continuation = next_token
+    
+    return items
+
+
+def _handle_list_skill_files(event: Dict[str, Any]) -> List[Dict[str, Any]]:
+    logger.info("[listSkillFiles] Starting handler")
+    # Log the full identity for debugging
+    identity = event.get("identity") or {}
+    logger.info(f"[listSkillFiles] Identity received: {identity}")
+    env = _load_env()
+    args = event.get("arguments") or {}
+    owner = _owner_from_event(event)
+    logger.info(f"[listSkillFiles] Resolved owner: {owner}")
+
+    user_prefix = _resolve_user_prefix(env, owner, args.get("prefix"))
+    limit = args.get("limit")
+    continuation = args.get("nextToken")
+    if user_prefix:
+        user_prefix = user_prefix.rstrip("/") + "/"
+
+    items: List[Dict[str, Any]] = []
+    
+    # First, list user's skills
+    logger.info(f"[listSkillFiles] Listing user S3 prefix: {user_prefix}")
+    items = _list_skills_from_prefix(env.s3_bucket, user_prefix, limit, continuation, items)
+    
+    # If we haven't hit the limit yet, also list public skills
+    if not args.get("prefix") and (not limit or len(items) < limit):
+        public_prefix = _norm_prefix(env.s3_key_root)
+        if public_prefix:
+            public_prefix = f"{public_prefix}/public/skills/"
+        else:
+            public_prefix = "public/skills/"
+        logger.info(f"[listSkillFiles] Listing public S3 prefix: {public_prefix}")
+        remaining_limit = (limit - len(items)) if limit else None
+        items = _list_skills_from_prefix(env.s3_bucket, public_prefix, remaining_limit, None, items)
 
     logger.info(f"[listSkillFiles] Returning {len(items)} items")
     return items

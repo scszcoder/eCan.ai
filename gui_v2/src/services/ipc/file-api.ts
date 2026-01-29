@@ -4,6 +4,9 @@
  */
 
 import { IPCAPI, APIResponse } from './api';
+import { apiRouter } from '../api/api-router';
+import { GRAPHQL_QUERIES } from '../api/api-config';
+import { detectPlatform } from '../../config/platform';
 
 /**
  * File dialog filter interface
@@ -195,6 +198,22 @@ IPCAPI.prototype.listSkillFiles = function<T = SkillFileItem[]>(
   limit?: number,
   nextToken?: string
 ): Promise<APIResponse<T>> {
+  // In web mode, use GraphQL/AppSync directly via API router
+  const platform = detectPlatform();
+  if (platform === 'web') {
+    console.log('[FileAPI] listSkillFiles: using GraphQL for web mode');
+    return apiRouter.execute<T>(
+      { 
+        method: 'listSkillFiles', 
+        graphql: { 
+          query: GRAPHQL_QUERIES.LIST_SKILL_FILES,
+          resultPath: 'listSkillFiles'
+        } 
+      },
+      { prefix, limit, nextToken }
+    );
+  }
+  // In desktop mode, use IPC
   return this.executeRequest<T>('list_skill_files', { prefix, limit, nextToken });
 };
 

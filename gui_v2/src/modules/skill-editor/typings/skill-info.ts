@@ -59,6 +59,11 @@ export interface SkillInfo {
    * make changes to their skill logic, layout, or content (e.g., "1.0.0" -> "1.1.0").
    */
   version: string;
+  /**
+   * Optional description of what this skill does.
+   * User-editable free text field.
+   */
+  description?: string;
   lastModified: string;
   workFlow: FlowDocumentJSON;
   /**
@@ -92,6 +97,7 @@ export function createSkillInfo(workFlow: FlowDocumentJSON): SkillInfo {
     skillId: genUUID(),
     skillName: 'Untitled Workflow Skill',
     version: '1.0.0',
+    description: '',
     lastModified: new Date().toISOString(),
     schemaVersion: CURRENT_SCHEMA_VERSION,  // Current workflow schema version
     mode: 'development',
