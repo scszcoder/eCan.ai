@@ -276,10 +276,9 @@ def handle_create_session(request: IPCRequest, params: Optional[Dict[str, Any]])
         
         session = _chat_store.create_session(name=name, flowgram_id=flowgram_id)
         
-        return create_success_response(request, {
-            "session": session.to_dict(),
-            "message": "Session created successfully"
-        })
+        # Return session data directly (same format as Lambda)
+        # Frontend expects: { id, name, flowgramId, createdAt, updatedAt }
+        return create_success_response(request, session.to_dict())
         
     except Exception as e:
         logger.error(f"[SkillEditorChat] Error creating session: {e}\n{traceback.format_exc()}")
