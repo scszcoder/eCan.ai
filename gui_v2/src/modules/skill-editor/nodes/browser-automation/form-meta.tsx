@@ -53,6 +53,19 @@ const SHOP_OPTIONS = [
   { label: 'Custom', value: 'custom' },
 ];
 
+const RUN_ENVIRONMENT_OPTIONS = [
+  { label: 'Full Local', value: 'full_local' },
+  { label: 'Passive Local', value: 'passive_local' },
+  { label: 'Hybrid Cloud', value: 'hybrid_cloud' },
+  { label: 'Full Cloud', value: 'full_cloud' },
+];
+
+const PRIVACY_STRATEGY_OPTIONS = [
+  { label: 'None', value: 'none' },
+  { label: 'Pattern Filter', value: 'pattern_filter' },
+  { label: 'Local LLM', value: 'local_llm' },
+];
+
 // Cache for LLM providers from backend
 let cachedProviders: Map<string, any> = new Map();
 let cacheTime: number = 0;
@@ -280,6 +293,52 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                 placeholder="CDP Port (e.g., 9222)"
                 style={{ width: '100%', padding: '6px 12px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '3px' }}
               />
+            )}
+          </Field>
+        </FormItem>
+
+        {/* Run Environment selector */}
+        <FormItem name="runEnvironment" type="string" vertical>
+          <Field<string> name="inputsValues.runEnvironment.content">
+            {({ field }) => (
+              <Select
+                value={(field.value as string) || 'full_local'}
+                onChange={(val) => field.onChange(val as string)}
+                optionList={RUN_ENVIRONMENT_OPTIONS}
+                style={{ width: '100%' }}
+                dropdownMatchSelectWidth
+                size="small"
+              />
+            )}
+          </Field>
+        </FormItem>
+
+        {/* Privacy Strategy selector */}
+        <FormItem name="privacyStrategy" type="string" vertical>
+          <Field<string> name="inputsValues.privacyStrategy.content">
+            {({ field }) => (
+              <Select
+                value={(field.value as string) || 'none'}
+                onChange={(val) => field.onChange(val as string)}
+                optionList={PRIVACY_STRATEGY_OPTIONS}
+                style={{ width: '100%' }}
+                dropdownMatchSelectWidth
+                size="small"
+              />
+            )}
+          </Field>
+        </FormItem>
+
+        {/* Enable Judge checkbox */}
+        <FormItem name="enableJudge" type="boolean" vertical>
+          <Field<boolean> name="inputsValues.enableJudge.content">
+            {({ field }) => (
+              <Checkbox
+                checked={!!field.value}
+                onChange={(e) => field.onChange(e.target.checked)}
+              >
+                Enable Judge (LLM result validation)
+              </Checkbox>
             )}
           </Field>
         </FormItem>

@@ -229,7 +229,7 @@ def _update_agent_task_in_memory(agent_task_id: str, agent_task_data: Dict[str, 
 
         # Check if agent task already exists in memory
         existing_index = None
-        agent_tasks_list = ctx.agent_tasks if hasattr(ctx, 'agent_tasks') else []
+        agent_tasks_list = agent_tasks  # Use the list from get_agent_tasks()
         for i, agent_task in enumerate(agent_tasks_list):
             if hasattr(agent_task, 'id') and agent_task.id == agent_task_id:
                 existing_index = i
@@ -274,14 +274,12 @@ def _update_agent_task_in_memory(agent_task_id: str, agent_task_data: Dict[str, 
 
         if existing_index is not None:
             # Update existing agent task
-            if hasattr(ctx, 'agent_tasks') and ctx.agent_tasks is not None:
-                ctx.agent_tasks[existing_index] = agent_task_obj
-                logger.info(f"[task_handler] Updated agent task in memory: {agent_task_data['name']}")
+            agent_tasks[existing_index] = agent_task_obj
+            logger.info(f"[task_handler] Updated agent task in memory: {agent_task_data['name']}, total tasks: {len(agent_tasks)}")
         else:
-            # Add new agent task
-            if hasattr(ctx, 'agent_tasks') and ctx.agent_tasks is not None:
-                ctx.agent_tasks.append(agent_task_obj)
-                logger.info(f"[task_handler] Added new agent task to memory: {agent_task_data['name']}")
+            # Add new agent task - append directly to the list (which is a reference to mw.agent_tasks)
+            agent_tasks.append(agent_task_obj)
+            logger.info(f"[task_handler] Added new agent task to memory: {agent_task_data['name']}, total tasks: {len(agent_tasks)}")
 
         return True
 
@@ -354,13 +352,30 @@ def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]
         username = data['username']
         logger.info(f"Getting agent tasks for user: {username}")
 
-        # Get tasks from memory (agent_tasks is the single source of truth)
-        # Tasks are loaded from database during startup
+        # Get tasks from BOTH sources and merge them:
+        # 1. Code-generated tasks from memory (source='code')
+        # 2. UI-created tasks from SQLite database (source='ui')
         try:
             from gui.ipc.context_bridge import get_handler_context
             ctx = get_handler_context(request, params)
             memory_agent_tasks = ctx.get_agent_tasks() if ctx else []
-            logger.info(f"Found {len(memory_agent_tasks)} agent tasks in memory (mainwin.agent_tasks)")
+            logger.info(f"Found {len(memory_agent_tasks)} agent tasks in memory (code-generated)")
+            
+            # Also load tasks from database (UI-created tasks)
+            db_tasks = []
+            agent_task_service = _get_agent_task_service(request, params)
+            if agent_task_service:
+                db_result = agent_task_service.query_tasks()
+                if db_result.get('success') and db_result.get('data'):
+                    db_tasks = db_result['data']
+                    logger.info(f"[get_agent_tasks] Loaded {len(db_tasks)} tasks from database (UI-created)")
+                else:
+                    logger.warning(f"[get_agent_tasks] Failed to load from database: {db_result.get('error')}")
+            else:
+                logger.warning("[get_agent_tasks] Task service not available")
+            
+            # Build a set of IDs from database tasks to avoid duplicates
+            db_task_ids = {t.get('id') for t in db_tasks if t.get('id')}
 
             # Convert tasks to dictionary format
             agent_tasks_dicts = []
@@ -414,7 +429,14 @@ def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]
                     # Skip this task instead of crashing the entire request
                     continue
 
-            logger.info(f"Returning {len(agent_tasks_dicts)} agent tasks to frontend")
+            # Merge: Add database tasks that are not already in memory (avoid duplicates)
+            memory_task_ids = {t.get('id') for t in agent_tasks_dicts if t.get('id')}
+            for db_task in db_tasks:
+                db_task_id = db_task.get('id')
+                if db_task_id and db_task_id not in memory_task_ids:
+                    agent_tasks_dicts.append(db_task)
+            
+            logger.info(f"Returning {len(agent_tasks_dicts)} agent tasks to frontend (memory: {len(memory_agent_tasks)}, db: {len(db_tasks)})")
 
             resultJS = {
                 'tasks': agent_tasks_dicts,
@@ -423,8 +445,9 @@ def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]
             return create_success_response(request, resultJS)
 
         except Exception as e:
+            import traceback as tb
             logger.error(f"Failed to get agent tasks from memory: {e}")
-            logger.error(f"Traceback: {traceback.format_exc()}")
+            logger.error(f"Traceback: {tb.format_exc()}")
             # Return empty list as fallback
             return create_success_response(request, {
                 'tasks': [],
@@ -432,7 +455,8 @@ def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]
             })
 
     except Exception as e:
-        logger.error(f"Error in get agent tasks handler: {e} {traceback.format_exc()}")
+        import traceback as tb
+        logger.error(f"Error in get agent tasks handler: {e} {tb.format_exc()}")
         return create_error_response(
             request,
             'GET_TASKS_ERROR',
@@ -706,14 +730,17 @@ def handle_delete_agent_task(request: IPCRequest, params: Optional[Dict[str, Any
 
             # Step 2: Remove from memory after database deletion succeeds
             try:
-                if ctx and hasattr(ctx, 'agent_tasks') and ctx.agent_tasks is not None:
-                    original_count = len(ctx.agent_tasks)
-                    ctx.agent_tasks[:] = [
-                        agent_task for agent_task in ctx.agent_tasks
-                        if not (hasattr(agent_task, 'id') and agent_task.id == agent_task_id)
-                    ]
-                    new_count = len(ctx.agent_tasks)
-                    logger.info(f"[task_handler] Removed agent task from memory: {agent_task_id} (count: {original_count} → {new_count})")
+                if ctx:
+                    agent_tasks_list = ctx.get_agent_tasks()
+                    if agent_tasks_list is not None:
+                        original_count = len(agent_tasks_list)
+                        # Filter out the deleted task - modify in place
+                        agent_tasks_list[:] = [
+                            agent_task for agent_task in agent_tasks_list
+                            if not (hasattr(agent_task, 'id') and agent_task.id == agent_task_id)
+                        ]
+                        new_count = len(agent_tasks_list)
+                        logger.info(f"[task_handler] Removed agent task from memory: {agent_task_id} (count: {original_count} → {new_count})")
             except Exception as e:
                 logger.warning(f"[task_handler] Failed to remove agent task from memory: {e}")
 

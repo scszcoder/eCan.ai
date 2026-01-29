@@ -15,7 +15,8 @@
     "agid",
     "task_id",
     "ataskid",
-    "owner"
+    "owner",
+    "source"
   ],
   
   "json_serialize_fields": [

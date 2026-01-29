@@ -293,10 +293,10 @@ def handle_get_agents(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
             'message': 'Get all successful'
         }
         
-        # Debug: log the first agent's skills/tasks to verify serialization
+        # Debug: log the first agent's data to verify serialization
         if agents_data and len(agents_data) > 0:
             sample_agent = agents_data[0]
-            logger.info(f"[agent_handler] Sample agent data: id={sample_agent.get('id')}, skills={len(sample_agent.get('skills', []))}, tasks={len(sample_agent.get('tasks', []))}")
+            logger.info(f"[agent_handler] Sample agent data: id={sample_agent.get('id')}, name={sample_agent.get('name')}, owner={sample_agent.get('owner')}, skills={len(sample_agent.get('skills', []))}, tasks={len(sample_agent.get('tasks', []))}")
         
         # Sanitize for JSON serialization safety (handles Pydantic objects like TaskSendParams)
         safe_result = _json_safe(resultJS)
