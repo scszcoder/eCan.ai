@@ -1,9 +1,11 @@
 import React from 'react';
 import { Dropdown, IconButton, Toast } from '@douyinfe/semi-ui';
-import { IconFolderOpen, IconDeleteStroked, IconExit, IconPlus, IconLayers, IconEdit } from '@douyinfe/semi-icons';
+import { IconFolderOpen, IconDeleteStroked, IconExit, IconPlus, IconLayers, IconEdit, IconUpload, IconMinus } from '@douyinfe/semi-icons';
 import { useClientContext, usePlayground, WorkflowSelectService, WorkflowDocument, useService } from '@flowgram.ai/free-layout-editor';
 import { useSheetsStore } from '../../stores/sheets-store';
 import { IPCAPI } from '../../../../services/ipc/api';
+import { useSkillInfoStore } from '../../stores/skill-info-store';
+import { useUserStore } from '../../../../stores/userStore';
 
 /**
  * Minimal sheet menu - opens on click of a toolbar icon, similar to Add Node.
@@ -27,6 +29,11 @@ export const SheetsMenu: React.FC = () => {
   const loadBundle = useSheetsStore((s) => s.loadBundle);
   const renameSheet = useSheetsStore((s) => s.renameSheet);
   const getAllSheets = useSheetsStore((s) => s.getAllSheets);
+  
+  // Get skill info and username for register/unregister
+  const skillInfo = useSkillInfoStore((s) => s.skillInfo);
+  const currentFilePath = useSkillInfoStore((s) => s.currentFilePath);
+  const username = useUserStore((s) => s.username);
 
   const [visible, setVisible] = React.useState(false);
   const sheetList = React.useMemo(() => {
@@ -97,6 +104,84 @@ export const SheetsMenu: React.FC = () => {
     const name = prompt('Rename sheet to:');
     if (!name) return;
     renameSheet(activeId, name);
+  };
+
+  // ---- Register / Unregister Skill ----
+  const handleRegisterSkill = async () => {
+    if (!skillInfo) {
+      Toast.warning({ content: 'No skill loaded. Please open or create a skill first.' });
+      setVisible(false);
+      return;
+    }
+    if (!username) {
+      Toast.warning({ content: 'Not logged in. Please log in first.' });
+      setVisible(false);
+      return;
+    }
+
+    try {
+      console.info('[SheetsMenu] Registering skill:', skillInfo.skillName);
+      const ipc = IPCAPI.getInstance();
+      
+      // Build SkillInput from current skillInfo
+      const skillInput = {
+        name: skillInfo.skillName,
+        description: `Skill: ${skillInfo.skillName}`,
+        path: currentFilePath || undefined,
+        version: skillInfo.version || '1.0.0',
+        level: 'basic',
+        public: false,
+        rentable: false,
+      };
+
+      const resp = await ipc.newAgentSkill(username, skillInput);
+      if (resp.success) {
+        Toast.success({ content: `Skill "${skillInfo.skillName}" registered successfully!` });
+      } else {
+        Toast.error({ content: `Failed to register skill: ${resp.error?.message || 'unknown error'}` });
+      }
+    } catch (e) {
+      console.error('[SheetsMenu] register-skill error', e);
+      Toast.error({ content: 'Error registering skill' });
+    } finally {
+      setVisible(false);
+    }
+  };
+
+  const handleUnregisterSkill = async () => {
+    if (!skillInfo) {
+      Toast.warning({ content: 'No skill loaded. Please open a skill first.' });
+      setVisible(false);
+      return;
+    }
+    if (!username) {
+      Toast.warning({ content: 'Not logged in. Please log in first.' });
+      setVisible(false);
+      return;
+    }
+
+    const ok = confirm(`Unregister skill "${skillInfo.skillName}"? This will remove it from the agent skills registry.`);
+    if (!ok) {
+      setVisible(false);
+      return;
+    }
+
+    try {
+      console.info('[SheetsMenu] Unregistering skill:', skillInfo.skillId);
+      const ipc = IPCAPI.getInstance();
+      
+      const resp = await ipc.deleteAgentSkill(username, skillInfo.skillId);
+      if (resp.success) {
+        Toast.success({ content: `Skill "${skillInfo.skillName}" unregistered successfully!` });
+      } else {
+        Toast.error({ content: `Failed to unregister skill: ${resp.error?.message || 'unknown error'}` });
+      }
+    } catch (e) {
+      console.error('[SheetsMenu] unregister-skill error', e);
+      Toast.error({ content: 'Error unregistering skill' });
+    } finally {
+      setVisible(false);
+    }
   };
 
   // ---- Dev test driver: step simulation ----
@@ -222,6 +307,9 @@ export const SheetsMenu: React.FC = () => {
         <Dropdown.Menu>
           <Dropdown.Item icon={<IconPlus />} onClick={handleInsertSheetCall}>Insert Sheet Call…</Dropdown.Item>
           <Dropdown.Item icon={<IconPlus />} onClick={handleNew}>New Sheet</Dropdown.Item>
+          <Dropdown.Item icon={<IconUpload />} onClick={handleRegisterSkill} disabled={!skillInfo}>Register Skill</Dropdown.Item>
+          <Dropdown.Item icon={<IconMinus />} onClick={handleUnregisterSkill} disabled={!skillInfo}>Unregister Skill</Dropdown.Item>
+          <Dropdown.Divider />
           <Dropdown.Item icon={<IconFolderOpen />} onClick={handleOpen}>Open Sheet by ID</Dropdown.Item>
           <Dropdown.Item disabled>
             <span style={{ fontWeight: 600, color: '#666' }}>Open Sheet…</span>

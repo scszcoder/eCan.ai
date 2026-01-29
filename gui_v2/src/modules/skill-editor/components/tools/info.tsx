@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useClientContext } from '@flowgram.ai/free-layout-editor';
-import { Tooltip, IconButton, Modal, Input, Button, Typography } from '@douyinfe/semi-ui';
+import { Tooltip, IconButton, Modal, Input, Button, Typography, TextArea } from '@douyinfe/semi-ui';
 import { IconCodeStroked } from '@douyinfe/semi-icons';
 import { IconInfoColored } from './colored-icons';
 import { useCodeEditor } from '../code-editor';
@@ -19,6 +19,7 @@ export const Info = () => {
   const skillId = skillInfo?.skillId || '';
   const skillName = skillInfo?.skillName || '';
   const version = skillInfo?.version || '';
+  const description = skillInfo?.description || '';
   const lastModified = skillInfo?.lastModified || '';
   const jsonPreview = skillInfo ? JSON.stringify(skillInfo.workFlow, null, 2) : '';
 
@@ -46,6 +47,13 @@ export const Info = () => {
   const handleSkillNameChange = (v: string) => {
     if (skillInfo) {
       setSkillInfo({ ...skillInfo, skillName: v, lastModified: new Date().toISOString() });
+    }
+  };
+
+  // Description EditSave（instantly saves to skill-info-store）
+  const handleDescriptionChange = (v: string) => {
+    if (skillInfo) {
+      setSkillInfo({ ...skillInfo, description: v, lastModified: new Date().toISOString() });
     }
   };
 
@@ -92,6 +100,16 @@ export const Info = () => {
         <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center' }}>
           <Text type="secondary" style={{ minWidth: 100, textAlign: 'right', display: 'inline-block' }}>Last Modified:</Text>
           <Text style={{ marginLeft: 16 }}>{lastModified}</Text>
+        </div>
+        <div style={{ marginBottom: 16, display: 'flex', alignItems: 'flex-start' }}>
+          <Text type="secondary" style={{ minWidth: 100, textAlign: 'right', display: 'inline-block', paddingTop: 8 }}>Description:</Text>
+          <TextArea
+            value={description}
+            onChange={e => handleDescriptionChange(e)}
+            style={{ width: 500, marginLeft: 16, minHeight: 80, maxHeight: 150 }}
+            placeholder="Describe what this skill does..."
+            autosize={{ minRows: 3, maxRows: 6 }}
+          />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
           <Text type="secondary" style={{ flex: 1 }}>Code Preview:</Text>
