@@ -5,12 +5,14 @@ import { useUserStore } from '@/stores/userStore';
 import { avatarEventManager } from '@/services/avatarEventManager';
 import { ScenePriority } from '@/types/avatarScene';
 
+import { useAdStore } from '@/stores/adStore';
+
 const DEFAULT_WS_ENDPOINT = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql';
 const DEFAULT_WS_HOST = '3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com';
 
 const SUB_A2A = `subscription OnA2AMessageReceived($channelId: String!) {\n  onA2AMessageReceived(channelId: $channelId) {\n    id\n    channelId\n    senderId\n    sessionId\n    timestamp\n    message {\n      role\n      parts {\n        type\n        text\n        data\n        metadata\n        file {\n          name\n          uri\n          mimeType\n          bytes\n        }\n      }\n    }\n  }\n}`;
 
-const SUB_ACCOUNT_NOTIFICATION = `subscription OnAccountNotification($owner: ID!) {\n  onAccountNotification(owner: $owner) {\n    id\n    owner\n    type\n    title\n    message\n    cta_url\n    payload\n    created_at\n  }\n}`;
+const SUB_ACCOUNT_NOTIFICATION = `subscription OnAccountNotification($owner: String!) {\n  onAccountNotification(owner: $owner) {\n    id\n    owner\n    ntype\n    title\n    message\n    cta_url\n    payload\n    created_at\n  }\n}`;
 
 const SUB_AGENT_SCENE = `subscription OnAgentSceneEvent($acctSiteID: String!) {\n  onAgentSceneEvent(acctSiteID: $acctSiteID) {\n    id\n    scene_id\n    acctSiteID\n    agent_ids\n    status\n    label\n    description\n    actions\n    dialogs\n    duration_ms\n    trigger_events\n    images\n    thumbnails\n    video\n    timestamp\n  }\n}`;
 
@@ -18,10 +20,11 @@ const SUB_SCENE_COMPLETE = `subscription OnSceneComplete($acctSiteID: String!) {
 
 const SUB_TASK_STATUS = `subscription OnTaskStatus($runner: String!) {\n  onTaskStatus(runner: $runner) {\n    id\n    runID\n    runner\n    error\n    success\n    status\n    timestamp\n  }\n}`;
 
-const SUB_SKILL_EDITOR_STREAM = `subscription OnSkillEditorStreamEvent($owner: ID!) {\n  onSkillEditorStreamEvent(owner: $owner) {\n    eventId\n    owner\n    sessionId\n    flowgramId\n    eventType\n    payload\n    timestamp\n  }\n}`;
+const SUB_SKILL_EDITOR_STREAM = `subscription OnSkillEditorStreamEvent($owner: String!) {\n  onSkillEditorStreamEvent(owner: $owner) {\n    eventId\n    owner\n    sessionId\n    flowgramId\n    eventType\n    payload\n    timestamp\n  }\n}`;  // Note: owner is String! not ID!
 
 let activeSocket: WebSocket | null = null;
 let active = false;
+let userStoreUnsubscribe: (() => void) | null = null;
 
 const getEnv = () => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {});
 
@@ -82,7 +85,36 @@ const emitSceneComplete = (sceneResult: any) => {
 };
 
 const emitAccountNotification = (notification: any) => {
+  console.log('[AppSyncSubscriptions] emitAccountNotification:', notification);
   eventBus.emit('account:notification', notification);
+  
+  // Handle ad banner notifications
+  const ntype = notification?.ntype || '';
+  if (ntype === 'AD_BANNER' || ntype === 'WS_TEST') {
+    const adStore = useAdStore.getState();
+    const message = notification?.message || notification?.title || '';
+    const payload = typeof notification?.payload === 'string' 
+      ? JSON.parse(notification.payload) 
+      : notification?.payload || {};
+    
+    // Set banner ad with 60 second expiry (or from payload)
+    const durationMs = payload?.durationMs || 60000;
+    adStore.setBannerAd({
+      id: notification?.id || `ad-${Date.now()}`,
+      text: message,
+      expiresAt: Date.now() + durationMs,
+    });
+    console.log('[AppSyncSubscriptions] Set banner ad:', message);
+    
+    // If payload has popup HTML, set popup ad too
+    if (payload?.popupHtml) {
+      adStore.setPopupAd({
+        id: notification?.id || `popup-${Date.now()}`,
+        htmlContent: payload.popupHtml,
+        expiresAt: Date.now() + durationMs,
+      });
+    }
+  }
 };
 
 const emitA2AMessage = (message: any) => {
@@ -94,11 +126,15 @@ const emitTaskStatus = (taskStatus: any) => {
 };
 
 const emitSkillEditorStreamEvent = (evt: any) => {
+  console.log('[AppSyncSubscriptions] emitSkillEditorStreamEvent called with:', evt);
   const eventType = String(evt?.eventType || '').trim();
   const sessionId = String(evt?.sessionId || '').trim();
   const payload = maybeParseAwsJson(evt?.payload);
 
+  console.log('[AppSyncSubscriptions] parsed event:', { eventType, sessionId, payload });
+
   if (!eventType) {
+    console.log('[AppSyncSubscriptions] No eventType, ignoring');
     return;
   }
 
@@ -128,33 +164,48 @@ const emitSkillEditorStreamEvent = (evt: any) => {
       timestamp: payload?.timestamp || Date.now(),
       nodeId: payload?.node_id,
     };
+    console.log('[AppSyncSubscriptions] skill_editor.log received, emitting to skill-editor:log', entry);
     eventBus.emit('skill-editor:log', entry);
     return;
   }
 };
 
-export const startWebSubscriptions = () => {
+// Internal function to actually create the WebSocket connection
+const connectWebSocket = (owner: string) => {
   if (active) {
-    logger.warn('[AppSyncSubscriptions] Already running');
-    return () => {};
+    console.log('[AppSyncSubscriptions] Already connected, skipping');
+    return;
   }
 
   const env = getEnv();
   const settings = useSettingsStore.getState().settings;
-  const username = useUserStore.getState().username;
 
   const wsEndpoint = (settings?.ws_api_endpoint || env.VITE_APPSYNC_WS_ENDPOINT || DEFAULT_WS_ENDPOINT).trim();
   const wsHost = (settings?.ws_api_host || env.VITE_APPSYNC_WS_HOST || DEFAULT_WS_HOST).trim();
   const apiKey = (settings?.wan_api_key || env.VITE_APPSYNC_API_KEY || '').trim();
 
   const channelId = (env.VITE_A2A_CHANNEL_ID || '').trim();
-  const owner = (env.VITE_ACCOUNT_OWNER || username || '').trim();
-  const acctSiteID = (env.VITE_ACCT_SITE_ID || '').trim();
-  const taskRunner = (env.VITE_TASK_RUNNER || '').trim();
+  const acctSiteID = (env.VITE_ACCT_SITE_ID || `site-${owner}`).trim();
+  const taskRunner = (env.VITE_TASK_RUNNER || owner || '').trim();
+
+  console.log('[AppSyncSubscriptions] Connecting WebSocket with config:', {
+    wsEndpoint,
+    wsHost,
+    apiKey: apiKey ? `${apiKey.substring(0, 8)}...` : 'MISSING',
+    channelId,
+    owner,
+    acctSiteID,
+    taskRunner,
+  });
 
   if (!apiKey) {
     logger.warn('[AppSyncSubscriptions] Missing API key; subscriptions disabled');
-    return () => {};
+    return;
+  }
+
+  if (!owner) {
+    console.log('[AppSyncSubscriptions] No owner yet, waiting for login...');
+    return;
   }
 
   const headers = {
@@ -202,9 +253,10 @@ export const startWebSubscriptions = () => {
 
       if (owner) {
         subscriptionIds.skillEditorStream = `sub-skill-editor-stream-${Date.now()}`;
+        console.log('[AppSyncSubscriptions] Starting skill editor subscription with owner:', owner);
         sendStart(ws, subscriptionIds.skillEditorStream, SUB_SKILL_EDITOR_STREAM, { owner }, headers);
       } else {
-        logger.warn('[AppSyncSubscriptions] No owner provided; skill editor subscription skipped');
+        console.warn('[AppSyncSubscriptions] No owner provided; skill editor subscription skipped');
       }
 
       if (acctSiteID) {
@@ -225,24 +277,36 @@ export const startWebSubscriptions = () => {
       return;
     }
 
+    if (messageData.type === 'start_ack') {
+      console.log('[AppSyncSubscriptions] Subscription started:', messageData.id);
+      return;
+    }
+
     if (messageData.type === 'data') {
       const payload = messageData.payload?.data || {};
+      console.log('[AppSyncSubscriptions] Received data message, keys:', Object.keys(payload));
       if (payload.onA2AMessageReceived) {
+        console.log('[AppSyncSubscriptions] onA2AMessageReceived:', payload.onA2AMessageReceived);
         emitA2AMessage(payload.onA2AMessageReceived);
       }
       if (payload.onAccountNotification) {
+        console.log('[AppSyncSubscriptions] onAccountNotification:', payload.onAccountNotification);
         emitAccountNotification(payload.onAccountNotification);
       }
       if (payload.onAgentSceneEvent) {
+        console.log('[AppSyncSubscriptions] onAgentSceneEvent:', payload.onAgentSceneEvent);
         emitAgentSceneEvent(payload.onAgentSceneEvent);
       }
       if (payload.onSceneComplete) {
+        console.log('[AppSyncSubscriptions] onSceneComplete:', payload.onSceneComplete);
         emitSceneComplete(payload.onSceneComplete);
       }
       if (payload.onTaskStatus) {
+        console.log('[AppSyncSubscriptions] onTaskStatus:', payload.onTaskStatus);
         emitTaskStatus(payload.onTaskStatus);
       }
       if (payload.onSkillEditorStreamEvent) {
+        console.log('[AppSyncSubscriptions] >>> onSkillEditorStreamEvent RECEIVED <<<', payload.onSkillEditorStreamEvent);
         emitSkillEditorStreamEvent(payload.onSkillEditorStreamEvent);
       }
       return;
@@ -262,6 +326,44 @@ export const startWebSubscriptions = () => {
     active = false;
     activeSocket = null;
   };
+};
+
+// Main entry point - subscribes to user store and connects when user logs in
+export const startWebSubscriptions = () => {
+  console.log('[AppSyncSubscriptions] startWebSubscriptions called');
+  
+  // Check if already have a user
+  const currentUsername = useUserStore.getState().username;
+  if (currentUsername) {
+    console.log('[AppSyncSubscriptions] User already logged in:', currentUsername);
+    connectWebSocket(currentUsername);
+  } else {
+    console.log('[AppSyncSubscriptions] No user yet, will connect after login');
+  }
+
+  // Subscribe to user store changes to connect when user logs in
+  if (!userStoreUnsubscribe) {
+    userStoreUnsubscribe = useUserStore.subscribe((state, prevState) => {
+      const newUsername = state.username;
+      const oldUsername = prevState?.username;
+      
+      console.log('[AppSyncSubscriptions] User state changed:', { oldUsername, newUsername });
+      
+      if (newUsername && newUsername !== oldUsername) {
+        // User logged in - connect subscriptions
+        console.log('[AppSyncSubscriptions] User logged in, connecting subscriptions for:', newUsername);
+        // Close existing connection if any
+        if (active) {
+          stopWebSubscriptions();
+        }
+        connectWebSocket(newUsername);
+      } else if (!newUsername && oldUsername) {
+        // User logged out - disconnect subscriptions
+        console.log('[AppSyncSubscriptions] User logged out, disconnecting subscriptions');
+        stopWebSubscriptions();
+      }
+    });
+  }
 
   return () => {
     if (activeSocket && (activeSocket.readyState === WebSocket.OPEN || activeSocket.readyState === WebSocket.CONNECTING)) {
@@ -269,6 +371,10 @@ export const startWebSubscriptions = () => {
     }
     active = false;
     activeSocket = null;
+    if (userStoreUnsubscribe) {
+      userStoreUnsubscribe();
+      userStoreUnsubscribe = null;
+    }
   };
 };
 
