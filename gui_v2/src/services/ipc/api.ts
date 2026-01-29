@@ -345,6 +345,65 @@ export class IPCAPI {
     );
     }
 
+    public async getPrompts<T>(username: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+      {
+        method: 'get_prompts',
+        graphql: {
+          query: GRAPHQL_QUERIES.GET_ALL_MINE,
+          resultPath: 'getAllMine.prompts'
+        }
+      },
+      { username }
+    );
+    }
+
+    public async savePrompt<T>(username: string, prompt: any): Promise<APIResponse<T>> {
+        // Transform flat prompt to GraphQL format: { id, owner, prompt: AWSJSON, version }
+        const { id, owner, title, topic, sections, userSections, humanInputs, usageCount, source, readOnly, lastModified, ...rest } = prompt;
+        const promptInput = {
+          id: id || `pr-${Math.floor(Math.random() * 1_000_000)}`,
+          owner: owner || username,
+          prompt: JSON.stringify({
+            title: title || '',
+            topic: topic || '',
+            sections: sections || [],
+            userSections: userSections || [],
+            humanInputs: humanInputs || [],
+            usageCount: usageCount || 0,
+            source: source || 'my_prompts',
+            readOnly: false,
+            lastModified: lastModified || new Date().toISOString(),
+            ...rest
+          }),
+          version: prompt.version || '0.1'
+        };
+        
+        return apiRouter.execute(
+          {
+            method: 'save_prompt',
+            graphql: {
+              mutation: GRAPHQL_MUTATIONS.ADD_PROMPTS,
+              resultPath: 'addPrompts'
+            }
+          },
+          { username, input: [promptInput] }
+        );
+    }
+
+    public async deletePrompt<T>(username: string, id: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+          {
+            method: 'delete_prompt',
+            graphql: {
+              mutation: GRAPHQL_MUTATIONS.REMOVE_PROMPTS,
+              resultPath: 'removePrompts'
+            }
+          },
+          { username, input: [id] }
+        );
+    }
+
     public async getVehicles<T>(): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'get_vehicles' }, { });
     }
