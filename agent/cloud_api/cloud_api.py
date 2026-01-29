@@ -4342,10 +4342,10 @@ def subscribe_account_notifications(owner: str, id_token: str, ws_url: Optional[
             try:
                 subscription = (
                     """
-                    subscription OnAccountNotification($owner: ID!) {
+                    subscription OnAccountNotification($owner: String!) {
                       onAccountNotification(owner: $owner) {
                         id
-                        type
+                        ntype
                         title
                         message
                         payload
@@ -4484,12 +4484,12 @@ def handle_account_notification(notification: dict):
     Links notifications to ad banner and notification popup.
     
     Args:
-        notification: Dict with keys: id, type, title, message, payload, cta_url, created_at
+        notification: Dict with keys: id, ntype, title, message, payload, cta_url, created_at
     """
     try:
         from gui.ipc.w2p_handlers.ad_handler import push_ad_to_frontend
         
-        notification_type = notification.get("type", "")
+        notification_type = notification.get("ntype", "")
         title = notification.get("title", "")
         message = notification.get("message", "")
         payload = notification.get("payload", {})

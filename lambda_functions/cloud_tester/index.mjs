@@ -616,10 +616,12 @@ export const handler = async (event = {}) => {
     
     switch (testName) {
       case "C2L_WS_Test":
+      case "C2L_WS_TEST":
         result = await runC2LTest(appsyncUrl, appsyncKey, params);
         break;
         
       case "C2C_WS_Test":
+      case "C2C_WS_TEST":
         result = await runC2CTest(appsyncUrl, appsyncKey, params);
         break;
         
