@@ -10,7 +10,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 import httpx
 import websocket
 
-from agent.ec_skills.browser_use_extension.passive_agent import PassiveAgent
+from utils.logger_helper import logger_helper as logger
 from agent.ec_skills.browser_use_extension.passive_protocol import PassiveBrowserCommand, PassiveBrowserStepResult
 
 
@@ -109,15 +109,22 @@ def _publish_step_result_mutation() -> str:
 
 
 class AppSyncPassiveClient:
+    """AppSync WebSocket client for passive browser commands.
+    
+    This client subscribes to onPassiveCommand and dispatches commands
+    via a callback. It is decoupled from PassiveAgent to allow flexible
+    routing of commands to different handlers (e.g., task queues).
+    """
+    
     def __init__(
         self,
         *,
         config: AppSyncPassiveClientConfig,
-        passive_agent: PassiveAgent,
+        on_command_received: Callable[[PassiveBrowserCommand], None],
         on_error: Callable[[Exception], None] | None = None,
     ) -> None:
         self._config = config
-        self._agent = passive_agent
+        self._on_command_received = on_command_received
         self._on_error = on_error
 
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -129,10 +136,9 @@ class AppSyncPassiveClient:
         self._lock = threading.Lock()
 
     async def start(self) -> None:
+        logger.info(f"[AppSyncPassiveClient] Starting subscription for run_id={self._config.run_id}, client_id={self._config.client_id}")
         if self._loop is None:
             self._loop = asyncio.get_running_loop()
-
-        await self._agent.start()
 
         signed_ws_url = _make_signed_ws_url(
             self._config.ws_endpoint,
@@ -149,6 +155,7 @@ class AppSyncPassiveClient:
             msg_type = data.get("type")
 
             if msg_type == "connection_ack":
+                logger.info("[AppSyncPassiveClient] WebSocket connection acknowledged")
                 auth_headers = _build_auth_headers(self._config.auth_token)
                 data_obj = {
                     "query": _on_command_subscription(),
@@ -170,7 +177,9 @@ class AppSyncPassiveClient:
                 }
                 try:
                     ws.send(json.dumps(start_payload))
-                except Exception:
+                    logger.info(f"[AppSyncPassiveClient] Subscription started for run_id={self._config.run_id}")
+                except Exception as e:
+                    logger.error(f"[AppSyncPassiveClient] Failed to send subscription start: {e}")
                     return
                 return
 
@@ -189,18 +198,23 @@ class AppSyncPassiveClient:
                     cmd_raw = envelope.get("command")
                     cmd_obj = json.loads(cmd_raw) if isinstance(cmd_raw, str) else cmd_raw
                     cmd = PassiveBrowserCommand.model_validate(cmd_obj)
-                except Exception:
+                    logger.info(f"[AppSyncPassiveClient] Received command: run_id={cmd.run_id}, step_id={cmd.step_id}")
+                except Exception as e:
+                    logger.error(f"[AppSyncPassiveClient] Failed to parse command: {e}")
                     return
 
                 self._dispatch_command(cmd)
 
         def on_open(ws) -> None:
+            logger.info("[AppSyncPassiveClient] WebSocket opened, sending connection_init")
             try:
                 ws.send(json.dumps({"type": "connection_init", "payload": {}}))
-            except Exception:
+            except Exception as e:
+                logger.error(f"[AppSyncPassiveClient] Failed to send connection_init: {e}")
                 return
 
         def on_error(ws, error) -> None:
+            logger.error(f"[AppSyncPassiveClient] WebSocket error: {error}")
             exc = error if isinstance(error, Exception) else Exception(str(error))
             if self._on_error is not None:
                 try:
@@ -224,44 +238,21 @@ class AppSyncPassiveClient:
         self._ws_thread.start()
 
     def _dispatch_command(self, cmd: PassiveBrowserCommand) -> None:
-        loop = self._loop
-        if loop is None:
-            return
-
-        async def _handle() -> None:
-            try:
-                await self._handle_command(cmd)
-            except Exception as e:
-                if self._on_error is not None:
-                    self._on_error(e)
-
-        try:
-            loop.call_soon_threadsafe(lambda: asyncio.create_task(_handle()))
-        except Exception:
-            return
-
-    async def _handle_command(self, cmd: PassiveBrowserCommand) -> None:
+        """Dispatch command to the registered callback."""
         if self._stopped:
+            logger.debug("[AppSyncPassiveClient] Ignoring command - client stopped")
             return
-
-        payload = await self._agent.execute_actions(
-            cmd.actions,
-            stop_on_error=bool(cmd.stop_on_error),
-            include_screenshot=bool(cmd.include_screenshot),
-        )
-
-        result = PassiveBrowserStepResult(
-            run_id=cmd.run_id,
-            step_id=cmd.step_id,
-            ok=not bool(payload.get("errors")),
-            elapsed_ms=int(payload.get("elapsed_ms") or 0),
-            actions=payload.get("actions") or [],
-            action_results=payload.get("action_results") or [],
-            errors=payload.get("errors") or [],
-            browser=payload.get("browser") or {},
-        )
-
-        await self._publish_step_result(result)
+        
+        try:
+            logger.debug(f"[AppSyncPassiveClient] Dispatching command: {cmd.step_id}")
+            self._on_command_received(cmd)
+        except Exception as e:
+            logger.error(f"[AppSyncPassiveClient] Error dispatching command: {e}")
+            if self._on_error is not None:
+                try:
+                    self._on_error(e)
+                except Exception:
+                    pass
 
     async def _publish_step_result(self, result: PassiveBrowserStepResult) -> None:
         envelope = {
@@ -292,17 +283,30 @@ class AppSyncPassiveClient:
     async def stop(self) -> None:
         with self._lock:
             self._stopped = True
-        try:
-            if self._ws is not None:
-                try:
-                    self._ws.close()
-                except Exception:
-                    pass
-        finally:
-            await self._agent.stop()
+        if self._ws is not None:
+            try:
+                self._ws.close()
+            except Exception:
+                pass
 
 
-def make_appsync_passive_client_from_env(*, passive_agent: PassiveAgent) -> AppSyncPassiveClient:
+def make_appsync_passive_client_from_env(
+    *,
+    on_command_received: Callable[[PassiveBrowserCommand], None],
+    on_error: Callable[[Exception], None] | None = None,
+) -> AppSyncPassiveClient:
+    """Create an AppSyncPassiveClient from environment variables.
+    
+    Required env vars:
+        EC_APPSYNC_HTTP_ENDPOINT: AppSync HTTP endpoint
+        EC_APPSYNC_TOKEN: API key or JWT token
+        EC_BROWSER_PASSIVE_RUN_ID: Run ID to subscribe to (or '*' for all)
+        EC_BROWSER_PASSIVE_CLIENT_ID: Client ID for this subscriber
+    
+    Optional env vars:
+        EC_APPSYNC_WS_ENDPOINT: WebSocket endpoint (derived from HTTP if not set)
+        EC_APPSYNC_HOST: API host (derived from endpoints if not set)
+    """
     http_endpoint = (os.environ.get("EC_APPSYNC_HTTP_ENDPOINT") or "").strip()
     if not http_endpoint:
         raise ValueError("Missing EC_APPSYNC_HTTP_ENDPOINT")
@@ -331,4 +335,8 @@ def make_appsync_passive_client_from_env(*, passive_agent: PassiveAgent) -> AppS
         run_id=run_id,
         client_id=client_id,
     )
-    return AppSyncPassiveClient(config=cfg, passive_agent=passive_agent)
+    return AppSyncPassiveClient(
+        config=cfg,
+        on_command_received=on_command_received,
+        on_error=on_error,
+    )
