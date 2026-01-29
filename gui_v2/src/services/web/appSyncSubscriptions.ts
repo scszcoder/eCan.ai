@@ -6,6 +6,8 @@ import { avatarEventManager } from '@/services/avatarEventManager';
 import { ScenePriority } from '@/types/avatarScene';
 
 import { useAdStore } from '@/stores/adStore';
+import { localWebSocketClient } from './localWebSocketClient';
+import { initWebSocketEventListeners } from './wsEventListeners';
 
 const DEFAULT_WS_ENDPOINT = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql';
 const DEFAULT_WS_HOST = '3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com';
@@ -199,7 +201,22 @@ const connectWebSocket = (owner: string) => {
   });
 
   if (!apiKey) {
-    logger.warn('[AppSyncSubscriptions] Missing API key; subscriptions disabled');
+    logger.warn('[AppSyncSubscriptions] Missing API key; AppSync subscriptions disabled');
+    
+    // In desktop mode (no API key), connect to local WebSocket instead
+    // The Python backend subscribes to AppSync and forwards notifications via local WebSocket
+    console.log('[AppSyncSubscriptions] Attempting to connect local WebSocket for desktop mode...');
+    initWebSocketEventListeners();
+    // Force=true to bypass shouldUseLocalWebSocket check - we already know we need it
+    localWebSocketClient.connect(true).then(connected => {
+      if (connected) {
+        console.log('[AppSyncSubscriptions] ✅ Local WebSocket connected - will receive push notifications via local server');
+      } else {
+        console.log('[AppSyncSubscriptions] ⚠️ Local WebSocket not connected - push notifications may not work');
+      }
+    }).catch(err => {
+      console.error('[AppSyncSubscriptions] Local WebSocket connection error:', err);
+    });
     return;
   }
 
