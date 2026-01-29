@@ -41,7 +41,34 @@ export const hydrateStoresFromAllMine = (allMine: GetAllMineResponse) => {
     useKnowledgeStore.getState().setItems(allMine.knowledges as any);
   }
   if (Array.isArray(allMine.prompts)) {
-    usePromptStore.setState({ prompts: allMine.prompts as any, fetched: true, loading: false, error: null });
+    // Transform GraphQL format to frontend format
+    // GraphQL returns: { id, owner, prompt: { title, sections, ... }, version }
+    // Frontend expects: { id, title, sections, ... }
+    // Note: AWSJSON fields may come as strings that need parsing
+    const transformedPrompts = allMine.prompts.map((p: any) => {
+      let nested = p.prompt;
+      // AWSJSON may be a string that needs parsing
+      if (typeof nested === 'string') {
+        try {
+          nested = JSON.parse(nested);
+        } catch (e) {
+          console.warn('[webStoreSync] Failed to parse prompt AWSJSON:', e);
+          nested = null;
+        }
+      }
+      if (nested && typeof nested === 'object') {
+        const { prompt: _, ...rest } = p;
+        return {
+          ...rest,
+          ...nested,
+          id: rest.id || nested.id,
+          owner: rest.owner || nested.owner
+        };
+      }
+      return p;
+    });
+    console.log('[webStoreSync] Transformed prompts:', transformedPrompts.slice(0, 2));
+    usePromptStore.setState({ prompts: transformedPrompts as any, fetched: true, loading: false, error: null });
   }
   if (allMine.orgs) {
     useOrgStore.getState().setAllOrgAgents({ orgs: allMine.orgs as any, message: 'ok' });

@@ -22,10 +22,34 @@ export const usePromptStore = create<PromptStoreState>((set, get) => ({
     if (get().loading && !force) return;
     set({ loading: true, error: null });
     try {
-      const res: APIResponse<{ prompts: Prompt[] }> = await IPCAPI.getInstance().executeRequest('get_prompts', { username });
+      // Use getPrompts which routes through GraphQL getAllMine.prompts for web app
+      const res: APIResponse<Prompt[] | { prompts: Prompt[] }> = await IPCAPI.getInstance().getPrompts(username);
       if (!res.success) throw new Error(res.error?.message || 'Failed to fetch prompts');
-      const list = (res.data?.prompts ?? []) as Prompt[];
-      set({ prompts: list, loading: false, fetched: true });
+      // Handle both formats: direct array (from resultPath extraction) or { prompts: [...] }
+      const rawPrompts = Array.isArray(res.data) 
+        ? res.data 
+        : (res.data as { prompts: Prompt[] })?.prompts ?? [];
+      
+      // Transform GraphQL format to frontend format
+      // GraphQL returns: { id, owner, prompt: { title, sections, ... }, version }
+      // Frontend expects: { id, title, sections, ... }
+      const incoming = rawPrompts.map((p: any) => {
+        // If prompt has nested 'prompt' field (GraphQL format), flatten it
+        if (p.prompt && typeof p.prompt === 'object') {
+          const { prompt: nested, ...rest } = p;
+          return {
+            ...rest,
+            ...nested,
+            // Ensure id is preserved from top level
+            id: rest.id || nested.id,
+            owner: rest.owner || nested.owner
+          };
+        }
+        // Already flat format (desktop app or already transformed)
+        return p;
+      });
+      
+      set({ prompts: incoming, loading: false, fetched: true });
     } catch (e: any) {
       set({ loading: false, error: e?.message || 'Unknown error' });
     }
@@ -35,9 +59,11 @@ export const usePromptStore = create<PromptStoreState>((set, get) => ({
       return null;
     }
     try {
-      const res: APIResponse<{ prompt: Prompt }> = await IPCAPI.getInstance().executeRequest('save_prompt', { username, prompt });
+      // Use savePrompt which routes through GraphQL addPrompts mutation
+      const res: APIResponse<any> = await IPCAPI.getInstance().savePrompt(username, prompt);
       if (!res.success) throw new Error(res.error?.message || 'Failed to save');
-      const saved = res.data?.prompt ?? prompt;
+      // The saved prompt - use the input prompt since mutation returns { id, success, error }
+      const saved = { ...prompt, readOnly: false, source: 'my_prompts' as const };
       set((state) => {
         const exists = state.prompts.some(p => p.id === saved.id);
         const prompts = exists
@@ -47,16 +73,19 @@ export const usePromptStore = create<PromptStoreState>((set, get) => ({
       });
       return saved;
     } catch (e) {
+      console.error('[promptStore] Save failed:', e);
       return null;
     }
   },
   remove: async (username: string, id: string) => {
     try {
-      const res: APIResponse<any> = await IPCAPI.getInstance().executeRequest('delete_prompt', { username, id });
+      // Use deletePrompt which routes through GraphQL removePrompts mutation
+      const res: APIResponse<any> = await IPCAPI.getInstance().deletePrompt(username, id);
       if (!res.success) throw new Error(res.error?.message || 'Failed to delete');
       set((state) => ({ prompts: state.prompts.filter(p => p.id !== id) }));
       return true;
     } catch (e) {
+      console.error('[promptStore] Delete failed:', e);
       return false;
     }
   },
