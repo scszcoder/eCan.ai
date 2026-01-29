@@ -271,6 +271,21 @@ class AppWebSocketManager:
             "payload": data
         })
     
+    # ==================== Ad Banner Events ====================
+    
+    async def send_push_ad(self, banner_text: str = None, popup_html: str = None, duration_ms: int = 60000):
+        """Push an ad banner to all clients."""
+        logger.info(f"[AppWS] 📢 Pushing ad banner to all clients: banner={bool(banner_text)}, popup={bool(popup_html)}")
+        await self.broadcast({
+            "type": "push_ad",
+            "eventType": "push_ad",
+            "payload": {
+                "bannerText": banner_text,
+                "popupHtml": popup_html,
+                "durationMs": duration_ms
+            }
+        })
+
     # ==================== Chat Events ====================
     
     async def send_push_chat_message(self, chat_id: str, message: dict):

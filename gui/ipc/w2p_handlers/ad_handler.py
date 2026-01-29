@@ -61,7 +61,7 @@ def push_ad_to_frontend(banner_text: str = None, popup_html: str = None, duratio
     """
     Utility function to push an ad to the frontend from anywhere in the backend.
     
-    This broadcasts the ad to all connected frontends.
+    This broadcasts the ad to all connected frontends via the Local WebSocket server.
     
     Args:
         banner_text: Text to display in the scrolling banner
@@ -77,32 +77,32 @@ def push_ad_to_frontend(banner_text: str = None, popup_html: str = None, duratio
         )
     """
     try:
-        from gui.ipc.api import IPCAPI
+        import asyncio
+        from gui.LocalServer import app_ws_manager
         
-        try:
-            ipc_api = IPCAPI.get_instance()
-        except RuntimeError:
-            logger.warning("[AdHandler] IPCAPI not initialized yet")
-            return False
+        async def _push():
+            await app_ws_manager.send_push_ad(
+                banner_text=banner_text,
+                popup_html=popup_html,
+                duration_ms=duration_ms
+            )
         
-        def callback(response):
-            if response.success:
-                logger.info(f"[AdHandler] Ad push confirmed by frontend")
-            else:
-                logger.warning(f"[AdHandler] Ad push failed: {response.error}")
+        # Get the event loop from app_ws_manager or create one
+        loop = app_ws_manager._event_loop
+        if loop and loop.is_running():
+            # Schedule the coroutine in the running loop
+            asyncio.run_coroutine_threadsafe(_push(), loop)
+            logger.info(f"[AdHandler] Ad push scheduled: banner={bool(banner_text)}, popup={bool(popup_html)}")
+        else:
+            # No running loop, try to run directly
+            try:
+                asyncio.run(_push())
+                logger.info(f"[AdHandler] Ad push sent: banner={bool(banner_text)}, popup={bool(popup_html)}")
+            except RuntimeError:
+                # Already in an async context or no loop available
+                logger.warning("[AdHandler] Cannot push ad - no event loop available")
+                return False
         
-        # Use the IPCAPI to send the push_ad request
-        ipc_api._send_request(
-            'push_ad',
-            params={
-                'bannerText': banner_text,
-                'popupHtml': popup_html,
-                'durationMs': duration_ms
-            },
-            callback=callback
-        )
-        
-        logger.info(f"[AdHandler] Ad push request sent: banner={bool(banner_text)}, popup={bool(popup_html)}")
         return True
         
     except Exception as e:

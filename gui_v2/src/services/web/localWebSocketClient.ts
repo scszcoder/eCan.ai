@@ -9,6 +9,7 @@
 import { getSettings } from '../../stores/settingsStore';
 import { detectPlatform } from '../../config/platform';
 import { eventBus } from '../../utils/eventBus';
+import { useAdStore } from '../../stores/adStore';
 
 type MessageHandler = (data: any) => void;
 
@@ -241,6 +242,33 @@ class LocalWebSocketClient {
   }
 
   /**
+   * Handle push_ad event from local backend
+   */
+  private handlePushAd(payload: { bannerText?: string; popupHtml?: string; durationMs?: number }): void {
+    const store = useAdStore.getState();
+    const durationMs = payload.durationMs || 60000;
+    const expiresAt = Date.now() + durationMs;
+
+    if (payload.bannerText) {
+      store.setBannerAd({
+        id: `ad-banner-${Date.now()}`,
+        text: payload.bannerText,
+        expiresAt,
+      });
+      console.log('[LocalWS] 📢 Set banner ad:', payload.bannerText.substring(0, 50));
+    }
+
+    if (payload.popupHtml) {
+      store.setPopupAd({
+        id: `ad-popup-${Date.now()}`,
+        htmlContent: payload.popupHtml,
+        expiresAt,
+      });
+      console.log('[LocalWS] 📢 Set popup ad');
+    }
+  }
+
+  /**
    * Handle incoming WebSocket messages
    */
   private handleMessage(data: string): void {
@@ -391,6 +419,13 @@ class LocalWebSocketClient {
       case 'push_chat_notification':
         console.log('[LocalWS] 🔔 Emitting push_chat_notification');
         eventBus.emit('ws:push_chat_notification', eventPayload);
+        break;
+      
+      // ==================== Ad Banner Events ====================
+      case 'push_ad':
+        console.log('[LocalWS] 📢 Emitting push_ad:', { bannerText: eventPayload.bannerText?.substring(0, 50), hasPopup: !!eventPayload.popupHtml });
+        // Directly update ad store for local desktop mode
+        this.handlePushAd(eventPayload);
         break;
       
       // ==================== Skill Run Events ====================
