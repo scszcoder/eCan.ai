@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { useDetailView } from '@/hooks/useDetailView';
 import { useTaskStore } from '@/stores/domain/taskStore';
 import { useUserStore } from '@/stores/userStore';
@@ -7,7 +7,7 @@ import { logger } from '../../../utils/logger';
 import { message } from 'antd';
 
 export const useTasks = () => {
-  // 使用新的 taskStore
+  // Use the new taskStore
   const tasks = useTaskStore((state) => state.items);
   const isLoading = useTaskStore((state) => state.loading);
   const error = useTaskStore((state) => state.error);
@@ -42,7 +42,7 @@ export const useTasks = () => {
     fetchTasks();
   }, [fetchTasks]);
 
-  // DisplayErrorInformation
+  // Display error information
   useEffect(() => {
     if (error) {
       message.error(error);
@@ -50,11 +50,18 @@ export const useTasks = () => {
   }, [error]);
 
   const handleRefresh = useCallback(async () => {
-    if (!username) return;
+    if (!username) {
+      logger.warn('[useTasks] handleRefresh called but no username');
+      return;
+    }
 
+    logger.info('[useTasks] handleRefresh starting for user:', username);
     setLoading(true);
     try {
       await forceRefresh(username);
+      // Log the updated tasks count after refresh
+      const updatedTasks = useTaskStore.getState().items;
+      logger.info('[useTasks] handleRefresh completed, tasks count:', updatedTasks.length);
     } catch (error) {
       logger.error('[useTasks] Error refreshing tasks:', error);
       message.error('Failed to refresh tasks');

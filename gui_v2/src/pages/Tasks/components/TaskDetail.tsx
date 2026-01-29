@@ -4,6 +4,8 @@ import {
   CloseOutlined,
   DeleteOutlined,
   LockOutlined,
+  PlusOutlined,
+  MinusCircleOutlined,
 } from '@ant-design/icons';
 import { Button, Space, Form, Input, Row, Col, Select, DatePicker, App, Checkbox } from 'antd';
 import { useTranslation } from 'react-i18next';
@@ -26,6 +28,9 @@ import {
 // Typography components (currently unused but available for future use)
 // const { Text, Title } = Typography;
 
+// Generate a unique task ID
+const generateTaskId = () => `task_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`; 
+
 const DEFAULT_TASK = {
   id: '',
   name: '',
@@ -33,6 +38,7 @@ const DEFAULT_TASK = {
   cloud_based: false,
   priority: 'none',
   trigger: 'schedule',
+  skills: [] as string[],  // Support multiple skills
   schedule: {
     repeat_type: 'none',
     repeat_number: 1,
@@ -69,7 +75,7 @@ const REPEAT_OPTIONS = [
 interface TaskDetailProps {
   task: Task | null | object;
   isNew?: boolean;
-  onSave?: (taskId?: string) => void; // 修改：支持传递新创建的task ID
+  onSave?: (taskId?: string) => void; // ä¿®æ”¹ï¼šæ”¯æŒä¼ é€’æ–°åˆ›å»ºçš„task ID
   onCancel?: () => void;
   onDelete?: () => void;
 }
@@ -81,6 +87,7 @@ type ExtendedTask = Task & {
   description?: string;
   latest_version?: string;
   metadata_text?: string; // stringified metadata for editing
+  skills?: string[];  // Support multiple skills
 };
 
 // Helper to safely convert to dayjs object
@@ -131,20 +138,23 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   const setSkills = useSkillStore((s) => s.setItems);
 
   // Extract only id and name to avoid circular reference in deep comparison
-  const skillsSimplified = React.useMemo(() => 
-    (skills || []).map((s: any) => ({ id: s.id, name: s.name })), 
-    [skills?.length]  // Only depend on length, not the complex objects
-  );
+  const skillsSimplified = React.useMemo(() => {
+    const result = (skills || []).map((s: any) => ({ id: s.id, name: s.name }));
+    console.log('[TaskDetail] skillsSimplified updated:', result.length, 'skills');
+    return result;
+  }, [skills]);  // Depend on skills to ensure updates when store changes
 
   // Memoize skill options to avoid circular reference warnings
-  const skillOptions = React.useMemo(() => 
-    skillsSimplified.map((s) => ({ 
+  const skillOptions = React.useMemo(() => {
+    console.log('[TaskDetail] Building skillOptions from', skillsSimplified.length, 'skills');
+    return skillsSimplified.map((s) => ({ 
       key: s.id || s.name,
       value: s.name, 
       label: s.name 
-    })), [skillsSimplified]
-  );
+    }));
+  }, [skillsSimplified]);
 
+  // Fetch skills on mount - always fetch to ensure we have the latest
   React.useEffect(() => {
     const api = get_ipc_api();
     const ensureSkills = async () => {
@@ -154,40 +164,56 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
           const loginInfo = await api.getLastLoginInfo<{ last_login: { username: string } }>();
           if (loginInfo?.success) uname = loginInfo.data?.last_login?.username || '';
         }
-        if (uname && (!skills || skills.length === 0)) {
-          const res = await api.getAgentSkills<{ skills: any[] }>(uname, []);
-          if (res?.success && res.data?.skills) setSkills(res.data.skills as any);
+        if (uname) {
+          console.log('[TaskDetail] Fetching skills for user:', uname);
+          const res = await api.getAgentSkills<any[]>(uname, []);
+          // API returns skills array directly in res.data (not res.data.skills)
+          // due to resultPath: 'getAllMine.skills' in api config
+          const skillsData = res?.data?.skills || res?.data;
+          if (res?.success && Array.isArray(skillsData) && skillsData.length > 0) {
+            console.log('[TaskDetail] Loaded skills:', skillsData.length);
+            setSkills(skillsData as any);
+          } else {
+            console.warn('[TaskDetail] No skills returned or error:', res);
+          }
         }
       } catch (e) {
-        // silent fail
+        console.error('[TaskDetail] Error fetching skills:', e);
       }
     };
     ensureSkills();
-  }, [username, skills?.length, setSkills]);
+  }, [username, setSkills]);
 
   React.useEffect(() => {
     if (task) {
       // Skill comes directly from task (loaded from relationship table)
       const taskSkill = (task as any).skill || '';
+      const taskSkills = (task as any).skills || (taskSkill ? [taskSkill] : []);
       
       // Metadata is clean (no skill stored in it anymore)
       const metadata = (task as any).metadata || {};
       const metaStr = Object.keys(metadata).length > 0 ? JSON.stringify(metadata, null, 2) : '';
 
-      // 使用 name Field，If不存在则使用 skill Field作为后备
+      // ä½¿ç”¨ name Fieldï¼ŒIfä¸å­˜åœ¨åˆ™ä½¿ç”¨ skill Fieldä½œä¸ºåŽå¤‡
       const taskName = (task as any).name || taskSkill || '';
 
-      // 使用 description Field，If不存在则使用 metadata 中的Description作为后备
+      // ä½¿ç”¨ description Fieldï¼ŒIfä¸å­˜åœ¨åˆ™ä½¿ç”¨ metadata ä¸­çš„Descriptionä½œä¸ºåŽå¤‡
       const taskDescription = (task as any).description
         || (task as any).metadata?.description
         || '';
 
-      // 确保AllField都正确Settings
+      // ç¡®ä¿AllFieldéƒ½æ­£ç¡®Settings
+      // For new tasks, auto-generate ID and set owner
+      const taskId = isNew ? generateTaskId() : (task as any).id;
+      const taskOwner = isNew ? username : ((task as any).owner || username);
+
       const formValues = {
         ...(task as any),
+        id: taskId,
+        owner: taskOwner,
         name: taskName,
         description: taskDescription,
-        skill: taskSkill,  // Skill from backend (relationship table)
+        skills: taskSkills,  // Multiple skills support
         metadata_text: metaStr,
       };
 
@@ -196,17 +222,17 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       form.resetFields();
       setEditMode(false);
     }
-  }, [task, form]);
+  }, [task, form, isNew, username]);
 
   const handleCancel = () => {
     if (isNew) {
-      // 新建模式：清空Form并Notification父ComponentClose面板
+      // æ–°å»ºæ¨¡å¼ï¼šæ¸…ç©ºFormå¹¶Notificationçˆ¶ComponentCloseé¢æ¿
       form.resetFields();
       if (onCancel) {
         onCancel();
       }
     } else {
-      // Edit模式：Restore原始Data并退出Edit模式（不Close面板）
+      // Editæ¨¡å¼ï¼šRestoreåŽŸå§‹Dataå¹¶é€€å‡ºEditæ¨¡å¼ï¼ˆä¸Closeé¢æ¿ï¼‰
       if (task) {
         const metaStr = (task as any).metadata ? JSON.stringify((task as any).metadata, null, 2) : '';
         const taskName = (task as any).name || (task as any).skill || '';
@@ -216,6 +242,8 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         
         const formValues = {
           ...(task as any),
+          id: (task as any).id,
+          owner: (task as any).owner || username,
           name: taskName,
           description: taskDescription,
           metadata_text: metaStr,
@@ -224,7 +252,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         form.setFieldsValue(formValues);
       }
       setEditMode(false);
-      // Edit模式下不调用 onCancel，保持面板Open
+      // Editæ¨¡å¼ä¸‹ä¸è°ƒç”¨ onCancelï¼Œä¿æŒé¢æ¿Open
     }
   };
 
@@ -251,21 +279,22 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
     try {
       const values = await form.validateFields();
       
-      // Find skill object by name (use simplified skills to avoid circular refs)
-      const skillName = (values as any).skill || '';
-      const skillObj = skillName ? skillsSimplified.find(s => s.name === skillName) : null;
+      // Get skills array from form values and filter out empty values
+      const skillNames = ((values as any).skills || []).filter((s: string) => s && s.trim());
+      // Find skill objects by name (use simplified skills to avoid circular refs)
+      const skillObjs = skillNames.map((name: string) => skillsSimplified.find(s => s.name === name)).filter(Boolean);
       
       const payload: any = {
         id: (values as any).id,
         name: (values as any).name || t('pages.tasks.newTaskName', 'New Task'),
-        owner: username,
+        owner: (values as any).owner || username,
         description: (values as any).description || '',
         cloud_based: !!(values as any).cloud_based,
         latest_version: (values as any).latest_version || '1.0.0',
         priority: (values as any).priority || 'medium',
         trigger: (values as any).trigger || 'manual',
-        skill_id: skillObj?.id || null,  // Pass skill_id instead of skill name
-        skill_name: skillName,  // Also pass name for backward compatibility
+        skills: skillNames,  // Pass skills array
+        skill_ids: skillObjs.map((s: any) => s?.id).filter(Boolean),  // Pass skill IDs for backend
         schedule: {
           repeat_type: (values as any).schedule?.repeat_type || 'none',
           repeat_number: (values as any).schedule?.repeat_number || 1,
@@ -291,12 +320,12 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       if (response.success) {
         message.success(t(isNew ? 'common.createSuccess' : 'common.saveSuccess'));
         setEditMode(false);
-        // 传递新创建的task ID给父组件
+        // ä¼ é€’æ–°åˆ›å»ºçš„task IDç»™çˆ¶ç»„ä»¶
         if (onSave) {
-          // API返回的task_id在response.data.task_id
+          // APIè¿”å›žçš„task_idåœ¨response.data.task_id
           const newTaskId = isNew ? (response as any).data?.task_id || (response as any).data?.id || (response as any).data?.task?.id || payload.id : undefined;
-          console.log('[TaskDetail] 保存成功，Task ID:', newTaskId);
-          console.log('[TaskDetail] API响应数据:', response.data);
+          console.log('[TaskDetail] ä¿å­˜æˆåŠŸï¼ŒTask ID:', newTaskId);
+          console.log('[TaskDetail] APIå“åº”æ•°æ®:', response.data);
           onSave(newTaskId);
         }
       } else {
@@ -317,7 +346,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
     showDeleteConfirm({
       title: t('pages.tasks.deleteConfirmTitle', 'Delete Task'),
       message: t('pages.tasks.deleteConfirmMessage', `Are you sure you want to delete "${(task as any)?.name}"? This action cannot be undone.`),
-      warningText: t('pages.tasks.deleteWarning', '此Operation无法撤销'),
+      warningText: t('pages.tasks.deleteWarning', 'æ­¤Operationæ— æ³•æ’¤é”€'),
       okText: t('common.delete', 'Delete'),
       cancelText: t('common.cancel', 'Cancel'),
       onOk: async () => {
@@ -356,13 +385,13 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
           height: '100%',
           color: '#999'
         }}>
-          {t('pages.tasks.selectTask', '请Select一个任务')}
+          {t('pages.tasks.selectTask', 'è¯·Selectä¸€ä¸ªä»»åŠ¡')}
         </div>
       </FormContainer>
     );
   }
 
-  // 使用 useEffectOnActive 在ComponentActive时RestoreScrollPosition
+  // ä½¿ç”¨ useEffectOnActive åœ¨ComponentActiveæ—¶RestoreScrollPosition
   useEffectOnActive(
     () => {
       const container = scrollContainerRef.current;
@@ -411,8 +440,8 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
 
               <Row gutter={[24, 0]} style={{ marginTop: '16px' }}>
                 <Col span={12}>
-                  <StyledFormItem label={t('pages.tasks.taskId', '任务 ID')} name="id" htmlFor="task-id">
-                    <Input id="task-id" readOnly aria-label={t('pages.tasks.taskId', '任务 ID')} />
+                  <StyledFormItem label={t('pages.tasks.taskId', 'ä»»åŠ¡ ID')} name="id" htmlFor="task-id">
+                    <Input id="task-id" readOnly aria-label={t('pages.tasks.taskId', 'ä»»åŠ¡ ID')} />
                   </StyledFormItem>
                 </Col>
                 <Col span={12}>
@@ -472,32 +501,62 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                   </StyledFormItem>
                 </Col>
                 <Col span={24}>
-                  <StyledFormItem 
-                    label={t('pages.tasks.skill', 'Skill')} 
-                    name="skill" 
-                    htmlFor="task-skill"
-                  >
-                    {editMode || isNew ? (
-                      <Select
-                        id="task-skill"
-                        allowClear
-                        showSearch
-                        size="large"
-                        placeholder={t('pages.tasks.skillPlaceholder', 'Select a skill')}
-                        onChange={(value) => {
-                          // Explicitly set empty string when cleared (value is undefined when cleared)
-                          form.setFieldValue('skill', value ?? '');
-                        }}
-                        options={skillOptions}
-                        filterOption={(input, option) =>
-                          (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                        }
-                        aria-label={t('pages.tasks.skill', 'Skill')}
-                      />
-                    ) : (
-                      <Input id="task-skill" readOnly aria-label={t('pages.tasks.skill', 'Skill')} />
+                  <Form.List name="skills">
+                    {(fields, { add, remove }) => (
+                      <>
+                        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+                          <span style={{ fontWeight: 500, color: 'rgba(255, 255, 255, 0.85)' }}>
+                            {t('pages.tasks.skills', 'Associated Skills')}
+                          </span>
+                          {(editMode || isNew) && (
+                            <Button
+                              type="link"
+                              onClick={() => add('')}
+                              icon={<PlusOutlined />}
+                              style={{ marginLeft: 8 }}
+                            >
+                              {t('common.add', 'Add')}
+                            </Button>
+                          )}
+                        </div>
+                        {fields.length === 0 && (
+                          <div style={{ color: 'rgba(255, 255, 255, 0.45)', marginBottom: 16 }}>
+                            {t('pages.tasks.noSkillsAssociated', 'No skills associated. Click Add to associate a skill.')}
+                          </div>
+                        )}
+                        {fields.map(({ key, name, ...restField }) => (
+                          <div key={key} style={{ display: 'flex', alignItems: 'center', marginBottom: 8, gap: 8 }}>
+                            <Form.Item
+                              {...restField}
+                              name={name}
+                              style={{ flex: 1, marginBottom: 0 }}
+                            >
+                              {editMode || isNew ? (
+                                <Select
+                                  showSearch
+                                  allowClear
+                                  size="large"
+                                  placeholder={t('pages.tasks.selectSkill', 'Select a skill')}
+                                  options={skillOptions}
+                                  filterOption={(input, option) =>
+                                    (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+                                  }
+                                />
+                              ) : (
+                                <Input readOnly size="large" />
+                              )}
+                            </Form.Item>
+                            {(editMode || isNew) && fields.length > 0 && (
+                              <MinusCircleOutlined
+                                onClick={() => remove(name)}
+                                style={{ color: '#ff4d4f', fontSize: 18, cursor: 'pointer' }}
+                              />
+                            )}
+                          </div>
+                        ))}
+                      </>
                     )}
-                  </StyledFormItem>
+                  </Form.List>
                 </Col>
 
                 <Col span={24}>
@@ -527,7 +586,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                             textTransform: 'uppercase',
                             letterSpacing: '0.5px'
                           }}>
-                            {t('pages.tasks.repeatSettings', '重复Settings')}
+                            {t('pages.tasks.repeatSettings', 'é‡å¤Settings')}
                           </div>
                           <Row gutter={[12, 12]}>
                             <Col span={8}>
@@ -636,12 +695,12 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                     validateTrigger={['onChange', 'onBlur']}
                     rules={[{
                       validator: (_, value) => {
-                        // Allow空Value
+                        // Allowç©ºValue
                         if (!value || value.trim() === '') {
                           return Promise.resolve();
                         }
                         
-                        // Must是有效的 JSON 格式
+                        // Mustæ˜¯æœ‰æ•ˆçš„ JSON æ ¼å¼
                         try {
                           JSON.parse(value);
                           return Promise.resolve();
@@ -684,7 +743,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
           background: 'transparent',
           borderTop: '1px solid rgba(255, 255, 255, 0.05)'
         }}>
-          {/* Edit/新建模式：DisplaySave和CancelButton */}
+          {/* Edit/æ–°å»ºæ¨¡å¼ï¼šDisplaySaveå’ŒCancelButton */}
           {(editMode || isNew) && (
             <>
               <Button
@@ -710,7 +769,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
             </>
           )}
 
-          {/* 查看模式：DisplayEdit和DeleteButton */}
+          {/* æŸ¥çœ‹æ¨¡å¼ï¼šDisplayEditå’ŒDeleteButton */}
           {!editMode && !isNew && task && (
             <>
               {isCodeGenerated ? (

@@ -3057,6 +3057,16 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     browser_driver_setting = ((inputs.get("browserDriver") or {}).get("content") or "native").lower().strip()
     cdp_port_setting = ((inputs.get("cdpPort") or {}).get("content") or "").strip()
     
+    # Extract new browser automation options from node editor
+    run_environment_setting = ((inputs.get("runEnvironment") or {}).get("content") or "full_local").lower().strip()
+    privacy_strategy_setting = ((inputs.get("privacyStrategy") or {}).get("content") or "none").lower().strip()
+    enable_judge_setting = False
+    try:
+        enable_judge_val = (inputs.get("enableJudge") or {}).get("content")
+        enable_judge_setting = str(enable_judge_val).lower() in ('true', '1', 'yes', 'on') if enable_judge_val is not None else False
+    except Exception:
+        enable_judge_setting = False
+    
     # Extract LLM provider/model settings from node editor (like build_llm_node)
     node_llm_provider = None
     try:
@@ -3105,6 +3115,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     downloads_path = str(appdata_path / "daily_work" / f"D{date_str}" / shop_name) if shop_name else None
     
     logger.debug(f"[BrowserAutomation] browser={browser_type_setting}, driver={browser_driver_setting}, cdp_port={cdp_port_setting}")
+    logger.debug(f"[BrowserAutomation] run_environment={run_environment_setting}, privacy_strategy={privacy_strategy_setting}, enable_judge={enable_judge_setting}")
     logger.debug(f"[BrowserAutomation] shop_name={shop_name}, downloads_path={downloads_path}")
 
     prompt_selection = ((inputs.get("promptSelection") or {}).get("content") or "inline").strip()
@@ -3162,6 +3173,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         
         return {}
 
+    def _is_session_started(session) -> bool:
+        # return session._cdp_client_root is not None
+        return session.session_manager is not None
+
     async def _get_or_create_browser_session(mainwin):
         """Get or create browser session based on node editor settings."""
         from gui.manager.browser_manager import BrowserManager, BrowserType, BrowserStatus
@@ -3218,7 +3233,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 logger.info(log_msg)
                 send_skill_editor_log("log", log_msg)
 
-                await auto_browser.browser_session.start()
+                if not _is_session_started(auto_browser.browser_session):
+                    await auto_browser.browser_session.start()
                 log_msg = f"[BrowserAutomation] Browser session started!"
                 logger.info(log_msg)
                 send_skill_editor_log("log", log_msg)
@@ -3241,22 +3257,38 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             logger.debug(log_msg)
             send_skill_editor_log("log", log_msg)
 
-            try:
-                passive_enabled = os.environ.get("EC_BROWSER_USE_PASSIVE", "").strip().lower() in {"1", "true", "yes", "on"}
-            except Exception:
-                passive_enabled = False
+            # Determine run mode based on node editor setting (run_environment_setting)
+            # Options: full_local, passive_local, hybrid_cloud, full_cloud
+            # Fall back to environment variables if not set or for backward compatibility
+            passive_enabled = False
+            cloud_agent_enabled = False
+            
+            if run_environment_setting == 'passive_local':
+                passive_enabled = True
+            elif run_environment_setting == 'hybrid_cloud':
+                cloud_agent_enabled = True
+            elif run_environment_setting == 'full_cloud':
+                cloud_agent_enabled = True
+            else:
+                # full_local or fallback - check environment variables for backward compatibility
+                try:
+                    passive_enabled = os.environ.get("EC_BROWSER_USE_PASSIVE", "").strip().lower() in {"1", "true", "yes", "on"}
+                except Exception:
+                    passive_enabled = False
 
-            try:
-                cloud_agent_enabled = (
-                    os.environ.get("EC_BROWSER_USE_MODE", "").strip().lower() in {"client_assisted_cloud", "cloud"}
-                    or os.environ.get("EC_BROWSER_USE_CLOUD_AGENT", "").strip().lower() in {"1", "true", "yes", "on"}
-                )
-            except Exception:
-                cloud_agent_enabled = False
+                try:
+                    cloud_agent_enabled = (
+                        os.environ.get("EC_BROWSER_USE_MODE", "").strip().lower() in {"client_assisted_cloud", "cloud"}
+                        or os.environ.get("EC_BROWSER_USE_CLOUD_AGENT", "").strip().lower() in {"1", "true", "yes", "on"}
+                    )
+                except Exception:
+                    cloud_agent_enabled = False
 
             # Cloud mode takes precedence over passive mode
             if cloud_agent_enabled:
                 passive_enabled = False
+            
+            logger.info(f"[BrowserAutomation] Run mode: run_environment={run_environment_setting}, passive={passive_enabled}, cloud={cloud_agent_enabled}")
 
             if passive_enabled:
                 try:
@@ -3266,7 +3298,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     if not browser_session:
                         return {"error": "browser-use passive mode: failed to acquire browser session"}
 
-                    await browser_session.start()
+                    if not _is_session_started(browser_session):
+                        await browser_session.start()
 
                     actions = None
                     try:
@@ -3309,13 +3342,20 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     return {"error": str(err_msg)}
 
             # Prefer privacy-aware wrapper if available; fall back to vanilla Agent.
+            # Use PrivacyAgent only if privacy_strategy is not 'none'
             AgentClass = BUAgent
-            try:
-                from agent.ec_skills.browser_use_extension.privacy_agent import PrivacyAgent
-                AgentClass = PrivacyAgent
-                logger.info("[BrowserAutomation] Using PrivacyAgent for browser-use")
-            except Exception as _privacy_import_exc:
-                logger.info(f"[BrowserAutomation] PrivacyAgent not available, using browser_use.Agent ({_privacy_import_exc})")
+            use_privacy_agent = privacy_strategy_setting != 'none'
+            
+            if use_privacy_agent:
+                try:
+                    from agent.ec_skills.browser_use_extension.privacy_agent import PrivacyAgent
+                    AgentClass = PrivacyAgent
+                    logger.info(f"[BrowserAutomation] Using PrivacyAgent for browser-use (strategy={privacy_strategy_setting})")
+                except Exception as _privacy_import_exc:
+                    logger.info(f"[BrowserAutomation] PrivacyAgent not available, using browser_use.Agent ({_privacy_import_exc})")
+                    use_privacy_agent = False
+            else:
+                logger.info("[BrowserAutomation] Privacy strategy is 'none', using standard browser_use.Agent")
 
             if not mainwin:
                 raise ValueError("mainwin is required. Must use mainwin configuration for browser_use LLM.")
@@ -3378,7 +3418,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             agent_kwargs = {
                 'use_vision': node_use_vision,  # Pass use_vision from node config to browser_use Agent
                 'use_thinking': node_use_thinking,  # Pass use_thinking from node config to browser_use Agent
-                'use_judge': node_use_vision,  # Disable judge when vision is off (judge sends screenshots)
+                'use_judge': enable_judge_setting,  # Use enable_judge from node editor (validates actions before execution)
             }
             
             # Check if extensions should be disabled (dev mode)
@@ -3459,7 +3499,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             except Exception:
                 cloud_enabled = False
 
-            if cloud_enabled and AgentClass is not BUAgent:
+            if cloud_enabled and use_privacy_agent:
                 try:
                     cloud_endpoint = None
                     try:
@@ -3510,7 +3550,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     send_skill_editor_log("log", log_msg)
                     
                     # Start the browser session
-                    await browser_session.start()
+                    if not _is_session_started(browser_session):
+                        await browser_session.start()
                     
                     # Create agent with existing browser session
                     agent = AgentClass(task=task, llm=llm, controller=controller, browser_session=browser_session, **agent_kwargs)

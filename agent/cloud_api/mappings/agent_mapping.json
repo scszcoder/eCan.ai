@@ -25,7 +25,9 @@
     "agid",
     "org_id",
     "created_at",
-    "updated_at"
+    "updated_at",
+    "default_input_modes",
+    "default_output_modes"
   ],
   
   "json_serialize_fields": [

@@ -661,12 +661,27 @@ const AgentDetails: React.FC = () => {
           // 并行加载 tasks 和 skills，提高加载速度
           const promises = [];
           
-          if (!storeTasks || storeTasks.length === 0) {
+          // Always check current store state directly to avoid stale closure
+          const currentTasks = useTaskStore.getState().items;
+          const currentSkills = useSkillStore.getState().items;
+          
+          console.log('[AgentDetails] Checking tasks/skills:', { 
+            tasksCount: currentTasks?.length || 0, 
+            skillsCount: currentSkills?.length || 0 
+          });
+          
+          if (!currentTasks || currentTasks.length === 0) {
+            console.log('[AgentDetails] Fetching tasks for user:', uname);
             promises.push(
               api.getAgentTasks<{ tasks: any[] }>(uname, [])
                 .then((res: any) => {
-                  if (res?.success && res.data?.tasks) {
-                    setTasks(res.data.tasks as any);
+                  // API returns tasks in res.data.tasks or res.data directly
+                  const tasksData = res?.data?.tasks || res?.data;
+                  if (res?.success && Array.isArray(tasksData) && tasksData.length > 0) {
+                    console.log('[AgentDetails] Loaded tasks:', tasksData.length);
+                    setTasks(tasksData as any);
+                  } else {
+                    console.warn('[AgentDetails] No tasks returned or error:', res);
                   }
                 })
                 .catch((e: any) => {
@@ -675,12 +690,18 @@ const AgentDetails: React.FC = () => {
             );
           }
           
-          if (!storeSkills || storeSkills.length === 0) {
+          if (!currentSkills || currentSkills.length === 0) {
+            console.log('[AgentDetails] Fetching skills for user:', uname);
             promises.push(
               api.getAgentSkills<{ skills: any[] }>(uname, [])
                 .then((res2: any) => {
-                  if (res2?.success && res2.data?.skills) {
-                    setSkills(res2.data.skills as any);
+                  // API returns skills in res.data.skills or res.data directly (due to resultPath)
+                  const skillsData = res2?.data?.skills || res2?.data;
+                  if (res2?.success && Array.isArray(skillsData) && skillsData.length > 0) {
+                    console.log('[AgentDetails] Loaded skills:', skillsData.length);
+                    setSkills(skillsData as any);
+                  } else {
+                    console.warn('[AgentDetails] No skills returned or error:', res2);
                   }
                 })
                 .catch((e: any) => {
@@ -699,7 +720,7 @@ const AgentDetails: React.FC = () => {
       }
     };
     fetchIfNeeded();
-  }, [username, storeTasks?.length, storeSkills?.length, setTasks, setSkills]);
+  }, [username, setTasks, setSkills]);
 
   const [form] = Form.useForm<AgentDetailsForm>();
   const [editMode, setEditMode] = useState(isNew);
@@ -777,7 +798,11 @@ const AgentDetails: React.FC = () => {
   
   useEffect(() => {
     const fetchAgentData = async () => {
-      if (isNew || !id || !username) return;
+      console.log('[AgentDetails] fetchAgentData called:', { isNew, id, username });
+      if (isNew || !id || !username) {
+        console.log('[AgentDetails] fetchAgentData skipped:', { isNew, id, username });
+        return;
+      }
       
       // If刚刚Save过，跳过这次Get（因为Data已经通过 agentStore Update了）
       if (justSavedRef.current) {
@@ -788,10 +813,15 @@ const AgentDetails: React.FC = () => {
       try {
         setLoading(true);
         const api = get_ipc_api();
+        console.log('[AgentDetails] Calling getAgents for id:', id);
         const response = await api.getAgents(username, [id]) as any;
+        // API uses resultPath: 'getAllMine.agents', so data is in response.data directly (array) or response.data.agents
+        const agentsData = response?.data?.agents || response?.data;
+        console.log('[AgentDetails] getAgents response:', { success: response?.success, agentsData: Array.isArray(agentsData) ? agentsData.length : typeof agentsData });
         
-        if (response?.success && response.data?.agents && Array.isArray(response.data.agents) && response.data.agents.length > 0) {
-          const agent = response.data.agents[0];
+        if (response?.success && Array.isArray(agentsData) && agentsData.length > 0) {
+          const agent = agentsData[0];
+          console.log('[AgentDetails] Loaded agent data:', { id: agent.id, name: agent.name, owner: agent.owner, cardName: agent.card?.name, skills: agent.skills?.length, tasks: agent.tasks?.length });
 
           // UpdateFormData
           // 优先使用 agent 自身的 org_id，If没有则使用 URL Parameter中的 defaultOrgId
@@ -831,7 +861,7 @@ const AgentDetails: React.FC = () => {
           const titleArray = Array.isArray(agent.title) ? agent.title : (agent.title ? [agent.title] : []);
           const personalitiesArray = Array.isArray(agent.personalities) ? agent.personalities : (agent.personalities ? [agent.personalities] : []);
           
-          form.setFieldsValue({
+          const formValues = {
             id: agent.card?.id || agent.id,
             name: agent.card?.name || agent.name,
             gender: agent.gender && agent.gender.trim() !== '' ? agent.gender : 'gender_options.male', // 默认为男性
@@ -846,7 +876,9 @@ const AgentDetails: React.FC = () => {
             vehicle_id: agent.vehicle_id || agent.vehicle || localVehicleId || '',
             description: agent.description || '',
             extra_data: extraDataText
-          });
+          };
+          console.log('[AgentDetails] Setting form values:', { name: formValues.name, owner: formValues.owner, skills: formValues.skills, tasks: formValues.tasks });
+          form.setFieldsValue(formValues);
           
           // Settings Avatar Data - 保留完整的Data结构
           if (agent.avatar?.imageUrl) {
@@ -1642,7 +1674,6 @@ const AgentDetails: React.FC = () => {
                 <StyledFormItem
                   name="org_id"
                   label={t('pages.agents.organization') || 'Organization'}
-                  rules={[{ required: true, message: t('common.please_select_organization') || 'Please select organization' }]}
                   htmlFor="agent-organization"
                 >
                   <TreeSelect
@@ -1681,23 +1712,12 @@ const AgentDetails: React.FC = () => {
                 </StyledFormItem>
               </Col>
 
-              {/* 第六行：Skills（Required）和 Tasks - 移到 Organization 后面 */}
+              {/* 第六行：Skills 和 Tasks - 移到 Organization 后面 */}
               <Col span={12}>
                 <StyledFormItem
                   name="skills"
                   label={t('pages.agents.skills') || 'Skills'}
                   htmlFor="agent-skills"
-                  required
-                  rules={[
-                    {
-                      validator: (_, value) => {
-                        if (!value || value.length === 0) {
-                          return Promise.reject(new Error(t('pages.agents.skills_required') || 'Please select at least one skill'));
-                        }
-                        return Promise.resolve();
-                      },
-                    },
-                  ]}
                 >
                   <TagsEditor
                     id="agent-skills"
@@ -1715,17 +1735,6 @@ const AgentDetails: React.FC = () => {
                   name="tasks"
                   label={t('pages.agents.tasks') || 'Tasks'}
                   htmlFor="agent-tasks"
-                  required
-                  rules={[
-                    {
-                      validator: (_, value) => {
-                        if (!value || value.length === 0) {
-                          return Promise.reject(new Error(t('pages.agents.tasks_required') || 'Please select at least one task'));
-                        }
-                        return Promise.resolve();
-                      },
-                    },
-                  ]}
                 >
                   <TagsEditor
                     id="agent-tasks"

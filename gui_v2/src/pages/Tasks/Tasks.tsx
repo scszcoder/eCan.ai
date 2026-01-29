@@ -111,14 +111,18 @@ const Tasks: React.FC = () => {
   );
 
   const handleTaskSave = async (newTaskId?: string) => {
+    console.log('[Tasks] handleTaskSave called with newTaskId:', newTaskId);
     setIsAddingNew(false);
     
-    // 如果是新创建的task，保存ID等待列表刷新后选中
+    // ???????task,??ID?????????
     if (newTaskId) {
+      console.log('[Tasks] Setting pendingTaskId:', newTaskId);
       setPendingTaskId(newTaskId);
     }
     
+    console.log('[Tasks] Calling handleRefresh...');
     await handleRefresh();
+    console.log('[Tasks] handleRefresh completed');
   };
 
   const handleTaskCancel = () => {
@@ -132,10 +136,10 @@ const Tasks: React.FC = () => {
     // Edit模式下，TaskDetail 会自动RestoreData并退出Edit模式，不NeedClose面板
   };
 
-  const handleTaskDelete = () => {
+  const handleTaskDelete = async () => {
     // Delete后清空选中Status，CloseDetails页
     selectItem(null as any);
-    handleRefresh();
+    await handleRefresh();
   };
 
 
