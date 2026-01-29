@@ -796,15 +796,24 @@ async def c2l_ws_test(request):
                 "error": "No authentication token available. Please log in."
             }, status_code=401)
         
+        # Get the owner (username) for the subscription filter
+        owner = main_window.get_username()
+        if not owner:
+            return JSONResponse({
+                "status": "error",
+                "error": "No owner/username available. Please log in."
+            }, status_code=401)
+        
         # Import cloud_api function
         from agent.cloud_api.cloud_api import send_run_test_to_cloud
         
-        # Create test payload
+        # Create test payload - include owner so cloud publishes to correct subscription
+        import json as json_mod
         tests = [{
             "id": test_id,
             "name": "C2L_WS_TEST",
             "description": "",
-            "input": "{}"
+            "input": json_mod.dumps({"owner": owner})
         }]
         
         # Create a session and send to cloud
