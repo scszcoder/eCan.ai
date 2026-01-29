@@ -797,7 +797,7 @@ async def c2l_ws_test(request):
             }, status_code=401)
         
         # Get the owner (username) for the subscription filter
-        owner = main_window.get_username()
+        owner = main_window.getUser()
         if not owner:
             return JSONResponse({
                 "status": "error",
