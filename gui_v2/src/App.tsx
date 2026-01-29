@@ -24,6 +24,8 @@ import { orgDataSyncService } from './services/OrgDataSyncService';
 import { isWebPlatform } from './config/platform';
 import { webAuthSession } from './services/auth/webAuthSession';
 import { tokenRefreshService } from './services/auth/tokenRefreshService';
+import { useAdStore } from './stores/adStore';
+import { eventBus } from './utils/eventBus';
 import { startWebSubscriptions } from './services/web/appSyncSubscriptions';
 import './utils/videoSupport'; // Initialize video support check on page load
 

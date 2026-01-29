@@ -713,6 +713,8 @@ const Tests: React.FC = () => {
 
     const handleC2CWebsocketTest = async () => {
         const defaultWanEndpoint = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql';
+        const getEnv = () => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {});
+        const env = getEnv();
         
         setTestOutput('');
         appendTestOutput('C2C WS Test: Starting...');
@@ -720,12 +722,14 @@ const Tests: React.FC = () => {
         appendTestOutput('C2C WS Test: The cloud_tester lambda will publish skill_editor.log events');
         appendTestOutput('C2C WS Test: If pub/sub works, you should see a log message in Skill Editor Console');
         
-        const wanEndpoint = (settings?.wan_api_endpoint?.trim() || defaultWanEndpoint);
-        const wanApiKey = (settings?.wan_api_key?.trim() || '');
-        const owner = username || '';
+        const wanEndpoint = (settings?.wan_api_endpoint?.trim() || env.VITE_APPSYNC_HTTP_ENDPOINT || defaultWanEndpoint);
+        const wanApiKey = (settings?.wan_api_key?.trim() || env.VITE_APPSYNC_API_KEY || '');
+        const owner = username || env.VITE_ACCOUNT_OWNER || '';
+        
+        appendTestOutput(`C2C WS Test: endpoint=${wanEndpoint}`);
         
         if (!wanApiKey) {
-            appendTestOutput('C2C WS Test: ERROR - Missing wan_api_key in Settings');
+            appendTestOutput('C2C WS Test: ERROR - Missing API key. Set wan_api_key in Settings or VITE_APPSYNC_API_KEY env var');
             return;
         }
         if (!owner) {

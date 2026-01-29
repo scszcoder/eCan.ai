@@ -160,10 +160,17 @@ const testPublishAccountNotification = async (url, apiKey, params) => {
   console.log(`[cloud_tester] testPublishAccountNotification: owner=${params.owner}`);
   const input = {
     owner: params.owner || "test-owner",
-    ntype: "WS_TEST",
-    title: `[${params.testName}] WebSocket Test`,
-    message: `Test notification sent at ${new Date().toISOString()}`,
-    payload: JSON.stringify({ test: true, timestamp: Date.now(), testName: params.testName })
+    ntype: "AD_BANNER",
+    title: "🎉 Special Announcement",
+    message: "🚀 Welcome to eCan.ai! Your AI-powered automation platform. New features: Cloud Workers now available! Try Skill Editor for building custom automations. Limited time: 50% off premium plans! 🎯",
+    payload: JSON.stringify({ 
+      id: `ad-${Date.now()}`,
+      text: "🚀 Welcome to eCan.ai! Your AI-powered automation platform. New features: Cloud Workers now available! Try Skill Editor for building custom automations. Limited time: 50% off premium plans! 🎯",
+      expiresAt: Date.now() + 60000, // 60 seconds from now
+      test: true, 
+      timestamp: Date.now(), 
+      testName: params.testName 
+    })
   };
   return appSyncRequest(url, apiKey, { query: PUBLISH_ACCOUNT_NOTIFICATION, variables: { input } }, "publishAccountNotification");
 };
