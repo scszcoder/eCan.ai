@@ -31,10 +31,28 @@ export const NewPage = ({ disabled }: NewPageProps) => {
     return raw.replace(/_skill$/i, '') || 'untitled';
   };
 
+  /**
+   * Sanitize username/email to be safe for S3 directory paths.
+   * Converts "jack@xyz.com" -> "jack_xyz_com"
+   * Must match backend _safe_user_dir_name() in skill_editor_agent.py
+   */
+  const sanitizeUsername = (user: string): string => {
+    const u = (user || '').trim();
+    if (!u) return 'unknown';
+    if (u.includes('@')) {
+      const [localPart, domainPart] = u.split('@', 2);
+      return `${localPart}_${(domainPart || '').replace(/\./g, '_')}`;
+    }
+    return u.replace(/@/g, '_').replace(/\./g, '_');
+  };
+
   const buildWebSkillPath = (skillName: string, user?: string | null) => {
     const base = normalizeSkillBaseName(skillName);
-    const ownerPrefix = user ? `${user}/` : '';
-    return `${ownerPrefix}my_skills/${base}/diagram_dir/${base}_skill.json`;
+    // Folder name includes _skill suffix, e.g., "abc" -> "abc_skill/"
+    const folderName = `${base}_skill`;
+    // Sanitize username for S3 path (convert @ and . to _)
+    const ownerPrefix = user ? `${sanitizeUsername(user)}/` : '';
+    return `${ownerPrefix}my_skills/${folderName}/diagram_dir/${base}_skill.json`;
   };
 
   const handleNewPage = useCallback(async () => {
