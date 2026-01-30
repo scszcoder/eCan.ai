@@ -160,21 +160,49 @@ def _s3_list_objects(*, bucket: str, prefix: str, continuation: Optional[str] = 
 
 
 def _owner_from_event(event: Dict[str, Any]) -> str:
+    """
+    Extract owner (user identifier) from event.
+    Priority:
+    1. Explicit userId in arguments (direct or in input wrapper)
+    2. Email from Cognito claims (preferred for consistent S3 paths)
+    3. Cognito username (fallback)
+    """
     args = (event.get("arguments") or {})
+    
+    # Check for userId in input wrapper (mutation pattern - single object)
     if isinstance(args.get("input"), dict):
         user_id = args["input"].get("userId")
         if isinstance(user_id, str) and user_id.strip():
             return user_id.strip()
+    
+    # Check for userId in input wrapper (mutation pattern - array of objects)
+    if isinstance(args.get("input"), list) and len(args["input"]) > 0:
+        first_item = args["input"][0]
+        if isinstance(first_item, dict):
+            user_id = first_item.get("userId")
+            if isinstance(user_id, str) and user_id.strip():
+                return user_id.strip()
+    
+    # Check for direct userId in arguments (query pattern)
+    user_id = args.get("userId")
+    if isinstance(user_id, str) and user_id.strip():
+        return user_id.strip()
 
     ident = event.get("identity") or {}
-    for key in ("username", "sub", "claims"):
+    
+    # Prefer email from claims for consistent S3 paths
+    # Email is sanitized by _safe_user_dir_name to become "user_domain_com"
+    claims = ident.get("claims") or {}
+    if isinstance(claims, dict):
+        email = claims.get("email")
+        if isinstance(email, str) and email.strip():
+            return email.strip()
+    
+    # Fallback to username/sub
+    for key in ("username", "sub"):
         v = ident.get(key)
         if isinstance(v, str) and v.strip():
             return v.strip()
-        if key == "claims" and isinstance(v, dict):
-            c = v.get("email") or v.get("cognito:username")
-            if isinstance(c, str) and c.strip():
-                return c.strip()
 
     return "unknown@local"
 
@@ -201,6 +229,23 @@ def _skill_root_prefix(env: _Env, owner: str, skill_name: str) -> str:
     user_dir = _safe_user_dir_name(owner)
     safe_skill = _safe_skill_dir_name(skill_name)
     return _s3_key(prefix, user_dir, "my_skills", safe_skill)
+
+
+def _user_skills_prefix(env: _Env, owner: str) -> str:
+    """Return the my_skills directory path for a user."""
+    prefix = _norm_prefix(env.s3_key_root)
+    user_dir = _safe_user_dir_name(owner)
+    return _s3_key(prefix, user_dir, "my_skills")
+
+
+def _ensure_user_skills_dir(env: _Env, owner: str) -> None:
+    """Ensure the user's my_skills directory exists."""
+    try:
+        base = _user_skills_prefix(env, owner)
+        _s3_put_empty(bucket=env.s3_bucket, key=_s3_key(base, ".keep"))
+        logger.info(f"[skill] Ensured user skills dir: {base}")
+    except Exception as e:
+        logger.warning(f"[skill] Failed to ensure user skills dir: {e}")
 
 
 def _skill_diagram_dir(env: _Env, owner: str, skill_name: str) -> str:
@@ -548,6 +593,9 @@ def _handle_write_skill_file(event: Dict[str, Any]) -> Dict[str, Any]:
     args = event.get("arguments") or {}
     input_ = args.get("input") or {}
     owner = _owner_from_event(event)
+
+    # Ensure user's my_skills directory exists
+    _ensure_user_skills_dir(env, owner)
 
     items = input_ if isinstance(input_, list) else [input_]
     results: List[Dict[str, Any]] = []
