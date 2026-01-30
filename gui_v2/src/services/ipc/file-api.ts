@@ -5,7 +5,7 @@
 
 import { IPCAPI, APIResponse } from './api';
 import { apiRouter } from '../api/api-router';
-import { GRAPHQL_QUERIES } from '../api/api-config';
+import { GRAPHQL_QUERIES, GRAPHQL_MUTATIONS, Channel } from '../api/api-config';
 import { detectPlatform } from '../../config/platform';
 
 /**
@@ -158,6 +158,41 @@ IPCAPI.prototype.showSaveDialog = function<T = FileDialogResponse>(
 
 IPCAPI.prototype.readSkillFile = function<T = FileContentResponse>(filePath: string): Promise<APIResponse<T>> {
   console.log('[FileAPI] readSkillFile: sending request', { filePath });
+  
+  // In web mode, use GraphQL/AppSync via apiRouter
+  const platform = detectPlatform();
+  if (platform === 'web') {
+    console.log('[FileAPI] readSkillFile: using GraphQL for web mode');
+    const p = apiRouter.execute<T>(
+      {
+        method: 'read_skill_file',
+        graphql: {
+          query: GRAPHQL_QUERIES.READ_SKILL_FILE,
+          resultPath: 'readSkillFile'
+        }
+      },
+      { filePath }
+    );
+    p.then((resp) => {
+      try {
+        const data: any = resp?.data as any;
+        console.log('[FileAPI] readSkillFile: response', {
+          success: resp?.success,
+          filePath: data?.filePath,
+          fileName: data?.fileName,
+          fileSize: data?.fileSize,
+          contentPreview: typeof data?.content === 'string' ? data.content.slice(0, 120) : undefined,
+        });
+      } catch (e) {
+        console.warn('[FileAPI] readSkillFile: log parse error', e);
+      }
+    }).catch((err) => {
+      console.error('[FileAPI] readSkillFile: request error', err);
+    });
+    return p;
+  }
+  
+  // In desktop mode, use IPC
   const p = this.executeRequest<T>('read_skill_file', { filePath });
   p.then((resp) => {
     try {
@@ -182,6 +217,23 @@ IPCAPI.prototype.openSkillFile = function<T = FileContentResponse>(
   filePath: string,
   skillName?: string
 ): Promise<APIResponse<T>> {
+  // In web mode, use GraphQL/AppSync via apiRouter
+  const platform = detectPlatform();
+  if (platform === 'web') {
+    console.log('[FileAPI] openSkillFile: using GraphQL for web mode');
+    return apiRouter.execute<T>(
+      {
+        method: 'open_skill_file',
+        graphql: {
+          query: GRAPHQL_QUERIES.OPEN_SKILL_FILE,
+          resultPath: 'openSkillFile'
+        }
+      },
+      { filePath, skillName }
+    );
+  }
+  
+  // In desktop mode, use IPC
   return this.executeRequest<T>('open_skill_file', { filePath, skillName });
 };
 
@@ -190,6 +242,24 @@ IPCAPI.prototype.writeSkillFile = function<T = FileWriteResponse | FileWriteResp
 ): Promise<APIResponse<T>> {
   // Support both single file and batch write
   const payload = Array.isArray(input) ? input : [input];
+  
+  // In web mode, use GraphQL/AppSync via apiRouter
+  const platform = detectPlatform();
+  if (platform === 'web') {
+    console.log('[FileAPI] writeSkillFile: using GraphQL for web mode', { fileCount: payload.length });
+    return apiRouter.execute<T>(
+      {
+        method: 'write_skill_file',
+        graphql: {
+          mutation: GRAPHQL_MUTATIONS.WRITE_SKILL_FILE,
+          resultPath: 'writeSkillFile'
+        }
+      },
+      { input: payload }
+    );
+  }
+  
+  // In desktop mode, use IPC
   return this.executeRequest<T>('write_skill_file', { input: payload });
 };
 
@@ -220,6 +290,23 @@ IPCAPI.prototype.listSkillFiles = function<T = SkillFileItem[]>(
 IPCAPI.prototype.checkSkillExists = function<T = CheckSkillExistsResponse>(
   name: string
 ): Promise<APIResponse<T>> {
+  // In web mode, use GraphQL/AppSync via apiRouter
+  const platform = detectPlatform();
+  if (platform === 'web') {
+    console.log('[FileAPI] checkSkillExists: using GraphQL for web mode', { name });
+    return apiRouter.execute<T>(
+      {
+        method: 'check_skill_exists',
+        graphql: {
+          query: GRAPHQL_QUERIES.CHECK_SKILL_EXISTS,
+          resultPath: 'checkSkillExists'
+        }
+      },
+      { name }
+    );
+  }
+  
+  // In desktop mode, use IPC
   return this.executeRequest<T>('check_skill_exists', { name });
 };
 
@@ -232,6 +319,24 @@ IPCAPI.prototype.scaffoldSkill = function<T = SkillScaffoldResponse>(
   mappingJson?: any
 ): Promise<APIResponse<T>> {
   console.log('[FileAPI] scaffoldSkill: creating skill structure', { name, description, kind });
+  
+  // In web mode, use GraphQL/AppSync via apiRouter
+  const platform = detectPlatform();
+  if (platform === 'web') {
+    console.log('[FileAPI] scaffoldSkill: using GraphQL for web mode');
+    return apiRouter.execute<T>(
+      {
+        method: 'skills.scaffold',
+        graphql: {
+          mutation: GRAPHQL_MUTATIONS.SCAFFOLD_SKILL,
+          resultPath: 'scaffoldSkill'
+        }
+      },
+      { input: { name, description, kind, skillJson, bundleJson, mappingJson } }
+    );
+  }
+  
+  // In desktop mode, use IPC
   return this.executeRequest<T>('skills.scaffold', { name, description, kind, skillJson, bundleJson, mappingJson });
 };
 
@@ -243,6 +348,24 @@ IPCAPI.prototype.copySkillTo = function<T = SkillCopyResponse>(
   targetDir?: string
 ): Promise<APIResponse<T>> {
   console.log('[FileAPI] copySkillTo: copying skill to new location', { sourcePath, newName, targetDir });
+  
+  // In web mode, use GraphQL/AppSync via apiRouter
+  const platform = detectPlatform();
+  if (platform === 'web') {
+    console.log('[FileAPI] copySkillTo: using GraphQL for web mode');
+    return apiRouter.execute<T>(
+      {
+        method: 'skills.copyTo',
+        graphql: {
+          mutation: GRAPHQL_MUTATIONS.COPY_SKILL_TO,
+          resultPath: 'copySkillTo'
+        }
+      },
+      { input: { sourcePath, newName, skillJson, bundleJson, targetDir } }
+    );
+  }
+  
+  // In desktop mode, use IPC
   return this.executeRequest<T>('skills.copyTo', { sourcePath, newName, skillJson, bundleJson, targetDir });
 };
 
@@ -250,6 +373,23 @@ IPCAPI.prototype.checkSkillExists = function(
   name: string
 ): Promise<APIResponse<{ exists: boolean; name: string }>> {
   console.log('[FileAPI] checkSkillExists: checking if skill exists', { name });
+  
+  // In web mode, use GraphQL/AppSync via apiRouter
+  const platform = detectPlatform();
+  if (platform === 'web') {
+    return apiRouter.execute<{ exists: boolean; name: string }>(
+      {
+        method: 'check_skill_exists',
+        graphql: {
+          query: GRAPHQL_QUERIES.CHECK_SKILL_EXISTS,
+          resultPath: 'checkSkillExists'
+        }
+      },
+      { name }
+    );
+  }
+  
+  // In desktop mode, use IPC with scaffold checkOnly flag
   return this.executeRequest<{ exists: boolean; name: string }>('skills.scaffold', { name, checkOnly: true });
 };
 
