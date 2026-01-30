@@ -1,4 +1,4 @@
-﻿import traceback
+import traceback
 from typing import Any, Optional, Dict
 from app_context import AppContext
 from gui.ipc.handlers import validate_params
@@ -355,10 +355,21 @@ def handle_google_login(request: IPCRequest, params: Optional[Dict[str, Any]]) -
         login_request = LoginRequest(LoginType.GOOGLE_OAUTH, role=machine_role, schedule_mode='manual')
         
         try:
-            new_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(new_loop)
-            new_loop.run_until_complete(login._async_login(login_request))
-            new_loop.close()
+            # Check if we're already in an async context (e.g., called from GraphQL handler)
+            try:
+                loop = asyncio.get_running_loop()
+                # We're in an async context - use nest_asyncio to allow nested event loops
+                import nest_asyncio
+                nest_asyncio.apply()
+                loop.run_until_complete(login._async_login(login_request))
+            except RuntimeError:
+                # No running loop - create a new one (traditional IPC path)
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                try:
+                    new_loop.run_until_complete(login._async_login(login_request))
+                finally:
+                    new_loop.close()
             
             if login.auth_manager.is_signed_in() and login.auth_manager.get_current_user():
                 result = {'success': True}

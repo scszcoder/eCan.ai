@@ -31,6 +31,7 @@ class PassiveAgent:
     - optionally applies privacy filtering (RegexMaskFilter / custom PrivacyFilter)
 
     Cloud transport is intentionally left undefined: you can later send the returned payload via
+    Cloud transport is intentionally left undefined: you can later send the returned payload via
     websocket/HTTP.
     """
 
