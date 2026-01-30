@@ -1,5 +1,6 @@
 import { getSettings } from '../../stores/settingsStore';
 import { userStorageManager } from '../storage/UserStorageManager';
+import { isWebPlatform } from '../../config/platform';
 
 interface GraphQLError {
   message: string;
@@ -32,30 +33,52 @@ const getEnv = () => {
 };
 
 /**
- * Get GraphQL endpoint for Web mode (AppSync style)
- * - If AWS AppSync endpoint is configured: use it
- * - Otherwise: use local server GraphQL endpoint
+ * Check if running on localhost (desktop app via Vite dev server or production)
+ */
+const isLocalhost = (): boolean => {
+  try {
+    const hostname = window?.location?.hostname || '';
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.');
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Get GraphQL endpoint
+ * - Desktop/localhost: always use local server GraphQL endpoint (Python backend)
+ * - Web (non-localhost): use AWS AppSync endpoint from env or settings
  */
 const getGraphQLEndpoint = (): string => {
   const env = getEnv();
   const settings = getSettings();
   
-  // Try AWS AppSync endpoint first (from env or settings)
+  // Desktop mode: use local server endpoint
+  // Check both isWebPlatform() and isLocalhost() because platform detection
+  // may incorrectly report 'web' when running desktop app via Vite dev server
+  if (!isWebPlatform() || isLocalhost()) {
+    // In dev mode, use same-origin path for Vite proxy
+    try {
+      if (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV) {
+        console.log('[AppSyncClient] Using local GraphQL endpoint: /graphql');
+        return '/graphql';
+      }
+    } catch {}
+    
+    const port = settings?.local_server_port || '4668';
+    console.log(`[AppSyncClient] Using local GraphQL endpoint: http://localhost:${port}/graphql`);
+    return `http://localhost:${port}/graphql`;
+  }
+  
+  // Web mode: use AWS AppSync endpoint
   const appSyncEndpoint = (env.VITE_APPSYNC_ENDPOINT as string) || settings?.wan_api_endpoint || '';
   if (appSyncEndpoint.trim()) {
+    console.log(`[AppSyncClient] Using AppSync endpoint: ${appSyncEndpoint.trim()}`);
     return appSyncEndpoint.trim();
   }
   
-  // Fallback to local server GraphQL endpoint
-  // In dev mode, use same-origin path for Vite proxy
-  try {
-    if (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV) {
-      return '/graphql';
-    }
-  } catch {}
-  
-  const port = settings?.local_server_port || '4668';
-  return `http://localhost:${port}/graphql`;
+  // Fallback for web mode without AppSync configured
+  throw new Error('Web mode requires VITE_APPSYNC_ENDPOINT or wan_api_endpoint in settings.');
 };
 
 const getAppSyncApiKey = (overrideKey?: string): string => {
