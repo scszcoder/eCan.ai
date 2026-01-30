@@ -40,8 +40,13 @@ const AuthCallback: React.FC = () => {
             : (providerName.toLowerCase().includes('google') ? 'google' : 'password');
         sessionStorage.removeItem('cognito_login_method');
 
+        // For display purposes, prefer email over cognito:username (which can be a federated ID like google_xxxxx)
+        // cognito:username is needed for API calls, but email is more user-friendly for display
+        const cognitoUsername = payload['cognito:username'] || payload.username || payload.email || 'user';
+        const displayUsername = payload.email || payload.name || cognitoUsername;
+        
         const userInfo = {
-          username: payload['cognito:username'] || payload.username || payload.email || 'user',
+          username: displayUsername,  // Use email/name for display
           email: payload.email,
           name: payload.name,
           given_name: payload.given_name,
@@ -49,6 +54,7 @@ const AuthCallback: React.FC = () => {
           picture: payload.picture,
           email_verified: payload.email_verified,
           sub: payload.sub,
+          cognito_username: cognitoUsername,  // Keep original cognito username for API calls if needed
         };
 
         webAuthSession.setSession({
