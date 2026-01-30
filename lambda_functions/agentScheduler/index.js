@@ -71,6 +71,7 @@ const ALLOWED_ORIGIN = "https://www.iotton.com";
 
 const SUPER_USERS = new Set([
   "songc@yahoo.com",
+  "songc_yahoo_com",
   "google_105649646860146222891",
   "249511118@qq.com"
 ]);
@@ -3625,20 +3626,39 @@ function buildInventoryPlaceholder(input = {}, idx = 0) {
 async function processEvent(event, context, callback, test_stub) {
   var returnData;
   util.log("DEBUG", "input: " + JSON.stringify(event), api_caller, "processEvent", logFlag);
+  console.log("[agentScheduler] processEvent: incoming event:", JSON.stringify(event));
   statCode = 200;
   
   var owner;
   var requester;
   var missionTBA;
   var newStartRow;
+  // Log how owner is resolved
   const UNRECOGNIZED_INPUT = {error: "Unrecognized API"};
   
-  if (event.identity?.hasOwnProperty("claims")) {
+  // Prefer explicit owner/userId in arguments if present
+  if (event.arguments && (event.arguments.owner || event.arguments.userId || event.arguments.username)) {
+    owner = event.arguments.owner || event.arguments.userId || event.arguments.username;
+    requester = event.arguments.owner || event.arguments.userId || event.arguments.username;
+    console.log(`[agentScheduler] processEvent: owner resolved from arguments: owner='${event.arguments.owner}', userId='${event.arguments.userId}', username='${event.arguments.username}'`);
+  } else if (event.arguments?.input) {
+    const inputItems = Array.isArray(event.arguments.input) ? event.arguments.input : [event.arguments.input];
+    const inputOwner = inputItems.find((item) => item?.owner)?.owner;
+    if (inputOwner) {
+      owner = inputOwner;
+      requester = inputOwner;
+      console.log(`[agentScheduler] processEvent: owner resolved from arguments.input: owner='${inputOwner}'`);
+    }
+  }
+
+  if (!owner && event.identity?.hasOwnProperty("claims")) {
     requester = event.identity?.claims?.email || event.identity?.claims?.username || event.identity?.username || event.identity?.sub || "";
     owner = requester;
-  } else {
+    console.log(`[agentScheduler] processEvent: owner resolved from identity claims: '${owner}'`);
+  } else if (!owner) {
     requester = event.request?.headers?.["x-api-caller"] || "";
     owner = requester;
+    console.log(`[agentScheduler] processEvent: owner resolved from x-api-caller header: '${owner}'`);
   }
   const ownerSub = event.identity?.sub || event.identity?.claims?.sub || event.identity?.username || "";
 
@@ -3755,41 +3775,53 @@ async function processEvent(event, context, callback, test_stub) {
               returnData = created;
             }
             break;
-          case "removeAgentTasks":
+          case "getAllMine":
             {
-              const tasksInput = Array.isArray(event.arguments.input) ? event.arguments.input : [event.arguments.input];
-              const deleted = [];
-              for (const task of tasksInput) {
-                const tid = typeof task === "string" ? task : task?.id || task?.task_id;
-                if (!tid) {
-                  deleted.push({ success: false, error: "Missing task id" });
-                  continue;
+              const ownerArg = event.arguments?.owner || event.arguments?.userId || event.arguments?.username || owner;
+              const userIdArg = event.arguments?.userId || event.arguments?.owner || event.arguments?.username || owner;
+              console.log(`[agentScheduler] getAllMine: loading all mine for owner: '${ownerArg}', userId: '${userIdArg}'`);
+              const safeList = async (label, fn) => {
+                try {
+                  const result = await fn();
+                  return Array.isArray(result) ? result : [];
+                } catch (err) {
+                  util.log("ERROR", `getAllMine ${label} failed: ${err.message}`, api_caller, "processEvent", logFlag);
+                  return [];
                 }
-                const res = await taskService.deleteTask(tid, owner);
-                deleted.push({ id: tid, success: res.success !== false, error: res.error });
-              }
-              returnData = deleted;
+              };
+
+              const agents = await safeList("agents", () => agentService.getAgentsByOwner(ownerArg));
+              const skills = await safeList("skills", () => skillService.getSkillsByOwner(ownerArg));
+              const tasks = await safeList("tasks", async () => {
+                const all = await taskService.queryTasks({ id: null, name: null, description: null });
+                return ownerArg ? all.filter(t => t.owner === ownerArg) : all;
+              });
+              const tools = await safeList("tools", () => toolService.getToolsByOwner(ownerArg));
+              const knowledges = await safeList("knowledges", () => knowledgeService.getKnowledgesByOwner(ownerArg));
+              const prompts = await safeList("prompts", () => promptService.listPrompts(ownerArg));
+              console.log(`[agentScheduler] getAllMine: prompts count=${prompts.length}, sample=`, prompts.length > 0 ? JSON.stringify(prompts[0]) : 'none');
+              const orgs = await safeList("orgs", () => orgService.getAllOrgs());
+              const avatars = await safeList("avatars", () => avatarService.getAvatarResourcesByOwner(ownerArg));
+              const vehicles = await safeList("vehicles", async () => {
+                const all = await vehicleService.queryVehicles({ id: null, name: null, description: null });
+                return ownerArg ? all.filter(v => v.owner === ownerArg) : all;
+              });
+
+              console.log(`[agentScheduler] getAllMine: returning agents=${agents.length}, tasks=${tasks.length}, skills=${skills.length}, tools=${tools.length}, knowledges=${knowledges.length}, prompts=${prompts.length}, orgs=${orgs.length}, avatars=${avatars.length}, vehicles=${vehicles.length}`);
+              returnData = {
+                agents,
+                tasks,
+                skills,
+                tools,
+                knowledges,
+                prompts,
+                orgs,
+                avatars,
+                vehicles,
+                accountInfo: accountRecord
+              };
             }
             break;
-          case "updateAgentTasks":
-              {
-                const tasksInput = Array.isArray(event.arguments.input) ? event.arguments.input : [event.arguments.input];
-                const updated = [];
-                for (const task of tasksInput) {
-                  const tid = task.id || task.task_id;
-                  if (!tid) {
-                    updated.push({ success: false, error: "Missing task id" });
-                    continue;
-                  }
-                  const fields = { ...task };
-                  delete fields.id;
-                  delete fields.task_id;
-                  const res = await taskService.updateTask(tid, owner, fields);
-                  updated.push({ id: tid, success: res.success !== false, error: res.error });
-                }
-                returnData = updated;
-              }
-              break;
           case "addAgentSkills":
             {
               const skillsInput = Array.isArray(event.arguments.input) ? event.arguments.input : [event.arguments.input];
@@ -3811,7 +3843,7 @@ async function processEvent(event, context, callback, test_stub) {
                     upload_urls: uploadTargets.upload_urls
                   });
                 } catch (err) {
-                  created.push({ success: false, error: err.message });
+                  created.push({ success: false, error: err.message || String(err) });
                 }
               }
               returnData = created;
@@ -4179,21 +4211,27 @@ async function processEvent(event, context, callback, test_stub) {
             break;
           case "addPrompts":
             {
+              console.log(`[agentScheduler] addPrompts: owner='${owner}', input=`, JSON.stringify(event.arguments.input));
               const promptsInput = Array.isArray(event.arguments.input) ? event.arguments.input : [event.arguments.input];
               const created = [];
               for (const prompt of promptsInput) {
                 const effectiveOwner = owner;
                 if (!effectiveOwner) {
-                  created.push({ success: false, error: "Missing owner" });
+                  console.warn(`[agentScheduler] addPrompts: Missing owner for prompt`);
+                  created.push({ id: prompt.id || null, success: false, error: "Missing owner" });
                   continue;
                 }
                 try {
+                  console.log(`[agentScheduler] addPrompts: calling promptService.addPrompt for owner='${effectiveOwner}'`);
                   const res = await promptService.addPrompt({ ...prompt, owner: effectiveOwner });
-                  created.push({ id: res.id, success: res.success !== false, error: res.error });
+                  console.log(`[agentScheduler] addPrompts: result=`, JSON.stringify(res));
+                  created.push({ id: res.id || prompt.id, success: res.success !== false, error: res.error || null });
                 } catch (err) {
-                  created.push({ success: false, error: err.message });
+                  console.error(`[agentScheduler] addPrompts: error=`, err.message);
+                  created.push({ id: prompt.id || null, success: false, error: err.message });
                 }
               }
+              console.log(`[agentScheduler] addPrompts: returning`, JSON.stringify(created));
               returnData = created;
             }
             break;
@@ -4927,7 +4965,7 @@ async function processEvent(event, context, callback, test_stub) {
             break;
           case "getAllMine":
             {
-              console.log("Getting all mine for owner:", owner);
+              console.log(`[agentScheduler] getAllMine: loading all mine for owner: '${owner}'`);
               const safeList = async (label, fn) => {
                 try {
                   const result = await fn();

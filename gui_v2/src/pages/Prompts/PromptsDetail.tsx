@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { isWebPlatform } from '../../config/platform';
 import { Input, Typography, Space, Button, Divider, Tooltip, Select, message, Card, Collapse, Checkbox } from 'antd';
 import {
   PlusOutlined,
@@ -184,6 +185,8 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
   }, [cancelAutosave, clonePrompt, commitSave]);
 
   const scheduleAutosave = useCallback(() => {
+    // Disable autosave for web app, only allow for desktop/Electron
+    if (isWebPlatform()) return;
     if (!editingRef.current || promptReadOnlyRef.current) return;
     if (pendingSaveRef.current) return;
     cancelAutosave();

@@ -377,7 +377,7 @@ type Query {
   getAgentTasks: [Task!]!
   getAgents: [Agent!]!
   getAvatars: [AvatarResource!]!
-  getAllMine: GetAllMineResponse! @aws_api_key @aws_cognito_user_pools
+  getAllMine(owner: String, userId: String): GetAllMineResponse! @aws_api_key @aws_cognito_user_pools
   getPrompts(owner: String): [Prompt!]!
   getBots(ids: [ID!]): AWSJSON!
   getFB(fb_reqs: [FbReq]!): AWSJSON
