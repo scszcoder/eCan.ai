@@ -1,0 +1,507 @@
+schema {
+  query: Query
+  mutation: Mutation
+}
+
+#  AppSync schema for agents, skills, tasks, vehicles, orgs, avatars
+type Agent {
+  avatar_resource_id: ID
+  birthday: String
+  capabilities: AWSJSON
+  created_at: AWSDateTime
+  description: String
+  extra_data: AWSJSON
+  gender: String
+  id: ID!
+  name: String!
+  owner: String!
+  personalities: AWSJSON
+  rank: String
+  status: String
+  supervisor_id: ID
+  title: AWSJSON
+  updated_at: AWSDateTime
+  url: String
+  vehicle_id: ID
+  version: String
+}
+
+type AgentMutationResult {
+  error: String
+  id: ID
+  success: Boolean!
+}
+
+type AvatarMutationResult {
+  error: String
+  id: ID
+  success: Boolean!
+}
+
+#  Avatars
+type AvatarResource {
+  avatar_metadata: AWSJSON
+  cloud_image_key: String
+  cloud_image_url: String
+  cloud_synced: Boolean
+  cloud_video_key: String
+  cloud_video_url: String
+  description: String
+  id: ID!
+  image_hash: String
+  image_path: String
+  is_public: Boolean
+  last_used_at: AWSDateTime
+  name: String
+  owner: String
+  resource_type: String!
+  usage_count: Int
+  video_hash: String
+  video_path: String
+}
+
+type Mutation {
+  addAgentSkills(input: [SkillInput!]!): [SkillMutationResult!]!
+  addAgentTasks(input: [TaskInput!]!): [TaskMutationResult!]!
+  addAgents(input: [AgentInput!]!): [AgentMutationResult!]!
+  addAvatars(input: [AvatarInput!]!): [AvatarMutationResult!]!
+  addOrgs(input: [OrgInput!]!): [OrgMutationResult!]!
+  addVehicles(input: [VehicleInput!]!): [VehicleMutationResult!]!
+  removeAgentSkills(input: [ID!]!): [SkillMutationResult!]!
+  removeAgentTasks(input: [ID!]!): [TaskMutationResult!]!
+  removeAgents(input: [ID!]!): [AgentMutationResult!]!
+  removeAvatars(input: [ID!]!): [AvatarMutationResult!]!
+  removeOrgs(input: [ID!]!): [OrgMutationResult!]!
+  removeVehicles(input: [ID!]!): [VehicleMutationResult!]!
+  updateAgentSkills(input: [SkillUpdateInput!]!): [SkillMutationResult!]!
+  updateAgentTasks(input: [TaskUpdateInput!]!): [TaskMutationResult!]!
+  updateAgents(input: [AgentUpdateInput!]!): [AgentMutationResult!]!
+  updateAvatars(input: [AvatarUpdateInput!]!): [AvatarMutationResult!]!
+  updateOrgs(input: [OrgUpdateInput!]!): [OrgMutationResult!]!
+  updateVehicles(input: [VehicleUpdateInput!]!): [VehicleMutationResult!]!
+}
+
+#  Organizations
+type Org {
+  description: String
+  id: ID!
+  level: Int
+  name: String!
+  org_type: String
+  parent_id: ID
+  settings: AWSJSON
+  sort_order: Int
+  status: String
+}
+
+type OrgMutationResult {
+  error: String
+  id: ID
+  success: Boolean!
+}
+
+type OrgTree {
+  children: [OrgTree!]
+  description: String
+  id: ID!
+  level: Int
+  name: String!
+  org_type: String
+  parent_id: ID
+  settings: AWSJSON
+  sort_order: Int
+  status: String
+}
+
+type Query {
+  getAgentSkills: [Skill!]!
+  getAgentTasks: [Task!]!
+  getAgents: [Agent!]!
+  getAvatars: [AvatarResource!]!
+  getOrgTree(root_id: ID): OrgTree
+  getOrgs: [Org!]!
+  getVehicles: [Vehicle!]!
+  queryAgentSkills(input: SkillQueryInput): [Skill!]!
+  queryAgentTasks(input: TaskQueryInput): [Task!]!
+  queryAgents(input: AgentQueryInput): [Agent!]!
+  queryAvatars(input: AvatarQueryInput): [AvatarResource!]!
+  queryOrgs(input: OrgQueryInput): [Org!]!
+  queryVehicles(input: VehicleQueryInput): [Vehicle!]!
+}
+
+#  Skills
+type Skill {
+  apps: AWSJSON
+  askid: Int
+  config: AWSJSON
+  description: String
+  diagram: AWSJSON
+  examples: AWSJSON
+  id: ID!
+  inputModes: AWSJSON
+  level: String
+  limitations: AWSJSON
+  name: String!
+  outputModes: AWSJSON
+  owner: String!
+  path: String
+  price: Int
+  price_model: String
+  public: Boolean
+  rentable: Boolean
+  source: String
+  tags: AWSJSON
+  version: String
+}
+
+type SkillMutationResult {
+  error: String
+  id: ID
+  success: Boolean!
+}
+
+#  Tasks
+type Task {
+  description: String
+  error_message: String
+  id: ID!
+  metadata: AWSJSON
+  name: String!
+  objectives: AWSJSON
+  org_id: ID
+  owner: String!
+  priority: String
+  progress: Float
+  result: AWSJSON
+  schedule: AWSJSON
+  source: String
+  status: String
+  task_type: String
+  trigger_type: String
+}
+
+type TaskMutationResult {
+  error: String
+  id: ID
+  success: Boolean!
+}
+
+#  Vehicles
+type Vehicle {
+  access_token: String
+  architecture: String
+  capabilities: AWSJSON
+  cpu_cores: Int
+  description: String
+  environment: String
+  extra_metadata: AWSJSON
+  gpu_info: AWSJSON
+  health_score: Float
+  hostname: String
+  id: ID!
+  ip_address: String
+  last_heartbeat: AWSDateTime
+  limitations: AWSJSON
+  location: String
+  max_concurrent_tasks: Int
+  memory_gb: Float
+  name: String!
+  owner: String!
+  platform: String
+  port: Int
+  security_level: String
+  settings: AWSJSON
+  ssl_enabled: Boolean
+  status: String
+  storage_gb: Float
+  timezone: String
+  uptime_seconds: Int
+  url: String
+  vehicle_type: String
+}
+
+type VehicleMutationResult {
+  error: String
+  id: ID
+  success: Boolean!
+}
+
+input AgentInput {
+  avatar_resource_id: ID
+  birthday: String
+  capabilities: AWSJSON
+  description: String
+  extra_data: AWSJSON
+  gender: String
+  id: ID
+  name: String!
+  personalities: AWSJSON
+  rank: String
+  status: String
+  supervisor_id: ID
+  title: AWSJSON
+  url: String
+  vehicle_id: ID
+  version: String
+}
+
+input AgentQueryInput {
+  description: String
+  id: ID
+  name: String
+}
+
+input AgentUpdateInput {
+  avatar_resource_id: ID
+  birthday: String
+  capabilities: AWSJSON
+  description: String
+  extra_data: AWSJSON
+  gender: String
+  id: ID!
+  name: String
+  personalities: AWSJSON
+  rank: String
+  status: String
+  supervisor_id: ID
+  title: AWSJSON
+  url: String
+  vehicle_id: ID
+  version: String
+}
+
+input AvatarInput {
+  avatar_metadata: AWSJSON
+  cloud_image_key: String
+  cloud_image_url: String
+  cloud_synced: Boolean
+  cloud_video_key: String
+  cloud_video_url: String
+  description: String
+  id: ID
+  image_hash: String
+  image_path: String
+  is_public: Boolean
+  last_used_at: AWSDateTime
+  name: String
+  owner: String
+  resource_type: String
+  usage_count: Int
+  video_hash: String
+  video_path: String
+}
+
+input AvatarQueryInput {
+  owner: String
+  resource_type: String
+}
+
+input AvatarUpdateInput {
+  avatar_metadata: AWSJSON
+  cloud_image_key: String
+  cloud_image_url: String
+  cloud_synced: Boolean
+  cloud_video_key: String
+  cloud_video_url: String
+  description: String
+  id: ID!
+  image_hash: String
+  image_path: String
+  is_public: Boolean
+  last_used_at: AWSDateTime
+  name: String
+  owner: String
+  resource_type: String
+  usage_count: Int
+  video_hash: String
+  video_path: String
+}
+
+input OrgInput {
+  description: String
+  id: ID
+  name: String!
+  org_type: String
+  parent_id: ID
+  settings: AWSJSON
+  sort_order: Int
+  status: String
+}
+
+input OrgQueryInput {
+  name: String
+  org_type: String
+  status: String
+}
+
+input OrgUpdateInput {
+  description: String
+  id: ID!
+  level: Int
+  name: String
+  org_type: String
+  parent_id: ID
+  settings: AWSJSON
+  sort_order: Int
+  status: String
+}
+
+input SkillInput {
+  apps: AWSJSON
+  askid: Int
+  config: AWSJSON
+  description: String
+  diagram: AWSJSON
+  examples: AWSJSON
+  id: ID
+  inputModes: AWSJSON
+  level: String
+  limitations: AWSJSON
+  name: String!
+  outputModes: AWSJSON
+  path: String
+  price: Int
+  price_model: String
+  public: Boolean
+  rentable: Boolean
+  source: String
+  tags: AWSJSON
+  version: String
+}
+
+input SkillQueryInput {
+  description: String
+  id: ID
+  name: String
+}
+
+input SkillUpdateInput {
+  apps: AWSJSON
+  askid: Int
+  config: AWSJSON
+  description: String
+  diagram: AWSJSON
+  examples: AWSJSON
+  id: ID!
+  inputModes: AWSJSON
+  level: String
+  limitations: AWSJSON
+  name: String
+  outputModes: AWSJSON
+  path: String
+  price: Int
+  price_model: String
+  public: Boolean
+  rentable: Boolean
+  source: String
+  tags: AWSJSON
+  version: String
+}
+
+input TaskInput {
+  description: String
+  error_message: String
+  id: ID
+  metadata: AWSJSON
+  name: String!
+  objectives: AWSJSON
+  org_id: ID
+  priority: String
+  progress: Float
+  result: AWSJSON
+  schedule: AWSJSON
+  status: String
+  task_type: String
+  trigger_type: String
+}
+
+input TaskQueryInput {
+  description: String
+  id: ID
+  name: String
+}
+
+input TaskUpdateInput {
+  description: String
+  error_message: String
+  id: ID!
+  metadata: AWSJSON
+  name: String
+  objectives: AWSJSON
+  org_id: ID
+  priority: String
+  progress: Float
+  result: AWSJSON
+  schedule: AWSJSON
+  status: String
+  task_type: String
+  trigger_type: String
+}
+
+input VehicleInput {
+  access_token: String
+  architecture: String
+  capabilities: AWSJSON
+  cpu_cores: Int
+  description: String
+  environment: String
+  extra_metadata: AWSJSON
+  gpu_info: AWSJSON
+  health_score: Float
+  hostname: String
+  id: ID
+  ip_address: String
+  limitations: AWSJSON
+  location: String
+  max_concurrent_tasks: Int
+  memory_gb: Float
+  name: String!
+  platform: String
+  port: Int
+  security_level: String
+  settings: AWSJSON
+  ssl_enabled: Boolean
+  status: String
+  storage_gb: Float
+  timezone: String
+  uptime_seconds: Int
+  url: String
+  vehicle_type: String
+}
+
+input VehicleQueryInput {
+  description: String
+  id: ID
+  name: String
+}
+
+input VehicleUpdateInput {
+  access_token: String
+  architecture: String
+  capabilities: AWSJSON
+  cpu_cores: Int
+  description: String
+  environment: String
+  extra_metadata: AWSJSON
+  gpu_info: AWSJSON
+  health_score: Float
+  hostname: String
+  id: ID!
+  ip_address: String
+  limitations: AWSJSON
+  location: String
+  max_concurrent_tasks: Int
+  memory_gb: Float
+  name: String
+  platform: String
+  port: Int
+  security_level: String
+  settings: AWSJSON
+  ssl_enabled: Boolean
+  status: String
+  storage_gb: Float
+  timezone: String
+  uptime_seconds: Int
+  url: String
+  vehicle_type: String
+}

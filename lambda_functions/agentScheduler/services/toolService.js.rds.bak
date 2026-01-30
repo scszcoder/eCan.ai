@@ -1,0 +1,211 @@
+// Agent tool service backed by MySQL/Aurora via RDS Data API
+const crypto = require("crypto");
+const { execute } = require("../db/rdsClient");
+
+const JSON_FIELDS = [
+  "config",
+  "capabilities",
+  "limitations",
+  "dependencies",
+  "settings"
+];
+
+function genId() {
+  return `tool_${crypto.randomBytes(8).toString("hex")}`;
+}
+
+function toDbParam(name, value) {
+  if (value === null || value === undefined) {
+    return { name, value: { isNull: true } };
+  }
+  if (typeof value === "number") {
+    return { name, value: { doubleValue: value } };
+  }
+  if (typeof value === "boolean") {
+    return { name, value: { booleanValue: value } };
+  }
+  return { name, value: { stringValue: String(value) } };
+}
+
+function safeJsonStringify(value, fallback = null) {
+  try {
+    if (value === null || value === undefined) return fallback;
+    return JSON.stringify(value);
+  } catch (e) {
+    return fallback;
+  }
+}
+
+function parseFieldValue(field) {
+  if (!field) return null;
+  if (field.stringValue !== undefined) return field.stringValue;
+  if (field.longValue !== undefined) return field.longValue;
+  if (field.doubleValue !== undefined) return field.doubleValue;
+  if (field.booleanValue !== undefined) return field.booleanValue;
+  return null;
+}
+
+function rowsToObjects(result) {
+  const cols = result.columnMetadata?.map((c) => c.name) || [];
+  return (result.records || []).map((row) => {
+    const obj = {};
+    cols.forEach((col, idx) => {
+      obj[col] = parseFieldValue(row[idx]);
+      if (JSON_FIELDS.includes(col) && typeof obj[col] === "string") {
+        try {
+          obj[col] = JSON.parse(obj[col]);
+        } catch (e) {
+          // leave as string if parsing fails
+        }
+      }
+    });
+    return obj;
+  });
+}
+
+async function addTool(tool) {
+  const requestedId = tool.id;
+  const id = requestedId || genId();
+
+  if (requestedId) {
+    const existing = await getToolById(requestedId);
+    if (existing) {
+      return { success: false, id: requestedId, error: "ID_TAKEN: Tool id already exists" };
+    }
+  }
+
+  const sql = `
+    INSERT INTO agent_tools
+    (id, name, description, owner, tool_type, version, path, level,
+     config, capabilities, limitations, dependencies,
+     public, rentable, price, price_model, status, settings)
+    VALUES
+    (:id, :name, :description, :owner, :tool_type, :version, :path, :level,
+     :config, :capabilities, :limitations, :dependencies,
+     :public, :rentable, :price, :price_model, :status, :settings)
+  `;
+  const params = [
+    toDbParam("id", id),
+    toDbParam("name", tool.name || ""),
+    toDbParam("description", tool.description || null),
+    toDbParam("owner", tool.owner),
+    toDbParam("tool_type", tool.tool_type || null),
+    toDbParam("version", tool.version || null),
+    toDbParam("path", tool.path || null),
+    toDbParam("level", tool.level || null),
+    toDbParam("config", safeJsonStringify(tool.config)),
+    toDbParam("capabilities", safeJsonStringify(tool.capabilities)),
+    toDbParam("limitations", safeJsonStringify(tool.limitations)),
+    toDbParam("dependencies", safeJsonStringify(tool.dependencies)),
+    toDbParam("public", tool.public || false),
+    toDbParam("rentable", tool.rentable || false),
+    toDbParam("price", tool.price || 0),
+    toDbParam("price_model", tool.price_model || null),
+    toDbParam("status", tool.status || "active"),
+    toDbParam("settings", safeJsonStringify(tool.settings))
+  ];
+  try {
+    await execute(sql, params);
+    return { success: true, id };
+  } catch (err) {
+    if ((err.message || "").toLowerCase().includes("duplicate")) {
+      return { success: false, id, error: "ID_TAKEN: Tool id already exists" };
+    }
+    throw err;
+  }
+}
+
+async function updateTool(id, owner, fields) {
+  const current = await getToolById(id);
+  if (!current) {
+    return { success: false, id, error: "NOT_FOUND: Tool not found" };
+  }
+  if (owner && current.owner !== owner) {
+    return { success: false, id, error: "FORBIDDEN: Not the owner" };
+  }
+
+  const allowed = [
+    "name",
+    "description",
+    "tool_type",
+    "version",
+    "path",
+    "level",
+    "config",
+    "capabilities",
+    "limitations",
+    "dependencies",
+    "public",
+    "rentable",
+    "price",
+    "price_model",
+    "status",
+    "settings"
+  ];
+  const setParts = [];
+  const params = [toDbParam("id", id)];
+  for (const key of allowed) {
+    if (key in fields) {
+      setParts.push(`${key} = :${key}`);
+      const val = JSON_FIELDS.includes(key) ? safeJsonStringify(fields[key]) : fields[key];
+      params.push(toDbParam(key, val));
+    }
+  }
+  if (!setParts.length) return { success: false, error: "No valid fields to update" };
+  const sql = `UPDATE agent_tools SET ${setParts.join(", ")} WHERE id = :id`;
+  await execute(sql, params);
+  return { success: true, id };
+}
+
+async function deleteTool(id, owner) {
+  const current = await getToolById(id);
+  if (!current) {
+    return { success: false, id, error: "NOT_FOUND: Tool not found" };
+  }
+  if (owner && current.owner !== owner) {
+    return { success: false, id, error: "FORBIDDEN: Not the owner" };
+  }
+
+  await execute("DELETE FROM agent_tools WHERE id = :id", [toDbParam("id", id)]);
+  return { success: true };
+}
+
+async function getToolById(id) {
+  const res = await execute("SELECT * FROM agent_tools WHERE id = :id LIMIT 1", [toDbParam("id", id)]);
+  const rows = rowsToObjects(res);
+  return rows[0] || null;
+}
+
+async function getToolsByOwner(owner) {
+  const res = await execute("SELECT * FROM agent_tools WHERE owner = :owner", [toDbParam("owner", owner)]);
+  return rowsToObjects(res);
+}
+
+async function queryTools({ id, name, description }) {
+  const where = [];
+  const params = [];
+  if (id) {
+    where.push("id = :id");
+    params.push(toDbParam("id", id));
+  }
+  if (name) {
+    where.push("name LIKE :name");
+    params.push(toDbParam("name", `%${name}%`));
+  }
+  if (description) {
+    where.push("description LIKE :description");
+    params.push(toDbParam("description", `%${description}%`));
+  }
+  const sql = `SELECT * FROM agent_tools${where.length ? " WHERE " + where.join(" AND ") : ""}`;
+  const res = await execute(sql, params);
+  return rowsToObjects(res);
+}
+
+module.exports = {
+  addTool,
+  updateTool,
+  deleteTool,
+  getToolById,
+  getToolsByOwner,
+  queryTools
+};

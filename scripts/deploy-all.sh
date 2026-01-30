@@ -3,7 +3,7 @@
 #
 # Usage:
 #   ./scripts/deploy-all.sh              # Deploy all (lambda, worker, frontend)
-#   ./scripts/deploy-all.sh lambda       # Deploy only Lambda
+#   ./scripts/deploy-all.sh lambda       # Deploy only all Lambdas
 #   ./scripts/deploy-all.sh worker       # Deploy only Cloud Worker
 #   ./scripts/deploy-all.sh frontend     # Deploy only Frontend
 #   ./scripts/deploy-all.sh lambda worker # Deploy Lambda and Worker
@@ -30,7 +30,7 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 # ECR config
 ECR_REPO="667118410653.dkr.ecr.${AWS_REGION}.amazonaws.com/ecan-cloud-worker"
 
-deploy_lambda() {
+deploy_lambda_skill_editor() {
     log_info "=========================================="
     log_info "Deploying Lambda: skill_editor_agent"
     log_info "=========================================="
@@ -50,7 +50,42 @@ deploy_lambda() {
         --profile "$AWS_PROFILE" \
         --no-cli-pager
     
-    log_success "Lambda deployed successfully!"
+    log_success "Lambda skill_editor_agent deployed successfully!"
+}
+
+deploy_lambda_cloud_tester() {
+    log_info "=========================================="
+    log_info "Deploying Lambda: cloud_tester"
+    log_info "=========================================="
+    
+    cd "$REPO_ROOT/lambda_functions/cloud_tester"
+    
+    # Build and deploy (build_lambda.sh handles both)
+    log_info "Building and deploying Lambda package..."
+    ./build_lambda.sh
+    
+    log_success "Lambda cloud_tester deployed successfully!"
+}
+
+deploy_lambda_agent_scheduler() {
+    log_info "=========================================="
+    log_info "Deploying Lambda: agentScheduler"
+    log_info "=========================================="
+    
+    cd "$REPO_ROOT/lambda_functions/agentScheduler"
+    
+    # Build and deploy (build_lambda.sh handles both)
+    log_info "Building and deploying Lambda package..."
+    ./build_lambda.sh
+    
+    log_success "Lambda agentScheduler deployed successfully!"
+}
+
+deploy_lambda() {
+    # Deploy all Lambda functions
+    deploy_lambda_skill_editor
+    deploy_lambda_cloud_tester
+    deploy_lambda_agent_scheduler
 }
 
 deploy_worker() {
@@ -145,7 +180,7 @@ fi
 
 # Show what we're deploying
 log_info "Deployment targets:"
-$DEPLOY_LAMBDA && log_info "  - Lambda"
+$DEPLOY_LAMBDA && log_info "  - Lambda (skill_editor_agent, cloud_tester, agentScheduler)"
 $DEPLOY_WORKER && log_info "  - Cloud Worker"
 $DEPLOY_FRONTEND && log_info "  - Frontend"
 echo ""
