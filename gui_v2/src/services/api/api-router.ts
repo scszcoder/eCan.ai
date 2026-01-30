@@ -257,11 +257,16 @@ export class APIRouter {
     const resultPath = definition.graphql?.resultPath;
     const gqlString = (query || mutation || '').trim();
 
+    console.log(`[APIRouter] executeViaGraphQL: method=${definition.method}, resultPath=${resultPath}`);
+    console.log(`[APIRouter] executeViaGraphQL params:`, JSON.stringify(params, null, 2));
+
     try {
       // IMPORTANT: LocalServer GraphQL handler requires extensions.method for routing.
       // Pass definition.method to appSyncRequest so appSyncClient can include it in body.extensions.
       const data = await appSyncRequest<any>(gqlString, params, undefined, definition.method);
       
+      console.log(`[APIRouter] executeViaGraphQL raw response:`, JSON.stringify(data, null, 2));
+
       // 根据 resultPath 提取数据
       let result = data;
       if (resultPath) {
@@ -269,6 +274,7 @@ export class APIRouter {
         for (const p of paths) {
           result = result?.[p];
           if (result === undefined) {
+            console.error(`[APIRouter] Result path '${resultPath}' not found. Available keys:`, Object.keys(data || {}));
             return this.createErrorResponse(
               'GRAPHQL_RESULT_PATH_ERROR',
               `Result path '${resultPath}' not found in GraphQL response`
@@ -281,11 +287,14 @@ export class APIRouter {
         result = (result as any)[definition.method];
       }
 
+      console.log(`[APIRouter] executeViaGraphQL final result:`, JSON.stringify(result, null, 2));
+
       return {
         success: true,
         data: result as T
       };
     } catch (error) {
+      console.error(`[APIRouter] executeViaGraphQL error:`, error);
       return this.createErrorResponse(
         'GRAPHQL_ERROR',
         error instanceof Error ? error.message : 'GraphQL request failed',

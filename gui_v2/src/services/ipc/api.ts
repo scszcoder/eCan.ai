@@ -275,7 +275,7 @@ export class IPCAPI {
           resultPath: 'getAllMine'
         }
       },
-      { username }
+      { owner: username, userId: username }
     );
     }
 
@@ -311,7 +311,7 @@ export class IPCAPI {
           resultPath: 'getAllMine.agents'
         }
       },
-      { username, agent_id }
+      { owner: username, userId: username, agent_id }
     );
     }
 
@@ -324,7 +324,7 @@ export class IPCAPI {
           resultPath: 'getAllMine.skills'
         }
       },
-      { username, skill_ids }
+      { owner: username, userId: username, skill_ids }
     );
     }
 
@@ -341,7 +341,7 @@ export class IPCAPI {
           resultPath: 'getAllMine.tasks'
         }
       },
-      {username, task_ids: agent_task_ids }
+      { owner: username, userId: username, task_ids: agent_task_ids }
     );
     }
 
@@ -354,7 +354,7 @@ export class IPCAPI {
           resultPath: 'getAllMine.prompts'
         }
       },
-      { username }
+      { owner: username, userId: username }
     );
     }
 
@@ -445,7 +445,7 @@ export class IPCAPI {
           resultPath: 'getAllMine.tools'
         }
       },
-      {username, tool_ids }
+      { owner: username, userId: username, tool_ids }
     );
     }
 
@@ -1132,6 +1132,8 @@ export class IPCAPI {
         sync_init_complete: boolean;
         message: string;
     }>> {
+        // Get username from localStorage for owner/userId
+        const username = localStorage.getItem('username');
         return apiRouter.execute(
       {
         method: 'get_initialization_progress',
@@ -1139,7 +1141,8 @@ export class IPCAPI {
           query: GRAPHQL_QUERIES.GET_ALL_MINE,
           resultPath: 'getAllMine'
         }
-      }
+      },
+      { owner: username, userId: username }
     );
     }
 

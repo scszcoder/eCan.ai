@@ -1,17 +1,23 @@
-# Invoke Lambda to remove prompts
+## Invoke Lambda to remove prompts
 {
   "version": "2017-02-28",
   "operation": "Invoke",
   "payload": {
-    "arguments": {
-      "input": $utils.toJson($context.arguments.input)
+    "arguments": $utils.toJson($context.arguments),
+    "identity": $utils.toJson($context.identity),
+    "source": $utils.toJson($context.source),
+    "request": {
+      "headers": $utils.toJson($context.request.headers),
+      "domainName": $utils.toJson($context.request.domainName)
     },
-    "identity": {
-      "claims": $utils.toJson($context.identity.claims)
-    },
+    "prev": $utils.toJson($context.prev),
     "info": {
       "fieldName": "$context.info.fieldName",
+      "selectionSetList": $utils.toJson($context.info.selectionSetList),
+      "selectionSetGraphQL": $utils.toJson($context.info.selectionSetGraphQL),
+      "variables": $utils.toJson($context.info.variables),
       "parentTypeName": "$context.info.parentTypeName"
-    }
+    },
+    "stash": $utils.toJson($context.stash)
   }
 }

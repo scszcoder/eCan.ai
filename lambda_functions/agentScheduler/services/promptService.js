@@ -100,6 +100,7 @@ async function s3Delete(key) {
  * List all JSON files in a prefix
  */
 async function s3ListJsonFiles(prefix) {
+  console.log(`[promptService] s3ListJsonFiles: Bucket=${BUCKET}, Prefix=${prefix}`);
   const keys = [];
   let continuationToken;
   do {
@@ -108,6 +109,7 @@ async function s3ListJsonFiles(prefix) {
       Prefix: prefix,
       ContinuationToken: continuationToken
     }));
+    console.log(`[promptService] s3ListJsonFiles response: KeyCount=${res.KeyCount}, IsTruncated=${res.IsTruncated}`);
     const contents = res.Contents || [];
     for (const obj of contents) {
       if (obj.Key && obj.Key.endsWith(".json")) {
@@ -199,9 +201,16 @@ function normalizePrompt(raw, { source, readOnly, lastModified }) {
  * Load all prompts from a prefix
  */
 async function loadPromptsFromPrefix(prefix, { source, readOnly }) {
+  console.log(`[promptService] loadPromptsFromPrefix: prefix=${prefix}, source=${source}, readOnly=${readOnly}`);
   const prompts = [];
   try {
     const files = await s3ListJsonFiles(prefix);
+    if (!files.length) {
+      console.warn(`[promptService] No prompt files found in prefix: ${prefix}`);
+    } else {
+      console.log(`[promptService] Found ${files.length} prompt files in prefix: ${prefix}`);
+      console.log(`[promptService] Files: ${files.map(f => f.key).join(', ')}`);
+    }
     for (const file of files) {
       try {
         const data = await s3GetJson(file.key);
@@ -218,7 +227,11 @@ async function loadPromptsFromPrefix(prefix, { source, readOnly }) {
           });
           if (normalized && normalized.id) {
             prompts.push(normalized);
+          } else {
+            console.warn(`[promptService] Skipped file (normalizePrompt failed or missing id): ${file.key}`);
           }
+        } else {
+          console.warn(`[promptService] Skipped file (no data): ${file.key}`);
         }
       } catch (err) {
         console.warn(`[promptService] Failed to load prompt from ${file.key}: ${err.message}`);
@@ -447,27 +460,35 @@ async function getPromptById(id, owner) {
  * Returns both user prompts and public sample prompts
  */
 async function listPrompts(owner) {
+  console.log(`[promptService] listPrompts called with owner: '${owner}'`);
   const allPrompts = [];
   
   // Load user prompts
   if (owner) {
     const userPrefix = getUserPromptsPrefix(owner);
+    console.log(`[promptService] listPrompts: userPrefix=${userPrefix}`);
     const userPrompts = await loadPromptsFromPrefix(userPrefix, {
       source: "my_prompts",
       readOnly: false
     });
+    console.log(`[promptService] listPrompts: loaded ${userPrompts.length} user prompts`);
     // Set owner on user prompts
     userPrompts.forEach(p => { p.owner = owner; });
     allPrompts.push(...userPrompts);
+  } else {
+    console.warn(`[promptService] listPrompts: No owner provided, skipping user prompts`);
   }
   
   // Load public/sample prompts
+  console.log(`[promptService] listPrompts: loading public prompts from ${PUBLIC_PROMPTS_PREFIX}`);
   const publicPrompts = await loadPromptsFromPrefix(PUBLIC_PROMPTS_PREFIX, {
     source: "sample_prompts",
     readOnly: true
   });
+  console.log(`[promptService] listPrompts: loaded ${publicPrompts.length} public prompts`);
   allPrompts.push(...publicPrompts);
   
+  console.log(`[promptService] listPrompts: returning ${allPrompts.length} total prompts`);
   return allPrompts;
 }
 

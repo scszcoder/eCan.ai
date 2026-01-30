@@ -31,8 +31,8 @@ export interface APIDefinition {
 export const GRAPHQL_QUERIES = {
   // ==================== Agent & User Data ====================
   GET_ALL_MINE: `
-    query GetAllMine {
-      getAllMine {
+    query GetAllMine($owner: String, $userId: String) {
+      getAllMine(owner: $owner, userId: $userId) {
         agents { id name owner description status rank supervisor_id avatar_resource_id title capabilities extra_data personalities url vehicle_id version created_at updated_at }
         tasks { id name description status priority owner org_id source task_type trigger_type metadata result schedule }
         skills { id name owner description level path public rentable source tags version }
