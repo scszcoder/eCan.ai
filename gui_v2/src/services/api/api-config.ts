@@ -118,24 +118,24 @@ export const GRAPHQL_QUERIES = {
   `,
 
   READ_SKILL_FILE: `
-    query ReadSkillFile($filePath: String!) {
-      readSkillFile(filePath: $filePath) {
+    query ReadSkillFile($filePath: String!, $userId: String) {
+      readSkillFile(filePath: $filePath, userId: $userId) {
         content filePath fileName fileSize skillName
       }
     }
   `,
 
   OPEN_SKILL_FILE: `
-    query OpenSkillFile($filePath: String!, $skillName: String) {
-      openSkillFile(filePath: $filePath, skillName: $skillName) {
+    query OpenSkillFile($filePath: String!, $skillName: String, $userId: String) {
+      openSkillFile(filePath: $filePath, skillName: $skillName, userId: $userId) {
         content filePath fileName fileSize skillName
       }
     }
   `,
 
   LIST_SKILL_FILES: `
-    query ListSkillFiles($prefix: String, $limit: Int, $nextToken: String) {
-      listSkillFiles(prefix: $prefix, limit: $limit, nextToken: $nextToken) {
+    query ListSkillFiles($prefix: String, $limit: Int, $nextToken: String, $userId: String) {
+      listSkillFiles(prefix: $prefix, limit: $limit, nextToken: $nextToken, userId: $userId) {
         filePath fileName fileSize skillName updatedAt
       }
     }

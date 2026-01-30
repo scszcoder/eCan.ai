@@ -7,6 +7,15 @@ import { IPCAPI, APIResponse } from './api';
 import { apiRouter } from '../api/api-router';
 import { GRAPHQL_QUERIES, GRAPHQL_MUTATIONS, Channel } from '../api/api-config';
 import { detectPlatform } from '../../config/platform';
+import { useUserStore } from '../../stores/userStore';
+
+/**
+ * Get current username from store for API calls
+ * This is the sanitized username (e.g., "user_gmail_com")
+ */
+function getCurrentUsername(): string | undefined {
+  return useUserStore.getState().username || undefined;
+}
 
 /**
  * File dialog filter interface
@@ -162,7 +171,8 @@ IPCAPI.prototype.readSkillFile = function<T = FileContentResponse>(filePath: str
   // In web mode, use GraphQL/AppSync via apiRouter
   const platform = detectPlatform();
   if (platform === 'web') {
-    console.log('[FileAPI] readSkillFile: using GraphQL for web mode');
+    const userId = getCurrentUsername();
+    console.log('[FileAPI] readSkillFile: using GraphQL for web mode, userId:', userId);
     const p = apiRouter.execute<T>(
       {
         method: 'read_skill_file',
@@ -171,7 +181,7 @@ IPCAPI.prototype.readSkillFile = function<T = FileContentResponse>(filePath: str
           resultPath: 'readSkillFile'
         }
       },
-      { filePath }
+      { filePath, userId }
     );
     p.then((resp) => {
       try {
@@ -220,7 +230,8 @@ IPCAPI.prototype.openSkillFile = function<T = FileContentResponse>(
   // In web mode, use GraphQL/AppSync via apiRouter
   const platform = detectPlatform();
   if (platform === 'web') {
-    console.log('[FileAPI] openSkillFile: using GraphQL for web mode');
+    const userId = getCurrentUsername();
+    console.log('[FileAPI] openSkillFile: using GraphQL for web mode, userId:', userId);
     return apiRouter.execute<T>(
       {
         method: 'open_skill_file',
@@ -229,7 +240,7 @@ IPCAPI.prototype.openSkillFile = function<T = FileContentResponse>(
           resultPath: 'openSkillFile'
         }
       },
-      { filePath, skillName }
+      { filePath, skillName, userId }
     );
   }
   
@@ -246,7 +257,10 @@ IPCAPI.prototype.writeSkillFile = function<T = FileWriteResponse | FileWriteResp
   // In web mode, use GraphQL/AppSync via apiRouter
   const platform = detectPlatform();
   if (platform === 'web') {
-    console.log('[FileAPI] writeSkillFile: using GraphQL for web mode', { fileCount: payload.length });
+    // Add userId to each item in the payload for proper S3 path resolution
+    const userId = getCurrentUsername();
+    const payloadWithUserId = payload.map(item => ({ ...item, userId }));
+    console.log('[FileAPI] writeSkillFile: using GraphQL for web mode', { fileCount: payload.length, userId });
     return apiRouter.execute<T>(
       {
         method: 'write_skill_file',
@@ -255,7 +269,7 @@ IPCAPI.prototype.writeSkillFile = function<T = FileWriteResponse | FileWriteResp
           resultPath: 'writeSkillFile'
         }
       },
-      { input: payload }
+      { input: payloadWithUserId }
     );
   }
   
@@ -271,7 +285,8 @@ IPCAPI.prototype.listSkillFiles = function<T = SkillFileItem[]>(
   // In web mode, use GraphQL/AppSync directly via API router
   const platform = detectPlatform();
   if (platform === 'web') {
-    console.log('[FileAPI] listSkillFiles: using GraphQL for web mode');
+    const userId = getCurrentUsername();
+    console.log('[FileAPI] listSkillFiles: using GraphQL for web mode, userId:', userId);
     return apiRouter.execute<T>(
       { 
         method: 'listSkillFiles', 
@@ -280,7 +295,7 @@ IPCAPI.prototype.listSkillFiles = function<T = SkillFileItem[]>(
           resultPath: 'listSkillFiles'
         } 
       },
-      { prefix, limit, nextToken }
+      { prefix, limit, nextToken, userId }
     );
   }
   // In desktop mode, use IPC
@@ -323,7 +338,8 @@ IPCAPI.prototype.scaffoldSkill = function<T = SkillScaffoldResponse>(
   // In web mode, use GraphQL/AppSync via apiRouter
   const platform = detectPlatform();
   if (platform === 'web') {
-    console.log('[FileAPI] scaffoldSkill: using GraphQL for web mode');
+    const userId = getCurrentUsername();
+    console.log('[FileAPI] scaffoldSkill: using GraphQL for web mode, userId:', userId);
     return apiRouter.execute<T>(
       {
         method: 'skills.scaffold',
@@ -332,7 +348,7 @@ IPCAPI.prototype.scaffoldSkill = function<T = SkillScaffoldResponse>(
           resultPath: 'scaffoldSkill'
         }
       },
-      { input: { name, description, kind, skillJson, bundleJson, mappingJson } }
+      { input: { name, description, kind, skillJson, bundleJson, mappingJson, userId } }
     );
   }
   
@@ -352,7 +368,8 @@ IPCAPI.prototype.copySkillTo = function<T = SkillCopyResponse>(
   // In web mode, use GraphQL/AppSync via apiRouter
   const platform = detectPlatform();
   if (platform === 'web') {
-    console.log('[FileAPI] copySkillTo: using GraphQL for web mode');
+    const userId = getCurrentUsername();
+    console.log('[FileAPI] copySkillTo: using GraphQL for web mode, userId:', userId);
     return apiRouter.execute<T>(
       {
         method: 'skills.copyTo',
@@ -361,7 +378,7 @@ IPCAPI.prototype.copySkillTo = function<T = SkillCopyResponse>(
           resultPath: 'copySkillTo'
         }
       },
-      { input: { sourcePath, newName, skillJson, bundleJson, targetDir } }
+      { input: { sourcePath, newName, skillJson, bundleJson, targetDir, userId } }
     );
   }
   
