@@ -40,21 +40,37 @@ const AuthCallback: React.FC = () => {
             : (providerName.toLowerCase().includes('google') ? 'google' : 'password');
         sessionStorage.removeItem('cognito_login_method');
 
-        // For display purposes, prefer email over cognito:username (which can be a federated ID like google_xxxxx)
-        // cognito:username is needed for API calls, but email is more user-friendly for display
-        const cognitoUsername = payload['cognito:username'] || payload.username || payload.email || 'user';
-        const displayUsername = payload.email || payload.name || cognitoUsername;
+        // Email is the primary identifier for the user
+        const email = payload.email || '';
+        const cognitoUsername = payload['cognito:username'] || payload.username || email || 'user';
+        
+        // Sanitize email to create a safe username for S3 paths
+        // e.g., "jack@gmail.com" -> "jack_gmail_com"
+        // This must match backend _safe_user_dir_name() in skill_editor_agent.py
+        const sanitizeUsername = (u: string): string => {
+          const trimmed = (u || '').trim();
+          if (!trimmed) return 'unknown';
+          if (trimmed.includes('@')) {
+            const [localPart, domainPart] = trimmed.split('@', 2);
+            return `${localPart}_${(domainPart || '').replace(/\./g, '_')}`;
+          }
+          return trimmed.replace(/@/g, '_').replace(/\./g, '_');
+        };
+        
+        // Use sanitized email as the username for API calls and file paths
+        // This ensures consistency between frontend and backend S3 paths
+        const sanitizedUsername = email ? sanitizeUsername(email) : sanitizeUsername(cognitoUsername);
         
         const userInfo = {
-          username: displayUsername,  // Use email/name for display
-          email: payload.email,
+          username: sanitizedUsername,  // Sanitized for API calls and S3 paths
+          email: email,  // Raw email for display
           name: payload.name,
           given_name: payload.given_name,
           family_name: payload.family_name,
           picture: payload.picture,
           email_verified: payload.email_verified,
           sub: payload.sub,
-          cognito_username: cognitoUsername,  // Keep original cognito username for API calls if needed
+          cognito_username: cognitoUsername,  // Original cognito username if needed
         };
 
         webAuthSession.setSession({
