@@ -121,7 +121,7 @@ class SkillEditorChatService {
     try {
       // Get user ID from storage
       const { userStorageManager } = await import('../../../services/storage/UserStorageManager');
-      const userId = userStorageManager.getUserId() || '';
+      const userId = userStorageManager.getUsername() || '';
       
       const response = await apiRouter.execute<Array<{ id: string; name: string; flowgramId?: string; createdAt: string; updatedAt: string }>>(
         {
