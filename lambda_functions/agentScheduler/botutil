@@ -1,0 +1,67 @@
+const fs = require("fs");
+
+function log(title, msg, caller="anyone", func_name="anyfunc", options={"anyfunc":true, "loggers":["anyone"]}, fileStream=null) {
+  if (fileStream && fileStream.writable) {
+    fileStream.write(`[${title}] ${msg}\n`, (err) => {
+      if (err) {
+        console.error("❌ Error writing log:", err);
+      } else {
+        fs.fsync(fileStream.fd, (err) => {
+          if (err) console.error("❌ Error syncing log:", err);
+        });
+
+        // 🔍 Check file size immediately after writing
+        try {
+          const stats = fs.statSync(fileStream.path);
+          // console.log(`📏 File size after writing: ${stats.size} bytes`);
+        } catch (err) {
+          console.error("❌ Could not stat file:", err);
+        }
+      }
+    });
+  } else {
+    console.log(`[${title}] ${msg}\n`);
+  }
+}
+
+
+function objEqual(o1, o2) {
+  var eq = true;
+
+  if (typeof o1 == typeof o2) {
+    switch (typeof o2) {
+      case "object" :
+        for (const [key, value] of Object.entries(o2)) {
+          if (!objEqual(o1[key], o2[key])) {
+            eq = false;
+            break;
+          }
+        }
+      break;
+      default:
+        if (Array.isArray(o2)) {
+          for (var i = 0; i < o2.length; i++) {
+            if (!objEqual(o1[i], o2[i])) {
+              eq = false;
+              break;
+            }
+          }
+        } else {
+          if (o2 != o1) {
+            eq = false;
+          }
+        }
+    }
+    
+  } else {
+    eq = false;
+  }
+  
+  return eq;
+}
+
+
+module.exports = { 
+    log,
+    objEqual,
+};

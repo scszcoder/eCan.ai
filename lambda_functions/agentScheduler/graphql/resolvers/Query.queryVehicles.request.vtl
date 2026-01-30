@@ -1,0 +1,17 @@
+# Query vehicles
+{
+  "version": "2017-02-28",
+  "operation": "Invoke",
+  "payload": {
+    "arguments": {
+      "qv": $utils.toJson($context.arguments.input)
+    },
+    "identity": {
+      "claims": $utils.toJson($context.identity.claims)
+    },
+    "info": {
+      "fieldName": "$context.info.fieldName",
+      "parentTypeName": "$context.info.parentTypeName"
+    }
+  }
+}

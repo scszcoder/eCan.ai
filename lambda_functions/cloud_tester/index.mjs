@@ -278,6 +278,75 @@ const testPublishSkillEditorStreamEvent = async (url, apiKey, params) => {
   return appSyncRequest(url, apiKey, { query: PUBLISH_SKILL_EDITOR_STREAM_EVENT, variables: { input } }, "publishSkillEditorStreamEvent");
 };
 
+// Send cloud worker command via publishSkillEditorStreamEvent
+// The worker expects eventType or payload.type to be one of:
+// run_step, run_paused, run_resumed, run_cancelled, ping
+const testCloudWorkerCommand = async (url, apiKey, params, cmdType) => {
+  const sessionId = params.sessionId || params.run_id || randomUUID();
+  const flowgramId = params.flowgramId || params.flowgram_id || params.skill_id || "test-flowgram";
+  
+  // Map command types to event types expected by worker_main.py
+  const eventTypeMap = {
+    "step": "run_step",
+    "ping": "ping",
+    "pause": "run_paused",
+    "resume": "run_resumed",
+    "stop": "run_cancelled",
+  };
+  const eventType = eventTypeMap[cmdType] || cmdType;
+  
+  console.log(`[cloud_tester] testCloudWorkerCommand: owner=${params.owner}, sessionId=${sessionId}, eventType=${eventType}`);
+  
+  const input = {
+    owner: params.owner || "test-owner",
+    sessionId,
+    flowgramId,
+    eventType: eventType,  // Worker checks envelope.eventType first
+    payload: JSON.stringify({
+      type: eventType,  // Worker also checks payload.type as fallback
+      run_id: sessionId,  // Worker uses this to match the run
+      timestamp: new Date().toISOString(),
+      source: "cloud_tester",
+      testName: params.testName
+    })
+  };
+  return appSyncRequest(url, apiKey, { query: PUBLISH_SKILL_EDITOR_STREAM_EVENT, variables: { input } }, `publishSkillEditorStreamEvent (${eventType})`);
+};
+
+const testStepCloudWorker = async (url, apiKey, params) => {
+  return testCloudWorkerCommand(url, apiKey, { ...params, testName: "Step_Cloud_Worker" }, "step");
+};
+
+const testPingCloudWorker = async (url, apiKey, params) => {
+  return testCloudWorkerCommand(url, apiKey, { ...params, testName: "Ping_Cloud_Worker" }, "ping");
+};
+
+// Send passive command to client via publishPassiveCommand
+const testSendPassiveCmd = async (url, apiKey, params) => {
+  const clientId = params.clientId || params.client_id || "test-client-" + randomUUID().slice(0, 8);
+  const runId = params.runId || params.run_id || randomUUID();
+  const stepId = params.stepId || params.step_id || randomUUID();
+  console.log(`[cloud_tester] testSendPassiveCmd: clientId=${clientId}, runId=${runId}`);
+  
+  // Allow custom command payload or use default test command
+  // Command format: { actions: [{click: {index}}, {input: {index, text}}], results: {} }
+  const command = params.command || {
+    actions: [
+      { click: { index: 5 } },
+      { input: { index: 5, text: "hello from cloud_tester" } }
+    ],
+    results: {}
+  };
+  
+  const input = {
+    clientId,
+    runId,
+    stepId,
+    command: typeof command === 'string' ? command : JSON.stringify(command)
+  };
+  return appSyncRequest(url, apiKey, { query: PUBLISH_PASSIVE_COMMAND, variables: { input } }, "publishPassiveCommand (Send_PASSIVE_CMD)");
+};
+
 // ============================================================
 // Test suite runners
 // ============================================================
@@ -629,12 +698,27 @@ export const handler = async (event = {}) => {
       case "presigned_test":
         result = await runPresignedTest(params);
         break;
+
+      case "Step_Cloud_Worker":
+      case "STEP_CLOUD_WORKER":
+        result = await testStepCloudWorker(appsyncUrl, appsyncKey, params);
+        break;
+
+      case "Ping_Cloud_Worker":
+      case "PING_CLOUD_WORKER":
+        result = await testPingCloudWorker(appsyncUrl, appsyncKey, params);
+        break;
+
+      case "Send_PASSIVE_CMD":
+      case "SEND_PASSIVE_CMD":
+        result = await testSendPassiveCmd(appsyncUrl, appsyncKey, params);
+        break;
         
       default:
         console.warn(`[cloud_tester] WARNING: Unknown test name: ${testName}`);
         result = { 
           error: `Unknown test name: ${testName}`, 
-          supportedTests: ["C2L_WS_Test", "C2C_WS_Test", "PRESIGNED_TEST"] 
+          supportedTests: ["C2L_WS_Test", "C2C_WS_Test", "PRESIGNED_TEST", "Step_Cloud_Worker", "Ping_Cloud_Worker", "Send_PASSIVE_CMD"] 
         };
     }
 

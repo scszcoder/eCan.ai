@@ -1,0 +1,17 @@
+# Org tree
+{
+  "version": "2017-02-28",
+  "operation": "Invoke",
+  "payload": {
+    "arguments": {
+      "root_id": $utils.toJson($context.arguments.root_id)
+    },
+    "identity": {
+      "claims": $utils.toJson($context.identity.claims)
+    },
+    "info": {
+      "fieldName": "$context.info.fieldName",
+      "parentTypeName": "$context.info.parentTypeName"
+    }
+  }
+}

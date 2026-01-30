@@ -199,6 +199,9 @@ class RunControlListener:
                 logger.info(f"[RunControlListener] Step requested for run {self.run_state.run_id}")
                 self.run_state.step_requested = True
             
+            elif event_type == "ping" or payload.get("type") == "ping":
+                logger.info(f"[RunControlListener] Ping received for run {self.run_state.run_id} - worker is alive!")
+            
             # Call custom handler if provided
             if self.on_command:
                 self.on_command(event_type, payload)

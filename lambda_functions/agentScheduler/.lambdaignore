@@ -1,0 +1,7 @@
+.venv/
+.git/
+README-agent-migration.md
+lambdas/story_updater/
+build/
+*.log
+node_modules/
