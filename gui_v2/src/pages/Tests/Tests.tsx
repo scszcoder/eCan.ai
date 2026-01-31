@@ -809,11 +809,11 @@ const Tests: React.FC = () => {
         
         setTestOutput('');
         appendTestOutput('Send PASSIVE CMD: Starting...');
-        appendTestOutput('Send PASSIVE CMD: This calls cloud runTest mutation to send a passive command');
+        appendTestOutput('Send PASSIVE CMD: Calls publishPassiveCommand mutation directly');
+        appendTestOutput('Send PASSIVE CMD: Required fields: clientId, runId, stepId, command');
         
         const wanEndpoint = (settings?.wan_api_endpoint?.trim() || parsedArgs.wanEndpoint || env.VITE_APPSYNC_HTTP_ENDPOINT || defaultWanEndpoint);
         const wanApiKey = (settings?.wan_api_key?.trim() || parsedArgs.wanApiKey || parsedArgs.apiKey || env.VITE_APPSYNC_API_KEY || '');
-        const owner = username || parsedArgs.owner || env.VITE_ACCOUNT_OWNER || '';
         
         appendTestOutput(`Send PASSIVE CMD: endpoint=${wanEndpoint}`);
         
@@ -821,36 +821,55 @@ const Tests: React.FC = () => {
             appendTestOutput('Send PASSIVE CMD: ERROR - Missing API key. Provide in Settings (wan_api_key) or Test Argument as {"wanApiKey":"..."}');
             return;
         }
-        if (!owner) {
-            appendTestOutput('Send PASSIVE CMD: ERROR - Not logged in');
-            return;
-        }
         
-        appendTestOutput(`Send PASSIVE CMD: owner=${owner}`);
+        // Required fields for publishPassiveCommand
+        const clientId = parsedArgs.clientId || `client-${Date.now()}`;
+        const runId = parsedArgs.runId || `run-${Date.now()}`;
+        const stepId = parsedArgs.stepId || `step-${Date.now()}`;
+        const command = parsedArgs.command || { action: 'ping', timestamp: new Date().toISOString() };
         
-        const runTestMutation = `mutation RunTest($input: [TestInput]!) { runTest(input: $input) }`;
+        appendTestOutput(`Send PASSIVE CMD: clientId=${clientId}`);
+        appendTestOutput(`Send PASSIVE CMD: runId=${runId}`);
+        appendTestOutput(`Send PASSIVE CMD: stepId=${stepId}`);
+        appendTestOutput(`Send PASSIVE CMD: command=${JSON.stringify(command)}`);
         
-        const testInput = [{
-            id: `passive-cmd-${Date.now()}`,
-            name: 'Send_PASSIVE_CMD',
-            description: 'Send a passive command to cloud worker',
-            input: JSON.stringify({
-                owner, acctSiteID: parsedArgs.acctSiteID || `site-${owner}`, runner: owner,
-                command: parsedArgs.command || 'passive_ping', payload: parsedArgs.payload || {},
-            })
-        }];
+        const publishPassiveCommandMutation = `
+            mutation PublishPassiveCommand($input: PassiveBrowserCommandEnvelopeInput!) {
+                publishPassiveCommand(input: $input) {
+                    id
+                    clientId
+                    runId
+                    stepId
+                    command
+                    timestamp
+                }
+            }
+        `;
+        
+        const input = {
+            clientId,
+            runId,
+            stepId,
+            command: JSON.stringify(command)
+        };
+        
+        appendTestOutput(`Send PASSIVE CMD: Sending mutation...`);
         
         try {
             const response = await fetch(wanEndpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'x-api-key': wanApiKey },
-                body: JSON.stringify({ query: runTestMutation, variables: { input: testInput } }),
+                body: JSON.stringify({ query: publishPassiveCommandMutation, variables: { input } }),
             });
             const result = await response.json();
-            if (result.errors) appendTestOutput(`Send PASSIVE CMD: Errors: ${JSON.stringify(result.errors, null, 2)}`);
-            if (result.data?.runTest) {
-                const parsed = typeof result.data.runTest === 'string' ? JSON.parse(result.data.runTest) : result.data.runTest;
-                appendTestOutput(`Send PASSIVE CMD: SUCCESS\n${JSON.stringify(parsed, null, 2)}`);
+            if (result.errors) {
+                appendTestOutput(`Send PASSIVE CMD: GraphQL Errors:\n${JSON.stringify(result.errors, null, 2)}`);
+            }
+            if (result.data?.publishPassiveCommand) {
+                appendTestOutput(`Send PASSIVE CMD: SUCCESS`);
+                appendTestOutput(JSON.stringify(result.data.publishPassiveCommand, null, 2));
+                appendTestOutput('');
+                appendTestOutput('NOTE: Backend must be subscribed with matching clientId and runId to receive this.');
             } else {
                 appendTestOutput(`Send PASSIVE CMD: No data returned\n${JSON.stringify(result, null, 2)}`);
             }
