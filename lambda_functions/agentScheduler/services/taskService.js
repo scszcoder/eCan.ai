@@ -186,6 +186,28 @@ async function getTasksByOwner(owner) {
   return tasks;
 }
 
+/**
+ * Get tasks by multiple owner identifiers (email and/or Cognito sub)
+ * This handles both legacy tasks (stored with Cognito sub) and new tasks (stored with email)
+ */
+async function getTasksByOwners(ownerEmail, ownerSub) {
+  const owners = [ownerEmail, ownerSub].filter(o => o && o.trim());
+  if (owners.length === 0) {
+    return [];
+  }
+  if (owners.length === 1) {
+    return getTasksByOwner(owners[0]);
+  }
+  console.log(`[taskService] getTasksByOwners: querying for ownerEmail='${ownerEmail}' OR ownerSub='${ownerSub}'`);
+  const res = await execute(
+    "SELECT * FROM agent_tasks WHERE owner = :ownerEmail OR owner = :ownerSub ORDER BY created_at DESC",
+    [toDbParam("ownerEmail", ownerEmail), toDbParam("ownerSub", ownerSub)]
+  );
+  const tasks = rowsToObjects(res);
+  console.log(`[taskService] getTasksByOwners: found ${tasks.length} tasks`);
+  return tasks;
+}
+
 async function queryTasks({ id, name, description }) {
   const where = [];
   const params = [];
@@ -308,6 +330,7 @@ module.exports = {
   deleteTask,
   getTaskById,
   getTasksByOwner,
+  getTasksByOwners,
   queryTasks,
   addSkillToTask,
   removeSkillFromTask,

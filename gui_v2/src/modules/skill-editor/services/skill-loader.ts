@@ -101,7 +101,8 @@ export async function loadSkillFile(
   } = {}
 ): Promise<SkillLoadResult> {
   const isWeb = detectPlatform() === 'web';
-  const ipcApi = isWeb ? null : IPCAPI.getInstance();
+  // IPCAPI methods internally handle web vs desktop routing, so always get the instance
+  const ipcApi = IPCAPI.getInstance();
   const autoSaveMigrated = options.autoSaveMigrated !== false;
   const nowIso = new Date().toISOString();
   
@@ -110,32 +111,35 @@ export async function loadSkillFile(
     
     // 1. Read the main skill file
     const openSkillFile = async () => {
-      if (isWeb) {
-        const data = await ipcApi!.openSkillFile(filePath).catch(() => null);
-        if (!data) {
-          return { success: false, error: 'Failed to read skill file', data: null } as any;
-        }
-        return { success: true, data } as any;
-      }
-      return ipcApi!.openSkillFile(filePath).catch((e: any) => {
-        return { success: false, error: e?.message || String(e) } as any;
+      const response = await ipcApi.openSkillFile(filePath).catch((e) => {
+        console.error('[SkillLoader] openSkillFile error:', e);
+        return null;
       });
+      console.log('[SkillLoader] openSkillFile response:', response);
+      // response is APIResponse<T> with { success, data, error }
+      if (!response || !response.success || !response.data) {
+        return { success: false, error: response?.error?.message || 'Failed to read skill file', data: null } as any;
+      }
+      // response.data is the actual file content object { content, filePath, fileName, ... }
+      return { success: true, data: response.data } as any;
     };
 
     const readSkillFile = async (path: string) => {
-      if (isWeb) {
-        const data = await ipcApi!.readSkillFile(path).catch(() => null);
-        if (!data) return null;
-        const list = Array.isArray(data) ? data : [data];
-        const normalized = String(path).replace(/\\/g, '/');
-        const match = list.find((item) => String(item?.filePath || '').replace(/\\/g, '/') === normalized) || list[0];
-        return match ? ({ success: true, data: match } as any) : null;
-      }
-      return ipcApi!.readSkillFile(path);
+      const response = await ipcApi.readSkillFile(path).catch((e) => {
+        console.error('[SkillLoader] readSkillFile error:', e);
+        return null;
+      });
+      console.log('[SkillLoader] readSkillFile response:', response);
+      if (!response || !response.success || !response.data) return null;
+      // response.data could be array or single item
+      const list = Array.isArray(response.data) ? response.data : [response.data];
+      const normalized = String(path).replace(/\\/g, '/');
+      const match = list.find((item) => String(item?.filePath || '').replace(/\\/g, '/') === normalized) || list[0];
+      return match ? ({ success: true, data: match } as any) : null;
     };
 
     const writeSkillFile = async (path: string, content: string) => {
-      return ipcApi!.writeSkillFile({ filePath: path, content });
+      return ipcApi.writeSkillFile({ filePath: path, content });
     };
 
     let fileResponse = await openSkillFile();

@@ -171,12 +171,16 @@ async function updateSkill(id, owner, fields) {
   return { success: true, id };
 }
 
-async function deleteSkill(id, owner) {
+async function deleteSkill(id, ownerEmail, ownerSub) {
   const current = await getSkillById(id);
   if (!current) {
     return { success: false, id, error: "NOT_FOUND: Skill not found" };
   }
-  if (current.owner && owner && current.owner !== owner) {
+  // Check ownership against both email and Cognito sub
+  const ownerMatches = !current.owner || 
+    (ownerEmail && current.owner === ownerEmail) || 
+    (ownerSub && current.owner === ownerSub);
+  if (!ownerMatches) {
     return { success: false, id, error: "FORBIDDEN: Not the owner" };
   }
 
@@ -196,6 +200,26 @@ async function getSkillById(id) {
 
 async function getSkillsByOwner(owner) {
   const res = await execute("SELECT * FROM agent_skills WHERE owner = :owner", [toDbParam("owner", owner)]);
+  return rowsToObjects(res);
+}
+
+/**
+ * Get skills by multiple owner identifiers (email and/or Cognito sub)
+ * This handles both legacy skills (stored with Cognito sub) and new skills (stored with email)
+ */
+async function getSkillsByOwners(ownerEmail, ownerSub) {
+  const owners = [ownerEmail, ownerSub].filter(o => o && o.trim());
+  if (owners.length === 0) {
+    return [];
+  }
+  if (owners.length === 1) {
+    return getSkillsByOwner(owners[0]);
+  }
+  // Query with OR condition for both identifiers
+  const res = await execute(
+    "SELECT * FROM agent_skills WHERE owner = :ownerEmail OR owner = :ownerSub",
+    [toDbParam("ownerEmail", ownerEmail), toDbParam("ownerSub", ownerSub)]
+  );
   return rowsToObjects(res);
 }
 
@@ -310,6 +334,7 @@ module.exports = {
   deleteSkill,
   getSkillById,
   getSkillsByOwner,
+  getSkillsByOwners,
   querySkills,
   addToolToSkill,
   removeToolFromSkill,
