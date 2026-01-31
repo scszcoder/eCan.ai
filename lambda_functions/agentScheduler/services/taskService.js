@@ -178,6 +178,14 @@ async function getTaskById(id) {
   return rows[0] || null;
 }
 
+async function getTasksByOwner(owner) {
+  console.log(`[taskService] getTasksByOwner: querying for owner='${owner}'`);
+  const res = await execute("SELECT * FROM agent_tasks WHERE owner = :owner ORDER BY created_at DESC", [toDbParam("owner", owner)]);
+  const tasks = rowsToObjects(res);
+  console.log(`[taskService] getTasksByOwner: found ${tasks.length} tasks for owner='${owner}'`);
+  return tasks;
+}
+
 async function queryTasks({ id, name, description }) {
   const where = [];
   const params = [];
@@ -299,6 +307,7 @@ module.exports = {
   updateTask,
   deleteTask,
   getTaskById,
+  getTasksByOwner,
   queryTasks,
   addSkillToTask,
   removeSkillFromTask,

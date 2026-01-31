@@ -278,12 +278,12 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   const handleSave = async () => {
     try {
       const values = await form.validateFields();
-      
+
       // Get skills array from form values and filter out empty values
       const skillNames = ((values as any).skills || []).filter((s: string) => s && s.trim());
       // Find skill objects by name (use simplified skills to avoid circular refs)
       const skillObjs = skillNames.map((name: string) => skillsSimplified.find(s => s.name === name)).filter(Boolean);
-      
+
       const payload: any = {
         id: (values as any).id,
         name: (values as any).name || t('pages.tasks.newTaskName', 'New Task'),
@@ -311,21 +311,41 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
           JSON.parse((values as any).metadata_text) : {},
       };
 
+      if (!payload || typeof payload !== 'object' || !payload.name) {
+        message.error(t('common.createFailed') + ': Invalid task data.');
+        return;
+      }
+
       setSaving(true);
       const api = get_ipc_api();
       const response = isNew
         ? await api.newAgentTask(username, payload)
         : await api.saveAgentTask(username, payload);
-      
+
       if (response.success) {
         message.success(t(isNew ? 'common.createSuccess' : 'common.saveSuccess'));
         setEditMode(false);
         // ä¼ é€’æ–°åˆ›å»ºçš„task IDç»™çˆ¶ç»„ä»¶
         if (onSave) {
-          // APIè¿”å›žçš„task_idåœ¨response.data.task_id
-          const newTaskId = isNew ? (response as any).data?.task_id || (response as any).data?.id || (response as any).data?.task?.id || payload.id : undefined;
-          console.log('[TaskDetail] ä¿å­˜æˆåŠŸï¼ŒTask ID:', newTaskId);
-          console.log('[TaskDetail] APIå“åº”æ•°æ®:', response.data);
+          // API返回的是数组格式 [{id, success, error}]，需要从第一个元素获取ID
+          const responseData = (response as any).data;
+          let newTaskId: string | undefined;
+          if (isNew) {
+            // Handle array response format from addAgentTasks: [{id, success, error}]
+            if (Array.isArray(responseData) && responseData.length > 0) {
+              newTaskId = responseData[0]?.id;
+            } else if (responseData?.task_id) {
+              newTaskId = responseData.task_id;
+            } else if (responseData?.id) {
+              newTaskId = responseData.id;
+            } else if (responseData?.task?.id) {
+              newTaskId = responseData.task.id;
+            } else {
+              newTaskId = payload.id;
+            }
+          }
+          console.log('[TaskDetail] ä¿å­˜æˆåŠŸï¼ŒTask ID:', newTaskId);
+          console.log('[TaskDetail] APIå"åº"æ•°æ®:', responseData);
           onSave(newTaskId);
         }
       } else {

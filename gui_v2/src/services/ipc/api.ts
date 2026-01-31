@@ -337,8 +337,8 @@ export class IPCAPI {
       {
         method: 'get_agent_tasks',
         graphql: {
-          query: GRAPHQL_QUERIES.GET_ALL_MINE,
-          resultPath: 'getAllMine.tasks'
+          query: GRAPHQL_QUERIES.GET_AGENT_TASKS,
+          resultPath: 'getAgentTasks'
         }
       },
       { owner: username, userId: username, task_ids: agent_task_ids }
@@ -710,7 +710,27 @@ export class IPCAPI {
     );
     }
 
-    public async saveAgentTask<T>(username: string, agent_task_info: T): Promise<APIResponse<void>> {
+    public async saveAgentTask<T extends Record<string, any>>(username: string, agent_task_info: T): Promise<APIResponse<void>> {
+        // Transform task info to match TaskUpdateInput GraphQL schema
+        const toAwsJson = (value: any) => {
+          if (value === undefined) return undefined;
+          if (value === null) return null;
+          return typeof value === 'string' ? value : JSON.stringify(value);
+        };
+        const taskInput = {
+          id: agent_task_info.id,
+          name: agent_task_info.name,
+          description: agent_task_info.description,
+          status: agent_task_info.status ?? 'pending',
+          priority: agent_task_info.priority,
+          task_type: agent_task_info.task_type ?? 'general',
+          trigger_type: agent_task_info.trigger_type ?? agent_task_info.trigger ?? 'manual',
+          org_id: agent_task_info.org_id,
+          objectives: toAwsJson(agent_task_info.objectives),
+          schedule: toAwsJson(agent_task_info.schedule),
+          metadata: toAwsJson(agent_task_info.metadata),
+          result: toAwsJson(agent_task_info.result),
+        };
         return apiRouter.execute(
       {
         method: 'save_agent_task',
@@ -719,11 +739,30 @@ export class IPCAPI {
           resultPath: 'updateAgentTasks'
         }
       },
-      {username, task_info: agent_task_info}
+      { username, input: [taskInput] }
     );
     }
 
-    public async newAgentTask<T>(username: string, agent_task_info: T): Promise<APIResponse<void>> {
+    public async newAgentTask<T extends Record<string, any>>(username: string, agent_task_info: T): Promise<APIResponse<void>> {
+        // Transform task info to match TaskInput GraphQL schema
+        const toAwsJson = (value: any) => {
+          if (value === undefined) return undefined;
+          if (value === null) return null;
+          return typeof value === 'string' ? value : JSON.stringify(value);
+        };
+        const taskInput = {
+          id: agent_task_info.id,
+          name: agent_task_info.name,
+          description: agent_task_info.description,
+          status: agent_task_info.status ?? 'pending',
+          priority: agent_task_info.priority,
+          task_type: agent_task_info.task_type ?? 'general',
+          trigger_type: agent_task_info.trigger_type ?? agent_task_info.trigger ?? 'manual',
+          org_id: agent_task_info.org_id,
+          objectives: toAwsJson(agent_task_info.objectives),
+          schedule: toAwsJson(agent_task_info.schedule),
+          metadata: toAwsJson(agent_task_info.metadata),
+        };
         return apiRouter.execute(
       {
         method: 'new_agent_task',
@@ -732,7 +771,7 @@ export class IPCAPI {
           resultPath: 'addAgentTasks'
         }
       },
-      {username, task_info: agent_task_info}
+      { username, input: [taskInput] }
     );
     }
 
@@ -745,7 +784,7 @@ export class IPCAPI {
           resultPath: 'removeAgentTasks'
         }
       },
-      {username, task_id: agent_task_id}
+      { username, input: [agent_task_id] }
     );
     }
 
