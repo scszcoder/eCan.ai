@@ -213,7 +213,8 @@ const testPublishPassiveCommand = async (url, apiKey, params) => {
     clientId,
     runId,
     stepId: randomUUID(),
-    command: JSON.stringify({ action: "test", message: `[${params.testName}] Passive command test` })
+    // AWSJSON type requires the value to be a JSON string (gets double-serialized)
+    command: JSON.stringify({ action: "test", message: `[${params.testName}] Passive command test`, timestamp: Date.now() })
   };
   return appSyncRequest(url, apiKey, { query: PUBLISH_PASSIVE_COMMAND, variables: { input } }, "publishPassiveCommand");
 };
@@ -330,19 +331,36 @@ const testSendPassiveCmd = async (url, apiKey, params) => {
   
   // Allow custom command payload or use default test command
   // Command format: { actions: [{click: {index}}, {input: {index, text}}], results: {} }
-  const command = params.command || {
-    actions: [
-      { click: { index: 5 } },
-      { input: { index: 5, text: "hello from cloud_tester" } }
-    ],
-    results: {}
-  };
+  let command = params.command;
+  
+  // If command is a simple string (like 'passive_ping'), wrap it in an object
+  if (typeof command === 'string') {
+    // Try to parse as JSON first
+    try {
+      command = JSON.parse(command);
+    } catch (e) {
+      // Not valid JSON, wrap string in an action object
+      command = { action: command, timestamp: Date.now() };
+    }
+  }
+  
+  // If no command provided, use default test command
+  if (!command) {
+    command = {
+      actions: [
+        { click: { index: 5 } },
+        { input: { index: 5, text: "hello from cloud_tester" } }
+      ],
+      results: {}
+    };
+  }
   
   const input = {
     clientId,
     runId,
     stepId,
-    command: typeof command === 'string' ? command : JSON.stringify(command)
+    // AWSJSON requires a valid JSON string
+    command: JSON.stringify(command)
   };
   return appSyncRequest(url, apiKey, { query: PUBLISH_PASSIVE_COMMAND, variables: { input } }, "publishPassiveCommand (Send_PASSIVE_CMD)");
 };
