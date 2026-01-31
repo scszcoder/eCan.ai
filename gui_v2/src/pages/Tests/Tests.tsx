@@ -716,15 +716,19 @@ const Tests: React.FC = () => {
         const getEnv = () => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {});
         const env = getEnv();
         
+        // Parse test argument first to allow API key override
+        let parsedArgs: any = {};
+        try { parsedArgs = testArgument ? JSON.parse(testArgument) : {}; } catch (e) { }
+        
         setTestOutput('');
         appendTestOutput('C2C WS Test: Starting...');
         appendTestOutput('C2C WS Test: This calls cloud runTest mutation directly from web frontend');
         appendTestOutput('C2C WS Test: The cloud_tester lambda will publish skill_editor.log events');
         appendTestOutput('C2C WS Test: If pub/sub works, you should see a log message in Skill Editor Console');
         
-        const wanEndpoint = (settings?.wan_api_endpoint?.trim() || env.VITE_APPSYNC_HTTP_ENDPOINT || defaultWanEndpoint);
-        const wanApiKey = (settings?.wan_api_key?.trim() || env.VITE_APPSYNC_API_KEY || '');
-        const owner = username || env.VITE_ACCOUNT_OWNER || '';
+        const wanEndpoint = (settings?.wan_api_endpoint?.trim() || parsedArgs.wanEndpoint || env.VITE_APPSYNC_HTTP_ENDPOINT || defaultWanEndpoint);
+        const wanApiKey = (settings?.wan_api_key?.trim() || parsedArgs.wanApiKey || parsedArgs.apiKey || env.VITE_APPSYNC_API_KEY || '');
+        const owner = username || parsedArgs.owner || env.VITE_ACCOUNT_OWNER || '';
         
         appendTestOutput(`C2C WS Test: endpoint=${wanEndpoint}`);
         
@@ -799,18 +803,22 @@ const Tests: React.FC = () => {
         const getEnv = () => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {});
         const env = getEnv();
         
+        // Parse test argument first to allow API key override
+        let parsedArgs: any = {};
+        try { parsedArgs = testArgument ? JSON.parse(testArgument) : {}; } catch (e) { }
+        
         setTestOutput('');
         appendTestOutput('Send PASSIVE CMD: Starting...');
         appendTestOutput('Send PASSIVE CMD: This calls cloud runTest mutation to send a passive command');
         
-        const wanEndpoint = (settings?.wan_api_endpoint?.trim() || env.VITE_APPSYNC_HTTP_ENDPOINT || defaultWanEndpoint);
-        const wanApiKey = (settings?.wan_api_key?.trim() || env.VITE_APPSYNC_API_KEY || '');
-        const owner = username || env.VITE_ACCOUNT_OWNER || '';
+        const wanEndpoint = (settings?.wan_api_endpoint?.trim() || parsedArgs.wanEndpoint || env.VITE_APPSYNC_HTTP_ENDPOINT || defaultWanEndpoint);
+        const wanApiKey = (settings?.wan_api_key?.trim() || parsedArgs.wanApiKey || parsedArgs.apiKey || env.VITE_APPSYNC_API_KEY || '');
+        const owner = username || parsedArgs.owner || env.VITE_ACCOUNT_OWNER || '';
         
         appendTestOutput(`Send PASSIVE CMD: endpoint=${wanEndpoint}`);
         
         if (!wanApiKey) {
-            appendTestOutput('Send PASSIVE CMD: ERROR - Missing API key');
+            appendTestOutput('Send PASSIVE CMD: ERROR - Missing API key. Provide in Settings (wan_api_key) or Test Argument as {"wanApiKey":"..."}');
             return;
         }
         if (!owner) {
@@ -821,9 +829,6 @@ const Tests: React.FC = () => {
         appendTestOutput(`Send PASSIVE CMD: owner=${owner}`);
         
         const runTestMutation = `mutation RunTest($input: [TestInput]!) { runTest(input: $input) }`;
-        
-        let parsedArgs: any = {};
-        try { parsedArgs = testArgument ? JSON.parse(testArgument) : {}; } catch (e) { }
         
         const testInput = [{
             id: `passive-cmd-${Date.now()}`,
@@ -859,12 +864,16 @@ const Tests: React.FC = () => {
         const getEnv = () => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {});
         const env = getEnv();
         
+        // Parse test argument first to allow API key override
+        let parsedArgs: any = {};
+        try { parsedArgs = testArgument ? JSON.parse(testArgument) : {}; } catch (e) { }
+        
         setTestOutput('');
         appendTestOutput('Ping Cloud Worker: Starting...');
         
-        const wanEndpoint = (settings?.wan_api_endpoint?.trim() || env.VITE_APPSYNC_HTTP_ENDPOINT || defaultWanEndpoint);
-        const wanApiKey = (settings?.wan_api_key?.trim() || env.VITE_APPSYNC_API_KEY || '');
-        const owner = username || env.VITE_ACCOUNT_OWNER || '';
+        const wanEndpoint = (settings?.wan_api_endpoint?.trim() || parsedArgs.wanEndpoint || env.VITE_APPSYNC_HTTP_ENDPOINT || defaultWanEndpoint);
+        const wanApiKey = (settings?.wan_api_key?.trim() || parsedArgs.wanApiKey || parsedArgs.apiKey || env.VITE_APPSYNC_API_KEY || '');
+        const owner = username || parsedArgs.owner || env.VITE_ACCOUNT_OWNER || '';
         
         appendTestOutput(`Ping Cloud Worker: endpoint=${wanEndpoint}`);
         
@@ -917,12 +926,16 @@ const Tests: React.FC = () => {
         const getEnv = () => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {});
         const env = getEnv();
         
+        // Parse test argument first to allow API key override
+        let parsedArgs: any = {};
+        try { parsedArgs = testArgument ? JSON.parse(testArgument) : {}; } catch (e) { }
+        
         setTestOutput('');
         appendTestOutput('Step Cloud Worker: Starting...');
         
-        const wanEndpoint = (settings?.wan_api_endpoint?.trim() || env.VITE_APPSYNC_HTTP_ENDPOINT || defaultWanEndpoint);
-        const wanApiKey = (settings?.wan_api_key?.trim() || env.VITE_APPSYNC_API_KEY || '');
-        const owner = username || env.VITE_ACCOUNT_OWNER || '';
+        const wanEndpoint = (settings?.wan_api_endpoint?.trim() || parsedArgs.wanEndpoint || env.VITE_APPSYNC_HTTP_ENDPOINT || defaultWanEndpoint);
+        const wanApiKey = (settings?.wan_api_key?.trim() || parsedArgs.wanApiKey || parsedArgs.apiKey || env.VITE_APPSYNC_API_KEY || '');
+        const owner = username || parsedArgs.owner || env.VITE_ACCOUNT_OWNER || '';
         
         appendTestOutput(`Step Cloud Worker: endpoint=${wanEndpoint}`);
         
@@ -938,9 +951,6 @@ const Tests: React.FC = () => {
         appendTestOutput(`Step Cloud Worker: owner=${owner}`);
         
         const runTestMutation = `mutation RunTest($input: [TestInput]!) { runTest(input: $input) }`;
-        
-        let parsedArgs: any = {};
-        try { parsedArgs = testArgument ? JSON.parse(testArgument) : {}; } catch (e) { }
         
         const testInput = [{
             id: `step-worker-${Date.now()}`,
