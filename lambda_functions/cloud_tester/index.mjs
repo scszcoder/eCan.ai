@@ -355,6 +355,10 @@ const testSendPassiveCmd = async (url, apiKey, params) => {
     };
   }
   
+  // PassiveBrowserCommand model requires run_id and step_id inside the command payload
+  command.run_id = runId;
+  command.step_id = stepId;
+  
   const input = {
     clientId,
     runId,
