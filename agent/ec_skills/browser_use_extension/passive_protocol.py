@@ -57,6 +57,9 @@ class PassiveBrowserStepResult(BaseModel):
 
     # Browser snapshot (already pruned + privacy-filtered by client)
     browser: dict[str, Any] = Field(default_factory=dict)
+    
+    # DOM tree - separate field for the DOM representation
+    dom_tree: dict[str, Any] | None = Field(default=None)
 
 
 class PassiveBrowserHello(BaseModel):

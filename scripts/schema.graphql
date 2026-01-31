@@ -465,6 +465,7 @@ type PassiveBrowserHelloEnvelope @aws_api_key @aws_cognito_user_pools {
 
 type PassiveBrowserStepResultEnvelope @aws_api_key @aws_cognito_user_pools {
   clientId: ID!
+  dom_tree: AWSJSON
   id: ID
   result: AWSJSON!
   runId: ID!
@@ -1416,6 +1417,7 @@ input PassiveBrowserHelloEnvelopeInput {
 
 input PassiveBrowserStepResultEnvelopeInput {
   clientId: ID!
+  dom_tree: AWSJSON
   result: AWSJSON!
   runId: ID!
   stepId: ID!
