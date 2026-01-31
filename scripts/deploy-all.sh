@@ -74,9 +74,18 @@ deploy_lambda_agent_scheduler() {
     
     cd "$REPO_ROOT/lambda_functions/agentScheduler"
     
-    # Build and deploy (build_lambda.sh handles both)
-    log_info "Building and deploying Lambda package..."
+    # Build the Lambda package
+    log_info "Building Lambda package..."
     ./build_lambda.sh
+    
+    # Deploy to AWS
+    log_info "Deploying to AWS Lambda..."
+    aws lambda update-function-code \
+        --function-name agentScheduler \
+        --region "$AWS_REGION" \
+        --zip-file fileb:///tmp/agentScheduler.zip \
+        --profile "$AWS_PROFILE" \
+        --no-cli-pager
     
     log_success "Lambda agentScheduler deployed successfully!"
 }

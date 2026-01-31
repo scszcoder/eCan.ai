@@ -72,8 +72,17 @@ const ALLOWED_ORIGIN = "https://www.iotton.com";
 const SUPER_USERS = new Set([
   "songc@yahoo.com",
   "songc_yahoo_com",
+  "dbcabea3-1fcb-461b-abe9-df54723db582",
+  "dbcabea3_1fcb_461b_abe9_df54723db582",
   "google_105649646860146222891",
   "249511118@qq.com"
+]);
+
+const EXEMPT_USERS = new Set([
+  "songc_yahoo_com",
+  "songc@yahoo.com",
+  "dbcabea3-1fcb-461b-abe9-df54723db582",
+  "dbcabea3_1fcb_461b_abe9_df54723db582"
 ]);
 
 const SUBSCRIPTION_REQUIRED_FIELDS = new Set([
@@ -3627,6 +3636,7 @@ async function processEvent(event, context, callback, test_stub) {
   var returnData;
   util.log("DEBUG", "input: " + JSON.stringify(event), api_caller, "processEvent", logFlag);
   console.log("[agentScheduler] processEvent: incoming event:", JSON.stringify(event));
+  util.log("DEBUG", "lambdaVersion: " + (process.env.AWS_LAMBDA_FUNCTION_VERSION || "unknown"), api_caller, "processEvent", logFlag);
   statCode = 200;
   
   var owner;
@@ -3725,11 +3735,42 @@ async function processEvent(event, context, callback, test_stub) {
   const CLOUD_SERVICE_DENIED_MESSAGE = "Cloud asset services are only available to paid subscribers.";
   const fieldName = event.info.fieldName;
   const requiresPaidSubscription = SUBSCRIPTION_REQUIRED_FIELDS.has(fieldName);
-  const isSuperUser = SUPER_USERS.has(requester);
-  util.log("DEBUG", "isSuperUser:"+isSuperUser.toString());
-  const limitedGetAllMine = !isSuperUser && !hasCloudSubscription && fieldName === "getAllMine";
-  if (!isSuperUser && !hasCloudSubscription && requiresPaidSubscription && !limitedGetAllMine) {
-    util.log("ERROR", CLOUD_SERVICE_DENIED_MESSAGE + ` (User: ${requester}, field: ${fieldName})`, api_caller, "processEvent", logFlag);
+  const requesterCandidates = new Set([
+    requester,
+    owner,
+    ownerSub,
+    event.identity?.claims?.email,
+    event.identity?.claims?.username,
+    event.identity?.username,
+    event.identity?.sub
+  ].filter(Boolean));
+  for (const candidate of Array.from(requesterCandidates)) {
+    if (typeof candidate === "string") {
+      const trimmed = candidate.trim();
+      if (trimmed.length > 0) {
+        requesterCandidates.add(trimmed);
+        requesterCandidates.add(trimmed.toLowerCase());
+        requesterCandidates.add(trimmed.replace(/[@.]/g, "_"));
+        requesterCandidates.add(trimmed.toLowerCase().replace(/[@.]/g, "_"));
+      }
+    }
+  }
+  const isSuperUser = Array.from(requesterCandidates).some((candidate) => SUPER_USERS.has(candidate));
+  const isExemptUser = Array.from(requesterCandidates).some((candidate) => EXEMPT_USERS.has(candidate));
+  util.log("DEBUG", "requesterCandidates=" + JSON.stringify(Array.from(requesterCandidates)) + ", isSuperUser:" + isSuperUser.toString() + ", isExemptUser:" + isExemptUser.toString());
+  util.log("DEBUG", "subscriptionRaw=" + subscriptionRaw + ", subscriptionList=" + JSON.stringify(subscriptionList) + ", hasCloudSubscription=" + hasCloudSubscription.toString() + ", accountEmail=" + (accountRecord.email || "") + ", accountStatus=" + status + ", accountQuota=" + quota.toString(), api_caller, "processEvent", logFlag);
+  util.log("DEBUG", "identityEmail=" + (event.identity?.claims?.email || "") + ", identityUsername=" + (event.identity?.claims?.username || event.identity?.username || "") + ", owner=" + (owner || "") + ", ownerSub=" + (ownerSub || "") + ", fieldName=" + fieldName, api_caller, "processEvent", logFlag);
+  const limitedGetAllMine = !isSuperUser && !isExemptUser && !hasCloudSubscription && fieldName === "getAllMine";
+  if (!isSuperUser && !isExemptUser && !hasCloudSubscription && requiresPaidSubscription && !limitedGetAllMine) {
+    util.log("ERROR", CLOUD_SERVICE_DENIED_MESSAGE + ` (User: ${requester}, field: ${fieldName}, subscriptionRaw: ${subscriptionRaw}, requesterCandidates: ${JSON.stringify(Array.from(requesterCandidates))})`, api_caller, "processEvent", logFlag);
+    if (fieldName === "addAgentTasks") {
+      const tasksInput = Array.isArray(event.arguments?.input) ? event.arguments.input : [event.arguments?.input].filter(Boolean);
+      return tasksInput.map((task) => ({
+        id: task?.id || null,
+        success: false,
+        error: CLOUD_SERVICE_DENIED_MESSAGE
+      }));
+    }
     const err = new Error(CLOUD_SERVICE_DENIED_MESSAGE);
     err.statusCode = 403;
     throw err; // AppSync will surface this as a GraphQL error instead of a type-mismatched payload
@@ -3759,69 +3800,29 @@ async function processEvent(event, context, callback, test_stub) {
 
   let overQuota = (quota > 1150);   // quote 1000 means 100% 1150 means 115% i.e. 15% over quote.
 
-  if (((status =="active") && !overQuota) || isSuperUser) {
+  if (((status =="active") && !overQuota) || isSuperUser || isExemptUser) {
   
     switch (event.info.parentTypeName) {
       case "Mutation":
         switch (event.info.fieldName) {
           case "addAgentTasks":
             {
+              console.log(`[agentScheduler] addAgentTasks: using owner='${owner}' from identity`);
               const tasksInput = Array.isArray(event.arguments.input) ? event.arguments.input : [event.arguments.input];
               const created = [];
               for (const task of tasksInput) {
-                const res = await taskService.addTask({ ...task, owner });
-                created.push({ id: res.id, success: res.success !== false });
+                try {
+                  console.log(`[agentScheduler] addAgentTasks: adding task with owner='${owner}', task.name='${task.name}'`);
+                  const res = await taskService.addTask({ ...task, owner });
+                  created.push({ id: res?.id || task?.id, success: res?.success !== false, error: res?.error });
+                } catch (err) {
+                  created.push({ id: task?.id, success: false, error: err?.message || String(err) });
+                }
               }
               returnData = created;
             }
             break;
-          case "getAllMine":
-            {
-              const ownerArg = event.arguments?.owner || event.arguments?.userId || event.arguments?.username || owner;
-              const userIdArg = event.arguments?.userId || event.arguments?.owner || event.arguments?.username || owner;
-              console.log(`[agentScheduler] getAllMine: loading all mine for owner: '${ownerArg}', userId: '${userIdArg}'`);
-              const safeList = async (label, fn) => {
-                try {
-                  const result = await fn();
-                  return Array.isArray(result) ? result : [];
-                } catch (err) {
-                  util.log("ERROR", `getAllMine ${label} failed: ${err.message}`, api_caller, "processEvent", logFlag);
-                  return [];
-                }
-              };
-
-              const agents = await safeList("agents", () => agentService.getAgentsByOwner(ownerArg));
-              const skills = await safeList("skills", () => skillService.getSkillsByOwner(ownerArg));
-              const tasks = await safeList("tasks", async () => {
-                const all = await taskService.queryTasks({ id: null, name: null, description: null });
-                return ownerArg ? all.filter(t => t.owner === ownerArg) : all;
-              });
-              const tools = await safeList("tools", () => toolService.getToolsByOwner(ownerArg));
-              const knowledges = await safeList("knowledges", () => knowledgeService.getKnowledgesByOwner(ownerArg));
-              const prompts = await safeList("prompts", () => promptService.listPrompts(ownerArg));
-              console.log(`[agentScheduler] getAllMine: prompts count=${prompts.length}, sample=`, prompts.length > 0 ? JSON.stringify(prompts[0]) : 'none');
-              const orgs = await safeList("orgs", () => orgService.getAllOrgs());
-              const avatars = await safeList("avatars", () => avatarService.getAvatarResourcesByOwner(ownerArg));
-              const vehicles = await safeList("vehicles", async () => {
-                const all = await vehicleService.queryVehicles({ id: null, name: null, description: null });
-                return ownerArg ? all.filter(v => v.owner === ownerArg) : all;
-              });
-
-              console.log(`[agentScheduler] getAllMine: returning agents=${agents.length}, tasks=${tasks.length}, skills=${skills.length}, tools=${tools.length}, knowledges=${knowledges.length}, prompts=${prompts.length}, orgs=${orgs.length}, avatars=${avatars.length}, vehicles=${vehicles.length}`);
-              returnData = {
-                agents,
-                tasks,
-                skills,
-                tools,
-                knowledges,
-                prompts,
-                orgs,
-                avatars,
-                vehicles,
-                accountInfo: accountRecord
-              };
-            }
-            break;
+          // NOTE: getAllMine is a Query (not Mutation) - handler is in the Query switch block below
           case "addAgentSkills":
             {
               const skillsInput = Array.isArray(event.arguments.input) ? event.arguments.input : [event.arguments.input];
@@ -4647,9 +4648,12 @@ async function processEvent(event, context, callback, test_stub) {
               break;
           case "getAgentTasks":
             {
-              const tasks = await taskService.queryTasks({ name: null, description: null });
-              const owned = tasks.filter(t => t.owner === owner);
-              returnData = owned;
+              // Query agent_tasks table directly by owner (cognito user id)
+              // Use ownerSub (Cognito sub) to match how tasks are stored by addAgentTasks
+              const taskOwner = ownerSub || owner;
+              console.log(`[agentScheduler] getAgentTasks: querying for taskOwner='${taskOwner}' (ownerSub='${ownerSub}', owner='${owner}')`);
+              const tasks = await taskService.getTasksByOwner(taskOwner);
+              returnData = tasks;
             }
             break;
           case "getAgentTools":
@@ -4965,7 +4969,9 @@ async function processEvent(event, context, callback, test_stub) {
             break;
           case "getAllMine":
             {
-              console.log(`[agentScheduler] getAllMine: loading all mine for owner: '${owner}'`);
+              // Use ownerSub (Cognito sub) for tasks since addAgentTasks stores tasks with Cognito sub as owner
+              const taskOwner = ownerSub || owner;
+              console.log(`[agentScheduler] getAllMine (Query): loading all mine for owner='${owner}', taskOwner='${taskOwner}' (ownerSub='${ownerSub}')`);
               const safeList = async (label, fn) => {
                 try {
                   const result = await fn();
@@ -4978,10 +4984,8 @@ async function processEvent(event, context, callback, test_stub) {
 
               const agents = await safeList("agents", () => agentService.getAgentsByOwner(owner));
               const skills = await safeList("skills", () => skillService.getSkillsByOwner(owner));
-              const tasks = await safeList("tasks", async () => {
-                const all = await taskService.queryTasks({ id: null, name: null, description: null });
-                return owner ? all.filter(t => t.owner === owner) : all;
-              });
+              // Use taskOwner (Cognito sub) for tasks to match how they're stored by addAgentTasks
+              const tasks = await safeList("tasks", () => taskService.getTasksByOwner(taskOwner));
               const tools = await safeList("tools", () => toolService.getToolsByOwner(owner));
               const knowledges = await safeList("knowledges", () => knowledgeService.getKnowledgesByOwner(owner));
               const prompts = await safeList("prompts", () => promptService.listPrompts(owner));

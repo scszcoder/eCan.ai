@@ -72,6 +72,16 @@ export const GRAPHQL_QUERIES = {
     }
   `,
 
+  // ==================== Tasks ====================
+  GET_AGENT_TASKS: `
+    query GetAgentTasks {
+      getAgentTasks {
+        id name description status priority owner org_id source task_type
+        trigger_type objectives schedule metadata result error_message progress
+      }
+    }
+  `,
+
   // ==================== Warehouse & Inventory ====================
   GET_WAREHOUSES: `
     query GetWarehouses($input: WarehouseQueryInput) {
