@@ -324,8 +324,9 @@ const testPingCloudWorker = async (url, apiKey, params) => {
 
 // Send passive command to client via publishPassiveCommand
 const testSendPassiveCmd = async (url, apiKey, params) => {
-  const clientId = params.clientId || params.client_id || "test-client-" + randomUUID().slice(0, 8);
-  const runId = params.runId || params.run_id || randomUUID();
+  // Hard-coded to match what clients subscribe to
+  const clientId = "songc_yahoo_com_SCHOME";
+  const runId = "test-run-001";
   const stepId = params.stepId || params.step_id || randomUUID();
   console.log(`[cloud_tester] testSendPassiveCmd: clientId=${clientId}, runId=${runId}`);
   
@@ -346,13 +347,7 @@ const testSendPassiveCmd = async (url, apiKey, params) => {
   
   // If no command provided, use default test command
   if (!command) {
-    command = {
-      actions: [
-        { click: { index: 5 } },
-        { input: { index: 5, text: "hello from cloud_tester" } }
-      ],
-      results: {}
-    };
+    command = { action: "ping" };
   }
   
   // PassiveBrowserCommand model requires run_id and step_id inside the command payload
