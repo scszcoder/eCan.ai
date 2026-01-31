@@ -32,6 +32,7 @@ export const SheetsMenu: React.FC = () => {
   
   // Get skill info and username for register/unregister
   const skillInfo = useSkillInfoStore((s) => s.skillInfo);
+  const setSkillInfo = useSkillInfoStore((s) => s.setSkillInfo);
   const currentFilePath = useSkillInfoStore((s) => s.currentFilePath);
   const username = useUserStore((s) => s.username);
 
@@ -126,7 +127,7 @@ export const SheetsMenu: React.FC = () => {
       // Build SkillInput from current skillInfo
       const skillInput = {
         name: skillInfo.skillName,
-        description: `Skill: ${skillInfo.skillName}`,
+        description: skillInfo.description || `Skill: ${skillInfo.skillName}`,
         path: currentFilePath || undefined,
         version: skillInfo.version || '1.0.0',
         level: 'basic',
@@ -135,7 +136,15 @@ export const SheetsMenu: React.FC = () => {
       };
 
       const resp = await ipc.newAgentSkill(username, skillInput);
+      console.log('[SheetsMenu] register response:', resp);
       if (resp.success) {
+        // Update skillInfo with the database ID so unregister works
+        const results = Array.isArray(resp.data) ? resp.data : [resp.data];
+        const result = results[0];
+        if (result?.id) {
+          console.info('[SheetsMenu] Updating skillId from', skillInfo.skillId, 'to database id:', result.id);
+          setSkillInfo({ ...skillInfo, skillId: result.id });
+        }
         Toast.success({ content: `Skill "${skillInfo.skillName}" registered successfully!` });
       } else {
         Toast.error({ content: `Failed to register skill: ${resp.error?.message || 'unknown error'}` });
@@ -167,14 +176,46 @@ export const SheetsMenu: React.FC = () => {
     }
 
     try {
-      console.info('[SheetsMenu] Unregistering skill:', skillInfo.skillId);
       const ipc = IPCAPI.getInstance();
       
-      const resp = await ipc.deleteAgentSkill(username, skillInfo.skillId);
-      if (resp.success) {
+      // If we don't have a database skillId, try to find it by name from getAllMine
+      let skillIdToDelete = skillInfo.skillId;
+      if (!skillIdToDelete || skillIdToDelete === '') {
+        console.info('[SheetsMenu] No skillId, looking up by name:', skillInfo.skillName);
+        try {
+          const allResp = await ipc.getAgentSkills(username, []);
+          const skills = Array.isArray(allResp?.data) ? allResp.data : (allResp?.data as any)?.skills || [];
+          const match = skills.find((s: any) => s.name === skillInfo.skillName);
+          if (match?.id) {
+            skillIdToDelete = match.id;
+            console.info('[SheetsMenu] Found skill by name, id:', skillIdToDelete);
+          }
+        } catch (lookupErr) {
+          console.warn('[SheetsMenu] Failed to lookup skill by name:', lookupErr);
+        }
+      }
+      
+      if (!skillIdToDelete || skillIdToDelete === '') {
+        Toast.error({ content: `Cannot unregister: skill "${skillInfo.skillName}" not found in registry.` });
+        setVisible(false);
+        return;
+      }
+      
+      console.info('[SheetsMenu] Unregistering skill:', skillIdToDelete);
+      const resp = await ipc.deleteAgentSkill(username, skillIdToDelete);
+      console.log('[SheetsMenu] unregister response:', resp);
+      
+      // Check both the outer response and the inner result
+      const results = Array.isArray(resp.data) ? resp.data : [resp.data];
+      const result = results[0] as any;
+      
+      if (resp.success && result?.success !== false) {
+        // Clear the skillId since it's no longer registered
+        setSkillInfo({ ...skillInfo, skillId: '' });
         Toast.success({ content: `Skill "${skillInfo.skillName}" unregistered successfully!` });
       } else {
-        Toast.error({ content: `Failed to unregister skill: ${resp.error?.message || 'unknown error'}` });
+        const errMsg = result?.error || resp.error?.message || 'unknown error';
+        Toast.error({ content: `Failed to unregister skill: ${errMsg}` });
       }
     } catch (e) {
       console.error('[SheetsMenu] unregister-skill error', e);

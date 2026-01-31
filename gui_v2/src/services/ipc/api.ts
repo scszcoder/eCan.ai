@@ -789,6 +789,8 @@ export class IPCAPI {
     }
 
     public async saveAgentSkill<T>(username: string, skill_info: T): Promise<APIResponse<void>> {
+        // GraphQL mutation expects input: [SkillUpdateInput!]!
+        // Note: owner is NOT in SkillUpdateInput schema - backend gets it from identity claims
         return apiRouter.execute(
       {
         method: 'save_agent_skill',
@@ -797,11 +799,13 @@ export class IPCAPI {
           resultPath: 'updateAgentSkills'
         }
       },
-      {username, skill_info}
+      { input: [skill_info] }
     );
     }
 
     public async newAgentSkill<T>(username: string, skill_info: T): Promise<APIResponse<void>> {
+        // GraphQL mutation expects input: [SkillInput!]!
+        // Note: owner is NOT in SkillInput schema - backend gets it from identity claims
         return apiRouter.execute(
       {
         method: 'new_agent_skill',
@@ -810,11 +814,12 @@ export class IPCAPI {
           resultPath: 'addAgentSkills'
         }
       },
-      {username, skill_info}
+      { input: [skill_info] }
     );
     }
 
     public async deleteAgentSkill(username: string, skill_id: string): Promise<APIResponse<void>> {
+        // GraphQL mutation expects input: [ID!]!
         return apiRouter.execute(
       {
         method: 'delete_agent_skill',
@@ -823,7 +828,7 @@ export class IPCAPI {
           resultPath: 'removeAgentSkills'
         }
       },
-      {username, skill_id}
+      { input: [skill_id] }
     );
     }
 
