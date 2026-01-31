@@ -322,8 +322,10 @@ def make_appsync_passive_client_from_env(
 
     if not token:
         raise ValueError("Missing EC_APPSYNC_TOKEN")
-    if not run_id:
-        raise ValueError("Missing EC_BROWSER_PASSIVE_RUN_ID")
+    # AppSync subscriptions require exact match - wildcards don't work
+    if not run_id or run_id == "*":
+        run_id = "test-run-001"
+        logger.warning(f"[AppSyncPassiveClient] EC_BROWSER_PASSIVE_RUN_ID not set or '*', defaulting to '{run_id}'")
     if not client_id:
         raise ValueError("Missing EC_BROWSER_PASSIVE_CLIENT_ID")
 
