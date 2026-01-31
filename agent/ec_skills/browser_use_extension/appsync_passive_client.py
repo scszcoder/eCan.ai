@@ -103,6 +103,7 @@ def _publish_step_result_mutation() -> str:
         runId
         clientId
         stepId
+        dom_tree
       }
     }
     """
@@ -260,6 +261,7 @@ class AppSyncPassiveClient:
             "clientId": self._config.client_id,
             "stepId": result.step_id,
             "result": result.model_dump(),
+            "dom_tree": result.dom_tree,
         }
 
         auth_headers = _build_auth_headers(self._config.auth_token)
