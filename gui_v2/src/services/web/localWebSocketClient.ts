@@ -384,51 +384,6 @@ class LocalWebSocketClient {
           data: eventPayload
         });
         break;
-        
-      case 'update_agents':
-        console.log('[LocalWS] 👥 Emitting update_agents');
-        eventBus.emit('ws:update_agents', eventPayload);
-        break;
-        
-      case 'update_skills':
-        console.log('[LocalWS] 🛠️ Emitting update_skills');
-        eventBus.emit('ws:update_skills', eventPayload);
-        break;
-        
-      case 'update_tasks':
-        console.log('[LocalWS] 📋 Emitting update_tasks');
-        eventBus.emit('ws:update_tasks', eventPayload);
-        break;
-        
-      case 'update_tools':
-        console.log('[LocalWS] 🔧 Emitting update_tools');
-        eventBus.emit('ws:update_tools', eventPayload);
-        break;
-        
-      case 'update_settings':
-        console.log('[LocalWS] ⚙️ Emitting update_settings');
-        eventBus.emit('ws:update_settings', eventPayload);
-        break;
-        
-      case 'update_vehicles':
-        console.log('[LocalWS] 🚗 Emitting update_vehicles');
-        eventBus.emit('ws:update_vehicles', eventPayload);
-        break;
-        
-      case 'update_knowledge':
-        console.log('[LocalWS] 📚 Emitting update_knowledge');
-        eventBus.emit('ws:update_knowledge', eventPayload);
-        break;
-        
-      case 'update_chats':
-        console.log('[LocalWS] 💬 Emitting update_chats');
-        eventBus.emit('ws:update_chats', eventPayload);
-        break;
-        
-      case 'update_all':
-        console.log('[LocalWS] 🔄 Emitting update_all');
-        eventBus.emit('ws:update_all', eventPayload);
-        break;
       
       // ==================== Chat Events ====================
       case 'push_chat_message':
