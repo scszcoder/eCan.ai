@@ -142,10 +142,23 @@ class IPCAPI:
         """
         self._send_request('get_config', {'key': key}, callback=callback)
 
-    def update_org_agents(self,
-        callback: Optional[Callable[[APIResponse[Dict[str, Any]]], None]] = None
+    def update_org_agents(
+            self,
+            callback: Optional[Callable[[APIResponse[bool]], None]] = None
     ) -> None:
-        logger.info("[IPCAPI] update_org_agents")
+        """
+        Notify frontend to refresh organization and agent data
+
+        Args:
+            callback: Callback function, receives APIResponse[bool]
+        """
+        if _should_use_websocket():
+            ws_mgr = _get_ws_manager()
+            if ws_mgr:
+                ws_mgr.broadcast_sync('update_org_agents', {})
+                if callback:
+                    callback(APIResponse(success=True, data=True))
+                return
         self._send_request('update_org_agents', callback=callback)
 
     def set_config(
