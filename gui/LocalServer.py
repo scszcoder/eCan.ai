@@ -197,80 +197,6 @@ class AppWebSocketManager:
             }
         })
     
-    # ==================== Data Update Events ====================
-    
-    async def send_update_agents(self, agents: list):
-        """Broadcast agents update to all clients."""
-        await self.broadcast({
-            "type": "update_agents",
-            "eventType": "update_agents",
-            "payload": {"agents": agents}
-        })
-    
-    async def send_update_skills(self, skills: list):
-        """Broadcast skills update to all clients."""
-        await self.broadcast({
-            "type": "update_skills",
-            "eventType": "update_skills",
-            "payload": {"skills": skills}
-        })
-    
-    async def send_update_tasks(self, tasks: list):
-        """Broadcast tasks update to all clients."""
-        await self.broadcast({
-            "type": "update_tasks",
-            "eventType": "update_tasks",
-            "payload": {"tasks": tasks}
-        })
-    
-    async def send_update_tools(self, tools: list):
-        """Broadcast tools update to all clients."""
-        await self.broadcast({
-            "type": "update_tools",
-            "eventType": "update_tools",
-            "payload": {"tools": tools}
-        })
-    
-    async def send_update_settings(self, settings: dict):
-        """Broadcast settings update to all clients."""
-        await self.broadcast({
-            "type": "update_settings",
-            "eventType": "update_settings",
-            "payload": {"settings": settings}
-        })
-    
-    async def send_update_vehicles(self, vehicles: list):
-        """Broadcast vehicles update to all clients."""
-        await self.broadcast({
-            "type": "update_vehicles",
-            "eventType": "update_vehicles",
-            "payload": {"vehicles": vehicles}
-        })
-    
-    async def send_update_knowledge(self, knowledge: list):
-        """Broadcast knowledge update to all clients."""
-        await self.broadcast({
-            "type": "update_knowledge",
-            "eventType": "update_knowledge",
-            "payload": {"knowledge": knowledge}
-        })
-    
-    async def send_update_chats(self, chats: list):
-        """Broadcast chats update to all clients."""
-        await self.broadcast({
-            "type": "update_chats",
-            "eventType": "update_chats",
-            "payload": {"chats": chats}
-        })
-    
-    async def send_update_all(self, data: dict):
-        """Broadcast full data update to all clients."""
-        await self.broadcast({
-            "type": "update_all",
-            "eventType": "update_all",
-            "payload": data
-        })
-    
     # ==================== Ad Banner Events ====================
     
     async def send_push_ad(self, banner_text: str = None, popup_html: str = None, duration_ms: int = 60000):
@@ -369,14 +295,6 @@ class AppWebSocketManager:
     
     # ==================== UI Events ====================
     
-    async def send_refresh_dashboard(self, data: dict):
-        """Push dashboard refresh event."""
-        await self.broadcast({
-            "type": "refresh_dashboard",
-            "eventType": "refresh_dashboard",
-            "payload": data
-        })
-    
     async def send_update_screens(self, screens: list):
         """Push screens update event."""
         await self.broadcast({
@@ -422,6 +340,20 @@ if not os.path.isdir(static_dir):
     alt_dir = os.path.join(os.getcwd(), 'agent', 'agent_files')
     if os.path.isdir(alt_dir):
         static_dir = alt_dir
+
+# Frontend static files directory (gui_v2/dist)
+frontend_dist_dir = os.path.join(base_dir, 'gui_v2', 'dist')
+if not os.path.isdir(frontend_dist_dir):
+    # Fallback paths for different deployment scenarios
+    alt_frontend_paths = [
+        os.path.join(os.getcwd(), 'gui_v2', 'dist'),
+        os.path.join(os.path.dirname(base_dir), 'gui_v2', 'dist'),
+        os.path.join(base_dir, '..', 'gui_v2', 'dist')
+    ]
+    for alt_path in alt_frontend_paths:
+        if os.path.isdir(alt_path):
+            frontend_dist_dir = alt_path
+            break
 
 # Endpoint to serve images
 class RequestHandlers:
@@ -1021,17 +953,26 @@ class AppBuilder:
         route_builder = RouteBuilder(request_handlers)
         routes = route_builder.create_routes()
 
-        if os.path.isdir(static_dir):
-            routes.append(Mount('/', StaticFiles(directory=static_dir, html=True), name='static'))
+        # Mount frontend static files first (gui_v2/dist) to serve the web UI
+        # This avoids CORS issues by serving frontend and API from the same origin
+        if os.path.isdir(frontend_dist_dir):
+            routes.append(Mount('/', StaticFiles(directory=frontend_dist_dir, html=True), name='frontend'))
+            logger.info(f"✅ Mounted frontend static files from: {frontend_dist_dir}")
         else:
-            logger.warning(f"Static dir missing, skipping mount: {static_dir}")
+            logger.warning(f"⚠️ Frontend dist dir not found: {frontend_dist_dir}")
+            # Fallback to agent files if frontend not available
+            if os.path.isdir(static_dir):
+                routes.append(Mount('/', StaticFiles(directory=static_dir, html=True), name='static'))
+                logger.info(f"✅ Mounted agent static files from: {static_dir}")
+            else:
+                logger.warning(f"⚠️ Static dir missing, no static files mounted: {static_dir}")
 
         app_config = {
             'routes': routes,
             'debug': mcp_server_config.is_development
         }
 
-        logger.info("🔧 Created Starlette app of LcoalServer")
+        logger.info("🔧 Created Starlette app of LocalServer")
         app = Starlette(**app_config)
 
         app.add_middleware(

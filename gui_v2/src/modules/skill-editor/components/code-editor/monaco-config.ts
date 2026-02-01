@@ -4,119 +4,19 @@ import { loader } from '@monaco-editor/react';
 // This MUST run before any Monaco Editor component mounts
 
 /**
- * CDN Fallback Configuration for Development Environment
+ * Monaco Editor Configuration - Always use local files
  * 
- * Priority Order:
- * 1. Local files (fastest, offline-capable)
- * 2. jsDelivr CDN (国际主流 CDN，优先)
- * 3. Cloudflare CDN (国内备选)
- * 4. unpkg CDN (最后备选)
+ * Both development and production use local files served by:
+ * - Development: Vite dev server from public/monaco-editor
+ * - Production: Python backend from dist/monaco-editor
  */
-const MONACO_VERSION = '0.52.2';
-
-const CDN_SOURCES = {
-  local: '/monaco-editor/vs',
-  jsdelivr: `https://cdn.jsdelivr.net/npm/monaco-editor@${MONACO_VERSION}/min/vs`,
-  cloudflare: `https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/${MONACO_VERSION}/min/vs`,
-  unpkg: `https://unpkg.com/monaco-editor@${MONACO_VERSION}/min/vs`
-};
 
 // Track current Monaco source for debugging
 let currentMonacoSource: {
-  type: 'local' | 'jsdelivr' | 'cloudflare' | 'unpkg';
+  type: 'local';
   url: string;
   timestamp: number;
 } | null = null;
-
-/**
- * Test if a CDN source is accessible
- */
-async function testCDNSource(cdnUrl: string): Promise<boolean> {
-  try {
-    const testUrl = `${cdnUrl}/loader.js`;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s timeout
-    
-    const response = await fetch(testUrl, {
-      method: 'HEAD',
-      signal: controller.signal,
-      cache: 'no-cache'
-    });
-    
-    clearTimeout(timeoutId);
-    return response.ok;
-  } catch (error) {
-    console.warn(`[Monaco CDN] Failed to access: ${cdnUrl}`, error);
-    return false;
-  }
-}
-
-/**
- * Try CDN sources in order until one works
- */
-async function findWorkingCDN(): Promise<string> {
-  const isDev = import.meta.env.DEV;
-  
-  if (!isDev) {
-    // Production always uses local files
-    const source = 'local';
-    const url = CDN_SOURCES.local;
-    currentMonacoSource = { type: source, url, timestamp: Date.now() };
-    console.log(`%c[Monaco Editor] 📦 Production Mode`, 'color: #10b981; font-weight: bold');
-    console.log(`%c[Monaco Editor] Source: Local Files`, 'color: #10b981');
-    console.log(`%c[Monaco Editor] Path: ${url}`, 'color: #6b7280');
-    return url;
-  }
-  
-  console.log(`%c[Monaco Editor] 🔍 Development Mode - Testing CDN Sources...`, 'color: #3b82f6; font-weight: bold');
-  
-  // Development: skip local (not served by Vite), use CDN fallbacks (international first, domestic as backup)
-  const sources: Array<keyof typeof CDN_SOURCES> = ['jsdelivr', 'cloudflare', 'unpkg'];
-  
-  for (const source of sources) {
-    const url = CDN_SOURCES[source];
-    console.log(`%c[Monaco CDN] Testing: ${source}`, 'color: #f59e0b', url);
-    
-    const startTime = Date.now();
-    const isAccessible = await testCDNSource(url);
-    const duration = Date.now() - startTime;
-    
-    if (isAccessible) {
-      currentMonacoSource = { type: source, url, timestamp: Date.now() };
-      
-      // Success log with emoji and color
-      console.log(`%c[Monaco CDN] ✅ SUCCESS - Using: ${source}`, 'color: #10b981; font-weight: bold');
-      console.log(`%c[Monaco CDN] URL: ${url}`, 'color: #6b7280');
-      console.log(`%c[Monaco CDN] Response Time: ${duration}ms`, 'color: #6b7280');
-      console.log(`%c[Monaco CDN] Timestamp: ${new Date().toLocaleString()}`, 'color: #6b7280');
-      
-      // Show summary box
-      console.log(`%c
-╔════════════════════════════════════════════════════════════════╗
-║  Monaco Editor Source Information                              ║
-╠════════════════════════════════════════════════════════════════╣
-║  Source Type: ${source.toUpperCase().padEnd(48)} ║
-║  URL: ${url.substring(0, 52).padEnd(52)} ║
-║  Status: ACTIVE ✅                                             ║
-╚════════════════════════════════════════════════════════════════╝
-      `, 'color: #10b981; font-family: monospace');
-      
-      return url;
-    } else {
-      console.log(`%c[Monaco CDN] ❌ FAILED - ${source} (${duration}ms)`, 'color: #ef4444');
-    }
-  }
-  
-  // Fallback to local if all CDNs fail
-  const fallbackSource = 'local';
-  const fallbackUrl = CDN_SOURCES.local;
-  currentMonacoSource = { type: fallbackSource, url: fallbackUrl, timestamp: Date.now() };
-  
-  console.warn(`%c[Monaco CDN] ⚠️  WARNING - All CDN sources failed!`, 'color: #f59e0b; font-weight: bold');
-  console.warn(`%c[Monaco CDN] Falling back to local files: ${fallbackUrl}`, 'color: #f59e0b');
-  
-  return fallbackUrl;
-}
 
 /**
  * Determine the base path based on environment
@@ -139,32 +39,32 @@ const getMonacoBasePath = () => {
 // Monaco initialization promise - components should await this before using Monaco
 export let monacoReady: Promise<void>;
 
-// In development, configure CDN before Monaco tries to load
+// In development, use local files served by Vite dev server
 if (import.meta.env.DEV && typeof window !== 'undefined') {
-  // Development: find working CDN first, then configure
-  monacoReady = findWorkingCDN().then(workingCDN => {
-    console.log(`%c[Monaco CDN] 🔄 Configuring Monaco with: ${workingCDN}`, 'color: #3b82f6; font-weight: bold');
-    
-    loader.config({
-      paths: {
-        vs: workingCDN
-      }
-    });
-    
-    // Also update worker URL for CDN
-    (window as any).MonacoEnvironment = {
-      getWorkerUrl: function (_moduleId: string, _label: string) {
-        return `${workingCDN}/base/worker/workerMain.js`;
-      }
-    };
-    
-    console.log(`%c[Monaco CDN] ✅ Configuration Complete`, 'color: #10b981; font-weight: bold');
-  }).catch(error => {
-    console.error(`%c[Monaco CDN] ❌ Error during CDN fallback:`, 'color: #ef4444; font-weight: bold', error);
-    // Fallback to jsdelivr directly
-    const fallbackUrl = CDN_SOURCES.jsdelivr;
-    loader.config({ paths: { vs: fallbackUrl } });
+  // Development: use local files from public directory
+  const localPath = '/monaco-editor/vs';
+  
+  console.log(`%c[Monaco Editor] � Development Mode`, 'color: #3b82f6; font-weight: bold');
+  console.log(`%c[Monaco Editor] Source: Local Files (Vite Dev Server)`, 'color: #10b981');
+  console.log(`%c[Monaco Editor] Path: ${localPath}`, 'color: #6b7280');
+  
+  loader.config({
+    paths: {
+      vs: localPath
+    }
   });
+  
+  // Configure worker URL for local files
+  (window as any).MonacoEnvironment = {
+    getWorkerUrl: function (_moduleId: string, _label: string) {
+      return `${localPath}/base/worker/workerMain.js`;
+    }
+  };
+  
+  currentMonacoSource = { type: 'local', url: localPath, timestamp: Date.now() };
+  monacoReady = Promise.resolve();
+  
+  console.log(`%c[Monaco Editor] ✅ Configuration Complete`, 'color: #10b981; font-weight: bold');
 } else {
   // Production: use local files
   loader.config({
@@ -213,22 +113,22 @@ export const getMonacoSource = () => {
   const { type, url, timestamp } = currentMonacoSource;
   const age = Date.now() - timestamp;
   const ageSeconds = Math.floor(age / 1000);
+  const env = import.meta.env.PROD ? 'Production' : 'Development';
   
   console.log(`%c
 ╔════════════════════════════════════════════════════════════════╗
 ║  Monaco Editor - Current Source Information                    ║
 ╠════════════════════════════════════════════════════════════════╣
+║  Environment: ${env.padEnd(49)} ║
 ║  Source Type: ${type.toUpperCase().padEnd(48)} ║
 ║  URL: ${url.substring(0, 52).padEnd(52)} ║
 ║  Status: ACTIVE ✅                                             ║
 ║  Loaded: ${ageSeconds}s ago                                           ║
 ║  Timestamp: ${new Date(timestamp).toLocaleString().padEnd(42)} ║
 ╠════════════════════════════════════════════════════════════════╣
-║  Available CDN Sources:                                        ║
-║    1. Local:      /monaco-editor/vs                            ║
-║    2. jsDelivr:   cdn.jsdelivr.net (International)             ║
-║    3. Cloudflare: cdnjs.cloudflare.com (Domestic Backup)       ║
-║    4. unpkg:      unpkg.com (Last Resort)                      ║
+║  Note: Always uses local files (no CDN)                        ║
+║  Dev:  Served by Vite from public/monaco-editor               ║
+║  Prod: Served by Python backend from dist/monaco-editor       ║
 ╚════════════════════════════════════════════════════════════════╝
   `, 'color: #10b981; font-family: monospace');
   

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "dev:clean": "rimraf node_modules/.vite && vite",
+    "prebuild": "npm run copy-monaco",
     "build": "node scripts/build.js",
     "lint": "eslint .",
     "preview": "vite preview",

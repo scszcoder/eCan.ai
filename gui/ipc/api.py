@@ -128,81 +128,24 @@ class IPCAPI:
 
         self._ipc_wc_service.send_request(method, params, meta, ipc_response_callback)
 
-    def get_config(
-        self,
-        key: str,
-        callback: Optional[Callable[[APIResponse[Dict[str, Any]]], None]] = None
-    ) -> None:
-        """
-        Get configuration
-
-        Args:
-            key: Configuration key
-            callback: Callback function, receives APIResponse[Dict[str, Any]]
-        """
-        self._send_request('get_config', {'key': key}, callback=callback)
-
-    def update_org_agents(self,
-        callback: Optional[Callable[[APIResponse[Dict[str, Any]]], None]] = None
-    ) -> None:
-        logger.info("[IPCAPI] update_org_agents")
-        self._send_request('update_org_agents', callback=callback)
-
-    def set_config(
-        self,
-        key: str,
-        value: Any,
-        callback: Optional[Callable[[APIResponse[bool]], None]] = None
-    ) -> None:
-        """
-        Set configuration
-
-        Args:
-            key: Configuration key
-            value: Configuration value
-            callback: Callback function, receives APIResponse[bool]
-        """
-        self._send_request('set_config', {'key': key, 'value': value}, callback=callback)
-
-    def refresh_dashboard(
-        self,
-        data: Dict[str, Any],
-        callback: Optional[Callable[[APIResponse[Dict[str, Any]]], None]] = None
-    ) -> None:
-        """
-        Refresh dashboard data
-
-        Args:
-            data: Dictionary containing the following fields
-                - overview: Overview data
-                - statistics: Statistics data
-                - recentActivities: Recent activities count
-                - quickActions: Quick actions count
-            callback: Callback function, receives APIResponse[Dict[str, Any]]
-        """
-        self._send_request('refresh_dashboard', data, callback=callback)
-
-    def update_agents(
+    def update_org_agents(
             self,
-            agents: List[Any],
             callback: Optional[Callable[[APIResponse[bool]], None]] = None
     ) -> None:
         """
-        Update agents
+        Notify frontend to refresh organization and agent data
 
         Args:
-            agents: agents
             callback: Callback function, receives APIResponse[bool]
         """
-        # Try WebSocket first, fallback to IPC
         if _should_use_websocket():
             ws_mgr = _get_ws_manager()
             if ws_mgr:
-                ws_mgr.broadcast_sync('update_agents', {'agents': agents})
+                ws_mgr.broadcast_sync('update_org_agents', {})
                 if callback:
                     callback(APIResponse(success=True, data=True))
                 return
-        self._send_request('update_agents', data=agents, callback=callback)
+        self._send_request('update_org_agents', callback=callback)
 
     def update_agents_scenes(
             self,
@@ -218,180 +161,6 @@ class IPCAPI:
             callback: Callback function, receives APIResponse[bool]
         """
         self._send_request('update_agents_scenes', data=agents_scenes, callback=callback)
-
-
-    def update_skills(
-            self,
-            skills: List[Any],
-            callback: Optional[Callable[[APIResponse[bool]], None]] = None
-    ) -> None:
-        """
-        Update skills
-
-        Args:
-            skills: skill sets
-            callback: Callback function, receives APIResponse[bool]
-        """
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('update_skills', {'skills': skills})
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
-        self._send_request('update_skills', data=skills, callback=callback)
-
-    def update_tasks(
-            self,
-            tasks: List[Any],
-            callback: Optional[Callable[[APIResponse[bool]], None]] = None
-    ) -> None:
-        """
-        Update tasks
-
-        Args:
-            tasks: work to be done
-            callback: Callback function, receives APIResponse[bool]
-        """
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('update_tasks', {'tasks': tasks})
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
-        self._send_request('update_tasks', data=tasks, callback=callback)
-
-
-    def update_tools(
-            self,
-            tools: List[Any],
-            callback: Optional[Callable[[APIResponse[bool]], None]] = None
-    ) -> None:
-        """
-        Update tools
-
-        Args:
-            tasks: work to be done
-            callback: Callback function, receives APIResponse[bool]
-        """
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('update_tools', {'tools': tools})
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
-        self._send_request('update_tools', data=tools, callback=callback)
-
-
-
-    def update_settings(
-            self,
-            settings: List[Any],
-            callback: Optional[Callable[[APIResponse[bool]], None]] = None
-    ) -> None:
-        """
-        Update settings
-
-        Args:
-            settings: Configuration value
-            callback: Callback function, receives APIResponse[bool]
-        """
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('update_settings', {'settings': settings})
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
-        self._send_request('update_settings', data=settings, callback=callback)
-
-
-    def update_knowledge(
-            self,
-            knowledge: List[Any],
-            callback: Optional[Callable[[APIResponse[bool]], None]] = None
-    ) -> None:
-        """
-        Update knowledge
-
-        Args:
-            knowledge: list of knowledge points (RAG vector DB table?)
-            callback: Callback function, receives APIResponse[bool]
-        """
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('update_knowledge', {'knowledge': knowledge})
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
-        self._send_request('update_knowledge', data=knowledge, callback=callback)
-
-
-    def update_chats(
-            self,
-            chats: List[Any],
-            callback: Optional[Callable[[APIResponse[bool]], None]] = None
-    ) -> None:
-        """
-        Update chats
-
-        Args:
-            chats: Chat value
-            callback: Callback function, receives APIResponse[bool]
-        """
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('update_chats', {'chats': chats})
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
-        self._send_request('update_chats', {'chats': chats}, callback=callback)
-
-    def update_vehicles(
-            self,
-            vehicles: List[Any],
-            callback: Optional[Callable[[APIResponse[bool]], None]] = None
-    ) -> None:
-        """
-        Update vehicles
-
-        Args:
-            chats: Chat value
-            callback: Callback function, receives APIResponse[bool]
-        """
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('update_vehicles', {'vehicles': vehicles})
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
-        self._send_request('update_vehicles', data=vehicles, callback=callback)
-
-    def update_all(
-            self,
-            all: Any,
-            callback: Optional[Callable[[APIResponse[bool]], None]] = None
-    ) -> None:
-        """
-        Update all
-
-        Args:
-            chats: Chat value
-            callback: Callback function, receives APIResponse[bool]
-        """
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('update_all', all if isinstance(all, dict) else {'data': all})
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
-        self._send_request('update_all', data=all, callback=callback)
 
     def push_chat_message(
         self,
