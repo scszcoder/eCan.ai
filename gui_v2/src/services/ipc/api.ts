@@ -290,7 +290,7 @@ export class IPCAPI {
         }
 
         const params = company ? { username, company } : { username };
-        return apiRouter.execute(
+        const response = await apiRouter.execute<any>(
       {
         method: 'get_all_org_agents',
         graphql: {
@@ -300,6 +300,14 @@ export class IPCAPI {
       },
       params
     );
+        
+        // Wrap the tree response in {orgs: ...} format expected by the store
+        if (response.success && response.data) {
+            // If data is already wrapped with orgs, use as-is; otherwise wrap it
+            const wrappedData = response.data.orgs ? response.data : { orgs: response.data };
+            return { ...response, data: wrappedData as T };
+        }
+        return response as APIResponse<T>;
     }
     
     public async getAgents<T>(username: string, agent_id: string[]): Promise<APIResponse<T>> {
@@ -653,7 +661,7 @@ export class IPCAPI {
           resultPath: 'removeAgents'
         }
       },
-      { username, agent_id }
+      { username, input: agent_id }
     );
     }
 

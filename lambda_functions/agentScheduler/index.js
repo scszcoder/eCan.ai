@@ -2968,8 +2968,13 @@ async function getOrgAgentTree(rootId, owner, ownerSub, ownerEmail, argUsername)
     }
   }
   if (ownerSub) agentOwnerConditions.push(`a.owner = '${ownerSub}'`);
+  // Also check argUsername (sanitized email from frontend)
+  if (argUsername && !agentOwnerConditions.some(c => c.includes(`'${argUsername}'`))) {
+    agentOwnerConditions.push(`a.owner = '${argUsername}'`);
+  }
   const agentOwnerWhere = agentOwnerConditions.length > 0 ? agentOwnerConditions.join(' OR ') : '1=0';
   
+  console.log("getOrgAgentTree agent owner conditions:", agentOwnerConditions);
   const agentsQuery = `SELECT a.id, a.name, a.description, a.status, a.created_at, a.updated_at, a.owner, a.avatar_resource_id, r.org_id, a.extra_data FROM agents a LEFT JOIN agent_org_rels r ON a.id = r.agent_id WHERE ${agentOwnerWhere}`;
   console.log("getOrgAgentTree agents query:", agentsQuery);
   params.sql = agentsQuery;
