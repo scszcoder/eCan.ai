@@ -1,5 +1,5 @@
-import { DynamoDBClient, GetItemCommand, QueryCommand, UpdateItemCommand } from "@aws-sdk/client-dynamodb";
-import { unmarshall } from "@aws-sdk/util-dynamodb";
+import { DynamoDBClient, GetItemCommand, QueryCommand, UpdateItemCommand, PutItemCommand } from "@aws-sdk/client-dynamodb";
+import { unmarshall, marshall } from "@aws-sdk/util-dynamodb";
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatAnthropic } from "@langchain/anthropic";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
@@ -442,6 +442,61 @@ async function handleGetA2AMessages(args) {
     // Reverse to get chronological order (oldest first) for display
     items.reverse();
     
+    // If no messages found, return a bootstrap welcome message from the agent
+    if (items.length === 0) {
+      console.log(`[chatter] No messages found, returning bootstrap welcome message`);
+      
+      // Parse channelId to extract agent info
+      // Format can be: "email~agentId" (web platform) or "agentId1_agentId2" (desktop sorted alphabetically)
+      let senderId, recipientId;
+      if (channelId.includes('~')) {
+        // Web format: userEmail~agentId
+        const parts = channelId.split('~');
+        senderId = parts[1] || 'agent';  // Agent is the sender for bootstrap message
+        recipientId = parts[0] || 'user'; // User email is the recipient
+      } else {
+        // Desktop format: agentId1_agentId2 sorted alphabetically
+        const channelParts = channelId.split('_');
+        senderId = channelParts.length > 1 ? channelParts[1] : channelParts[0];
+        recipientId = channelParts[0] || 'user';
+      }
+      
+      // Use a stable ID based on channelId only - not timestamp
+      // This prevents duplicate bootstrap messages when API is called multiple times
+      const bootstrapMessage = {
+        id: `bootstrap-${channelId}`,
+        channelId: channelId,
+        sessionId: `session-bootstrap`,
+        senderId: senderId,
+        recipientId: recipientId,
+        timestamp: new Date().toISOString(),
+        message: {
+          role: "assistant",
+          parts: [
+            { 
+              type: "text", 
+              text: "👋 Hello! I'm ready to help you. How can I assist you today?",
+              metadata: null
+            }
+          ],
+          metadata: null
+        },
+        metadata: JSON.stringify({
+          isBootstrap: true,
+          senderName: "Agent"
+        }),
+        historyLength: 0,
+        acceptedOutputModes: null
+      };
+      
+      console.log(`[chatter] Returning bootstrap message:`, JSON.stringify(bootstrapMessage));
+      
+      return {
+        items: [bootstrapMessage],
+        nextToken: null
+      };
+    }
+    
     const response = {
       items,
       nextToken: result.LastEvaluatedKey 
@@ -454,6 +509,67 @@ async function handleGetA2AMessages(args) {
     
   } catch (err) {
     console.error(`[chatter] getA2AMessages error:`, err);
+    throw err;
+  }
+}
+
+/**
+ * Handle sendCloudA2AMessage mutation - save message to DynamoDB and trigger LLM response
+ */
+async function handleSendCloudA2AMessage(args) {
+  const input = args.input || args;
+  const { channelId, sessionId, senderId, recipientId, message, metadata, acceptedOutputModes } = input;
+  
+  console.log(`[chatter] sendCloudA2AMessage: channelId=${channelId}, senderId=${senderId}`);
+  
+  if (!channelId || !senderId || !message) {
+    throw new Error("channelId, senderId, and message are required");
+  }
+  
+  // Generate message ID and timestamp
+  const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const timestamp = new Date().toISOString();
+  const finalSessionId = sessionId || `session_${Date.now()}`;
+  
+  // Build the message item for DynamoDB
+  const messageItem = {
+    id: messageId,
+    channelId,
+    sessionId: finalSessionId,
+    senderId,
+    recipientId: recipientId || null,
+    timestamp,
+    message: message,
+    metadata: typeof metadata === 'object' ? JSON.stringify(metadata) : (metadata || null),
+    historyLength: 0,
+    acceptedOutputModes: acceptedOutputModes || null
+  };
+  
+  try {
+    // Save message to DynamoDB
+    await dynamodb.send(new PutItemCommand({
+      TableName: A2A_MESSAGES_TABLE,
+      Item: marshall(messageItem, { removeUndefinedValues: true })
+    }));
+    
+    console.log(`[chatter] Message saved to DynamoDB: ${messageId}`);
+    
+    // Return the saved message
+    return {
+      id: messageId,
+      channelId,
+      sessionId: finalSessionId,
+      senderId,
+      recipientId,
+      timestamp,
+      message,
+      metadata: messageItem.metadata,
+      historyLength: 0,
+      acceptedOutputModes
+    };
+    
+  } catch (err) {
+    console.error(`[chatter] Error saving message:`, err);
     throw err;
   }
 }
@@ -606,6 +722,9 @@ async function handleAppSyncEvent(event) {
     
     case "getChatThreads":
       return await handleGetChatThreads(args);
+    
+    case "sendCloudA2AMessage":
+      return await handleSendCloudA2AMessage(args);
     
     default:
       console.error(`[chatter] Unknown AppSync field: ${fieldName}`);
