@@ -667,7 +667,7 @@ export class IPCAPI {
           resultPath: 'addAgents'
         }
       },
-      { username, agent }
+      { username, input: agent }
     );
     }
 
@@ -1178,7 +1178,7 @@ export class IPCAPI {
     }>> {
         // Get username from localStorage for owner/userId
         const username = localStorage.getItem('username');
-        return apiRouter.execute(
+        const response = await apiRouter.execute<any>(
       {
         method: 'get_initialization_progress',
         graphql: {
@@ -1188,6 +1188,26 @@ export class IPCAPI {
       },
       { owner: username, userId: username }
     );
+
+        // Transform getAllMine response to initialization progress format
+        // If we got data from getAllMine, initialization is complete
+        if (response.success && response.data) {
+            const initProgress = {
+                ...response.data,
+                ui_ready: true,
+                critical_services_ready: true,
+                async_init_complete: true,
+                fully_ready: true,  // Data loaded = fully ready
+                sync_init_complete: true,
+                message: 'Initialization complete'
+            };
+            return {
+                success: true,
+                data: initProgress as any
+            };
+        }
+
+        return response;
     }
 
     /**
@@ -1255,15 +1275,54 @@ export class IPCAPI {
     }
 
     public async createOrg<T>(username: string, name: string, description?: string, parent_id?: string, org_type?: string): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'create_org' }, { username, name, description, parent_id, organization_type: org_type });
+        const input = [{
+            name,
+            description,
+            parent_id,
+            org_type: org_type || 'department'
+        }];
+        return apiRouter.execute(
+            {
+                method: 'create_org',
+                graphql: {
+                    mutation: GRAPHQL_MUTATIONS.ADD_ORGS,
+                    resultPath: 'addOrgs'
+                }
+            },
+            { input }
+        );
     }
 
     public async updateOrg<T>(username: string, org_id: string, name?: string, description?: string, parent_id?: string | null): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'update_org' }, { username, organization_id: org_id, name, description, parent_id });
+        const input = [{
+            id: org_id,
+            name,
+            description,
+            parent_id
+        }];
+        return apiRouter.execute(
+            {
+                method: 'update_org',
+                graphql: {
+                    mutation: GRAPHQL_MUTATIONS.UPDATE_ORGS,
+                    resultPath: 'updateOrgs'
+                }
+            },
+            { input }
+        );
     }
 
     public async deleteOrg<T>(username: string, org_id: string, force: boolean = false): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'delete_org' }, { username, organization_id: org_id, force });
+        return apiRouter.execute(
+            {
+                method: 'delete_org',
+                graphql: {
+                    mutation: GRAPHQL_MUTATIONS.REMOVE_ORGS,
+                    resultPath: 'removeOrgs'
+                }
+            },
+            { input: [org_id] }
+        );
     }
 
     public async getOrgAgents<T>(username: string, org_id: string, include_descendants?: boolean): Promise<APIResponse<T>> {

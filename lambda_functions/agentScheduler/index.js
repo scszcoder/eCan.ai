@@ -2882,18 +2882,50 @@ function getAgentToolsByIds(ids, callback, test_stub) {
   }
 }
 // -----  org tree related --------------------------------------------------
-async function getOrgAgentTree(rootId, owner) {
-  console.log("getOrgAgentTree called with rootId:", rootId, "owner:", owner);
+async function getOrgAgentTree(rootId, owner, ownerSub, ownerEmail, argUsername) {
+  console.log("getOrgAgentTree called with rootId:", rootId, "owner:", owner, "ownerSub:", ownerSub, "ownerEmail:", ownerEmail, "argUsername:", argUsername);
   
-  // Get all organizations for this owner
-  const orgsQuery = "SELECT id, name, description, org_type, level, sort_order, status, parent_id, created_at, updated_at FROM agent_orgs ORDER BY sort_order, name";
+  // Determine the effective owner for querying orgs
+  const effectiveOwner = ownerSub || owner;
+  
+  // If no rootId provided, find user's root org by owner
+  let effectiveRootId = rootId;
+  if (!effectiveRootId && effectiveOwner) {
+    // Get user's root org (create if doesn't exist)
+    const rootResult = await orgService.getOrCreateUserRootOrg(effectiveOwner);
+    if (rootResult.success && rootResult.data) {
+      effectiveRootId = rootResult.data.id;
+      console.log("Using user's root org:", effectiveRootId);
+    }
+  }
+  
+  // Get organizations filtered by owner
+  let orgsQuery;
+  let orgsParams;
+  if (effectiveOwner) {
+    // First ensure owner column exists
+    await orgService.ensureOwnerColumn();
+    orgsQuery = `SELECT id, name, description, org_type, level, sort_order, status, parent_id, created_at, updated_at, owner FROM agent_orgs WHERE owner = :owner OR owner IS NULL ORDER BY sort_order, name`;
+    orgsParams = [{ name: "owner", value: { stringValue: effectiveOwner } }];
+  } else {
+    orgsQuery = "SELECT id, name, description, org_type, level, sort_order, status, parent_id, created_at, updated_at FROM agent_orgs ORDER BY sort_order, name";
+    orgsParams = [];
+  }
+  
   const params = {
     secretArn: Secrets,
     resourceArn: Cluster,
     sql: orgsQuery,
-    database: DB
+    database: DB,
+    parameters: orgsParams
   };
   const orgsResult = await rdsExecute(params);
+  // Helper to convert MySQL datetime to ISO 8601 format
+  const toISODateTime = (val) => {
+    if (!val) return null;
+    // Replace space with T and add Z suffix for UTC
+    return val.replace(' ', 'T') + 'Z';
+  };
   const orgs = orgsResult.records.map(record => ({
     id: record[0].stringValue,
     name: record[1].stringValue,
@@ -2903,34 +2935,66 @@ async function getOrgAgentTree(rootId, owner) {
     sort_order: record[5].longValue,
     status: record[6].stringValue,
     parent_id: record[7].stringValue,
-    created_at: record[8].stringValue,
-    updated_at: record[9].stringValue
+    created_at: toISODateTime(record[8].stringValue),
+    updated_at: toISODateTime(record[9].stringValue),
+    owner: record[10]?.stringValue || null
   }));
   console.log("Fetched orgs:", orgs.length);
 
-  if (rootId) {
-    const orgMap = new Map(orgs.map(org => [org.id, org]));
-    if (!orgMap.has(rootId)) {
-      return orgService.getOrgTree(rootId);
+  // Filter orgs to only those belonging to this user's tree
+  let filteredOrgs = orgs;
+  if (effectiveOwner) {
+    filteredOrgs = orgs.filter(org => org.owner === effectiveOwner);
+    console.log("Filtered to user's orgs:", filteredOrgs.length);
+  }
+
+  if (effectiveRootId) {
+    const orgMap = new Map(filteredOrgs.map(org => [org.id, org]));
+    if (!orgMap.has(effectiveRootId)) {
+      return orgService.getOrgTree(effectiveRootId);
     }
   }
 
-  // Get all agents with their org relationships
-  const agentsQuery = `SELECT a.id, a.name, a.description, a.status, a.created_at, a.updated_at, a.owner, a.avatar_resource_id, r.org_id, a.extra_data FROM agents a LEFT JOIN agent_org_rels r ON a.id = r.agent_id WHERE a.owner = '${owner}'`;
+  // Get all agents with their org relationships - query by all owner formats
+  // Build the owner conditions for agents query (similar to getAgentsByOwners)
+  const agentOwnerConditions = [];
+  if (owner) agentOwnerConditions.push(`a.owner = '${owner}'`);
+  if (ownerEmail) {
+    agentOwnerConditions.push(`a.owner = '${ownerEmail}'`);
+    // Also check sanitized email format
+    const sanitizedEmail = ownerEmail.replace(/[@.]/g, '_');
+    if (sanitizedEmail !== owner) {
+      agentOwnerConditions.push(`a.owner = '${sanitizedEmail}'`);
+    }
+  }
+  if (ownerSub) agentOwnerConditions.push(`a.owner = '${ownerSub}'`);
+  const agentOwnerWhere = agentOwnerConditions.length > 0 ? agentOwnerConditions.join(' OR ') : '1=0';
+  
+  const agentsQuery = `SELECT a.id, a.name, a.description, a.status, a.created_at, a.updated_at, a.owner, a.avatar_resource_id, r.org_id, a.extra_data FROM agents a LEFT JOIN agent_org_rels r ON a.id = r.agent_id WHERE ${agentOwnerWhere}`;
+  console.log("getOrgAgentTree agents query:", agentsQuery);
   params.sql = agentsQuery;
+  params.parameters = [];
   const agentsResult = await rdsExecute(params);
-  const agents = agentsResult.records.map(record => ({
-    id: record[0].stringValue,
-    name: record[1].stringValue,
-    description: record[2].stringValue,
-    status: record[3].stringValue,
-    created_at: record[4].stringValue,
-    updated_at: record[5].stringValue,
-    owner: record[6].stringValue,
-    avatar_resource_id: record[7].stringValue,
-    org_id: record[8].stringValue,
-    extra_data: record[9].stringValue
-  }));
+  const agents = agentsResult.records.map(record => {
+    // Helper to convert MySQL datetime to ISO 8601 format
+    const toISODateTime = (val) => {
+      if (!val) return null;
+      // Replace space with T and add Z suffix for UTC
+      return val.replace(' ', 'T') + 'Z';
+    };
+    return {
+      id: record[0].stringValue,
+      name: record[1].stringValue,
+      description: record[2].stringValue,
+      status: record[3].stringValue,
+      created_at: toISODateTime(record[4].stringValue),
+      updated_at: toISODateTime(record[5].stringValue),
+      owner: record[6].stringValue,
+      avatar_resource_id: record[7].stringValue,
+      org_id: record[8].stringValue,
+      extra_data: record[9].stringValue
+    };
+  });
   console.log("Fetched agents:", agents.length);
 
   // Add isBound field for frontend compatibility
@@ -2939,8 +3003,56 @@ async function getOrgAgentTree(rootId, owner) {
   });
 
   // Build the integrated tree
-  const treeRoot = buildOrgAgentTree(orgs, agents, rootId);
+  const treeRoot = buildOrgAgentTree(filteredOrgs, agents, effectiveRootId);
   console.log("Returning treeRoot with id:", treeRoot.id);
+
+  // Replace Cognito sub ID in root org name with user-friendly display name
+  // Priority: email > derive email from sanitized username (argUsername) > owner
+  let displayName = null;
+  
+  // If ownerEmail is a real email (contains @), use it
+  if (ownerEmail && ownerEmail.includes('@')) {
+    displayName = ownerEmail;
+  } 
+  // Try to derive email from argUsername (sanitized email from frontend, e.g., songc_yahoo_com)
+  else if (argUsername && argUsername.includes('_')) {
+    const parts = argUsername.split('_');
+    if (parts.length >= 3) {
+      // Attempt to reconstruct: name_domain_tld -> name@domain.tld
+      const tld = parts.pop(); // e.g., 'com'
+      const domain = parts.pop(); // e.g., 'yahoo'
+      const name = parts.join('_'); // in case username has underscores
+      displayName = `${name}@${domain}.${tld}`;
+      console.log("Derived email from argUsername:", argUsername, "->", displayName);
+    }
+  }
+  // Fallback: try to derive from owner if it looks like sanitized email
+  else if (owner && owner.includes('_')) {
+    const parts = owner.split('_');
+    if (parts.length >= 3) {
+      const tld = parts.pop();
+      const domain = parts.pop();
+      const name = parts.join('_');
+      displayName = `${name}@${domain}.${tld}`;
+    }
+  }
+  
+  // Replace the org name if it matches the Cognito sub ID
+  // Check root and recursively check all nodes in the tree
+  const replaceSubIdWithDisplayName = (node) => {
+    if (!node) return;
+    if (node.name === effectiveOwner && displayName) {
+      node.name = displayName;
+      console.log("Replaced org name with display name:", displayName, "in node:", node.id);
+    }
+    if (node.children && Array.isArray(node.children)) {
+      node.children.forEach(child => replaceSubIdWithDisplayName(child));
+    }
+  };
+  
+  if (treeRoot && displayName) {
+    replaceSubIdWithDisplayName(treeRoot);
+  }
 
   return treeRoot;
 }
@@ -4075,8 +4187,11 @@ async function processEvent(event, context, callback, test_stub) {
             {
               const orgsInput = Array.isArray(event.arguments.input) ? event.arguments.input : [event.arguments.input];
               const created = [];
+              // Use Cognito sub as the owner identifier for org hierarchy
+              const effectiveOwner = ownerSub || owner;
               for (const org of orgsInput) {
-                const res = await orgService.addOrg(org);
+                // Pass owner to addOrg so it can be stored with the org
+                const res = await orgService.addOrg(org, effectiveOwner);
                 created.push({ id: res.id, success: res.success !== false, error: res.error });
               }
               returnData = created;
@@ -4297,6 +4412,48 @@ async function processEvent(event, context, callback, test_stub) {
               const created = [];
               for (const agent of agentsInput) {
                 const res = await agentService.addAgent({ ...agent, owner });
+                if (res.success !== false) {
+                  const agentId = res.id;
+                  // Extract relationship data from extra_data
+                  let extraData = agent.extra_data || {};
+                  if (typeof extraData === 'string') {
+                    try { extraData = JSON.parse(extraData); } catch (e) { extraData = {}; }
+                  }
+                  // Populate agent_org_rels
+                  const orgIds = extraData.org_ids || [];
+                  for (const orgId of orgIds) {
+                    if (orgId) {
+                      try {
+                        await agentService.assignAgentToOrg(agentId, orgId, { role: 'member', status: 'active' });
+                      } catch (e) {
+                        console.error(`[addAgents] Failed to assign org ${orgId} to agent ${agentId}:`, e.message);
+                      }
+                    }
+                  }
+                  // Populate agent_skill_rels
+                  const skillIds = extraData.skills || [];
+                  for (const skillId of skillIds) {
+                    if (skillId) {
+                      try {
+                        await agentService.assignSkillToAgent(agentId, skillId, { status: 'active' });
+                      } catch (e) {
+                        console.error(`[addAgents] Failed to assign skill ${skillId} to agent ${agentId}:`, e.message);
+                      }
+                    }
+                  }
+                  // Populate agent_task_rels (vehicleId can be null or from agent.vehicle_id)
+                  const taskIds = extraData.tasks || [];
+                  const vehicleId = agent.vehicle_id || null;
+                  for (const taskId of taskIds) {
+                    if (taskId) {
+                      try {
+                        await agentService.assignTaskToAgent(agentId, taskId, vehicleId, { status: 'pending' });
+                      } catch (e) {
+                        console.error(`[addAgents] Failed to assign task ${taskId} to agent ${agentId}:`, e.message);
+                      }
+                    }
+                  }
+                }
                 created.push({ id: res.id, success: res.success !== false, error: res.error });
               }
               returnData = created;
@@ -4332,6 +4489,84 @@ async function processEvent(event, context, callback, test_stub) {
                 delete fields.id;
                 delete fields.agid;
                 const res = await agentService.updateAgent(agentId, owner, fields);
+                
+                if (res.success !== false) {
+                  // Extract relationship data from extra_data and sync relationship tables
+                  let extraData = agent.extra_data || fields.extra_data || {};
+                  if (typeof extraData === 'string') {
+                    try { extraData = JSON.parse(extraData); } catch (e) { extraData = {}; }
+                  }
+                  
+                  // Sync agent_org_rels - clear old and add new
+                  if (extraData.org_ids !== undefined) {
+                    // Clear existing org relationships for this agent
+                    try {
+                      const { execute } = require("./db/rdsClient");
+                      await execute("DELETE FROM agent_org_rels WHERE agent_id = :agent_id", [
+                        { name: "agent_id", value: { stringValue: agentId } }
+                      ]);
+                    } catch (e) {
+                      console.error(`[updateAgents] Failed to clear org rels for agent ${agentId}:`, e.message);
+                    }
+                    // Add new org relationships
+                    const orgIds = extraData.org_ids || [];
+                    for (const orgId of orgIds) {
+                      if (orgId) {
+                        try {
+                          await agentService.assignAgentToOrg(agentId, orgId, { role: 'member', status: 'active' });
+                        } catch (e) {
+                          console.error(`[updateAgents] Failed to assign org ${orgId} to agent ${agentId}:`, e.message);
+                        }
+                      }
+                    }
+                  }
+                  
+                  // Sync agent_skill_rels - clear old and add new
+                  if (extraData.skills !== undefined) {
+                    try {
+                      const { execute } = require("./db/rdsClient");
+                      await execute("DELETE FROM agent_skill_rels WHERE agent_id = :agent_id", [
+                        { name: "agent_id", value: { stringValue: agentId } }
+                      ]);
+                    } catch (e) {
+                      console.error(`[updateAgents] Failed to clear skill rels for agent ${agentId}:`, e.message);
+                    }
+                    const skillIds = extraData.skills || [];
+                    for (const skillId of skillIds) {
+                      if (skillId) {
+                        try {
+                          await agentService.assignSkillToAgent(agentId, skillId, { status: 'active' });
+                        } catch (e) {
+                          console.error(`[updateAgents] Failed to assign skill ${skillId} to agent ${agentId}:`, e.message);
+                        }
+                      }
+                    }
+                  }
+                  
+                  // Sync agent_task_rels - clear old and add new
+                  if (extraData.tasks !== undefined) {
+                    try {
+                      const { execute } = require("./db/rdsClient");
+                      await execute("DELETE FROM agent_task_rels WHERE agent_id = :agent_id", [
+                        { name: "agent_id", value: { stringValue: agentId } }
+                      ]);
+                    } catch (e) {
+                      console.error(`[updateAgents] Failed to clear task rels for agent ${agentId}:`, e.message);
+                    }
+                    const taskIds = extraData.tasks || [];
+                    const vehicleId = agent.vehicle_id || null;
+                    for (const taskId of taskIds) {
+                      if (taskId) {
+                        try {
+                          await agentService.assignTaskToAgent(agentId, taskId, vehicleId, { status: 'pending' });
+                        } catch (e) {
+                          console.error(`[updateAgents] Failed to assign task ${taskId} to agent ${agentId}:`, e.message);
+                        }
+                      }
+                    }
+                  }
+                }
+                
                 updated.push({ id: agentId, success: res.success !== false, error: res.error });
               }
               returnData = updated;
@@ -4939,7 +5174,9 @@ async function processEvent(event, context, callback, test_stub) {
           case "getOrgAgentTree":
               {
                 const rootId = event.arguments?.root_id || null;
-                const result = await getOrgAgentTree(rootId, owner);
+                // Get username from arguments - this contains the sanitized email (e.g., songc_yahoo_com)
+                const argUsername = event.arguments?.username || null;
+                const result = await getOrgAgentTree(rootId, owner, ownerSub, ownerEmail, argUsername);
                 returnData = result;
               }
               break;
@@ -4985,7 +5222,8 @@ async function processEvent(event, context, callback, test_stub) {
                 }
               };
 
-              const agents = await safeList("agents", () => agentService.getAgentsByOwner(owner));
+              // Query agents by username, email, and Cognito sub to handle all possible owner formats
+              const agents = await safeList("agents", () => agentService.getAgentsByOwners(owner, ownerEmail, ownerSub));
               // Query skills by both email and Cognito sub to handle legacy and new data
               const skills = await safeList("skills", () => skillService.getSkillsByOwners(ownerEmail, ownerSub));
               // Query tasks by both email and Cognito sub to handle legacy and new data
@@ -4993,7 +5231,33 @@ async function processEvent(event, context, callback, test_stub) {
               const tools = await safeList("tools", () => toolService.getToolsByOwner(owner));
               const knowledges = await safeList("knowledges", () => knowledgeService.getKnowledgesByOwner(owner));
               const prompts = await safeList("prompts", () => promptService.listPrompts(owner));
-              const orgs = await safeList("orgs", () => orgService.getAllOrgs());
+              
+              // Get or create the user's org tree (using Cognito sub as owner identifier)
+              // This ensures each user has their own organization hierarchy
+              const orgs = await safeList("orgs", async () => {
+                // ownerSub is the Cognito sub ID - use it to find/create user's root org
+                const effectiveOwner = ownerSub || owner;
+                if (effectiveOwner) {
+                  // Get the user's org tree (creates root if doesn't exist)
+                  const treeResult = await orgService.getOrgTreeByOwner(effectiveOwner);
+                  if (treeResult.success && treeResult.data) {
+                    // Flatten tree to array for getAllMine response
+                    const flattenTree = (node, arr = []) => {
+                      arr.push(node);
+                      if (node.children) {
+                        for (const child of node.children) {
+                          flattenTree(child, arr);
+                        }
+                      }
+                      return arr;
+                    };
+                    return flattenTree(treeResult.data);
+                  }
+                }
+                // Fallback to empty array
+                return [];
+              });
+              
               const avatars = await safeList("avatars", () => avatarService.getAvatarResourcesByOwner(owner));
               const vehicles = await safeList("vehicles", async () => {
                 const all = await vehicleService.queryVehicles({ id: null, name: null, description: null });

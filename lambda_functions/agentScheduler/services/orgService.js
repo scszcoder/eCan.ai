@@ -69,7 +69,122 @@ async function countOrgs() {
   return rows[0]?.cnt || 0;
 }
 
-async function addOrg(data) {
+/**
+ * Ensure the owner column exists in agent_orgs table.
+ * This is a migration helper - call once at startup or on demand.
+ */
+async function ensureOwnerColumn() {
+  try {
+    // Check if owner column exists
+    const checkSql = `
+      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_NAME = 'agent_orgs' AND COLUMN_NAME = 'owner'
+    `;
+    const checkRes = await execute(checkSql, []);
+    const rows = rowsToObjects(checkRes);
+    if (rows.length === 0) {
+      // Add owner column
+      console.log("[orgService] Adding owner column to agent_orgs table...");
+      await execute("ALTER TABLE agent_orgs ADD COLUMN owner VARCHAR(128) AFTER status", []);
+      console.log("[orgService] owner column added successfully");
+    }
+  } catch (err) {
+    console.error("[orgService] Error checking/adding owner column:", err.message);
+  }
+}
+
+/**
+ * Get or create the root organization for a user.
+ * The root org is identified by: parent_id IS NULL AND owner = ownerSub
+ * If it doesn't exist, create one with name = ownerSub and org_type = 'company'
+ */
+async function getOrCreateUserRootOrg(ownerSub) {
+  if (!ownerSub) {
+    console.error("[orgService] getOrCreateUserRootOrg: ownerSub is required");
+    return null;
+  }
+  
+  // Ensure owner column exists (migration helper)
+  await ensureOwnerColumn();
+  
+  // Try to find existing root org for this user
+  const findSql = `
+    SELECT * FROM agent_orgs 
+    WHERE parent_id IS NULL AND owner = :owner 
+    ORDER BY created_at ASC LIMIT 1
+  `;
+  const findRes = await execute(findSql, [toDbParam("owner", ownerSub)]);
+  const existing = rowsToObjects(findRes);
+  
+  if (existing.length > 0) {
+    console.log(`[orgService] Found existing root org for ${ownerSub}: ${existing[0].id}`);
+    return existing[0];
+  }
+  
+  // Create new root org for this user
+  const id = genId();
+  console.log(`[orgService] Creating new root org for ${ownerSub} with id=${id}`);
+  
+  const insertSql = `
+    INSERT INTO agent_orgs (id, name, description, parent_id, org_type, level, sort_order, status, owner, settings)
+    VALUES (:id, :name, :description, NULL, 'company', 0, 0, 'active', :owner, :settings)
+  `;
+  const params = [
+    toDbParam("id", id),
+    toDbParam("name", ownerSub),  // Name is the Cognito sub ID (frontend will display username)
+    toDbParam("description", "User Organization"),
+    toDbParam("owner", ownerSub),
+    toDbParam("settings", safeJsonStringify({ autoCreated: true }))
+  ];
+  
+  try {
+    await execute(insertSql, params);
+    const created = await getOrgById(id);
+    console.log(`[orgService] Created root org: ${JSON.stringify(created)}`);
+    return created;
+  } catch (err) {
+    console.error(`[orgService] Error creating root org for ${ownerSub}:`, err.message);
+    // In case of race condition, try to find it again
+    const retryRes = await execute(findSql, [toDbParam("owner", ownerSub)]);
+    const retryRows = rowsToObjects(retryRes);
+    return retryRows[0] || null;
+  }
+}
+
+/**
+ * Get all orgs owned by a specific user (by Cognito sub ID)
+ */
+async function getOrgsByOwner(ownerSub) {
+  if (!ownerSub) return [];
+  
+  await ensureOwnerColumn();
+  
+  const sql = `SELECT * FROM agent_orgs WHERE owner = :owner ORDER BY level, sort_order, name`;
+  const res = await execute(sql, [toDbParam("owner", ownerSub)]);
+  return rowsToObjects(res);
+}
+
+/**
+ * Get the org tree for a specific user.
+ * Finds the user's root org, then builds the full tree from it.
+ */
+async function getOrgTreeByOwner(ownerSub) {
+  if (!ownerSub) {
+    return { success: false, data: null, error: "ownerSub is required" };
+  }
+  
+  // Get or create the user's root org
+  const rootOrg = await getOrCreateUserRootOrg(ownerSub);
+  if (!rootOrg) {
+    return { success: false, data: null, error: "Could not get or create root org" };
+  }
+  
+  // Build tree from root
+  const tree = await buildTreeNode(rootOrg);
+  return { success: true, data: tree, error: null };
+}
+
+async function addOrg(data, owner = null) {
   const requestedId = data.id;
   const id = requestedId || genId();
 
@@ -80,8 +195,13 @@ async function addOrg(data) {
     }
   }
 
+  // Ensure owner column exists
+  await ensureOwnerColumn();
+
   let level = 0;
   let parentId = data.parent_id || null;
+  let orgOwner = owner || data.owner || null;
+  
   if (parentId) {
     const parent = await getOrgById(parentId);
     if (!parent) {
@@ -97,13 +217,17 @@ async function addOrg(data) {
       }
     } else {
       level = (parent.level || 0) + 1;
+      // Inherit owner from parent if not specified
+      if (!orgOwner && parent.owner) {
+        orgOwner = parent.owner;
+      }
     }
   }
   const sql = `
     INSERT INTO agent_orgs
-    (id, name, description, parent_id, org_type, level, sort_order, status, settings)
+    (id, name, description, parent_id, org_type, level, sort_order, status, owner, settings)
     VALUES
-    (:id, :name, :description, :parent_id, :org_type, :level, :sort_order, :status, :settings)
+    (:id, :name, :description, :parent_id, :org_type, :level, :sort_order, :status, :owner, :settings)
   `;
   const params = [
     toDbParam("id", id),
@@ -114,6 +238,7 @@ async function addOrg(data) {
     toDbParam("level", level),
     toDbParam("sort_order", data.sort_order || 0),
     toDbParam("status", data.status || "active"),
+    toDbParam("owner", orgOwner),
     toDbParam("settings", safeJsonStringify(data.settings))
   ];
   try {
@@ -228,6 +353,10 @@ module.exports = {
   searchOrgs,
   getAllOrgs,
   getOrgsByParent,
+  getOrgsByOwner,
+  getOrCreateUserRootOrg,
+  getOrgTreeByOwner,
   updateOrg,
-  getOrgTree
+  getOrgTree,
+  ensureOwnerColumn
 };

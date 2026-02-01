@@ -1164,15 +1164,32 @@ const AgentDetails: React.FC = () => {
         return task?.id || taskName;
       }).filter(Boolean);
       
+      // Build extra_data with owner, skills, tasks, org_id
+      // These fields are not in AgentInput schema, so we pack them into extra_data
+      const extraData = {
+        ...(values.extra_data && typeof values.extra_data === 'object' ? values.extra_data : {}),
+        owner: username,
+        skills: skillIds,
+        tasks: taskIds,
+        org_ids: values.org_id ? [values.org_id] : [],
+      };
+      
       // Serialize dayjs and metadata
+      // Note: AgentInput schema only accepts these fields:
+      // avatar_resource_id, birthday, capabilities, description, extra_data, gender,
+      // id, name, personalities, rank, status, supervisor_id, title, url, vehicle_id, version
       const payload = {
-        ...values,
-        id: values.id || id,  // 确保Include id Field
+        id: values.id || id,
+        name: values.name,
+        gender: values.gender || null,
         birthday: values.birthday ? (values.birthday as Dayjs).toISOString() : null,
-        skills: skillIds,  // 只Send ID 数组
-        tasks: taskIds,    // 只Send ID 数组
-        // Avatar Data - Send avatar_resource_id 而not完整的 avatar Data
-        avatar_resource_id: avatarData?.id || null
+        description: values.description || null,
+        extra_data: JSON.stringify(extraData),
+        personalities: values.personalities?.length ? JSON.stringify(values.personalities) : null,
+        title: values.title?.length ? JSON.stringify(values.title) : null,
+        supervisor_id: values.supervisor_id || null,
+        vehicle_id: values.vehicle_id || null,
+        avatar_resource_id: avatarData?.id || null,
       };
       setLoading(true);
       const api = get_ipc_api();
@@ -1238,12 +1255,15 @@ const AgentDetails: React.FC = () => {
           // 获取根组织 ID
           const rootOrgId = useOrgStore.getState().treeOrgs[0]?.id;
           
+          // Add timestamp to force refresh
+          const refreshTs = Date.now();
+          
           if (orgId && orgId !== rootOrgId) {
             // 跳转到子组织的Page，使用 replace 强制Refresh
-            navigate(`/agents/organization/${orgId}`, { replace: true });
+            navigate(`/agents/organization/${orgId}?refresh=${refreshTs}`, { replace: true });
           } else {
             // 跳转到 agents 根Page（包括根组织和未分配）
-            navigate('/agents', { replace: true });
+            navigate(`/agents?refresh=${refreshTs}`, { replace: true });
           }
           return;
         }
