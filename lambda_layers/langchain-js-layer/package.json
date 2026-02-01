@@ -1,0 +1,17 @@
+{
+  "name": "langchain-js-layer",
+  "version": "1.0.0",
+  "description": "Lambda layer with LangChain.js and LLM provider SDKs",
+  "dependencies": {
+    "@langchain/core": "^0.3.0",
+    "@langchain/openai": "^0.3.0",
+    "@langchain/anthropic": "^0.3.0",
+    "@langchain/google-genai": "^0.1.0",
+    "@langchain/community": "^0.3.0",
+    "langchain": "^0.3.0",
+    "openai": "^4.0.0",
+    "@anthropic-ai/sdk": "^0.30.0",
+    "@google/generative-ai": "^0.21.0",
+    "zod": "^3.23.0"
+  }
+}
