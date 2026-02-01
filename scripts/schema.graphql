@@ -81,11 +81,15 @@ type Agent @aws_api_key @aws_cognito_user_pools {
   gender: String
   id: ID!
   name: String!
+  org_id: ID
+  org_ids: [ID]
   owner: String!
   personalities: AWSJSON
   rank: String
+  skills: [ID]
   status: String
   supervisor_id: ID
+  tasks: [ID]
   title: AWSJSON
   updated_at: AWSDateTime
   url: String
@@ -544,7 +548,7 @@ type Query {
   getLabelFormats(input: LabelFormatQueryInput): [LabelFormat!]!
   #  Skill editor (web mode) support
   getNodeStateSchema: NodeStateSchema
-  getOrgAgentTree(root_id: ID): OrgTree @aws_api_key @aws_cognito_user_pools
+  getOrgAgentTree(root_id: ID, username: String): OrgTree @aws_api_key @aws_cognito_user_pools
   getOrgTree(root_id: ID): OrgTree @aws_api_key @aws_cognito_user_pools
   getOrgs: [Org!]!
   getProducts(input: ProductQueryInput): [Product!]!

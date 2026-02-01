@@ -128,7 +128,9 @@ export const useOrgs = () => {
           return org;
         };
         
-        const rootNode = convertTreeNode(data.orgs);
+        // Backend returns the tree root directly, or may wrap it in { orgs: ... }
+        const treeData = data.orgs || data;
+        const rootNode = convertTreeNode(treeData);
         // 返回包含根节点的数组，这样根节点也会显示在树中
         const orgs = rootNode ? [rootNode] : [];
 
@@ -255,11 +257,44 @@ export const useOrgs = () => {
     }
   }, [updateDataState, loadOrgAgents]);
 
+  // Helper to find the first real org (not virtual root) in the tree
+  const findFirstRealOrg = useCallback((orgs: Org[]): Org | null => {
+    for (const org of orgs) {
+      // Skip virtual root nodes
+      if (org.id && !org.id.startsWith('__virtual')) {
+        return org;
+      }
+      // Check children
+      if (org.children && org.children.length > 0) {
+        const found = findFirstRealOrg(org.children);
+        if (found) return found;
+      }
+    }
+    return null;
+  }, []);
+
   const createOrg = useCallback(async (data: OrgFormData) => {
     if (!username) return;
     try {
       const api = get_ipc_api();
-      const response = await api.createOrg(username, data.name, data.description, dataStateRef.current.selectedOrg?.id, data.org_type);
+      // Use selectedOrg as parent, or fallback to first real org in tree
+      let parentId = dataStateRef.current.selectedOrg?.id;
+      
+      // If selectedOrg is a virtual root, clear it
+      if (parentId && parentId.startsWith('__virtual')) {
+        parentId = undefined;
+      }
+      
+      if (!parentId && dataStateRef.current.orgs.length > 0) {
+        // Find the first real org (not virtual root) as the default parent
+        const firstRealOrg = findFirstRealOrg(dataStateRef.current.orgs);
+        if (firstRealOrg) {
+          parentId = firstRealOrg.id;
+          console.log('No org selected, using first real org as parent:', parentId);
+        }
+      }
+      
+      const response = await api.createOrg(username, data.name, data.description, parentId, data.org_type);
       if (response.success) {
         message.success(t('pages.org.messages.createSuccess'));
         loadOrgs();
@@ -271,7 +306,7 @@ export const useOrgs = () => {
       console.error('Error creating org:', error);
       message.error(t('pages.org.messages.createFailed'));
     }
-  }, [username, t, loadOrgs, updateUIState]);
+  }, [username, t, loadOrgs, updateUIState, findFirstRealOrg]);
 
   // 简化的其他业务Function
   const updateOrg = useCallback(async (id: string, data: Partial<OrgFormData>) => {

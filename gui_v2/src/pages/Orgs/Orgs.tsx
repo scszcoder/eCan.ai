@@ -6,7 +6,7 @@
 import React from 'react';
 import { Row, Col, Input, Button, Tooltip } from 'antd';
 import { useTranslation } from 'react-i18next';
-import { SearchOutlined } from '@ant-design/icons';
+import { SearchOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useOrgs } from './hooks/useOrgs';
 import OrgTree from './components/OrgTree';
 import OrgDetails from './components/OrgDetails';
@@ -146,6 +146,13 @@ const Orgs: React.FC = () => {
               <Button
                 type="primary"
                 icon={<SearchOutlined />}
+                onClick={() => actions.loadOrgs(companyName)}
+              />
+            </Tooltip>
+            <Tooltip title={t('common.refresh', 'Refresh')}>
+              <Button
+                icon={<ReloadOutlined />}
+                loading={state.loading}
                 onClick={() => actions.loadOrgs(companyName)}
               />
             </Tooltip>
