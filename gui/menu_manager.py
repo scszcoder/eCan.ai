@@ -648,12 +648,6 @@ class MenuManager:
             log_viewer_action.triggered.connect(self.show_log_viewer)
             help_menu.addAction(log_viewer_action)
             logger.debug("Added 'View Logs' menu item")
-
-            # Test (for eCan.ai app) - simple harness entry below 'View Logs'
-            test_action = QAction(_get_menu_messages().get('test'), self.main_window)
-            test_action.triggered.connect(self.quick_test)
-            help_menu.addAction(test_action)
-            logger.debug("Added 'Test' menu item under Help")
             
             logger.info("Help menu setup completed successfully")
         except Exception as e:

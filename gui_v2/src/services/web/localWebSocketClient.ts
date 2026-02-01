@@ -89,12 +89,8 @@ class LocalWebSocketClient {
    * Get the WebSocket URL for the local server
    */
   private getWebSocketUrl(): string {
-    try {
-      if (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV) {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        return `${protocol}//${window.location.host}/ws/skill-editor`;
-      }
-    } catch {}
+    // Always use the backend server port, not the Vite dev server port
+    // In dev mode, Vite runs on 3000 but backend runs on 4668
     const settings = getSettings();
     const port = settings?.local_server_port || '4668';
     return `ws://localhost:${port}/ws/skill-editor`;
@@ -380,49 +376,13 @@ class LocalWebSocketClient {
         break;
       
       // ==================== Data Update Events ====================
-      case 'update_agents':
-        console.log('[LocalWS] 👥 Emitting update_agents');
-        eventBus.emit('ws:update_agents', eventPayload);
-        break;
-        
-      case 'update_skills':
-        console.log('[LocalWS] 🛠️ Emitting update_skills');
-        eventBus.emit('ws:update_skills', eventPayload);
-        break;
-        
-      case 'update_tasks':
-        console.log('[LocalWS] 📋 Emitting update_tasks');
-        eventBus.emit('ws:update_tasks', eventPayload);
-        break;
-        
-      case 'update_tools':
-        console.log('[LocalWS] 🔧 Emitting update_tools');
-        eventBus.emit('ws:update_tools', eventPayload);
-        break;
-        
-      case 'update_settings':
-        console.log('[LocalWS] ⚙️ Emitting update_settings');
-        eventBus.emit('ws:update_settings', eventPayload);
-        break;
-        
-      case 'update_vehicles':
-        console.log('[LocalWS] 🚗 Emitting update_vehicles');
-        eventBus.emit('ws:update_vehicles', eventPayload);
-        break;
-        
-      case 'update_knowledge':
-        console.log('[LocalWS] 📚 Emitting update_knowledge');
-        eventBus.emit('ws:update_knowledge', eventPayload);
-        break;
-        
-      case 'update_chats':
-        console.log('[LocalWS] 💬 Emitting update_chats');
-        eventBus.emit('ws:update_chats', eventPayload);
-        break;
-        
-      case 'update_all':
-        console.log('[LocalWS] 🔄 Emitting update_all');
-        eventBus.emit('ws:update_all', eventPayload);
+      case 'update_org_agents':
+        console.log('[LocalWS] 🏢 Emitting update_org_agents');
+        eventBus.emit('org-agents-update', {
+          timestamp: Date.now(),
+          source: 'local_websocket',
+          data: eventPayload
+        });
         break;
       
       // ==================== Chat Events ====================
