@@ -197,80 +197,6 @@ class AppWebSocketManager:
             }
         })
     
-    # ==================== Data Update Events ====================
-    
-    async def send_update_agents(self, agents: list):
-        """Broadcast agents update to all clients."""
-        await self.broadcast({
-            "type": "update_agents",
-            "eventType": "update_agents",
-            "payload": {"agents": agents}
-        })
-    
-    async def send_update_skills(self, skills: list):
-        """Broadcast skills update to all clients."""
-        await self.broadcast({
-            "type": "update_skills",
-            "eventType": "update_skills",
-            "payload": {"skills": skills}
-        })
-    
-    async def send_update_tasks(self, tasks: list):
-        """Broadcast tasks update to all clients."""
-        await self.broadcast({
-            "type": "update_tasks",
-            "eventType": "update_tasks",
-            "payload": {"tasks": tasks}
-        })
-    
-    async def send_update_tools(self, tools: list):
-        """Broadcast tools update to all clients."""
-        await self.broadcast({
-            "type": "update_tools",
-            "eventType": "update_tools",
-            "payload": {"tools": tools}
-        })
-    
-    async def send_update_settings(self, settings: dict):
-        """Broadcast settings update to all clients."""
-        await self.broadcast({
-            "type": "update_settings",
-            "eventType": "update_settings",
-            "payload": {"settings": settings}
-        })
-    
-    async def send_update_vehicles(self, vehicles: list):
-        """Broadcast vehicles update to all clients."""
-        await self.broadcast({
-            "type": "update_vehicles",
-            "eventType": "update_vehicles",
-            "payload": {"vehicles": vehicles}
-        })
-    
-    async def send_update_knowledge(self, knowledge: list):
-        """Broadcast knowledge update to all clients."""
-        await self.broadcast({
-            "type": "update_knowledge",
-            "eventType": "update_knowledge",
-            "payload": {"knowledge": knowledge}
-        })
-    
-    async def send_update_chats(self, chats: list):
-        """Broadcast chats update to all clients."""
-        await self.broadcast({
-            "type": "update_chats",
-            "eventType": "update_chats",
-            "payload": {"chats": chats}
-        })
-    
-    async def send_update_all(self, data: dict):
-        """Broadcast full data update to all clients."""
-        await self.broadcast({
-            "type": "update_all",
-            "eventType": "update_all",
-            "payload": data
-        })
-    
     # ==================== Ad Banner Events ====================
     
     async def send_push_ad(self, banner_text: str = None, popup_html: str = None, duration_ms: int = 60000):
@@ -368,14 +294,6 @@ class AppWebSocketManager:
         }, channel_id=f"lightrag:{stream_id}")
     
     # ==================== UI Events ====================
-    
-    async def send_refresh_dashboard(self, data: dict):
-        """Push dashboard refresh event."""
-        await self.broadcast({
-            "type": "refresh_dashboard",
-            "eventType": "refresh_dashboard",
-            "payload": data
-        })
     
     async def send_update_screens(self, screens: list):
         """Push screens update event."""
