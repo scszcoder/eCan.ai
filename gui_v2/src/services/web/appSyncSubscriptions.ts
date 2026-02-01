@@ -27,6 +27,8 @@ const SUB_SKILL_EDITOR_STREAM = `subscription OnSkillEditorStreamEvent($owner: S
 let activeSocket: WebSocket | null = null;
 let active = false;
 let userStoreUnsubscribe: (() => void) | null = null;
+let currentA2AChannelId: string | null = null;
+let a2aSubscriptionId: string | null = null;
 
 const getEnv = () => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {});
 
@@ -67,6 +69,13 @@ const sendStart = (ws: WebSocket, id: string, query: string, variables: Record<s
       data: JSON.stringify({ query, variables }),
       extensions: { authorization: headers }
     }
+  }));
+};
+
+const sendStop = (ws: WebSocket, id: string) => {
+  ws.send(JSON.stringify({
+    id,
+    type: 'stop'
   }));
 };
 
@@ -401,4 +410,64 @@ export const stopWebSubscriptions = () => {
   }
   active = false;
   activeSocket = null;
+};
+
+/**
+ * Subscribe to A2A messages for a specific channel
+ * Call this when entering a chat to receive real-time messages
+ * @param channelId The channel ID to subscribe to (e.g., "email~agentId")
+ */
+export const subscribeToA2AChannel = (channelId: string) => {
+  console.log('[AppSyncSubscriptions] subscribeToA2AChannel called with:', channelId);
+  
+  if (!channelId) {
+    console.warn('[AppSyncSubscriptions] No channelId provided');
+    return;
+  }
+  
+  // If already subscribed to this channel, skip
+  if (currentA2AChannelId === channelId) {
+    console.log('[AppSyncSubscriptions] Already subscribed to channel:', channelId);
+    return;
+  }
+  
+  // If socket not ready, log warning
+  if (!activeSocket || activeSocket.readyState !== WebSocket.OPEN) {
+    console.warn('[AppSyncSubscriptions] WebSocket not ready, cannot subscribe to A2A channel');
+    return;
+  }
+  
+  const env = getEnv();
+  const settings = useSettingsStore.getState().settings;
+  const wsHost = (settings?.ws_api_host || env.VITE_APPSYNC_WS_HOST || DEFAULT_WS_HOST).trim();
+  const apiKey = (settings?.wan_api_key || env.VITE_APPSYNC_API_KEY || '').trim();
+  
+  const headers = {
+    host: wsHost,
+    'x-api-key': apiKey,
+  };
+  
+  // Unsubscribe from previous channel if any
+  if (a2aSubscriptionId && currentA2AChannelId) {
+    console.log('[AppSyncSubscriptions] Unsubscribing from previous channel:', currentA2AChannelId);
+    sendStop(activeSocket, a2aSubscriptionId);
+  }
+  
+  // Subscribe to new channel
+  a2aSubscriptionId = `sub-a2a-${Date.now()}`;
+  currentA2AChannelId = channelId;
+  console.log('[AppSyncSubscriptions] Starting A2A subscription for channel:', channelId, 'id:', a2aSubscriptionId);
+  sendStart(activeSocket, a2aSubscriptionId, SUB_A2A, { channelId }, headers);
+};
+
+/**
+ * Unsubscribe from current A2A channel
+ */
+export const unsubscribeFromA2AChannel = () => {
+  if (a2aSubscriptionId && activeSocket && activeSocket.readyState === WebSocket.OPEN) {
+    console.log('[AppSyncSubscriptions] Unsubscribing from A2A channel:', currentA2AChannelId);
+    sendStop(activeSocket, a2aSubscriptionId);
+  }
+  a2aSubscriptionId = null;
+  currentA2AChannelId = null;
 };

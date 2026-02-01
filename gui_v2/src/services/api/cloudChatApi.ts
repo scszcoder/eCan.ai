@@ -119,9 +119,27 @@ export const cloudChatApi = {
     try {
       logger.info('[CloudChatApi] Sending A2A message:', input.channelId);
       
+      // Convert to GraphQL input with AWSJSON fields properly stringified
+      const graphqlInput = {
+        channelId: input.channelId,
+        sessionId: input.sessionId,
+        senderId: input.senderId,
+        recipientId: input.recipientId,
+        message: {
+          role: input.message.role,
+          parts: input.message.parts.map(part => ({
+            type: part.type,
+            text: part.text,
+          })),
+        },
+        // AWSJSON fields must be stringified
+        metadata: input.metadata ? JSON.stringify(input.metadata) : undefined,
+        acceptedOutputModes: input.acceptedOutputModes,
+      };
+      
       const result = await appSyncRequest<{ sendCloudA2AMessage: A2AMessage }>(
         GRAPHQL_MUTATIONS.SEND_CLOUD_A2A_MESSAGE,
-        { input },
+        { input: graphqlInput },
         undefined,
         'send_cloud_a2a_message'
       );
@@ -165,14 +183,33 @@ export const cloudChatApi = {
   },
 
   /**
-   * Generate channel ID from two participant IDs
-   * Channel IDs are formed by sorting participant IDs alphabetically and joining with underscore
-   * @param userId1 First participant ID
-   * @param userId2 Second participant ID
+   * Generate channel ID from sender and recipient IDs
+   * For web platform: senderId~recipientId format (human email ~ agent id)
+   * @param senderId The sender ID (human email on web)
+   * @param recipientId The recipient ID (agent ID)
    */
-  getChannelId(userId1: string, userId2: string): string {
-    const sorted = [userId1, userId2].sort();
-    return `${sorted[0]}_${sorted[1]}`;
+  getChannelId(senderId: string, recipientId: string): string {
+    // Use senderId~recipientId format for web platform
+    // ~ is URL-safe and never appears in emails or agent IDs
+    return `${senderId}~${recipientId}`;
+  },
+
+  /**
+   * Parse channel ID to extract sender and recipient
+   * @param channelId The channel ID
+   * @returns { senderId, recipientId }
+   */
+  parseChannelId(channelId: string): { senderId: string; recipientId: string } {
+    const parts = channelId.split('~');
+    if (parts.length === 2) {
+      return { senderId: parts[0], recipientId: parts[1] };
+    }
+    // Fallback for old format (underscore separated, alphabetically sorted)
+    const underscoreParts = channelId.split('_');
+    if (underscoreParts.length >= 2) {
+      return { senderId: underscoreParts[0], recipientId: underscoreParts[1] };
+    }
+    return { senderId: channelId, recipientId: '' };
   },
 
   /**

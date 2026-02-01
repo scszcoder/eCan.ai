@@ -4,7 +4,7 @@ schema {
   subscription: Subscription
 }
 
-type A2AFileReference @aws_api_key {
+type A2AFileReference @aws_api_key @aws_cognito_user_pools {
   bytes: String
   mimeType: String
   name: String
@@ -12,7 +12,7 @@ type A2AFileReference @aws_api_key {
 }
 
 #    WAN A2A messaging
-type A2AMessage @aws_api_key {
+type A2AMessage @aws_api_key @aws_cognito_user_pools {
   acceptedOutputModes: [String!]
   channelId: String!
   historyLength: Int
@@ -25,18 +25,18 @@ type A2AMessage @aws_api_key {
   timestamp: AWSDateTime
 }
 
-type A2AMessageBody @aws_api_key {
+type A2AMessageBody @aws_api_key @aws_cognito_user_pools {
   metadata: AWSJSON
   parts: [A2AMessagePart!]!
   role: String!
 }
 
-type A2AMessageConnection @aws_api_key {
+type A2AMessageConnection @aws_api_key @aws_cognito_user_pools {
   items: [A2AMessage!]!
   nextToken: String
 }
 
-type A2AMessagePart @aws_api_key {
+type A2AMessagePart @aws_api_key @aws_cognito_user_pools {
   data: AWSJSON
   file: A2AFileReference
   metadata: AWSJSON
@@ -534,7 +534,7 @@ type PuzzleSolution @aws_api_key @aws_cognito_user_pools {
 type Query {
   checkSkillExists(name: String!): CheckResult!
   genSchedules(settings: AWSJSON!): AWSJSON!
-  getA2AMessages(channelId: String!, limit: Int, nextToken: String): A2AMessageConnection!
+  getA2AMessages(channelId: String!, limit: Int, nextToken: String): A2AMessageConnection! @aws_api_key @aws_cognito_user_pools
   getAgentKnowledges: [AgentKnowledge!]!
   getAgentSkills: [AgentSkill!]! @aws_api_key @aws_cognito_user_pools
   getAgentTasks: [Task!]! @aws_api_key @aws_cognito_user_pools
