@@ -205,12 +205,63 @@ export const GRAPHQL_QUERIES = {
       }
     }
   `,
+
+  // ==================== A2A Messages (Chat) ====================
+  GET_A2A_MESSAGES: `
+    query GetA2AMessages($channelId: String!, $limit: Int, $nextToken: String) {
+      getA2AMessages(channelId: $channelId, limit: $limit, nextToken: $nextToken) {
+        items {
+          id
+          channelId
+          sessionId
+          senderId
+          recipientId
+          timestamp
+          message {
+            role
+            parts {
+              type
+              text
+              metadata
+            }
+            metadata
+          }
+          metadata
+          historyLength
+          acceptedOutputModes
+        }
+        nextToken
+      }
+    }
+  `,
 };
 
 /**
  * GraphQL 变更定义
  */
 export const GRAPHQL_MUTATIONS = {
+  // ==================== A2A Messages (Chat) ====================
+  SEND_CLOUD_A2A_MESSAGE: `
+    mutation SendCloudA2AMessage($input: A2AMessageInput!) {
+      sendCloudA2AMessage(input: $input) {
+        id
+        channelId
+        sessionId
+        senderId
+        recipientId
+        timestamp
+        message {
+          role
+          parts {
+            type
+            text
+            metadata
+          }
+        }
+      }
+    }
+  `,
+
   // ==================== Agent Management ====================
   ADD_AGENTS: `
     mutation AddAgents($input: [AgentInput!]!) {
@@ -615,6 +666,36 @@ export const GRAPHQL_MUTATIONS = {
   DELETE_SKILL_EDITOR_CHAT_SESSION: `
     mutation DeleteSkillEditorChatSession($sessionId: ID!) {
       deleteSkillEditorChatSession(sessionId: $sessionId)
+    }
+  `,
+};
+
+/**
+ * GraphQL 订阅定义
+ */
+export const GRAPHQL_SUBSCRIPTIONS = {
+  // ==================== A2A Messages (Chat) ====================
+  ON_A2A_MESSAGE_RECEIVED: `
+    subscription OnA2AMessageReceived($channelId: String!) {
+      onA2AMessageReceived(channelId: $channelId) {
+        id
+        channelId
+        sessionId
+        senderId
+        recipientId
+        timestamp
+        message {
+          role
+          parts {
+            type
+            text
+            metadata
+          }
+        }
+        metadata
+        historyLength
+        acceptedOutputModes
+      }
     }
   `,
 };

@@ -9,6 +9,7 @@ import ChatLayout from './components/ChatLayout';
 const ChatNotification = lazy(() => import('./components/ChatNotification'));
 import AgentFilterModal from './components/AgentFilterModal';
 import { get_ipc_api } from '@/services/ipc_api';
+import { unifiedChatService } from '@/services/chat/unifiedChatService';
 import { useUserStore } from '@/stores/userStore';
 import { useAppDataStore } from '@/stores/appDataStore';
 import { useAgentStore } from '@/stores/agentStore';
@@ -321,7 +322,7 @@ const ChatPage: React.FC = () => {
             // 根据是否有Search文本Select不同的 API
             if (currentSearchText && currentSearchText.trim()) {
                 // 使用Search API
-                const response = await get_ipc_api().chatApi.searchChats(
+                const response = await unifiedChatService.searchChats(
                     targetUserId,
                     currentSearchText,
                     false
@@ -393,7 +394,7 @@ const ChatPage: React.FC = () => {
         
         try {
             // 使用新的 API Get聊天Data
-            const response = await get_ipc_api().chatApi.getChats(
+            const response = await unifiedChatService.getChats(
                 userId,
                 true // deep Parameter，包含 members 数据
             );
@@ -537,7 +538,7 @@ const ChatPage: React.FC = () => {
                 agent_id: targetAgentId,  // ✅ Add agent_id
             };
             
-            const response = await get_ipc_api().chatApi.createChat(chatData);
+            const response = await unifiedChatService.createChat(chatData);
             const resp: any = response;
             
             // Check if IPC call succeeded
@@ -623,7 +624,7 @@ const ChatPage: React.FC = () => {
     // Get并Process聊天Message
     const fetchAndProcessChatMessages = async (chatId: string, setIsInitialLoading?: (loading: boolean) => void) => {
         try {
-            const response = await get_ipc_api().chatApi.getChatMessages({
+            const response = await unifiedChatService.getChatMessages({
                 chatId,
                 limit: PAGE_SIZE,
                 offset: 0,
@@ -667,7 +668,7 @@ const ChatPage: React.FC = () => {
     const fetchAndProcessChatNotifications = async (chatId: string, setIsInitialLoading?: (loading: boolean) => void) => {
         try {
             if (typeof setIsInitialLoading === 'function') setIsInitialLoading(true);
-            const notificationResponse = await get_ipc_api().chatApi.getChatNotifications({ 
+            const notificationResponse = await unifiedChatService.getChatNotifications({ 
                 chatId, 
                 limit: NOTIF_PAGE_SIZE, 
                 offset: 0, 
@@ -718,7 +719,7 @@ const ChatPage: React.FC = () => {
             logger.info(`[handleChatDelete] Deleting chat ${chatId}, deletedChat found: ${!!deletedChat}`);
             
             // 调用 API Delete聊天（先删除，避免竞态条件）
-            const response = await get_ipc_api().chatApi.deleteChat(chatId);
+            const response = await unifiedChatService.deleteChat(chatId);
             
             if (!response.success) {
                 logger.error('Failed to delete chat:', response.error);
@@ -881,7 +882,7 @@ const ChatPage: React.FC = () => {
                 receiverName
             };
             
-            const response = await get_ipc_api().chatApi.sendChat(messageData);
+            const response = await unifiedChatService.sendChat(messageData);
             if (!response.success) {
                 logger.error('Failed to send message:', response.error);
                 // UpdateMessageStatus为Error
