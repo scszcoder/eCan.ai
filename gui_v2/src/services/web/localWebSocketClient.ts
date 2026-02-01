@@ -89,12 +89,8 @@ class LocalWebSocketClient {
    * Get the WebSocket URL for the local server
    */
   private getWebSocketUrl(): string {
-    try {
-      if (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV) {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        return `${protocol}//${window.location.host}/ws/skill-editor`;
-      }
-    } catch {}
+    // Always use the backend server port, not the Vite dev server port
+    // In dev mode, Vite runs on 3000 but backend runs on 4668
     const settings = getSettings();
     const port = settings?.local_server_port || '4668';
     return `ws://localhost:${port}/ws/skill-editor`;
@@ -380,6 +376,15 @@ class LocalWebSocketClient {
         break;
       
       // ==================== Data Update Events ====================
+      case 'update_org_agents':
+        console.log('[LocalWS] 🏢 Emitting update_org_agents');
+        eventBus.emit('org-agents-update', {
+          timestamp: Date.now(),
+          source: 'local_websocket',
+          data: eventPayload
+        });
+        break;
+        
       case 'update_agents':
         console.log('[LocalWS] 👥 Emitting update_agents');
         eventBus.emit('ws:update_agents', eventPayload);

@@ -423,6 +423,20 @@ if not os.path.isdir(static_dir):
     if os.path.isdir(alt_dir):
         static_dir = alt_dir
 
+# Frontend static files directory (gui_v2/dist)
+frontend_dist_dir = os.path.join(base_dir, 'gui_v2', 'dist')
+if not os.path.isdir(frontend_dist_dir):
+    # Fallback paths for different deployment scenarios
+    alt_frontend_paths = [
+        os.path.join(os.getcwd(), 'gui_v2', 'dist'),
+        os.path.join(os.path.dirname(base_dir), 'gui_v2', 'dist'),
+        os.path.join(base_dir, '..', 'gui_v2', 'dist')
+    ]
+    for alt_path in alt_frontend_paths:
+        if os.path.isdir(alt_path):
+            frontend_dist_dir = alt_path
+            break
+
 # Endpoint to serve images
 class RequestHandlers:
     """Encapsulates all request handling logic"""
@@ -1021,17 +1035,26 @@ class AppBuilder:
         route_builder = RouteBuilder(request_handlers)
         routes = route_builder.create_routes()
 
-        if os.path.isdir(static_dir):
-            routes.append(Mount('/', StaticFiles(directory=static_dir, html=True), name='static'))
+        # Mount frontend static files first (gui_v2/dist) to serve the web UI
+        # This avoids CORS issues by serving frontend and API from the same origin
+        if os.path.isdir(frontend_dist_dir):
+            routes.append(Mount('/', StaticFiles(directory=frontend_dist_dir, html=True), name='frontend'))
+            logger.info(f"✅ Mounted frontend static files from: {frontend_dist_dir}")
         else:
-            logger.warning(f"Static dir missing, skipping mount: {static_dir}")
+            logger.warning(f"⚠️ Frontend dist dir not found: {frontend_dist_dir}")
+            # Fallback to agent files if frontend not available
+            if os.path.isdir(static_dir):
+                routes.append(Mount('/', StaticFiles(directory=static_dir, html=True), name='static'))
+                logger.info(f"✅ Mounted agent static files from: {static_dir}")
+            else:
+                logger.warning(f"⚠️ Static dir missing, no static files mounted: {static_dir}")
 
         app_config = {
             'routes': routes,
             'debug': mcp_server_config.is_development
         }
 
-        logger.info("🔧 Created Starlette app of LcoalServer")
+        logger.info("🔧 Created Starlette app of LocalServer")
         app = Starlette(**app_config)
 
         app.add_middleware(
