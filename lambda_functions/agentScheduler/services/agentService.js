@@ -58,6 +58,28 @@ function rowsToObjects(result) {
   });
 }
 
+/**
+ * Convert MySQL datetime string to ISO 8601 format for GraphQL serialization
+ */
+function toISODateTime(val) {
+  if (!val) return null;
+  if (typeof val !== 'string') return val;
+  // Check if already ISO format
+  if (val.includes('T')) return val;
+  // Convert MySQL format "YYYY-MM-DD HH:MM:SS.ffffff" to ISO "YYYY-MM-DDTHH:MM:SS.ffffffZ"
+  return val.replace(' ', 'T') + 'Z';
+}
+
+/**
+ * Normalize datetime fields in an agent object for GraphQL serialization
+ */
+function normalizeAgentDatetimes(agent) {
+  if (!agent) return agent;
+  if (agent.created_at) agent.created_at = toISODateTime(agent.created_at);
+  if (agent.updated_at) agent.updated_at = toISODateTime(agent.updated_at);
+  return agent;
+}
+
 async function addAgent(agent) {
   const requestedId = agent.id;
   const id = requestedId || genId();
@@ -198,12 +220,102 @@ async function deleteAgent(id, owner) {
 async function getAgentById(id) {
   const res = await execute("SELECT * FROM agents WHERE id = :id LIMIT 1", [toDbParam("id", id)]);
   const rows = rowsToObjects(res);
-  return rows[0] || null;
+  const agent = rows[0] || null;
+  if (agent) {
+    normalizeAgentDatetimes(agent);
+    await enrichAgentWithRelations(agent);
+  }
+  return agent;
+}
+
+/**
+ * Enrich an agent object with org_ids, skills, tasks from relationship tables.
+ * This merges the relationship data into the agent's extra_data field.
+ */
+async function enrichAgentWithRelations(agent) {
+  const agentId = agent.id;
+  
+  // Get org relationships
+  const orgRes = await execute(
+    "SELECT org_id FROM agent_org_rels WHERE agent_id = :agent_id AND status = 'active'",
+    [toDbParam("agent_id", agentId)]
+  );
+  const orgRows = rowsToObjects(orgRes);
+  const orgIds = orgRows.map(r => r.org_id).filter(Boolean);
+  
+  // Get skill relationships
+  const skillRes = await execute(
+    "SELECT skill_id FROM agent_skill_rels WHERE agent_id = :agent_id AND status = 'active'",
+    [toDbParam("agent_id", agentId)]
+  );
+  const skillRows = rowsToObjects(skillRes);
+  const skillIds = skillRows.map(r => r.skill_id).filter(Boolean);
+  
+  // Get task relationships
+  const taskRes = await execute(
+    "SELECT task_id FROM agent_task_rels WHERE agent_id = :agent_id",
+    [toDbParam("agent_id", agentId)]
+  );
+  const taskRows = rowsToObjects(taskRes);
+  const taskIds = taskRows.map(r => r.task_id).filter(Boolean);
+  
+  // Add to agent object directly (for frontend compatibility)
+  agent.skills = skillIds;
+  agent.tasks = taskIds;
+  agent.org_ids = orgIds;
+  agent.org_id = orgIds[0] || null;  // Frontend expects singular org_id
+  
+  // Also merge into extra_data for persistence
+  let extraData = agent.extra_data || {};
+  if (typeof extraData === 'string') {
+    try { extraData = JSON.parse(extraData); } catch (e) { extraData = {}; }
+  }
+  extraData.org_ids = orgIds;
+  extraData.skills = skillIds;
+  extraData.tasks = taskIds;
+  agent.extra_data = extraData;
+  
+  return agent;
 }
 
 async function getAgentsByOwner(owner) {
   const res = await execute("SELECT * FROM agents WHERE owner = :owner", [toDbParam("owner", owner)]);
-  return rowsToObjects(res);
+  const agents = rowsToObjects(res);
+  // Normalize datetimes and enrich each agent with relationship data
+  agents.forEach(normalizeAgentDatetimes);
+  await Promise.all(agents.map(agent => enrichAgentWithRelations(agent)));
+  return agents;
+}
+
+/**
+ * Get agents by multiple owner identifiers (username, email, Cognito sub)
+ * This handles the case where agents might be stored with different owner formats
+ */
+async function getAgentsByOwners(owner, ownerEmail, ownerSub) {
+  // Build list of unique owner identifiers to query
+  const owners = new Set();
+  if (owner) owners.add(owner);  // sanitized username from frontend
+  if (ownerEmail) owners.add(ownerEmail);  // actual email
+  if (ownerSub) owners.add(ownerSub);  // Cognito sub ID
+  // Also add sanitized email (underscore format) if email is provided
+  if (ownerEmail) owners.add(ownerEmail.replace(/[@.]/g, "_"));
+  
+  if (owners.size === 0) return [];
+  
+  // Build OR query for all possible owner values
+  const ownerList = Array.from(owners);
+  const placeholders = ownerList.map((_, i) => `:owner${i}`).join(", ");
+  const params = ownerList.map((o, i) => toDbParam(`owner${i}`, o));
+  
+  console.log(`[agentService] getAgentsByOwners querying with owners: ${JSON.stringify(ownerList)}`);
+  const sql = `SELECT * FROM agents WHERE owner IN (${placeholders})`;
+  const res = await execute(sql, params);
+  const agents = rowsToObjects(res);
+  console.log(`[agentService] getAgentsByOwners found ${agents.length} agents`);
+  // Normalize datetimes and enrich each agent with relationship data
+  agents.forEach(normalizeAgentDatetimes);
+  await Promise.all(agents.map(agent => enrichAgentWithRelations(agent)));
+  return agents;
 }
 
 async function queryAgents({ id, name, description }) {
@@ -223,7 +335,11 @@ async function queryAgents({ id, name, description }) {
   }
   const sql = `SELECT * FROM agents${where.length ? " WHERE " + where.join(" AND ") : ""}`;
   const res = await execute(sql, params);
-  return rowsToObjects(res);
+  const agents = rowsToObjects(res);
+  // Normalize datetimes and enrich each agent with relationship data
+  agents.forEach(normalizeAgentDatetimes);
+  await Promise.all(agents.map(agent => enrichAgentWithRelations(agent)));
+  return agents;
 }
 
 async function assignAgentToOrg(agentId, orgId, { role = "member", permissions = [], access_level = "read", status = "active" } = {}) {
@@ -320,9 +436,11 @@ module.exports = {
   deleteAgent,
   getAgentById,
   getAgentsByOwner,
+  getAgentsByOwners,
   queryAgents,
   assignAgentToOrg,
   assignSkillToAgent,
   assignTaskToAgent,
-  getAgentStatistics
+  getAgentStatistics,
+  enrichAgentWithRelations
 };

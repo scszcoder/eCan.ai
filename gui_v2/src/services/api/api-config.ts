@@ -33,7 +33,7 @@ export const GRAPHQL_QUERIES = {
   GET_ALL_MINE: `
     query GetAllMine($owner: String, $userId: String) {
       getAllMine(owner: $owner, userId: $userId) {
-        agents { id name owner description status rank supervisor_id avatar_resource_id title capabilities extra_data personalities url vehicle_id version created_at updated_at }
+        agents { id name owner description status rank supervisor_id avatar_resource_id title capabilities extra_data personalities url vehicle_id version created_at updated_at org_id org_ids skills tasks }
         tasks { id name description status priority owner org_id source task_type trigger_type metadata result schedule }
         skills { id name owner description level path public rentable source tags version }
         tools { id name owner description level tool_type status path public rentable version }
@@ -50,10 +50,10 @@ export const GRAPHQL_QUERIES = {
   GET_ORG_AGENT_TREE: `
     fragment OrgTreeNodeFields on OrgTree {
       id name description org_type level sort_order status parent_id
-      agents { id name description status created_at updated_at owner avatar_resource_id }
+      agents { id name description status created_at updated_at owner avatar_resource_id org_id org_ids skills tasks }
     }
-    query GetOrgAgentTree($rootId: ID) {
-      getOrgAgentTree(root_id: $rootId) {
+    query GetOrgAgentTree($rootId: ID, $username: String) {
+      getOrgAgentTree(root_id: $rootId, username: $username) {
         ...OrgTreeNodeFields
         children {
           ...OrgTreeNodeFields
@@ -205,12 +205,63 @@ export const GRAPHQL_QUERIES = {
       }
     }
   `,
+
+  // ==================== A2A Messages (Chat) ====================
+  GET_A2A_MESSAGES: `
+    query GetA2AMessages($channelId: String!, $limit: Int, $nextToken: String) {
+      getA2AMessages(channelId: $channelId, limit: $limit, nextToken: $nextToken) {
+        items {
+          id
+          channelId
+          sessionId
+          senderId
+          recipientId
+          timestamp
+          message {
+            role
+            parts {
+              type
+              text
+              metadata
+            }
+            metadata
+          }
+          metadata
+          historyLength
+          acceptedOutputModes
+        }
+        nextToken
+      }
+    }
+  `,
 };
 
 /**
  * GraphQL 变更定义
  */
 export const GRAPHQL_MUTATIONS = {
+  // ==================== A2A Messages (Chat) ====================
+  SEND_CLOUD_A2A_MESSAGE: `
+    mutation SendCloudA2AMessage($input: A2AMessageInput!) {
+      sendCloudA2AMessage(input: $input) {
+        id
+        channelId
+        sessionId
+        senderId
+        recipientId
+        timestamp
+        message {
+          role
+          parts {
+            type
+            text
+            metadata
+          }
+        }
+      }
+    }
+  `,
+
   // ==================== Agent Management ====================
   ADD_AGENTS: `
     mutation AddAgents($input: [AgentInput!]!) {
@@ -615,6 +666,36 @@ export const GRAPHQL_MUTATIONS = {
   DELETE_SKILL_EDITOR_CHAT_SESSION: `
     mutation DeleteSkillEditorChatSession($sessionId: ID!) {
       deleteSkillEditorChatSession(sessionId: $sessionId)
+    }
+  `,
+};
+
+/**
+ * GraphQL 订阅定义
+ */
+export const GRAPHQL_SUBSCRIPTIONS = {
+  // ==================== A2A Messages (Chat) ====================
+  ON_A2A_MESSAGE_RECEIVED: `
+    subscription OnA2AMessageReceived($channelId: String!) {
+      onA2AMessageReceived(channelId: $channelId) {
+        id
+        channelId
+        sessionId
+        senderId
+        recipientId
+        timestamp
+        message {
+          role
+          parts {
+            type
+            text
+            metadata
+          }
+        }
+        metadata
+        historyLength
+        acceptedOutputModes
+      }
     }
   `,
 };

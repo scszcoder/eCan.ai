@@ -139,9 +139,13 @@ def make_passive_command_service_from_mainwin(
     auth_token = mainwin.get_auth_token()
     client_id = mainwin.getAcctSiteID()
     
-    # Use "*" as run_id to subscribe to all runs for this client
-    # The routing callback will filter by actual task run_id
-    run_id = "*"
+    # AppSync subscriptions require exact match - wildcards don't work
+    # Default to "test-run-001" for testing; in production, use specific run_id
+    import os
+    run_id = (os.environ.get("EC_BROWSER_PASSIVE_RUN_ID") or "").strip()
+    if not run_id or run_id == "*":
+        run_id = "test-run-001"
+        logger.warning(f"[PassiveCommandService] EC_BROWSER_PASSIVE_RUN_ID not set or '*', defaulting to '{run_id}'")
     
     config = AppSyncPassiveClientConfig(
         http_endpoint=http_endpoint,
