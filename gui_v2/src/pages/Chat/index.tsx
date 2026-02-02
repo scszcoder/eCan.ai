@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { message as antMessage } from 'antd';
 import ChatList from './components/ChatList';
 const ChatDetail = lazy(() => import('./components/ChatDetail'));
 import { Chat, Message, Attachment } from './types/chat';
@@ -9,6 +10,9 @@ import ChatLayout from './components/ChatLayout';
 const ChatNotification = lazy(() => import('./components/ChatNotification'));
 import AgentFilterModal from './components/AgentFilterModal';
 import { get_ipc_api } from '@/services/ipc_api';
+import { unifiedChatService } from '@/services/chat/unifiedChatService';
+import { cloudChatApi } from '@/services/api/cloudChatApi';
+import { isWebPlatform } from '@/config/platform';
 import { useUserStore } from '@/stores/userStore';
 import { useAppDataStore } from '@/stores/appDataStore';
 import { useAgentStore } from '@/stores/agentStore';
@@ -20,6 +24,8 @@ import { getDisplayMsg } from './utils/displayMsg';
 import { iTagManager } from './managers/ITagManager';
 import { chatStateManager } from './managers/ChatStateManager';
 import { eventBus } from '@/utils/eventBus';
+import { UserStorageManager } from '@/services/storage/UserStorageManager';
+import { subscribeToA2AChannel } from '@/services/web/appSyncSubscriptions';
 
 const ChatPage: React.FC = () => {
     const { t } = useTranslation();
@@ -96,6 +102,7 @@ const ChatPage: React.FC = () => {
     const hasAutoSelectedRef = useRef(false); // Track if we've auto-selected for current filter
     const lastAutoSelectAgentId = useRef<string | undefined>(); // Track agentId when last auto-selected
     const handleChatSelectRef = useRef<((chatId: string) => Promise<void>) | null>(null); // Ref to handleChatSelect
+    const hasAutoFetchedCloudRef = useRef<string | null>(null); // Track if we've auto-fetched cloud messages for this agentId
     
     // 每次Render都Update ref，确保它始终指向最新的 handleChatSelect
     handleChatSelectRef.current = null; // Will be set later after handleChatSelect is defined
@@ -189,11 +196,176 @@ const ChatPage: React.FC = () => {
         prevInitialized.current = initialized;
     }, [myTwinAgentId, initialized, hasFetched, agentId]);
 
+    // AUTO-FETCH CLOUD MESSAGES: When on web platform, auto-fetch A2A messages on first entry to agent's chat page
+    // This runs after the main data fetch and triggers automatically when agentId is available
+    // On web platform, we use user's email as senderId instead of myTwinAgentId
+    useEffect(() => {
+        // Only auto-fetch on web platform
+        if (!isWebPlatform()) {
+            return;
+        }
+        
+        // Get user's email for web platform (used as senderId)
+        const userInfo = UserStorageManager.getInstance().getUserInfo();
+        const userEmail = userInfo?.email || userInfo?.username;
+        
+        // Need user email and agentId to construct channelId
+        if (!userEmail || !agentId) {
+            logger.info('[AutoCloudFetch] Waiting for userEmail and agentId:', { userEmail, agentId });
+            return;
+        }
+        
+        // Create a unique key for this user+agent combination
+        const fetchKey = `${userEmail}~${agentId}`;
+        
+        // Check if we've already auto-fetched for this combination
+        if (hasAutoFetchedCloudRef.current === fetchKey) {
+            logger.info('[AutoCloudFetch] Already fetched for this combination, skipping');
+            return;
+        }
+        
+        // Mark as fetched for this combination BEFORE async call to prevent double fetch
+        hasAutoFetchedCloudRef.current = fetchKey;
+        
+        // Perform the auto-fetch
+        const autoFetchCloudMessages = async () => {
+            // On web platform: channelId = userEmail~agentId
+            const channelId = cloudChatApi.getChannelId(userEmail, agentId);
+            logger.info('[AutoCloudFetch] Auto-fetching A2A messages for channel:', channelId);
+            
+            try {
+                const result = await cloudChatApi.getA2AMessages(channelId, 50);
+                logger.info('[AutoCloudFetch] Got result:', result.items?.length || 0, 'messages');
+                
+                if (result.items && result.items.length > 0) {
+                    // Convert A2A messages to local message format
+                    // Use message ID for deduplication - avoid duplicates by using stable IDs
+                    const messages: Message[] = result.items.map((a2aMsg) => {
+                        const textPart = a2aMsg.message?.parts?.find(p => p.type === 'text');
+                        const roleMap: Record<string, 'user' | 'assistant' | 'system' | 'agent'> = {
+                            'user': 'user',
+                            'assistant': 'assistant',
+                            'system': 'system',
+                            'agent': 'agent',
+                        };
+                        return {
+                            id: a2aMsg.id, // Use the stable ID from server
+                            chatId: a2aMsg.channelId,
+                            senderId: a2aMsg.senderId,
+                            senderName: (a2aMsg.metadata as any)?.senderName || a2aMsg.senderId,
+                            role: roleMap[a2aMsg.message?.role || 'user'] || 'user',
+                            content: textPart?.text || '',
+                            createAt: a2aMsg.timestamp ? new Date(a2aMsg.timestamp).getTime() : Date.now(),
+                            status: 'complete' as const,
+                            attachments: [],
+                        };
+                    });
+                    
+                    // Sort messages by time (oldest first)
+                    messages.sort((a, b) => (a.createAt as number) - (b.createAt as number));
+                    
+                    // Update messages in the message manager (setMessages replaces, so no duplicates)
+                    updateMessages(channelId, messages);
+                    
+                    // If we don't have this chat in the list, create it
+                    setChats(prevChats => {
+                        if (!prevChats.find(c => c.id === channelId)) {
+                            const newChat: Chat = {
+                                id: channelId,
+                                name: `Chat with ${agentId || 'Agent'}`,
+                                type: 'user-agent',
+                                members: [
+                                    { userId: userEmail || '', name: 'Me', role: 'user' },
+                                    { userId: agentId || '', name: 'Agent', role: 'agent' }
+                                ],
+                                messages: [],
+                                unread: 0,
+                                lastMsg: messages[messages.length - 1]?.content || '',
+                                lastMsgTime: messages[messages.length - 1]?.createAt as number,
+                            };
+                            // Set this chat as active
+                            setActiveChatId(channelId);
+                            return [...prevChats, newChat];
+                        }
+                        return prevChats;
+                    });
+                    
+                    logger.info('[AutoCloudFetch] Updated messages for chat:', channelId, 'count:', messages.length);
+                } else {
+                    logger.info('[AutoCloudFetch] No messages found for channel:', channelId);
+                }
+            } catch (error) {
+                logger.error('[AutoCloudFetch] Error fetching from cloud:', error);
+            }
+        };
+        
+        // Run the auto-fetch
+        autoFetchCloudMessages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [agentId]); // Only depend on agentId - updateMessages is stable via useMessages hook
+
     // CRITICAL FIX: Update MessageManager with active chat
     // This prevents MessageManager from incrementing unread count for active chat
     useEffect(() => {
         messageManager.setActiveChat(activeChatId);
     }, [activeChatId]);
+
+    // Subscribe to A2A channel for real-time messages on web platform
+    useEffect(() => {
+        if (!isWebPlatform() || !activeChatId) {
+            return;
+        }
+        
+        logger.info('[Chat] Subscribing to A2A channel:', activeChatId);
+        subscribeToA2AChannel(activeChatId);
+    }, [activeChatId]);
+
+    // Listen for incoming A2A messages from AppSync subscription
+    useEffect(() => {
+        if (!isWebPlatform()) {
+            return;
+        }
+        
+        const handleA2AMessage = (a2aMsg: any) => {
+            logger.info('[Chat] Received A2A message via subscription:', a2aMsg);
+            
+            // Only process if it's for the active chat
+            if (a2aMsg.channelId !== activeChatId) {
+                logger.info('[Chat] A2A message is for different channel, ignoring');
+                return;
+            }
+            
+            // Convert A2A message to local message format
+            const textPart = a2aMsg.message?.parts?.find((p: any) => p.type === 'text');
+            const roleMap: Record<string, 'user' | 'assistant' | 'system' | 'agent'> = {
+                'user': 'user',
+                'assistant': 'assistant', 
+                'system': 'system',
+                'agent': 'agent',
+            };
+            
+            const message: Message = {
+                id: a2aMsg.id || `a2a_msg_${Date.now()}`,
+                chatId: a2aMsg.channelId,
+                senderId: a2aMsg.senderId,
+                senderName: a2aMsg.senderId,
+                role: roleMap[a2aMsg.message?.role || 'assistant'] || 'assistant',
+                content: textPart?.text || '',
+                createAt: a2aMsg.timestamp ? new Date(a2aMsg.timestamp).getTime() : Date.now(),
+                status: 'complete' as const,
+                attachments: [],
+            };
+            
+            logger.info('[Chat] Adding A2A message to chat:', message);
+            addMessageToChat(a2aMsg.channelId, message);
+        };
+        
+        eventBus.on('a2a:message', handleA2AMessage);
+        
+        return () => {
+            eventBus.off('a2a:message', handleA2AMessage);
+        };
+    }, [activeChatId, addMessageToChat]);
 
     // CRITICAL FIX: Listen to new messages and clear unread for active chat (fallback)
     // Even though MessageManager won't increment for active chat, we still clear it as a safety measure
@@ -321,7 +493,7 @@ const ChatPage: React.FC = () => {
             // 根据是否有Search文本Select不同的 API
             if (currentSearchText && currentSearchText.trim()) {
                 // 使用Search API
-                const response = await get_ipc_api().chatApi.searchChats(
+                const response = await unifiedChatService.searchChats(
                     targetUserId,
                     currentSearchText,
                     false
@@ -393,7 +565,7 @@ const ChatPage: React.FC = () => {
         
         try {
             // 使用新的 API Get聊天Data
-            const response = await get_ipc_api().chatApi.getChats(
+            const response = await unifiedChatService.getChats(
                 userId,
                 true // deep Parameter，包含 members 数据
             );
@@ -537,7 +709,7 @@ const ChatPage: React.FC = () => {
                 agent_id: targetAgentId,  // ✅ Add agent_id
             };
             
-            const response = await get_ipc_api().chatApi.createChat(chatData);
+            const response = await unifiedChatService.createChat(chatData);
             const resp: any = response;
             
             // Check if IPC call succeeded
@@ -623,7 +795,7 @@ const ChatPage: React.FC = () => {
     // Get并Process聊天Message
     const fetchAndProcessChatMessages = async (chatId: string, setIsInitialLoading?: (loading: boolean) => void) => {
         try {
-            const response = await get_ipc_api().chatApi.getChatMessages({
+            const response = await unifiedChatService.getChatMessages({
                 chatId,
                 limit: PAGE_SIZE,
                 offset: 0,
@@ -667,7 +839,7 @@ const ChatPage: React.FC = () => {
     const fetchAndProcessChatNotifications = async (chatId: string, setIsInitialLoading?: (loading: boolean) => void) => {
         try {
             if (typeof setIsInitialLoading === 'function') setIsInitialLoading(true);
-            const notificationResponse = await get_ipc_api().chatApi.getChatNotifications({ 
+            const notificationResponse = await unifiedChatService.getChatNotifications({ 
                 chatId, 
                 limit: NOTIF_PAGE_SIZE, 
                 offset: 0, 
@@ -718,7 +890,7 @@ const ChatPage: React.FC = () => {
             logger.info(`[handleChatDelete] Deleting chat ${chatId}, deletedChat found: ${!!deletedChat}`);
             
             // 调用 API Delete聊天（先删除，避免竞态条件）
-            const response = await get_ipc_api().chatApi.deleteChat(chatId);
+            const response = await unifiedChatService.deleteChat(chatId);
             
             if (!response.success) {
                 logger.error('Failed to delete chat:', response.error);
@@ -783,6 +955,101 @@ const ChatPage: React.FC = () => {
         ));
     };
 
+    // Cloud refresh handler - fetches messages directly from cloud A2A API
+    // On web platform, uses user's email as senderId instead of myTwinAgentId
+    const handleCloudRefresh = useCallback(async () => {
+        logger.info('[handleCloudRefresh] Triggered - fetching A2A messages from cloud');
+        
+        // Get user's email for web platform
+        const userInfo = UserStorageManager.getInstance().getUserInfo();
+        const userEmail = userInfo?.email || userInfo?.username;
+        
+        logger.info('[handleCloudRefresh] activeChatId:', activeChatId, 'userEmail:', userEmail, 'agentId:', agentId);
+        
+        // Determine channelId - use activeChatId or generate from userEmail and agentId
+        let channelId = activeChatId;
+        
+        if (!channelId && userEmail && agentId) {
+            // Generate channelId: userEmail=agentId format for web platform
+            channelId = cloudChatApi.getChannelId(userEmail, agentId);
+            logger.info('[handleCloudRefresh] Generated channelId:', channelId);
+        }
+        
+        if (!channelId) {
+            logger.warn('[handleCloudRefresh] No channelId available');
+            antMessage.warning('Please select a chat or filter by agent first');
+            return;
+        }
+        
+        try {
+            antMessage.loading({ content: 'Fetching messages from cloud...', key: 'cloudRefresh' });
+            
+            logger.info('[handleCloudRefresh] Calling cloudChatApi.getA2AMessages for channel:', channelId);
+            const result = await cloudChatApi.getA2AMessages(channelId, 50);
+            
+            logger.info('[handleCloudRefresh] Got result:', JSON.stringify(result, null, 2));
+            
+            if (result.items && result.items.length > 0) {
+                antMessage.success({ content: `Found ${result.items.length} messages`, key: 'cloudRefresh' });
+                
+                // Convert A2A messages to local message format and update
+                const messages: Message[] = result.items.map((a2aMsg, index) => {
+                    const textPart = a2aMsg.message?.parts?.find(p => p.type === 'text');
+                    const roleMap: Record<string, 'user' | 'assistant' | 'system' | 'agent'> = {
+                        'user': 'user',
+                        'assistant': 'assistant', 
+                        'system': 'system',
+                        'agent': 'agent',
+                    };
+                    return {
+                        id: a2aMsg.id || `cloud_msg_${Date.now()}_${index}`,
+                        chatId: a2aMsg.channelId,
+                        senderId: a2aMsg.senderId,
+                        senderName: (a2aMsg.metadata as any)?.senderName || a2aMsg.senderId,
+                        role: roleMap[a2aMsg.message?.role || 'user'] || 'user',
+                        content: textPart?.text || '',
+                        createAt: a2aMsg.timestamp ? new Date(a2aMsg.timestamp).getTime() : Date.now(),
+                        status: 'complete' as const,
+                        attachments: [],
+                    };
+                });
+                
+                // Sort messages by time (oldest first)
+                messages.sort((a, b) => (a.createAt as number) - (b.createAt as number));
+                
+                // Update messages in the message manager
+                updateMessages(channelId, messages);
+                
+                // If we don't have this chat in the list, create it
+                if (!chats.find(c => c.id === channelId)) {
+                    const newChat: Chat = {
+                        id: channelId,
+                        name: `Chat with ${agentId || 'Agent'}`,
+                        type: 'user-agent',
+                        members: [
+                            { userId: userEmail || '', name: 'Me', role: 'user' },
+                            { userId: agentId || '', name: 'Agent', role: 'agent' }
+                        ],
+                        messages: [],
+                        unread: 0,
+                        lastMsg: messages[messages.length - 1]?.content || '',
+                        lastMsgTime: messages[messages.length - 1]?.createAt as number,
+                    };
+                    setChats(prev => [...prev, newChat]);
+                    setActiveChatId(channelId);
+                }
+                
+                logger.info('[handleCloudRefresh] Updated messages for chat:', channelId, 'count:', messages.length);
+            } else {
+                antMessage.info({ content: 'No messages found in cloud', key: 'cloudRefresh' });
+                logger.info('[handleCloudRefresh] No messages found for channel:', channelId);
+            }
+        } catch (error) {
+            logger.error('[handleCloudRefresh] Error fetching from cloud:', error);
+            antMessage.error({ content: `Error: ${error}`, key: 'cloudRefresh' });
+        }
+    }, [activeChatId, agentId, updateMessages, chats]);
+
     // handleMessageSend SendMessage时加 log
     const handleMessageSend = useCallback(async (content: string, attachments: Attachment[]) => {
         console.log('[handleMessageSend] called, content:', content, 'attachments:', attachments);
@@ -799,11 +1066,27 @@ const ChatPage: React.FC = () => {
             logger.warn(`Chat ${activeChatId} not found in chats list, backend will create new chat`);
         }
 
-        if (!myTwinAgentId) return;
-        const my_twin_agent = useAgentStore.getState().getAgentById(myTwinAgentId);
-        const senderId = my_twin_agent?.card.id;
-        const senderName = my_twin_agent?.card.name;
-        if (!senderId || !senderName) return;
+        // Determine sender info based on platform
+        let senderId: string | undefined;
+        let senderName: string | undefined;
+        
+        if (isWebPlatform()) {
+            // On web platform, use user's email as senderId
+            const userInfo = UserStorageManager.getInstance().getUserInfo();
+            senderId = userInfo?.email || userInfo?.username;
+            senderName = userInfo?.name || userInfo?.email || 'User';
+            if (!senderId) {
+                logger.error('[handleMessageSend] No user email available on web platform');
+                return;
+            }
+        } else {
+            // On desktop platform, use myTwinAgentId
+            if (!myTwinAgentId) return;
+            const my_twin_agent = useAgentStore.getState().getAgentById(myTwinAgentId);
+            senderId = my_twin_agent?.card.id;
+            senderName = my_twin_agent?.card.name;
+            if (!senderId || !senderName) return;
+        }
 
         // 只保留可SerializeField，优先使用 response Field（如有）
         const safeAttachments = (attachments || []).map(att => {
@@ -881,7 +1164,7 @@ const ChatPage: React.FC = () => {
                 receiverName
             };
             
-            const response = await get_ipc_api().chatApi.sendChat(messageData);
+            const response = await unifiedChatService.sendChat(messageData);
             if (!response.success) {
                 logger.error('Failed to send message:', response.error);
                 // UpdateMessageStatus为Error
@@ -1218,6 +1501,7 @@ const ChatPage: React.FC = () => {
                 onFilterChange={handleFilterChange}
                 onSearch={handleSearch}
                 onFilterClick={() => setShowFilterModal(true)}
+                onCloudRefresh={handleCloudRefresh}
                 filterAgentId={agentId}
                 currentAgentId={headerAgentId}
             />

@@ -70,9 +70,11 @@ export const hydrateStoresFromAllMine = (allMine: GetAllMineResponse) => {
     console.log('[webStoreSync] Transformed prompts:', transformedPrompts.slice(0, 2));
     usePromptStore.setState({ prompts: transformedPrompts as any, fetched: true, loading: false, error: null });
   }
-  if (allMine.orgs) {
-    useOrgStore.getState().setAllOrgAgents({ orgs: allMine.orgs as any, message: 'ok' });
-  }
+  // NOTE: Don't sync orgs from getAllMine - the flat array doesn't include agents.
+  // Let OrgNavigator fetch the full tree with agents via getOrgAgentTree.
+  // if (allMine.orgs) {
+  //   useOrgStore.getState().setAllOrgAgents({ orgs: allMine.orgs as any, message: 'ok' });
+  // }
   if (Array.isArray(allMine.vehicles)) {
     useVehicleStore.getState().setItems(allMine.vehicles as any);
   }

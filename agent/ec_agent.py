@@ -814,7 +814,10 @@ class EC_Agent(Agent):
 		except RuntimeError:
 			# No running loop, create one in a thread
 			import threading
+			import nest_asyncio
 			def _run_in_thread():
+				# Apply nest_asyncio in this thread to fix Python 3.11+ timeout context manager issues
+				nest_asyncio.apply()
 				asyncio.run(_run_subscription())
 			thread = threading.Thread(target=_run_in_thread, daemon=True)
 			thread.start()

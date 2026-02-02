@@ -21,6 +21,11 @@ import base64
 import traceback
 import os
 import certifi
+import nest_asyncio
+
+# Apply nest_asyncio to allow nested event loops (required for Python 3.11+ with aiohttp timeouts)
+nest_asyncio.apply()
+
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from uuid import uuid4
@@ -511,6 +516,10 @@ async def wan_a2a_subscribe(
         auth_headers: Optional auth headers (API key or JWT)
         endpoints: Optional AppSync endpoints
     """
+    # Apply nest_asyncio to fix Python 3.11+ timeout context manager issues
+    # This must be called in the same thread/context where the event loop runs
+    nest_asyncio.apply()
+    
     endpoints = endpoints or get_a2a_appsync_endpoints()
     if on_message_callback is None and mainwin is None:
         raise ValueError("wan_a2a_subscribe requires on_message_callback when mainwin is None")
@@ -528,15 +537,17 @@ async def wan_a2a_subscribe(
             # SSL context
             ssl_context = ssl.create_default_context(cafile=certifi.where())
             
-            timeout = aiohttp.ClientTimeout(total=60, connect=60, sock_read=300)
-            
-            async with aiohttp.ClientSession(timeout=timeout) as session:
+            # Note: Don't pass timeout to ClientSession constructor in Python 3.11+
+            # as it can cause "Timeout context manager should be used inside a task" errors
+            # Instead, pass timeout directly to ws_connect
+            async with aiohttp.ClientSession() as session:
                 async with session.ws_connect(
                     ws_url,
                     protocols=['graphql-ws'],
                     ssl=ssl_context,
                     heartbeat=25,
                     autoping=True,
+                    timeout=60,  # Connection timeout in seconds
                 ) as websocket:
                     logger.info(f"[wan_a2a] Connected to WebSocket for channel: {channel_id}")
                     

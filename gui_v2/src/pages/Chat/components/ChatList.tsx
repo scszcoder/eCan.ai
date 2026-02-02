@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useEffectOnActive } from 'keepalive-for-react';
 import { List, Badge, Avatar, Typography, Button, Modal, Tooltip } from 'antd';
-import { RobotOutlined, TeamOutlined, MinusOutlined, FilterOutlined } from '@ant-design/icons';
+import { RobotOutlined, TeamOutlined, MinusOutlined, FilterOutlined, ReloadOutlined } from '@ant-design/icons';
 import styled from '@emotion/styled';
 import { useTranslation } from 'react-i18next';
 import { Chat, Member } from '../types/chat';
@@ -310,6 +310,7 @@ interface ChatListProps {
     onAdd?: () => void;
     onEdit?: () => void;
     onRefresh?: () => void;
+    onCloudRefresh?: () => void;
     onExport?: () => void;
     onImport?: () => void;
     onSettings?: () => void;
@@ -331,6 +332,7 @@ const ChatList: React.FC<ChatListProps> = ({
     onAdd: _onAdd,
     onEdit: _onEdit,
     onRefresh: _onRefresh,
+    onCloudRefresh,
     onExport: _onExport,
     onImport: _onImport,
     onSettings: _onSettings,
@@ -661,6 +663,15 @@ const ChatList: React.FC<ChatListProps> = ({
                         <StyledFilterButton
                             icon={<FilterOutlined />}
                             onClick={onFilterClick}
+                            type="text"
+                        />
+                    </Tooltip>
+                )}
+                {onCloudRefresh && (
+                    <Tooltip title={t('pages.chat.refreshFromCloud') || 'Refresh from Cloud'}>
+                        <StyledFilterButton
+                            icon={<ReloadOutlined />}
+                            onClick={onCloudRefresh}
                             type="text"
                         />
                     </Tooltip>

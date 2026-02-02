@@ -101,6 +101,7 @@ def _on_step_result_subscription() -> str:
         clientId
         stepId
         result
+        dom_tree
       }
     }
     """

@@ -90,11 +90,26 @@ deploy_lambda_agent_scheduler() {
     log_success "Lambda agentScheduler deployed successfully!"
 }
 
+deploy_lambda_chatter() {
+    log_info "=========================================="
+    log_info "Deploying Lambda: chatter"
+    log_info "=========================================="
+    
+    cd "$REPO_ROOT/lambda_functions/chatter"
+    
+    # Build and deploy (build_lambda.sh handles both)
+    log_info "Building and deploying Lambda package..."
+    ./build_lambda.sh
+    
+    log_success "Lambda chatter deployed successfully!"
+}
+
 deploy_lambda() {
     # Deploy all Lambda functions
     deploy_lambda_skill_editor
     deploy_lambda_cloud_tester
     deploy_lambda_agent_scheduler
+    deploy_lambda_chatter
 }
 
 deploy_worker() {

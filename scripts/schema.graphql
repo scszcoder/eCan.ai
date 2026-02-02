@@ -4,7 +4,7 @@ schema {
   subscription: Subscription
 }
 
-type A2AFileReference @aws_api_key {
+type A2AFileReference @aws_api_key @aws_cognito_user_pools {
   bytes: String
   mimeType: String
   name: String
@@ -12,7 +12,7 @@ type A2AFileReference @aws_api_key {
 }
 
 #    WAN A2A messaging
-type A2AMessage @aws_api_key {
+type A2AMessage @aws_api_key @aws_cognito_user_pools {
   acceptedOutputModes: [String!]
   channelId: String!
   historyLength: Int
@@ -25,18 +25,18 @@ type A2AMessage @aws_api_key {
   timestamp: AWSDateTime
 }
 
-type A2AMessageBody @aws_api_key {
+type A2AMessageBody @aws_api_key @aws_cognito_user_pools {
   metadata: AWSJSON
   parts: [A2AMessagePart!]!
   role: String!
 }
 
-type A2AMessageConnection @aws_api_key {
+type A2AMessageConnection @aws_api_key @aws_cognito_user_pools {
   items: [A2AMessage!]!
   nextToken: String
 }
 
-type A2AMessagePart @aws_api_key {
+type A2AMessagePart @aws_api_key @aws_cognito_user_pools {
   data: AWSJSON
   file: A2AFileReference
   metadata: AWSJSON
@@ -81,11 +81,15 @@ type Agent @aws_api_key @aws_cognito_user_pools {
   gender: String
   id: ID!
   name: String!
+  org_id: ID
+  org_ids: [ID]
   owner: String!
   personalities: AWSJSON
   rank: String
+  skills: [ID]
   status: String
   supervisor_id: ID
+  tasks: [ID]
   title: AWSJSON
   updated_at: AWSDateTime
   url: String
@@ -465,6 +469,7 @@ type PassiveBrowserHelloEnvelope @aws_api_key @aws_cognito_user_pools {
 
 type PassiveBrowserStepResultEnvelope @aws_api_key @aws_cognito_user_pools {
   clientId: ID!
+  dom_tree: AWSJSON
   id: ID
   result: AWSJSON!
   runId: ID!
@@ -529,7 +534,7 @@ type PuzzleSolution @aws_api_key @aws_cognito_user_pools {
 type Query {
   checkSkillExists(name: String!): CheckResult!
   genSchedules(settings: AWSJSON!): AWSJSON!
-  getA2AMessages(channelId: String!, limit: Int, nextToken: String): A2AMessageConnection!
+  getA2AMessages(channelId: String!, limit: Int, nextToken: String): A2AMessageConnection! @aws_api_key @aws_cognito_user_pools
   getAgentKnowledges: [AgentKnowledge!]!
   getAgentSkills: [AgentSkill!]! @aws_api_key @aws_cognito_user_pools
   getAgentTasks: [Task!]! @aws_api_key @aws_cognito_user_pools
@@ -543,7 +548,7 @@ type Query {
   getLabelFormats(input: LabelFormatQueryInput): [LabelFormat!]!
   #  Skill editor (web mode) support
   getNodeStateSchema: NodeStateSchema
-  getOrgAgentTree(root_id: ID): OrgTree @aws_api_key @aws_cognito_user_pools
+  getOrgAgentTree(root_id: ID, username: String): OrgTree @aws_api_key @aws_cognito_user_pools
   getOrgTree(root_id: ID): OrgTree @aws_api_key @aws_cognito_user_pools
   getOrgs: [Org!]!
   getProducts(input: ProductQueryInput): [Product!]!
@@ -1416,6 +1421,7 @@ input PassiveBrowserHelloEnvelopeInput {
 
 input PassiveBrowserStepResultEnvelopeInput {
   clientId: ID!
+  dom_tree: AWSJSON
   result: AWSJSON!
   runId: ID!
   stepId: ID!
