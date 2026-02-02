@@ -1,46 +1,28 @@
 /**
- * S3-based Prompt Service for agentScheduler Lambda
+ * DynamoDB-based Prompt Service for agentScheduler Lambda
  * 
- * Reads prompts from S3 bucket ecan-skills:
- * - Public/sample prompts: public/prompts/sample_prompts/*.json (readOnly)
- * - User prompts: {normalized_owner}/prompts/*.json (editable)
- * 
- * Prompt files are named: {prompt_name}_{prompt_id}.json
- * e.g., ebay_orders0_pr-92939.json
+ * Uses Agent_Prompts table:
+ * - owner_id (PK): "public" for sample prompts, or user email
+ * - agent_id (SK): "any~{prompt_id}" format
+ * - prompt_id, prompt_name, prompt (JSON), suitable_modes, metadata, last_mod_date
  */
 
 const crypto = require("crypto");
 const {
-  S3Client,
-  GetObjectCommand,
-  PutObjectCommand,
-  DeleteObjectCommand,
-  ListObjectsV2Command
-} = require("@aws-sdk/client-s3");
+  DynamoDBClient,
+  GetItemCommand,
+  PutItemCommand,
+  DeleteItemCommand,
+  QueryCommand
+} = require("@aws-sdk/client-dynamodb");
+const { marshall, unmarshall } = require("@aws-sdk/util-dynamodb");
 
 const REGION = process.env.AWS_REGION || "us-east-1";
-const BUCKET = process.env.SKILL_BUCKET || "ecan-skills";
-const PUBLIC_PROMPTS_PREFIX = "public/prompts/sample_prompts";
+const PROMPTS_TABLE = process.env.PROMPTS_TABLE || "Agent_Prompts";
+const PUBLIC_OWNER = "public";
 const DEFAULT_VERSION = "0.1";
 
-const s3 = new S3Client({ region: REGION });
-
-/**
- * Normalize owner email to S3-safe folder name
- * Replace @ and . with _
- */
-function normalizeOwnerForPath(owner) {
-  if (!owner) return "unknown";
-  return owner.replace(/[@.]/g, "_");
-}
-
-/**
- * Get user prompts prefix
- */
-function getUserPromptsPrefix(owner) {
-  const normalized = normalizeOwnerForPath(owner);
-  return `${normalized}/prompts`;
-}
+const dynamodb = new DynamoDBClient({ region: REGION });
 
 /**
  * Generate a unique prompt ID
@@ -50,220 +32,114 @@ function genId() {
 }
 
 /**
- * Stream to string helper
+ * Build the agent_id (sort key) from prompt_id
+ * Format: "any~{prompt_id}"
  */
-async function streamToString(stream) {
-  if (!stream) return "";
-  const chunks = [];
-  for await (const chunk of stream) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks).toString("utf-8");
+function buildAgentId(promptId) {
+  return `any~${promptId}`;
 }
 
 /**
- * Get JSON from S3
+ * Extract prompt_id from agent_id
  */
-async function s3GetJson(key) {
-  try {
-    const res = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
-    const content = await streamToString(res.Body);
-    return JSON.parse(content);
-  } catch (err) {
-    if (err.name === "NoSuchKey" || err.Code === "NoSuchKey") {
-      return null;
-    }
-    throw err;
-  }
+function extractPromptIdFromAgentId(agentId) {
+  if (!agentId) return null;
+  const parts = agentId.split("~");
+  return parts.length > 1 ? parts[1] : agentId;
 }
 
 /**
- * Put JSON to S3
- */
-async function s3PutJson(key, data) {
-  await s3.send(new PutObjectCommand({
-    Bucket: BUCKET,
-    Key: key,
-    Body: JSON.stringify(data, null, 2),
-    ContentType: "application/json"
-  }));
-}
-
-/**
- * Delete object from S3
- */
-async function s3Delete(key) {
-  await s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
-}
-
-/**
- * List all JSON files in a prefix
- */
-async function s3ListJsonFiles(prefix) {
-  console.log(`[promptService] s3ListJsonFiles: Bucket=${BUCKET}, Prefix=${prefix}`);
-  const keys = [];
-  let continuationToken;
-  do {
-    const res = await s3.send(new ListObjectsV2Command({
-      Bucket: BUCKET,
-      Prefix: prefix,
-      ContinuationToken: continuationToken
-    }));
-    console.log(`[promptService] s3ListJsonFiles response: KeyCount=${res.KeyCount}, IsTruncated=${res.IsTruncated}`);
-    const contents = res.Contents || [];
-    for (const obj of contents) {
-      if (obj.Key && obj.Key.endsWith(".json")) {
-        keys.push({ key: obj.Key, lastModified: obj.LastModified });
-      }
-    }
-    continuationToken = res.NextContinuationToken;
-  } while (continuationToken);
-  return keys;
-}
-
-/**
- * Extract prompt ID from filename
- * Filename format: {name}_{id}.json or just {id}.json
- */
-function extractPromptIdFromFilename(filename) {
-  // Remove .json extension
-  const base = filename.replace(/\.json$/, "");
-  // Check if filename contains an underscore - ID is after the last underscore if it looks like pr-xxxxx
-  const parts = base.split("_");
-  const lastPart = parts[parts.length - 1];
-  if (lastPart && lastPart.startsWith("pr-")) {
-    return lastPart;
-  }
-  // Otherwise treat the whole basename as the ID
-  return base;
-}
-
-/**
- * Build prompt filename from title and ID
- */
-function buildPromptFilename(title, id) {
-  const safeTitle = (title || "prompt")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 50);
-  return `${safeTitle}_${id}.json`;
-}
-
-/**
- * Normalize prompt data to standard format
+ * Convert DynamoDB item to normalized prompt format
  * GraphQL schema expects: id!, owner!, prompt! (AWSJSON), version, created_at, updated_at
  */
-function normalizePrompt(raw, { source, readOnly, lastModified }) {
-  if (!raw || typeof raw !== "object") {
-    return null;
+function dbItemToPrompt(item, { readOnly = false } = {}) {
+  if (!item) return null;
+  
+  // Parse the prompt JSON field
+  let promptContent = {};
+  if (item.prompt) {
+    if (typeof item.prompt === 'string') {
+      try {
+        promptContent = JSON.parse(item.prompt);
+      } catch (e) {
+        console.warn('[promptService] Failed to parse prompt JSON:', e.message);
+      }
+    } else if (typeof item.prompt === 'object') {
+      promptContent = item.prompt;
+    }
   }
   
-  // Build the prompt content object (this goes into the AWSJSON prompt field)
-  const promptContent = {
-    title: raw.title || "",
-    topic: raw.topic || "",
-    usageCount: parseInt(raw.usageCount || 0, 10),
-    sections: raw.sections || [],
-    userSections: raw.userSections || [],
-    humanInputs: raw.humanInputs || raw.human_inputs || [],
+  // Determine the source based on owner_id
+  const source = item.owner_id === PUBLIC_OWNER ? 'sample_prompts' : 'my_prompts';
+  const isReadOnly = item.owner_id === PUBLIC_OWNER || readOnly;
+  
+  // Build the prompt content object
+  const normalizedPromptContent = {
+    title: promptContent.title || item.prompt_name || "",
+    topic: promptContent.topic || "",
+    usageCount: parseInt(promptContent.usageCount || 0, 10),
+    sections: promptContent.sections || [],
+    userSections: promptContent.userSections || [],
+    humanInputs: promptContent.humanInputs || promptContent.human_inputs || [],
     source: source,
-    readOnly: Boolean(readOnly)
+    readOnly: isReadOnly,
+    lastModified: item.last_mod_date || new Date().toISOString(),
+    ...promptContent
   };
   
-  // If raw.prompt exists and is an object, merge it
-  if (raw.prompt && typeof raw.prompt === "object") {
-    Object.assign(promptContent, raw.prompt);
-  } else if (raw.prompt && typeof raw.prompt === "string") {
-    // If prompt is a string (legacy), include as content
-    promptContent.content = raw.prompt;
-  }
+  const promptId = item.prompt_id || extractPromptIdFromAgentId(item.agent_id);
   
-  // Handle lastModified in content
-  if (lastModified instanceof Date) {
-    promptContent.lastModified = lastModified.toISOString();
-  } else if (raw.lastModified) {
-    promptContent.lastModified = raw.lastModified;
-  }
-  
-  // Return normalized prompt matching GraphQL schema
   return {
-    id: raw.id || "",
-    owner: raw.owner || "",
-    prompt: promptContent, // AWSJSON! - must not be null
-    version: raw.version || DEFAULT_VERSION,
-    created_at: raw.created_at || new Date().toISOString(),
-    updated_at: raw.updated_at || new Date().toISOString()
+    id: promptId,
+    owner: item.owner_id === PUBLIC_OWNER ? "" : item.owner_id,
+    prompt: normalizedPromptContent,
+    version: promptContent.version || DEFAULT_VERSION,
+    created_at: promptContent.created_at || item.last_mod_date || new Date().toISOString(),
+    updated_at: item.last_mod_date || new Date().toISOString()
   };
 }
 
 /**
- * Load all prompts from a prefix
+ * Query prompts from DynamoDB by owner_id
  */
-async function loadPromptsFromPrefix(prefix, { source, readOnly }) {
-  console.log(`[promptService] loadPromptsFromPrefix: prefix=${prefix}, source=${source}, readOnly=${readOnly}`);
+async function queryPromptsByOwner(ownerId) {
+  console.log(`[promptService] queryPromptsByOwner: ownerId=${ownerId}`);
   const prompts = [];
-  try {
-    const files = await s3ListJsonFiles(prefix);
-    if (!files.length) {
-      console.warn(`[promptService] No prompt files found in prefix: ${prefix}`);
-    } else {
-      console.log(`[promptService] Found ${files.length} prompt files in prefix: ${prefix}`);
-      console.log(`[promptService] Files: ${files.map(f => f.key).join(', ')}`);
-    }
-    for (const file of files) {
-      try {
-        const data = await s3GetJson(file.key);
-        if (data) {
-          // Extract ID from filename if not in data
-          if (!data.id) {
-            const filename = file.key.split("/").pop();
-            data.id = extractPromptIdFromFilename(filename);
-          }
-          const normalized = normalizePrompt(data, {
-            source,
-            readOnly,
-            lastModified: file.lastModified
-          });
-          if (normalized && normalized.id) {
-            prompts.push(normalized);
-          } else {
-            console.warn(`[promptService] Skipped file (normalizePrompt failed or missing id): ${file.key}`);
-          }
-        } else {
-          console.warn(`[promptService] Skipped file (no data): ${file.key}`);
+  let lastEvaluatedKey;
+  
+  do {
+    const params = {
+      TableName: PROMPTS_TABLE,
+      KeyConditionExpression: "owner_id = :ownerId AND begins_with(agent_id, :prefix)",
+      ExpressionAttributeValues: marshall({
+        ":ownerId": ownerId,
+        ":prefix": "any~"
+      }),
+      ExclusiveStartKey: lastEvaluatedKey
+    };
+    
+    const response = await dynamodb.send(new QueryCommand(params));
+    console.log(`[promptService] queryPromptsByOwner response: Count=${response.Count}`);
+    
+    if (response.Items) {
+      for (const item of response.Items) {
+        const unmarshalled = unmarshall(item);
+        const prompt = dbItemToPrompt(unmarshalled, { readOnly: ownerId === PUBLIC_OWNER });
+        if (prompt) {
+          prompts.push(prompt);
         }
-      } catch (err) {
-        console.warn(`[promptService] Failed to load prompt from ${file.key}: ${err.message}`);
       }
     }
-  } catch (err) {
-    console.error(`[promptService] Failed to list prompts from ${prefix}: ${err.message}`);
-  }
+    
+    lastEvaluatedKey = response.LastEvaluatedKey;
+  } while (lastEvaluatedKey);
+  
   return prompts;
 }
 
 /**
- * Find prompt file key by ID in a prefix
- */
-async function findPromptKeyById(prefix, promptId) {
-  try {
-    const files = await s3ListJsonFiles(prefix);
-    for (const file of files) {
-      const filename = file.key.split("/").pop();
-      if (filename.includes(promptId)) {
-        return file.key;
-      }
-    }
-  } catch (err) {
-    console.warn(`[promptService] Failed to find prompt ${promptId} in ${prefix}: ${err.message}`);
-  }
-  return null;
-}
-
-/**
  * Add a new prompt (user prompts only)
- * Also handles updates - if a prompt with the same ID exists, delete the old file first
+ * Also handles updates - if a prompt with the same ID exists, it will be overwritten
  */
 async function addPrompt(data = {}) {
   const owner = data.owner;
@@ -292,53 +168,39 @@ async function addPrompt(data = {}) {
   const title = promptContent.title || data.title || data.topic || "Untitled";
   const topic = promptContent.topic || data.topic || "";
   
-  const prefix = getUserPromptsPrefix(owner);
-  
-  // Check if a prompt with this ID already exists (for update/rename scenarios)
-  // If it exists with a different filename (title changed), delete the old file
-  const existingKey = await findPromptKeyById(prefix, id);
-  const newFilename = buildPromptFilename(title, id);
-  const newKey = `${prefix}/${newFilename}`;
-  
-  if (existingKey && existingKey !== newKey) {
-    // Title changed - delete old file
-    console.log(`[promptService] Prompt title changed, deleting old file: ${existingKey}`);
-    await s3Delete(existingKey);
-  }
-  
-  // Load existing prompt to preserve created_at if updating
-  let created_at = now;
-  if (existingKey) {
-    const existing = await s3GetJson(existingKey);
-    if (existing && existing.created_at) {
-      created_at = existing.created_at;
-    }
-  }
-  
-  const prompt = {
-    id,
+  // Build the prompt content to store
+  const promptToStore = {
     title,
     topic,
-    owner,
     version: data.version || promptContent.version || DEFAULT_VERSION,
     usageCount: promptContent.usageCount || data.usageCount || 0,
     sections: promptContent.sections || data.sections || [],
     userSections: promptContent.userSections || data.userSections || [],
     humanInputs: promptContent.humanInputs || data.humanInputs || [],
-    created_at,
-    updated_at: now
+    source: 'my_prompts',
+    readOnly: false,
+    created_at: promptContent.created_at || now,
+    ...promptContent
   };
   
-  // Store the nested prompt content for GraphQL compatibility
-  prompt.prompt = {
-    ...promptContent,
-    title,
-    topic,
-    source: promptContent.source || 'my_prompts',
-    readOnly: false
+  // Prepare DynamoDB item
+  const item = {
+    owner_id: owner,
+    agent_id: buildAgentId(id),
+    prompt_id: id,
+    prompt_name: title,
+    prompt: JSON.stringify(promptToStore),
+    suitable_modes: promptContent.suitable_modes || "all",
+    metadata: JSON.stringify(promptContent.metadata || {}),
+    last_mod_date: now
   };
   
-  await s3PutJson(newKey, prompt);
+  console.log(`[promptService] addPrompt: putting item to DynamoDB`, JSON.stringify({ owner_id: item.owner_id, agent_id: item.agent_id, prompt_id: item.prompt_id }));
+  
+  await dynamodb.send(new PutItemCommand({
+    TableName: PROMPTS_TABLE,
+    Item: marshall(item)
+  }));
   
   return { success: true, id };
 }
@@ -354,42 +216,77 @@ async function updatePrompt(id, owner, fields = {}) {
     throw new Error("Owner is required to update a prompt");
   }
   
-  const prefix = getUserPromptsPrefix(owner);
-  const existingKey = await findPromptKeyById(prefix, id);
-  
-  if (!existingKey) {
-    return { success: false, id, error: "NOT_FOUND: Prompt not found" };
-  }
-  
-  // Load existing prompt
-  const existing = await s3GetJson(existingKey);
-  if (!existing) {
-    return { success: false, id, error: "NOT_FOUND: Prompt not found" };
-  }
-  
+  const agentId = buildAgentId(id);
   const now = new Date().toISOString();
   
-  // Merge fields
-  const updated = {
-    ...existing,
+  // First, get the existing prompt
+  const getResponse = await dynamodb.send(new GetItemCommand({
+    TableName: PROMPTS_TABLE,
+    Key: marshall({ owner_id: owner, agent_id: agentId })
+  }));
+  
+  if (!getResponse.Item) {
+    return { success: false, id, error: "NOT_FOUND: Prompt not found" };
+  }
+  
+  const existing = unmarshall(getResponse.Item);
+  
+  // Parse existing prompt content
+  let existingPromptContent = {};
+  if (existing.prompt) {
+    if (typeof existing.prompt === 'string') {
+      try {
+        existingPromptContent = JSON.parse(existing.prompt);
+      } catch (e) {
+        console.warn('[promptService] Failed to parse existing prompt JSON:', e.message);
+      }
+    } else {
+      existingPromptContent = existing.prompt;
+    }
+  }
+  
+  // Parse new fields if they contain prompt content
+  let newPromptContent = {};
+  if (fields.prompt) {
+    if (typeof fields.prompt === 'string') {
+      try {
+        newPromptContent = JSON.parse(fields.prompt);
+      } catch (e) {
+        console.warn('[promptService] Failed to parse new prompt JSON:', e.message);
+      }
+    } else {
+      newPromptContent = fields.prompt;
+    }
+  }
+  
+  // Merge prompt content
+  const mergedPromptContent = {
+    ...existingPromptContent,
+    ...newPromptContent,
     ...fields,
-    id, // preserve ID
-    owner, // preserve owner
-    updated_at: now
+    source: 'my_prompts',
+    readOnly: false
+  };
+  delete mergedPromptContent.prompt; // Remove nested prompt field
+  
+  // Build updated item
+  const title = mergedPromptContent.title || fields.title || existing.prompt_name || "Untitled";
+  
+  const updatedItem = {
+    owner_id: owner,
+    agent_id: agentId,
+    prompt_id: id,
+    prompt_name: title,
+    prompt: JSON.stringify(mergedPromptContent),
+    suitable_modes: mergedPromptContent.suitable_modes || existing.suitable_modes || "all",
+    metadata: JSON.stringify(mergedPromptContent.metadata || {}),
+    last_mod_date: now
   };
   
-  // If title changed, we might need to rename the file
-  const newTitle = fields.title || existing.title || "Untitled";
-  const newFilename = buildPromptFilename(newTitle, id);
-  const newKey = `${prefix}/${newFilename}`;
-  
-  // Save to new key
-  await s3PutJson(newKey, updated);
-  
-  // If key changed, delete old file
-  if (newKey !== existingKey) {
-    await s3Delete(existingKey);
-  }
+  await dynamodb.send(new PutItemCommand({
+    TableName: PROMPTS_TABLE,
+    Item: marshall(updatedItem)
+  }));
   
   return { success: true, id };
 }
@@ -405,14 +302,23 @@ async function deletePrompt(id, owner) {
     throw new Error("Owner is required to remove a prompt");
   }
   
-  const prefix = getUserPromptsPrefix(owner);
-  const key = await findPromptKeyById(prefix, id);
+  const agentId = buildAgentId(id);
   
-  if (!key) {
+  // Check if it exists first
+  const getResponse = await dynamodb.send(new GetItemCommand({
+    TableName: PROMPTS_TABLE,
+    Key: marshall({ owner_id: owner, agent_id: agentId })
+  }));
+  
+  if (!getResponse.Item) {
     return { success: false, id, error: "NOT_FOUND: Prompt not found" };
   }
   
-  await s3Delete(key);
+  await dynamodb.send(new DeleteItemCommand({
+    TableName: PROMPTS_TABLE,
+    Key: marshall({ owner_id: owner, agent_id: agentId })
+  }));
+  
   return { success: true };
 }
 
@@ -425,31 +331,38 @@ async function getPromptById(id, owner) {
     return null;
   }
   
+  const agentId = buildAgentId(id);
+  
   // Search user prompts first if owner provided
   if (owner) {
-    const userPrefix = getUserPromptsPrefix(owner);
-    const userKey = await findPromptKeyById(userPrefix, id);
-    if (userKey) {
-      const data = await s3GetJson(userKey);
-      if (data) {
-        return normalizePrompt({ ...data, id }, {
-          source: "my_prompts",
-          readOnly: false
-        });
+    try {
+      const getResponse = await dynamodb.send(new GetItemCommand({
+        TableName: PROMPTS_TABLE,
+        Key: marshall({ owner_id: owner, agent_id: agentId })
+      }));
+      
+      if (getResponse.Item) {
+        const item = unmarshall(getResponse.Item);
+        return dbItemToPrompt(item, { readOnly: false });
       }
+    } catch (err) {
+      console.warn(`[promptService] Failed to get user prompt ${id}: ${err.message}`);
     }
   }
   
-  // Search public/sample prompts
-  const publicKey = await findPromptKeyById(PUBLIC_PROMPTS_PREFIX, id);
-  if (publicKey) {
-    const data = await s3GetJson(publicKey);
-    if (data) {
-      return normalizePrompt({ ...data, id }, {
-        source: "sample_prompts",
-        readOnly: true
-      });
+  // Search public prompts
+  try {
+    const getResponse = await dynamodb.send(new GetItemCommand({
+      TableName: PROMPTS_TABLE,
+      Key: marshall({ owner_id: PUBLIC_OWNER, agent_id: agentId })
+    }));
+    
+    if (getResponse.Item) {
+      const item = unmarshall(getResponse.Item);
+      return dbItemToPrompt(item, { readOnly: true });
     }
+  } catch (err) {
+    console.warn(`[promptService] Failed to get public prompt ${id}: ${err.message}`);
   }
   
   return null;
@@ -463,28 +376,19 @@ async function listPrompts(owner) {
   console.log(`[promptService] listPrompts called with owner: '${owner}'`);
   const allPrompts = [];
   
-  // Load user prompts
+  // Load user prompts from DynamoDB
   if (owner) {
-    const userPrefix = getUserPromptsPrefix(owner);
-    console.log(`[promptService] listPrompts: userPrefix=${userPrefix}`);
-    const userPrompts = await loadPromptsFromPrefix(userPrefix, {
-      source: "my_prompts",
-      readOnly: false
-    });
+    console.log(`[promptService] listPrompts: querying user prompts for owner=${owner}`);
+    const userPrompts = await queryPromptsByOwner(owner);
     console.log(`[promptService] listPrompts: loaded ${userPrompts.length} user prompts`);
-    // Set owner on user prompts
-    userPrompts.forEach(p => { p.owner = owner; });
     allPrompts.push(...userPrompts);
   } else {
     console.warn(`[promptService] listPrompts: No owner provided, skipping user prompts`);
   }
   
-  // Load public/sample prompts
-  console.log(`[promptService] listPrompts: loading public prompts from ${PUBLIC_PROMPTS_PREFIX}`);
-  const publicPrompts = await loadPromptsFromPrefix(PUBLIC_PROMPTS_PREFIX, {
-    source: "sample_prompts",
-    readOnly: true
-  });
+  // Load public/sample prompts from DynamoDB
+  console.log(`[promptService] listPrompts: querying public prompts`);
+  const publicPrompts = await queryPromptsByOwner(PUBLIC_OWNER);
   console.log(`[promptService] listPrompts: loaded ${publicPrompts.length} public prompts`);
   allPrompts.push(...publicPrompts);
   
