@@ -275,7 +275,7 @@ export class IPCAPI {
           resultPath: 'getAllMine'
         }
       },
-      { owner: username, userId: username }
+      { username }
     );
     }
 
@@ -311,7 +311,7 @@ export class IPCAPI {
           resultPath: 'getAllMine.agents'
         }
       },
-      { owner: username, userId: username, agent_id }
+      { username, agent_id }
     );
     }
 
@@ -324,7 +324,7 @@ export class IPCAPI {
           resultPath: 'getAllMine.skills'
         }
       },
-      { owner: username, userId: username, skill_ids }
+      { username, skill_ids }
     );
     }
 
@@ -341,7 +341,7 @@ export class IPCAPI {
           resultPath: 'getAgentTasks'
         }
       },
-      { owner: username, userId: username, task_ids: agent_task_ids }
+      { username, task_ids: agent_task_ids }
     );
     }
 
@@ -354,7 +354,7 @@ export class IPCAPI {
           resultPath: 'getAllMine.prompts'
         }
       },
-      { owner: username, userId: username }
+      { username }
     );
     }
 
@@ -445,7 +445,7 @@ export class IPCAPI {
           resultPath: 'getAllMine.tools'
         }
       },
-      { owner: username, userId: username, tool_ids }
+      { username, tool_ids }
     );
     }
 
