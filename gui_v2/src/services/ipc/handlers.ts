@@ -8,11 +8,6 @@ import { useNodeStatusStore } from '@/modules/skill-editor/stores/node-status-st
 import { useSheetsStore } from '@/modules/skill-editor/stores/sheets-store';
 import { useSkillInfoStore } from '@/modules/skill-editor/stores/skill-info-store';
 import { useAgentStore } from '../../stores/agentStore';
-import { useSettingsStore } from '../../stores/settingsStore';
-import { useTaskStore } from '../../stores/domain/taskStore';
-import { useSkillStore } from '../../stores/domain/skillStore';
-import { useKnowledgeStore } from '../../stores/domain/knowledgeStore';
-import { useChatStore } from '../../stores/domain/chatStore';
 import { eventBus } from '@/utils/eventBus';
 import { useRunningNodeStore } from '@/modules/skill-editor/stores/running-node-store';
 import { useAvatarSceneStore } from '../../stores/avatarSceneStore';
@@ -29,9 +24,6 @@ import { useAccountStore } from '../../stores/accountStore';
 // Process?TypeDefinition
 type Handler = (request: IPCRequest) => Promise<unknown>;
 type HandlerMap = Record<string, Handler>;
-
-// ConfigurationStorage
-const config = new Map<string, unknown>();
 
 // ParameterValidateFunction
 function validateParams(request: IPCRequest, requiredParams: string[]): void {
@@ -52,16 +44,12 @@ export class IPCHandlers {
 
     constructor() {
         this.registerHandler('update_org_agents', this.updateOrgAgents);
-        this.registerHandler('get_config', this.getConfig);
-        this.registerHandler('set_config', this.setConfig);
         this.registerHandler('notify_event', this.notifyEvent);
-        this.registerHandler('update_agents', this.updateAgents);
         this.registerHandler('update_agents_scenes', this.updateAgentsScenes);
         this.registerHandler('push_chat_message', this.pushChatMessage);
         this.registerHandler('update_skill_run_stat', this.updateSkillRunStat);
         this.registerHandler('update_tasks_stat', this.updateTasksStat);
         this.registerHandler('push_chat_notification', this.pushChatNotification);
-        this.registerHandler('update_all', this.updateAll);
         this.registerHandler('update_screens', this.updateScreens);
         this.registerHandler('onboarding_message', this.onboardingMessage);
         // Skill editor log push
@@ -184,38 +172,11 @@ export class IPCHandlers {
         };
     }
 
-    async getConfig(request: IPCRequest): Promise<unknown> {
-        validateParams(request, ['key']);
-        const { key } = request.params as { key: string };
-        if (!config.has(key)) {
-            throw new Error(`Config not found for key: ${key}`);
-        }
-        return config.get(key);
-    }
-
-    async setConfig(request: IPCRequest): Promise<unknown> {
-        validateParams(request, ['key', 'value']);
-        const { key, value } = request.params as { key: string; value: unknown };
-        config.set(key, value);
-        return { success: true };
-    }
-
     async notifyEvent(request: IPCRequest): Promise<unknown> {
         validateParams(request, ['event']);
         const { event, data } = request.params as { event: string; data?: unknown };
         logger.info('Notify event received:', { event, data });
         return { event, processed: true };
-    }
-
-    async updateAgents(request: IPCRequest): Promise<unknown> {
-        logger.info('Received update_agents request:', request.params);
-        const agents = request.params as any;
-        
-        // ?Update??? agentStore,Remove??Update
-        useAgentStore.getState().setAgents(agents);
-        
-        logger.info('Updated agentStore with agents:', agents?.length || 0);
-        return { refreshed: true };
     }
 
     async updateAgentsScenes(request: IPCRequest): Promise<unknown> {
@@ -227,76 +188,6 @@ export class IPCHandlers {
         
         logger.info('Updated agentStore with agents scenes:', agents?.length || 0);
         return { refreshed: true };
-    }
-
-    async updateSkills(request: IPCRequest): Promise<unknown> {
-        logger.info('Received update_skills request:', request.params);
-        const skills = request.params as any;
-
-        // ???? skillStore
-        if (Array.isArray(skills)) {
-            useSkillStore.getState().setItems(skills);
-            logger.info('[IPC] Updated skills in skillStore:', skills.length);
-        }
-
-        return { refreshed: true };
-    }
-
-    async updateTasks(request: IPCRequest): Promise<unknown> {
-        logger.info('Received update_tasks request:', request.params);
-        const tasks = request.params as any;
-
-        // ???? taskStore
-        if (Array.isArray(tasks)) {
-            useTaskStore.getState().setItems(tasks);
-            logger.info('[IPC] Updated tasks in taskStore:', tasks.length);
-        }
-
-        return { refreshed: true };
-    }
-
-    async updateSettings(request: IPCRequest): Promise<unknown> {
-        logger.info('Received update_settings request:', request.params);
-        const settings = request.params as any;
-
-        // Update settingsStore ?????settings(application-level configuration)
-        if (settings) {
-            useSettingsStore.getState().setSettings(settings);
-            logger.info('[IPC] Updated application settings in settingsStore');
-        }
-
-        return { refreshed: true };
-    }
-
-    async updateKnowledges(request: IPCRequest): Promise<unknown> {
-        logger.info('Received update_knowledges request:', request.params);
-        const knowledges = request.params as any;
-
-        // ???? knowledgeStore
-        if (Array.isArray(knowledges)) {
-            useKnowledgeStore.getState().setItems(knowledges);
-            logger.info('[IPC] Updated knowledges in knowledgeStore:', knowledges.length);
-        }
-
-        return { refreshed: true };
-    }
-
-    async updateChats(request: IPCRequest): Promise<{ success: boolean }> {
-        logger.info('Received update_chats request:', request.params);
-        const chats = request.params as any;
-
-        // ???? chatStore
-        if (Array.isArray(chats)) {
-            useChatStore.getState().setItems(chats);
-            logger.info('[IPC] Updated chats in chatStore:', chats.length);
-        }
-
-        return { success: true };
-    }
-
-    async updateAll(request: IPCRequest): Promise<{ success: boolean }> {
-        logger.info('Received update_all request:', request.params);
-        return { success: true };
     }
 
     async pushChatMessage(request: IPCRequest): Promise<{ success: boolean }> {

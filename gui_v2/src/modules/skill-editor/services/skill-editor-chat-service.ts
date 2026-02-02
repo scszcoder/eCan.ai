@@ -135,7 +135,10 @@ class SkillEditorChatService {
       );
       
       if (response.success && response.data) {
-        return response.data.map(s => ({
+        // Backend returns {sessions: [], count: number}
+        const responseData = response.data as any;
+        const sessions = Array.isArray(responseData) ? responseData : (responseData.sessions || []);
+        return sessions.map((s: any) => ({
           id: s.id,
           name: s.name,
           flowgramId: s.flowgramId,
