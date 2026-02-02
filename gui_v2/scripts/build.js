@@ -1,4 +1,6 @@
 import { execSync } from 'child_process';
+import { cpSync, existsSync, mkdirSync } from 'fs';
+import { join } from 'path';
 
 async function build() {
   try {
@@ -28,6 +30,25 @@ async function build() {
       env: process.env,
       cwd: process.cwd()
     });
+
+    // 复制 monaco-editor 文件到 dist 目录
+    console.log('Copying monaco-editor files to dist...');
+    const monacoSource = join(process.cwd(), 'public', 'monaco-editor');
+    const monacoTarget = join(process.cwd(), 'dist', 'monaco-editor');
+    
+    if (existsSync(monacoSource)) {
+      // 确保目标目录存在
+      if (!existsSync(monacoTarget)) {
+        mkdirSync(monacoTarget, { recursive: true });
+      }
+      
+      // 复制 monaco-editor 文件
+      cpSync(monacoSource, monacoTarget, { recursive: true });
+      console.log('✅ Monaco-editor files copied successfully!');
+    } else {
+      console.warn('⚠️  Warning: monaco-editor source directory not found at:', monacoSource);
+      console.warn('⚠️  Run "npm run copy-monaco" first to copy monaco-editor files to public directory');
+    }
 
     console.log('Build completed successfully!');
   } catch (error) {
