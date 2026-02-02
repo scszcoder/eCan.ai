@@ -112,97 +112,51 @@ class IPCAPI:
         params: Optional[Dict[str, Any]] = None,
         data:  Optional[list[Any]] = None,
         meta: Optional[Dict[str, Any]] = None,
-        callback: Optional[Callable[[APIResponse[T]], None]] = None
+        callback: Optional[Callable[[APIResponse[T]], None]] = None,
+        channel_id: Optional[str] = None
     ) -> None:
         """
-        Send request
+        Send request - automatically routes via WebSocket or IPC based on environment
 
         Args:
             method: Method name
             params: Request parameters
+            data: Request data (for some methods)
             meta: Metadata
             callback: Callback function
+            channel_id: Optional WebSocket channel ID for targeted broadcasting
         """
+        # Try WebSocket first if available
+        if _should_use_websocket():
+            ws_mgr = _get_ws_manager()
+            if ws_mgr:
+                # Merge params and data for WebSocket broadcast
+                payload = params or {}
+                if data is not None:
+                    payload = data if isinstance(data, dict) else {'data': data}
+                
+                ws_mgr.broadcast_sync(method, payload, channel_id=channel_id)
+                if callback:
+                    callback(APIResponse(success=True, data=True))
+                return
+        
+        # Fallback to IPC
         def ipc_response_callback(response: IPCResponse) -> None:
             self._convert_response(response, callback)
 
         self._ipc_wc_service.send_request(method, params, meta, ipc_response_callback)
 
-    def get_config(
-        self,
-        key: str,
-        callback: Optional[Callable[[APIResponse[Dict[str, Any]]], None]] = None
-    ) -> None:
-        """
-        Get configuration
-
-        Args:
-            key: Configuration key
-            callback: Callback function, receives APIResponse[Dict[str, Any]]
-        """
-        self._send_request('get_config', {'key': key}, callback=callback)
-
-    def update_org_agents(self,
-        callback: Optional[Callable[[APIResponse[Dict[str, Any]]], None]] = None
-    ) -> None:
-        logger.info("[IPCAPI] update_org_agents")
-        self._send_request('update_org_agents', callback=callback)
-
-    def set_config(
-        self,
-        key: str,
-        value: Any,
-        callback: Optional[Callable[[APIResponse[bool]], None]] = None
-    ) -> None:
-        """
-        Set configuration
-
-        Args:
-            key: Configuration key
-            value: Configuration value
-            callback: Callback function, receives APIResponse[bool]
-        """
-        self._send_request('set_config', {'key': key, 'value': value}, callback=callback)
-
-    def refresh_dashboard(
-        self,
-        data: Dict[str, Any],
-        callback: Optional[Callable[[APIResponse[Dict[str, Any]]], None]] = None
-    ) -> None:
-        """
-        Refresh dashboard data
-
-        Args:
-            data: Dictionary containing the following fields
-                - overview: Overview data
-                - statistics: Statistics data
-                - recentActivities: Recent activities count
-                - quickActions: Quick actions count
-            callback: Callback function, receives APIResponse[Dict[str, Any]]
-        """
-        self._send_request('refresh_dashboard', data, callback=callback)
-
-    def update_agents(
+    def update_org_agents(
             self,
-            agents: List[Any],
             callback: Optional[Callable[[APIResponse[bool]], None]] = None
     ) -> None:
         """
-        Update agents
+        Notify frontend to refresh organization and agent data
 
         Args:
-            agents: agents
             callback: Callback function, receives APIResponse[bool]
         """
-        # Try WebSocket first, fallback to IPC
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('update_agents', {'agents': agents})
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
-        self._send_request('update_agents', data=agents, callback=callback)
+        self._send_request('update_org_agents', params={}, callback=callback)
 
     def update_agents_scenes(
             self,
@@ -219,180 +173,6 @@ class IPCAPI:
         """
         self._send_request('update_agents_scenes', data=agents_scenes, callback=callback)
 
-
-    def update_skills(
-            self,
-            skills: List[Any],
-            callback: Optional[Callable[[APIResponse[bool]], None]] = None
-    ) -> None:
-        """
-        Update skills
-
-        Args:
-            skills: skill sets
-            callback: Callback function, receives APIResponse[bool]
-        """
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('update_skills', {'skills': skills})
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
-        self._send_request('update_skills', data=skills, callback=callback)
-
-    def update_tasks(
-            self,
-            tasks: List[Any],
-            callback: Optional[Callable[[APIResponse[bool]], None]] = None
-    ) -> None:
-        """
-        Update tasks
-
-        Args:
-            tasks: work to be done
-            callback: Callback function, receives APIResponse[bool]
-        """
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('update_tasks', {'tasks': tasks})
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
-        self._send_request('update_tasks', data=tasks, callback=callback)
-
-
-    def update_tools(
-            self,
-            tools: List[Any],
-            callback: Optional[Callable[[APIResponse[bool]], None]] = None
-    ) -> None:
-        """
-        Update tools
-
-        Args:
-            tasks: work to be done
-            callback: Callback function, receives APIResponse[bool]
-        """
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('update_tools', {'tools': tools})
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
-        self._send_request('update_tools', data=tools, callback=callback)
-
-
-
-    def update_settings(
-            self,
-            settings: List[Any],
-            callback: Optional[Callable[[APIResponse[bool]], None]] = None
-    ) -> None:
-        """
-        Update settings
-
-        Args:
-            settings: Configuration value
-            callback: Callback function, receives APIResponse[bool]
-        """
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('update_settings', {'settings': settings})
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
-        self._send_request('update_settings', data=settings, callback=callback)
-
-
-    def update_knowledge(
-            self,
-            knowledge: List[Any],
-            callback: Optional[Callable[[APIResponse[bool]], None]] = None
-    ) -> None:
-        """
-        Update knowledge
-
-        Args:
-            knowledge: list of knowledge points (RAG vector DB table?)
-            callback: Callback function, receives APIResponse[bool]
-        """
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('update_knowledge', {'knowledge': knowledge})
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
-        self._send_request('update_knowledge', data=knowledge, callback=callback)
-
-
-    def update_chats(
-            self,
-            chats: List[Any],
-            callback: Optional[Callable[[APIResponse[bool]], None]] = None
-    ) -> None:
-        """
-        Update chats
-
-        Args:
-            chats: Chat value
-            callback: Callback function, receives APIResponse[bool]
-        """
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('update_chats', {'chats': chats})
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
-        self._send_request('update_chats', {'chats': chats}, callback=callback)
-
-    def update_vehicles(
-            self,
-            vehicles: List[Any],
-            callback: Optional[Callable[[APIResponse[bool]], None]] = None
-    ) -> None:
-        """
-        Update vehicles
-
-        Args:
-            chats: Chat value
-            callback: Callback function, receives APIResponse[bool]
-        """
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('update_vehicles', {'vehicles': vehicles})
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
-        self._send_request('update_vehicles', data=vehicles, callback=callback)
-
-    def update_all(
-            self,
-            all: Any,
-            callback: Optional[Callable[[APIResponse[bool]], None]] = None
-    ) -> None:
-        """
-        Update all
-
-        Args:
-            chats: Chat value
-            callback: Callback function, receives APIResponse[bool]
-        """
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('update_all', all if isinstance(all, dict) else {'data': all})
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
-        self._send_request('update_all', data=all, callback=callback)
-
     def push_chat_message(
         self,
         chatId: str,
@@ -406,15 +186,8 @@ class IPCAPI:
             message: Message content (Message object or dict, must conform to backend schema)
             callback: Callback function, receives APIResponse[bool]
         """
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('push_chat_message', {'chatId': chatId, 'message': message}, channel_id=f'chat:{chatId}')
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
         params = {'chatId': chatId, 'message': message}
-        self._send_request('push_chat_message', params, callback=callback)
+        self._send_request('push_chat_message', params, callback=callback, channel_id=f'chat:{chatId}')
 
     def push_chat_notification(
         self,
@@ -435,17 +208,8 @@ class IPCAPI:
             uid: Notification unique ID
             callback: Callback function, receives APIResponse[bool]
         """
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('push_chat_notification', {
-                    'chatId': chatId, 'content': content, 'isRead': isRead, 'timestamp': timestamp, 'uid': uid
-                }, channel_id=f'chat:{chatId}')
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
         params = {'chatId': chatId, 'content': content, 'isRead': isRead, 'timestamp': timestamp, 'uid': uid}
-        self._send_request('push_chat_notification', params, callback=callback)
+        self._send_request('push_chat_notification', params, callback=callback, channel_id=f'chat:{chatId}')
 
     def update_run_stat(
         self,
@@ -524,15 +288,7 @@ class IPCAPI:
         except Exception:
             pass
         
-        # Try WebSocket first, fallback to IPC
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('update_skill_run_stat', params, channel_id=f'task:{agent_task_id}')
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
-        self._send_request('update_skill_run_stat', params, callback=callback)
+        self._send_request('update_skill_run_stat', params, callback=callback, channel_id=f'task:{agent_task_id}')
 
     def update_task_stat(
         self,
@@ -554,14 +310,7 @@ class IPCAPI:
             'langgraphState': langgraph_state,
             'timestamp': timestamp,
         }
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('update_tasks_stat', params, channel_id=f'task:{agent_task_id}')
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
-        self._send_request('update_tasks_stat', params, callback=callback)
+        self._send_request('update_tasks_stat', params, callback=callback, channel_id=f'task:{agent_task_id}')
 
     def get_editor_agents(
         self,
@@ -718,17 +467,10 @@ class IPCAPI:
             chunk_data: Chunk data
             callback: Callback function
         """
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('lightrag.queryStream.chunk', {'id': stream_id, 'chunk': chunk_data}, channel_id=f'lightrag:{stream_id}')
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
         self._send_request('lightrag.queryStream.chunk', {
             'id': stream_id,
             'chunk': chunk_data
-        }, callback=callback)
+        }, callback=callback, channel_id=f'lightrag:{stream_id}')
 
     def push_lightrag_done(
         self,
@@ -741,16 +483,9 @@ class IPCAPI:
             stream_id: Stream ID
             callback: Callback function
         """
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('lightrag.queryStream.done', {'id': stream_id}, channel_id=f'lightrag:{stream_id}')
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
         self._send_request('lightrag.queryStream.done', {
             'id': stream_id
-        }, callback=callback)
+        }, callback=callback, channel_id=f'lightrag:{stream_id}')
 
     def push_lightrag_error(
         self,
@@ -765,17 +500,10 @@ class IPCAPI:
             error: Error message
             callback: Callback function
         """
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('lightrag.queryStream.error', {'id': stream_id, 'error': error}, channel_id=f'lightrag:{stream_id}')
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
         self._send_request('lightrag.queryStream.error', {
             'id': stream_id,
             'error': error
-        }, callback=callback)
+        }, callback=callback, channel_id=f'lightrag:{stream_id}')
 
     # ============================================================
     # Skill Editor Chat Streaming
@@ -799,21 +527,13 @@ class IPCAPI:
             callback: Callback function
         """
         logger.debug(f"[IPCAPI] push_skill_editor_chat_chunk: session={session_id}, msg={message_id}, chunk_idx={chunk_index}, chunk_len={len(chunk)}")
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('skill_editor.chat.stream_chunk', {
-                    'sessionId': session_id, 'messageId': message_id, 'chunk': chunk, 'chunkIndex': chunk_index
-                }, channel_id=f'session:{session_id}')
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
         self._send_request('skill_editor.chat.stream_chunk', {
             'sessionId': session_id,
             'messageId': message_id,
             'chunk': chunk,
-            'index': chunk_index
-        }, callback=callback)
+            'chunkIndex': chunk_index,
+            'index': chunk_index  # Keep for backward compatibility
+        }, callback=callback, channel_id=f'session:{session_id}')
 
     def push_skill_editor_chat_done(
         self,
@@ -831,20 +551,11 @@ class IPCAPI:
             callback: Callback function
         """
         logger.info(f"[IPCAPI] push_skill_editor_chat_done: session={session_id}, msg={message_id}, content_len={len(full_content)}")
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('skill_editor.chat.stream_end', {
-                    'sessionId': session_id, 'messageId': message_id, 'fullContent': full_content
-                }, channel_id=f'session:{session_id}')
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
         self._send_request('skill_editor.chat.stream_end', {
             'sessionId': session_id,
             'messageId': message_id,
             'fullContent': full_content
-        }, callback=callback)
+        }, callback=callback, channel_id=f'session:{session_id}')
 
     def push_skill_editor_chat_error(
         self,
@@ -862,20 +573,11 @@ class IPCAPI:
             callback: Callback function
         """
         logger.error(f"[IPCAPI] push_skill_editor_chat_error: session={session_id}, code={error_code}, message={error_message}")
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('skill_editor.chat.error', {
-                    'sessionId': session_id, 'code': error_code, 'message': error_message
-                }, channel_id=f'session:{session_id}')
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
         self._send_request('skill_editor.chat.error', {
             'sessionId': session_id,
             'code': error_code,
             'message': error_message
-        }, callback=callback)
+        }, callback=callback, channel_id=f'session:{session_id}')
 
     def _publish_skill_editor_event(
         self,
@@ -886,20 +588,14 @@ class IPCAPI:
         """Broadcast a skill editor event to frontend listeners."""
         logger.info(f"[IPCAPI] publish_skill_editor_event: session={session_id}, type={event_type}")
         logger.debug(f"[IPCAPI] Event payload: {payload}")
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                ws_mgr.broadcast_sync('skill_editor.event', {
-                    'sessionId': session_id, 'type': event_type, 'payload': payload
-                }, channel_id=f'session:{session_id}')
-                return
         self._send_request(
             'skill_editor.event',
             params={
                 'sessionId': session_id,
                 'type': event_type,
                 'payload': payload,
-            }
+            },
+            channel_id=f'session:{session_id}'
         )
 
     def push_skill_editor_canvas_command(

@@ -112,6 +112,8 @@
     },
     "pyinstaller": {
       "collect_all": [
+        "a2a",
+        "a2ui_pydantic",
         "lightrag",
         "neo4j",
         "pgvector",
@@ -157,6 +159,19 @@
       "hiddenimports": [
         "binascii",
         "zlib",
+        "nest_asyncio",
+        "a2a",
+        "a2a.types",
+        "a2a.client",
+        "a2a.server",
+        "a2a.server.apps",
+        "a2a.server.request_handlers",
+        "a2a.server.tasks",
+        "a2a.server.agent_execution",
+        "a2a.server.events",
+        "a2a.utils",
+        "a2a.utils.errors",
+        "a2ui_pydantic",
         "PIL",
         "PIL.Image",
         "pkg_resources",
