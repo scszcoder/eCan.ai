@@ -1000,6 +1000,106 @@ const Tests: React.FC = () => {
         }
     };
 
+    const handleL2CWebsocketTest = async () => {
+        const defaultWanEndpoint = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql';
+        const getEnv = () => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {});
+        const env = getEnv();
+        
+        let parsedArgs: any = {};
+        try { parsedArgs = testArgument ? JSON.parse(testArgument) : {}; } catch (e) { }
+        
+        setTestOutput('');
+        appendTestOutput('L2C WS Test: Starting...');
+        appendTestOutput('L2C WS Test: Sends publishPassiveStepResult mutation directly to AppSync');
+        appendTestOutput('L2C WS Test: This simulates a local client sending step results to cloud');
+        
+        const wanEndpoint = (settings?.wan_api_endpoint?.trim() || parsedArgs.wanEndpoint || env.VITE_APPSYNC_HTTP_ENDPOINT || defaultWanEndpoint);
+        const wanApiKey = (settings?.wan_api_key?.trim() || parsedArgs.wanApiKey || parsedArgs.apiKey || env.VITE_APPSYNC_API_KEY || '');
+        const owner = username || parsedArgs.owner || env.VITE_ACCOUNT_OWNER || '';
+        
+        appendTestOutput(`L2C WS Test: endpoint=${wanEndpoint}`);
+        
+        if (!wanApiKey) {
+            appendTestOutput('L2C WS Test: ERROR - Missing API key. Provide in Settings (wan_api_key) or Test Argument as {"wanApiKey":"..."}');
+            return;
+        }
+        
+        appendTestOutput(`L2C WS Test: owner=${owner || '(anonymous)'}`);
+        
+        const clientId = parsedArgs.clientId || parsedArgs.client_id || 'client-0123456789';
+        const runId = parsedArgs.runId || parsedArgs.run_id || '0123456789';
+        const stepId = parsedArgs.stepId || parsedArgs.step_id || `step-${Date.now()}`;
+        const domTree = parsedArgs.dom_tree || parsedArgs.domTree || null;
+        
+        const resultPayload = parsedArgs.result || {
+            success: true,
+            elapsed_ms: 150,
+            actions: [{ action: 'click', selector: '#test-button' }],
+            action_results: [{ success: true }],
+            browser_state: {
+                url: 'https://example.com/test',
+                title: 'Test Page',
+                tabs: [{ id: 0, url: 'https://example.com/test', title: 'Test Page' }]
+            },
+            timestamp: new Date().toISOString()
+        };
+        
+        appendTestOutput(`L2C WS Test: clientId=${clientId}`);
+        appendTestOutput(`L2C WS Test: runId=${runId}`);
+        appendTestOutput(`L2C WS Test: stepId=${stepId}`);
+        appendTestOutput(`L2C WS Test: result=${JSON.stringify(resultPayload).substring(0, 100)}...`);
+        
+        const publishPassiveStepResultMutation = `
+            mutation PublishPassiveStepResult($input: PassiveBrowserStepResultEnvelopeInput!) {
+                publishPassiveStepResult(input: $input) {
+                    clientId
+                    runId
+                    stepId
+                    result
+                    dom_tree
+                }
+            }
+        `;
+        
+        const mutationInput = {
+            clientId,
+            runId,
+            stepId,
+            result: JSON.stringify(resultPayload),
+            ...(domTree ? { dom_tree: JSON.stringify(domTree) } : {})
+        };
+        
+        appendTestOutput('L2C WS Test: Sending publishPassiveStepResult mutation...');
+        
+        try {
+            const response = await fetch(wanEndpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'x-api-key': wanApiKey },
+                body: JSON.stringify({ 
+                    query: publishPassiveStepResultMutation, 
+                    variables: { input: mutationInput } 
+                }),
+            });
+            const result = await response.json();
+            
+            if (result.errors) {
+                appendTestOutput(`L2C WS Test: GraphQL Errors: ${JSON.stringify(result.errors, null, 2)}`);
+            }
+            
+            if (result.data?.publishPassiveStepResult) {
+                appendTestOutput(`L2C WS Test: SUCCESS`);
+                appendTestOutput(`L2C WS Test: Response: ${JSON.stringify(result.data.publishPassiveStepResult, null, 2)}`);
+                appendTestOutput('');
+                appendTestOutput('>>> If cloud agent is subscribed to onPassiveStepResult, it should receive this! <<<');
+            } else {
+                appendTestOutput(`L2C WS Test: No data returned`);
+                appendTestOutput(`L2C WS Test: Full response: ${JSON.stringify(result, null, 2)}`);
+            }
+        } catch (error) {
+            appendTestOutput(`L2C WS Test: ERROR - ${error instanceof Error ? error.message : String(error)}`);
+        }
+    };
+
     const handleC2LWebsocketTest = async () => {
         setTestOutput('');
         appendTestOutput('C2L WS Test: Starting...');
@@ -1152,6 +1252,9 @@ const Tests: React.FC = () => {
                     <Space style={{ marginBottom: '8px' }}>
                         <Button onClick={handleStepCloudWorker} style={{ marginLeft: 8 }}>
                             Step Cloud Worker
+                        </Button>
+                        <Button onClick={handleL2CWebsocketTest} style={{ marginLeft: 8 }}>
+                            L2C WS Test
                         </Button>
                     </Space>
                     {/* Test Selection */}

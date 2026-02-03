@@ -1941,17 +1941,78 @@ class MainWindow:
             logger.error(f"[MainWindow] {err_msg}")
 
     def _route_passive_command_to_task(self, cmd) -> bool:
-        """Route a passive command to the appropriate task."""
+        """
+        Route a passive command to the appropriate task using data_mapping.json routing rules.
+        
+        Routing strategy (in order):
+        1. Use event_routing from data_mapping.json if available (routing_key: "run_id")
+        2. Fallback to direct run_id matching
+        
+        The command is converted to an async_callback event so the pending_event node
+        can resolve and resume the skill graph execution.
+        """
         try:
-            task_id = cmd.run_id
+            run_id = cmd.run_id
+            step_id = getattr(cmd, 'step_id', None) or ''
+            
+            # Build event dict for routing lookup
+            event_data = {
+                "type": "passive_command",
+                "run_id": run_id,
+                "step_id": step_id,
+                "command": cmd.model_dump() if hasattr(cmd, 'model_dump') else cmd,
+            }
+            
+            # Try data_mapping.json routing first
             for agent in getattr(self, 'agents', []) or []:
-                if not hasattr(agent, 'task_runner'): continue
-                task = agent.task_runner._find_task_by_id(task_id)
+                if not hasattr(agent, 'task_runner'):
+                    continue
+                
+                # Use TaskRunner's event routing (reads from skill.mapping_rules)
+                routing_result = agent.task_runner._resolve_event_routing(
+                    "passive_command", event_data, source="appsync"
+                )
+                
+                if routing_result:
+                    target_task, rule = routing_result
+                    if target_task and hasattr(target_task, 'queue') and target_task.queue:
+                        # Determine how to format the event based on rule config
+                        convert_to_callback = rule.get("convert_to_callback", True)
+                        
+                        if convert_to_callback:
+                            # Convert to async_callback for pending_event resolution
+                            correlation_id = f"{run_id}:{step_id}" if step_id else run_id
+                            callback_event = {
+                                "type": "async_callback",
+                                "correlation_id": correlation_id,
+                                "result": cmd.model_dump() if hasattr(cmd, 'model_dump') else cmd,
+                            }
+                            target_task.queue.put(callback_event)
+                            logger.info(f"[PassiveCommand] Routed as async_callback to task {target_task.id} (correlation_id={correlation_id})")
+                        else:
+                            # Route as raw passive_command
+                            target_task.queue.put({"type": "passive_command", "command": cmd})
+                            logger.info(f"[PassiveCommand] Routed as passive_command to task {target_task.id}")
+                        return True
+            
+            # Fallback: direct run_id matching (original behavior)
+            for agent in getattr(self, 'agents', []) or []:
+                if not hasattr(agent, 'task_runner'):
+                    continue
+                task = agent.task_runner._find_task_by_id(run_id)
                 if task and hasattr(task, 'queue') and task.queue:
-                    task.queue.put({"type": "passive_command", "command": cmd})
-                    logger.info(f"[PassiveCommand] Routed to task {task_id}")
+                    # Default: convert to async_callback for pending event resolution
+                    correlation_id = f"{run_id}:{step_id}" if step_id else run_id
+                    callback_event = {
+                        "type": "async_callback",
+                        "correlation_id": correlation_id,
+                        "result": cmd.model_dump() if hasattr(cmd, 'model_dump') else cmd,
+                    }
+                    task.queue.put(callback_event)
+                    logger.info(f"[PassiveCommand] Fallback routed to task {run_id} as async_callback")
                     return True
-            logger.warning(f"[PassiveCommand] No task found for run_id={task_id}")
+            
+            logger.warning(f"[PassiveCommand] No task found for run_id={run_id}")
             return False
         except Exception as e:
             logger.error(f"[PassiveCommand] Routing error: {e}")

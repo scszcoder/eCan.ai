@@ -193,12 +193,20 @@ def handle_get_last_login(request: IPCRequest, params: Optional[Any]) -> IPCResp
 
         login = AppContext.get_login()
         if login is None:
-            logger.warning("Login object is None - user may have logged out")
-            return create_error_response(request, 
-                'LOGIN_REQUIRED',
-                'Login required - please login again')
-        
-        result = login.handleGetLastLogin()
+            # Fallback: try to get saved login info directly from AuthManager
+            logger.warning("Login object is None - attempting direct AuthManager access")
+            try:
+                from auth.auth_manager import AuthManager
+                auth_manager = AuthManager()
+                result = auth_manager.get_saved_login_info()
+                logger.info(f"[get_last_login] Retrieved via fallback AuthManager: username={result.get('username')}")
+            except Exception as fallback_error:
+                logger.error(f"Fallback AuthManager access failed: {fallback_error}")
+                return create_error_response(request, 
+                    'LOGIN_REQUIRED',
+                    'Login required - please login again')
+        else:
+            result = login.handleGetLastLogin()
 
         logger.info("last saved user info:", result)
         return create_success_response(request, {

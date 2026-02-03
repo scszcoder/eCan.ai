@@ -7,6 +7,7 @@ import uuid
 import json
 import socket
 import time
+import sniffio
 from typing import Optional
 from starlette.applications import Starlette
 import typing
@@ -1258,6 +1259,10 @@ class ServerManager:
                     loop = asyncio.get_running_loop()
                     app_ws_manager.set_event_loop(loop)
                     logger.info(f"[AppWS] Event loop captured for WebSocket broadcasting")
+                    
+                    # Fix sniffio AsyncLibraryNotFoundError by setting the async library context
+                    # This is needed when uvicorn runs in a thread and FileResponse uses anyio
+                    sniffio.current_async_library_cvar.set("asyncio")
                     
                     # 标记服务器就绪
                     self.server_ready.set()
