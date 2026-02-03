@@ -13,7 +13,7 @@ from uuid import uuid4
 from utils.logger_helper import logger_helper as logger
 
 # Revision marker for tracking deployments
-WORKER_REVISION = "20260128k"
+WORKER_REVISION = "20260203a"
 
 # =============================================================================
 # L2C Test Mode - Wait for first passive step result before running skill
@@ -35,6 +35,27 @@ from agent.cloud_worker.cloud_logger import (
     stop_cloud_logger,
     get_skill_editor_logger,
 )
+
+
+# =============================================================================
+# Global Passive Transport Registry
+# Used to share the CloudWorkerPassiveTransport with CloudAgent in build_node.py
+# =============================================================================
+_global_passive_transport = None
+
+def set_global_passive_transport(transport) -> None:
+    """Set the global passive transport for CloudAgent to use."""
+    global _global_passive_transport
+    _global_passive_transport = transport
+
+def get_global_passive_transport():
+    """Get the global passive transport (or None if not set)."""
+    return _global_passive_transport
+
+def clear_global_passive_transport() -> None:
+    """Clear the global passive transport."""
+    global _global_passive_transport
+    _global_passive_transport = None
 
 
 # =============================================================================
@@ -1419,12 +1440,55 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
             # This enables hybrid cloud mode and L2C WS Test
             passive_client_id = msg_data.get("passive_client_id") or os.environ.get("EC_BROWSER_PASSIVE_CLIENT_ID", "")
             if passive_client_id:
+                # Create the CloudWorkerPassiveTransport for CloudAgent to use
+                from agent.ec_skills.browser_use_extension.cloud_agent import CloudWorkerPassiveTransport
+                from agent.ec_skills.browser_use_extension.passive_protocol import PassiveBrowserStepResult
+                
+                passive_transport = CloudWorkerPassiveTransport(
+                    appsync_url=appsync_url,
+                    appsync_api_key=appsync_key,
+                    client_id=passive_client_id,
+                )
+                
+                # Register transport globally so CloudAgent can access it
+                set_global_passive_transport(passive_transport)
+                logger.info(f"[cloud_worker] CloudWorkerPassiveTransport registered for client={passive_client_id}")
+                
+                # Callback to deliver results to the transport
+                def on_passive_result(envelope: Dict[str, Any]) -> None:
+                    try:
+                        result_raw = envelope.get("result")
+                        if isinstance(result_raw, str):
+                            result_dict = json.loads(result_raw)
+                        else:
+                            result_dict = result_raw or {}
+                        
+                        # Build PassiveBrowserStepResult from envelope
+                        step_result = PassiveBrowserStepResult(
+                            run_id=envelope.get("runId", run_id),
+                            step_id=envelope.get("stepId", ""),
+                            success=result_dict.get("success", True),
+                            elapsed_ms=result_dict.get("elapsed_ms", 0),
+                            actions=result_dict.get("actions", []),
+                            action_results=result_dict.get("action_results", []),
+                            browser=result_dict.get("browser_state") or result_dict.get("browser", {}),
+                            screenshot=result_dict.get("screenshot"),
+                            error=result_dict.get("error"),
+                        )
+                        
+                        # Deliver to transport's queue
+                        passive_transport.deliver_result(step_result)
+                        logger.info(f"[cloud_worker] Delivered PassiveStepResult to transport: stepId={step_result.step_id}")
+                    except Exception as e:
+                        logger.error(f"[cloud_worker] Failed to deliver result to transport: {e}")
+                
                 passive_listener = PassiveStepResultListener(
                     appsync_url=appsync_url,
                     appsync_api_key=appsync_key,
                     client_id=passive_client_id,
                     run_id=run_id,
                     owner=username,
+                    on_result=on_passive_result,  # Connect listener to transport
                 )
                 passive_listener.start_background()
                 logger.info(f"[cloud_worker] Passive step result listener started for client={passive_client_id}")
@@ -1531,6 +1595,8 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
             # Stop the passive step result listener
             if passive_listener:
                 passive_listener.stop()
+            # Clear global passive transport
+            clear_global_passive_transport()
             # Stop the control listener
             if control_listener:
                 control_listener.stop()

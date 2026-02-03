@@ -3425,7 +3425,21 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         raise ValueError("Cannot create LLM for cloud agent. Please set OPENAI_API_KEY or provider-specific API key environment variable.")
                     
                     # Create transport for cloud communication
-                    transport = make_default_cloud_transport_from_env()
+                    # First, try to get the global transport registered by cloud worker
+                    transport = None
+                    try:
+                        from agent.cloud_worker.worker_main import get_global_passive_transport
+                        transport = get_global_passive_transport()
+                        if transport:
+                            logger.info(f"[BrowserAutomation] Using global CloudWorkerPassiveTransport from cloud worker")
+                            send_skill_editor_log("log", f"[BrowserAutomation] Using cloud worker passive transport")
+                    except ImportError:
+                        pass
+                    
+                    # Fall back to creating transport from environment
+                    if not transport:
+                        transport = make_default_cloud_transport_from_env()
+                        logger.info(f"[BrowserAutomation] Created transport from environment")
                     
                     # Get run_id from state
                     run_id = None
