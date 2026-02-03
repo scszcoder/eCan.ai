@@ -14,6 +14,15 @@ from agent.skill_editor.skill_editor_agent import SkillEditorAgent, _safe_user_d
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+# =============================================================================
+# TEST MODE FLAG
+# Set to True for testing L2C WebSocket with hardcoded clientId/runId
+# Set to False for production (uses random UUIDs)
+# =============================================================================
+TEST_MODE = True  # TODO: Set to False after testing
+TEST_RUN_ID = "0123456789"
+TEST_CLIENT_ID = "client-0123456789"
+
 DEFAULT_DATA_MAPPING: Dict[str, Any] = {
     "developing": {
         "mappings": [],
@@ -1088,8 +1097,12 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
                 "data": None,
             }
     
-    # Generate run ID
-    run_id = str(uuid4())
+    # Generate run ID (use hardcoded value in TEST_MODE for L2C testing)
+    if TEST_MODE:
+        run_id = TEST_RUN_ID
+        logger.info(f"[runSkill] TEST_MODE enabled - using hardcoded run_id={run_id}")
+    else:
+        run_id = str(uuid4())
     created_at = _utc_now_iso()
     
     # Create the skill run payload
@@ -1137,18 +1150,38 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
     try:
         ecs = _ecs_client()
         
+        # Generate a unique client ID for this run's browser passive transport
+        # This is used when any browser automation node is configured for hybrid_cloud mode
+        if TEST_MODE:
+            passive_client_id = TEST_CLIENT_ID
+            logger.info(f"[runSkill] TEST_MODE enabled - using hardcoded passive_client_id={passive_client_id}")
+        else:
+            passive_client_id = skill.get("passive_client_id") or f"cloud-worker-{run_id}"
+        
+        # Build base container environment variables
+        container_env = [
+            {"name": "ECAN_WORKER_MODE", "value": "single"},
+            {"name": "ECAN_WORKER_MESSAGE_JSON", "value": json.dumps(ref_payload, ensure_ascii=False)},
+            {"name": "ECAN_RUN_ID", "value": run_id},
+            {"name": "ECAN_USERNAME", "value": username},
+            # Pass AppSync config for real-time status updates (cloud_logger)
+            {"name": "APPSYNC_API_URL", "value": env.appsync_api_url},
+            {"name": "APPSYNC_API_KEY", "value": env.appsync_api_key},
+            # Always provide browser passive transport config for cloud runs
+            # Individual browser automation nodes may be configured for hybrid_cloud mode
+            # which requires these to communicate with local PassiveAgent
+            {"name": "EC_BROWSER_PASSIVE_TRANSPORT", "value": "appsync"},
+            {"name": "EC_APPSYNC_HTTP_ENDPOINT", "value": env.appsync_api_url},
+            {"name": "EC_APPSYNC_TOKEN", "value": env.appsync_api_key},
+            {"name": "EC_BROWSER_PASSIVE_CLIENT_ID", "value": passive_client_id},
+        ]
+        
+        logger.info(f"[runSkill] Cloud run with passive_client_id={passive_client_id} for hybrid node support")
+        
         # Build container overrides with reference to S3 payload
         container_overrides = {
             "name": "ecan-cloud-worker",  # Must match container name in task def
-            "environment": [
-                {"name": "ECAN_WORKER_MODE", "value": "single"},
-                {"name": "ECAN_WORKER_MESSAGE_JSON", "value": json.dumps(ref_payload, ensure_ascii=False)},
-                {"name": "ECAN_RUN_ID", "value": run_id},
-                {"name": "ECAN_USERNAME", "value": username},
-                # Pass AppSync config for real-time status updates
-                {"name": "APPSYNC_API_URL", "value": env.appsync_api_url},
-                {"name": "APPSYNC_API_KEY", "value": env.appsync_api_key},
-            ],
+            "environment": container_env,
         }
         
         # Build network configuration
@@ -1223,11 +1256,18 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
         logger.warning(f"[runSkill] Failed to save run state (non-fatal): {e}")
     
     logger.info(f"[runSkill] Skill run started successfully: run_id={run_id}, task_arn={ecs_task_arn}")
+    
+    # Build response data with task ARN and passive client info for hybrid node support
+    response_data = {
+        "ecs_task_arn": ecs_task_arn,
+        "passive_client_id": passive_client_id,  # For hybrid nodes that need local PassiveAgent
+    }
+    
     return {
         "runId": run_id,
         "status": "starting",
         "message": f"Skill '{skill_name}' starting on cloud worker",
-        "data": json.dumps({"ecs_task_arn": ecs_task_arn}),
+        "data": json.dumps(response_data),
     }
 
 

@@ -129,6 +129,7 @@ aiohappyeyeballs==2.6.1
 aiolimiter==1.2.1
 aiosignal==1.4.0
 anyio==4.9.0
+nest_asyncio==1.6.0
 asgiref==3.8.1
 gevent==25.9.1
 greenlet==3.2.4

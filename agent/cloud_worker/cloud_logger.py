@@ -55,6 +55,9 @@ def configure_cloud_logger(
     """
     global _cloud_config, _log_queue, _log_thread, _stop_event
     
+    logger.info(f"[CloudLogger] Configuring cloud logger: owner={owner}, session_id={session_id}, flowgram_id={flowgram_id}")
+    logger.info(f"[CloudLogger] AppSync URL: {appsync_url[:50]}...")
+    
     _cloud_config = CloudLoggerConfig(
         appsync_url=appsync_url,
         appsync_api_key=appsync_api_key,
@@ -66,6 +69,7 @@ def configure_cloud_logger(
     # Start background log publishing thread
     if _log_queue is None:
         _log_queue = Queue()
+        logger.info("[CloudLogger] Created log queue")
     if _stop_event is None:
         _stop_event = threading.Event()
     
@@ -74,6 +78,8 @@ def configure_cloud_logger(
         _log_thread = threading.Thread(target=_log_publisher_thread, daemon=True)
         _log_thread.start()
         logger.info("[CloudLogger] Started background log publisher thread")
+    else:
+        logger.info("[CloudLogger] Log publisher thread already running")
 
 
 def stop_cloud_logger() -> None:
@@ -112,6 +118,12 @@ def _log_publisher_thread() -> None:
     """Background thread that publishes logs to AppSync."""
     global _log_queue, _stop_event, _cloud_config
     
+    # Create a dedicated event loop for this thread
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    logger.info("[CloudLogger] Log publisher thread started")
+    
     while not (_stop_event and _stop_event.is_set()):
         try:
             # Get log entry from queue with timeout
@@ -124,16 +136,20 @@ def _log_publisher_thread() -> None:
                 continue
             
             if _cloud_config is None:
+                logger.warning("[CloudLogger] No cloud config, skipping log entry")
                 continue
             
-            # Publish to AppSync (run async in new event loop for thread)
+            # Publish to AppSync using the thread's event loop
             try:
-                asyncio.run(_publish_log_entry(entry))
+                loop.run_until_complete(_publish_log_entry(entry))
             except Exception as e:
-                logger.debug(f"[CloudLogger] Failed to publish log: {e}")
+                logger.warning(f"[CloudLogger] Failed to publish log: {e}")
                 
         except Exception as e:
-            logger.debug(f"[CloudLogger] Log publisher error: {e}")
+            logger.warning(f"[CloudLogger] Log publisher error: {e}")
+    
+    loop.close()
+    logger.info("[CloudLogger] Log publisher thread stopped")
 
 
 async def _publish_log_entry(entry: Dict[str, Any]) -> None:
@@ -141,6 +157,7 @@ async def _publish_log_entry(entry: Dict[str, Any]) -> None:
     global _cloud_config
     
     if not _cloud_config:
+        logger.warning("[CloudLogger] _publish_log_entry called but no _cloud_config")
         return
     
     try:
@@ -150,6 +167,8 @@ async def _publish_log_entry(entry: Dict[str, Any]) -> None:
             http_endpoint=_cloud_config.appsync_url,
             api_key=_cloud_config.appsync_api_key,
         )
+        
+        logger.debug(f"[CloudLogger] Publishing log to owner={_cloud_config.owner}, session={_cloud_config.session_id}")
         
         await publish_skill_editor_stream_event(
             config=config,
@@ -165,8 +184,9 @@ async def _publish_log_entry(entry: Dict[str, Any]) -> None:
                 "extra": entry.get("extra"),
             },
         )
+        logger.debug(f"[CloudLogger] Successfully published log entry")
     except Exception as e:
-        logger.debug(f"[CloudLogger] AppSync publish failed: {e}")
+        logger.warning(f"[CloudLogger] AppSync publish failed: {e}")
 
 
 class SkillEditorLogger:
@@ -200,6 +220,9 @@ class SkillEditorLogger:
                     "node_id": self.node_id,
                     "extra": extra,
                 })
+                logger.debug(f"[CloudLogger] Queued log: {message[:50]}...")
+            else:
+                logger.warning(f"[CloudLogger] Log queue is None, cannot send: {message[:50]}...")
         else:
             # Desktop mode: send via IPC
             ipc = _get_ipc()
