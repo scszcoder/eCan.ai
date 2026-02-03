@@ -13,7 +13,13 @@ from uuid import uuid4
 from utils.logger_helper import logger_helper as logger
 
 # Revision marker for tracking deployments
-WORKER_REVISION = "20260128j"
+WORKER_REVISION = "20260128k"
+
+# =============================================================================
+# L2C Test Mode - Wait for first passive step result before running skill
+# Set to True to test L2C WebSocket pub/sub; set to False for production
+# =============================================================================
+L2C_TEST_MODE = False
 
 from agent.cloud.s3_settings_loader import (
     DEFAULT_ECAN_SKILLS_BUCKET,
@@ -261,6 +267,138 @@ class RunControlListener:
         if self._task and not self._task.done():
             self._task.cancel()
             logger.info("[RunControlListener] Stopped listener")
+
+
+# =============================================================================
+# AppSync Subscription Listener for Passive Step Results (L2C - Local to Cloud)
+# =============================================================================
+
+class PassiveStepResultListener:
+    """
+    Listens to AppSync subscriptions for passive step results from local clients.
+    Used in hybrid cloud mode where local browser sends results back to cloud worker.
+    Also useful for L2C WS Test to verify local-to-cloud pub/sub.
+    """
+    
+    def __init__(
+        self,
+        appsync_url: str,
+        appsync_api_key: str,
+        client_id: str,
+        run_id: str,
+        owner: str,
+        on_result: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ):
+        self.appsync_url = appsync_url
+        self.appsync_api_key = appsync_api_key
+        self.client_id = client_id
+        self.run_id = run_id
+        self.owner = owner
+        self.on_result = on_result
+        self._task: Optional[asyncio.Task] = None
+        # Event that signals first result received (for L2C test mode)
+        self.first_result_received: asyncio.Event = asyncio.Event()
+        self._subscription_ready: asyncio.Event = asyncio.Event()
+    
+    async def _handle_envelope(self, envelope: Dict[str, Any]) -> None:
+        """Handle incoming passive step result."""
+        try:
+            step_id = envelope.get("stepId", "")
+            result_raw = envelope.get("result")
+            dom_tree_raw = envelope.get("dom_tree")
+            
+            # Parse AWSJSON fields
+            if isinstance(result_raw, str):
+                try:
+                    result = json.loads(result_raw)
+                except json.JSONDecodeError:
+                    result = {"raw": result_raw}
+            else:
+                result = result_raw or {}
+            
+            logger.info(f"[PassiveStepResultListener] Received step result: stepId={step_id}, clientId={self.client_id}")
+            
+            # Echo back via SkillEditorStreamEvent for testing/debugging
+            se_logger = get_skill_editor_logger()
+            if se_logger:
+                se_logger.log(
+                    f"[L2C] ✅ Received PassiveStepResult: stepId={step_id}, result={json.dumps(result)[:200]}"
+                )
+            
+            # Signal that first result is received (for L2C test mode)
+            if not self.first_result_received.is_set():
+                self.first_result_received.set()
+                logger.info(f"[PassiveStepResultListener] First result received, signaling ready to proceed")
+            
+            # Call custom handler if provided
+            if self.on_result:
+                self.on_result(envelope)
+                
+        except Exception as e:
+            logger.error(f"[PassiveStepResultListener] Error handling envelope: {e}")
+    
+    async def start(self) -> None:
+        """Start listening for passive step results."""
+        from agent.ec_tasks.appsync_pubsub import AppSyncApiKeyConfig, _subscribe
+        
+        config = AppSyncApiKeyConfig(
+            http_endpoint=self.appsync_url,
+            api_key=self.appsync_api_key,
+        )
+        
+        # Subscribe to passive step results for this client/run
+        query = """
+        subscription OnPassiveStepResult($clientId: ID!, $runId: ID!) {
+          onPassiveStepResult(clientId: $clientId, runId: $runId) {
+            clientId
+            runId
+            stepId
+            result
+            dom_tree
+            timestamp
+          }
+        }
+        """
+        
+        logger.info(f"[PassiveStepResultListener] Starting subscription for clientId={self.client_id}, runId={self.run_id}")
+        
+        # Log to skill editor console that listener is ready
+        se_logger = get_skill_editor_logger()
+        if se_logger:
+            se_logger.log(
+                f"[L2C] 🎧 PassiveStepResultListener READY - waiting for messages on clientId={self.client_id}, runId={self.run_id}"
+            )
+        
+        # Signal that subscription is ready
+        self._subscription_ready.set()
+        
+        try:
+            await _subscribe(
+                config=config,
+                query=query,
+                variables={"clientId": self.client_id, "runId": self.run_id},
+                operation_name="OnPassiveStepResult",
+                field_name="onPassiveStepResult",
+                on_envelope=self._handle_envelope,
+                max_retries=5,
+            )
+        except asyncio.CancelledError:
+            logger.info("[PassiveStepResultListener] Subscription cancelled")
+        except Exception as e:
+            logger.error(f"[PassiveStepResultListener] Subscription error: {e}")
+    
+    def start_background(self, loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
+        """Start the listener in the background."""
+        if loop is None:
+            loop = asyncio.get_event_loop()
+        self._task = loop.create_task(self.start())
+        logger.info(f"[PassiveStepResultListener] Started background listener for client={self.client_id}, run={self.run_id}")
+    
+    def stop(self) -> None:
+        """Stop the listener."""
+        if self._task and not self._task.done():
+            self._task.cancel()
+            logger.info("[PassiveStepResultListener] Stopped listener")
 
 
 # =============================================================================
@@ -1256,6 +1394,7 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
         
         # Start AppSync subscription listener for control commands
         control_listener: Optional[RunControlListener] = None
+        passive_listener: Optional[PassiveStepResultListener] = None
         appsync_url = os.environ.get("APPSYNC_API_URL", "")
         appsync_key = os.environ.get("APPSYNC_API_KEY", "")
         if appsync_url and appsync_key:
@@ -1275,6 +1414,52 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
                 flowgram_id=skill_id,
             )
             logger.info(f"[cloud_worker] Cloud logger configured for run {run_id}")
+            
+            # Start passive step result listener for L2C (local-to-cloud) communication
+            # This enables hybrid cloud mode and L2C WS Test
+            passive_client_id = msg_data.get("passive_client_id") or os.environ.get("EC_BROWSER_PASSIVE_CLIENT_ID", "")
+            if passive_client_id:
+                passive_listener = PassiveStepResultListener(
+                    appsync_url=appsync_url,
+                    appsync_api_key=appsync_key,
+                    client_id=passive_client_id,
+                    run_id=run_id,
+                    owner=username,
+                )
+                passive_listener.start_background()
+                logger.info(f"[cloud_worker] Passive step result listener started for client={passive_client_id}")
+                
+                # # L2C TEST MODE: Wait for subscription to be ready, then wait for first message
+                # # Uncomment this block to test L2C WebSocket pub/sub
+                # if L2C_TEST_MODE:
+                #     se_logger = get_skill_editor_logger()
+                #     
+                #     # Wait for subscription to be ready (max 5 seconds)
+                #     try:
+                #         await asyncio.wait_for(passive_listener._subscription_ready.wait(), timeout=5.0)
+                #         logger.info(f"[cloud_worker] L2C TEST: Subscription is ready")
+                #         if se_logger:
+                #             se_logger.log("[L2C TEST] ⏳ Waiting for first PassiveStepResult message before running skill...")
+                #     except asyncio.TimeoutError:
+                #         logger.warning("[cloud_worker] L2C TEST: Subscription ready timeout, proceeding anyway")
+                #         if se_logger:
+                #             se_logger.log("[L2C TEST] ⚠️ Subscription ready timeout, proceeding anyway")
+                #     
+                #     # Wait for first result (max 120 seconds)
+                #     logger.info(f"[cloud_worker] L2C TEST: Waiting for first PassiveStepResult (max 120s)...")
+                #     if se_logger:
+                #         se_logger.log("[L2C TEST] 📡 Now listening... Send L2C_WS_Test to continue!")
+                #     try:
+                #         await asyncio.wait_for(passive_listener.first_result_received.wait(), timeout=120.0)
+                #         logger.info(f"[cloud_worker] L2C TEST: First result received, proceeding with skill run")
+                #         if se_logger:
+                #             se_logger.log("[L2C TEST] ✅ First message received! Proceeding with skill run...")
+                #     except asyncio.TimeoutError:
+                #         logger.warning("[cloud_worker] L2C TEST: Timeout waiting for first result, proceeding anyway")
+                #         if se_logger:
+                #             se_logger.log("[L2C TEST] ⏱️ Timeout (120s) waiting for message, proceeding anyway")
+            else:
+                logger.debug("[cloud_worker] No passive_client_id provided, skipping passive listener")
         
         try:
             # Publish start event
@@ -1343,6 +1528,9 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
             
             raise
         finally:
+            # Stop the passive step result listener
+            if passive_listener:
+                passive_listener.stop()
             # Stop the control listener
             if control_listener:
                 control_listener.stop()

@@ -364,7 +364,7 @@ type Mutation {
   resumeRunSkill(input: RunControlInput!): RunControlResult
   runCloudTasks(taskIDs: [String]!): AWSJSON!
   runSkill(input: RunSkillInput!): RunControlResult
-  runTest(input: [TestInput]!): AWSJSON!
+  runTest(input: [TestInput]!): AWSJSON! @aws_api_key @aws_cognito_user_pools @aws_iam
   saveEditorCache(input: EditorCacheInput!): EditorCacheSaveResult
   scaffoldSkill(input: SkillScaffoldInput!): SkillScaffoldResult
   sendA2AMessage(input: A2AMessageInput!): A2AMessage! @aws_api_key @aws_cognito_user_pools @aws_iam
@@ -830,7 +830,7 @@ type Subscription {
   onPuzzleReceived: Puzzle @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["requestPuzzleSolve"])
   onPuzzleResultReceived: PuzzleSolution @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["sendPuzzleSolution"])
   onSceneComplete(acctSiteID: String!): SceneResult @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["publishSceneResult"])
-  onSkillEditorStreamEvent(owner: String!): SkillEditorStreamEvent @aws_subscribe(mutations : ["publishSkillEditorStreamEvent"])
+  onSkillEditorStreamEvent(owner: String!): SkillEditorStreamEvent @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["publishSkillEditorStreamEvent"])
   onStoryUpdate(acctSiteID: String!): Story @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["updateStory"])
   onTaskStatus(runner: String!): TaskStatus @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["publishTaskStatus"])
 }

@@ -3357,6 +3357,151 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             else:
                 logger.info("[BrowserAutomation] Privacy strategy is 'none', using standard browser_use.Agent")
 
+            # Import LLM creation utilities
+            from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm, create_browser_use_llm_by_provider_type
+            
+            # CLOUD AGENT MODE: Handle hybrid_cloud/full_cloud before checking for mainwin
+            # In cloud mode, we create LLM from node config + environment variables
+            if cloud_agent_enabled:
+                try:
+                    import uuid
+                    from agent.ec_skills.browser_use_extension.cloud_agent import CloudAgent, make_default_cloud_transport_from_env
+                    from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller
+                    
+                    logger.info(f"[BrowserAutomation] Running in CLOUD AGENT mode (hybrid_cloud/full_cloud)")
+                    send_skill_editor_log("log", f"[BrowserAutomation] Starting cloud agent mode")
+                    
+                    # Create LLM from node config + environment variables (no mainwin needed)
+                    llm = None
+                    if node_llm_provider and node_model_name:
+                        # Get API key from environment variables
+                        api_key = None
+                        base_url = None
+                        
+                        # Try provider-specific env vars first
+                        provider_lower = node_llm_provider.lower()
+                        if provider_lower == 'openai':
+                            api_key = os.environ.get('OPENAI_API_KEY', '').strip()
+                            base_url = os.environ.get('OPENAI_BASE_URL', '').strip() or None
+                        elif provider_lower == 'anthropic':
+                            api_key = os.environ.get('ANTHROPIC_API_KEY', '').strip()
+                        elif provider_lower == 'deepseek':
+                            api_key = os.environ.get('DEEPSEEK_API_KEY', '').strip()
+                            base_url = os.environ.get('DEEPSEEK_BASE_URL', 'https://api.deepseek.com').strip()
+                        elif provider_lower in ('azure', 'azure_openai'):
+                            api_key = os.environ.get('AZURE_OPENAI_API_KEY', '').strip()
+                            base_url = os.environ.get('AZURE_OPENAI_ENDPOINT', '').strip() or None
+                        else:
+                            # Fallback to generic env vars
+                            api_key = os.environ.get('LLM_API_KEY', '').strip() or os.environ.get('OPENAI_API_KEY', '').strip()
+                        
+                        if api_key:
+                            llm = create_browser_use_llm_by_provider_type(
+                                provider_type=provider_lower,
+                                model_name=node_model_name,
+                                api_key=api_key,
+                                base_url=base_url,
+                                mainwin=None
+                            )
+                            logger.info(f"[BrowserAutomation] Created cloud LLM: provider={node_llm_provider}, model={node_model_name}")
+                            send_skill_editor_log("log", f"[BrowserAutomation] LLM created: {node_llm_provider}/{node_model_name}")
+                        else:
+                            logger.warning(f"[BrowserAutomation] No API key found for provider {node_llm_provider}")
+                    
+                    if not llm:
+                        # Fallback to OpenAI from environment
+                        openai_key = os.environ.get('OPENAI_API_KEY', '').strip()
+                        if openai_key:
+                            llm = create_browser_use_llm_by_provider_type(
+                                provider_type='openai',
+                                model_name=node_model_name or 'gpt-4o-mini',
+                                api_key=openai_key,
+                                base_url=os.environ.get('OPENAI_BASE_URL', '').strip() or None,
+                                mainwin=None
+                            )
+                            logger.info(f"[BrowserAutomation] Created fallback OpenAI LLM: model={node_model_name or 'gpt-4o-mini'}")
+                    
+                    if not llm:
+                        raise ValueError("Cannot create LLM for cloud agent. Please set OPENAI_API_KEY or provider-specific API key environment variable.")
+                    
+                    # Create transport for cloud communication
+                    transport = make_default_cloud_transport_from_env()
+                    
+                    # Get run_id from state
+                    run_id = None
+                    try:
+                        if isinstance(state, dict):
+                            run_id = state.get("browser_use_run_id") or state.get("run_id")
+                            if not run_id:
+                                # Try to get from attributes
+                                attrs = state.get("attributes", {})
+                                run_id = attrs.get("run_id") or attrs.get("thread_id")
+                    except Exception:
+                        run_id = None
+                    
+                    if not isinstance(run_id, str) or not run_id.strip():
+                        run_id = uuid.uuid4().hex
+                    
+                    # Get agent/skill/node IDs
+                    cloud_agent_id = None
+                    try:
+                        if isinstance(state, dict):
+                            attrs = state.get("attributes", {})
+                            cloud_agent_id = attrs.get("agent_id")
+                    except Exception:
+                        pass
+                    
+                    acct_site_id = os.environ.get('EC_ACCT_SITE_ID', '').strip() or None
+                    
+                    # Build agent kwargs
+                    agent_kwargs = {
+                        'use_vision': node_use_vision,
+                        'use_thinking': node_use_thinking,
+                        'use_judge': enable_judge_setting,
+                    }
+                    
+                    if not node_use_thinking:
+                        agent_kwargs['extend_system_message'] = THINKING_SUPPRESSION_INSTRUCTION.strip()
+                    
+                    controller = custom_controller
+                    
+                    agent = CloudAgent(
+                        task=combined_task,
+                        llm=llm,
+                        controller=controller,
+                        transport=transport,
+                        run_id=run_id,
+                        acct_site_id=acct_site_id,
+                        agent_id=cloud_agent_id,
+                        skill_id=skill_name,
+                        node_id=node_name,
+                        **agent_kwargs,
+                    )
+                    
+                    logger.info(f"[BrowserAutomation] Starting CloudAgent run_id={run_id}")
+                    send_skill_editor_log("log", f"[BrowserAutomation] CloudAgent starting, run_id={run_id}")
+                    
+                    history = await agent.run()
+                    final = history.final_result() if hasattr(history, 'final_result') else None
+                    
+                    logger.info(f"[BrowserAutomation] CloudAgent completed")
+                    send_skill_editor_log("log", f"[BrowserAutomation] CloudAgent completed")
+                    
+                    return {
+                        "cloud": True,
+                        "client_assisted_cloud": True,
+                        "mode": "client_assisted_cloud",
+                        "run_id": run_id,
+                        "final": final,
+                        "history": str(history),
+                    }
+                except Exception as e:
+                    err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNodeCloudAgent")
+                    logger.error(err_msg)
+                    send_skill_editor_log("error", err_msg)
+                    return {"error": str(err_msg)}
+
+            # LOCAL EXECUTION MODES: Require mainwin
             if not mainwin:
                 raise ValueError("mainwin is required. Must use mainwin configuration for browser_use LLM.")
 
@@ -3442,55 +3587,6 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             
             logger.info(f"[BrowserAutomation] Agent kwargs: {agent_kwargs}")
             logger.debug("[BROWSER USE]Agent task:", task)
-
-            if cloud_agent_enabled:
-                try:
-                    import uuid
-
-                    from agent.ec_skills.browser_use_extension.cloud_agent import CloudAgent, make_default_cloud_transport_from_env
-
-                    transport = make_default_cloud_transport_from_env()
-
-                    run_id = None
-                    try:
-                        if isinstance(state, dict):
-                            run_id = state.get("browser_use_run_id") or state.get("run_id")
-                    except Exception:
-                        run_id = None
-
-                    if not isinstance(run_id, str) or not run_id.strip():
-                        run_id = uuid.uuid4().hex
-
-                    cloud_agent_id = calling_agent_id or getattr(mainwin, 'current_agent_id', None)
-
-                    agent = CloudAgent(
-                        task=task,
-                        llm=llm,
-                        controller=controller,
-                        transport=transport,
-                        run_id=run_id,
-                        acct_site_id=mainwin.getAcctSiteID(),
-                        agent_id=cloud_agent_id,
-                        skill_id=skill_name,
-                        node_id=node_name,
-                        **agent_kwargs,
-                    )
-
-                    history = await agent.run()
-                    final = history.final_result() if hasattr(history, 'final_result') else None
-                    return {
-                        "cloud": True,
-                        "client_assisted_cloud": True,
-                        "mode": "client_assisted_cloud",
-                        "run_id": run_id,
-                        "final": final,
-                        "history": str(history),
-                    }
-                except Exception as e:
-                    err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNodeCloudAgent")
-                    logger.error(err_msg)
-                    send_skill_editor_log("error", err_msg)
-                    return {"error": str(err_msg)}
 
             # Optional: Cloud LLM mode for browser-use via PrivacyAgent (feature flagged)
             # Only pass cloud kwargs when using PrivacyAgent (browser_use.Agent won't accept them)).
@@ -3625,21 +3721,26 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         # print("final_user_prompt:", final_user_prompt)
         logger.debug("combined_task:", combined_task)
         if provider == 'browser-use':
-            # Get mainwin from agent via state
+            # Check if we're in cloud mode (hybrid_cloud or full_cloud)
+            # In cloud mode, mainwin is not required
+            is_cloud_mode = run_environment_setting in ('hybrid_cloud', 'full_cloud')
+            
+            # Get mainwin from agent via state (only needed for local modes)
             mainwin = None
-            try:
-                from agent.agent_service import get_agent_by_id
-                if state.get("messages") and len(state["messages"]) > 0:
-                    agent_id = state["messages"][0]
-                    agent = get_agent_by_id(agent_id)
-                    if agent and hasattr(agent, 'mainwin'):
-                        mainwin = agent.mainwin
-            except Exception as e:
-                err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNode brower-use")
-                logger.warning(err_msg)
-                send_skill_editor_log("warning", err_msg)
+            if not is_cloud_mode:
+                try:
+                    from agent.agent_service import get_agent_by_id
+                    if state.get("messages") and len(state["messages"]) > 0:
+                        agent_id = state["messages"][0]
+                        agent = get_agent_by_id(agent_id)
+                        if agent and hasattr(agent, 'mainwin'):
+                            mainwin = agent.mainwin
+                except Exception as e:
+                    err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNode brower-use")
+                    logger.warning(err_msg)
+                    send_skill_editor_log("warning", err_msg)
 
-            if not mainwin:
+            if not mainwin and not is_cloud_mode:
                 err_msg = "Cannot create browser_use LLM: mainwin not available. Please ensure agent is properly initialized."
                 logger.error(f"[build_browser_automation_node] {err_msg}")
                 send_skill_editor_log("error", f"[build_browser_automation_node] {err_msg}")
