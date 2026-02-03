@@ -554,7 +554,30 @@ class TaskRunner(Generic[Context]):
     
     # ==================== Event Routing ====================
     
-    def _resolve_event_routing(self, event_type: str, request: Any, source: str = "") -> Optional[ManagedTask]:
+    def _extract_nested_value(self, data: Any, key_path: str) -> Any:
+        """
+        Extract a value from nested dict/object using dot notation.
+        E.g., "command.run_id" extracts data["command"]["run_id"] or data.command.run_id
+        """
+        try:
+            parts = key_path.split(".")
+            current = data
+            for part in parts:
+                if isinstance(current, dict):
+                    current = current.get(part)
+                elif hasattr(current, part):
+                    current = getattr(current, part)
+                elif hasattr(current, "model_dump"):
+                    current = current.model_dump().get(part)
+                else:
+                    return None
+                if current is None:
+                    return None
+            return current
+        except Exception:
+            return None
+
+    def _resolve_event_routing(self, event_type: str, request: Any, source: str = "") -> Optional[Tuple[ManagedTask, dict]]:
         """
         Use skill mapping DSL to route events to tasks.
         
@@ -564,7 +587,7 @@ class TaskRunner(Generic[Context]):
             source: Optional source identifier.
             
         Returns:
-            The matching ManagedTask or None.
+            Tuple of (matching ManagedTask, routing rule dict) or None.
         """
         try:
             event = normalize_event(event_type, request, src=source)
@@ -612,12 +635,27 @@ class TaskRunner(Generic[Context]):
                     logger.debug(f"[ROUTING] No rule for event type '{etype}' in skill: {skill_name}")
                     continue
                 
-                # Evaluate selector
+                # Check routing_key for dynamic matching (e.g., by run_id, node_id)
+                routing_key = rule.get("routing_key")
+                if routing_key:
+                    key_value = self._extract_nested_value(request, routing_key)
+                    if key_value:
+                        logger.debug(f"[ROUTING] routing_key '{routing_key}' = '{key_value}'")
+                        # Match by run_id (task.id)
+                        if "run_id" in routing_key and str(t.id) == str(key_value):
+                            logger.info(f"[ROUTING] ✅ Matched task by run_id: {t.name}, id={t.id}")
+                            return (t, rule)
+                        # Match by skill_id
+                        if "skill_id" in routing_key and str(getattr(skill, "id", "")) == str(key_value):
+                            logger.info(f"[ROUTING] ✅ Matched task by skill_id: {t.name}")
+                            return (t, rule)
+                
+                # Evaluate selector (fallback)
                 selector = rule.get("task_selector") or ""
                 logger.debug(f"[ROUTING] Evaluating selector '{selector}' for task: {t.name}, skill: {skill_name}")
                 if self._evaluate_selector(selector, t):
                     logger.info(f"[ROUTING] ✅ Matched task: {t.name}, id={t.id}")
-                    return t
+                    return (t, rule)
                 else:
                     logger.debug(f"[ROUTING] ❌ Selector '{selector}' did not match task: {t.name}")
                     
@@ -700,8 +738,9 @@ class TaskRunner(Generic[Context]):
                     pass
             
             # Route to target task
-            target_task = self._resolve_event_routing(event_type, request, source)
-            if target_task:
+            routing_result = self._resolve_event_routing(event_type, request, source)
+            if routing_result:
+                target_task, rule = routing_result
                 if not hasattr(target_task, "queue") or target_task.queue is None:
                     logger.error(f"[QUEUE] Target task has no queue: {target_task.name}")
                     return

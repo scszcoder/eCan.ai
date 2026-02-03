@@ -79,7 +79,7 @@ const Login: React.FC = () => {
 			try {
 				// SettingsTimeout，避免长Time等待
 				const timeoutPromise = new Promise((_, reject) => {
-					setTimeout(() => reject(new Error('IPC initialization timeout')), 5000);
+					setTimeout(() => reject(new Error('IPC initialization timeout')), 15000);
 				});
 
 				// LoadLoginInformation

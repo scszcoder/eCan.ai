@@ -5,6 +5,7 @@
   "last_updated": "2025-10-15",
   
   "field_mapping": {
+    "trigger": "trigger_type"
   },
   
   "cloud_required_fields": {
