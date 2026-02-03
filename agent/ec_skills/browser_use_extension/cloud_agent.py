@@ -61,6 +61,84 @@ class AsyncQueuePassivePubSubTransport:
             self._pending[(res.run_id, res.step_id)] = res
 
 
+class CloudWorkerPassiveTransport(AsyncQueuePassivePubSubTransport):
+    """
+    Transport for CloudAgent running inside cloud worker.
+    
+    - publish_command: Sends commands to local client via AppSync mutation
+    - wait_for_result: Receives results from the cloud worker's PassiveStepResultListener
+      which delivers results via deliver_result()
+    
+    This transport does NOT start its own WebSocket subscription. Instead, the cloud worker's
+    PassiveStepResultListener handles the subscription and calls deliver_result() when
+    messages arrive.
+    """
+    
+    def __init__(
+        self,
+        *,
+        appsync_url: str,
+        appsync_api_key: str,
+        client_id: str,
+    ) -> None:
+        super().__init__()
+        self.appsync_url = appsync_url
+        self.appsync_api_key = appsync_api_key
+        self.client_id = client_id
+    
+    async def publish_command(self, cmd: PassiveBrowserCommand) -> None:
+        """Publish command to local client via AppSync mutation."""
+        mutation = """
+        mutation PublishPassiveCommand($input: PassiveBrowserCommandEnvelopeInput!) {
+          publishPassiveCommand(input: $input) {
+            runId
+            clientId
+            stepId
+          }
+        }
+        """
+        
+        payload = {
+            "runId": cmd.run_id,
+            "clientId": self.client_id,
+            "stepId": cmd.step_id,
+            "command": cmd.model_dump(),
+        }
+        
+        # Log to skill editor console (C2L - Cloud to Local command)
+        try:
+            from agent.cloud_worker.cloud_logger import get_skill_editor_logger
+            import json
+            se_logger = get_skill_editor_logger()
+            if se_logger:
+                # Summarize actions for logging
+                actions_summary = cmd.actions[:3] if cmd.actions else []  # First 3 actions
+                actions_str = json.dumps(actions_summary, default=str)[:300]
+                se_logger.log(
+                    f"[C2L] 📤 publishPassiveCommand: stepId={cmd.step_id}, actions={actions_str}"
+                )
+        except Exception:
+            pass  # Don't fail if logging fails
+        
+        headers = {
+            "Content-Type": "application/json",
+            "x-api-key": self.appsync_api_key,
+            "cache-control": "no-cache",
+        }
+        
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                self.appsync_url,
+                json={"query": mutation, "variables": {"input": payload}},
+                headers=headers,
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if isinstance(data, dict) and data.get("errors"):
+                raise RuntimeError(f"AppSync publishPassiveCommand failed: {data.get('errors')}")
+
+
 class HttpPassivePubSubTransport:
     """Minimal HTTP-based pub + synchronous wait.
 

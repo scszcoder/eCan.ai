@@ -19,7 +19,7 @@ logger.setLevel(logging.INFO)
 # Set to True for testing L2C WebSocket with hardcoded clientId/runId
 # Set to False for production (uses random UUIDs)
 # =============================================================================
-TEST_MODE = True  # TODO: Set to False after testing
+TEST_MODE = False  # Production mode - uses random UUIDs
 TEST_RUN_ID = "0123456789"
 TEST_CLIENT_ID = "client-0123456789"
 
@@ -1070,6 +1070,24 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
     else:
         skill = skill_json or {}
     
+    # Parse meta_data if provided
+    meta_data_json = input_data.get("meta_data")
+    if isinstance(meta_data_json, str):
+        try:
+            meta_data = json.loads(meta_data_json)
+        except json.JSONDecodeError:
+            meta_data = {}
+    else:
+        meta_data = meta_data_json or {}
+    
+    # Extract run_in_cloud flag and optional client_id/run_id from meta_data
+    # For hybrid workflow:
+    # - client_id: identifies the local passive agent (same as agent_id on client)
+    # - run_id: unique ID for this run session (generated on client side)
+    meta_run_in_cloud = meta_data.get("run_in_cloud", False)
+    meta_client_id = meta_data.get("client_id")  # From local client for hybrid mode
+    meta_run_id = meta_data.get("run_id")  # From local client for hybrid mode
+    
     skill_id = skill.get("skill_id") or str(uuid4())
     skill_name = skill.get("skill_name") or "unnamed_skill"
     skill_run_mode = skill.get("skill_run_mode") or "cloud"
@@ -1077,6 +1095,7 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
     dev_mode = input_data.get("dev_mode", False) or skill.get("dev_mode", False)
     
     logger.info(f"[runSkill] username={username}, skill_id={skill_id}, skill_name={skill_name}, mode={skill_run_mode}, dev_mode={dev_mode}")
+    logger.info(f"[runSkill] meta_data: run_in_cloud={meta_run_in_cloud}, client_id={meta_client_id}, run_id={meta_run_id}")
     
     # Validate environment for cloud runs
     if skill_run_mode in ("cloud", "hybrid"):
@@ -1097,13 +1116,30 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
                 "data": None,
             }
     
-    # Generate run ID (use hardcoded value in TEST_MODE for L2C testing)
-    if TEST_MODE:
+    # Generate run ID
+    # Priority: 1) meta_data.run_id (from local client), 2) TEST_MODE hardcoded, 3) random UUID
+    if meta_run_id:
+        run_id = meta_run_id
+        logger.info(f"[runSkill] Using run_id from meta_data: {run_id}")
+    elif TEST_MODE:
         run_id = TEST_RUN_ID
         logger.info(f"[runSkill] TEST_MODE enabled - using hardcoded run_id={run_id}")
     else:
         run_id = str(uuid4())
+        logger.info(f"[runSkill] Generated random run_id: {run_id}")
     created_at = _utc_now_iso()
+    
+    # Generate passive_client_id early so it can be included in payloads
+    # Priority: 1) meta_data.client_id (from local client), 2) TEST_MODE hardcoded, 3) skill.passive_client_id, 4) auto-generated
+    if meta_client_id:
+        passive_client_id = meta_client_id
+        logger.info(f"[runSkill] Using client_id from meta_data: {passive_client_id}")
+    elif TEST_MODE:
+        passive_client_id = TEST_CLIENT_ID
+        logger.info(f"[runSkill] TEST_MODE enabled - using hardcoded passive_client_id={passive_client_id}")
+    else:
+        passive_client_id = skill.get("passive_client_id") or f"cloud-worker-{run_id}"
+        logger.info(f"[runSkill] Using passive_client_id: {passive_client_id}")
     
     # Create the skill run payload
     run_payload = {
@@ -1114,6 +1150,7 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
         "skill_run_mode": skill_run_mode,
         "dev_mode": dev_mode,  # Enable breakpoint/step support in worker
         "skill": skill,  # Full skill payload including diagram
+        "passive_client_id": passive_client_id,  # For hybrid cloud browser automation
         "created_at": created_at,
     }
     
@@ -1142,6 +1179,7 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
         "skill_name": skill_name,
         "payload_s3_bucket": env.s3_bucket,
         "payload_s3_key": payload_s3_key,
+        "passive_client_id": passive_client_id,  # For hybrid cloud browser automation
         "created_at": created_at,
     }
     
@@ -1150,15 +1188,8 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
     try:
         ecs = _ecs_client()
         
-        # Generate a unique client ID for this run's browser passive transport
-        # This is used when any browser automation node is configured for hybrid_cloud mode
-        if TEST_MODE:
-            passive_client_id = TEST_CLIENT_ID
-            logger.info(f"[runSkill] TEST_MODE enabled - using hardcoded passive_client_id={passive_client_id}")
-        else:
-            passive_client_id = skill.get("passive_client_id") or f"cloud-worker-{run_id}"
-        
         # Build base container environment variables
+        # passive_client_id was already determined earlier
         container_env = [
             {"name": "ECAN_WORKER_MODE", "value": "single"},
             {"name": "ECAN_WORKER_MESSAGE_JSON", "value": json.dumps(ref_payload, ensure_ascii=False)},
