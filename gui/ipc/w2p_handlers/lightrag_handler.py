@@ -1461,6 +1461,7 @@ def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, 
         from app_context import AppContext
         from gui.ipc.context_bridge import get_handler_context
         from gui.ollama_utils import merge_ollama_models_to_providers
+        from gui.ryoais_utils import merge_ryoais_models_to_providers
         
         # Get manager instances
         ctx = get_handler_context(request, params)
@@ -1468,17 +1469,31 @@ def handle_get_system_providers(request: IPCRequest, params: Optional[Dict[str, 
         embedding_manager = ctx.get_config_manager().embedding_manager if ctx else None
         rerank_manager = ctx.get_config_manager().rerank_manager if ctx else None
         
-        # Get providers with Ollama models merged (same as Settings page)
+        # Get providers with Ollama and RyoAIS models merged (same as Settings page)
         llm_providers = merge_ollama_models_to_providers(
             llm_manager.get_all_providers() if llm_manager else [],
             provider_type='llm'
         )
+        llm_providers = merge_ryoais_models_to_providers(
+            llm_providers,
+            provider_type='llm'
+        )
+        
         embedding_providers = merge_ollama_models_to_providers(
             embedding_manager.get_all_providers() if embedding_manager else [],
             provider_type='embedding'
         )
+        embedding_providers = merge_ryoais_models_to_providers(
+            embedding_providers,
+            provider_type='embedding'
+        )
+        
         rerank_providers = merge_ollama_models_to_providers(
             rerank_manager.get_all_providers() if rerank_manager else [],
+            provider_type='rerank'
+        )
+        rerank_providers = merge_ryoais_models_to_providers(
+            rerank_providers,
             provider_type='rerank'
         )
         

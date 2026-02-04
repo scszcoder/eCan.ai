@@ -369,18 +369,18 @@ class DevRunner:
                 
                 self._dev_task = None
             
-            # Send status update to frontend (unified for both cases)
-            ipc = _get_ipc()
-            if ipc:
-                try:
-                    ipc.send_skill_run_status_update(
-                        agent_task_id="dev_run_singleton",
-                        current_node="",
-                        status="cancelled",
-                        node_state={}
-                    )
-                except Exception as e:
-                    logger.debug(f"Failed to send status update: {e}")
+            # Send status update to frontend via unified API
+            try:
+                from gui.ipc.api import IPCAPI
+                ipc_api = IPCAPI.get_instance()
+                ipc_api.update_run_stat(
+                    agent_task_id="dev_run_singleton",
+                    current_node="",
+                    status="cancelled",
+                    langgraph_state={}
+                )
+            except Exception as e:
+                logger.debug(f"Failed to send status update via IPCAPI: {e}")
             
             return {"success": True}
             
