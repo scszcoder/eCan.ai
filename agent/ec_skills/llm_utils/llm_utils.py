@@ -1006,6 +1006,8 @@ def extract_provider_config(provider, config_manager=None):
             provider_type = 'openai'
         elif 'ollama' in provider_name or 'chatollama' == class_name:
             provider_type = 'ollama'
+        elif 'ryoais' in provider_name:
+            provider_type = 'ryoais'
         elif 'anthropic' in provider_name or 'claude' in provider_name or 'chatanthropic' == class_name:
             provider_type = 'anthropic'
         elif 'azure' in provider_name or 'azureopenai' == class_name:
@@ -1381,6 +1383,33 @@ def _create_llm_instance(provider, config_manager=None, allow_no_api_key=False):
             
             return llm_instance
         
+        # Check for RyoAIS - use ChatOpenAI with OpenAI-compatible API
+        elif 'ryoais' in provider_name.lower():
+            model_name = model_name or 'qwen2.5-72b-instruct'
+            
+            logger.info(f"[RyoAIS] Starting RyoAIS LLM creation - base_url from config: {base_url}")
+            
+            # RyoAIS already uses /v1 endpoint format
+            base_url = base_url.rstrip('/') if base_url else 'http://localhost/v1'
+            
+            logger.info(f"[RyoAIS] Creating ChatOpenAI with model={model_name}, base_url={base_url}")
+            
+            # Get API key from secure store (same as other providers)
+            from gui.manager.provider_settings_helper import get_ollama_api_key
+            ryoais_api_key = get_ollama_api_key('llm', provider_identifier='ryoais')
+            
+            llm_instance = ChatOpenAI(
+                model=model_name,
+                api_key=ryoais_api_key,
+                base_url=base_url,
+                temperature=0
+            )
+            
+            logger.info(f"[RyoAIS] Successfully created RyoAIS LLM instance")
+            logger.info(f"[RyoAIS] Instance details - model: {llm_instance.model_name}, base_url: {llm_instance.openai_api_base if hasattr(llm_instance, 'openai_api_base') else 'N/A'}")
+            
+            return llm_instance
+        
         else:
             logger.warning(f"Unknown provider type: {provider_name} (class_name: {class_name}, provider: {provider_type})")
             return None
@@ -1412,6 +1441,7 @@ def is_provider_browser_use_compatible(provider_type: str) -> bool:
         'deepseek', 
         'dashscope', 
         'ollama', 
+        'ryoais',
         'qwen', 
         'qwq',
         'zhipuai',
@@ -1526,6 +1556,15 @@ def _create_and_validate_browser_use_llm(bu_config: dict):
         # Extract special config flags
         adapt_deepseek_output = bu_config.pop('adapt_deepseek_output', False)
         adapt_qwen_output = bu_config.pop('adapt_qwen_output', False)
+        
+        # Remove extra_body parameter - BrowserUseChatOpenAI doesn't support it
+        # This parameter is used for standard LangChain ChatOpenAI (e.g., Qwen thinking control)
+        # but browser_use's ChatOpenAI wrapper doesn't accept it
+        if 'extra_body' in bu_config:
+            extra_body_value = bu_config.pop('extra_body')
+            logger.debug(
+                f"[_create_and_validate_browser_use_llm] Removed unsupported 'extra_body' parameter: {extra_body_value}"
+            )
         
         # Get the logging wrapper class
         LoggingBrowserUseChatOpenAI = _get_logging_browser_use_class()
@@ -1655,8 +1694,8 @@ def create_browser_use_llm_by_provider_type(
         )
         return _create_and_validate_browser_use_llm(bu_config)
     
-    # OpenAI-compatible providers (DeepSeek, DashScope, Ollama, Qwen, Baidu Qianfan, Bytedance, Zhipu AI, etc.)
-    elif provider_type in ['deepseek', 'dashscope', 'ollama', 'qwen', 'qwq', 'baidu_qianfan', 'bytedance', 'zhipuai']:
+    # OpenAI-compatible providers (DeepSeek, DashScope, Ollama, RyoAIS, Qwen, Baidu Qianfan, Bytedance, Zhipu AI, etc.)
+    elif provider_type in ['deepseek', 'dashscope', 'ollama', 'ryoais', 'qwen', 'qwq', 'baidu_qianfan', 'bytedance', 'zhipuai']:
         bu_config = {
             'model': model_name or default_config['model'],
             'api_key': api_key or default_config['api_key'] or 'dummy-key',
@@ -1665,7 +1704,7 @@ def create_browser_use_llm_by_provider_type(
         
         # DeepSeek and some other providers don't support response_format (JSON mode)
         # Set dont_force_structured_output=True to disable structured output for these providers
-        providers_without_structured_output = ['deepseek', 'dashscope', 'qwen', 'qwq', 'baidu_qianfan', 'bytedance', 'zhipuai', 'ollama']
+        providers_without_structured_output = ['deepseek', 'dashscope', 'qwen', 'qwq', 'baidu_qianfan', 'bytedance', 'zhipuai', 'ollama', 'ryoais']
         if provider_type in providers_without_structured_output:
             bu_config['dont_force_structured_output'] = True
             logger.info(f"[create_browser_use_llm_by_provider_type] Disabled structured output for {provider_type} (not supported)")
@@ -1676,11 +1715,11 @@ def create_browser_use_llm_by_provider_type(
             bu_config['adapt_deepseek_output'] = True
             logger.info(f"[create_browser_use_llm_by_provider_type] Enabled DeepSeek output format adapter")
         
-        # Enable Qwen/Ollama output format adapter
+        # Enable Qwen/Ollama/RyoAIS output format adapter
         # This fixes common Qwen output issues (numeric keys, markdown blocks, XML tags)
-        if provider_type in ['ollama', 'qwen', 'qwq']:
+        if provider_type in ['ollama', 'ryoais', 'qwen', 'qwq']:
             bu_config['adapt_qwen_output'] = True
-            logger.info(f"[create_browser_use_llm_by_provider_type] Enabled Qwen/Ollama output format adapter")
+            logger.info(f"[create_browser_use_llm_by_provider_type] Enabled Qwen/Ollama/RyoAIS output format adapter")
             logger.info(f"[create_browser_use_llm_by_provider_type] Set timeout=180s for {provider_type} (slow inference support)")
                 
         if base_url:

@@ -30,6 +30,7 @@ class ProviderType(Enum):
     BAIDU_QIANFAN = "baidu_qianfan"
     BEDROCK = "bedrock"
     OLLAMA = "ollama"
+    RYOAIS = "ryoais"
     UNKNOWN = "unknown"
     
     @classmethod
@@ -232,7 +233,8 @@ class LLMProvider:
             ProviderType.ZHIPUAI,
             ProviderType.BYTEDANCE,
             ProviderType.BAIDU_QIANFAN,
-            ProviderType.OLLAMA
+            ProviderType.OLLAMA,
+            ProviderType.RYOAIS
         ]
         return self.provider_type in openai_compatible_types or 'openai' in self.class_name.lower()
     

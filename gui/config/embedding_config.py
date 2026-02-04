@@ -33,6 +33,7 @@ class EmbeddingProvider(Enum):
     DOUBAO = "doubao"
     JINA = "jina"
     OLLAMA = "ollama"
+    RYOAIS = "ryoais"
 
 
 @dataclass

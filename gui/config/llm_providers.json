@@ -571,6 +571,22 @@
       "is_local": true,
       "enable_thinking": false,
       "supported_models": []
+    },
+    "RyoAIS": {
+      "name": "RyoAIS",
+      "display_name": "RyoAIS",
+      "provider": "ryoais",
+      "class_name": "ChatOpenAI",
+      "api_key_env_vars": [
+        "RYOAIS_LLM_API_KEY"
+      ],
+      "base_url": "http://localhost/v1",
+      "default_model": "",
+      "description": "RyoAIS - OpenAI-compatible API with dynamic model list support",
+      "documentation_url": "http://localhost/docs?lang=zh-CN",
+      "is_local": true,
+      "enable_thinking": false,
+      "supported_models": []
     }
   },
   "metadata": {
