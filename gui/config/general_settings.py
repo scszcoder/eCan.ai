@@ -494,6 +494,15 @@ class GeneralSettings:
         self._data["ollama_llm_base_url"] = value
 
     @property
+    def ryoais_llm_base_url(self) -> str:
+        """RyoAIS base URL for LLM (overrides provider default)"""
+        return self._data.get("ryoais_llm_base_url", "")
+
+    @ryoais_llm_base_url.setter
+    def ryoais_llm_base_url(self, value: str):
+        self._data["ryoais_llm_base_url"] = value
+
+    @property
     def llm_provider_settings(self) -> dict:
         """Per-provider LLM settings (e.g., enable_thinking for Qwen)"""
         return self._data.get("llm_provider_settings", {})
@@ -531,6 +540,15 @@ class GeneralSettings:
     def ollama_embedding_base_url(self, value: str):
         self._data["ollama_embedding_base_url"] = value
 
+    @property
+    def ryoais_embedding_base_url(self) -> str:
+        """RyoAIS base URL for Embedding (overrides provider default)"""
+        return self._data.get("ryoais_embedding_base_url", "")
+
+    @ryoais_embedding_base_url.setter
+    def ryoais_embedding_base_url(self, value: str):
+        self._data["ryoais_embedding_base_url"] = value
+
     # ==================== Rerank Settings ====================
     
     @property
@@ -559,6 +577,15 @@ class GeneralSettings:
     @ollama_rerank_base_url.setter
     def ollama_rerank_base_url(self, value: str):
         self._data["ollama_rerank_base_url"] = value
+
+    @property
+    def ryoais_rerank_base_url(self) -> str:
+        """RyoAIS base URL for Rerank (overrides provider default)"""
+        return self._data.get("ryoais_rerank_base_url", "")
+
+    @ryoais_rerank_base_url.setter
+    def ryoais_rerank_base_url(self, value: str):
+        self._data["ryoais_rerank_base_url"] = value
 
     @property
     def skill_use_git(self) -> bool:

@@ -29,6 +29,7 @@ class RerankProvider(Enum):
     VOYAGEAI = "voyageai"
     SILICONFLOW = "siliconflow"
     OLLAMA = "ollama"
+    RYOAIS = "ryoais"
     VLLM = "cohere"  # vLLM uses Cohere-compatible API
 
 

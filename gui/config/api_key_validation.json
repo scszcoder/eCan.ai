@@ -26,6 +26,62 @@
     "AZURE_OPENAI_API_KEY": {
       "min_length": 20,
       "description": "Azure OpenAI API key"
+    },
+    "AZURE_ENDPOINT": {
+      "min_length": 10,
+      "pattern": "https://.*\\.openai\\.azure\\.com",
+      "description": "Azure OpenAI endpoint URL"
+    },
+    "ARK_API_KEY": {
+      "min_length": 20,
+      "description": "Bytedance Doubao (Volcano Engine) API key"
+    },
+    "BAIDU_API_KEY": {
+      "min_length": 20,
+      "description": "Baidu Qianfan API key"
+    },
+    "ZHIPUAI_API_KEY": {
+      "min_length": 20,
+      "description": "ChatGLM (Zhipu AI) API key"
+    },
+    "AWS_ACCESS_KEY_ID": {
+      "min_length": 16,
+      "max_length": 128,
+      "description": "AWS Access Key ID for Bedrock"
+    },
+    "AWS_SECRET_ACCESS_KEY": {
+      "min_length": 40,
+      "description": "AWS Secret Access Key for Bedrock"
+    },
+    "OLLAMA_LLM_API_KEY": {
+      "min_length": 0,
+      "optional": true,
+      "description": "Ollama API key (optional)"
+    },
+    "OLLAMA_EMBEDDING_API_KEY": {
+      "min_length": 0,
+      "optional": true,
+      "description": "Ollama Embedding API key (optional)"
+    },
+    "OLLAMA_RERANK_API_KEY": {
+      "min_length": 0,
+      "optional": true,
+      "description": "Ollama Rerank API key (optional)"
+    },
+    "RYOAIS_LLM_API_KEY": {
+      "min_length": 0,
+      "optional": true,
+      "description": "RyoAIS LLM API key (optional)"
+    },
+    "RYOAIS_EMBEDDING_API_KEY": {
+      "min_length": 0,
+      "optional": true,
+      "description": "RyoAIS Embedding API key (optional)"
+    },
+    "RYOAIS_RERANK_API_KEY": {
+      "min_length": 0,
+      "optional": true,
+      "description": "RyoAIS Rerank API key (optional)"
     }
   },
   "patterns": {

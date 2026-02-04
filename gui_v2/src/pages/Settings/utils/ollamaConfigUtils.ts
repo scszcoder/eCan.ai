@@ -24,24 +24,40 @@ export async function saveOllamaConfig(params: SaveOllamaConfigParams): Promise<
   const { providerType, host, apiKey, onSuccess, onError } = params;
   
   try {
-    // 1. Prepare update parameters
-    const updateParams: any = {
-      name: 'ollama',
-      base_url: host
-    };
+    const dummyApiKey = apiKey && apiKey.trim() ? apiKey : 'ollama';
+    let response;
     
-    // Only include API key if provided
-    if (apiKey && apiKey.trim()) {
-      updateParams.api_key = apiKey;
+    // Call the appropriate API method based on provider type
+    if (providerType === 'llm') {
+      response = await get_ipc_api().updateLLMProvider<{ message: string }>(
+        'ollama',
+        dummyApiKey,
+        undefined, // azureEndpoint
+        undefined, // awsAccessKeyId
+        undefined, // awsSecretAccessKey
+        host       // baseUrl
+      );
+    } else if (providerType === 'embedding') {
+      response = await get_ipc_api().updateEmbeddingProvider<{ message: string }>(
+        'ollama',
+        dummyApiKey,
+        undefined, // azureEndpoint
+        host       // baseUrl
+      );
+    } else if (providerType === 'rerank') {
+      response = await get_ipc_api().updateRerankProvider<{ message: string }>(
+        'ollama',
+        dummyApiKey,
+        undefined, // azureEndpoint
+        host       // baseUrl
+      );
+    } else {
+      const errorMsg = `Unknown provider type: ${providerType}`;
+      onError?.(errorMsg);
+      return false;
     }
     
-    // 2. Determine the correct API endpoint
-    const apiEndpoint = `update_${providerType}_provider`;
-    
-    // 3. Call backend API
-    const response = await get_ipc_api().executeRequest(apiEndpoint, updateParams);
-    
-    // 4. Handle response
+    // Handle response
     if (response.success) {
       onSuccess?.();
       return true;

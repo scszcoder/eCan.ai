@@ -1,0 +1,16 @@
+-------------------------------------------------------------------------------------------
+|                                          Scan                                           |
++---------------+--------------------------------+------------+---------------------------+
+|   agent_id    |           owner_id             | prompt_id  |        prompt_name        |
++---------------+--------------------------------+------------+---------------------------+
+|  [1m[34many~pr-848556[0m|  [1m[34msongc_yahoo_com[0m               |  [1m[34mpr-848556[0m |  [1m[34mTestPrompt[0m               |
+|  [1m[34many~pr-932060[0m|  [1m[34mgoogle_105649646860146222891[0m  |  [1m[34mpr-932060[0m |  [1m[34mebay_orders2[0m             |
+|  [1m[34many~pr-111066[0m|  [1m[34mpublic[0m                        |  [1m[34mpr-111066[0m |  [1m[34mshopify_browse_orders[0m    |
+|  [1m[34many~pr-1693[0m  |  [1m[34mpublic[0m                        |  [1m[34mpr-1693[0m   |  [1m[34mshopify_fullfill_1[0m       |
+|  [1m[34many~pr-174477[0m|  [1m[34mpublic[0m                        |  [1m[34mpr-174477[0m |  [1m[34mshopify_browse_messages[0m  |
+|  [1m[34many~pr-30499[0m |  [1m[34mpublic[0m                        |  [1m[34mpr-30499[0m  |  [1m[34memail_classify_titles[0m    |
+|  [1m[34many~pr-350973[0m|  [1m[34mpublic[0m                        |  [1m[34mpr-350973[0m |  [1m[34mshopify_after_sales_0[0m    |
+|  [1m[34many~pr-415475[0m|  [1m[34mpublic[0m                        |  [1m[34mpr-415475[0m |  [1m[34mshopify_handle_orders[0m    |
+|  [1m[34many~pr-90843[0m |  [1m[34mpublic[0m                        |  [1m[34mpr-90843[0m  |  [1m[34mshopify_fullfill_0[0m       |
+|  [1m[34many~pr-92939[0m |  [1m[34mpublic[0m                        |  [1m[34mpr-92939[0m  |  [1m[34mebay_orders0[0m             |
++---------------+--------------------------------+------------+---------------------------+

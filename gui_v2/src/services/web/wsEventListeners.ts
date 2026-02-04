@@ -34,12 +34,6 @@ export function initWebSocketEventListeners(): void {
     }
   });
 
-  eventBus.on('ws:push_chat_notification', (data: any) => {
-    console.log('[WSListeners] Received push_chat_notification:', data);
-    // Emit notification event for UI components to handle
-    eventBus.emit('chat:notification', data);
-  });
-
   // ==================== Skill Run Events ====================
 
   eventBus.on('ws:update_skill_run_stat', (data: any) => {
@@ -64,33 +58,12 @@ export function initWebSocketEventListeners(): void {
     if (currentNode && nodeState) {
       runtimeStateStore.setNodeRuntimeState(currentNode, nodeState, data.status);
     }
-    
-    // Emit event for skill editor components
-    eventBus.emit('skill:run_stat', data);
   });
 
-  eventBus.on('ws:update_tasks_stat', (data: any) => {
-    console.log('[WSListeners] Received update_tasks_stat:', data);
-    // Emit event for task-related components
-    eventBus.emit('task:stat_update', data);
-  });
-
-  // ==================== LightRAG Events ====================
-
-  eventBus.on('ws:lightrag:chunk', (data: any) => {
-    console.log('[WSListeners] Received lightrag chunk');
-    eventBus.emit('lightrag:chunk', data);
-  });
-
-  eventBus.on('ws:lightrag:done', (data: any) => {
-    console.log('[WSListeners] Received lightrag done');
-    eventBus.emit('lightrag:done', data);
-  });
-
-  eventBus.on('ws:lightrag:error', (data: any) => {
-    console.log('[WSListeners] Received lightrag error');
-    eventBus.emit('lightrag:error', data);
-  });
+  // ==================== Other Events ====================
+  // Note: Other events (ws:push_chat_notification, ws:update_tasks_stat, ws:lightrag:*)
+  // are handled directly by components that listen to these events.
+  // No store updates needed here.
 
   listenersInitialized = true;
   console.log('[WSListeners] ✅ WebSocket event listeners initialized');
