@@ -309,30 +309,56 @@ class LightragServer:
         # LightRAG only supports: lollms, ollama, openai, azure_openai, aws_bedrock
         # Map all other providers to OpenAI-compatible API
         
-        # Provider mapping table
-        LIGHTRAG_SUPPORTED = ['lollms', 'ollama', 'ryoais', 'openai', 'azure_openai', 'aws_bedrock']
-        PROVIDER_MAPPING = {
-            # AWS
-            'bedrock': 'aws_bedrock',
-            # Chinese LLM providers (OpenAI-compatible)
-            'anthropic': 'openai',
-            'google': 'openai',
-            'deepseek': 'openai',
-            'dashscope': 'openai',
-            'bytedance': 'openai',
-            'baidu_qianfan': 'openai',
-            'zhipuai': 'openai',
-            # Embedding providers (OpenAI-compatible)
-            'huggingface': 'openai',
-            'cohere': 'openai',
-            'voyageai': 'openai',
-            'alibaba_qwen': 'openai',
-            'doubao': 'openai',
-            # Provider display names (map to their provider IDs)
-            'Qwen (DashScope)': 'openai',  # alibaba_qwen
-            'Baidu Qianfan': 'openai',  # baidu_qianfan
-            'ChatGLM (Zhipu AI)': 'openai',  # zhipuai
-        }
+        # Build provider mapping dynamically from llm_manager
+        def _build_lightrag_provider_mapping() -> dict:
+            """
+            Dynamically build LightRAG provider mapping from llm_manager.
+            Maps unsupported providers to their LightRAG-compatible equivalents.
+            
+            Returns:
+                Dictionary mapping provider names to LightRAG-supported providers
+            """
+            mapping = {}
+            
+            try:
+                from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
+                llm_manager = get_llm_manager()
+                
+                if llm_manager:
+                    providers = llm_manager.get_all_providers()
+                    
+                    for provider in providers:
+                        provider_id = (provider.get("provider") or "").lower()
+                        name = (provider.get("name") or "").lower()
+                        
+                        if not provider_id:
+                            continue
+                        
+                        # Map provider_id
+                        if provider_id == 'bedrock':
+                            mapping[provider_id] = 'aws_bedrock'
+                        elif provider_id in ['anthropic', 'google', 'deepseek', 'dashscope', 
+                                            'bytedance', 'baidu_qianfan', 'zhipuai']:
+                            mapping[provider_id] = 'openai'
+                        
+                        # Map display name
+                        if name and name not in ['openai', 'ollama', 'ryoais', 'azure openai', 'aws bedrock']:
+                            if 'bedrock' in name:
+                                mapping[name] = 'aws_bedrock'
+                            else:
+                                mapping[name] = 'openai'
+                    
+                    logger.debug(f"[LightragServer] Built provider mapping with {len(mapping)} entries from llm_manager")
+                    
+            except Exception as e:
+                logger.warning(f"[LightragServer] Failed to build provider mapping from llm_manager: {e}")
+            
+            return mapping
+        
+        # LightRAG natively supported providers (based on llm_providers.json)
+        # Note: LightRAG internally uses 'aws_bedrock', but we use 'bedrock' to match llm_providers.json
+        LIGHTRAG_SUPPORTED = ['ollama', 'ryoais', 'openai', 'azure_openai', 'bedrock']
+        PROVIDER_MAPPING = _build_lightrag_provider_mapping()
         
         # Map LLM binding (case-insensitive)
         llm_binding = env.get('LLM_BINDING')
