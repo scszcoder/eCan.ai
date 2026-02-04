@@ -35,6 +35,9 @@ interface SkillInfoStoreState {
   // Local helper skill ID for hybrid cloud mode
   localHelperSkillId: string | null;
   setLocalHelperSkillId: (skillId: string | null) => void;
+  // Local helper machine hostname for hybrid cloud mode
+  localHelperMachine: string | null;
+  setLocalHelperMachine: (machine: string | null) => void;
 }
 
 export const useSkillInfoStore = create<SkillInfoStoreState>((set) => ({
@@ -68,4 +71,7 @@ export const useSkillInfoStore = create<SkillInfoStoreState>((set) => ({
   // Local helper skill ID - default is null
   localHelperSkillId: null,
   setLocalHelperSkillId: (skillId) => set({ localHelperSkillId: skillId }),
+  // Local helper machine hostname - default is null
+  localHelperMachine: null,
+  setLocalHelperMachine: (machine) => set({ localHelperMachine: machine }),
 }));

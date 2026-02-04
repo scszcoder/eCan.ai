@@ -242,6 +242,10 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'get_last_login' });
     }
 
+    public async getHostname<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'get_hostname' });
+    }
+
     public async logout<T>(): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'logout' });
     }

@@ -47,6 +47,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
   const runInCloud = useSkillInfoStore((state) => state.runInCloud);
   const hybridCloudMode = useSkillInfoStore((state) => state.hybridCloudMode);
   const localHelperSkillId = useSkillInfoStore((state) => state.localHelperSkillId);
+  const localHelperMachine = useSkillInfoStore((state) => state.localHelperMachine);
   const setRunningNodeId = useRunningNodeStore((state) => state.setRunningNodeId);
 
   const [isRunning, setRunning] = useState(false);
@@ -134,6 +135,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
         run_id: '0123456789',
         hybrid_cloud_mode: hybridCloudMode,
         local_helper_skill_id: localHelperSkillId,
+        local_helper_machine: localHelperMachine,
       } : undefined;
 
       const skillPayload = {
@@ -167,7 +169,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
         setErrors([response.error?.message || 'An unknown error occurred.']);
       }
     }, 0);
-  }, [document, isRunning, username, skillInfo, breakpoints, runInCloud, hybridCloudMode, localHelperSkillId, setRunningNodeId, values]);
+  }, [document, isRunning, username, skillInfo, breakpoints, runInCloud, hybridCloudMode, localHelperSkillId, localHelperMachine, setRunningNodeId, values]);
 
   const onClose = async () => {
     if (isRunning) {

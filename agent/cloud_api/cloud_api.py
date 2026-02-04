@@ -423,31 +423,56 @@ def gen_obtain_review_request_string(query):
 
 
 def gen_report_vehicles_string(vehicles):
+    """Generate GraphQL mutation string for reporting vehicles.
+    
+    Now uses updateVehicles API instead of deprecated reportVehicles.
+    Maps old field names to new VehicleUpdateInput schema.
+    """
     query_string = """
         mutation MyMutation {
-      reportVehicles (input:[
+      updateVehicles (input:[
     """
     rec_string = ""
     for i in range(len(vehicles)):
-        rec_string = rec_string + "{ vid: " + str(int(vehicles[i]["vid"])) + ", "
-        rec_string = rec_string + "vname: \"" + vehicles[i]["vname"] + "\", "
-        rec_string = rec_string + "owner: \"" + vehicles[i]["owner"] + "\", "
-        rec_string = rec_string + "status: \"" + vehicles[i]["status"] + "\", "
-        rec_string = rec_string + "lastseen: \"" + vehicles[i]["lastseen"] + "\", "
-        rec_string = rec_string + "functions: \"" + vehicles[i]["functions"] + "\", "
-        rec_string = rec_string + "bids: \"" + vehicles[i]["agent_ids"] + "\", "
-        rec_string = rec_string + "hardware: \"" + vehicles[i]["hardware"] + "\", "
-        rec_string = rec_string + "software: \"" + vehicles[i]["software"] + "\", "
-        rec_string = rec_string + "ip: \"" + vehicles[i]["ip"] + "\", "
-        rec_string = rec_string + "created_at: \"" + vehicles[i]["created_at"] + "\" }"
+        v = vehicles[i]
+        # Use vname as the vehicle ID (unique identifier)
+        vname = v.get("vname", "")
+        
+        rec_string += "{ "
+        rec_string += f'id: "{vname}"'
+        rec_string += f', name: "{vname}"'
+        rec_string += f', status: "{v.get("status", "")}"'
+        rec_string += f', architecture: "{v.get("hardware", "")}"'
+        rec_string += f', platform: "{v.get("software", "")}"'
+        rec_string += f', ip_address: "{v.get("ip", "")}"'
+        
+        # Store additional fields in extra_metadata as JSON
+        extra_metadata = {
+            "owner": v.get("owner", ""),
+            "lastseen": v.get("lastseen", ""),
+            "functions": v.get("functions", ""),
+            "agent_ids": v.get("agent_ids", ""),
+            "vid": v.get("vid", 0),
+            "created_at": v.get("created_at", "")
+        }
+        extra_json = json.dumps(extra_metadata, ensure_ascii=False).replace('"', '\\"')
+        rec_string += f', extra_metadata: "{extra_json}"'
+        
+        # Store functions/capabilities
+        if v.get("functions"):
+            caps = {"functions": v.get("functions", "")}
+            caps_json = json.dumps(caps, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', capabilities: "{caps_json}"'
+        
+        rec_string += " }"
 
         if i != len(vehicles) - 1:
-            rec_string = rec_string + ', '
+            rec_string += ', '
         else:
-            rec_string = rec_string + ']'
+            rec_string += ']'
 
     tail_string = """
-        ) 
+        ) { id success error }
         } """
     query_string = query_string + rec_string + tail_string
 
@@ -786,10 +811,13 @@ def send_make_order_request_to_cloud(session, orders, token, endpoint):
 
 
 def send_report_vehicles_to_cloud(session, token, vehicles, endpoint):
+    """Report vehicle status to cloud using updateVehicles API.
+    
+    Note: Previously used deprecated reportVehicles API, now uses updateVehicles.
+    """
     queryInfo = gen_report_vehicles_string(vehicles)
 
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
-    # jresp = {"data": {"reportVehicles": {}}}
     if "errors" in jresp:
         screen_error = True
         print("JRESP:", jresp)
@@ -797,7 +825,8 @@ def send_report_vehicles_to_cloud(session, token, vehicles, endpoint):
             jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
-        jresponse = json.loads(jresp["data"]["reportVehicles"])
+        # updateVehicles returns [VehicleMutationResult!]! not AWSJSON
+        jresponse = jresp.get("data", {}).get("updateVehicles", [])
 
     return jresponse
 

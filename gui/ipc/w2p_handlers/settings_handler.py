@@ -12,6 +12,45 @@ from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create
 
 from utils.logger_helper import logger_helper as logger
 
+@IPCHandlerRegistry.handler('get_hostname')
+def handle_get_hostname(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Get the current machine's hostname.
+    
+    Returns:
+        IPCResponse with hostname
+    """
+    try:
+        import socket
+        import platform
+        
+        # Try multiple methods to get hostname
+        hostname = None
+        try:
+            hostname = socket.gethostname()
+        except Exception:
+            pass
+        
+        if not hostname:
+            try:
+                hostname = platform.node()
+            except Exception:
+                pass
+        
+        if not hostname:
+            hostname = "Unknown-Computer"
+        
+        # Clean up hostname (remove domain suffix if present)
+        if "." in hostname:
+            hostname = hostname.split(".", 1)[0]
+        
+        logger.debug(f"[get_hostname] Returning hostname: {hostname}")
+        return create_success_response(request, {'hostname': hostname})
+        
+    except Exception as e:
+        logger.error(f"Error getting hostname: {e}")
+        return create_error_response(request, 'HOSTNAME_ERROR', f"Error getting hostname: {str(e)}")
+
+
 @IPCHandlerRegistry.handler('get_settings')
 def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Handle login request
