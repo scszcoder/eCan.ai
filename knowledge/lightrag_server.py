@@ -310,7 +310,7 @@ class LightragServer:
         # Map all other providers to OpenAI-compatible API
         
         # Provider mapping table
-        LIGHTRAG_SUPPORTED = ['lollms', 'ollama', 'openai', 'azure_openai', 'aws_bedrock']
+        LIGHTRAG_SUPPORTED = ['lollms', 'ollama', 'ryoais', 'openai', 'azure_openai', 'aws_bedrock']
         PROVIDER_MAPPING = {
             # AWS
             'bedrock': 'aws_bedrock',

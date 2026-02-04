@@ -509,7 +509,7 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'set_default_llm' }, params);
     }
 
-    public async updateLLMProvider<T>(name: string, apiKey: string, azureEndpoint?: string, awsAccessKeyId?: string, awsSecretAccessKey?: string): Promise<APIResponse<T>> {
+    public async updateLLMProvider<T>(name: string, apiKey: string, azureEndpoint?: string, awsAccessKeyId?: string, awsSecretAccessKey?: string, baseUrl?: string): Promise<APIResponse<T>> {
         const params: any = { name, api_key: apiKey };
         if (azureEndpoint) {
             params.azure_endpoint = azureEndpoint;
@@ -519,6 +519,9 @@ export class IPCAPI {
         }
         if (awsSecretAccessKey) {
             params.aws_secret_access_key = awsSecretAccessKey;
+        }
+        if (baseUrl) {
+            params.base_url = baseUrl;
         }
         return apiRouter.execute({ method: 'update_llm_provider' }, params);
     }
@@ -560,10 +563,13 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'set_default_embedding' }, params);
     }
 
-    public async updateEmbeddingProvider<T>(name: string, apiKey: string, azureEndpoint?: string): Promise<APIResponse<T>> {
+    public async updateEmbeddingProvider<T>(name: string, apiKey: string, azureEndpoint?: string, baseUrl?: string): Promise<APIResponse<T>> {
         const params: any = { name, api_key: apiKey };
         if (azureEndpoint) {
             params.azure_endpoint = azureEndpoint;
+        }
+        if (baseUrl) {
+            params.base_url = baseUrl;
         }
         return apiRouter.execute({ method: 'update_embedding_provider' }, params);
     }
@@ -597,10 +603,13 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'set_default_rerank' }, params);
     }
 
-    public async updateRerankProvider<T>(name: string, apiKey: string, azureEndpoint?: string): Promise<APIResponse<T>> {
+    public async updateRerankProvider<T>(name: string, apiKey: string, azureEndpoint?: string, baseUrl?: string): Promise<APIResponse<T>> {
         const params: any = { name, api_key: apiKey };
         if (azureEndpoint) {
             params.azure_endpoint = azureEndpoint;
+        }
+        if (baseUrl) {
+            params.base_url = baseUrl;
         }
         return apiRouter.execute({ method: 'update_rerank_provider' }, params);
     }
@@ -623,6 +632,10 @@ export class IPCAPI {
 
     public async getOllamaModels<T>(host: string, username?: string): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'settings.getOllamaModels' }, { host, username });
+    }
+
+    public async getRyoAISModels<T>(host: string, username?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'settings.getRyoAISModels' }, { host, username });
     }
 
     public async runTest<T>(tests: TestConfig[]): Promise<APIResponse<T>> {
