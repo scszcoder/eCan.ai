@@ -30,15 +30,19 @@ def get_embedding_manager(request=None, params=None):
 
 @IPCHandlerRegistry.handler('get_embedding_providers')
 def handle_get_embedding_providers(request: IPCRequest, params: Optional[Dict[str, Any]] = None) -> IPCResponse:
-    """Get all Embedding providers with Ollama models merged"""
+    """Get all Embedding providers with Ollama and RyoAIS models merged"""
     try:
         from gui.ollama_utils import merge_ollama_models_to_providers
+        from gui.ryoais_utils import merge_ryoais_models_to_providers
         
         embedding_manager = get_embedding_manager(request, params)
         providers = embedding_manager.get_all_providers()
         
         # Merge Ollama models using shared utility
         providers = merge_ollama_models_to_providers(providers, provider_type='embedding')
+        
+        # Merge RyoAIS models using shared utility
+        providers = merge_ryoais_models_to_providers(providers, provider_type='embedding')
         
         logger.info(f"Retrieved {len(providers)} Embedding providers")
 

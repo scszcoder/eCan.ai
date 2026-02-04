@@ -33,6 +33,7 @@ class LLMProvider(Enum):
     BYTEDANCE = "bytedance"
     BAIDU_QIANFAN = "baidu_qianfan"
     OLLAMA = "ollama"
+    RYOAIS = "ryoais"
 
 
 @dataclass
