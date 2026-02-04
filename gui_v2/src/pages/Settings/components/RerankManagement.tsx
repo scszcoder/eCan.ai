@@ -16,6 +16,7 @@ import {
   EyeInvisibleOutlined,
   GlobalOutlined,
   ReloadOutlined,
+  ScanOutlined,
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { get_ipc_api } from "../../../services/ipc_api";
@@ -83,6 +84,8 @@ const RerankManagement = React.forwardRef<
   const [editingRyoaisHost, setEditingRyoaisHost] = useState(false);
   const [tempRyoaisHost, setTempRyoaisHost] = useState('');
   const [ryoaisApiKey, setRyoaisApiKey] = useState('');
+  const [ryoaisScanning, setRyoaisScanning] = useState(false);
+  const [ryoaisDevices, setRyoaisDevices] = useState<Array<{ name: string; url: string }>>([]);
 
   // Fetch Ollama models and save to backend
   const fetchOllamaModels = useCallback(async (host?: string) => {
@@ -132,6 +135,57 @@ const RerankManagement = React.forwardRef<
     }
   }, [ryoaisHost, username, message, t]);
 
+  // Scan for RyoAIS devices using mDNS
+  const scanRyoAISDevices = useCallback(async () => {
+    setRyoaisScanning(true);
+    try {
+      const response = await get_ipc_api().executeRequest<{
+        devices: Array<{ name: string; url: string; hostname?: string; ip?: string }>;
+        count: number;
+        scan_duration: number;
+      }>('ryoais.scanDevices', {
+        timeout: 10,
+        environment: 'production'
+      });
+
+      if (response && response.success && response.data) {
+        const rawDevices = response.data.devices || [];
+        
+        const devices = rawDevices.map(device => {
+          let url = device.url;
+          if (!url.endsWith('/v1')) {
+            url = url.replace(/\/$/, '') + '/v1';
+          }
+          return {
+            ...device,
+            url
+          };
+        });
+        
+        setRyoaisDevices(devices);
+        
+        if (devices.length > 0) {
+          message.success(t('pages.settings.ryoais.scan_success', { count: devices.length }));
+          
+          if (devices.length === 1) {
+            setTempRyoaisHost(devices[0].url);
+            message.info(t('pages.settings.ryoais.auto_filled'));
+          }
+        } else {
+          message.info(t('pages.settings.ryoais.no_devices_found'));
+        }
+      } else {
+        message.error(t('pages.settings.ryoais.scan_failed'));
+        setRyoaisDevices([]);
+      }
+    } catch (error: any) {
+      console.error('[RyoAIS] Scan error:', error);
+      message.error(t('pages.settings.ryoais.scan_error'));
+      setRyoaisDevices([]);
+    } finally {
+      setRyoaisScanning(false);
+    }
+  }, [message, t]);
 
   // Load Rerank providers
   const loadProviders = useCallback(async () => {
@@ -896,15 +950,46 @@ const RerankManagement = React.forwardRef<
         // RyoAIS specific rendering with host and optional API key
         if (isRyoAISProvider(record)) {
           if (editingRyoaisHost) {
+            const hasMultipleDevices = ryoaisDevices.length > 1;
+            
             return (
               <Space direction="vertical" style={{ width: "100%" }}>
-                <Input
-                  value={tempRyoaisHost}
-                  onChange={(e) => setTempRyoaisHost(e.target.value)}
-                  placeholder={t("pages.settings.ryoais_host_placeholder")}
-                  style={{ width: "300px" }}
-                  addonBefore="Host"
-                />
+                <Space.Compact style={{ width: "300px" }}>
+                  {hasMultipleDevices ? (
+                    <Select
+                      value={tempRyoaisHost}
+                      onChange={setTempRyoaisHost}
+                      placeholder={t("pages.settings.ryoais_host_placeholder")}
+                      style={{ flex: 1 }}
+                      optionLabelProp="label"
+                    >
+                      {ryoaisDevices.map(device => (
+                        <Select.Option key={device.url} value={device.url} label={device.url}>
+                          <div>
+                            <div style={{ fontWeight: 500 }}>{device.url}</div>
+                            {device.name && (
+                              <div style={{ fontSize: '12px', color: '#999' }}>{device.name}</div>
+                            )}
+                          </div>
+                        </Select.Option>
+                      ))}
+                    </Select>
+                  ) : (
+                    <Input
+                      value={tempRyoaisHost}
+                      onChange={(e) => setTempRyoaisHost(e.target.value)}
+                      placeholder={t("pages.settings.ryoais_host_placeholder")}
+                      style={{ flex: 1 }}
+                    />
+                  )}
+                  <Tooltip title={t("pages.settings.ryoais.scan_devices")}>
+                    <Button
+                      icon={<ScanOutlined />}
+                      loading={ryoaisScanning}
+                      onClick={scanRyoAISDevices}
+                    />
+                  </Tooltip>
+                </Space.Compact>
                 <Input
                   value={ryoaisApiKey}
                   onChange={(e) => setRyoaisApiKey(e.target.value)}

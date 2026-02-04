@@ -982,10 +982,12 @@
       "ryoais": {
         "tab_title": "RYOAIS 设备发现",
         "scan_button": "扫描设备",
+        "scan_devices": "扫描RyoAIS设备",
         "scan_success": "发现 {{count}} 个设备",
         "no_devices_found": "未发现设备",
         "scan_failed": "扫描设备失败",
         "scan_error": "扫描设备时出错",
+        "auto_filled": "已自动填充设备地址",
         "scan_timeout": "扫描超时",
         "filter_environment": "筛选环境",
         "all_environments": "所有环境",
