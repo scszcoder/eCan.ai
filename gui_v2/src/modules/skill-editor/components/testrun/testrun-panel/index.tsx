@@ -44,6 +44,9 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
   const username = useUserStore((state) => state.username);
   const skillInfo = useSkillInfoStore((state) => state.skillInfo);
   const breakpoints = useSkillInfoStore((state) => state.breakpoints);
+  const runInCloud = useSkillInfoStore((state) => state.runInCloud);
+  const hybridCloudMode = useSkillInfoStore((state) => state.hybridCloudMode);
+  const localHelperSkillId = useSkillInfoStore((state) => state.localHelperSkillId);
   const setRunningNodeId = useRunningNodeStore((state) => state.setRunningNodeId);
 
   const [isRunning, setRunning] = useState(false);
@@ -124,10 +127,20 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
         },
       } as any;
 
+      // Build meta_data for cloud runs (dev mode uses fixed client_id and run_id)
+      const metaData = runInCloud ? {
+        run_in_cloud: true,
+        client_id: 'client-0123456789',
+        run_id: '0123456789',
+        hybrid_cloud_mode: hybridCloudMode,
+        local_helper_skill_id: localHelperSkillId,
+      } : undefined;
+
       const skillPayload = {
         ...skillInfo,
         diagram: composedDiagram,
         testInputs: values,
+        ...(metaData ? { meta_data: metaData } : {}),
       };
 
       // Debug logs to verify bundle presence on FE side
@@ -154,7 +167,7 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
         setErrors([response.error?.message || 'An unknown error occurred.']);
       }
     }, 0);
-  }, [document, isRunning, username, skillInfo, breakpoints, setRunningNodeId, values]);
+  }, [document, isRunning, username, skillInfo, breakpoints, runInCloud, hybridCloudMode, localHelperSkillId, setRunningNodeId, values]);
 
   const onClose = async () => {
     if (isRunning) {

@@ -36,6 +36,9 @@ export const Open = ({ disabled }: OpenProps) => {
   const setPreviewMode = useSkillInfoStore((state) => state.setPreviewMode);
   const setDataMappingJson = useSkillInfoStore((state) => state.setDataMappingJson);
   const setDataMappingPath = useSkillInfoStore((state) => state.setDataMappingPath);
+  const setRunInCloud = useSkillInfoStore((state) => state.setRunInCloud);
+  const setHybridCloudMode = useSkillInfoStore((state) => state.setHybridCloudMode);
+  const setLocalHelperSkillId = useSkillInfoStore((state) => state.setLocalHelperSkillId);
   const addRecentFile = useRecentFilesStore((state) => state.addRecentFile);
   const loadBundle = useSheetsStore((s) => s.loadBundle);
   const { setFlipped, clear: clearFlipStore } = useNodeFlipStore();
@@ -99,6 +102,11 @@ export const Open = ({ disabled }: OpenProps) => {
           setDataMappingPath(result.dataMappingPath || null);
           setCurrentFilePath(filePath);
           setHasUnsavedChanges(false);
+          
+          // Restore run_in_cloud setting from saved skill
+          setRunInCloud((data as any).run_in_cloud === true);
+          setHybridCloudMode((data as any).hybrid_cloud_mode === true);
+          setLocalHelperSkillId((data as any).local_helper_skill_id || null);
           
           const breakpointIds = diagram.nodes
             .filter((node: any) => node.data?.break_point)
@@ -171,6 +179,9 @@ export const Open = ({ disabled }: OpenProps) => {
     workflowDocument,
     setDataMappingJson,
     setDataMappingPath,
+    setRunInCloud,
+    setHybridCloudMode,
+    setLocalHelperSkillId,
   ]);
 
   const openWebPicker = useCallback(async () => {

@@ -417,6 +417,9 @@ export const Save = ({ disabled }: SaveProps) => {
   const getAllSheets = useSheetsStore((s) => s.getAllSheets);
   const saveActiveSheetDoc = useSheetsStore((s) => s.saveActiveDocument);
   const { isFlipped } = useNodeFlipStore();
+  const runInCloud = useSkillInfoStore((state) => state.runInCloud);
+  const hybridCloudMode = useSkillInfoStore((state) => state.hybridCloudMode);
+  const localHelperSkillId = useSkillInfoStore((state) => state.localHelperSkillId);
 
   const handleSave = useCallback(async () => {
     if (!skillInfo) return;
@@ -439,6 +442,9 @@ export const Save = ({ disabled }: SaveProps) => {
         schemaVersion: CURRENT_SCHEMA_VERSION,  // Always save with current workflow schema version
         mode: (skillInfo as any)?.mode ?? 'development',
         run_mode: (skillInfo as any)?.run_mode ?? 'developing',
+        run_in_cloud: runInCloud,
+        hybrid_cloud_mode: hybridCloudMode,
+        local_helper_skill_id: localHelperSkillId,
         config: {
           ...(skillInfo as any)?.config,
           nodes: { ...((skillInfo as any)?.config?.nodes || {}), ...configNodes },
@@ -554,6 +560,9 @@ export const Save = ({ disabled }: SaveProps) => {
     setDataMappingJson,
     setDataMappingDirty,
     username,
+    runInCloud,
+    hybridCloudMode,
+    localHelperSkillId,
   ]);
 
   return (
@@ -584,6 +593,9 @@ export const SaveAs = ({ disabled }: SaveProps) => {
   const getAllSheets = useSheetsStore((s) => s.getAllSheets);
   const saveActiveSheetDoc = useSheetsStore((s) => s.saveActiveDocument);
   const { isFlipped } = useNodeFlipStore();
+  const runInCloud = useSkillInfoStore((state) => state.runInCloud);
+  const hybridCloudMode = useSkillInfoStore((state) => state.hybridCloudMode);
+  const localHelperSkillId = useSkillInfoStore((state) => state.localHelperSkillId);
   const username = useUserStore((state) => state.username);
 
   const handleSaveAs = useCallback(async () => {
@@ -708,6 +720,9 @@ export const SaveAs = ({ disabled }: SaveProps) => {
         schemaVersion: CURRENT_SCHEMA_VERSION,  // Always save with current workflow schema version
         mode: (skillInfo as any)?.mode ?? 'development',
         run_mode: (skillInfo as any)?.run_mode ?? 'developing',
+        run_in_cloud: runInCloud,
+        hybrid_cloud_mode: hybridCloudMode,
+        local_helper_skill_id: localHelperSkillId,
         config: {
           ...(skillInfo as any)?.config,
           nodes: { ...((skillInfo as any)?.config?.nodes || {}), ...configNodes },
@@ -805,6 +820,9 @@ export const SaveAs = ({ disabled }: SaveProps) => {
         lastModified: new Date().toISOString(),
         mode: (skillInfo as any)?.mode ?? 'development',
         run_mode: (skillInfo as any)?.run_mode ?? 'developing',
+        run_in_cloud: runInCloud,
+        hybrid_cloud_mode: hybridCloudMode,
+        local_helper_skill_id: localHelperSkillId,
         config: {
           ...(skillInfo as any)?.config,
           nodes: { ...((skillInfo as any)?.config?.nodes || {}), ...configNodes },

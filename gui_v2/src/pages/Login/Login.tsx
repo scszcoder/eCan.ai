@@ -90,12 +90,14 @@ const Login: React.FC = () => {
 				}
 
 				// Load login info (includes language and theme preferences)
+				console.log('[Login] Calling getLastLoginInfo...');
 				const response = await Promise.race([
 					api.getLastLoginInfo(),
 					timeoutPromise
 				]) as APIResponse<any>;
 
-				console.log('[Login] Last login info', response.data);
+				console.log('[Login] Last login info response:', response);
+				console.log('[Login] Last login info data:', response?.data);
 				if (response?.data?.last_login) {
 					const { username, password, machine_role, language } = response.data.last_login;
 					console.log('last_login', response.data.last_login);
