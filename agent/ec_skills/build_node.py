@@ -726,20 +726,66 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     model_provider = raw_provider or _infer_provider(api_host, model_name)
     llm_provider = (model_provider or "openai").lower()
 
-    # Normalize provider names (handle spaces in provider names)
-    # Map frontend provider names to backend identifiers
-    provider_mapping = {
-        'azure openai': 'azure',
-        'anthropic claude': 'anthropic',
-        'aws bedrock': 'bedrock',
-        'google gemini': 'google',
-        'qwen (dashscope)': 'qwen',
-        'ollama (local)': 'ollama',
-        'bytedance doubao': 'bytedance',
-        'dashscope/qwen': 'dashscope',
-        'baidu qianfan': 'baidu_qianfan',
-        '百度千帆': 'baidu_qianfan',
-    }
+    # Normalize provider names dynamically from llm_manager
+    # This automatically syncs with gui/config/llm_providers.json
+    def _get_provider_mapping() -> dict:
+        """
+        Dynamically build provider mapping from llm_manager.
+        This ensures consistency with llm_providers.json and reduces maintenance.
+        
+        Returns:
+            Dictionary mapping various provider name formats to canonical provider identifiers
+        """
+        try:
+            from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
+            llm_manager = get_llm_manager()
+            
+            if not llm_manager:
+                logger.warning("[build_llm_node] LLM manager not available, using fallback mapping")
+                return {}
+            
+            providers = llm_manager.get_all_providers()
+            mapping = {}
+            
+            for provider in providers:
+                # Get canonical provider identifier (e.g., "openai", "deepseek")
+                provider_id = (provider.get("provider") or "").lower()
+                if not provider_id:
+                    continue
+                
+                # Map provider identifier to itself
+                mapping[provider_id] = provider_id
+                
+                # Map display name to provider identifier (e.g., "OpenAI" -> "openai")
+                name = (provider.get("name") or "").lower()
+                if name:
+                    mapping[name] = provider_id
+                
+                # Map display_name if different from name
+                display_name = (provider.get("display_name") or "").lower()
+                if display_name and display_name != name:
+                    mapping[display_name] = provider_id
+                
+                # Map class_name for backward compatibility (e.g., "ChatOpenAI" -> "openai")
+                class_name = (provider.get("class_name") or "").lower()
+                if class_name:
+                    mapping[class_name] = provider_id
+            
+            logger.debug(f"[build_llm_node] Built provider mapping with {len(mapping)} entries from llm_manager")
+            return mapping
+            
+        except Exception as e:
+            logger.warning(f"[build_llm_node] Failed to build provider mapping from llm_manager: {e}")
+            return {}
+    
+    # Get dynamic provider mapping from llm_manager
+    # This automatically includes all providers defined in llm_providers.json:
+    # - provider_id (e.g., "deepseek")
+    # - name (e.g., "DeepSeek")
+    # - display_name
+    # - class_name (e.g., "ChatDeepSeek")
+    provider_mapping = _get_provider_mapping()
+    
     logger.info(f"llm config: system_prompt_template='{system_prompt_template}' user_prompt_template='{user_prompt_template}' ")
     logger.info(f"llm config: model_name={model_name} api_host={api_host} api_key={api_key} model_provider={model_provider} llm_provider={llm_provider}")
 
@@ -1529,6 +1575,14 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                                      "Please check your API key configuration.")
                     logger.error(f"{err_msg} | Original error: {error_str}")
                     send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
+                elif "Error code: 402" in error_str or "Insufficient Balance" in error_str or "insufficient balance" in error_str.lower():
+                    err_msg = (f"💰 {llm_provider} 余额不足 (Insufficient Balance): "
+                                     f"您的 {llm_provider} API 账户余额已用尽，无法继续调用。"
+                                     f"请前往 {llm_provider} 平台充值后再试。")
+                    logger.error(f"{err_msg}")
+                    logger.error(f"[BALANCE_ERROR] Provider: {llm_provider}, Model: {model_name}")
+                    logger.error(f"[BALANCE_ERROR] API Host: {api_host or 'default'}")
+                    send_skill_editor_log("error", err_msg)
                 elif "RateLimitError" in error_type or "rate limit" in error_str.lower() or "quota" in error_str.lower():
                     err_msg = (f"❌ LLM Rate Limit Exceeded: {llm_provider} quota exhausted or rate limit reached. "
                                      "Please check your usage limits.")

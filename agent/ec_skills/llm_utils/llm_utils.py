@@ -1557,6 +1557,15 @@ def _create_and_validate_browser_use_llm(bu_config: dict):
         adapt_deepseek_output = bu_config.pop('adapt_deepseek_output', False)
         adapt_qwen_output = bu_config.pop('adapt_qwen_output', False)
         
+        # Remove extra_body parameter - BrowserUseChatOpenAI doesn't support it
+        # This parameter is used for standard LangChain ChatOpenAI (e.g., Qwen thinking control)
+        # but browser_use's ChatOpenAI wrapper doesn't accept it
+        if 'extra_body' in bu_config:
+            extra_body_value = bu_config.pop('extra_body')
+            logger.debug(
+                f"[_create_and_validate_browser_use_llm] Removed unsupported 'extra_body' parameter: {extra_body_value}"
+            )
+        
         # Get the logging wrapper class
         LoggingBrowserUseChatOpenAI = _get_logging_browser_use_class()
         

@@ -15,6 +15,38 @@ interface PromptInputWithSelectorProps {
   required?: boolean;
 }
 
+// Separate component to handle visibility with CSS instead of unmounting
+// This avoids the PromptEditor internal unmount warning
+const PromptEditorField: React.FC<{
+  showPromptEditor: boolean;
+  promptFieldName: string;
+  label: string;
+  schema?: any;
+  required: boolean;
+  readonly: boolean;
+  sanitizeFlowValue: (val: any, schema?: any) => any;
+}> = ({ showPromptEditor, promptFieldName, label, schema, required, readonly, sanitizeFlowValue }) => {
+  return (
+    <div style={{ display: showPromptEditor ? 'block' : 'none' }}>
+      <FormItem name={label} vertical type="string" required={required}>
+        <Field<any> name={promptFieldName}>
+          {({ field, fieldState }) => (
+            <>
+              <PromptEditorWithVariables
+                value={sanitizeFlowValue(field.value, schema)}
+                onChange={field.onChange}
+                readonly={readonly}
+                hasError={Object.keys(fieldState?.errors || {}).length > 0}
+              />
+              <Feedback errors={fieldState?.errors} warnings={fieldState?.warnings} />
+            </>
+          )}
+        </Field>
+      </FormItem>
+    </div>
+  );
+};
+
 export const PromptInputWithSelector: React.FC<PromptInputWithSelectorProps> = ({
   promptFieldName,
   promptIdFieldName,
@@ -74,23 +106,15 @@ export const PromptInputWithSelector: React.FC<PromptInputWithSelectorProps> = (
           const showPromptEditor = promptId === IN_LINE_PROMPT_ID;
 
           return (
-            <div style={{ display: showPromptEditor ? 'block' : 'none' }}>
-              <FormItem name={label} vertical type="string" required={required}>
-                <Field<any> name={promptFieldName}>
-                  {({ field, fieldState }) => (
-                    <>
-                      <PromptEditorWithVariables
-                        value={sanitizeFlowValue(field.value, schema)}
-                        onChange={field.onChange}
-                        readonly={readonly}
-                        hasError={Object.keys(fieldState?.errors || {}).length > 0}
-                      />
-                      <Feedback errors={fieldState?.errors} warnings={fieldState?.warnings} />
-                    </>
-                  )}
-                </Field>
-              </FormItem>
-            </div>
+            <PromptEditorField
+              showPromptEditor={showPromptEditor}
+              promptFieldName={promptFieldName}
+              label={label}
+              schema={schema}
+              required={required}
+              readonly={readonly}
+              sanitizeFlowValue={sanitizeFlowValue}
+            />
           );
         }}
       </Field>
