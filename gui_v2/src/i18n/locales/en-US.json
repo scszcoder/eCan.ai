@@ -979,10 +979,12 @@
       "ryoais": {
         "tab_title": "RYOAIS Discovery",
         "scan_button": "Scan Devices",
+        "scan_devices": "Scan RyoAIS Devices",
         "scan_success": "Found {{count}} device(s)",
         "no_devices_found": "No devices found",
         "scan_failed": "Failed to scan devices",
         "scan_error": "Error scanning devices",
+        "auto_filled": "Device address auto-filled",
         "scan_timeout": "Scan Timeout",
         "filter_environment": "Filter Environment",
         "all_environments": "All Environments",
