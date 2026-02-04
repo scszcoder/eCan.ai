@@ -26,6 +26,15 @@ interface SkillInfoStoreState {
   setHasUnsavedChanges: (hasChanges: boolean) => void;
   previewMode: boolean;
   setPreviewMode: (preview: boolean) => void;
+  // Cloud execution toggle - when true, skill runs in cloud worker
+  runInCloud: boolean;
+  setRunInCloud: (runInCloud: boolean) => void;
+  // Hybrid cloud mode - when true, a local helper skill works with the cloud skill
+  hybridCloudMode: boolean;
+  setHybridCloudMode: (hybridCloudMode: boolean) => void;
+  // Local helper skill ID for hybrid cloud mode
+  localHelperSkillId: string | null;
+  setLocalHelperSkillId: (skillId: string | null) => void;
 }
 
 export const useSkillInfoStore = create<SkillInfoStoreState>((set) => ({
@@ -50,4 +59,13 @@ export const useSkillInfoStore = create<SkillInfoStoreState>((set) => ({
   setHasUnsavedChanges: (hasChanges) => set({ hasUnsavedChanges: hasChanges }),
   previewMode: false,
   setPreviewMode: (preview) => set({ previewMode: preview }),
+  // Cloud execution - default is local (false)
+  runInCloud: false,
+  setRunInCloud: (runInCloud) => set({ runInCloud }),
+  // Hybrid cloud mode - default is false
+  hybridCloudMode: false,
+  setHybridCloudMode: (hybridCloudMode) => set({ hybridCloudMode }),
+  // Local helper skill ID - default is null
+  localHelperSkillId: null,
+  setLocalHelperSkillId: (skillId) => set({ localHelperSkillId: skillId }),
 }));

@@ -3,7 +3,7 @@ import traceback
 from app_context import AppContext
 if TYPE_CHECKING:
     from gui.MainGUI import MainWindow
-from gui.ipc.handlers import validate_params
+from gui.ipc.handlers import validate_params, resolve_username
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from agent.cloud_api.constants import Operation
@@ -331,7 +331,7 @@ def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]
 
     Args:
         request: IPC request object
-        params: Request parameters, must contain 'username' field
+        params: Request parameters, can contain 'username', 'owner', or 'userId' field
 
     Returns:
         JSON formatted response message
@@ -339,17 +339,16 @@ def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]
     try:
         logger.debug(f"Get agent tasks handler called with request: {request}")
 
-        # Validate parameters
-        is_valid, data, error = validate_params(params, ['username'])
-        if not is_valid:
-            logger.warning(f"Invalid parameters for get agent tasks: {error}")
+        # Resolve username from params (supports username, owner, userId) or MainWindow context
+        username = resolve_username(request, params)
+        if not username:
+            logger.warning(f"Invalid parameters for get agent tasks: Missing username")
             return create_error_response(
                 request,
                 'INVALID_PARAMS',
-                error
+                'Missing required parameter: username (or owner/userId)'
             )
 
-        username = data['username']
         logger.info(f"Getting agent tasks for user: {username}")
 
         # Get tasks from BOTH sources and merge them:
@@ -477,14 +476,18 @@ def handle_save_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]]
     try:
         logger.debug(f"Save task handler called with request: {request}")
 
-        # Validate parameters
-        is_valid, data, error = validate_params(params, ['username', 'task_info'])
-        if not is_valid:
-            logger.warning(f"Invalid parameters for save task: {error}")
-            return create_error_response(request, 'INVALID_PARAMS', error)
+        # Resolve username from params (supports username, owner, userId)
+        username = resolve_username(request, params)
+        if not username:
+            logger.warning(f"Invalid parameters for save task: Missing username")
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: username (or owner/userId)')
 
-        username = data['username']
-        agent_task_info = data['task_info']
+        # Validate task_info parameter
+        if not params or not params.get('task_info'):
+            logger.warning(f"Invalid parameters for save task: Missing task_info")
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: task_info')
+
+        agent_task_info = params['task_info']
         agent_task_id = agent_task_info.get('id')
         
 
@@ -602,14 +605,18 @@ def handle_new_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]])
     try:
         logger.debug(f"Create new task handler called with request: {request}")
 
-        # Validate parameters
-        is_valid, data, error = validate_params(params, ['username', 'task_info'])
-        if not is_valid:
-            logger.warning(f"Invalid parameters for create task: {error}")
-            return create_error_response(request, 'INVALID_PARAMS', error)
+        # Resolve username from params (supports username, owner, userId)
+        username = resolve_username(request, params)
+        if not username:
+            logger.warning(f"Invalid parameters for create task: Missing username")
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: username (or owner/userId)')
 
-        username = data['username']
-        agent_task_info = data['task_info']
+        # Validate task_info parameter
+        if not params or not params.get('task_info'):
+            logger.warning(f"Invalid parameters for create task: Missing task_info")
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: task_info')
+
+        agent_task_info = params['task_info']
 
         logger.info(f"Creating new agent task for user: {username}")
 
@@ -691,14 +698,18 @@ def handle_delete_agent_task(request: IPCRequest, params: Optional[Dict[str, Any
     try:
         logger.debug(f"Delete task handler called with request: {request}")
 
-        # Validate parameters
-        is_valid, data, error = validate_params(params, ['username', 'task_id'])
-        if not is_valid:
-            logger.warning(f"Invalid parameters for delete task: {error}")
-            return create_error_response(request, 'INVALID_PARAMS', error)
+        # Resolve username from params (supports username, owner, userId)
+        username = resolve_username(request, params)
+        if not username:
+            logger.warning(f"Invalid parameters for delete task: Missing username")
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: username (or owner/userId)')
 
-        username = data['username']
-        agent_task_id = data['task_id']
+        # Validate task_id parameter
+        if not params or not params.get('task_id'):
+            logger.warning(f"Invalid parameters for delete task: Missing task_id")
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: task_id')
+
+        agent_task_id = params['task_id']
 
         # ⚠️ Prevent deleting code-generated tasks from database
         # First check if this is a code-generated task by checking memory

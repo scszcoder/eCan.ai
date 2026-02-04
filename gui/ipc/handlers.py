@@ -41,6 +41,9 @@ def resolve_username(request: IPCRequest, params: Optional[Dict[str, Any]]) -> O
     For local_server requests (HTTP via LocalServer.py), the username may not be
     in params, so we try to get it from MainWindow.user or auth_manager.
     
+    Checks for username under multiple keys: 'username', 'owner', 'userId'
+    to support both IPC and GraphQL parameter conventions.
+    
     Args:
         request: IPC request object
         params: Request parameters
@@ -48,9 +51,11 @@ def resolve_username(request: IPCRequest, params: Optional[Dict[str, Any]]) -> O
     Returns:
         Username string or None if not found
     """
-    # First try params
-    if params and params.get('username'):
-        return params['username']
+    # First try params with multiple possible keys (GraphQL uses owner/userId)
+    if params:
+        for key in ('username', 'owner', 'userId'):
+            if params.get(key):
+                return params[key]
     
     # For local_server requests, try to get from MainWindow
     if request.get('source') == 'local_server':

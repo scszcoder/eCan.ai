@@ -4,7 +4,7 @@ import requests
 from typing import TYPE_CHECKING, Any, Optional, Dict, Tuple
 from app_context import AppContext
 from gui.ipc.context_bridge import get_handler_context
-from gui.ipc.handlers import validate_params
+from gui.ipc.handlers import validate_params, resolve_username
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from utils.logger_helper import logger_helper as logger
@@ -33,7 +33,7 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
 
     Args:
         request: IPC request object
-        params: Request parameters, must contain 'username' field
+        params: Request parameters, can contain 'username', 'owner', or 'userId' field
 
     Returns:
         JSON formatted response message
@@ -41,17 +41,16 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
     try:
         logger.debug(f"Get agent skills handler called with request: {request}")
 
-        # Validate parameters
-        is_valid, data, error = validate_params(params, ['username'])
-        if not is_valid:
-            logger.warning(f"Invalid parameters for get agent skills: {error}")
+        # Resolve username from params (supports username, owner, userId) or MainWindow context
+        username = resolve_username(request, params)
+        if not username:
+            logger.warning(f"Invalid parameters for get agent skills: Missing username")
             return create_error_response(
                 request,
                 'INVALID_PARAMS',
-                error
+                'Missing required parameter: username (or owner/userId)'
             )
 
-        username = data['username']
         logger.info(f"Getting agent skills for user: {username}")
 
         # Get skills from memory (mainwin.agent_skills is the single source of truth)
@@ -110,11 +109,10 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
 @IPCHandlerRegistry.handler('get_public_skills')
 def handle_get_public_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     try:
-        is_valid, data, error = validate_params(params, ['username'])
-        if not is_valid:
-            return create_error_response(request, 'INVALID_PARAMS', error)
-
-        username = data['username']
+        # Resolve username from params (supports username, owner, userId)
+        username = resolve_username(request, params)
+        if not username:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: username (or owner/userId)')
 
         skill_service = _get_skill_service(request, params)
         if not skill_service:
@@ -159,14 +157,18 @@ def handle_save_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]
     try:
         logger.debug(f"Save agent skill handler called with request: {request}")
 
-        # Validate parameters
-        is_valid, data, error = validate_params(params, ['username', 'skill_info'])
-        if not is_valid:
-            logger.warning(f"Invalid parameters for save agent skill: {error}")
-            return create_error_response(request, 'INVALID_PARAMS', error)
+        # Resolve username from params (supports username, owner, userId)
+        username = resolve_username(request, params)
+        if not username:
+            logger.warning(f"Invalid parameters for save agent skill: Missing username")
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: username (or owner/userId)')
 
-        username = data['username']
-        skill_info = data['skill_info']
+        # Validate skill_info parameter
+        if not params or not params.get('skill_info'):
+            logger.warning(f"Invalid parameters for save agent skill: Missing skill_info")
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: skill_info')
+
+        skill_info = params['skill_info']
         skill_id = skill_info.get('id')
 
         if not skill_id:
@@ -280,14 +282,18 @@ def handle_new_agent_skill(request: IPCRequest, params: Optional[Dict[str, Any]]
     try:
         logger.debug(f"Create new agent skill handler called with request: {request}")
 
-        # Validate parameters
-        is_valid, data, error = validate_params(params, ['username', 'skill_info'])
-        if not is_valid:
-            logger.warning(f"Invalid parameters for create agent skill: {error}")
-            return create_error_response(request, 'INVALID_PARAMS', error)
+        # Resolve username from params (supports username, owner, userId)
+        username = resolve_username(request, params)
+        if not username:
+            logger.warning(f"Invalid parameters for create agent skill: Missing username")
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: username (or owner/userId)')
 
-        username = data['username']
-        skill_info = data['skill_info']
+        # Validate skill_info parameter
+        if not params or not params.get('skill_info'):
+            logger.warning(f"Invalid parameters for create agent skill: Missing skill_info")
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: skill_info')
+
+        skill_info = params['skill_info']
 
         logger.info(f"Creating new agent skill for user: {username}")
 
@@ -373,14 +379,18 @@ def handle_delete_agent_skill(request: IPCRequest, params: Optional[Dict[str, An
     try:
         logger.debug(f"Delete skill handler called with request: {request}")
 
-        # Validate parameters
-        is_valid, data, error = validate_params(params, ['username', 'skill_id'])
-        if not is_valid:
-            logger.warning(f"Invalid parameters for delete skill: {error}")
-            return create_error_response(request, 'INVALID_PARAMS', error)
+        # Resolve username from params (supports username, owner, userId)
+        username = resolve_username(request, params)
+        if not username:
+            logger.warning(f"Invalid parameters for delete skill: Missing username")
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: username (or owner/userId)')
 
-        username = data['username']
-        skill_id = data['skill_id']
+        # Validate skill_id parameter
+        if not params or not params.get('skill_id'):
+            logger.warning(f"Invalid parameters for delete skill: Missing skill_id")
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: skill_id')
+
+        skill_id = params['skill_id']
 
         logger.info(f"Deleting agent skill for user: {username}, skill_id: {skill_id}")
 

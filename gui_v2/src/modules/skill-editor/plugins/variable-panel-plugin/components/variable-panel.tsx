@@ -5,21 +5,39 @@
 
 import { useState } from 'react';
 
-import { Button, Collapsible, Tabs, Tooltip } from '@douyinfe/semi-ui';
-import { IconMinus } from '@douyinfe/semi-icons';
+import { Button, Collapsible, Tabs, Tooltip, Checkbox, Select, Typography } from '@douyinfe/semi-ui';
+import { IconMinus, IconCloud, IconCloudStroked } from '@douyinfe/semi-icons';
 
 import iconVariable from '../../../assets/icon-variable.png';
 import { GlobalVariableEditor } from './global-variable-editor';
 import { FullVariableList } from './full-variable-list';
 import { DataMappingEditor } from './data-mapping-editor';
+import { SettingsPanel } from './settings-panel';
+import { useSkillInfoStore } from '../../../stores/skill-info-store';
 
 import styles from './index.module.less';
 
 export function VariablePanel() {
   const [isOpen, setOpen] = useState<boolean>(false);
+  const runInCloud = useSkillInfoStore((state) => state.runInCloud);
+  const setRunInCloud = useSkillInfoStore((state) => state.setRunInCloud);
 
   return (
     <div className={styles['panel-wrapper']}>
+      {/* Cloud toggle button - positioned above the var button */}
+      <Tooltip content={runInCloud ? "Run in Cloud (click to run locally)" : "Run Locally (click to run in cloud)"}>
+        <Button
+          className={`${styles['cloud-toggle-button']}`}
+          theme="light"
+          onClick={() => setRunInCloud(!runInCloud)}
+        >
+          {runInCloud ? (
+            <IconCloud size="large" style={{ color: '#1890ff' }} />
+          ) : (
+            <IconCloudStroked size="large" style={{ color: '#999', opacity: 0.6 }} />
+          )}
+        </Button>
+      </Tooltip>
       <Tooltip content="Toggle Variable Panel">
         <Button
           className={`${styles['variable-panel-button']} ${isOpen ? styles.close : ''}`}
@@ -40,6 +58,9 @@ export function VariablePanel() {
             </Tabs.TabPane>
             <Tabs.TabPane itemKey="data-mapping" tab="Data Mapping">
               <DataMappingEditor />
+            </Tabs.TabPane>
+            <Tabs.TabPane itemKey="settings" tab="Settings">
+              <SettingsPanel />
             </Tabs.TabPane>
           </Tabs>
         </div>
