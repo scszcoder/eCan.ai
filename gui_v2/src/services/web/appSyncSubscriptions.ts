@@ -8,6 +8,7 @@ import { ScenePriority } from '@/types/avatarScene';
 import { useAdStore } from '@/stores/adStore';
 import { localWebSocketClient } from './localWebSocketClient';
 import { initWebSocketEventListeners } from './wsEventListeners';
+import { unifiedEventHandler, createStandardizedEvent } from '@/services/events/unifiedEventHandler';
 
 const DEFAULT_WS_ENDPOINT = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql';
 const DEFAULT_WS_HOST = '3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com';
@@ -149,36 +150,15 @@ const emitSkillEditorStreamEvent = (evt: any) => {
     return;
   }
 
-  if (eventType === 'skill_editor.chat.stream_chunk') {
-    eventBus.emit('skill_editor:chat:stream_chunk', { sessionId, ...(payload || {}) });
-    return;
-  }
-  if (eventType === 'skill_editor.chat.stream_end') {
-    eventBus.emit('skill_editor:chat:stream_end', { sessionId, ...(payload || {}) });
-    return;
-  }
-  if (eventType === 'skill_editor.chat.error') {
-    eventBus.emit('skill_editor:chat:error', { sessionId, ...(payload || {}) });
-    return;
-  }
-  if (eventType === 'skill_editor.event') {
-    eventBus.emit('skill_editor:event', { sessionId, ...(payload || {}) });
-    return;
-  }
-  // Handle skill editor log events from cloud worker
-  if (eventType === 'skill_editor.log') {
-    const level = String(payload?.level || 'log').toLowerCase();
-    const message = String(payload?.message || '');
-    const entry = {
-      type: level as 'log' | 'warning' | 'error',
-      text: message,
-      timestamp: payload?.timestamp || Date.now(),
-      nodeId: payload?.node_id,
-    };
-    console.log('[AppSyncSubscriptions] skill_editor.log received, emitting to skill-editor:log', entry);
-    eventBus.emit('skill-editor:log', entry);
-    return;
-  }
+  // Use unified event handler
+  const standardizedEvent = createStandardizedEvent(
+    eventType,
+    payload || {},
+    'appsync',
+    sessionId
+  );
+  
+  unifiedEventHandler.handle(standardizedEvent);
 };
 
 // Internal function to actually create the WebSocket connection

@@ -136,66 +136,6 @@ class AppWebSocketManager:
         for ws in disconnected:
             self.disconnect(ws, channel_id)
     
-    async def send_to_session(self, session_id: str, message: dict):
-        """Send a message to a specific session channel."""
-        await self.broadcast(message, channel_id=f"session:{session_id}")
-    
-    async def send_chat_chunk(self, session_id: str, message_id: str, chunk: str, chunk_index: int):
-        """Send a chat streaming chunk."""
-        logger.debug(f"[SkillEditorWS] 📝 Sending chunk #{chunk_index} for message {message_id[:8]}... ({len(chunk)} chars)")
-        # Use same event type as AppSync for compatibility
-        await self.send_to_session(session_id, {
-            "type": "skill_editor.chat.stream_chunk",
-            "eventType": "skill_editor.chat.stream_chunk",
-            "sessionId": session_id,
-            "messageId": message_id,
-            "payload": {
-                "chunk": chunk,
-                "chunkIndex": chunk_index
-            }
-        })
-    
-    async def send_chat_done(self, session_id: str, message_id: str, full_content: str):
-        """Send chat completion message."""
-        logger.info(f"[SkillEditorWS] ✅ Sending done for message {message_id[:8]}... ({len(full_content)} chars total)")
-        logger.info(f"[SkillEditorWS] ✅ full content:::{(full_content)}")
-        # Use same event type as AppSync for compatibility
-        await self.send_to_session(session_id, {
-            "type": "skill_editor.chat.stream_end",
-            "eventType": "skill_editor.chat.stream_end",
-            "sessionId": session_id,
-            "payload": {
-                "messageId": message_id,
-                "fullContent": full_content
-            }
-        })
-    
-    async def send_canvas_command(self, session_id: str, command_type: str, payload: dict):
-        """Send a canvas command."""
-        # Use same event type as AppSync for compatibility
-        await self.send_to_session(session_id, {
-            "type": "skill_editor.event",
-            "eventType": "skill_editor.event",
-            "sessionId": session_id,
-            "payload": {
-                "commandType": command_type,
-                **payload
-            }
-        })
-    
-    async def send_flowgram(self, session_id: str, flowgram: dict):
-        """Send a flowgram event to load on canvas."""
-        logger.info(f"[AppWS] 🎨 Sending flowgram to session {session_id} ({len(flowgram.get('nodes', []))} nodes)")
-        await self.send_to_session(session_id, {
-            "type": "skill_editor.event",
-            "eventType": "skill_editor.event",
-            "sessionId": session_id,
-            "payload": {
-                "type": "canvas.load_flowgram_data",  # Event type for canvas handler
-                "commandType": "load_flowgram",
-                "flowgram": flowgram
-            }
-        })
     
     # ==================== Ad Banner Events ====================
     
@@ -212,96 +152,8 @@ class AppWebSocketManager:
             }
         })
 
-    # ==================== Chat Events ====================
-    
-    async def send_push_chat_message(self, chat_id: str, message: dict):
-        """Push a chat message to clients."""
-        await self.broadcast({
-            "type": "push_chat_message",
-            "eventType": "push_chat_message",
-            "payload": {"chatId": chat_id, "message": message}
-        }, channel_id=f"chat:{chat_id}")
-    
-    async def send_push_chat_notification(self, chat_id: str, content: dict, is_read: bool, timestamp: int, uid: str):
-        """Push a chat notification to clients."""
-        await self.broadcast({
-            "type": "push_chat_notification",
-            "eventType": "push_chat_notification",
-            "payload": {
-                "chatId": chat_id,
-                "content": content,
-                "isRead": is_read,
-                "timestamp": timestamp,
-                "uid": uid
-            }
-        }, channel_id=f"chat:{chat_id}")
-    
-    # ==================== Skill Run Events ====================
-    
-    async def send_update_skill_run_stat(self, agent_task_id: str, current_node: str, status: str, langgraph_state: dict, timestamp: int = None):
-        """Push skill run statistics update."""
-        logger.debug(f"[AppWS] 📊 Sending skill run stat: task={agent_task_id}, node={current_node}, status={status}")
-        await self.broadcast({
-            "type": "update_skill_run_stat",
-            "eventType": "update_skill_run_stat",
-            "payload": {
-                "agentTaskId": agent_task_id,
-                "currentNode": current_node,
-                "current_node": current_node,  # Legacy compatibility
-                "status": status,
-                "langgraphState": langgraph_state,
-                "nodeState": langgraph_state,  # Legacy compatibility
-                "timestamp": timestamp
-            }
-        }, channel_id=f"task:{agent_task_id}")
-    
-    async def send_update_task_stat(self, agent_task_id: str, langgraph_state: dict, timestamp: int = None):
-        """Push task statistics update."""
-        await self.broadcast({
-            "type": "update_tasks_stat",
-            "eventType": "update_tasks_stat",
-            "payload": {
-                "agentTaskId": agent_task_id,
-                "langgraphState": langgraph_state,
-                "timestamp": timestamp
-            }
-        }, channel_id=f"task:{agent_task_id}")
-    
-    # ==================== LightRAG Events ====================
-    
-    async def send_lightrag_chunk(self, stream_id: str, chunk_data: str):
-        """Push LightRAG stream chunk."""
-        await self.broadcast({
-            "type": "lightrag.queryStream.chunk",
-            "eventType": "lightrag.queryStream.chunk",
-            "payload": {"id": stream_id, "chunk": chunk_data}
-        }, channel_id=f"lightrag:{stream_id}")
-    
-    async def send_lightrag_done(self, stream_id: str):
-        """Push LightRAG stream done event."""
-        await self.broadcast({
-            "type": "lightrag.queryStream.done",
-            "eventType": "lightrag.queryStream.done",
-            "payload": {"id": stream_id}
-        }, channel_id=f"lightrag:{stream_id}")
-    
-    async def send_lightrag_error(self, stream_id: str, error: str):
-        """Push LightRAG stream error event."""
-        await self.broadcast({
-            "type": "lightrag.queryStream.error",
-            "eventType": "lightrag.queryStream.error",
-            "payload": {"id": stream_id, "error": error}
-        }, channel_id=f"lightrag:{stream_id}")
-    
-    # ==================== UI Events ====================
-    
-    async def send_update_screens(self, screens: list):
-        """Push screens update event."""
-        await self.broadcast({
-            "type": "update_screens",
-            "eventType": "update_screens",
-            "payload": {"screens": screens}
-        })
+    # Note: Chat, Skill Run, LightRAG, and UI event methods removed.
+    # All these events are now handled via api.py's unified _send_request() method.
     
     # ==================== Sync Helper for IPCAPI ====================
     
@@ -628,18 +480,10 @@ async def local_ws_test(request):
     results = []
     
     try:
-        # Test all pub/sub event types
+        # Test all pub/sub event types (matching api.py methods)
         test_events = [
-            # Data update events
-            ("update_agents", {"agents": [{"id": test_id, "name": "Test Agent", "status": "active"}]}),
-            ("update_skills", {"skills": [{"id": test_id, "name": "Test Skill", "level": 1}]}),
-            ("update_tasks", {"tasks": [{"id": test_id, "name": "Test Task", "status": "pending"}]}),
-            ("update_tools", {"tools": [{"id": test_id, "name": "Test Tool", "tool_type": "test"}]}),
-            ("update_settings", {"settings": {"test_key": "test_value", "timestamp": timestamp}}),
-            ("update_vehicles", {"vehicles": [{"id": test_id, "name": "Test Vehicle", "status": "idle"}]}),
-            ("update_knowledge", {"knowledge": [{"id": test_id, "name": "Test Knowledge", "type": "test"}]}),
-            ("update_chats", {"chats": [{"id": test_id, "name": "Test Chat"}]}),
-            ("update_all", {"test": True, "timestamp": timestamp}),
+            # Organization and agent updates
+            ("update_org_agents", {}),
             # Chat events
             ("push_chat_message", {"chatId": test_id, "message": {"role": "system", "content": "Test message"}}),
             ("push_chat_notification", {"chatId": test_id, "content": {"text": "Test notification"}, "isRead": False, "timestamp": timestamp, "uid": test_id}),
@@ -653,11 +497,8 @@ async def local_ws_test(request):
             # Skill editor events
             ("skill_editor.chat.stream_chunk", {"sessionId": test_id, "messageId": f"msg-{test_id}", "chunk": "Test stream chunk", "chunkIndex": 0}),
             ("skill_editor.chat.stream_end", {"sessionId": test_id, "messageId": f"msg-{test_id}", "fullContent": "Test complete message"}),
-            ("skill_editor.chat.error", {"sessionId": test_id, "error": "Test error", "code": "TEST_ERROR"}),
-            ("skill_editor.event", {"sessionId": test_id, "commandType": "test", "type": "canvas_command", "payload": {"action": "test"}}),
-            # UI events
-            ("refresh_dashboard", {"source": "local_ws_test", "timestamp": timestamp}),
-            ("update_screens", {"screens": [{"id": test_id, "name": "Test Screen"}]}),
+            ("skill_editor.chat.error", {"sessionId": test_id, "code": "TEST_ERROR", "message": "Test error"}),
+            ("skill_editor.event", {"sessionId": test_id, "type": "canvas_command", "payload": {"action": "test"}}),
         ]
         
         for event_type, payload in test_events:
