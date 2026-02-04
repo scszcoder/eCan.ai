@@ -420,6 +420,7 @@ export const Save = ({ disabled }: SaveProps) => {
   const runInCloud = useSkillInfoStore((state) => state.runInCloud);
   const hybridCloudMode = useSkillInfoStore((state) => state.hybridCloudMode);
   const localHelperSkillId = useSkillInfoStore((state) => state.localHelperSkillId);
+  const localHelperMachine = useSkillInfoStore((state) => state.localHelperMachine);
 
   const handleSave = useCallback(async () => {
     if (!skillInfo) return;
@@ -445,6 +446,7 @@ export const Save = ({ disabled }: SaveProps) => {
         run_in_cloud: runInCloud,
         hybrid_cloud_mode: hybridCloudMode,
         local_helper_skill_id: localHelperSkillId,
+        local_helper_machine: localHelperMachine,
         config: {
           ...(skillInfo as any)?.config,
           nodes: { ...((skillInfo as any)?.config?.nodes || {}), ...configNodes },
@@ -563,6 +565,7 @@ export const Save = ({ disabled }: SaveProps) => {
     runInCloud,
     hybridCloudMode,
     localHelperSkillId,
+    localHelperMachine,
   ]);
 
   return (
@@ -596,6 +599,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
   const runInCloud = useSkillInfoStore((state) => state.runInCloud);
   const hybridCloudMode = useSkillInfoStore((state) => state.hybridCloudMode);
   const localHelperSkillId = useSkillInfoStore((state) => state.localHelperSkillId);
+  const localHelperMachine = useSkillInfoStore((state) => state.localHelperMachine);
   const username = useUserStore((state) => state.username);
 
   const handleSaveAs = useCallback(async () => {
@@ -723,6 +727,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
         run_in_cloud: runInCloud,
         hybrid_cloud_mode: hybridCloudMode,
         local_helper_skill_id: localHelperSkillId,
+        local_helper_machine: localHelperMachine,
         config: {
           ...(skillInfo as any)?.config,
           nodes: { ...((skillInfo as any)?.config?.nodes || {}), ...configNodes },
@@ -823,6 +828,7 @@ export const SaveAs = ({ disabled }: SaveProps) => {
         run_in_cloud: runInCloud,
         hybrid_cloud_mode: hybridCloudMode,
         local_helper_skill_id: localHelperSkillId,
+        local_helper_machine: localHelperMachine,
         config: {
           ...(skillInfo as any)?.config,
           nodes: { ...((skillInfo as any)?.config?.nodes || {}), ...configNodes },
