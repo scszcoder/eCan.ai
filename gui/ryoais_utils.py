@@ -89,6 +89,48 @@ def load_ryoais_models(username: str = None) -> dict:
         return {}
 
 
+def _detect_embedding_dimension(host: str, model_id: str, api_key: str = None) -> int:
+    """
+    Detect the actual embedding dimension by making a test API call.
+    
+    Args:
+        host: RyoAIS API host
+        model_id: Model ID to test
+        api_key: Optional API key for authentication
+    
+    Returns:
+        Embedding dimension (int), or None if detection fails
+    """
+    import requests
+    
+    try:
+        embeddings_url = f"{host}/embeddings"
+        headers = {'Content-Type': 'application/json'}
+        if api_key:
+            headers['Authorization'] = f'Bearer {api_key}'
+        
+        payload = {
+            'model': model_id,
+            'input': 'test'
+        }
+        
+        response = requests.post(embeddings_url, json=payload, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if 'data' in data and len(data['data']) > 0:
+                embedding = data['data'][0].get('embedding', [])
+                dimension = len(embedding)
+                logger.info(f"[RyoAIS] Detected dimension for {model_id}: {dimension}")
+                return dimension
+        else:
+            logger.warning(f"[RyoAIS] Failed to detect dimension for {model_id}: HTTP {response.status_code}")
+    except Exception as e:
+        logger.warning(f"[RyoAIS] Error detecting dimension for {model_id}: {e}")
+    
+    return None
+
+
 def fetch_ryoais_models(host: str, api_key: str = None, username: str = None) -> Tuple[bool, list, str]:
     """
     Fetch available models from RyoAIS OpenAI-compatible API and save to local file.
@@ -132,6 +174,7 @@ def fetch_ryoais_models(host: str, api_key: str = None, username: str = None) ->
         
         # Extract model info
         model_list = []
+        embedding_models_to_test = []
         
         for model in models_data:
             model_id = model.get('id', '')
@@ -148,9 +191,12 @@ def fetch_ryoais_models(host: str, api_key: str = None, username: str = None) ->
                 model_name_lower = model_id.lower()
                 if 'embed' in model_name_lower:
                     model_info['type'] = 'embedding'
-                    # Try to detect embedding dimension
+                    # Try to detect embedding dimension from API response
                     if 'dimensions' in model:
                         model_info['dimensions'] = model.get('dimensions')
+                    else:
+                        # Mark for dimension detection
+                        embedding_models_to_test.append(model_info)
                 elif 'rerank' in model_name_lower:
                     model_info['type'] = 'rerank'
                 # BGE models are primarily embedding models, but some can be used for both
@@ -159,10 +205,20 @@ def fetch_ryoais_models(host: str, api_key: str = None, username: str = None) ->
                     # Default to embedding, but also mark as available for LLM
                     model_info['type'] = 'embedding'
                     model_info['supports_llm'] = True
+                    # Mark for dimension detection
+                    embedding_models_to_test.append(model_info)
                 else:
                     model_info['type'] = 'llm'
                 
                 model_list.append(model_info)
+        
+        # Detect dimensions for embedding models (limit to first 5 to avoid too many API calls)
+        if embedding_models_to_test:
+            logger.info(f"[RyoAIS] Detecting dimensions for {len(embedding_models_to_test)} embedding models...")
+            for model_info in embedding_models_to_test[:5]:  # Limit to 5 models
+                dimension = _detect_embedding_dimension(host, model_info['id'], api_key)
+                if dimension:
+                    model_info['dimensions'] = dimension
         
         total_duration = time.time() - start_time
         logger.info(f"[RyoAIS] Found {len(model_list)} models (total time: {total_duration:.2f}s)")
