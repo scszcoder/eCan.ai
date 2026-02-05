@@ -138,20 +138,29 @@ def _safe_eval_expr(expr: str, state: dict) -> bool:
     """
     try:
         log_msg = f"🤖 Executing conditional edge: {expr}"
-        # print(state['result']['llm_result']['request_to_work'])
         logger.debug(log_msg)
         send_skill_editor_log("log", log_msg)
+        
+        # Log state keys and result for debugging
+        state_keys = list(state.keys()) if isinstance(state, dict) else "NOT_A_DICT"
+        state_result = state.get("result", "NO_RESULT_KEY") if isinstance(state, dict) else None
+        logger.info(f"[condition-eval] state.keys={state_keys}")
+        logger.info(f"[condition-eval] state['result']={state_result}")
 
         safe_globals = {"__builtins__": {}}
         attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
         # Merge attributes as bare names so flags like `data_ready` can be used
-        safe_locals = {"state": state, "attributes": attrs}
+        # Also expose 'node_state' as alias for 'state' for backward compatibility
+        safe_locals = {"state": state, "node_state": state, "attributes": attrs}
         if isinstance(attrs, dict):
             for k, v in attrs.items():
                 if isinstance(k, str) and k.isidentifier() and k not in safe_locals:
                     safe_locals[k] = v
-        return bool(eval(expr, safe_globals, safe_locals))
-    except Exception:
+        result = bool(eval(expr, safe_globals, safe_locals))
+        logger.debug(f"[condition-eval] expr='{expr}' result={result}")
+        return result
+    except Exception as e:
+        logger.warning(f"[condition-eval] expr='{expr}' failed: {e}")
         return False
 
 
