@@ -391,19 +391,20 @@ class LightragServer:
             env['EMBEDDING_BINDING'] = mapped
         
         # Map Rerank binding (LightRAG natively supports: cohere, jina, aliyun ONLY)
-        # Special handling for Ollama: redirect to eCan proxy
+        # Note: Non-native providers (ollama, ryoais, etc.) will be converted by launcher
+        # The launcher will save original binding and convert to 'jina' for LightRAG compatibility
         RERANK_NATIVE_SUPPORTED = ['cohere', 'jina', 'aliyun']
         rerank_binding = env.get('RERANK_BINDING')
         if rerank_binding and rerank_binding.lower() not in ['null', 'none', '']:
             rerank_binding_lower = rerank_binding.lower()
             
-            # Special case: Ollama rerank -> use eCan proxy
-            if rerank_binding_lower == 'ollama':
-                self._intercept_ollama_rerank(env)
-            elif rerank_binding_lower not in RERANK_NATIVE_SUPPORTED:
-                # Map other unsupported providers to aliyun
-                logger.info(f"[LightragServer] Mapped Rerank binding '{rerank_binding}' -> 'aliyun' (Alibaba-compatible API)")
-                env['RERANK_BINDING'] = 'aliyun'
+            # Keep original binding, let launcher handle conversion
+            # Launcher will convert non-native providers to 'jina' format
+            logger.info(f"[LightragServer] Rerank binding: '{rerank_binding}' (will be processed by launcher)")
+            
+            # Legacy Ollama interception - now handled by universal proxy
+            # if rerank_binding_lower == 'ollama':
+            #     self._intercept_ollama_rerank(env)
         
         # 7. Add SSL/TLS configuration to fix certificate errors
         # Disable SSL verification for development/testing (can be overridden by extra_env)
@@ -791,11 +792,12 @@ class LightragServer:
                 rerank_provider = env.get('RERANK_BINDING', 'null')
                 rerank_model = env.get('RERANK_MODEL', '')
                 rerank_enabled = env.get('RERANK_BY_DEFAULT', 'false')
-                summary.append(f"🔄 Rerank Provider:    {rerank_provider}")
+                summary.append(f"🔄 Rerank Provider:    {rerank_provider} (from config)")
                 summary.append(f"   Rerank Model:      {rerank_model if rerank_model else 'N/A'}")
                 summary.append(f"   Enabled by Default: {rerank_enabled}")
                 if env.get('RERANK_BINDING_HOST'):
                     summary.append(f"   Rerank Host:       {env.get('RERANK_BINDING_HOST')}")
+                summary.append(f"   Note: Non-native providers will be converted by launcher")
                 if env.get('RERANK_BINDING_API_KEY'):
                     summary.append(f"   Rerank Key:        {self._mask_env_value('RERANK_API_KEY', env['RERANK_BINDING_API_KEY'])}")
 

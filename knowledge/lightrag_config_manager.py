@@ -392,12 +392,7 @@ class LightRAGConfigManager:
                     logger.info(f"[LightRAG Config] rerank_provider = {rerank_provider.get('name') if rerank_provider else None}")
                     
                     if rerank_provider:
-                        # Use provider's base_url if available
-                        base_url = rerank_provider.get('base_url')
-                        if base_url:
-                            keys['RERANK_BINDING_HOST'] = base_url
-                            logger.info(f"[LightRAG Config] Using Rerank base URL: {base_url}")
-                        
+                        # Retrieve API keys if needed
                         api_key_env_vars = rerank_provider.get('api_key_env_vars', [])
                         logger.info(f"[LightRAG Config] api_key_env_vars = {api_key_env_vars}")
                         for env_var in api_key_env_vars:
