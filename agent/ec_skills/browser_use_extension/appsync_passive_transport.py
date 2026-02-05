@@ -88,6 +88,7 @@ def _publish_command_mutation() -> str:
         runId
         clientId
         stepId
+        command
       }
     }
     """
@@ -125,12 +126,18 @@ class AppSyncPassivePubSubTransport:
         self._subscribed_run_id: str | None = None
 
     async def publish_command(self, cmd: PassiveBrowserCommand) -> None:
+        # AWSJSON scalar expects a JSON string, not a nested object
+        command_json_str = json.dumps(cmd.model_dump())
+        
         payload = {
             "runId": cmd.run_id,
             "clientId": self._config.client_id,
             "stepId": cmd.step_id,
-            "command": cmd.model_dump(),
+            "command": command_json_str,  # JSON string for AWSJSON type
         }
+        
+        # Log the IDs being used for debugging
+        print(f"[AppSyncPassiveTransport] publishPassiveCommand: clientId={self._config.client_id}, runId={cmd.run_id}, stepId={cmd.step_id}")
 
         auth_headers = _build_auth_headers(self._config.auth_token)
 

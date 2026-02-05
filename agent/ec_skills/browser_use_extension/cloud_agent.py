@@ -35,6 +35,18 @@ class AsyncQueuePassivePubSubTransport:
         raise NotImplementedError('publish_command must be implemented for your pub endpoint')
 
     def deliver_result(self, result: PassiveBrowserStepResult) -> None:
+        # Log when result is delivered (L2C - Local to Cloud result)
+        try:
+            from utils.logger_helper import logger_helper as logger
+            logger.debug(f"[L2C] 📥 deliver_result: run_id={result.run_id}, step_id={result.step_id}")
+            from agent.cloud_worker.cloud_logger import get_skill_editor_logger
+            se_logger = get_skill_editor_logger()
+            if se_logger:
+                results_count = len(result.action_results) if result.action_results else 0
+                se_logger.log(f"[L2C] 📥 Received step result: stepId={result.step_id}, results={results_count}")
+        except Exception:
+            pass
+        
         try:
             self._queue.put_nowait(result)
         except Exception:
@@ -88,6 +100,7 @@ class CloudWorkerPassiveTransport(AsyncQueuePassivePubSubTransport):
     
     async def publish_command(self, cmd: PassiveBrowserCommand) -> None:
         """Publish command to local client via AppSync mutation."""
+        
         mutation = """
         mutation PublishPassiveCommand($input: PassiveBrowserCommandEnvelopeInput!) {
           publishPassiveCommand(input: $input) {
@@ -98,25 +111,33 @@ class CloudWorkerPassiveTransport(AsyncQueuePassivePubSubTransport):
         }
         """
         
+        command_dict = cmd.model_dump()
+        # AWSJSON scalar expects a JSON string, not a nested object
+        command_json_str = json_module.dumps(command_dict)
+        
         payload = {
             "runId": cmd.run_id,
             "clientId": self.client_id,
             "stepId": cmd.step_id,
-            "command": cmd.model_dump(),
+            "command": command_json_str,  # JSON string for AWSJSON type
         }
+        
+        # Log the IDs being used for debugging
+        print(f"[CloudWorkerPassiveTransport] publishPassiveCommand: clientId={self.client_id}, runId={cmd.run_id}, stepId={cmd.step_id}")
         
         # Log to skill editor console (C2L - Cloud to Local command)
         try:
             from agent.cloud_worker.cloud_logger import get_skill_editor_logger
-            import json
             se_logger = get_skill_editor_logger()
             if se_logger:
                 # Summarize actions for logging
                 actions_summary = cmd.actions[:3] if cmd.actions else []  # First 3 actions
-                actions_str = json.dumps(actions_summary, default=str)[:300]
+                actions_str = json_module.dumps(actions_summary, default=str)[:300]
                 se_logger.log(
-                    f"[C2L] 📤 publishPassiveCommand: stepId={cmd.step_id}, actions={actions_str}"
+                    f"[C2L] 📤 publishPassiveCommand: clientId={self.client_id}, runId={cmd.run_id}, stepId={cmd.step_id}, actions={actions_str}"
                 )
+        except Exception:
+            pass  # Don't fail if logging fails
         except Exception:
             pass  # Don't fail if logging fails
         
@@ -135,6 +156,7 @@ class CloudWorkerPassiveTransport(AsyncQueuePassivePubSubTransport):
             )
             resp.raise_for_status()
             data = resp.json()
+            print(f"[CloudWorkerPassiveTransport] AppSync response: {data}")
             if isinstance(data, dict) and data.get("errors"):
                 raise RuntimeError(f"AppSync publishPassiveCommand failed: {data.get('errors')}")
 
@@ -203,6 +225,29 @@ class RemoteDOMState:
         return self.dom_text or ''
 
 
+def _cloud_agent_log(msg: str, level: str = "info") -> None:
+    """Log message to both local logger and skill editor console."""
+    try:
+        from utils.logger_helper import logger_helper as logger
+        if level == "debug":
+            logger.debug(msg)
+        elif level == "warning":
+            logger.warning(msg)
+        elif level == "error":
+            logger.error(msg)
+        else:
+            logger.info(msg)
+    except Exception:
+        pass
+    try:
+        from agent.cloud_worker.cloud_logger import get_skill_editor_logger
+        se_logger = get_skill_editor_logger()
+        if se_logger:
+            se_logger.log(msg)
+    except Exception:
+        pass
+
+
 class CloudAgent(Agent):
     """Cloud-side agent.
 
@@ -232,6 +277,8 @@ class CloudAgent(Agent):
         self.bootstrap_url = bootstrap_url
 
         self._next_state_from_client: dict[str, Any] | None = None
+        
+        _cloud_agent_log(f"[CloudAgent] Initialized: run_id={run_id}, agent_id={agent_id}, skill_id={skill_id}")
 
     async def run(
         self,
@@ -239,6 +286,8 @@ class CloudAgent(Agent):
         on_step_start=None,
         on_step_end=None,
     ):
+        _cloud_agent_log(f"[CloudAgent] 🚀 Starting run: run_id={self.run_id}, max_steps={max_steps}")
+        
         # Cloud agent must not start a local browser.
         # Prime an initial observation BEFORE the first step so each step iteration
         # only needs one remote round-trip (execute actions -> receive next observation).
@@ -254,6 +303,9 @@ class CloudAgent(Agent):
 
             if url:
                 actions = [{"navigate": {"url": url, "new_tab": False}}]
+                _cloud_agent_log(f"[CloudAgent] 🌐 Bootstrap: navigating to {url}")
+            else:
+                _cloud_agent_log(f"[CloudAgent] 🌐 Bootstrap: no initial URL, getting current page state")
 
             bootstrap = await self._remote_step(
                 actions=actions,
@@ -261,13 +313,17 @@ class CloudAgent(Agent):
                 step_id="bootstrap",
             )
             self._next_state_from_client = bootstrap.browser
+            _cloud_agent_log(f"[CloudAgent] ✅ Bootstrap complete: url={bootstrap.browser.get('url', 'N/A') if bootstrap.browser else 'N/A'}")
 
         while self.state.n_steps <= max_steps:
             current_step = self.state.n_steps - 1
+            _cloud_agent_log(f"[CloudAgent] 📍 Step {current_step}/{max_steps} starting...")
             step_info = AgentStepInfo(step_number=current_step, max_steps=max_steps)
             is_done = await self._execute_step(current_step, max_steps, step_info, on_step_start, on_step_end)
             if is_done:
+                _cloud_agent_log(f"[CloudAgent] 🏁 Run completed at step {current_step}")
                 return self.history
+        _cloud_agent_log(f"[CloudAgent] ⚠️ Run ended: max_steps ({max_steps}) reached")
         return self.history
 
     async def _prepare_context(self, step_info: AgentStepInfo | None = None) -> BrowserStateSummary:
@@ -313,6 +369,10 @@ class CloudAgent(Agent):
         except Exception:
             actions = []
 
+        # Log the actions being sent to local client
+        actions_summary = str(actions)[:500]
+        _cloud_agent_log(f"[CloudAgent] 📤 Sending {len(actions)} action(s) to local: {actions_summary}")
+
         result = await self._remote_step(actions=actions, include_screenshot=False, step_id=f"step-{self.state.n_steps}")
 
         parsed_results: list[ActionResult] = []
@@ -321,6 +381,10 @@ class CloudAgent(Agent):
                 parsed_results.append(ActionResult.model_validate(r))
             except Exception:
                 parsed_results.append(ActionResult(error=str(r)))
+
+        # Log results received from local client
+        results_summary = [{'done': r.is_done, 'error': r.error[:100] if r.error else None} for r in parsed_results]
+        _cloud_agent_log(f"[CloudAgent] 📥 Received {len(parsed_results)} result(s) from local: {results_summary}")
 
         self.state.last_result = parsed_results
         self._next_state_from_client = result.browser
@@ -379,9 +443,16 @@ class CloudAgent(Agent):
             stop_on_error=True,
         )
 
+        _cloud_agent_log(f"[CloudAgent] 🔄 _remote_step: stepId={step_id}, actions={len(actions)}, screenshot={include_screenshot}", level="debug")
+        
         await self.transport.publish_command(cmd)
+        _cloud_agent_log(f"[CloudAgent] ⏳ Waiting for local client response (stepId={step_id})...", level="debug")
+        
         timeout_s = float(getattr(self.settings, 'step_timeout', 180) or 180)
-        return await self.transport.wait_for_result(run_id=self.run_id, step_id=step_id, timeout_s=timeout_s)
+        result = await self.transport.wait_for_result(run_id=self.run_id, step_id=step_id, timeout_s=timeout_s)
+        
+        _cloud_agent_log(f"[CloudAgent] ✅ Received response for stepId={step_id}", level="debug")
+        return result
 
     def _browser_state_from_payload(self, browser_payload: dict[str, Any] | None) -> BrowserStateSummary:
         browser_payload = browser_payload or {}
