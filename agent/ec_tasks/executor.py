@@ -25,6 +25,17 @@ if TYPE_CHECKING:
 # Default timeout for waiting on pending events at workflow end
 DEFAULT_PENDING_EVENTS_TIMEOUT = 300  # 5 minutes
 
+# Maximum characters for verbose log output
+MAX_LOG_CHARS = 1000
+
+
+def _truncate_for_log(obj: Any, max_chars: int = MAX_LOG_CHARS) -> str:
+    """Truncate object representation for logging if it exceeds max_chars."""
+    obj_str = str(obj)
+    if len(obj_str) > max_chars:
+        return obj_str[:max_chars] + f"... (truncated, total length: {len(obj_str)} chars)"
+    return obj_str
+
 
 def _create_message(role: str, text: str) -> "Message":
     """Create an A2A Message with required message_id field."""
@@ -512,7 +523,7 @@ class TaskExecutor:
                 logger.info("task completed...")
             
             run_result = self.finalize_run(success, step, current_checkpoint, effective_config)
-            logger.debug(f"synced stream_run result: {run_result}")
+            logger.debug(f"synced stream_run result: {_truncate_for_log(run_result)}")
             return run_result
         
         except Exception as e:
