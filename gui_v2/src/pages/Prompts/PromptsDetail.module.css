@@ -1,27 +1,258 @@
-/* Smaller button styles - 2/3 of default size */
+/* ========== Button Styles ========== */
 .smallButton {
-  height: 22px !important;
-  padding: 0 8px !important;
+  height: 24px !important;
+  padding: 0 10px !important;
   min-width: auto !important;
+  font-size: 13px !important;
 }
 
 .smallButtonWithText {
-  height: 22px !important;
-  padding: 0 12px !important;
-  font-size: 12px !important;
+  height: 26px !important;
+  padding: 0 14px !important;
+  font-size: 13px !important;
   min-width: auto !important;
+  font-weight: 500 !important;
 }
 
 .tinyIconButton {
-  height: 20px !important;
-  width: 20px !important;
+  height: 22px !important;
+  width: 22px !important;
   padding: 0 !important;
-  min-width: 20px !important;
+  min-width: 22px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
 }
 
 .arrowButton {
-  height: 14px !important;
-  width: 14px !important;
+  height: 16px !important;
+  width: 16px !important;
   padding: 0 !important;
-  min-width: 14px !important;
+  min-width: 16px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+/* ========== Container Styles ========== */
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #0f172a;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.95) 100%);
+  backdrop-filter: blur(10px);
+  z-index: 10;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.headerTitle {
+  margin: 0 !important;
+  color: #fff !important;
+  font-size: 18px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em;
+}
+
+/* ========== Section Container ========== */
+.sectionContainer {
+  background: rgba(15, 23, 42, 0.6) !important;
+  border: 1px solid rgba(148, 163, 184, 0.15) !important;
+  border-radius: 8px !important;
+  margin-bottom: 16px;
+  transition: all 0.2s ease;
+}
+
+.sectionContainer:hover {
+  border-color: rgba(148, 163, 184, 0.25) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.sectionTitle {
+  color: #e2e8f0 !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.9;
+}
+
+/* ========== Input Styles ========== */
+.titleInput,
+.topicInput {
+  background: rgba(30, 41, 59, 0.5) !important;
+  border: 1px solid rgba(148, 163, 184, 0.2) !important;
+  border-radius: 6px !important;
+  color: #f1f5f9 !important;
+  font-size: 14px !important;
+  line-height: 1.6 !important;
+  padding: 10px 14px !important;
+  transition: all 0.2s ease;
+}
+
+.titleInput:hover,
+.topicInput:hover {
+  border-color: rgba(148, 163, 184, 0.35) !important;
+  background: rgba(30, 41, 59, 0.7) !important;
+}
+
+.titleInput:focus,
+.topicInput:focus {
+  border-color: #3b82f6 !important;
+  background: rgba(30, 41, 59, 0.8) !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+}
+
+.titleInput::placeholder,
+.topicInput::placeholder {
+  color: rgba(148, 163, 184, 0.5) !important;
+}
+
+/* ========== Card Styles ========== */
+.sectionCard {
+  background: rgba(15, 23, 42, 0.7) !important;
+  border: 1px solid rgba(148, 163, 184, 0.18) !important;
+  border-radius: 6px !important;
+  margin-bottom: 12px;
+  transition: all 0.2s ease;
+}
+
+.sectionCard:hover {
+  border-color: rgba(148, 163, 184, 0.3) !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+.sectionCardTitle {
+  color: #e2e8f0 !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+}
+
+/* ========== Item Styles ========== */
+.itemTextarea {
+  background: rgba(30, 41, 59, 0.4) !important;
+  border: 1px solid rgba(148, 163, 184, 0.15) !important;
+  border-radius: 4px !important;
+  color: #f1f5f9 !important;
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+  padding: 8px 12px !important;
+  transition: all 0.2s ease;
+}
+
+.itemTextarea:hover {
+  border-color: rgba(148, 163, 184, 0.25) !important;
+  background: rgba(30, 41, 59, 0.6) !important;
+}
+
+.itemTextarea:focus {
+  border-color: #3b82f6 !important;
+  background: rgba(30, 41, 59, 0.7) !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.08) !important;
+}
+
+/* ========== Preview Styles ========== */
+.previewContainer {
+  background: rgba(15, 23, 42, 0.8) !important;
+  border: 1px solid rgba(148, 163, 184, 0.2) !important;
+  border-radius: 8px !important;
+  padding: 16px;
+}
+
+.previewTitle {
+  color: #e2e8f0 !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  margin-bottom: 12px !important;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.previewContent {
+  background: rgba(0, 0, 0, 0.3) !important;
+  border: 1px solid rgba(148, 163, 184, 0.1) !important;
+  border-radius: 6px !important;
+  padding: 14px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace !important;
+  font-size: 12px !important;
+  line-height: 1.6 !important;
+  color: #cbd5e1 !important;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* ========== Divider ========== */
+.divider {
+  margin: 20px 0 !important;
+  border-color: rgba(148, 163, 184, 0.12) !important;
+}
+
+/* ========== Scrollbar ========== */
+.scrollContainer::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.scrollContainer::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: 4px;
+}
+
+.scrollContainer::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 4px;
+  transition: background 0.2s ease;
+}
+
+.scrollContainer::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.5);
+}
+
+/* ========== Empty State ========== */
+.emptyState {
+  color: rgba(148, 163, 184, 0.6) !important;
+  font-size: 13px !important;
+  font-style: italic;
+  padding: 16px;
+  text-align: center;
+}
+
+/* ========== Spacing Utilities ========== */
+.mb8 { margin-bottom: 8px; }
+.mb12 { margin-bottom: 12px; }
+.mb16 { margin-bottom: 16px; }
+.mb20 { margin-bottom: 20px; }
+.mt8 { margin-top: 8px; }
+.mt12 { margin-top: 12px; }
+.mt16 { margin-top: 16px; }
+.p16 { padding: 16px; }
+.p20 { padding: 20px; }
+
+/* ========== Preview Content ========== */
+.previewContent {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #cbd5e1;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  border-radius: 6px;
+  padding: 14px;
+  padding-top: 48px;
+  padding-right: 14px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  min-height: 100%;
 }

@@ -401,16 +401,29 @@ class LightRAGRerankProxy:
                 
                 result = response.json()
                 
+                # Log raw response for debugging
+                logger.debug(f"[Rerank Proxy] RyoAIS raw response: {result}")
+                
                 # Parse RyoAIS response (Jina-compatible format)
                 results_list = result.get("results", [])
                 
                 parsed_results = []
                 for item in results_list:
+                    score = item.get("relevance_score", 0.0)
+                    
+                    # Note: Some rerank models return scores in 0-1 range (already normalized)
+                    # If scores look like they need normalization, you can enable sigmoid here
+                    # Uncomment the following lines if scores are too low:
+                    # import math
+                    # if score < 0 or score > 1:  # Looks like logits
+                    #     score = 1 / (1 + math.exp(-score))  # Sigmoid normalization
+                    
                     parsed_results.append({
                         "index": item.get("index", 0),
-                        "relevance_score": item.get("relevance_score", 0.0),
+                        "relevance_score": score,
                         "document": item.get("document", documents[item.get("index", 0)])
                     })
+                    logger.info(f"[Rerank Proxy] Document {item.get('index', 0)}: raw_score={score:.4f}")
                 
                 return parsed_results
                 
