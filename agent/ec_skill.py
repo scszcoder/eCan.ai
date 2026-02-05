@@ -855,7 +855,11 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
         except Exception:
             pass
 
-        logger.debug("[node_builder]returning state...", state)
+        # Truncate state output if it exceeds 1000 characters
+        state_str = str(state)
+        if len(state_str) > 1000:
+            state_str = state_str[:1000] + f"... (truncated, total length: {len(state_str)} chars)"
+        logger.debug(f"[node_builder]returning state: {state_str}")
         return state
     # The node_builder itself returns the wrapper function
     return wrapper

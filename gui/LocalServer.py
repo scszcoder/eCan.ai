@@ -166,19 +166,19 @@ class AppWebSocketManager:
         }
         
         if self._event_loop and self._event_loop.is_running():
-            # Schedule the coroutine on the event loop
+            # Schedule the coroutine on the event loop (fire-and-forget)
+            # Don't wait for completion to avoid blocking the caller thread
             import asyncio
-            future = asyncio.run_coroutine_threadsafe(
-                self.broadcast(message, channel_id),
-                self._event_loop
-            )
             try:
-                # Wait briefly for completion (non-blocking for caller)
-                future.result(timeout=0.5)
+                asyncio.run_coroutine_threadsafe(
+                    self.broadcast(message, channel_id),
+                    self._event_loop
+                )
+                logger.trace(f"[AppWS] 📤 Broadcast scheduled: {event_type}")
             except Exception as e:
-                logger.warning(f"[AppWS] broadcast_sync timeout/error: {e}")
+                logger.warning(f"[AppWS] ❌ Failed to schedule broadcast for event {event_type}: {e}")
         else:
-            logger.warning(f"[AppWS] No event loop available for broadcast_sync, event: {event_type}")
+            logger.warning(f"[AppWS] ⚠️  No event loop available for broadcast_sync, event: {event_type}")
 
 
 # Global WebSocket manager instance
