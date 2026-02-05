@@ -545,9 +545,9 @@ async def wan_a2a_subscribe(
                     ws_url,
                     protocols=['graphql-ws'],
                     ssl=ssl_context,
-                    heartbeat=25,
-                    autoping=True,
-                    timeout=60,  # Connection timeout in seconds
+                    heartbeat=60,  # Send PING every 60s (PONG timeout is 30s, matching server keepalive)
+                    autoping=True,  # Automatically respond to server PINGs
+                    timeout=120,  # Overall connection timeout
                 ) as websocket:
                     logger.info(f"[wan_a2a] Connected to WebSocket for channel: {channel_id}")
                     

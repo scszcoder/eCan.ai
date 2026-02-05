@@ -259,11 +259,61 @@ def patch_utils_for_confidence_scoring():
         logger.error(traceback.format_exc())
 
 
+def patch_rerank_binding_for_proxy():
+    """
+    Patch to convert non-native rerank provider bindings to jina format at runtime.
+    
+    This allows UI to display the actual provider (ryoais, ollama, etc.) while
+    LightRAG uses the compatible jina format internally.
+    """
+    try:
+        from knowledge.lightrag_constants import is_native_rerank_provider, DEFAULT_PROXY_RERANK_BINDING
+        
+        rerank_binding = os.environ.get('RERANK_BINDING', '').lower()
+        
+        # Log rerank configuration from environment
+        logger.info(f'[Launcher] ========== Rerank Configuration ==========')
+        logger.info(f'[Launcher] Original Config (from lightrag.env):')
+        logger.info(f'[Launcher]   RERANK_BINDING: "{rerank_binding}"')
+        logger.info(f'[Launcher]   RERANK_MODEL: "{os.environ.get("RERANK_MODEL", "")}"')
+        logger.info(f'[Launcher]   RERANK_BINDING_HOST: "{os.environ.get("RERANK_BINDING_HOST", "")}"')
+        
+        if not rerank_binding:
+            logger.warning('[Launcher] RERANK_BINDING is empty, skipping conversion')
+            return
+        
+        if not is_native_rerank_provider(rerank_binding):
+            logger.info(f'[Launcher] Converting non-native provider for LightRAG compatibility:')
+            logger.info(f'[Launcher]   Before: RERANK_BINDING = "{rerank_binding}"')
+            
+            # Convert to jina format for LightRAG
+            # Note: Proxy will read original binding directly from config file
+            os.environ['RERANK_BINDING'] = DEFAULT_PROXY_RERANK_BINDING
+            
+            logger.info(f'[Launcher]   After:  RERANK_BINDING = "{DEFAULT_PROXY_RERANK_BINDING}"')
+            logger.info(f'[Launcher] ✅ Conversion complete - proxy reads from config file')
+        else:
+            logger.info(f'[Launcher] "{rerank_binding}" is native provider, no conversion needed')
+        
+        logger.info(f'[Launcher] =============================================')
+    except Exception as e:
+        logger.warning(f'[Launcher] Failed to patch rerank binding: {e}')
+        import traceback
+        logger.warning(traceback.format_exc())
+
+
 def apply_all_patches():
     """Apply all customizations"""
     logger.info('[Launcher] ==================== Applying Customizations ====================')
     
+    # Note: Environment variables are already set by parent process (lightrag_server.py::build_env)
+    # which loads lightrag.env via config_manager.get_effective_config()
+    
     os.environ['LIGHTRAG_CUSTOM_CHUNKER'] = '1'
+    
+    # Apply rerank binding conversion FIRST
+    # This reads from os.environ which is already populated by parent process
+    patch_rerank_binding_for_proxy()           # Rerank binding 转换支持
     
     replace_document_routes()  # Excel空列清理 + Stop检查 + 立即取消
     patch_lightrag_init()       # 自定义分块器

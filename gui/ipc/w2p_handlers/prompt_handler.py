@@ -448,9 +448,31 @@ def handle_get_prompts(request: IPCRequest, params: Optional[dict]) -> IPCRespon
 @IPCHandlerRegistry.handler('save_prompt')
 def handle_save_prompt(request: IPCRequest, params: Optional[dict]) -> IPCResponse:
     try:
-        prompt = (params or {}).get('prompt')
-        if not prompt or not isinstance(prompt, dict) or not prompt.get('id'):
-            return create_error_response(request, 'INVALID_PARAMS', 'prompt with id is required')
+        # Handle both direct prompt format and GraphQL input format
+        prompt = None
+        if params:
+            # GraphQL format: { username, input: [{id, owner, prompt: JSON, version}] }
+            if 'input' in params and isinstance(params['input'], list) and len(params['input']) > 0:
+                graphql_input = params['input'][0]
+                # Extract prompt from GraphQL format
+                if 'prompt' in graphql_input and isinstance(graphql_input['prompt'], str):
+                    prompt_data = json.loads(graphql_input['prompt'])
+                    prompt = {
+                        'id': graphql_input.get('id'),
+                        **prompt_data
+                    }
+            # Direct format: { prompt: {...} }
+            elif 'prompt' in params:
+                prompt = params['prompt']
+        
+        if not prompt or not isinstance(prompt, dict):
+            return create_error_response(request, 'INVALID_PARAMS', 'prompt object is required')
+        
+        # Check if id exists and is not empty string
+        prompt_id = prompt.get('id')
+        if not prompt_id or not isinstance(prompt_id, str) or not prompt_id.strip():
+            return create_error_response(request, 'INVALID_PARAMS', 'prompt with valid id is required')
+        
         if prompt.get('readOnly'):
             return create_error_response(request, 'READ_ONLY', 'Cannot modify read-only prompt')
         normalized = _write_prompt_to_file(prompt)
