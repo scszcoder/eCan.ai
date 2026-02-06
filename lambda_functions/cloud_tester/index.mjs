@@ -326,7 +326,7 @@ const testPingCloudWorker = async (url, apiKey, params) => {
 const testSendPassiveCmd = async (url, apiKey, params) => {
   // Hard-coded to match what clients subscribe to
   const clientId = "songc_yahoo_com_SCHOME";
-  const runId = "test-run-001";
+  const runId = "0123456789";
   const stepId = params.stepId || params.step_id || randomUUID();
   console.log(`[cloud_tester] testSendPassiveCmd: clientId=${clientId}, runId=${runId}`);
   

@@ -569,9 +569,9 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                 import time as time_mod
                 
                 # Get run_id from runtime context if available
-                run_id = "dev_run_singleton"  # default for dev runs
+                run_id = "0123456789"  # default for dev runs
                 try:
-                    run_id = runtime.context.get("run_id", "dev_run_singleton")
+                    run_id = runtime.context.get("run_id", "0123456789")
                 except Exception:
                     pass
                 

@@ -545,7 +545,8 @@ class TaskExecutor:
         from a2a.types import TaskState, Message, TextPart
         
         # Step 1: Prepare config and context
-        effective_config, context = self.prepare_config(config)
+        context_from_kwargs = kwargs.pop("context", None)
+        effective_config, context = self.prepare_config(config, context_from_kwargs)
         
         # Step 2: Sync state identifiers
         self.sync_state_identifiers(effective_config, context)

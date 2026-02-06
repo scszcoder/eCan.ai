@@ -778,6 +778,33 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
 
     # Fallback enrichment when mapping rules do not produce payload
     try:
+        # Handle async_callback events (e.g., passive browser commands from cloud)
+        if isinstance(msg, dict) and msg.get("type") == "async_callback":
+            callback_result = msg.get("result")
+            if isinstance(callback_result, dict):
+                # Check if this is a passive browser command
+                cmd_type = callback_result.get("type", "")
+                if "browser" in cmd_type.lower() or "passive" in cmd_type.lower() or callback_result.get("actions") is not None:
+                    # Extract browser command data into state_patch for browser_automation node
+                    node_id = callback_result.get("node_id", "")
+                    actions = callback_result.get("actions", [])
+                    
+                    # Put actions in tool_input for browser_automation node to find
+                    if node_id:
+                        _write(state_patch, f"tool_input.{node_id}.actions", actions, on_conflict="overwrite")
+                        _write(state_patch, f"tool_input.{node_id}.include_screenshot", callback_result.get("include_screenshot", True), on_conflict="overwrite")
+                        _write(state_patch, f"tool_input.{node_id}.stop_on_error", callback_result.get("stop_on_error", True), on_conflict="overwrite")
+                    
+                    # Also put in generic locations as fallback
+                    _write(state_patch, "tool_input.actions", actions, on_conflict="overwrite")
+                    _write(state_patch, "browser_use_actions", actions, on_conflict="overwrite")
+                    _write(state_patch, "attributes.passive_command", callback_result, on_conflict="overwrite")
+                    
+                    logger.info(f"[build_general_resume_payload] Extracted passive browser command: node_id={node_id}, actions_count={len(actions)}, state_patch_keys={list(state_patch.keys())}")
+                else:
+                    # Generic async_callback result - store in attributes
+                    _write(state_patch, "attributes.async_callback_result", callback_result, on_conflict="overwrite")
+        
         # Capture chat metadata for send_chat events
         message_mtype = (
             _safe_get(msg, "params.message.metadata.mtype")

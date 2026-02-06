@@ -17,6 +17,7 @@ import json
 import ssl
 import asyncio
 import aiohttp
+import websockets
 import base64
 import traceback
 import os
@@ -537,136 +538,119 @@ async def wan_a2a_subscribe(
             # SSL context
             ssl_context = ssl.create_default_context(cafile=certifi.where())
             
-            # Note: Don't pass timeout to ClientSession constructor in Python 3.11+
-            # as it can cause "Timeout context manager should be used inside a task" errors
-            # Instead, pass timeout directly to ws_connect
-            async with aiohttp.ClientSession() as session:
-                async with session.ws_connect(
-                    ws_url,
-                    protocols=['graphql-ws'],
-                    ssl=ssl_context,
-                    heartbeat=25,
-                    autoping=True,
-                    timeout=60,  # Connection timeout in seconds
-                ) as websocket:
-                    logger.info(f"[wan_a2a] Connected to WebSocket for channel: {channel_id}")
-                    
-                    # Connection init
-                    await websocket.send_str(json.dumps({"type": "connection_init"}))
-                    
-                    # Wait for connection ack
-                    ka_timeout_sec = 300
-                    while True:
-                        msg = await websocket.receive()
-                        if msg.type == aiohttp.WSMsgType.TEXT:
-                            response_data = json.loads(msg.data)
-                            if response_data.get("type") == "connection_ack":
-                                logger.info("[wan_a2a] WebSocket connection acknowledged")
-                                if mainwin is not None:
-                                    mainwin.set_wan_connected(True)
-                                ka_timeout_sec = response_data.get("payload", {}).get("connectionTimeoutMs", 300000) / 1000
-                                break
-                        elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
-                            logger.error(f"[wan_a2a] Connection closed during ack: {msg}")
-                            raise Exception("Connection closed during ack")
-                    
-                    # Send subscription request
-                    sub_data = {
-                        "query": gen_a2a_subscription_query(),
-                        "variables": {"channelId": channel_id}
-                    }
-                    
-                    sub_request = {
-                        "id": f"a2a-sub-{uuid4().hex}",
-                        "payload": {
-                            "data": json.dumps(sub_data),
-                            "extensions": {
-                                "authorization": {k: v for k, v in api_headers.items() if k != 'content-type'}
-                            }
-                        },
-                        "type": "start"
-                    }
-                    
-                    await websocket.send_str(json.dumps(sub_request))
-                    logger.debug(f"[wan_a2a] Subscription request sent for channel: {channel_id}")
-                    
-                    # Wait for subscription ack
-                    while True:
-                        msg = await websocket.receive()
-                        if msg.type == aiohttp.WSMsgType.TEXT:
-                            response_data = json.loads(msg.data)
-                            if response_data.get("type") == "start_ack":
-                                logger.info(f"[wan_a2a] Subscribed to channel: {channel_id}")
-                                if mainwin is not None:
-                                    mainwin.set_wan_msg_subscribed(True)
-                                break
-                        elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
-                            raise Exception("Connection closed during subscription ack")
-                    
-                    # Message receive loop
-                    recv_timeout = ka_timeout_sec + 10
-                    while True:
-                        try:
-                            msg = await asyncio.wait_for(websocket.receive(), timeout=recv_timeout)
+            # Python 3.14: Use websockets library instead of aiohttp to avoid asyncio.timeout issues
+            # websockets has been patched to use bundled async_timeout on Python 3.14
+            async with websockets.connect(
+                ws_url,
+                subprotocols=['graphql-ws'],
+                ssl=ssl_context,
+                open_timeout=None,  # Disable timeout to avoid asyncio.timeout context error
+                close_timeout=None,
+                ping_interval=25,
+                ping_timeout=20,
+            ) as websocket:
+                logger.info(f"[wan_a2a] Connected to WebSocket for channel: {channel_id}")
+                
+                # Connection init
+                await websocket.send(json.dumps({"type": "connection_init"}))
+                
+                # Wait for connection ack
+                ka_timeout_sec = 300
+                while True:
+                    msg = await websocket.recv()
+                    response_data = json.loads(msg)
+                    if response_data.get("type") == "connection_ack":
+                        logger.info("[wan_a2a] WebSocket connection acknowledged")
+                        if mainwin is not None:
+                            mainwin.set_wan_connected(True)
+                        ka_timeout_sec = response_data.get("payload", {}).get("connectionTimeoutMs", 300000) / 1000
+                        break
+                    elif response_data.get("type") == "connection_error":
+                        logger.error(f"[wan_a2a] Connection error: {response_data}")
+                        raise Exception("Connection error during ack")
+                
+                # Send subscription request
+                sub_data = {
+                    "query": gen_a2a_subscription_query(),
+                    "variables": {"channelId": channel_id}
+                }
+                
+                sub_request = {
+                    "id": f"a2a-sub-{uuid4().hex}",
+                    "payload": {
+                        "data": json.dumps(sub_data),
+                        "extensions": {
+                            "authorization": {k: v for k, v in api_headers.items() if k != 'content-type'}
+                        }
+                    },
+                    "type": "start"
+                }
+                
+                await websocket.send(json.dumps(sub_request))
+                logger.debug(f"[wan_a2a] Subscription request sent for channel: {channel_id}")
+                
+                # Wait for subscription ack
+                while True:
+                    msg = await websocket.recv()
+                    response_data = json.loads(msg)
+                    if response_data.get("type") == "start_ack":
+                        logger.info(f"[wan_a2a] Subscribed to channel: {channel_id}")
+                        if mainwin is not None:
+                            mainwin.set_wan_msg_subscribed(True)
+                        break
+                    elif response_data.get("type") == "error":
+                        raise Exception(f"Subscription error: {response_data}")
+                
+                # Message receive loop
+                while True:
+                    try:
+                        msg = await websocket.recv()
+                        data = json.loads(msg)
+                        
+                        if data.get("type") == "data":
+                            # Extract A2A message from subscription payload
+                            a2a_msg = data.get("payload", {}).get("data", {}).get("onA2AMessageReceived")
                             
-                            if msg.type == aiohttp.WSMsgType.TEXT:
-                                data = json.loads(msg.data)
+                            if a2a_msg:
+                                logger.debug(f"[wan_a2a] Received message from {a2a_msg.get('senderId')}")
                                 
-                                if data.get("type") == "data":
-                                    # Extract A2A message from subscription payload
-                                    a2a_msg = data.get("payload", {}).get("data", {}).get("onA2AMessageReceived")
-                                    
-                                    if a2a_msg:
-                                        logger.debug(f"[wan_a2a] Received message from {a2a_msg.get('senderId')}")
-                                        
-                                        # Convert to TaskSendParams
-                                        task_params = graphql_response_to_task_send_params(a2a_msg)
-                                        
-                                        # Call callback or put in queue
-                                        if on_message_callback:
-                                            await on_message_callback(
-                                                task_params,
-                                                a2a_msg.get("senderId"),
-                                                a2a_msg.get("channelId")
-                                            )
-                                        else:
-                                            # Put in mainwin's message queue
-                                            await mainwin.wan_chat_msg_queue.put({
-                                                "type": "a2a_message",
-                                                "params": task_params,
-                                                "senderId": a2a_msg.get("senderId"),
-                                                "channelId": a2a_msg.get("channelId"),
-                                                "recipientId": a2a_msg.get("recipientId")
-                                            })
+                                # Convert to TaskSendParams
+                                task_params = graphql_response_to_task_send_params(a2a_msg)
                                 
-                                elif data.get("type") == "ka":
-                                    # Keep-alive
-                                    logger.trace("[wan_a2a] Keep-alive received")
-                                    
-                            elif msg.type == aiohttp.WSMsgType.CLOSED:
-                                logger.info("[wan_a2a] WebSocket closed normally")
-                                if mainwin is not None:
-                                    mainwin.set_wan_connected(False)
-                                break
-                            elif msg.type == aiohttp.WSMsgType.ERROR:
-                                logger.error(f"[wan_a2a] WebSocket error: {websocket.exception()}")
-                                if mainwin is not None:
-                                    mainwin.set_wan_connected(False)
-                                break
-                                
-                        except asyncio.TimeoutError:
-                            logger.warning("[wan_a2a] WebSocket recv timeout")
-                            if mainwin is not None:
-                                mainwin.set_wan_connected(False)
-                            break
-                        except asyncio.CancelledError:
-                            logger.info("[wan_a2a] Subscription cancelled")
-                            if mainwin is not None:
-                                mainwin.set_wan_connected(False)
-                            return
-                    
-                    # If we get here, connection was lost
-                    raise Exception("Connection lost")
+                                # Call callback or put in queue
+                                if on_message_callback:
+                                    await on_message_callback(
+                                        task_params,
+                                        a2a_msg.get("senderId"),
+                                        a2a_msg.get("channelId")
+                                    )
+                                else:
+                                    # Put in mainwin's message queue
+                                    await mainwin.wan_chat_msg_queue.put({
+                                        "type": "a2a_message",
+                                        "params": task_params,
+                                        "senderId": a2a_msg.get("senderId"),
+                                        "channelId": a2a_msg.get("channelId"),
+                                        "recipientId": a2a_msg.get("recipientId")
+                                    })
+                        
+                        elif data.get("type") == "ka":
+                            # Keep-alive
+                            logger.trace("[wan_a2a] Keep-alive received")
+                            
+                    except websockets.exceptions.ConnectionClosed as e:
+                        logger.info(f"[wan_a2a] WebSocket closed: {e}")
+                        if mainwin is not None:
+                            mainwin.set_wan_connected(False)
+                        break
+                    except asyncio.CancelledError:
+                        logger.info("[wan_a2a] Subscription cancelled")
+                        if mainwin is not None:
+                            mainwin.set_wan_connected(False)
+                        return
+                
+                # If we get here, connection was lost
+                raise Exception("Connection lost")
                     
         except asyncio.CancelledError:
             logger.info("[wan_a2a] Subscription task cancelled")
