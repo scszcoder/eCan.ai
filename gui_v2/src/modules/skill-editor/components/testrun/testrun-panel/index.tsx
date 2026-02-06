@@ -129,9 +129,12 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
       } as any;
 
       // Build meta_data for cloud runs (dev mode uses fixed client_id and run_id)
+      // client_id should match the local client's acctSiteID for hybrid runs
+      // Format: VITE_ACCT_SITE_ID env var, or fallback to site-{username}
+      const acctSiteID = (import.meta.env.VITE_ACCT_SITE_ID || `site-${username || 'web'}`).trim();
       const metaData = runInCloud ? {
         run_in_cloud: true,
-        client_id: 'client-0123456789',
+        client_id: acctSiteID,
         run_id: '0123456789',
         hybrid_cloud_mode: hybridCloudMode,
         local_helper_skill_id: localHelperSkillId,
