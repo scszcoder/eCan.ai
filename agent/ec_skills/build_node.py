@@ -353,6 +353,7 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
     def _get_tool_schemas_for_names(tool_names: list[str]) -> list[dict]:
         """Fetch full tool schemas for the given tool names from MCP registry."""
         try:
+            from app_context import AppContext
             mainwin = AppContext.get_main_window()
             all_schemas = getattr(mainwin, 'mcp_tools_schemas', None) or []
             logger.debug(f"[_get_tool_schemas_for_names] Looking for {len(tool_names)} tools in registry with {len(all_schemas)} schemas")
@@ -2156,6 +2157,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
 
     def _get_tool_schema_by_name(tool_name: str):
         try:
+            from app_context import AppContext
             mainwin = AppContext.get_main_window()
             schemas = getattr(mainwin, 'mcp_tools_schemas', None)
             if not schemas:
@@ -3179,6 +3181,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
     async def _get_or_create_browser_session(mainwin):
         """Get or create browser session based on node editor settings."""
+        import asyncio
         from gui.manager.browser_manager import BrowserManager, BrowserType, BrowserStatus
         
         # Load profile settings if a profile is specified
@@ -3234,7 +3237,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 send_skill_editor_log("log", log_msg)
 
                 if not _is_session_started(auto_browser.browser_session):
-                    await auto_browser.browser_session.start()
+                    # Python 3.14 requires asyncio.wait_for/timeout to run inside a Task
+                    # Wrap in create_task to ensure proper task context for bubus event handling
+                    import asyncio
+                    task = asyncio.create_task(auto_browser.browser_session.start())
+                    await task
                 log_msg = f"[BrowserAutomation] Browser session started!"
                 logger.info(log_msg)
                 send_skill_editor_log("log", log_msg)
@@ -3249,6 +3256,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
     async def _run_browser_use(task: str, mainwin, state: dict | None = None, calling_agent_id: str | None = None) -> dict:
         try:
+            import asyncio
             from browser_use import Agent as BUAgent
             from browser_use.browser.profile import BrowserProfile
             from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller
@@ -3299,7 +3307,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         return {"error": "browser-use passive mode: failed to acquire browser session"}
 
                     if not _is_session_started(browser_session):
-                        await browser_session.start()
+                        # Python 3.14 requires asyncio.wait_for/timeout to run inside a Task
+                        import asyncio
+                        task = asyncio.create_task(browser_session.start())
+                        await task
 
                     actions = None
                     try:
@@ -3478,6 +3489,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         agent_kwargs['extend_system_message'] = THINKING_SUPPRESSION_INSTRUCTION.strip()
                     
                     controller = custom_controller
+                    
+                    # Build combined_task from prompts (same logic as non-cloud path)
+                    task_instructions = task_text or system_prompt_content or inline_system_prompt or "You are a helpful browser automation agent."
+                    combined_task = f"System Instructions:\n{task_instructions}"
                     
                     agent = CloudAgent(
                         task=combined_task,

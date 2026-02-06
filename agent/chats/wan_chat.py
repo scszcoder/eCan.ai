@@ -2,6 +2,7 @@ import json
 import ssl
 import asyncio
 import aiohttp
+import httpx
 import boto3
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
@@ -156,23 +157,21 @@ async def wanSendMessage8(msg_req, mainwin):
             'cache-control': "no-cache",
         }
         logger.debug("about to send wan msg: "+json.dumps(variables), "wanSendMessage", mainwin)
-        # logger.debug("++++++++++++++++++++++++++++++++++++++++++++++++++++", "wanSendMessage", mainwin)
-        # Create SSL context with certifi certificates
-        ssl_context = ssl.create_default_context(cafile=certifi.where())
-        connector = aiohttp.TCPConnector(ssl=ssl_context)
-        async with aiohttp.ClientSession(connector=connector) as session8:
-            async with session8.post(
+        # Use sync httpx in thread for Python 3.14 compatibility (sniffio async context detection issue)
+        def _sync_post():
+            with httpx.Client(verify=certifi.where(), timeout=30.0) as client:
+                return client.post(
                     url=APPSYNC_API_ENDPOINT_URL,
-                    timeout=aiohttp.ClientTimeout(total=30),
                     headers=headers,
                     json={
-                            'query': query_string,
-                            'variables': variables
+                        'query': query_string,
+                        'variables': variables
                     }
-            ) as response:
-                jresp = await response.json()
-                logger.debug("wan send8 JRESP:"+json.dumps(jresp), "wanSendMessage", mainwin)
-                return jresp
+                )
+        response = await asyncio.to_thread(_sync_post)
+        jresp = response.json()
+        logger.debug("wan send8 JRESP:"+json.dumps(jresp), "wanSendMessage", mainwin)
+        return jresp
 
     except Exception as e:
         # Get the traceback information

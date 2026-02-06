@@ -1954,6 +1954,7 @@ class MainWindow:
         try:
             run_id = cmd.run_id
             step_id = getattr(cmd, 'step_id', None) or ''
+            logger.info(f"[PassiveCommand] _route_passive_command_to_task called: run_id={run_id}, step_id={step_id}")
             
             # Build event dict for routing lookup
             event_data = {
@@ -1963,8 +1964,31 @@ class MainWindow:
                 "command": cmd.model_dump() if hasattr(cmd, 'model_dump') else cmd,
             }
             
+            # Log available agents
+            agents = getattr(self, 'agents', []) or []
+            logger.info(f"[PassiveCommand] Number of agents: {len(agents)}")
+            
+            # Debug: enumerate ALL tasks across ALL agents upfront
+            for idx, agent in enumerate(agents):
+                agent_name = getattr(agent, 'name', None) or getattr(getattr(agent, 'card', None), 'name', None) or f'agent_{idx}'
+                has_runner = hasattr(agent, 'task_runner')
+                agent_tasks = getattr(agent, 'tasks', []) or []
+                runner_tasks = dict(agent.task_runner.tasks) if has_runner and hasattr(agent.task_runner, 'tasks') else {}
+                logger.info(f"[PassiveCommand] Agent[{idx}] name={agent_name}, has_task_runner={has_runner}, agent.tasks={len(agent_tasks)}, runner.tasks={len(runner_tasks)}")
+                for t in agent_tasks:
+                    t_id = getattr(t, 'id', 'NO_ID')
+                    t_run_id = getattr(t, 'run_id', 'NO_RUN_ID')
+                    t_name = getattr(t, 'name', 'NO_NAME')
+                    has_queue = hasattr(t, 'queue') and t.queue is not None
+                    logger.info(f"[PassiveCommand]   -> agent.tasks: id={t_id}, run_id={t_run_id}, name={t_name}, has_queue={has_queue}")
+                for tid, t in runner_tasks.items():
+                    t_run_id = getattr(t, 'run_id', 'NO_RUN_ID')
+                    t_name = getattr(t, 'name', 'NO_NAME')
+                    has_queue = hasattr(t, 'queue') and t.queue is not None
+                    logger.info(f"[PassiveCommand]   -> runner.tasks[{tid}]: run_id={t_run_id}, name={t_name}, has_queue={has_queue}")
+            
             # Try data_mapping.json routing first
-            for agent in getattr(self, 'agents', []) or []:
+            for agent in agents:
                 if not hasattr(agent, 'task_runner'):
                     continue
                 
@@ -1995,22 +2019,24 @@ class MainWindow:
                             logger.info(f"[PassiveCommand] Routed as passive_command to task {target_task.id}")
                         return True
             
-            # Fallback: direct run_id matching (original behavior)
+            # Fallback: direct run_id matching on agent.tasks (works even without task_runner)
             for agent in getattr(self, 'agents', []) or []:
-                if not hasattr(agent, 'task_runner'):
-                    continue
-                task = agent.task_runner._find_task_by_id(run_id)
-                if task and hasattr(task, 'queue') and task.queue:
-                    # Default: convert to async_callback for pending event resolution
-                    correlation_id = f"{run_id}:{step_id}" if step_id else run_id
-                    callback_event = {
-                        "type": "async_callback",
-                        "correlation_id": correlation_id,
-                        "result": cmd.model_dump() if hasattr(cmd, 'model_dump') else cmd,
-                    }
-                    task.queue.put(callback_event)
-                    logger.info(f"[PassiveCommand] Fallback routed to task {run_id} as async_callback")
-                    return True
+                agent_tasks = getattr(agent, 'tasks', []) or []
+                for task in agent_tasks:
+                    task_run_id = getattr(task, 'run_id', None)
+                    task_id = getattr(task, 'id', None)
+                    if task_run_id == run_id or task_id == run_id:
+                        if hasattr(task, 'queue') and task.queue:
+                            # Convert to async_callback for pending event resolution
+                            correlation_id = f"{run_id}:{step_id}" if step_id else run_id
+                            callback_event = {
+                                "type": "async_callback",
+                                "correlation_id": correlation_id,
+                                "result": cmd.model_dump() if hasattr(cmd, 'model_dump') else cmd,
+                            }
+                            task.queue.put(callback_event)
+                            logger.info(f"[PassiveCommand] Fallback routed to task run_id={task_run_id}, id={task_id} as async_callback (correlation_id={correlation_id})")
+                            return True
             
             logger.warning(f"[PassiveCommand] No task found for run_id={run_id}")
             return False

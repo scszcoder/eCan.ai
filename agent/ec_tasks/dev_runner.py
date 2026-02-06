@@ -374,7 +374,7 @@ class DevRunner:
             if ipc:
                 try:
                     ipc.send_skill_run_status_update(
-                        agent_task_id="dev_run_singleton",
+                        agent_task_id="0123456789",
                         current_node="",
                         status="cancelled",
                         node_state={}

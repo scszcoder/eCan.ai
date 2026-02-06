@@ -814,12 +814,12 @@ class TaskRunner(Generic[Context]):
     
     def _find_task_by_id(self, task_id: str) -> Optional[ManagedTask]:
         """
-        Find a task by its ID.
+        Find a task by its ID or run_id.
         
         Searches both self.tasks and agent.tasks.
         
         Args:
-            task_id: The task ID to find
+            task_id: The task ID or run_id to find
             
         Returns:
             The ManagedTask if found, None otherwise
@@ -828,10 +828,10 @@ class TaskRunner(Generic[Context]):
         if task_id in self.tasks:
             return self.tasks[task_id]
         
-        # Check agent.tasks list
+        # Check agent.tasks list (match by id or run_id)
         try:
             for t in getattr(self.agent, "tasks", []) or []:
-                if t and getattr(t, "id", None) == task_id:
+                if t and (getattr(t, "id", None) == task_id or getattr(t, "run_id", None) == task_id):
                     return t
         except Exception:
             pass
