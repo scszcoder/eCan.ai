@@ -605,6 +605,7 @@ async def wan_a2a_subscribe(
                     
                     # Message receive loop
                     recv_timeout = ka_timeout_sec + 10
+                    connection_lost = False
                     while True:
                         try:
                             msg = await asyncio.wait_for(websocket.receive(), timeout=recv_timeout)
@@ -647,17 +648,20 @@ async def wan_a2a_subscribe(
                                 logger.info("[wan_a2a] WebSocket closed normally")
                                 if mainwin is not None:
                                     mainwin.set_wan_connected(False)
-                                break
+                                # Don't treat normal closure as error - just exit cleanly
+                                return
                             elif msg.type == aiohttp.WSMsgType.ERROR:
                                 logger.error(f"[wan_a2a] WebSocket error: {websocket.exception()}")
                                 if mainwin is not None:
                                     mainwin.set_wan_connected(False)
+                                connection_lost = True
                                 break
                                 
                         except asyncio.TimeoutError:
-                            logger.warning("[wan_a2a] WebSocket recv timeout")
+                            logger.warning("[wan_a2a] WebSocket recv timeout - connection may be stale")
                             if mainwin is not None:
                                 mainwin.set_wan_connected(False)
+                            connection_lost = True
                             break
                         except asyncio.CancelledError:
                             logger.info("[wan_a2a] Subscription cancelled")
@@ -665,8 +669,9 @@ async def wan_a2a_subscribe(
                                 mainwin.set_wan_connected(False)
                             return
                     
-                    # If we get here, connection was lost
-                    raise Exception("Connection lost")
+                    # Only raise exception if connection was lost abnormally
+                    if connection_lost:
+                        raise Exception("Connection lost")
                     
         except asyncio.CancelledError:
             logger.info("[wan_a2a] Subscription task cancelled")

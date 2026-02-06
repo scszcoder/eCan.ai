@@ -80,41 +80,43 @@ def get_ollama_base_url(provider_type: str, provider_config = None, provider_ide
         Base URL string
     """
     provider_lower = provider_identifier.lower()
+
+    # Safety: only allow ollama/ryoais to prevent misuse with cloud providers
+    if provider_lower not in ['ollama', 'ryoais']:
+        if provider_config:
+            return provider_config.get('base_url', '') if isinstance(provider_config, dict) else getattr(provider_config, 'base_url', '')
+        return ''
     
-    # Start with provider default or fallback
+    # Get base_url from provider_config (fallback)
+    default_url = 'http://localhost/v1' if provider_lower == 'ryoais' else 'http://localhost:11434'
     if provider_config:
-        # Handle both dict and object types
-        if isinstance(provider_config, dict):
-            default_url = 'http://localhost/v1' if provider_lower == 'ryoais' else 'http://localhost:11434'
-            base_url = provider_config.get('base_url', default_url)
-        else:
-            # It's an object (e.g., LLMProviderConfig)
-            default_url = 'http://localhost/v1' if provider_lower == 'ryoais' else 'http://localhost:11434'
-            base_url = getattr(provider_config, 'base_url', default_url)
+        base_url = provider_config.get('base_url', default_url) if isinstance(provider_config, dict) else getattr(provider_config, 'base_url', default_url)
     else:
-        base_url = 'http://localhost/v1' if provider_lower == 'ryoais' else 'http://localhost:11434'
+        base_url = default_url
     
-    # Try to get from settings.json
+    # Override with settings.json if available
     try:
         from app_context import AppContext
         main_window = AppContext.get_main_window()
+        if not main_window:
+            return base_url
         
-        if main_window:
-            general_settings = main_window.config_manager.general_settings
+        general_settings = main_window.config_manager.general_settings
+        settings_map = {
+            'llm': (general_settings.ryoais_llm_base_url, general_settings.ollama_llm_base_url),
+            'embedding': (general_settings.ryoais_embedding_base_url, general_settings.ollama_embedding_base_url),
+            'rerank': (general_settings.ryoais_rerank_base_url, general_settings.ollama_rerank_base_url),
+        }
+        
+        if provider_type not in settings_map:
+            logger.warning(f"[ProviderUtils] Unknown provider_type: {provider_type}")
+            return base_url
+        
+        settings_url = settings_map[provider_type][0 if provider_lower == 'ryoais' else 1]
+        if settings_url:
+            logger.debug(f"[ProviderUtils] Using {provider_identifier} {provider_type} base_url from settings.json: {settings_url}")
+            return settings_url
             
-            if provider_type == 'llm':
-                settings_url = general_settings.ryoais_llm_base_url if provider_lower == 'ryoais' else general_settings.ollama_llm_base_url
-            elif provider_type == 'embedding':
-                settings_url = general_settings.ryoais_embedding_base_url if provider_lower == 'ryoais' else general_settings.ollama_embedding_base_url
-            elif provider_type == 'rerank':
-                settings_url = general_settings.ryoais_rerank_base_url if provider_lower == 'ryoais' else general_settings.ollama_rerank_base_url
-            else:
-                logger.warning(f"[ProviderUtils] Unknown provider_type: {provider_type}")
-                return base_url
-            
-            if settings_url:
-                base_url = settings_url
-                logger.debug(f"[ProviderUtils] Using {provider_identifier} {provider_type} base_url from settings.json: {base_url}")
     except Exception as e:
         logger.debug(f"[ProviderUtils] Could not get {provider_identifier}_{provider_type}_base_url from settings: {e}")
     

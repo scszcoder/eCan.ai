@@ -238,6 +238,24 @@ class TaskExecutor:
         
         return node_name
     
+    def is_step_node_output(self, step: dict) -> bool:
+        """
+        Check if a step contains the final output of a completed node.
+        
+        A step is considered a node output if it contains keys other than
+        the special metadata/control keys (__metadata__, require_user_input, etc.).
+        
+        Args:
+            step: Step output dict from stream.
+            
+        Returns:
+            True if step contains node output, False otherwise.
+        """
+        return any(
+            key for key in step.keys() 
+            if key not in ['__metadata__', 'require_user_input', 'await_agent', '__interrupt__']
+        )
+    
     def get_state_values(self, effective_config: dict) -> dict:
         """
         Get current state values from LangGraph.
@@ -500,9 +518,14 @@ class TaskExecutor:
                 self.task.status.message = _create_message("agent", str(step))
                 
                 # Emit running status with current node
+                # Skip if this step contains the final output of a completed node
+                # (step dict has node name as key with the node's return value)
                 node_name = self.get_node_name_from_step(step, effective_config)
-                st_js = self.get_state_values(effective_config)
-                self.emit_run_status("running", node_name, st_js)
+                
+                if not self.is_step_node_output(step):
+                    # Only emit running status if this is not a node's final output
+                    st_js = self.get_state_values(effective_config)
+                    self.emit_run_status("running", node_name, st_js)
                 
                 # Check for interrupt/input required
                 if step.get("require_user_input") or step.get("await_agent") or step.get("__interrupt__"):
@@ -620,9 +643,14 @@ class TaskExecutor:
                 self.task.status.message = _create_message("agent", str(step))
                 
                 # Emit running status with current node
+                # Skip if this step contains the final output of a completed node
+                # (step dict has node name as key with the node's return value)
                 node_name = self.get_node_name_from_step(step, effective_config)
-                st_js = self.get_state_values(effective_config)
-                self.emit_run_status("running", node_name, st_js)
+                
+                if not self.is_step_node_output(step):
+                    # Only emit running status if this is not a node's final output
+                    st_js = self.get_state_values(effective_config)
+                    self.emit_run_status("running", node_name, st_js)
                 
                 # Check for interrupt/input required
                 if step.get("require_user_input") or step.get("await_agent") or step.get("__interrupt__"):
