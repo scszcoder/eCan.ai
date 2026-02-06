@@ -3426,6 +3426,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 http_endpoint = mainwin.getWanApiEndpoint()
                                 auth_token = mainwin.get_auth_token()
                                 client_id = mainwin.getAcctSiteID()
+                                logger.info(f"[BrowserAutomation] publish_step_result: client_id={client_id}, run_id={run_id}, step_id={step_id}")
                                 
                                 await publish_step_result(result, http_endpoint, auth_token, client_id)
                                 logger.info(f"[BrowserAutomation] Published passive step result: run_id={run_id}, step_id={step_id}")
@@ -3565,7 +3566,19 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     except Exception:
                         pass
                     
-                    acct_site_id = os.environ.get('EC_ACCT_SITE_ID', '').strip() or None
+                    # Get acct_site_id: prefer mainwin.getAcctSiteID() for hybrid runs launched from local client
+                    # For cloud worker, get it from the transport's client_id
+                    acct_site_id = None
+                    if mainwin and hasattr(mainwin, 'getAcctSiteID'):
+                        try:
+                            acct_site_id = mainwin.getAcctSiteID()
+                        except Exception:
+                            pass
+                    if not acct_site_id and transport and hasattr(transport, 'client_id'):
+                        # Cloud worker case: transport has the client_id from passive_client_id
+                        acct_site_id = transport.client_id
+                    if not acct_site_id:
+                        acct_site_id = os.environ.get('EC_ACCT_SITE_ID', '').strip() or None
                     
                     # Build agent kwargs
                     agent_kwargs = {
