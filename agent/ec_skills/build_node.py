@@ -3007,6 +3007,12 @@ def build_rag_node(config_metadata: dict, node_name: str, skill_name: str, owner
     return node_builder(_rag, node_name, skill_name, owner, bp_manager)
 
 
+# Module-level lock and cache for preventing duplicate passive command execution
+import asyncio as _asyncio_module
+_passive_steps_lock = _asyncio_module.Lock()
+_passive_steps_processed: set[str] = set()
+
+
 def build_browser_automation_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
     """Browser automation scaffold.
 
@@ -3302,6 +3308,45 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 try:
                     from agent.ec_skills.browser_use_extension.passive_agent import PassiveAgent
 
+                    # Guard against double-execution: check if this step_id was already processed
+                    # Use module-level lock and set to prevent race condition
+                    global _passive_steps_lock, _passive_steps_processed
+                    
+                    passive_cmd_check = None
+                    if isinstance(state, dict):
+                        attrs_check = state.get("attributes", {})
+                        passive_cmd_check = attrs_check.get("passive_command")
+                    
+                    # Build step_key from passive_command or fall back to node_name + run_id
+                    step_key = None
+                    if isinstance(passive_cmd_check, dict):
+                        step_id_check = passive_cmd_check.get("step_id", "")
+                        run_id_check = passive_cmd_check.get("run_id", "")
+                        step_key = f"{run_id_check}:{step_id_check}"
+                    else:
+                        # Fallback: use node_name + run_id from state.attributes
+                        if isinstance(state, dict):
+                            attrs = state.get("attributes", {})
+                            run_id_fallback = attrs.get("run_id", "")
+                            if run_id_fallback:
+                                step_key = f"{run_id_fallback}:{node_name}"
+                    
+                    if step_key:
+                        async with _passive_steps_lock:
+                            if step_key in _passive_steps_processed:
+                                logger.info(f"[BrowserAutomation] Skipping duplicate execution for step: {step_key}")
+                                return {"passive": True, "skipped": True, "reason": "duplicate_execution"}
+                            
+                            # Mark this step as being processed (inside lock to prevent race condition)
+                            _passive_steps_processed.add(step_key)
+                            logger.info(f"[BrowserAutomation] Processing step: {step_key}")
+                            # Limit cache size to prevent memory leak
+                            if len(_passive_steps_processed) > 1000:
+                                # Remove oldest entries (convert to list, slice, convert back)
+                                _passive_steps_processed = set(list(_passive_steps_processed)[-500:])
+                    else:
+                        logger.warning(f"[BrowserAutomation] No step_key available for duplicate detection, proceeding anyway")
+
                     browser_session = await _get_or_create_browser_session(mainwin)
                     if not browser_session:
                         return {"error": "browser-use passive mode: failed to acquire browser session"}
@@ -3340,11 +3385,55 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         privacy_enabled=True,
                     )
 
+                    # Get passive_command from state.attributes for run_id/step_id
+                    passive_cmd = None
+                    include_screenshot = False
+                    stop_on_error = True
+                    if isinstance(state, dict):
+                        attrs = state.get("attributes", {})
+                        passive_cmd = attrs.get("passive_command")
+                        if isinstance(passive_cmd, dict):
+                            include_screenshot = bool(passive_cmd.get("include_screenshot", False))
+                            stop_on_error = bool(passive_cmd.get("stop_on_error", True))
+
                     payload = await passive_agent.execute_actions(
                         actions=actions,
-                        stop_on_error=True,
-                        include_screenshot=False,
+                        stop_on_error=stop_on_error,
+                        include_screenshot=include_screenshot,
                     )
+
+                    # Publish result back to cloud if we have passive_command info
+                    if passive_cmd and mainwin:
+                        try:
+                            from agent.ec_skills.browser_use_extension.passive_agent_node import publish_step_result
+                            from agent.ec_skills.browser_use_extension.passive_protocol import PassiveBrowserStepResult
+                            
+                            run_id = passive_cmd.get("run_id", "")
+                            step_id = passive_cmd.get("step_id", "")
+                            
+                            if run_id and step_id:
+                                result = PassiveBrowserStepResult(
+                                    run_id=run_id,
+                                    step_id=step_id,
+                                    ok=not bool(payload.get("errors")),
+                                    elapsed_ms=int(payload.get("elapsed_ms") or 0),
+                                    actions=payload.get("actions") or [],
+                                    action_results=payload.get("action_results") or [],
+                                    errors=payload.get("errors") or [],
+                                    browser=payload.get("browser") or {},
+                                )
+                                
+                                http_endpoint = mainwin.getWanApiEndpoint()
+                                auth_token = mainwin.get_auth_token()
+                                client_id = mainwin.getAcctSiteID()
+                                
+                                await publish_step_result(result, http_endpoint, auth_token, client_id)
+                                logger.info(f"[BrowserAutomation] Published passive step result: run_id={run_id}, step_id={step_id}")
+                                send_skill_editor_log("log", f"[BrowserAutomation] Published passive step result to cloud")
+                        except Exception as pub_err:
+                            logger.error(f"[BrowserAutomation] Failed to publish passive step result: {pub_err}")
+                            send_skill_editor_log("warning", f"[BrowserAutomation] Failed to publish result to cloud: {pub_err}")
+
                     return {"passive": True, **payload}
                 except Exception as e:
                     err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNodePassive")
