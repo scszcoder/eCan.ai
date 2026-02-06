@@ -45,7 +45,10 @@ export const BrowserAutomationNodeRegistry: FlowNodeRegistry = {
           useThinking: { type: 'constant', content: false },
           useVision: { type: 'constant', content: false },
           profile: { type: 'constant', content: '' },
-          systemPrompt: { type: 'template', content: 'You are a helpful browser automation agent.' },
+          systemPrompt: { 
+            type: 'template', 
+            content: 'You are a helpful browser automation agent.\n\nAvailable Actions:\n- Browser operations: navigate, click, input_text, scroll, extract, search_google\n- Tab management: open_tab, close_tab, switch_tab, go_back\n- Form operations: get_dropdown_options, select_dropdown_option\n- Completion: done (use when task is complete)\n\nIMPORTANT:\n1. You can ONLY use browser operations. Do NOT use file operations (write_file, read_file, etc.).\n2. When you have completed the task or achieved the goal, you MUST use the \'done\' action to end the task.' 
+          },
           prompt: { type: 'template', content: '' },
           promptSelection: { type: 'constant', content: 'inline' },
         },
