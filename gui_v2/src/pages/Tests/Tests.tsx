@@ -1088,7 +1088,7 @@ const Tests: React.FC = () => {
             }
         `;
         
-        // Both result and dom_tree are always non-null JSON strings
+        // Both result and dom_tree are AWSJSON - send as JSON strings
         const mutationInput = {
             clientId,
             runId,
@@ -1098,6 +1098,11 @@ const Tests: React.FC = () => {
         };
         
         appendTestOutput('L2C WS Test: Sending publishPassiveStepResult mutation with Cognito JWT...');
+        const mutationPayload = {
+            query: publishPassiveStepResultMutation,
+            variables: { input: mutationInput },
+        };
+        appendTestOutput(`L2C WS Test: Full mutation payload=${JSON.stringify(mutationPayload)}`);
         
         try {
             const response = await fetch(wanEndpoint, {
@@ -1106,10 +1111,7 @@ const Tests: React.FC = () => {
                     'Content-Type': 'application/json', 
                     'Authorization': cognitoToken,  // Cognito JWT auth
                 },
-                body: JSON.stringify({ 
-                    query: publishPassiveStepResultMutation, 
-                    variables: { input: mutationInput } 
-                }),
+                body: JSON.stringify(mutationPayload),
             });
             const result = await response.json();
             
