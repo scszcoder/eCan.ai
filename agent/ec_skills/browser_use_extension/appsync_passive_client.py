@@ -103,6 +103,7 @@ def _publish_step_result_mutation() -> str:
         runId
         clientId
         stepId
+        result
         dom_tree
       }
     }
@@ -314,7 +315,22 @@ class AppSyncPassiveClient:
         from agent.ec_skills.browser_use_extension.passive_agent_node import remove_null_values
         result_dict = remove_null_values(result_dict)
         
-        # Ensure browser is at least an empty dict, not null
+        # Ensure all required fields have valid defaults (not null)
+        # Required format: {"schema_version":1,"type":"browser_use_passive_step_result","ok":true,"elapsed_ms":5,"actions":[],"action_results":[],"errors":[],"browser":{}}
+        if "schema_version" not in result_dict:
+            result_dict["schema_version"] = 1
+        if "type" not in result_dict:
+            result_dict["type"] = "browser_use_passive_step_result"
+        if "ok" not in result_dict:
+            result_dict["ok"] = True
+        if "elapsed_ms" not in result_dict:
+            result_dict["elapsed_ms"] = 0
+        if "actions" not in result_dict:
+            result_dict["actions"] = []
+        if "action_results" not in result_dict:
+            result_dict["action_results"] = []
+        if "errors" not in result_dict:
+            result_dict["errors"] = []
         if not result_dict.get("browser"):
             result_dict["browser"] = {}
         
@@ -322,7 +338,8 @@ class AppSyncPassiveClient:
             "runId": result.run_id,
             "clientId": self._config.client_id,
             "stepId": result.step_id,
-            "result": json.dumps(result_dict),  # String! type - JSON-encoded string
+            "result": json.dumps(result_dict),  # AWSJSON type - JSON-encoded string
+            "dom_tree": json.dumps({}),
         }
 
         auth_headers = _build_auth_headers(self._config.auth_token)
