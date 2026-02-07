@@ -188,8 +188,14 @@ class AppSyncPassiveClient:
                 return
 
             if msg_type == "data" and data.get("id") == self._subscription_id:
-                # Log the raw message for debugging
-                print(f"[AppSyncPassiveClient] Raw WebSocket message received: {message[:500]}..." if len(message) > 500 else f"[AppSyncPassiveClient] Raw WebSocket message received: {message}")
+                # Log the raw message for debugging (truncate screenshot data)
+                from agent.ec_skills.browser_use_extension.passive_agent_node import truncate_screenshot_for_logging
+                try:
+                    log_data = truncate_screenshot_for_logging(data)
+                    log_msg = json.dumps(log_data)
+                    print(f"[AppSyncPassiveClient] Raw WebSocket message received: {log_msg[:500]}..." if len(log_msg) > 500 else f"[AppSyncPassiveClient] Raw WebSocket message received: {log_msg}")
+                except Exception:
+                    print(f"[AppSyncPassiveClient] Raw WebSocket message received: {message[:200]}...")
                 
                 # Check for errors in the payload
                 payload = data.get("payload") or {}
@@ -276,12 +282,47 @@ class AppSyncPassiveClient:
                     pass
 
     async def _publish_step_result(self, result: PassiveBrowserStepResult) -> None:
+        # Mask large data to avoid AppSync payload size limit (240KB)
+        result_dict = result.model_dump()
+        browser_data = result_dict.get("browser")
+        logger.info(f"[AppSyncPassiveClient] browser_data type={type(browser_data).__name__}, keys={list(browser_data.keys()) if isinstance(browser_data, dict) else 'N/A'}")
+        if browser_data and isinstance(browser_data, dict):
+            # Mask screenshot
+            screenshot = browser_data.get("screenshot_base64")
+            if screenshot and isinstance(screenshot, str) and len(screenshot) > 100:
+                screenshot_len = len(screenshot)
+                browser_data["screenshot_base64"] = f"[MASKED:{screenshot_len} bytes]"
+                logger.info(f"[AppSyncPassiveClient] ✅ Masked screenshot_base64 ({screenshot_len} bytes)")
+            
+            # Mask DOM tree (selector_map/elements) - temporarily mask to stay under 240KB limit
+            selector_map = browser_data.get("selector_map")
+            if selector_map and isinstance(selector_map, (list, dict)):
+                selector_map_len = len(json.dumps(selector_map)) if selector_map else 0
+                browser_data["selector_map"] = f"[MASKED:{selector_map_len} bytes, {len(selector_map) if isinstance(selector_map, list) else 'dict'} items]"
+                logger.info(f"[AppSyncPassiveClient] ✅ Masked selector_map ({selector_map_len} bytes)")
+            
+            # Also mask dom_text if it's large
+            dom_text = browser_data.get("dom_text")
+            if dom_text and isinstance(dom_text, str) and len(dom_text) > 10000:
+                dom_text_len = len(dom_text)
+                browser_data["dom_text"] = f"[MASKED:{dom_text_len} chars]"
+                logger.info(f"[AppSyncPassiveClient] ✅ Masked dom_text ({dom_text_len} chars)")
+        else:
+            logger.warning(f"[AppSyncPassiveClient] browser_data is not a dict, cannot mask")
+        
+        # Remove null values - AppSync AWSJSON cannot handle null in non-nullable fields
+        from agent.ec_skills.browser_use_extension.passive_agent_node import remove_null_values
+        result_dict = remove_null_values(result_dict)
+        
+        # Ensure browser is at least an empty dict, not null
+        if not result_dict.get("browser"):
+            result_dict["browser"] = {}
+        
         envelope = {
             "runId": result.run_id,
             "clientId": self._config.client_id,
             "stepId": result.step_id,
-            "result": result.model_dump(),
-            "dom_tree": result.dom_tree,
+            "result": json.dumps(result_dict),  # String! type - JSON-encoded string
         }
 
         auth_headers = _build_auth_headers(self._config.auth_token)

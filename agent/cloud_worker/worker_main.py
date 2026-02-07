@@ -342,8 +342,11 @@ class PassiveStepResultListener:
             # Echo back via SkillEditorStreamEvent for testing/debugging
             se_logger = get_skill_editor_logger()
             if se_logger:
+                # Truncate screenshot for logging
+                from agent.ec_skills.browser_use_extension.passive_agent_node import truncate_screenshot_for_logging
+                log_result = truncate_screenshot_for_logging(result)
                 se_logger.log(
-                    f"[L2C] ✅ Received PassiveStepResult: stepId={step_id}, result={json.dumps(result)[:200]}"
+                    f"[L2C] ✅ Received PassiveStepResult: stepId={step_id}, result={json.dumps(log_result)[:500]}"
                 )
             
             # Signal that first result is received (for L2C test mode)

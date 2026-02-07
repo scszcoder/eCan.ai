@@ -2757,9 +2757,15 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         send_skill_editor_log("log", log_msg)
 
         current_node_name = runtime.context["this_node"].get("name")
-        log_msg = f"[Pending For Event Node] pend_for_event_node: {current_node_name}, {state}"
+        # Truncate screenshot data for logging
+        try:
+            from agent.ec_skills.browser_use_extension.passive_agent_node import truncate_screenshot_for_logging
+            log_state = truncate_screenshot_for_logging(state)
+        except Exception:
+            log_state = str(state)[:500] + "..."
+        log_msg = f"[Pending For Event Node] pend_for_event_node: {current_node_name}, {log_state}"
         logger.debug(log_msg)
-        send_skill_editor_log("log", log_msg)
+        send_skill_editor_log("log", str(log_msg)[:500])
         if state.get("metadata"):
             qa_form = state.get("metadata").get("qa_form", None)
             notification = state.get("metadata").get("notification", None)
@@ -3396,13 +3402,23 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             include_screenshot = bool(passive_cmd.get("include_screenshot", False))
                             stop_on_error = bool(passive_cmd.get("stop_on_error", True))
 
-                    payload = await passive_agent.execute_actions(
-                        actions=actions,
-                        stop_on_error=stop_on_error,
-                        include_screenshot=include_screenshot,
-                    )
+                    payload = None
+                    exec_error = None
+                    try:
+                        payload = await passive_agent.execute_actions(
+                            actions=actions,
+                            stop_on_error=stop_on_error,
+                            include_screenshot=include_screenshot,
+                        )
+                    except Exception as e:
+                        exec_error = e
+                        err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNodePassive")
+                        logger.error(err_msg)
+                        send_skill_editor_log("error", err_msg)
+                        payload = {"error": str(err_msg), "errors": [str(err_msg)]}
 
                     # Publish result back to cloud if we have passive_command info
+                    # This happens even on error so cloud worker knows what happened
                     if passive_cmd and mainwin:
                         try:
                             from agent.ec_skills.browser_use_extension.passive_agent_node import publish_step_result
@@ -3435,6 +3451,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             logger.error(f"[BrowserAutomation] Failed to publish passive step result: {pub_err}")
                             send_skill_editor_log("warning", f"[BrowserAutomation] Failed to publish result to cloud: {pub_err}")
 
+                    # Return error if execute_actions failed
+                    if exec_error:
+                        return {"error": str(payload.get("error", str(exec_error)))}
+                    
                     return {"passive": True, **payload}
                 except Exception as e:
                     err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNodePassive")

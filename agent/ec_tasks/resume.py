@@ -608,7 +608,13 @@ def build_resume_from_mapping(event: Json, state: Json, node_output: Optional[Js
         "timestamp": event.get("timestamp"),
     })
 
-    logger.debug("state after mapping:", state_patch)
+    # Truncate screenshot data for logging
+    try:
+        from agent.ec_skills.browser_use_extension.passive_agent_node import truncate_screenshot_for_logging
+        log_state_patch = truncate_screenshot_for_logging(state_patch)
+    except Exception:
+        log_state_patch = str(state_patch)[:500] + "..."
+    logger.debug("state after mapping:", log_state_patch)
     return resume, state_patch
 
 
@@ -654,7 +660,13 @@ def build_node_transfer_patch(node_id: str, state_snapshot: Json, node_transfer_
         # Reuse the existing mapping engine. For per-node transfer, we have no external event,
         # and sources are expected to be state.* only now.
         logger.debug("build_node_transfer_patch......node_id", node_id)
-        logger.debug("build_node_transfer_patch......state_snapshot", state_snapshot)
+        # Truncate screenshot data for logging
+        try:
+            from agent.ec_skills.browser_use_extension.passive_agent_node import truncate_screenshot_for_logging
+            log_state_snapshot = truncate_screenshot_for_logging(state_snapshot)
+        except Exception:
+            log_state_snapshot = str(state_snapshot)[:500] + "..."
+        logger.debug("build_node_transfer_patch......state_snapshot", log_state_snapshot)
         logger.debug("build_node_transfer_patch......mapping", mapping)
 
         resume_patch, state_patch = build_resume_from_mapping(event={}, state=state_snapshot or {}, node_output=None, mapping=mapping)
@@ -772,7 +784,13 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
 
     mapping = load_mapping_for_task(task)
     current_state = (task.metadata or {}).get("state") or {}
-    logger.debug("build resume load, current_state>>>>", current_state)
+    # Truncate screenshot data for logging
+    try:
+        from agent.ec_skills.browser_use_extension.passive_agent_node import truncate_screenshot_for_logging
+        log_current_state = truncate_screenshot_for_logging(current_state)
+    except Exception:
+        log_current_state = str(current_state)[:500] + "..."
+    logger.debug("build resume load, current_state>>>>", log_current_state)
     logger.debug("build resume load, mapping>>>>", mapping)
     resume_payload, state_patch = build_resume_from_mapping(event, current_state, node_output=None, mapping=mapping)
 
@@ -835,8 +853,14 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
     except Exception:
         pass
 
+    # Truncate screenshot data for logging
+    try:
+        from agent.ec_skills.browser_use_extension.passive_agent_node import truncate_screenshot_for_logging
+        log_state_patch = truncate_screenshot_for_logging(state_patch)
+    except Exception:
+        log_state_patch = str(state_patch)[:500] + "..."
     logger.debug("build_general_resume_payload===>", resume_payload)
-    logger.debug("state_patch===>", state_patch)
+    logger.debug("state_patch===>", log_state_patch)
     # Preserve existing behavior: inject cloud_task_id into checkpoint attributes, and mirror into state attributes
     cloud_task_id = event.get("tag")
     if cp and cloud_task_id:

@@ -190,7 +190,13 @@ class TaskRunner(Generic[Context]):
     def launch_dev_run(self, init_state: dict, dev_task: ManagedTask) -> dict:
         """Launch a dev run via the unified execution loop."""
         try:
-            logger.debug(f"[TaskRunner][launch_dev_run] init_state: {init_state}")
+            # Truncate screenshot data for logging
+            try:
+                from agent.ec_skills.browser_use_extension.passive_agent_node import truncate_screenshot_for_logging
+                log_init_state = truncate_screenshot_for_logging(init_state)
+            except Exception:
+                log_init_state = str(init_state)[:500] + "..."
+            logger.debug(f"[TaskRunner][launch_dev_run] init_state: {log_init_state}")
             dev_init_state = init_state or {}
             try:
                 if isinstance(dev_init_state.get("messages"), list) and not dev_init_state["messages"]:

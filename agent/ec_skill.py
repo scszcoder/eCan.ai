@@ -865,7 +865,13 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
         except Exception:
             pass
 
-        logger.debug("[node_builder]returning state...", state)
+        # Truncate screenshot data in state for logging
+        try:
+            from agent.ec_skills.browser_use_extension.passive_agent_node import truncate_screenshot_for_logging
+            log_state = truncate_screenshot_for_logging(state)
+        except Exception:
+            log_state = str(state)[:500] + "..." if len(str(state)) > 500 else state
+        logger.debug("[node_builder]returning state...", log_state)
         return state
     # The node_builder itself returns the wrapper function
     return wrapper
