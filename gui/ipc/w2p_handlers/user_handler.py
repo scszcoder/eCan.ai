@@ -478,3 +478,29 @@ def handle_get_account_info(request: IPCRequest, params: Optional[Dict[str, Any]
         import traceback
         logger.error(traceback.format_exc())
         return create_error_response(request, 'GET_ACCOUNT_INFO_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('get_auth_token')
+def handle_get_auth_token(request: IPCRequest, params: Optional[Dict[str, Any]] = None) -> IPCResponse:
+    """Get the Cognito JWT auth token from MainWindow."""
+    try:
+        logger.info("[GetAuthToken] Getting main window...")
+        mainwin = AppContext.get_main_window()
+        logger.info(f"[GetAuthToken] mainwin type: {type(mainwin)}, is None: {mainwin is None}")
+        if not mainwin:
+            return create_error_response(request, 'NO_MAINWIN', 'MainWindow not available')
+        
+        logger.info(f"[GetAuthToken] Checking get_auth_token method exists: {hasattr(mainwin, 'get_auth_token')}")
+        logger.info(f"[GetAuthToken] get_auth_token type: {type(getattr(mainwin, 'get_auth_token', None))}")
+        
+        token = mainwin.get_auth_token()
+        logger.info(f"[GetAuthToken] Token retrieved, length: {len(token) if token else 0}")
+        if not token:
+            return create_error_response(request, 'NO_TOKEN', 'No auth token available')
+        
+        return create_success_response(request, token)
+    except Exception as e:
+        logger.error(f"[GetAuthToken] Error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return create_error_response(request, 'GET_AUTH_TOKEN_ERROR', str(e))

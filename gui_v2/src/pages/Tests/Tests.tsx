@@ -1014,40 +1014,67 @@ const Tests: React.FC = () => {
         appendTestOutput('L2C WS Test: This simulates a local client sending step results to cloud');
         
         const wanEndpoint = (settings?.wan_api_endpoint?.trim() || parsedArgs.wanEndpoint || env.VITE_APPSYNC_HTTP_ENDPOINT || defaultWanEndpoint);
-        const wanApiKey = (settings?.wan_api_key?.trim() || parsedArgs.wanApiKey || parsedArgs.apiKey || env.VITE_APPSYNC_API_KEY || '');
         const owner = username || parsedArgs.owner || env.VITE_ACCOUNT_OWNER || '';
         
         appendTestOutput(`L2C WS Test: endpoint=${wanEndpoint}`);
         
-        if (!wanApiKey) {
-            appendTestOutput('L2C WS Test: ERROR - Missing API key. Provide in Settings (wan_api_key) or Test Argument as {"wanApiKey":"..."}');
+        // Get Cognito JWT token from Python backend via IPC
+        const { ipcClient } = await import('../../services/ipc/ipcClient');
+        let cognitoToken = '';
+        try {
+            appendTestOutput('L2C WS Test: Calling IPC get_auth_token...');
+            const tokenResp = await ipcClient.invoke('get_auth_token', {});
+            // IPC response uses status='success' and result field, not success boolean and data
+            appendTestOutput(`L2C WS Test: IPC response: status=${tokenResp.status}, hasResult=${!!tokenResp.result}, error=${JSON.stringify(tokenResp.error || null)}`);
+            if (tokenResp.status === 'success' && tokenResp.result) {
+                cognitoToken = tokenResp.result as string;
+                appendTestOutput(`L2C WS Test: Got token from IPC (length: ${cognitoToken.length})`);
+            }
+        } catch (e) {
+            appendTestOutput(`L2C WS Test: IPC get_auth_token error: ${e}`);
+        }
+        
+        // Fallback to web session if IPC fails
+        if (!cognitoToken) {
+            appendTestOutput('L2C WS Test: IPC token not available, trying web session...');
+            const { webAuthSession } = await import('../../services/auth/webAuthSession');
+            const session = webAuthSession.getSession();
+            appendTestOutput(`L2C WS Test: Web session: hasIdToken=${!!session?.idToken}, hasAccessToken=${!!session?.accessToken}`);
+            cognitoToken = session?.idToken || session?.accessToken || '';
+        }
+        
+        if (!cognitoToken) {
+            appendTestOutput('L2C WS Test: ERROR - No Cognito JWT token found. Please log in first.');
             return;
         }
         
+        appendTestOutput(`L2C WS Test: Using Cognito JWT auth (token length: ${cognitoToken.length})`);
         appendTestOutput(`L2C WS Test: owner=${owner || '(anonymous)'}`);
         
-        const clientId = parsedArgs.clientId || parsedArgs.client_id || 'client-0123456789';
+        const clientId = parsedArgs.clientId || parsedArgs.client_id || 'songc_yahoo_com_SCHOME';
         const runId = parsedArgs.runId || parsedArgs.run_id || '0123456789';
-        const stepId = parsedArgs.stepId || parsedArgs.step_id || `step-${Date.now()}`;
-        const domTree = parsedArgs.dom_tree || parsedArgs.domTree || null;
+        const stepId = parsedArgs.stepId || parsedArgs.step_id || '001';
         
+        // Default test data packet
         const resultPayload = parsedArgs.result || {
-            success: true,
-            elapsed_ms: 150,
-            actions: [{ action: 'click', selector: '#test-button' }],
-            action_results: [{ success: true }],
-            browser_state: {
-                url: 'https://example.com/test',
-                title: 'Test Page',
-                tabs: [{ id: 0, url: 'https://example.com/test', title: 'Test Page' }]
-            },
-            timestamp: new Date().toISOString()
+            schema_version: 1,
+            type: 'browser_use_passive_step_result',
+            ok: true,
+            elapsed_ms: 5,
+            actions: [{ action: 'noop' }],
+            action_results: [{ ok: true }],
+            errors: [],
+            browser: {}
         };
+        
+        // Default dom_tree
+        const domTreePayload = parsedArgs.dom_tree || parsedArgs.domTree || { nodes: [] };
         
         appendTestOutput(`L2C WS Test: clientId=${clientId}`);
         appendTestOutput(`L2C WS Test: runId=${runId}`);
         appendTestOutput(`L2C WS Test: stepId=${stepId}`);
         appendTestOutput(`L2C WS Test: result=${JSON.stringify(resultPayload).substring(0, 100)}...`);
+        appendTestOutput(`L2C WS Test: dom_tree=${JSON.stringify(domTreePayload).substring(0, 50)}...`);
         
         const publishPassiveStepResultMutation = `
             mutation PublishPassiveStepResult($input: PassiveBrowserStepResultEnvelopeInput!) {
@@ -1061,20 +1088,24 @@ const Tests: React.FC = () => {
             }
         `;
         
+        // Both result and dom_tree are always non-null JSON strings
         const mutationInput = {
             clientId,
             runId,
             stepId,
             result: JSON.stringify(resultPayload),
-            ...(domTree ? { dom_tree: JSON.stringify(domTree) } : {})
+            dom_tree: JSON.stringify(domTreePayload),
         };
         
-        appendTestOutput('L2C WS Test: Sending publishPassiveStepResult mutation...');
+        appendTestOutput('L2C WS Test: Sending publishPassiveStepResult mutation with Cognito JWT...');
         
         try {
             const response = await fetch(wanEndpoint, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'x-api-key': wanApiKey },
+                headers: { 
+                    'Content-Type': 'application/json', 
+                    'Authorization': cognitoToken,  // Cognito JWT auth
+                },
                 body: JSON.stringify({ 
                     query: publishPassiveStepResultMutation, 
                     variables: { input: mutationInput } 

@@ -432,7 +432,14 @@ class TaskExecutor:
         self.validate_skill()
         
         logger.debug(f"[SKILL_CHECK] Task {self.task.id} using skill: {self.task.skill.name}, runnable type: {type(self.task.skill.runnable)}")
-        logger.debug(f"current langgraph run time state0: {self.task.skill.runnable.get_state(config=effective_config)}")
+        # Truncate screenshot data for logging
+        try:
+            from agent.ec_skills.browser_use_extension.passive_agent_node import truncate_screenshot_for_logging
+            _state0 = self.task.skill.runnable.get_state(config=effective_config)
+            _log_state0 = truncate_screenshot_for_logging(_state0) if _state0 else _state0
+        except Exception:
+            _log_state0 = "[truncation error]"
+        logger.debug(f"current langgraph run time state0: {_log_state0}")
         
         # Step 5: Create stream generator
         if isinstance(in_msg, Command):
@@ -446,7 +453,14 @@ class TaskExecutor:
         try:
             logger.debug(f"stream running skill: {self.task.skill.name}, {in_msg}")
             logger.debug(f"stream_run config: {effective_config}")
-            logger.debug(f"current langgraph run time state2: {self.task.skill.runnable.get_state(config=effective_config)}")
+            # Truncate screenshot data for logging
+            try:
+                from agent.ec_skills.browser_use_extension.passive_agent_node import truncate_screenshot_for_logging
+                _state2 = self.task.skill.runnable.get_state(config=effective_config)
+                _log_state2 = truncate_screenshot_for_logging(_state2) if _state2 else _state2
+            except Exception:
+                _log_state2 = "[truncation error]"
+            logger.debug(f"current langgraph run time state2: {_log_state2}")
             
             step = {}
             current_checkpoint = None
@@ -500,7 +514,13 @@ class TaskExecutor:
                     
                     if step.get("__interrupt__"):
                         i_tag, current_checkpoint = self.handle_interrupt(step, effective_config)
-                        logger.debug(f"current checkpoint: {current_checkpoint}")
+                        # Truncate screenshot data for logging
+                        try:
+                            from agent.ec_skills.browser_use_extension.passive_agent_node import truncate_screenshot_for_logging
+                            log_checkpoint = truncate_screenshot_for_logging(current_checkpoint) if current_checkpoint else current_checkpoint
+                        except Exception:
+                            log_checkpoint = str(current_checkpoint)[:500] + "..." if current_checkpoint else None
+                        logger.debug(f"current checkpoint: {log_checkpoint}")
                     break
             
             # Step 8: Determine success and finalize
