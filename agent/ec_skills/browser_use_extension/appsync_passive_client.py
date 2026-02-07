@@ -188,11 +188,24 @@ class AppSyncPassiveClient:
                 return
 
             if msg_type == "data" and data.get("id") == self._subscription_id:
-                payload_data = (data.get("payload") or {}).get("data")
+                # Log the raw message for debugging
+                print(f"[AppSyncPassiveClient] Raw WebSocket message received: {message[:500]}..." if len(message) > 500 else f"[AppSyncPassiveClient] Raw WebSocket message received: {message}")
+                
+                # Check for errors in the payload
+                payload = data.get("payload") or {}
+                errors = payload.get("errors")
+                if errors:
+                    logger.error(f"[AppSyncPassiveClient] AppSync subscription error: {errors}")
+                    print(f"[AppSyncPassiveClient] ❌ AppSync subscription error: {errors}")
+                    return
+                
+                payload_data = payload.get("data")
                 if not isinstance(payload_data, dict):
+                    logger.warning(f"[AppSyncPassiveClient] payload.data is not a dict: {type(payload_data)}")
                     return
                 envelope = payload_data.get("onPassiveCommand")
                 if not isinstance(envelope, dict):
+                    logger.warning(f"[AppSyncPassiveClient] onPassiveCommand is null or not a dict: {envelope}")
                     return
 
                 try:

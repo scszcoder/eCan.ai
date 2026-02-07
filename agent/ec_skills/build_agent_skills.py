@@ -140,6 +140,13 @@ def _create_skill_from_workflow(
         if run_mode in ("developing", "released"):
             sk.run_mode = run_mode
 
+        # Cloud execution settings - check both top-level (from file) and config dict (from DB)
+        config = sk.config or {}
+        sk.run_in_cloud = bool(core_dict.get("run_in_cloud", config.get("run_in_cloud", False)))
+        sk.hybrid_cloud_mode = bool(core_dict.get("hybrid_cloud_mode", config.get("hybrid_cloud_mode", False)))
+        sk.local_helper_skill_id = core_dict.get("local_helper_skill_id", config.get("local_helper_skill_id", None))
+        sk.local_helper_machine = core_dict.get("local_helper_machine", config.get("local_helper_machine", None))
+
         sk.set_work_flow(workflow)
         sk.source = source
         sk.path = str(json_path)
@@ -594,6 +601,13 @@ def _fill_skill_from_db_view(skill_obj: EC_Skill, v: DBAgentSkill) -> None:
     skill_obj.ui_info = v.dict('ui_info', getattr(skill_obj, 'ui_info', {}) or {})
     skill_obj.objectives = v.list('objectives', getattr(skill_obj, 'objectives', []) or [])
     skill_obj.need_inputs = v.list('need_inputs', getattr(skill_obj, 'need_inputs', []) or [])
+    
+    # Cloud execution settings are stored in config dict
+    config = skill_obj.config or {}
+    skill_obj.run_in_cloud = bool(config.get('run_in_cloud', False))
+    skill_obj.hybrid_cloud_mode = bool(config.get('hybrid_cloud_mode', False))
+    skill_obj.local_helper_skill_id = config.get('local_helper_skill_id', None)
+    skill_obj.local_helper_machine = config.get('local_helper_machine', None)
 
 
 def _load_core_and_bundle_for_skill_path(skill_path: str) -> tuple[dict | None, dict | None]:

@@ -1027,9 +1027,9 @@ async def handle_skill_run_message(
         )
     
     # Choose execution mode
-    # Set up cloud prompt context for S3-based prompt loading
+    # Set up cloud prompt context for DynamoDB-based prompt loading
     from agent.cloud.cloud_prompt_loader import set_cloud_prompt_context, clear_cloud_prompt_context
-    set_cloud_prompt_context(bucket=bucket, user_prefix=username, region=region)
+    set_cloud_prompt_context(owner_id=username, region=region)
     
     try:
         if dev_mode and diagram and diagram.get("nodes"):
@@ -1607,7 +1607,25 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
         await handle_one_message(raw_message=message_json, bucket=bucket, base_prefix=base_prefix, region=region)
 
 
+async def run_single_with_timeout(*, message_json: str, bucket: str, base_prefix: str, region: str, timeout_seconds: int) -> None:
+    """
+    Wrapper to run a single skill execution with a timeout.
+    If the task exceeds the timeout, it will be forcefully terminated.
+    """
+    try:
+        await asyncio.wait_for(
+            run_single(message_json=message_json, bucket=bucket, base_prefix=base_prefix, region=region),
+            timeout=timeout_seconds
+        )
+    except asyncio.TimeoutError:
+        logger.error(f"[cloud_worker] Task exceeded timeout of {timeout_seconds}s ({timeout_seconds/3600:.1f} hours), forcing exit")
+        raise SystemExit(f"Task timeout after {timeout_seconds}s")
+
+
 def main() -> None:
+    # Default timeout: 3 hours = 10800 seconds
+    DEFAULT_TIMEOUT_SECONDS = 10800
+    
     parser = argparse.ArgumentParser(prog="ecan-cloud-worker")
     parser.add_argument("--mode", choices=["long-poll", "single"], default=os.getenv("ECAN_WORKER_MODE", "long-poll"))
     parser.add_argument("--queue-url", default=os.getenv("ECAN_SQS_QUEUE_URL", ""))
@@ -1615,6 +1633,8 @@ def main() -> None:
     parser.add_argument("--bucket", default=os.getenv("ECAN_SKILLS_BUCKET", DEFAULT_ECAN_SKILLS_BUCKET))
     parser.add_argument("--base-prefix", default=os.getenv("ECAN_USER_BASE_PREFIX", DEFAULT_USER_BASE_PREFIX))
     parser.add_argument("--region", default=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+    parser.add_argument("--timeout", type=int, default=int(os.getenv("ECAN_WORKER_TIMEOUT", DEFAULT_TIMEOUT_SECONDS)),
+                        help=f"Maximum execution time in seconds (default: {DEFAULT_TIMEOUT_SECONDS}s = 3 hours). Set to 0 to disable timeout.")
 
     args = parser.parse_args()
 
@@ -1624,13 +1644,23 @@ def main() -> None:
         raise SystemExit("--message-json is required for --mode single")
 
     t0 = time.time()
-    logger.info(f"[cloud_worker] starting rev={WORKER_REVISION} mode={args.mode} bucket={args.bucket} region={args.region}")
+    timeout_info = f"timeout={args.timeout}s" if args.timeout > 0 else "timeout=disabled"
+    logger.info(f"[cloud_worker] starting rev={WORKER_REVISION} mode={args.mode} {timeout_info} bucket={args.bucket} region={args.region}")
 
     try:
         if args.mode == "long-poll":
             asyncio.run(run_long_poll(queue_url=args.queue_url, bucket=args.bucket, base_prefix=args.base_prefix, region=args.region))
         else:
-            asyncio.run(run_single(message_json=args.message_json, bucket=args.bucket, base_prefix=args.base_prefix, region=args.region))
+            if args.timeout > 0:
+                asyncio.run(run_single_with_timeout(
+                    message_json=args.message_json,
+                    bucket=args.bucket,
+                    base_prefix=args.base_prefix,
+                    region=args.region,
+                    timeout_seconds=args.timeout
+                ))
+            else:
+                asyncio.run(run_single(message_json=args.message_json, bucket=args.bucket, base_prefix=args.base_prefix, region=args.region))
     finally:
         logger.info(f"[cloud_worker] exiting after {time.time() - t0:.2f}s")
 
