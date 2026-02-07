@@ -27,6 +27,10 @@ export function TestRunButton(props: { disabled: boolean }) {
   const username = useUserStore((state) => state.username);
   const skillInfo = useSkillInfoStore((state) => state.skillInfo);
   const breakpoints = useSkillInfoStore((state) => state.breakpoints);
+  const runInCloud = useSkillInfoStore((state) => state.runInCloud);
+  const hybridCloudMode = useSkillInfoStore((state) => state.hybridCloudMode);
+  const localHelperSkillId = useSkillInfoStore((state) => state.localHelperSkillId);
+  const localHelperMachine = useSkillInfoStore((state) => state.localHelperMachine);
   const setRunningNodeId = useRunningNodeStore((state) => state.setRunningNodeId);
 
   const updateValidateData = useCallback(() => {
@@ -124,7 +128,23 @@ export function TestRunButton(props: { disabled: boolean }) {
         testInputs: {},
       } as any;
 
-      const response = await ipcApi.runSkill(username, skillPayload);
+      // Build meta_data for cloud runs
+      // dev_mode=true enables fixed client_id/run_id for skill editor testing
+      // passive_client_id format: {username}_{machine_name} with fallback to SCHOME
+      const machineName = localHelperMachine || 'SCHOME';
+      const passiveClientId = `${username}_${machineName}`;
+      const metaData = runInCloud ? {
+        dev_mode: true,  // Skill editor always runs in dev mode
+        run_in_cloud: true,
+        client_id: passiveClientId,
+        passive_client_id: passiveClientId,
+        run_id: '0123456789',
+        hybrid_cloud_mode: hybridCloudMode,
+        local_helper_skill_id: localHelperSkillId,
+        local_helper_machine: machineName,
+      } : null;
+
+      const response = await ipcApi.runSkill(username, skillPayload, metaData);
       if (!response?.success) {
         Notification.error({
           title: 'Backend Run Failed',
@@ -138,7 +158,7 @@ export function TestRunButton(props: { disabled: boolean }) {
     } catch (e: any) {
       Notification.error({ title: 'Run Error', content: e?.message || String(e) });
     }
-  }, [clientContext, username, skillInfo, setRunningNodeId, breakpoints]);
+  }, [clientContext, username, skillInfo, setRunningNodeId, breakpoints, runInCloud, hybridCloudMode, localHelperSkillId, localHelperMachine]);
 
   /**
    * Listen single node validate

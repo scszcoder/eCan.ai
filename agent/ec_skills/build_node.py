@@ -248,7 +248,7 @@ BROWSER_AUTOMATION_SYS_PROMPT = "You are a helpful browser automation agent."
 
 def _load_prompt_data(selection: str) -> tuple[dict | None, Any]:
     """
-    Load prompt data either from cloud (S3) or local (GUI prompt_handler).
+    Load prompt data either from cloud (DynamoDB) or local (GUI prompt_handler).
     
     Returns:
         (prompt_data, normalizer_module) - prompt_data is the raw prompt dict,
@@ -264,12 +264,12 @@ def _load_prompt_data(selection: str) -> tuple[dict | None, Any]:
         
         cloud_ctx = get_cloud_prompt_context()
         if cloud_ctx is not None:
-            # We're in cloud mode - use S3-based prompt loading
+            # We're in cloud mode - use DynamoDB-based prompt loading
             logger.debug(f"[prompts] Using cloud prompt loader for selection '{selection}'")
             loader = get_cloud_prompt_loader(
-                bucket=cloud_ctx.bucket,
-                user_prefix=cloud_ctx.user_prefix,
+                owner_id=cloud_ctx.owner_id,
                 region=cloud_ctx.region,
+                table_name=cloud_ctx.table_name,
             )
             prompt_data = loader.get_prompt_by_id(selection)
             
@@ -3542,13 +3542,19 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         transport = make_default_cloud_transport_from_env()
                         logger.info(f"[BrowserAutomation] Created transport from environment")
                     
-                    # Get run_id from state
+                    # Get run_id from state - MUST match the run_id used by PassiveStepResultListener
+                    # The listener is created with the session/chat_id as run_id, so we must use that
                     run_id = None
                     try:
                         if isinstance(state, dict):
-                            run_id = state.get("browser_use_run_id") or state.get("run_id")
+                            # First priority: explicit browser_use_run_id
+                            run_id = state.get("browser_use_run_id")
                             if not run_id:
-                                # Try to get from attributes
+                                attrs = state.get("attributes", {})
+                                # Second priority: chat_id (session ID) - this matches PassiveStepResultListener
+                                run_id = attrs.get("chat_id")
+                            if not run_id:
+                                # Third priority: other run_id fields
                                 attrs = state.get("attributes", {})
                                 run_id = attrs.get("run_id") or attrs.get("thread_id")
                     except Exception:
@@ -3556,6 +3562,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     
                     if not isinstance(run_id, str) or not run_id.strip():
                         run_id = uuid.uuid4().hex
+                    
+                    logger.debug(f"[BrowserAutomation] Cloud mode run_id={run_id}")
                     
                     # Get agent/skill/node IDs
                     cloud_agent_id = None
@@ -3597,7 +3605,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     combined_task = f"System Instructions:\n{task_instructions}"
                     
                     agent = CloudAgent(
-                        task=combined_task,
+                        task=task,  # Use the task parameter passed to _run_browser_use
                         llm=llm,
                         controller=controller,
                         transport=transport,
@@ -3809,11 +3817,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             return {"error": str(err_msg)}
 
     def _auto(state: dict, *, runtime=None, store=None, **kwargs):
-        active_system_prompt, active_user_prompt = _resolve_prompt_templates(
-            prompt_selection,
-            inline_system_prompt,
-            inline_user_prompt,
-        )
+        # Use the pre-resolved prompts from build time (when cloud context was available)
+        # instead of calling _resolve_prompt_templates again at runtime
+        active_system_prompt = resolved_system_prompt
+        active_user_prompt = resolved_user_prompt
 
         # Find all variable placeholders (e.g., {{var_name}}) in the prompts
         variables = re.findall(r'\{\{(\w+)\}\}', active_system_prompt + active_user_prompt)
@@ -3858,11 +3865,21 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             
             # Get mainwin from agent via state (only needed for local modes)
             mainwin = None
+            agent_id = None  # Initialize agent_id for use in _run_browser_use
+            
+            # Try to get agent_id from state (works in both local and cloud mode)
+            try:
+                if state.get("messages") and len(state["messages"]) > 0:
+                    agent_id = state["messages"][0]
+                elif state.get("attributes", {}).get("agent_id"):
+                    agent_id = state["attributes"]["agent_id"]
+            except Exception:
+                pass
+            
             if not is_cloud_mode:
                 try:
                     from agent.agent_service import get_agent_by_id
-                    if state.get("messages") and len(state["messages"]) > 0:
-                        agent_id = state["messages"][0]
+                    if agent_id:
                         agent = get_agent_by_id(agent_id)
                         if agent and hasattr(agent, 'mainwin'):
                             mainwin = agent.mainwin

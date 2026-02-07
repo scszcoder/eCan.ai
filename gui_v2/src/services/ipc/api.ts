@@ -844,9 +844,15 @@ export class IPCAPI {
     );
     }
 
-    public async runSkill<T>(username: string, skill: T): Promise<APIResponse<void>> {
-        // skill must be JSON-stringified for AWSJSON type in GraphQL schema
+    public async runSkill<T>(username: string, skill: T, metaData?: any): Promise<APIResponse<void>> {
+        // AWSJSON as direct variable needs stringified JSON
         const skillJson = typeof skill === 'string' ? skill : JSON.stringify(skill);
+        // meta_data is required (AWSJSON!), default to empty object if not provided
+        const metaDataValue = metaData || {};
+        const metaDataJson = typeof metaDataValue === 'string' ? metaDataValue : JSON.stringify(metaDataValue);
+        console.log('[IPCAPI.runSkill] username:', username);
+        console.log('[IPCAPI.runSkill] skillJson length:', skillJson?.length);
+        console.log('[IPCAPI.runSkill] metaData:', metaDataValue);
         return apiRouter.execute(
       {
         method: 'run_skill',
@@ -855,7 +861,7 @@ export class IPCAPI {
           resultPath: 'runSkill'
         }
       },
-      { input: { username, skill: skillJson } }
+      { username, skill: skillJson, meta_data: metaDataJson }
     );
     }
 
@@ -869,7 +875,7 @@ export class IPCAPI {
           resultPath: 'cancelRunSkill'
         }
       },
-      { input: { username, skill: skillJson } }
+      { username, skill: skillJson }
     );
     }
 
@@ -883,7 +889,7 @@ export class IPCAPI {
           resultPath: 'pauseRunSkill'
         }
       },
-      { input: { username, skill: skillJson } }
+      { username, skill: skillJson }
     );
     }
 
@@ -897,7 +903,7 @@ export class IPCAPI {
           resultPath: 'resumeRunSkill'
         }
       },
-      { input: { username, skill: skillJson } }
+      { username, skill: skillJson }
     );
     }
 
@@ -911,7 +917,7 @@ export class IPCAPI {
           resultPath: 'stepRunSkill'
         }
       },
-      { input: { username, skill: skillJson } }
+      { username, skill: skillJson }
     );
     }
 

@@ -524,33 +524,35 @@ export const GRAPHQL_MUTATIONS = {
   `,
 
   // ==================== Skill Execution ====================
+  // Note: Using inline input construction with $skill as direct AWSJSON variable
+  // because AWSJSON inside input types doesn't serialize correctly via GraphQL variables
   RUN_SKILL: `
-    mutation RunSkill($input: RunSkillInput!) {
-      runSkill(input: $input) { runId status message data }
+    mutation RunSkill($username: String, $skill: AWSJSON!, $meta_data: AWSJSON!) {
+      runSkill(input: { username: $username, skill: $skill, meta_data: $meta_data }) { runId status message data }
     }
   `,
 
   PAUSE_RUN_SKILL: `
-    mutation PauseRunSkill($input: RunControlInput!) {
-      pauseRunSkill(input: $input) { runId status message data }
+    mutation PauseRunSkill($username: String, $skill: AWSJSON) {
+      pauseRunSkill(input: { username: $username, skill: $skill }) { runId status message data }
     }
   `,
 
   RESUME_RUN_SKILL: `
-    mutation ResumeRunSkill($input: RunControlInput!) {
-      resumeRunSkill(input: $input) { runId status message data }
+    mutation ResumeRunSkill($username: String, $skill: AWSJSON) {
+      resumeRunSkill(input: { username: $username, skill: $skill }) { runId status message data }
     }
   `,
 
   STEP_RUN_SKILL: `
-    mutation StepRunSkill($input: RunControlInput!) {
-      stepRunSkill(input: $input) { runId status message data }
+    mutation StepRunSkill($username: String, $skill: AWSJSON) {
+      stepRunSkill(input: { username: $username, skill: $skill }) { runId status message data }
     }
   `,
 
   CANCEL_RUN_SKILL: `
-    mutation CancelRunSkill($input: RunControlInput!) {
-      cancelRunSkill(input: $input) { runId status message data }
+    mutation CancelRunSkill($username: String, $skill: AWSJSON) {
+      cancelRunSkill(input: { username: $username, skill: $skill }) { runId status message data }
     }
   `,
 

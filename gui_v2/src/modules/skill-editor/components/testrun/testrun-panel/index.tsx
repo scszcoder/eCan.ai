@@ -128,24 +128,26 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
         },
       } as any;
 
-      // Build meta_data for cloud runs (dev mode uses fixed client_id and run_id)
-      // client_id should match the local client's acctSiteID for hybrid runs
-      // Format: VITE_ACCT_SITE_ID env var, or fallback to site-{username}
-      const acctSiteID = (import.meta.env.VITE_ACCT_SITE_ID || `site-${username || 'web'}`).trim();
-      const metaData = runInCloud ? {
+  // Build meta_data for cloud runs
+  // dev_mode=true enables fixed client_id/run_id for skill editor testing
+  // passive_client_id format: {username}_{machine_name} with fallback to SCHOME
+  const machineName = localHelperMachine || 'SCHOME';
+  const passiveClientId = `${username}_${machineName}`;
+            const metaData = runInCloud ? {
+        dev_mode: true,  // Skill editor always runs in dev mode
         run_in_cloud: true,
-        client_id: acctSiteID,
+        client_id: passiveClientId,
+        passive_client_id: passiveClientId,
         run_id: '0123456789',
         hybrid_cloud_mode: hybridCloudMode,
         local_helper_skill_id: localHelperSkillId,
-        local_helper_machine: localHelperMachine,
-      } : undefined;
+        local_helper_machine: machineName,
+            } : null;
 
       const skillPayload = {
         ...skillInfo,
         diagram: composedDiagram,
         testInputs: values,
-        ...(metaData ? { meta_data: metaData } : {}),
       };
 
       // Debug logs to verify bundle presence on FE side
@@ -159,8 +161,8 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
         console.debug('[RunSkill][FE] composedDiagram.bundle.sheet_count:', (composedDiagram?.bundle?.sheets || []).length);
       } catch {}
 
-      // Send the skill payload to the backend
-      const response = await ipcApi.runSkill(username, skillPayload);
+      // Send the skill payload to the backend (pass metaData as separate argument)
+      const response = await ipcApi.runSkill(username, skillPayload, metaData);
 
       if (!response.success) {
         setRunning(false);

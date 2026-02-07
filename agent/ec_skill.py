@@ -212,6 +212,12 @@ class EC_Skill(AgentSkill):
     price_model: str = ""
     public: bool = False
     rentable: bool = False
+    
+    # Cloud execution settings
+    run_in_cloud: bool = False
+    hybrid_cloud_mode: bool = False
+    local_helper_skill_id: str | None = None
+    local_helper_machine: str | None = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -291,6 +297,10 @@ class EC_Skill(AgentSkill):
             "price_model": self.price_model,
             "public": self.public,
             "rentable": self.rentable,
+            "run_in_cloud": self.run_in_cloud,
+            "hybrid_cloud_mode": self.hybrid_cloud_mode,
+            "local_helper_skill_id": self.local_helper_skill_id,
+            "local_helper_machine": self.local_helper_machine,
         }
 
 

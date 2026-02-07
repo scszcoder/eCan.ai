@@ -15,13 +15,42 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 # =============================================================================
-# TEST MODE FLAG
-# Set to True for testing L2C WebSocket with hardcoded clientId/runId
-# Set to False for production (uses random UUIDs)
+# DEV MODE Constants for Skill Editor Testing
+# When dev_mode=True, use deterministic client_id and run_id for predictable
+# WebSocket pub/sub matching between cloud worker and local passive agent
 # =============================================================================
-TEST_MODE = False  # Production mode - uses random UUIDs
-TEST_RUN_ID = "0123456789"
-TEST_CLIENT_ID = "client-0123456789"
+DEV_MODE_RUN_ID = "test-run-001"
+DEV_MODE_DEFAULT_SITE = "SCHOME"
+
+
+def _generate_dev_mode_client_id(username: str, skill: Dict[str, Any]) -> str:
+    """
+    Generate client_id for dev mode matching local passive agent's getAcctSiteID().
+    
+    Format: {user}_{site}
+    - user: username with @ and . replaced with _
+    - site: from skill's diagram.local_helper_machine, fallback to DEV_MODE_DEFAULT_SITE
+    
+    This matches the client-side logic:
+        def getAcctSiteID(self):
+            site = self.machine_name
+            user = self.user.replace("@", "_").replace(".", "_")
+            return f"{user}_{site}"
+    """
+    # Normalize username: replace @ and . with _
+    user_part = (username or "unknown").replace("@", "_").replace(".", "_")
+    
+    # Get site from skill's diagram or flowgram settings
+    # Priority: diagram.local_helper_machine > skill.local_helper_machine > fallback
+    diagram = skill.get("diagram") or {}
+    site = (
+        diagram.get("local_helper_machine") or 
+        skill.get("local_helper_machine") or 
+        DEV_MODE_DEFAULT_SITE
+    )
+    
+    client_id = f"{user_part}_{site}"
+    return client_id
 
 DEFAULT_DATA_MAPPING: Dict[str, Any] = {
     "developing": {
@@ -1117,26 +1146,27 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
             }
     
     # Generate run ID
-    # Priority: 1) meta_data.run_id (from local client), 2) TEST_MODE hardcoded, 3) random UUID
+    # Priority: 1) meta_data.run_id (from local client), 2) dev_mode deterministic, 3) random UUID
     if meta_run_id:
         run_id = meta_run_id
         logger.info(f"[runSkill] Using run_id from meta_data: {run_id}")
-    elif TEST_MODE:
-        run_id = TEST_RUN_ID
-        logger.info(f"[runSkill] TEST_MODE enabled - using hardcoded run_id={run_id}")
+    elif dev_mode:
+        run_id = DEV_MODE_RUN_ID
+        logger.info(f"[runSkill] dev_mode enabled - using deterministic run_id={run_id}")
     else:
         run_id = str(uuid4())
         logger.info(f"[runSkill] Generated random run_id: {run_id}")
     created_at = _utc_now_iso()
     
     # Generate passive_client_id early so it can be included in payloads
-    # Priority: 1) meta_data.client_id (from local client), 2) TEST_MODE hardcoded, 3) skill.passive_client_id, 4) auto-generated
+    # Priority: 1) meta_data.client_id (from local client), 2) dev_mode deterministic, 3) skill.passive_client_id, 4) auto-generated
     if meta_client_id:
         passive_client_id = meta_client_id
         logger.info(f"[runSkill] Using client_id from meta_data: {passive_client_id}")
-    elif TEST_MODE:
-        passive_client_id = TEST_CLIENT_ID
-        logger.info(f"[runSkill] TEST_MODE enabled - using hardcoded passive_client_id={passive_client_id}")
+    elif dev_mode:
+        # In dev mode, generate client_id matching local passive agent's getAcctSiteID()
+        passive_client_id = _generate_dev_mode_client_id(username, skill)
+        logger.info(f"[runSkill] dev_mode enabled - using deterministic passive_client_id={passive_client_id}")
     else:
         passive_client_id = skill.get("passive_client_id") or f"cloud-worker-{run_id}"
         logger.info(f"[runSkill] Using passive_client_id: {passive_client_id}")

@@ -1,11 +1,13 @@
-"""Cloud-compatible prompt loader for S3-based prompts.
+"""Cloud-compatible prompt loader for DynamoDB-based prompts.
 
 This module provides prompt loading functionality that works in cloud environments
 without requiring PySide6 or local filesystem access.
 
-Structure on S3:
-- User prompts: {user_prefix}/prompts/toc.json (index), {user_prefix}/prompts/{prompt_id}.json (individual prompts)
-- Public/sample prompts: public/prompts/sample_prompts/toc.json, public/prompts/sample_prompts/{prompt_id}.json
+Structure in DynamoDB (Agent_Prompts table):
+- Primary Key: owner_id (HASH) + agent_id (RANGE)
+- agent_id format: "any~{prompt_id}" for prompts accessible to any agent
+- prompt_id: The unique prompt ID (e.g., "pr-848556")
+- prompt: JSON string containing the prompt data
 """
 
 from __future__ import annotations
@@ -25,19 +27,22 @@ from utils.logger_helper import logger_helper as logger
 # Thread-local storage for cloud context
 _cloud_context = threading.local()
 
+# Default DynamoDB table name for prompts
+DEFAULT_PROMPTS_TABLE = "Agent_Prompts"
+
 
 @dataclass
 class CloudPromptContext:
     """Context for cloud prompt loading."""
-    bucket: str
-    user_prefix: str
+    owner_id: str  # User ID (e.g., "songc_yahoo_com")
     region: str = "us-east-1"
+    table_name: str = DEFAULT_PROMPTS_TABLE
 
 
-def set_cloud_prompt_context(bucket: str, user_prefix: str, region: str = "us-east-1") -> None:
+def set_cloud_prompt_context(owner_id: str, region: str = "us-east-1", table_name: str = DEFAULT_PROMPTS_TABLE) -> None:
     """Set the cloud prompt context for the current thread."""
-    _cloud_context.ctx = CloudPromptContext(bucket=bucket, user_prefix=user_prefix, region=region)
-    logger.debug(f"[cloud_prompts] Set context: bucket={bucket}, user_prefix={user_prefix}")
+    _cloud_context.ctx = CloudPromptContext(owner_id=owner_id, region=region, table_name=table_name)
+    logger.debug(f"[cloud_prompts] Set context: owner_id={owner_id}, table={table_name}")
 
 
 def get_cloud_prompt_context() -> Optional[CloudPromptContext]:
@@ -52,9 +57,9 @@ def clear_cloud_prompt_context() -> None:
 
 
 @contextmanager
-def cloud_prompt_context(bucket: str, user_prefix: str, region: str = "us-east-1") -> Generator[CloudPromptContext, None, None]:
+def cloud_prompt_context(owner_id: str, region: str = "us-east-1", table_name: str = DEFAULT_PROMPTS_TABLE) -> Generator[CloudPromptContext, None, None]:
     """Context manager for cloud prompt loading."""
-    ctx = CloudPromptContext(bucket=bucket, user_prefix=user_prefix, region=region)
+    ctx = CloudPromptContext(owner_id=owner_id, region=region, table_name=table_name)
     old_ctx = getattr(_cloud_context, 'ctx', None)
     _cloud_context.ctx = ctx
     try:
@@ -64,7 +69,6 @@ def cloud_prompt_context(bucket: str, user_prefix: str, region: str = "us-east-1
             _cloud_context.ctx = old_ctx
         else:
             clear_cloud_prompt_context()
-
 
 # Section types (same as prompt_handler.py)
 SECTION_TYPES: Tuple[str, ...] = (
@@ -191,29 +195,30 @@ def _normalize_prompt(raw: Any, *, source: str, read_only: bool, last_modified_t
 
 
 class CloudPromptLoader:
-    """Load prompts from S3 for cloud worker environments.
+    """Load prompts from DynamoDB for cloud worker environments.
     
-    Prompt files are named: {prompt_name}_{prompt_id}.json
-    e.g., ebay_orders0_pr-92939.json
-    
-    We search by finding files that contain the prompt_id in the filename.
+    DynamoDB table schema (Agent_Prompts):
+    - Primary Key: owner_id (HASH) + agent_id (RANGE)
+    - agent_id format: "any~{prompt_id}" for prompts accessible to any agent
+    - prompt_id: The unique prompt ID (e.g., "pr-848556")
+    - prompt: JSON string containing the prompt data
     """
     
     def __init__(
         self,
         *,
-        bucket: str,
-        user_prefix: str,
+        owner_id: str,
         region: str = "us-east-1",
+        table_name: str = DEFAULT_PROMPTS_TABLE,
     ) -> None:
-        self.bucket = bucket
-        self.user_prefix = user_prefix.rstrip("/")
+        self.owner_id = owner_id
         self.region = region
+        self.table_name = table_name
         self._client = None
         self._prompt_cache: Dict[str, Dict[str, Any]] = {}  # prompt_id -> normalized prompt
     
     def _get_client(self):
-        """Get or create S3 client."""
+        """Get or create DynamoDB client."""
         if self._client is not None:
             return self._client
         
@@ -224,70 +229,64 @@ class CloudPromptLoader:
             raise RuntimeError("boto3 is required for cloud prompt loading") from e
         
         cfg = Config(region_name=self.region, retries={"max_attempts": 3, "mode": "standard"})
-        self._client = boto3.client("s3", config=cfg)
+        self._client = boto3.client("dynamodb", config=cfg)
         return self._client
     
-    def _s3_get_json(self, key: str) -> Optional[Dict[str, Any]]:
-        """Get JSON object from S3, returns None if not found."""
+    def _get_prompt_from_dynamodb(self, owner_id: str, prompt_id: str) -> Optional[Dict[str, Any]]:
+        """Get a prompt from DynamoDB by owner_id and prompt_id."""
         try:
             client = self._get_client()
-            obj = client.get_object(Bucket=self.bucket, Key=key)
-            body = obj["Body"].read()
-            return json.loads(body.decode("utf-8"))
+            # agent_id format is "any~{prompt_id}"
+            agent_id = f"any~{prompt_id}"
+            
+            response = client.get_item(
+                TableName=self.table_name,
+                Key={
+                    "owner_id": {"S": owner_id},
+                    "agent_id": {"S": agent_id}
+                }
+            )
+            
+            item = response.get("Item")
+            if not item:
+                logger.debug(f"[cloud_prompts] Prompt not found in DynamoDB: owner={owner_id}, prompt_id={prompt_id}")
+                return None
+            
+            # Parse the prompt JSON string
+            prompt_str = item.get("prompt", {}).get("S", "{}")
+            prompt_data = json.loads(prompt_str)
+            
+            # Add id if not present (use prompt_id from the record)
+            if "id" not in prompt_data:
+                prompt_data["id"] = item.get("prompt_id", {}).get("S", prompt_id)
+            
+            logger.debug(f"[cloud_prompts] Found prompt in DynamoDB: owner={owner_id}, prompt_id={prompt_id}")
+            return prompt_data
+            
         except Exception as e:
             error_code = getattr(e, 'response', {}).get('Error', {}).get('Code', '')
-            if error_code in ('NoSuchKey', '404', 'AccessDenied'):
+            if error_code in ('ResourceNotFoundException', 'ValidationException'):
+                logger.debug(f"[cloud_prompts] DynamoDB error: {error_code}")
                 return None
-            logger.warning(f"[cloud_prompts] Failed to load {key}: {e}")
+            logger.warning(f"[cloud_prompts] Failed to load prompt {prompt_id} from DynamoDB: {e}")
             return None
     
-    def _find_prompt_file_by_id(self, prompt_id: str, prefix: str) -> Optional[str]:
-        """
-        Find a prompt file by searching for files containing the prompt_id in the filename.
-        
-        Files are named: {prompt_name}_{prompt_id}.json
-        e.g., ebay_orders0_pr-92939.json for prompt_id "pr-92939"
-        """
-        try:
-            client = self._get_client()
-            prompts_prefix = f"{prefix}/prompts/"
-            
-            # List objects in the prompts directory
-            paginator = client.get_paginator('list_objects_v2')
-            for page in paginator.paginate(Bucket=self.bucket, Prefix=prompts_prefix):
-                for obj in page.get('Contents', []):
-                    key = obj['Key']
-                    filename = key.split('/')[-1]
-                    
-                    # Check if filename contains the prompt_id and ends with .json
-                    if filename.endswith('.json') and prompt_id in filename:
-                        logger.debug(f"[cloud_prompts] Found prompt file: {key}")
-                        return key
-            
-            return None
-        except Exception as e:
-            logger.warning(f"[cloud_prompts] Error searching for prompt {prompt_id} in {prefix}: {e}")
-            return None
-    
-    def _load_prompt_by_id(self, prompt_id: str, prefix: str, source: str) -> Optional[Dict[str, Any]]:
-        """Load a single prompt by ID from S3 by searching filenames."""
+    def _load_prompt_by_id(self, prompt_id: str, owner_id: str, source: str) -> Optional[Dict[str, Any]]:
+        """Load a single prompt by ID from DynamoDB."""
         if prompt_id in self._prompt_cache:
             return self._prompt_cache[prompt_id]
         
-        # Find the prompt file by searching for filename containing the prompt_id
-        prompt_key = self._find_prompt_file_by_id(prompt_id, prefix)
+        prompt_data = self._get_prompt_from_dynamodb(owner_id, prompt_id)
         
-        if prompt_key:
-            prompt_data = self._s3_get_json(prompt_key)
-            if prompt_data:
-                normalized = _normalize_prompt(prompt_data, source=source, read_only=(source == "sample_prompts"))
-                self._prompt_cache[prompt_id] = normalized
-                return normalized
+        if prompt_data:
+            normalized = _normalize_prompt(prompt_data, source=source, read_only=(source == "sample_prompts"))
+            self._prompt_cache[prompt_id] = normalized
+            return normalized
         
         return None
     
     def get_prompt_by_id(self, prompt_id: str) -> Optional[Dict[str, Any]]:
-        """Get a prompt by ID, checking user prompts first, then sample prompts."""
+        """Get a prompt by ID, checking user prompts first, then sample/public prompts."""
         if not prompt_id:
             return None
         
@@ -296,12 +295,12 @@ class CloudPromptLoader:
             return self._prompt_cache[prompt_id]
         
         # Try user's prompts first
-        prompt = self._load_prompt_by_id(prompt_id, self.user_prefix, source="user_prompts")
+        prompt = self._load_prompt_by_id(prompt_id, self.owner_id, source="user_prompts")
         if prompt:
             return prompt
         
-        # Fall back to sample prompts (public/prompts/sample_prompts)
-        prompt = self._load_prompt_by_id(prompt_id, "public/prompts/sample_prompts", source="sample_prompts")
+        # Fall back to public/sample prompts (stored with owner_id "public")
+        prompt = self._load_prompt_by_id(prompt_id, "public", source="sample_prompts")
         if prompt:
             return prompt
         
@@ -314,9 +313,9 @@ _cloud_prompt_loader: Optional[CloudPromptLoader] = None
 
 
 def get_cloud_prompt_loader(
-    bucket: str,
-    user_prefix: str,
+    owner_id: str,
     region: str = "us-east-1",
+    table_name: str = DEFAULT_PROMPTS_TABLE,
 ) -> CloudPromptLoader:
     """Get or create cloud prompt loader instance."""
     global _cloud_prompt_loader
@@ -324,19 +323,20 @@ def get_cloud_prompt_loader(
     # Create new instance if params changed or not initialized
     if (
         _cloud_prompt_loader is None
-        or _cloud_prompt_loader.bucket != bucket
-        or _cloud_prompt_loader.user_prefix != user_prefix
+        or _cloud_prompt_loader.owner_id != owner_id
+        or _cloud_prompt_loader.table_name != table_name
     ):
         _cloud_prompt_loader = CloudPromptLoader(
-            bucket=bucket,
-            user_prefix=user_prefix,
+            owner_id=owner_id,
             region=region,
+            table_name=table_name,
         )
     
     return _cloud_prompt_loader
 
 
-def cloud_get_prompt_by_id(prompt_id: str, bucket: str, user_prefix: str, region: str = "us-east-1") -> Optional[Dict[str, Any]]:
-    """Convenience function to get a prompt by ID from S3."""
-    loader = get_cloud_prompt_loader(bucket=bucket, user_prefix=user_prefix, region=region)
+def cloud_get_prompt_by_id(prompt_id: str, owner_id: str, region: str = "us-east-1", table_name: str = DEFAULT_PROMPTS_TABLE) -> Optional[Dict[str, Any]]:
+    """Convenience function to get a prompt by ID from DynamoDB."""
+    loader = get_cloud_prompt_loader(owner_id=owner_id, region=region, table_name=table_name)
     return loader.get_prompt_by_id(prompt_id)
+

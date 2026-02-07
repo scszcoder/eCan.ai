@@ -589,6 +589,14 @@ def _prepare_skill_data(skill_info: Dict[str, Any], username: str, skill_id: Opt
         'ext': skill_info.get('ext', skill_info.get('extra_data', None)),
         'source': skill_info.get('source', 'ui'),
     }
+    
+    # Store cloud execution settings in config dict (not separate columns)
+    config = skill_data.get('config', {}) or {}
+    config['run_in_cloud'] = skill_info.get('run_in_cloud', False)
+    config['hybrid_cloud_mode'] = skill_info.get('hybrid_cloud_mode', False)
+    config['local_helper_skill_id'] = skill_info.get('local_helper_skill_id', None)
+    config['local_helper_machine'] = skill_info.get('local_helper_machine', None)
+    skill_data['config'] = config
 
     # Only add ID if provided (for updates)
     if skill_id:
@@ -650,6 +658,12 @@ def _update_skill_in_memory(skill_id: str, skill_data: Dict[str, Any], request=N
         skill_obj.price_model = str(skill_data.get('price_model', '') or '')
         skill_obj.public = bool(skill_data.get('public', False))
         skill_obj.rentable = bool(skill_data.get('rentable', False))
+        # Cloud execution settings are stored in config dict
+        config = skill_data.get('config', {}) or {}
+        skill_obj.run_in_cloud = bool(config.get('run_in_cloud', False))
+        skill_obj.hybrid_cloud_mode = bool(config.get('hybrid_cloud_mode', False))
+        skill_obj.local_helper_skill_id = config.get('local_helper_skill_id', None)
+        skill_obj.local_helper_machine = config.get('local_helper_machine', None)
         try:
             setattr(skill_obj, 'extra_data', skill_data.get('ext', None))
         except Exception:
@@ -698,6 +712,11 @@ def _create_clean_skill_response(skill_id: str, skill_data: Dict[str, Any]) -> D
         'rentable': bool(skill_data.get('rentable', False)),
         'price': int(skill_data.get('price', 0)),
         'price_model': str(skill_data.get('price_model', '') or ''),
+        # Cloud execution settings
+        'run_in_cloud': bool(skill_data.get('run_in_cloud', False)),
+        'hybrid_cloud_mode': bool(skill_data.get('hybrid_cloud_mode', False)),
+        'local_helper_skill_id': skill_data.get('local_helper_skill_id', None),
+        'local_helper_machine': skill_data.get('local_helper_machine', None),
     }
     
     # Add optional fields if they exist and are simple types
@@ -908,9 +927,10 @@ def sync_skill_from_file(file_path: str, request=None, params=None) -> Dict[str,
         # Add other fields only if they have non-empty values
         optional_fields = ['description', 'version', 'level', 'config', 'tags', 
                           'examples', 'inputModes', 'outputModes', 'apps', 
-                          'limitations', 'price', 'price_model', 'public', 'rentable']
+                          'limitations', 'price', 'price_model', 'public', 'rentable',
+                          'run_in_cloud', 'hybrid_cloud_mode', 'local_helper_skill_id', 'local_helper_machine']
         for field in optional_fields:
-            if field in skill_data and skill_data[field]:
+            if field in skill_data and skill_data[field] is not None:
                 skill_info[field] = skill_data[field]
         
         logger.debug(f"[skill_handler] Prepared skill_info with {len(skill_info)} fields")
