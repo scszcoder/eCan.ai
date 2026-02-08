@@ -6,6 +6,8 @@ import {
   LockOutlined,
   PlusOutlined,
   MinusCircleOutlined,
+  ReloadOutlined,
+  PlayCircleOutlined,
 } from '@ant-design/icons';
 import { Button, Space, Form, Input, Row, Col, Select, DatePicker, App, Checkbox } from 'antd';
 import { useTranslation } from 'react-i18next';
@@ -133,6 +135,9 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   const [form] = Form.useForm<ExtendedTask>();
   const [editMode, setEditMode] = React.useState(isNew);
   const [saving, setSaving] = React.useState(false);
+  const [refreshingStatus, setRefreshingStatus] = React.useState(false);
+  const [launching, setLaunching] = React.useState(false);
+  const [latestStatus, setLatestStatus] = React.useState<string>('');
   // skills store and fetch-on-mount if needed
   const skills = useSkillStore((s) => s.items);
   const setSkills = useSkillStore((s) => s.setItems);
@@ -184,6 +189,16 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
     ensureSkills();
   }, [username, setSkills]);
 
+  const taskStatus = React.useMemo(() => {
+    if (!task) return '';
+    const statusValue = (task as any).status ?? (task as any).state?.top ?? '';
+    return typeof statusValue === 'string' ? statusValue : String(statusValue || '');
+  }, [task]);
+
+  React.useEffect(() => {
+    setLatestStatus(taskStatus);
+  }, [taskStatus]);
+
   React.useEffect(() => {
     if (task) {
       // Skill comes directly from task (loaded from relationship table)
@@ -206,6 +221,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       // For new tasks, auto-generate ID and set owner
       const taskId = isNew ? generateTaskId() : (task as any).id;
       const taskOwner = isNew ? username : ((task as any).owner || username);
+      const taskAgentId = (task as any).agent_id || (task as any).agentId || '';
 
       const formValues = {
         ...(task as any),
@@ -215,6 +231,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         description: taskDescription,
         skills: taskSkills,  // Multiple skills support
         metadata_text: metaStr,
+        agent_id: taskAgentId,
       };
 
       form.setFieldsValue(formValues);
@@ -360,6 +377,60 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
     }
   };
 
+  const handleRefreshStatus = async () => {
+    if (!task || isNew) return;
+    const taskId = String((task as any).id || '');
+    if (!taskId) return;
+
+    setRefreshingStatus(true);
+    try {
+      const api = get_ipc_api();
+      const response = await api.refreshAgentTaskStatus<any>(username, taskId);
+      if (response.success) {
+        const refreshed = (response as any).data?.task || (response as any).data;
+        const nextStatus = refreshed?.status ?? refreshed?.state?.top ?? taskStatus;
+        if (nextStatus) {
+          setLatestStatus(String(nextStatus));
+        }
+        message.success(t('common.refresh_success', 'Refresh success'));
+      } else {
+        message.error(response.error?.message || t('common.refresh_failed', 'Refresh failed'));
+      }
+    } catch (error) {
+      console.error('[TaskDetail] Refresh status error:', error);
+      message.error(t('common.refresh_failed', 'Refresh failed'));
+    } finally {
+      setRefreshingStatus(false);
+    }
+  };
+
+  const handleLaunchTask = async () => {
+    if (!task || isNew) return;
+    const taskId = String((task as any).id || '');
+    if (!taskId) return;
+
+    setLaunching(true);
+    try {
+      const api = get_ipc_api();
+      const response = await api.runAgentTask<any>(username, {
+        task_id: taskId,
+        cloud_based: !!(task as any).cloud_based,
+        skill_id: (task as any).skill_id,
+        skill: (task as any).skill,
+      });
+      if (response.success) {
+        message.success(t('pages.tasks.launchSuccess', 'Task launched'));
+      } else {
+        message.error(response.error?.message || t('pages.tasks.launchFailed', 'Failed to launch task'));
+      }
+    } catch (error) {
+      console.error('[TaskDetail] Launch task error:', error);
+      message.error(t('pages.tasks.launchFailed', 'Failed to launch task'));
+    } finally {
+      setLaunching(false);
+    }
+  };
+
   const handleDelete = () => {
     if (!task || isNew) return;
 
@@ -434,12 +505,27 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   return (
     <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
       <FormContainer ref={scrollContainerRef} style={{ flex: 1, overflowY: 'auto', paddingBottom: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, margin: '12px 24px 0' }}>
+          <Button
+            type="text"
+            icon={<ReloadOutlined />}
+            loading={refreshingStatus}
+            onClick={handleRefreshStatus}
+            aria-label={t('pages.tasks.refresh', 'Refresh')}
+          />
+          <span style={{ color: 'rgba(255, 255, 255, 0.65)', fontSize: 12 }}>
+            {t('pages.tasks.status', 'Status')}: {latestStatus || 'unknown'}
+          </span>
+        </div>
         <Form
           form={form}
           layout="vertical"
           onFinish={handleSave}
           disabled={!editMode && !isNew}
         >
+          <Form.Item name="owner" hidden>
+            <Input />
+          </Form.Item>
           <Space direction="vertical" style={{ width: '100%' }} size={24}>
               <div style={{ marginBottom: '16px' }}>
                 <StyledFormItem
@@ -470,8 +556,8 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                   </StyledFormItem>
                 </Col>
                 <Col span={12}>
-                  <StyledFormItem label={t('common.owner', 'Owner')} name="owner" htmlFor="task-owner">
-                    <Input id="task-owner" readOnly aria-label={t('common.owner', 'Owner')} />
+                  <StyledFormItem label={t('pages.tasks.ownerAgent', 'Owner(Agent)')} name="agent_id" htmlFor="task-agent-id">
+                    <Input id="task-agent-id" readOnly aria-label={t('pages.tasks.ownerAgent', 'Owner(Agent)')} />
                   </StyledFormItem>
                 </Col>
                 <Col span={12}>
@@ -763,6 +849,18 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
           background: 'transparent',
           borderTop: '1px solid rgba(255, 255, 255, 0.05)'
         }}>
+          {!editMode && !isNew && task && latestStatus.toLowerCase() === 'ready' && (
+            <Button
+              type="primary"
+              onClick={handleLaunchTask}
+              icon={<PlayCircleOutlined />}
+              size="large"
+              loading={launching}
+              style={primaryButtonStyle}
+            >
+              {t('pages.tasks.launch', 'Launch')}
+            </Button>
+          )}
           {/* Edit/æ–°å»ºæ¨¡å¼ï¼šDisplaySaveå’ŒCancelButton */}
           {(editMode || isNew) && (
             <>

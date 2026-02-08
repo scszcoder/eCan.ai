@@ -251,9 +251,13 @@ class EC_Agent(Agent):
 
 	def add_tasks(self, tasks):
 		self.tasks += tasks  # or: self.tasks.extend(tasks)
+		for task in tasks:
+			task.agent_id = self.card.id
 
 	def remove_tasks(self, tasks):
 		self.tasks = [t for t in self.tasks if t not in tasks]
+		for task in tasks:
+			task.agent_id = ""
 
 	def update_tasks(self, tasks):
 		# Replace existing tasks with same ID or append if new
