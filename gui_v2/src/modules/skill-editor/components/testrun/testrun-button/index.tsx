@@ -12,6 +12,8 @@ import { IconPlay } from '@douyinfe/semi-icons';
 // Removed TestRunSidePanel popup; we trigger the run directly
 import { isValidationDisabled } from '../../../services/validation-config';
 import { IPCAPI } from '../../../../../services/ipc/api';
+import { isWebPlatform } from '../../../../../config/platform';
+import { webAuthSession } from '../../../../../services/auth/webAuthSession';
 import { useUserStore } from '../../../../../stores/userStore';
 import { useSkillInfoStore } from '../../../stores/skill-info-store';
 import { useSheetsStore } from '../../../stores/sheets-store';
@@ -133,6 +135,7 @@ export function TestRunButton(props: { disabled: boolean }) {
       // passive_client_id format: {username}_{machine_name} with fallback to SCHOME
       const machineName = localHelperMachine || 'SCHOME';
       const passiveClientId = `${username}_${machineName}`;
+      const webJwt = isWebPlatform() ? webAuthSession.getAccessToken() : null;
       const metaData = runInCloud ? {
         dev_mode: true,  // Skill editor always runs in dev mode
         run_in_cloud: true,
@@ -142,6 +145,7 @@ export function TestRunButton(props: { disabled: boolean }) {
         hybrid_cloud_mode: hybridCloudMode,
         local_helper_skill_id: localHelperSkillId,
         local_helper_machine: machineName,
+        ...(webJwt ? { jwt: webJwt } : {}),
       } : null;
 
       const response = await ipcApi.runSkill(username, skillPayload, metaData);

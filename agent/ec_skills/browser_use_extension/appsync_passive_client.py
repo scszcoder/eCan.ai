@@ -197,7 +197,7 @@ class AppSyncPassiveClient:
                     print(f"[AppSyncPassiveClient] Raw WebSocket message received: {log_msg[:500]}..." if len(log_msg) > 500 else f"[AppSyncPassiveClient] Raw WebSocket message received: {log_msg}")
                 except Exception:
                     print(f"[AppSyncPassiveClient] Raw WebSocket message received: {message[:200]}...")
-                
+
                 # Check for errors in the payload
                 payload = data.get("payload") or {}
                 errors = payload.get("errors")
@@ -205,30 +205,21 @@ class AppSyncPassiveClient:
                     logger.error(f"[AppSyncPassiveClient] AppSync subscription error: {errors}")
                     print(f"[AppSyncPassiveClient] ❌ AppSync subscription error: {errors}")
                     return
-                
+
                 payload_data = payload.get("data")
                 if not isinstance(payload_data, dict):
-                    logger.warning(f"[AppSyncPassiveClient] payload.data is not a dict: {type(payload_data)}")
                     return
                 envelope = payload_data.get("onPassiveCommand")
                 if not isinstance(envelope, dict):
-                    logger.warning(f"[AppSyncPassiveClient] onPassiveCommand is null or not a dict: {envelope}")
                     return
 
                 try:
                     cmd_raw = envelope.get("command")
-                    logger.debug(f"[AppSyncPassiveClient] Raw command received: {cmd_raw}")
                     cmd_obj = json.loads(cmd_raw) if isinstance(cmd_raw, str) else cmd_raw
-                    # Handle double-encoded JSON (string containing JSON string)
-                    if isinstance(cmd_obj, str):
-                        logger.debug(f"[AppSyncPassiveClient] cmd_obj is still a string, parsing again...")
-                        cmd_obj = json.loads(cmd_obj)
-                    logger.debug(f"[AppSyncPassiveClient] Parsed cmd_obj type={type(cmd_obj).__name__}, value={cmd_obj}")
                     cmd = PassiveBrowserCommand.model_validate(cmd_obj)
                     logger.info(f"[AppSyncPassiveClient] Received command: run_id={cmd.run_id}, step_id={cmd.step_id}")
                 except Exception as e:
                     logger.error(f"[AppSyncPassiveClient] Failed to parse command: {e}")
-                    logger.error(f"[AppSyncPassiveClient] cmd_raw was: {cmd_raw}")
                     return
 
                 self._dispatch_command(cmd)
@@ -404,7 +395,7 @@ def make_appsync_passive_client_from_env(
         raise ValueError("Missing EC_APPSYNC_TOKEN")
     # AppSync subscriptions require exact match - wildcards don't work
     if not run_id or run_id == "*":
-        run_id = "0123456789"
+        run_id = "test-run-001"
         logger.warning(f"[AppSyncPassiveClient] EC_BROWSER_PASSIVE_RUN_ID not set or '*', defaulting to '{run_id}'")
     if not client_id:
         raise ValueError("Missing EC_BROWSER_PASSIVE_CLIENT_ID")

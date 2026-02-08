@@ -26,8 +26,8 @@ class PassiveBrowserCommand(BaseModel):
     skill_id: str | None = None
     node_id: str | None = None
 
-    # Browser actions (browser-use action dicts)
-    actions: list[dict[str, dict[str, Any]]] = Field(default_factory=list)
+    # Browser actions - format: [{"action": "click", "selector": "#btn"}, ...]
+    actions: list[dict[str, Any]] = Field(default_factory=list)
 
     # Controls
     include_screenshot: bool = False
@@ -51,7 +51,8 @@ class PassiveBrowserStepResult(BaseModel):
     elapsed_ms: int = 0
 
     # Echo executed actions + results
-    actions: list[dict[str, dict[str, Any]]] = Field(default_factory=list)
+    # Format: [{"action": "click", "selector": "#btn"}, ...]
+    actions: list[dict[str, Any]] = Field(default_factory=list)
     action_results: list[dict[str, Any]] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
 

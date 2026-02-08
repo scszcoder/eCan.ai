@@ -12,6 +12,10 @@ from uuid import uuid4
 
 from utils.logger_helper import logger_helper as logger
 
+# Hardcoded AppSync realtime endpoint for the cloud worker.
+EC_APPSYNC_WS_ENDPOINT = "wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql"
+os.environ["EC_APPSYNC_WS_ENDPOINT"] = EC_APPSYNC_WS_ENDPOINT
+
 # Revision marker for tracking deployments
 WORKER_REVISION = "20260203a"
 
@@ -308,6 +312,7 @@ class PassiveStepResultListener:
         client_id: str,
         run_id: str,
         owner: str,
+        auth_token: Optional[str] = None,
         on_result: Optional[Callable[[Dict[str, Any]], None]] = None,
     ):
         self.appsync_url = appsync_url
@@ -315,6 +320,7 @@ class PassiveStepResultListener:
         self.client_id = client_id
         self.run_id = run_id
         self.owner = owner
+        self.auth_token = auth_token
         self.on_result = on_result
         self._task: Optional[asyncio.Task] = None
         # Event that signals first result received (for L2C test mode)
@@ -324,6 +330,9 @@ class PassiveStepResultListener:
     async def _handle_envelope(self, envelope: Dict[str, Any]) -> None:
         """Handle incoming passive step result."""
         try:
+            logger.info(
+                f"[PassiveStepResultListener] Raw envelope: {json.dumps(envelope, default=str)[:500]}"
+            )
             step_id = envelope.get("stepId", "")
             result_raw = envelope.get("result")
             dom_tree_raw = envelope.get("dom_tree")
@@ -368,6 +377,7 @@ class PassiveStepResultListener:
         config = AppSyncApiKeyConfig(
             http_endpoint=self.appsync_url,
             api_key=self.appsync_api_key,
+            auth_token=self.auth_token,
         )
         
         # Subscribe to passive step results for this client/run
@@ -1421,6 +1431,12 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
         passive_listener: Optional[PassiveStepResultListener] = None
         appsync_url = os.environ.get("APPSYNC_API_URL", "")
         appsync_key = os.environ.get("APPSYNC_API_KEY", "")
+        appsync_auth_token = (
+            os.environ.get("APPSYNC_AUTH_TOKEN")
+            or os.environ.get("EC_APPSYNC_TOKEN")
+            or os.environ.get("EC_BROWSER_PASSIVE_TOKEN")
+            or ""
+        ).strip() or None
         if appsync_url and appsync_key:
             control_listener = RunControlListener(
                 appsync_url=appsync_url,
@@ -1442,6 +1458,7 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
             # Start passive step result listener for L2C (local-to-cloud) communication
             # This enables hybrid cloud mode and L2C WS Test
             passive_client_id = msg_data.get("passive_client_id") or os.environ.get("EC_BROWSER_PASSIVE_CLIENT_ID", "")
+            passive_run_id = msg_data.get("passive_run_id") or msg_data.get("chat_id") or msg_data.get("chatId")
             if passive_client_id:
                 # Create the CloudWorkerPassiveTransport for CloudAgent to use
                 from agent.ec_skills.browser_use_extension.cloud_agent import CloudWorkerPassiveTransport
@@ -1470,13 +1487,13 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
                         step_result = PassiveBrowserStepResult(
                             run_id=envelope.get("runId", run_id),
                             step_id=envelope.get("stepId", ""),
-                            success=result_dict.get("success", True),
+                            ok=result_dict.get("ok", result_dict.get("success", True)),
                             elapsed_ms=result_dict.get("elapsed_ms", 0),
                             actions=result_dict.get("actions", []),
                             action_results=result_dict.get("action_results", []),
+                            errors=result_dict.get("errors", []),
                             browser=result_dict.get("browser_state") or result_dict.get("browser", {}),
-                            screenshot=result_dict.get("screenshot"),
-                            error=result_dict.get("error"),
+                            dom_tree=result_dict.get("dom_tree"),
                         )
                         
                         # Deliver to transport's queue
@@ -1485,12 +1502,17 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
                     except Exception as e:
                         logger.error(f"[cloud_worker] Failed to deliver result to transport: {e}")
                 
+                listener_run_id = passive_run_id or run_id
+                logger.info(
+                    f"[cloud_worker] Passive listener identifiers: client_id={passive_client_id}, run_id={listener_run_id}"
+                )
                 passive_listener = PassiveStepResultListener(
                     appsync_url=appsync_url,
                     appsync_api_key=appsync_key,
                     client_id=passive_client_id,
-                    run_id=run_id,
+                    run_id=listener_run_id,
                     owner=username,
+                    auth_token=appsync_auth_token,
                     on_result=on_passive_result,  # Connect listener to transport
                 )
                 passive_listener.start_background()
@@ -1595,6 +1617,20 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
             
             raise
         finally:
+            if passive_listener:
+                grace_seconds = int(os.getenv("ECAN_PASSIVE_RESULT_GRACE_SECONDS", "300"))
+                if grace_seconds > 0 and not passive_listener.first_result_received.is_set():
+                    logger.info(
+                        f"[cloud_worker] Waiting up to {grace_seconds}s for passive step result before shutdown"
+                    )
+                    try:
+                        await asyncio.wait_for(
+                            passive_listener.first_result_received.wait(),
+                            timeout=grace_seconds,
+                        )
+                        logger.info("[cloud_worker] Passive step result received during grace period")
+                    except asyncio.TimeoutError:
+                        logger.warning("[cloud_worker] Grace period elapsed without passive step result")
             # Stop the passive step result listener
             if passive_listener:
                 passive_listener.stop()

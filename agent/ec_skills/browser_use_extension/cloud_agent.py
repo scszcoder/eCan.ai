@@ -444,6 +444,10 @@ class CloudAgent(Agent):
         )
 
         _cloud_agent_log(f"[CloudAgent] 🔄 _remote_step: stepId={step_id}, actions={len(actions)}, screenshot={include_screenshot}", level="debug")
+
+        # Start subscription + register waiter BEFORE publishing command
+        # to avoid race where local client responds before subscription is ready
+        await self.transport.prepare_for_result(run_id=self.run_id, step_id=step_id)
         
         await self.transport.publish_command(cmd)
         _cloud_agent_log(f"[CloudAgent] ⏳ Waiting for local client response (stepId={step_id})...", level="debug")
