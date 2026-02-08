@@ -134,6 +134,11 @@ class PendingEventStatus(str, Enum):
     TIMED_OUT = "timed_out"
     CANCELLED = "cancelled"
 
+class TaskStatus(str, Enum):
+    """Status of a pending async event."""
+    UNAVAILABLE = "unavailable"
+    READY = "ready"
+    IN_PROGRESS = "in_progress"
 
 # ==================== Pending Event Model ====================
 
@@ -206,7 +211,7 @@ class ManagedTask(Task):
     name: str
     description: str = ""
     source: str = "ui"  # "code" for code-based, "ui" for UI-created
-    
+    agent_id: str
     # Skill reference (Any to avoid strict validation)
     skill: Any = None
 
@@ -229,7 +234,7 @@ class ManagedTask(Task):
     schedule: Optional[TaskSchedule] = None
     priority: Optional[PriorityType] = None
     last_run_datetime: Optional[datetime] = None
-    already_run_flag: bool = False
+    status: TaskStatus = TaskStatus.READY
     
     # Checkpoints for interrupt/resume
     checkpoint_nodes: Optional[List[dict]] = None

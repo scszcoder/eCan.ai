@@ -800,6 +800,24 @@ export class IPCAPI {
     );
     }
 
+    public async runAgentTask<T>(username: string, params: { task_id: string; cloud_based?: boolean; skill_id?: string; skill?: any }): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+      {
+        method: 'run_agent_task'
+      },
+      { username, ...params }
+    );
+    }
+
+    public async refreshAgentTaskStatus<T>(username: string, task_id: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+      {
+        method: 'refresh_agent_task_status'
+      },
+      { username, task_id }
+    );
+    }
+
     public async saveAgentSkill<T>(username: string, skill_info: T): Promise<APIResponse<void>> {
         // GraphQL mutation expects input: [SkillUpdateInput!]!
         // Note: owner is NOT in SkillUpdateInput schema - backend gets it from identity claims
