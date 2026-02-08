@@ -96,6 +96,171 @@ def _on_command_subscription() -> str:
     """
 
 
+_INTERACTIVE_TAGS = {
+    "a",
+    "button",
+    "input",
+    "select",
+    "textarea",
+    "option",
+}
+_INTERACTIVE_ROLES = {
+    "button",
+    "link",
+    "textbox",
+    "combobox",
+    "listbox",
+    "checkbox",
+    "radio",
+    "menu",
+    "menuitemcheckbox",
+    "tab",
+    "menuitem",
+    "switch",
+}
+_KEEP_ATTRS = ("id", "class", "className", "role", "aria-label", "name", "value", "href")
+
+
+def _truncate_text(value: str | None, max_len: int = 2000) -> str | None:
+    if not value or not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    return value[:max_len]
+
+
+def _node_text(node: dict[str, Any]) -> str | None:
+    for key in ("text", "textContent", "nodeValue", "value"):
+        value = node.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
+def _node_tag(node: dict[str, Any]) -> str | None:
+    for key in ("tag", "tag_name", "tagName", "nodeName"):
+        value = node.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip().lower()
+    return None
+
+
+def _node_role(node: dict[str, Any], attrs: dict[str, Any]) -> str | None:
+    for key in ("role", "ariaRole"):
+        value = node.get(key) or attrs.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip().lower()
+    return None
+
+
+def _node_children(node: dict[str, Any]) -> list[Any]:
+    for key in ("children", "childNodes"):
+        value = node.get(key)
+        if isinstance(value, list):
+            return value
+    return []
+
+
+def _reduce_dom_tree_node(node: Any, max_bytes: int) -> tuple[dict[str, Any] | None, int]:
+    if not isinstance(node, dict) or max_bytes <= 0:
+        return None, max_bytes
+
+    attrs = node.get("attributes") if isinstance(node.get("attributes"), dict) else {}
+    tag = _node_tag(node)
+    role = _node_role(node, attrs)
+    text_value = _truncate_text(_node_text(node))
+    is_text = bool(text_value)
+    is_interactive = bool(
+        node.get("is_interactive")
+        or node.get("interactive")
+        or (tag in _INTERACTIVE_TAGS)
+        or (role in _INTERACTIVE_ROLES)
+    )
+
+    reduced: dict[str, Any] = {}
+    if tag:
+        reduced["tag"] = tag
+    if role:
+        reduced["role"] = role
+    if text_value:
+        reduced["text"] = text_value
+
+    for key in _KEEP_ATTRS:
+        value = node.get(key) if key in node else attrs.get(key)
+        if isinstance(value, str) and value.strip():
+            reduced_key = "class" if key == "className" else key
+            reduced.setdefault(reduced_key, value.strip())
+
+    children = _node_children(node)
+    if not (is_text or is_interactive or children):
+        return None, max_bytes
+
+    base_size = len(json.dumps(reduced))
+    if base_size > max_bytes:
+        return None, max_bytes
+
+    remaining = max_bytes - base_size
+    reduced_children: list[dict[str, Any]] = []
+    for child in children:
+        child_reduced, remaining = _reduce_dom_tree_node(child, remaining)
+        if not child_reduced:
+            if remaining <= 0:
+                break
+            continue
+        candidate = dict(reduced, children=reduced_children + [child_reduced])
+        candidate_size = len(json.dumps(candidate))
+        if candidate_size > max_bytes:
+            break
+        reduced_children.append(child_reduced)
+        remaining = max_bytes - candidate_size
+
+    if reduced_children:
+        reduced["children"] = reduced_children
+
+    return reduced, max_bytes - len(json.dumps(reduced))
+
+
+def _reduce_dom_tree_payload(payload: Any, max_bytes: int) -> Any:
+    if not payload or max_bytes <= 0:
+        return {}
+
+    try:
+        if isinstance(payload, dict) and ("root" in payload or "_root" in payload):
+            root_key = "root" if "root" in payload else "_root"
+            reduced_root, _ = _reduce_dom_tree_node(payload.get(root_key), max_bytes)
+            if not reduced_root:
+                return {}
+            reduced_payload: Any = {root_key: reduced_root}
+        elif isinstance(payload, list):
+            reduced_list: list[dict[str, Any]] = []
+            remaining = max_bytes
+            for node in payload:
+                reduced_node, remaining = _reduce_dom_tree_node(node, remaining)
+                if reduced_node:
+                    reduced_list.append(reduced_node)
+                if remaining <= 0:
+                    break
+            reduced_payload = reduced_list
+        elif isinstance(payload, dict):
+            reduced_node, _ = _reduce_dom_tree_node(payload, max_bytes)
+            reduced_payload = reduced_node or {}
+        else:
+            return {}
+
+        if len(json.dumps(reduced_payload)) > max_bytes:
+            return {
+                "_truncated": True,
+                "original_bytes": len(json.dumps(payload)),
+                "max_bytes": max_bytes,
+                "note": "dom_tree reduced but still exceeded size cap",
+            }
+        return reduced_payload
+    except Exception as exc:
+        logger.error(f"[AppSyncPassiveClient] Failed to reduce dom_tree: {exc}")
+        return {}
+
+
 def _publish_step_result_mutation() -> str:
     return """
     mutation PublishPassiveStepResult($input: PassiveBrowserStepResultEnvelopeInput!) {
@@ -276,6 +441,8 @@ class AppSyncPassiveClient:
     async def _publish_step_result(self, result: PassiveBrowserStepResult) -> None:
         # Mask large data to avoid AppSync payload size limit (240KB)
         result_dict = result.model_dump()
+        dom_tree_payload = result_dict.pop("dom_tree", None)
+        max_dom_tree_bytes = int(os.getenv("ECAN_PASSIVE_DOM_TREE_MAX_BYTES", "204800"))
         browser_data = result_dict.get("browser")
         logger.info(f"[AppSyncPassiveClient] browser_data type={type(browser_data).__name__}, keys={list(browser_data.keys()) if isinstance(browser_data, dict) else 'N/A'}")
         if browser_data and isinstance(browser_data, dict):
@@ -283,8 +450,9 @@ class AppSyncPassiveClient:
             screenshot = browser_data.get("screenshot_base64")
             if screenshot and isinstance(screenshot, str) and len(screenshot) > 100:
                 screenshot_len = len(screenshot)
-                browser_data["screenshot_base64"] = f"[MASKED:{screenshot_len} bytes]"
-                logger.info(f"[AppSyncPassiveClient] ✅ Masked screenshot_base64 ({screenshot_len} bytes)")
+                browser_data["screenshot_base64"] = "[OCR_PENDING]"
+                browser_data.setdefault("ocr_text", "[OCR_PLACEHOLDER]")
+                logger.info(f"[AppSyncPassiveClient] ✅ Replaced screenshot_base64 with OCR placeholder ({screenshot_len} bytes)")
             
             # Mask DOM tree (selector_map/elements) - temporarily mask to stay under 240KB limit
             selector_map = browser_data.get("selector_map")
@@ -324,13 +492,36 @@ class AppSyncPassiveClient:
             result_dict["errors"] = []
         if not result_dict.get("browser"):
             result_dict["browser"] = {}
+
+        dom_tree_original_json = json.dumps(dom_tree_payload or {})
+        if len(dom_tree_original_json) > max_dom_tree_bytes:
+            logger.warning(
+                "[AppSyncPassiveClient] dom_tree exceeds cap: %s bytes > %s bytes. Reducing.",
+                len(dom_tree_original_json),
+                max_dom_tree_bytes,
+            )
+        dom_tree_payload = _reduce_dom_tree_payload(dom_tree_payload or {}, max_dom_tree_bytes)
+        dom_tree_json = json.dumps(dom_tree_payload or {})
+        if len(dom_tree_json) > max_dom_tree_bytes:
+            logger.warning(
+                "[AppSyncPassiveClient] Reduced dom_tree still exceeds cap: %s bytes > %s bytes. Truncating.",
+                len(dom_tree_json),
+                max_dom_tree_bytes,
+            )
+            dom_tree_payload = {
+                "_truncated": True,
+                "original_bytes": len(dom_tree_original_json),
+                "max_bytes": max_dom_tree_bytes,
+                "note": "dom_tree truncated to stay under websocket payload limit",
+            }
+            dom_tree_json = json.dumps(dom_tree_payload)
         
         envelope = {
             "runId": result.run_id,
             "clientId": self._config.client_id,
             "stepId": result.step_id,
             "result": json.dumps(result_dict),  # AWSJSON type - JSON-encoded string
-            "dom_tree": json.dumps({}),
+            "dom_tree": dom_tree_json,
         }
 
         auth_headers = _build_auth_headers(self._config.auth_token)
