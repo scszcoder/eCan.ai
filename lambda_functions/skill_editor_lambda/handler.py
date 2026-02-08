@@ -1116,6 +1116,14 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
     meta_run_in_cloud = meta_data.get("run_in_cloud", False)
     meta_client_id = meta_data.get("client_id")  # From local client for hybrid mode
     meta_run_id = meta_data.get("run_id")  # From local client for hybrid mode
+    meta_jwt = meta_data.get("jwt") or meta_data.get("token")
+    passive_run_id = (
+        meta_run_id
+        or input_data.get("sessionId")
+        or input_data.get("chatId")
+        or input_data.get("session_id")
+        or input_data.get("chat_id")
+    )
     
     skill_id = skill.get("skill_id") or str(uuid4())
     skill_name = skill.get("skill_name") or "unnamed_skill"
@@ -1125,6 +1133,7 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
     
     logger.info(f"[runSkill] username={username}, skill_id={skill_id}, skill_name={skill_name}, mode={skill_run_mode}, dev_mode={dev_mode}")
     logger.info(f"[runSkill] meta_data: run_in_cloud={meta_run_in_cloud}, client_id={meta_client_id}, run_id={meta_run_id}")
+    logger.info(f"[runSkill] meta_jwt present: {bool(meta_jwt)}, meta_data keys: {list(meta_data.keys())}")
     
     # Validate environment for cloud runs
     if skill_run_mode in ("cloud", "hybrid"):
@@ -1174,6 +1183,7 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
     # Create the skill run payload
     run_payload = {
         "run_id": run_id,
+        "passive_run_id": passive_run_id,
         "username": username,
         "skill_id": skill_id,
         "skill_name": skill_name,
@@ -1204,6 +1214,8 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
     # This stays well under the 8KB limit
     ref_payload = {
         "run_id": run_id,
+        "passive_run_id": passive_run_id,
+        "passive_jwt": meta_jwt,
         "username": username,
         "skill_id": skill_id,
         "skill_name": skill_name,
@@ -1233,9 +1245,15 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
             # which requires these to communicate with local PassiveAgent
             {"name": "EC_BROWSER_PASSIVE_TRANSPORT", "value": "appsync"},
             {"name": "EC_APPSYNC_HTTP_ENDPOINT", "value": env.appsync_api_url},
-            {"name": "EC_APPSYNC_TOKEN", "value": env.appsync_api_key},
+            {"name": "EC_APPSYNC_TOKEN", "value": meta_jwt or env.appsync_api_key},
             {"name": "EC_BROWSER_PASSIVE_CLIENT_ID", "value": passive_client_id},
         ]
+        if meta_jwt:
+            container_env.append({"name": "APPSYNC_AUTH_TOKEN", "value": meta_jwt})
+
+        grace_seconds = (os.environ.get("ECAN_PASSIVE_RESULT_GRACE_SECONDS") or "").strip()
+        if grace_seconds:
+            container_env.append({"name": "ECAN_PASSIVE_RESULT_GRACE_SECONDS", "value": grace_seconds})
         
         logger.info(f"[runSkill] Cloud run with passive_client_id={passive_client_id} for hybrid node support")
         

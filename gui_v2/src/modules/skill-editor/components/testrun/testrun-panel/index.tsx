@@ -18,6 +18,8 @@ import { WorkflowRuntimeService } from '../../../plugins/runtime-plugin/runtime-
 import { SidebarContext } from '../../../context';
 import { IconCancel } from '../../../assets/icon-cancel';
 import { IPCAPI } from '../../../../../services/ipc/api';
+import { isWebPlatform } from '../../../../../config/platform';
+import { webAuthSession } from '../../../../../services/auth/webAuthSession';
 import { useUserStore } from '../../../../../stores/userStore';
 import { useSheetsStore } from '../../../stores/sheets-store';
 import { useSkillInfoStore } from '../../../stores/skill-info-store';
@@ -128,12 +130,13 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
         },
       } as any;
 
-  // Build meta_data for cloud runs
-  // dev_mode=true enables fixed client_id/run_id for skill editor testing
-  // passive_client_id format: {username}_{machine_name} with fallback to SCHOME
-  const machineName = localHelperMachine || 'SCHOME';
-  const passiveClientId = `${username}_${machineName}`;
-            const metaData = runInCloud ? {
+      // Build meta_data for cloud runs
+      // dev_mode=true enables fixed client_id/run_id for skill editor testing
+      // passive_client_id format: {username}_{machine_name} with fallback to SCHOME
+      const machineName = localHelperMachine || 'SCHOME';
+      const passiveClientId = `${username}_${machineName}`;
+      const webJwt = isWebPlatform() ? webAuthSession.getAccessToken() : null;
+      const metaData = runInCloud ? {
         dev_mode: true,  // Skill editor always runs in dev mode
         run_in_cloud: true,
         client_id: passiveClientId,
@@ -142,7 +145,8 @@ export const TestRunSidePanel: FC<TestRunSidePanelProps> = ({ visible, onCancel 
         hybrid_cloud_mode: hybridCloudMode,
         local_helper_skill_id: localHelperSkillId,
         local_helper_machine: machineName,
-            } : null;
+        ...(webJwt ? { jwt: webJwt } : {}),
+      } : null;
 
       const skillPayload = {
         ...skillInfo,

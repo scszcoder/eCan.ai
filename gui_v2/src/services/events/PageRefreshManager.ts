@@ -97,10 +97,19 @@ export class PageRefreshManager {
         PageRefreshManager.safeSet(PageRefreshManager.STORAGE_PAGE_WAS_REFRESH, isAppRestart ? 'false' : 'true');
         
         if (isAppRestart) {
-            // 应用首次启动：清除 localStorage，强制显示登录界面
-            logger.info('App first launch detected, clearing user session data');
-            userStorageManager.clearAllUserData();
-            this.isEnabled = false;
+            // Check if we just came from the OAuth callback which already
+            // stored valid session data in sessionStorage + localStorage.
+            // In that case, do NOT clear user data — treat as post-login.
+            const hasWebAuth = !!sessionStorage.getItem('web_auth_access_token');
+            if (hasWebAuth) {
+                logger.info('App first launch with existing web auth session (post-login redirect), preserving data');
+                this.isEnabled = true;
+            } else {
+                // 应用首次启动：清除 localStorage，强制显示登录界面
+                logger.info('App first launch detected, clearing user session data');
+                userStorageManager.clearAllUserData();
+                this.isEnabled = false;
+            }
             // 标记会话已激活
             sessionStorage.setItem('app_session_active', 'true');
         } else {
