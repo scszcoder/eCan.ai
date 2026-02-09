@@ -103,6 +103,8 @@ const ChatPage: React.FC = () => {
     const lastAutoSelectAgentId = useRef<string | undefined>(); // Track agentId when last auto-selected
     const handleChatSelectRef = useRef<((chatId: string) => Promise<void>) | null>(null); // Ref to handleChatSelect
     const hasAutoFetchedCloudRef = useRef<string | null>(null); // Track if we've auto-fetched cloud messages for this agentId
+    const helloInitRef = useRef<Set<string>>(new Set()); // Track chatIds with auto hello sent
+    const autoCreateChatRef = useRef<Set<string>>(new Set()); // Track agentIds with auto-create attempt
     
     // 每次Render都Update ref，确保它始终指向最新的 handleChatSelect
     handleChatSelectRef.current = null; // Will be set later after handleChatSelect is defined
@@ -671,10 +673,13 @@ const ChatPage: React.FC = () => {
         // Get the latest myTwinAgentId from store
         const currentMyTwinAgent = useAgentStore.getState().getMyTwinAgent();
         const currentMyTwinAgentId = currentMyTwinAgent?.card?.id;
+        const fallbackUserId = username ? `system_${username}` : 'system_user';
+        const fallbackUserName = username || 'User';
+        const effectiveUserId = currentMyTwinAgentId || fallbackUserId;
+        const effectiveUserName = currentMyTwinAgent?.card?.name || fallbackUserName;
         
         if (!currentMyTwinAgentId) {
-            logger.error("[createChatWithAgent] Missing myTwinAgentId");
-            return;
+            logger.warn("[createChatWithAgent] Missing myTwinAgentId, using fallback user id");
         }
         
         // Check是否是和自己聊天（targetAgentId === currentMyTwinAgentId）
@@ -694,14 +699,72 @@ const ChatPage: React.FC = () => {
         // SettingsCreate聊天锁
         isCreatingChatRef.current = true;
         
+        const ensureHelloMessage = async (chatId: string, agentName?: string, userName?: string) => {
+            if (isWebPlatform()) {
+                return;
+            }
+            if (!chatId || helloInitRef.current.has(chatId)) {
+                return;
+            }
+            helloInitRef.current.add(chatId);
+            try {
+                const history = await unifiedChatService.getChatMessages({
+                    chatId,
+                    limit: 1,
+                    offset: 0,
+                    reverse: true,
+                });
+                const historyData: any = history.success ? history.data : null;
+                const existingMessages = Array.isArray(historyData?.data)
+                    ? historyData.data
+                    : Array.isArray(historyData)
+                        ? historyData
+                        : [];
+                if (existingMessages.length > 0) {
+                    return;
+                }
+                const helloContent = 'Hello! How can I help you today?';
+                const helloMessage: Message = {
+                    id: `agent_hello_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+                    chatId,
+                    role: 'agent',
+                    createAt: Date.now(),
+                    senderId: targetAgentId,
+                    senderName: agentName || 'Agent',
+                    content: helloContent,
+                    status: 'sending',
+                    attachments: [],
+                };
+                addMessageToChat(chatId, helloMessage);
+                const sendResp = await unifiedChatService.sendChat({
+                    chatId,
+                    senderId: targetAgentId,
+                    role: 'agent',
+                    content: helloContent,
+                    createAt: String(Date.now()),
+                    senderName: agentName || 'Agent',
+                    status: 'complete',
+                    receiverId: effectiveUserId,
+                    receiverName: userName || effectiveUserName,
+                });
+                if (!sendResp.success) {
+                    updateMessage(chatId, helloMessage.id, { status: 'error' as const });
+                }
+            } catch (error) {
+                logger.error('[createChatWithAgent] Failed to send hello message:', error);
+            }
+        };
+
         try {
-            const my_twin_agent = useAgentStore.getState().getAgentById(currentMyTwinAgentId);
+            const my_twin_agent = currentMyTwinAgentId
+                ? useAgentStore.getState().getAgentById(currentMyTwinAgentId)
+                : null;
             const receiver_agent = useAgentStore.getState().getAgentById(targetAgentId);
             
             // Create聊天Data（isSelfChat 已经在前面被阻止了，这里不会Execute）
             const chatData = {
                 members: [
-                    {"userId": currentMyTwinAgentId, "role": "user", "name": my_twin_agent?.card.name || "you"},
+                    {"userId": effectiveUserId, "role": "user", "name": effectiveUserName},
                     {"userId": targetAgentId, "role": "agent", "name": receiver_agent?.card.name || "receiver agent"}
                 ],
                 name: receiver_agent?.card.name || `Chat with ${targetAgentId}`,
@@ -729,6 +792,7 @@ const ChatPage: React.FC = () => {
                     
                     // Settings为活动聊天并GetMessage
                     setActiveChatIdAndFetchMessages(newChat.id);
+                    await ensureHelloMessage(newChat.id, receiver_agent?.card?.name, my_twin_agent?.card?.name);
                 } else if (!resp.data.success && resp.data.data) {
                     // Chat already exists - backend returns existing chat data when duplicate detected
                     const existingChat = { ...resp.data.data, name: resp.data.data.name || chatData.name } as Chat;
@@ -743,6 +807,7 @@ const ChatPage: React.FC = () => {
                     
                     // Set as active chat and load messages
                     setActiveChatIdAndFetchMessages(existingChat.id);
+                    await ensureHelloMessage(existingChat.id, receiver_agent?.card?.name, my_twin_agent?.card?.name);
                 } else {
                     logger.error('[createChatWithAgent] Backend operation failed:', resp.data.error);
                 }
@@ -1080,11 +1145,15 @@ const ChatPage: React.FC = () => {
                 return;
             }
         } else {
-            // On desktop platform, use myTwinAgentId
-            if (!myTwinAgentId) return;
-            const my_twin_agent = useAgentStore.getState().getAgentById(myTwinAgentId);
-            senderId = my_twin_agent?.card.id;
-            senderName = my_twin_agent?.card.name;
+            // On desktop platform, use myTwinAgentId or fallback system user
+            if (!myTwinAgentId) {
+                senderId = username ? `system_${username}` : 'system_user';
+                senderName = username || 'User';
+            } else {
+                const my_twin_agent = useAgentStore.getState().getAgentById(myTwinAgentId);
+                senderId = my_twin_agent?.card.id;
+                senderName = my_twin_agent?.card.name;
+            }
             if (!senderId || !senderName) return;
         }
 
@@ -1396,6 +1465,24 @@ const ChatPage: React.FC = () => {
         
         return filtered;
     }, [chats, myTwinAgentId, agentId]);
+
+    // Desktop fallback: if filter selects an agent but no chats exist yet, auto-create one
+    useEffect(() => {
+        if (isWebPlatform()) {
+            return;
+        }
+        if (!effectsCompletedRef.current || !agentId) {
+            return;
+        }
+        if (filteredChats.length > 0) {
+            return;
+        }
+        if (autoCreateChatRef.current.has(agentId)) {
+            return;
+        }
+        autoCreateChatRef.current.add(agentId);
+        createChatWithAgent(agentId);
+    }, [agentId, filteredChats.length]);
     
     // Auto-select or restore chat selection when agentId changes or when current chat is not in filtered list
     useEffect(() => {

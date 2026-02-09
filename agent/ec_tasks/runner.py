@@ -22,7 +22,7 @@ from pathlib import Path
 from queue import Queue, Empty
 from typing import Any, Dict, Generic, List, Optional, Tuple, TypeVar, TYPE_CHECKING
 
-from a2a.types import TaskState, Message, TextPart, MessageSendParams
+from a2a.types import TaskState, Message, TextPart, MessageSendParams, TaskStatus as A2ATaskStatus
 from agent.ec_skills.llm_utils.llm_utils import send_response_back
 from agent.ec_skills.prep_skills_run import prep_skills_run
 from langgraph.types import Command
@@ -699,6 +699,41 @@ class TaskRunner(Generic[Context]):
             return found[0]
         logger.error("NO chatter tasks found!")
         return None
+
+    def _ensure_chatter_task(self) -> Optional[ManagedTask]:
+        """Ensure the agent has a chatter task for routing human_chat/a2a events."""
+        existing = self.find_chatter_tasks()
+        if existing:
+            return existing
+
+        skills = getattr(self.agent, "skills", []) or []
+        chatter_skill = next((sk for sk in skills if sk and "chatter" in (getattr(sk, "name", "")).lower()), None)
+        if not chatter_skill:
+            logger.error("[ensure_chatter_task] No chatter skill found; cannot auto-create chatter task")
+            return None
+
+        task_id = f"auto-chatter-{uuid.uuid4()}"
+        task = ManagedTask(
+            id=task_id,
+            context_id=task_id,
+            name=f"chat:Auto Chatter Task ({getattr(chatter_skill, 'name', 'chatter')})",
+            description="Auto-created chatter task for routing",
+            source="code",
+            status=A2ATaskStatus(state=TaskState.submitted),
+            sessionId="",
+            skill=chatter_skill,
+            metadata={"state": {"top": "ready"}},
+            state={"top": "ready"},
+            resume_from="",
+            trigger="message",
+            agent_id=getattr(getattr(self.agent, "card", None), "id", "") or "",
+        )
+
+        if getattr(self.agent, "tasks", None) is None:
+            self.agent.tasks = []
+        self.agent.tasks.append(task)
+        logger.info(f"[ensure_chatter_task] Auto-created chatter task: {task.name}")
+        return task
     
     def find_suitable_tasks(self, msg) -> List[ManagedTask]:
         """Find suitable tasks for a message."""
@@ -757,6 +792,15 @@ class TaskRunner(Generic[Context]):
                 except Exception as e:
                     logger.error(f"[QUEUE] Failed to enqueue: {e}")
             else:
+                if event_type in {"human_chat", "a2a"}:
+                    fallback_task = self._ensure_chatter_task()
+                    if fallback_task and getattr(fallback_task, "queue", None) is not None:
+                        try:
+                            fallback_task.queue.put_nowait(request)
+                            logger.info(f"[QUEUE] Message queued for fallback task={fallback_task.name}")
+                            return
+                        except Exception as e:
+                            logger.error(f"[QUEUE] Failed to enqueue to fallback chatter task: {e}")
                 logger.error(f"[QUEUE] No target task for event: {event_type}")
                 
         except Exception as e:

@@ -135,7 +135,7 @@ class PendingEventStatus(str, Enum):
     CANCELLED = "cancelled"
 
 class TaskStatus(str, Enum):
-    """Status of a pending async event."""
+    """Legacy task status enum used for older task records."""
     UNAVAILABLE = "unavailable"
     READY = "ready"
     IN_PROGRESS = "in_progress"
@@ -234,7 +234,7 @@ class ManagedTask(Task):
     schedule: Optional[TaskSchedule] = None
     priority: Optional[PriorityType] = None
     last_run_datetime: Optional[datetime] = None
-    status: TaskStatus = TaskStatus.READY
+    status: A2ATaskStatus = Field(default_factory=lambda: A2ATaskStatus(state=TaskState.submitted))
     
     # Checkpoints for interrupt/resume
     checkpoint_nodes: Optional[List[dict]] = None
@@ -274,37 +274,33 @@ class ManagedTask(Task):
     @classmethod
     def validate_status(cls, v):
         if v is None:
-            return TaskStatus.READY
-        if isinstance(v, TaskStatus):
-            return v
+            return A2ATaskStatus(state=TaskState.submitted)
         if isinstance(v, A2ATaskStatus):
-            v = getattr(v, "state", None)
+            return v
+        if isinstance(v, TaskStatus):
+            if v == TaskStatus.IN_PROGRESS:
+                return A2ATaskStatus(state=TaskState.working)
+            if v == TaskStatus.UNAVAILABLE:
+                return A2ATaskStatus(state=TaskState.unknown)
+            return A2ATaskStatus(state=TaskState.submitted)
         if isinstance(v, TaskState):
-            state = v
-        elif isinstance(v, str):
+            return A2ATaskStatus(state=v)
+        if hasattr(v, "state"):
+            state = getattr(v, "state", None)
+            if isinstance(state, TaskState):
+                return A2ATaskStatus(state=state)
+        if isinstance(v, str):
             try:
-                state = TaskState(v)
+                return A2ATaskStatus(state=TaskState(v))
             except Exception:
-                state = None
                 v_lower = v.lower()
-                if v_lower in {"ready", "in_progress", "unavailable"}:
-                    return TaskStatus(v_lower)
-                if v_lower in {"submitted", "input-required"}:
-                    return TaskStatus.READY
                 if v_lower == "working":
-                    return TaskStatus.IN_PROGRESS
-                if v_lower in {"completed", "canceled", "cancelled", "failed", "unknown"}:
-                    return TaskStatus.UNAVAILABLE
-        else:
-            state = None
-
-        if state == TaskState.working:
-            return TaskStatus.IN_PROGRESS
-        if state in {TaskState.submitted, TaskState.input_required}:
-            return TaskStatus.READY
-        if state in {TaskState.completed, TaskState.canceled, TaskState.failed, TaskState.unknown}:
-            return TaskStatus.UNAVAILABLE
-        return TaskStatus.READY
+                    return A2ATaskStatus(state=TaskState.working)
+                if v_lower in {"submitted", "input-required", "ready"}:
+                    return A2ATaskStatus(state=TaskState.submitted)
+                if v_lower in {"completed", "canceled", "cancelled", "failed", "unknown", "unavailable"}:
+                    return A2ATaskStatus(state=TaskState.unknown)
+        return A2ATaskStatus(state=TaskState.submitted)
     
     def __init__(self, **data):
         super().__init__(**data)
