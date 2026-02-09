@@ -355,7 +355,7 @@ class AppSyncPassiveClient:
 
             if msg_type == "data" and data.get("id") == self._subscription_id:
                 # Log the raw message for debugging (truncate screenshot data)
-                from agent.ec_skills.browser_use_extension.passive_agent_node import truncate_screenshot_for_logging
+                from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
                 try:
                     log_data = truncate_screenshot_for_logging(data)
                     log_msg = json.dumps(log_data)
@@ -471,7 +471,7 @@ class AppSyncPassiveClient:
             logger.warning(f"[AppSyncPassiveClient] browser_data is not a dict, cannot mask")
         
         # Remove null values - AppSync AWSJSON cannot handle null in non-nullable fields
-        from agent.ec_skills.browser_use_extension.passive_agent_node import remove_null_values
+        from agent.ec_skills.browser_use_extension.passive_utils import remove_null_values
         result_dict = remove_null_values(result_dict)
         
         # Ensure all required fields have valid defaults (not null)

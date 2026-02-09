@@ -659,7 +659,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         raw_provider = None
     model_name = ((inputs.get("modelName") or {}).get("content")
                   or (inputs.get("model") or {}).get("content")
-                  or "gpt-3.5-turbo")
+                  or "gpt-5-mini")
     api_key = ((inputs.get("apiKey") or {}).get("content") or "")
     api_host = ((inputs.get("apiHost") or {}).get("content") or "")
     try:
@@ -1023,32 +1023,41 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             return secure_store.get(name, username=username)
                         except Exception:
                             return None
+                    def env_first(name: str) -> str | None:
+                        env_value = (os.getenv(name) or "").strip()
+                        if env_value:
+                            return env_value
+                        return gs(name)
+
                     if provider_l in ("openai",):
-                        return gs("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+                        return env_first("OPENAI_API_KEY")
                     if provider_l in ("anthropic", "claude"):
-                        return gs("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+                        return env_first("ANTHROPIC_API_KEY")
                     if provider_l in ("google", "gemini"):
-                        return gs("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+                        return env_first("GEMINI_API_KEY")
                     if provider_l in ("deepseek",):
-                        return gs("DEEPSEEK_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
+                        return env_first("DEEPSEEK_API_KEY")
                     if provider_l in ("dashscope", "qwen", "qwq"):
-                        return gs("DASHSCOPE_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
+                        return env_first("DASHSCOPE_API_KEY")
                     if provider_l in ("bytedance", "doubao"):
-                        return gs("ARK_API_KEY") or os.getenv("ARK_API_KEY")
+                        return env_first("ARK_API_KEY")
                     if provider_l in ("baidu", "qianfan", "baidu_qianfan"):
-                        return gs("BAIDU_API_KEY") or os.getenv("BAIDU_API_KEY")
+                        return env_first("BAIDU_API_KEY")
                     if provider_l in ("zhipuai", "chatglm", "glm"):
-                        return gs("ZHIPUAI_API_KEY") or os.getenv("ZHIPUAI_API_KEY")
+                        return env_first("ZHIPUAI_API_KEY")
                     if provider_l in ("azure", "azure_openai"):
                         # Azure uses a different key name
-                        return gs("AZURE_OPENAI_API_KEY") or os.getenv("AZURE_OPENAI_API_KEY")
+                        return env_first("AZURE_OPENAI_API_KEY")
                     return None
 
                 key = _resolve_api_key(llm_provider, api_key)
                 host = (api_host or "").strip()
                 prov = llm_provider
 
-                key_preview = "" if not key else f"{key[:6]}...{key[-6:]}"
+                if key:
+                    key_preview = f"{key[:8]}......{key[-8:]}"
+                else:
+                    key_preview = ""
                 logger.debug(f"real llm settings: api_key={key_preview} host={host} llm_provider={prov}")
                 
                 # ==================== Unified LLM Parameter Preparation ====================
@@ -1552,7 +1561,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     send_skill_editor_log("error", err_msg)
                     # Check if it's a model not found error
                     if "model" in error_str.lower() and ("not found" in error_str.lower() or "does not exist" in error_str.lower()):
-                        err_msg = f"💡 Hint: Model '{model_name}' does not exist. Common OpenAI models: gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-3.5-turbo"
+                        err_msg = f"💡 Hint: Model '{model_name}' does not exist. Common OpenAI models: gpt-5.2, gpt-5-mini, gpt-4o, gpt-4o-mini"
                         logger.error(err_msg)
                         send_skill_editor_log("error", err_msg)
                 else:
@@ -2759,7 +2768,7 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         current_node_name = runtime.context["this_node"].get("name")
         # Truncate screenshot data for logging
         try:
-            from agent.ec_skills.browser_use_extension.passive_agent_node import truncate_screenshot_for_logging
+            from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
             log_state = truncate_screenshot_for_logging(state)
         except Exception:
             log_state = str(state)[:500] + "..."
@@ -3421,7 +3430,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     # This happens even on error so cloud worker knows what happened
                     if passive_cmd and mainwin:
                         try:
-                            from agent.ec_skills.browser_use_extension.passive_agent_node import publish_step_result
+                            from agent.ec_skills.browser_use_extension.passive_utils import publish_step_result
                             from agent.ec_skills.browser_use_extension.passive_protocol import PassiveBrowserStepResult
                             
                             run_id = passive_cmd.get("run_id", "")

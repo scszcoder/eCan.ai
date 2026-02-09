@@ -867,7 +867,7 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
 
         # Truncate screenshot data in state for logging
         try:
-            from agent.ec_skills.browser_use_extension.passive_agent_node import truncate_screenshot_for_logging
+            from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
             log_state = truncate_screenshot_for_logging(state)
         except Exception:
             log_state = str(state)[:500] + "..." if len(str(state)) > 500 else state

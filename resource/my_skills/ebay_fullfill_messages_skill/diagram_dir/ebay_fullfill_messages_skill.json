@@ -199,7 +199,7 @@
               "inputsValues": {
                 "modelName": {
                   "type": "constant",
-                  "content": "gpt-3.5-turbo"
+                  "content": "gpt-5-mini"
                 },
                 "apiKey": {
                   "type": "constant",
@@ -432,7 +432,7 @@
           "inputsValues": {
             "modelName": {
               "type": "constant",
-              "content": "gpt-3.5-turbo"
+              "content": "gpt-5-mini"
             },
             "apiKey": {
               "type": "constant",

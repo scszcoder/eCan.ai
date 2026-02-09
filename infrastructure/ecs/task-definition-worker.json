@@ -10,6 +10,11 @@
     {
       "name": "ecan-cloud-worker",
       "image": "${ECR_IMAGE_URI}",
+      "command": [
+        "python",
+        "-m",
+        "agent.cloud_worker.worker_main"
+      ],
       "essential": true,
       "portMappings": [
         {
@@ -33,16 +38,64 @@
         {
           "name": "AWS_DEFAULT_REGION",
           "value": "${AWS_REGION}"
+        },
+        {
+          "name": "GEMINI_API_KEY",
+          "value": ""
+        },
+        {
+          "name": "DEEPSEEK_API_KEY",
+          "value": ""
+        },
+        {
+          "name": "DASHSCOPE_API_KEY",
+          "value": ""
+        },
+        {
+          "name": "KIMI_API_KEY",
+          "value": ""
+        },
+        {
+          "name": "S3_BUCKET",
+          "value": "${S3_BUCKET}"
+        },
+        {
+          "name": "ECAN_SKILLS_BUCKET",
+          "value": "${S3_BUCKET}"
+        },
+        {
+          "name": "S3_KEY_ROOT",
+          "value": "${S3_KEY_ROOT}"
+        },
+        {
+          "name": "ECAN_USER_BASE_PREFIX",
+          "value": "${S3_KEY_ROOT}"
+        },
+        {
+          "name": "SQS_QUEUE_URL",
+          "value": "${SQS_QUEUE_URL}"
+        },
+        {
+          "name": "ECAN_SQS_QUEUE_URL",
+          "value": "${SQS_QUEUE_URL}"
+        },
+        {
+          "name": "APPSYNC_API_URL",
+          "value": "${APPSYNC_API_URL}"
+        },
+        {
+          "name": "APPSYNC_API_KEY",
+          "value": "${APPSYNC_API_KEY}"
         }
       ],
       "secrets": [
         {
           "name": "OPENAI_API_KEY",
-          "valueFrom": "${OPENAI_SECRET_ARN}"
+          "valueFrom": "${OPENAI_SECRET_ARN}:api_key::"
         },
         {
           "name": "ANTHROPIC_API_KEY",
-          "valueFrom": "${ANTHROPIC_SECRET_ARN}"
+          "valueFrom": "${ANTHROPIC_SECRET_ARN}:api_key::"
         }
       ],
       "logConfiguration": {

@@ -62,6 +62,18 @@
           "supports_vision": false,
           "cost_per_1k_tokens": 0.018,
           "description": "Optimized for long-running coding tasks"
+        },
+        {
+          "name": "gpt-5-mini",
+          "display_name": "GPT-5 Mini",
+          "model_id": "gpt-5-mini",
+          "default_temperature": 0.7,
+          "max_tokens": 128000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.003,
+          "description": "Fast, affordable small model with structured output support"
         }
       ]
     },
