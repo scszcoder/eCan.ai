@@ -43,7 +43,15 @@ export const GRAPHQL_QUERIES = {
         avatars { id name owner resource_type description cloud_image_url cloud_video_url is_public usage_count }
         vehicles { id name owner status vehicle_type location url platform }
         accountInfo
+        settings
       }
+    }
+  `,
+
+  // ==================== Settings ====================
+  GET_SETTINGS: `
+    query GetSettings($ids: [ID!], $username: String) {
+      getSettings(ids: $ids, username: $username)
     }
   `,
 
@@ -637,6 +645,13 @@ export const GRAPHQL_MUTATIONS = {
       loadSkillSchemas(username: $username, skill: $skill) {
         success message data
       }
+    }
+  `,
+
+  // ==================== Settings ====================
+  UPDATE_SETTINGS: `
+    mutation UpdateSettings($input: [AWSJSON]!) {
+      updateSettings(input: $input)
     }
   `,
 

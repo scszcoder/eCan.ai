@@ -389,7 +389,7 @@ const LLMManagement = React.forwardRef<
       );
 
       if (response.success) {
-        setDefaultLLM(providerName);
+        setDefaultLLM(providerIdentifier);
         // Notify parent component to update settings - use providerIdentifier for consistency
         onDefaultLLMChange?.(providerIdentifier, modelToUse);
         message.success(
@@ -521,8 +521,14 @@ const LLMManagement = React.forwardRef<
       return;
     }
 
-    // Check if this is the default LLM (compare using provider identifier)
-    const isDefault = providerIdentifier && (defaultLLM || "").toLowerCase() === (providerIdentifier || "").toLowerCase();
+    // Check if this is the default LLM (compare using all possible identifiers)
+    const dlm = (defaultLLM || "").toLowerCase();
+    const isDefault = providerIdentifier && (
+      dlm === (providerIdentifier || "").toLowerCase()
+      || dlm === (provider.class_name || "").toLowerCase()
+      || dlm === (provider.name || "").toLowerCase()
+      || dlm === (provider.display_name || "").toLowerCase()
+    );
     
     // Show confirmation dialog using modal from App.useApp() for proper theme support
     modal.confirm({
@@ -1226,9 +1232,14 @@ const LLMManagement = React.forwardRef<
       key: "default",
       width: 80,
       render: (name: string, record: LLMProvider) => {
-        // Compare using provider identifier (canonical), not display name
+        // Compare defaultLLM against all known identifiers for this provider
+        // (settings may store class_name like "ChatOpenAI", provider id like "openai", or display name like "OpenAI")
         const providerIdentifier = record.provider;
-        const isChecked = (defaultLLM || "").toLowerCase() === (providerIdentifier || "").toLowerCase();
+        const dlm = (defaultLLM || "").toLowerCase();
+        const isChecked = dlm === (providerIdentifier || "").toLowerCase()
+          || dlm === (record.class_name || "").toLowerCase()
+          || dlm === (record.name || "").toLowerCase()
+          || dlm === (record.display_name || "").toLowerCase();
         // Debug logging for OpenAI specifically
         if (name === 'OpenAI' || name === 'ChatOpenAI' || providerIdentifier === 'openai') {
           console.log(`🔍 [Radio] ${name} (${providerIdentifier}): checked=${isChecked}, defaultLLM=${defaultLLM}, api_key_configured=${record.api_key_configured}`);
