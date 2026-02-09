@@ -255,6 +255,7 @@ type GetAllMineResponse @aws_api_key @aws_cognito_user_pools {
   knowledges: [AgentKnowledge!]!
   orgs: [Org!]!
   prompts: [Prompt!]!
+  settings: AWSJSON
   skills: [AgentSkill!]!
   tasks: [Task!]!
   tools: [AgentTool!]!
@@ -453,7 +454,7 @@ type OrgTree @aws_api_key @aws_cognito_user_pools {
 
 type PassiveBrowserCommandEnvelope @aws_api_key @aws_cognito_user_pools {
   clientId: ID!
-  command: String!
+  command: AWSJSON!
   id: ID
   runId: ID!
   stepId: ID!
@@ -463,7 +464,7 @@ type PassiveBrowserCommandEnvelope @aws_api_key @aws_cognito_user_pools {
 type PassiveBrowserHelloEnvelope @aws_api_key @aws_cognito_user_pools {
   clientId: ID!
   createdAt: AWSDateTime
-  hello: String!
+  hello: AWSJSON!
   runId: ID!
 }
 
@@ -556,7 +557,7 @@ type Query {
   getScene(id: ID!): Scene
   getSceneRequestStatus(request_id: ID!): ReqSceneResponse
   getSceneTemplates(emotion: String!, style: SceneStyle): [SceneTemplate!]!
-  getSettings(ids: [ID!]): AWSJSON!
+  getSettings(ids: [ID!], username: String): AWSJSON!
   getSkillEditorChatHistory(limit: Int, offset: Int, sessionId: ID!): [SkillEditorChatMessage!]!
   getSkillEditorChatSessions(userId: ID!): [SkillEditorChatSession!]!
   getSkillEditorEvents(sessionId: String!, since: AWSDateTime): [SkillEditorEvent!]!
@@ -1408,14 +1409,14 @@ input OrgUpdateInput {
 
 input PassiveBrowserCommandEnvelopeInput {
   clientId: ID!
-  command: String!
+  command: AWSJSON!
   runId: ID!
   stepId: ID!
 }
 
-input PassiveBrowserHelloEnvelope Input {
+input PassiveBrowserHelloEnvelopeInput {
   clientId: ID!
-  hello: String!
+  hello: AWSJSON!
   runId: ID!
 }
 
@@ -1562,6 +1563,7 @@ input RunControlInput {
 }
 
 input RunSkillInput {
+  meta_data: AWSJSON
   skill: AWSJSON!
   username: String
 }
