@@ -264,6 +264,10 @@ Resources:
       ContainerDefinitions:
         - Name: ecan-cloud-worker
           Image: !Ref WorkerImageUri
+          Command:
+            - python
+            - -m
+            - agent.cloud_worker.worker_main
           Essential: true
           PortMappings:
             - ContainerPort: 8080
@@ -277,11 +281,25 @@ Resources:
               Value: '1'
             - Name: AWS_DEFAULT_REGION
               Value: !Ref AWS::Region
+            - Name: GEMINI_API_KEY
+              Value: ''
+            - Name: DEEPSEEK_API_KEY
+              Value: ''
+            - Name: DASHSCOPE_API_KEY
+              Value: ''
+            - Name: KIMI_API_KEY
+              Value: ''
             - Name: S3_BUCKET
+              Value: !Ref S3Bucket
+            - Name: ECAN_SKILLS_BUCKET
               Value: !Ref S3Bucket
             - Name: S3_KEY_ROOT
               Value: !Ref S3KeyRoot
+            - Name: ECAN_USER_BASE_PREFIX
+              Value: !Ref S3KeyRoot
             - Name: SQS_QUEUE_URL
+              Value: !Ref SQSQueueUrl
+            - Name: ECAN_SQS_QUEUE_URL
               Value: !Ref SQSQueueUrl
             - Name: APPSYNC_API_URL
               Value: !Ref AppSyncApiUrl
@@ -289,9 +307,9 @@ Resources:
               Value: !Ref AppSyncApiKey
           Secrets:
             - Name: OPENAI_API_KEY
-              ValueFrom: !Ref OpenAIApiKeySecret
+              ValueFrom: !Sub "${OpenAIApiKeySecret}:api_key::"
             - Name: ANTHROPIC_API_KEY
-              ValueFrom: !Ref AnthropicApiKeySecret
+              ValueFrom: !Sub "${AnthropicApiKeySecret}:api_key::"
           LogConfiguration:
             LogDriver: awslogs
             Options:

@@ -97,6 +97,13 @@ def _require_env(name: str) -> str:
     return value
 
 
+def _mask_secret(value: str, prefix: int = 8, suffix: int = 8) -> str:
+    raw = (value or "").strip()
+    if len(raw) <= prefix + suffix:
+        return raw
+    return f"{raw[:prefix]}....{raw[-suffix:]}"
+
+
 def _load_env() -> _Env:
     # Parse comma-separated lists for ECS networking
     subnets_str = os.environ.get("ECS_SUBNETS", "").strip()
@@ -1248,6 +1255,13 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
             {"name": "EC_APPSYNC_TOKEN", "value": meta_jwt or env.appsync_api_key},
             {"name": "EC_BROWSER_PASSIVE_CLIENT_ID", "value": passive_client_id},
         ]
+        openai_api_key = (os.environ.get("OPENAI_API_KEY") or "").strip()
+        if openai_api_key:
+            masked_key = _mask_secret(openai_api_key)
+            logger.info(f"[runSkill] OPENAI_API_KEY detected for ECS: {masked_key}")
+            container_env.append({"name": "OPENAI_API_KEY", "value": openai_api_key})
+        else:
+            logger.warning("[runSkill] OPENAI_API_KEY not set in Lambda env; cloud worker may fail LLM calls")
         if meta_jwt:
             container_env.append({"name": "APPSYNC_AUTH_TOKEN", "value": meta_jwt})
 

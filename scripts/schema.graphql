@@ -453,7 +453,7 @@ type OrgTree @aws_api_key @aws_cognito_user_pools {
 
 type PassiveBrowserCommandEnvelope @aws_api_key @aws_cognito_user_pools {
   clientId: ID!
-  command: AWSJSON!
+  command: String!
   id: ID
   runId: ID!
   stepId: ID!
@@ -463,7 +463,7 @@ type PassiveBrowserCommandEnvelope @aws_api_key @aws_cognito_user_pools {
 type PassiveBrowserHelloEnvelope @aws_api_key @aws_cognito_user_pools {
   clientId: ID!
   createdAt: AWSDateTime
-  hello: AWSJSON!
+  hello: String!
   runId: ID!
 }
 
@@ -1408,14 +1408,14 @@ input OrgUpdateInput {
 
 input PassiveBrowserCommandEnvelopeInput {
   clientId: ID!
-  command: AWSJSON!
+  command: String!
   runId: ID!
   stepId: ID!
 }
 
-input PassiveBrowserHelloEnvelopeInput {
+input PassiveBrowserHelloEnvelope Input {
   clientId: ID!
-  hello: AWSJSON!
+  hello: String!
   runId: ID!
 }
 

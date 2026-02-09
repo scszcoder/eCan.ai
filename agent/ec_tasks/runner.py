@@ -192,7 +192,7 @@ class TaskRunner(Generic[Context]):
         try:
             # Truncate screenshot data for logging
             try:
-                from agent.ec_skills.browser_use_extension.passive_agent_node import truncate_screenshot_for_logging
+                from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
                 log_init_state = truncate_screenshot_for_logging(init_state)
             except Exception:
                 log_init_state = str(init_state)[:500] + "..."

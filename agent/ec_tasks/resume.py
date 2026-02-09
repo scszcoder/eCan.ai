@@ -610,7 +610,7 @@ def build_resume_from_mapping(event: Json, state: Json, node_output: Optional[Js
 
     # Truncate screenshot data for logging
     try:
-        from agent.ec_skills.browser_use_extension.passive_agent_node import truncate_screenshot_for_logging
+        from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
         log_state_patch = truncate_screenshot_for_logging(state_patch)
     except Exception:
         log_state_patch = str(state_patch)[:500] + "..."
@@ -662,7 +662,7 @@ def build_node_transfer_patch(node_id: str, state_snapshot: Json, node_transfer_
         logger.debug("build_node_transfer_patch......node_id", node_id)
         # Truncate screenshot data for logging
         try:
-            from agent.ec_skills.browser_use_extension.passive_agent_node import truncate_screenshot_for_logging
+            from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
             log_state_snapshot = truncate_screenshot_for_logging(state_snapshot)
         except Exception:
             log_state_snapshot = str(state_snapshot)[:500] + "..."
@@ -786,7 +786,7 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
     current_state = (task.metadata or {}).get("state") or {}
     # Truncate screenshot data for logging
     try:
-        from agent.ec_skills.browser_use_extension.passive_agent_node import truncate_screenshot_for_logging
+        from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
         log_current_state = truncate_screenshot_for_logging(current_state)
     except Exception:
         log_current_state = str(current_state)[:500] + "..."
@@ -855,7 +855,7 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
 
     # Truncate screenshot data for logging
     try:
-        from agent.ec_skills.browser_use_extension.passive_agent_node import truncate_screenshot_for_logging
+        from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
         log_state_patch = truncate_screenshot_for_logging(state_patch)
     except Exception:
         log_state_patch = str(state_patch)[:500] + "..."

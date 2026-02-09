@@ -140,8 +140,6 @@ class AppSyncPassivePubSubTransport:
     def __init__(self, *, config: AppSyncPassiveTransportConfig) -> None:
         self._config = config
 
-        self._fixed_step_id = "001"
-
         self._ws: websocket.WebSocketApp | None = None
         self._ws_thread: threading.Thread | None = None
 
@@ -157,19 +155,18 @@ class AppSyncPassivePubSubTransport:
         self._subscription_acked = threading.Event()
 
     async def publish_command(self, cmd: PassiveBrowserCommand) -> None:
-        step_id = self._fixed_step_id or cmd.step_id
         # AWSJSON scalar expects a JSON string, not a nested object
-        command_json_str = json.dumps(cmd.model_copy(update={"step_id": step_id}).model_dump())
+        command_json_str = json.dumps(cmd.model_dump())
         
         payload = {
             "runId": cmd.run_id,
             "clientId": self._config.client_id,
-            "stepId": step_id,
+            "stepId": cmd.step_id,
             "command": command_json_str,  # JSON string for AWSJSON type
         }
         
         # Log the IDs being used for debugging
-        print(f"[AppSyncPassiveTransport] publishPassiveCommand: clientId={self._config.client_id}, runId={cmd.run_id}, stepId={step_id}")
+        print(f"[AppSyncPassiveTransport] publishPassiveCommand: clientId={self._config.client_id}, runId={cmd.run_id}, stepId={cmd.step_id}")
 
         auth_headers = _build_auth_headers(self._config.auth_token)
 
@@ -381,8 +378,6 @@ class AppSyncPassivePubSubTransport:
         if self._loop is None:
             self._loop = asyncio.get_running_loop()
 
-        step_id = self._fixed_step_id or step_id
-
         self._ensure_subscription_started(run_id=run_id)
 
         # Wait until AppSync acknowledges the subscription (start_ack)
@@ -404,8 +399,6 @@ class AppSyncPassivePubSubTransport:
     async def wait_for_result(self, *, run_id: str, step_id: str, timeout_s: float) -> PassiveBrowserStepResult:
         if self._loop is None:
             self._loop = asyncio.get_running_loop()
-
-        step_id = self._fixed_step_id or step_id
 
         self._ensure_subscription_started(run_id=run_id)
 
