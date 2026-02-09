@@ -27,7 +27,7 @@ async def handle_sampling_message(
             type="text",
             text="Hello, world! from model",
         ),
-        model="gpt-3.5-turbo",
+        model="gpt-5-mini",
         stopReason="endTurn",
     )
 

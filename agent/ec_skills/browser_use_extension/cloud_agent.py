@@ -316,6 +316,16 @@ class CloudAgent(Agent):
             _cloud_agent_log(f"[CloudAgent] ✅ Bootstrap complete: url={bootstrap.browser.get('url', 'N/A') if bootstrap.browser else 'N/A'}")
 
         while self.state.n_steps <= max_steps:
+            # Check consecutive failures like parent Agent.run() does
+            max_total_failures = self.settings.max_failures + int(
+                getattr(self.settings, 'final_response_after_failure', False)
+            )
+            if self.state.consecutive_failures >= max_total_failures:
+                _cloud_agent_log(
+                    f"[CloudAgent] ❌ Stopping due to {self.state.consecutive_failures} consecutive failures"
+                )
+                break
+
             current_step = self.state.n_steps - 1
             _cloud_agent_log(f"[CloudAgent] 📍 Step {current_step}/{max_steps} starting...")
             step_info = AgentStepInfo(step_number=current_step, max_steps=max_steps)
@@ -336,7 +346,10 @@ class CloudAgent(Agent):
             )
 
         browser_state_summary = self._browser_state_from_payload(self._next_state_from_client)
-        self._next_state_from_client = None
+        # NOTE: Do NOT clear _next_state_from_client here.
+        # _execute_actions() will replace it with the new state from the remote step.
+        # If the LLM call fails before _execute_actions runs, keeping the cached
+        # state allows the next retry step to reuse it instead of crashing.
 
         # Update action models based on URL for this page
         await self._update_action_models_for_page(browser_state_summary.url)

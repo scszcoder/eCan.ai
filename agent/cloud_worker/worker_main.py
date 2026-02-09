@@ -352,7 +352,7 @@ class PassiveStepResultListener:
             se_logger = get_skill_editor_logger()
             if se_logger:
                 # Truncate screenshot for logging
-                from agent.ec_skills.browser_use_extension.passive_agent_node import truncate_screenshot_for_logging
+                from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
                 log_result = truncate_screenshot_for_logging(result)
                 se_logger.log(
                     f"[L2C] ✅ Received PassiveStepResult: stepId={step_id}, result={json.dumps(log_result)[:500]}"
@@ -1685,6 +1685,15 @@ def main() -> None:
     t0 = time.time()
     timeout_info = f"timeout={args.timeout}s" if args.timeout > 0 else "timeout=disabled"
     logger.info(f"[cloud_worker] starting rev={WORKER_REVISION} mode={args.mode} {timeout_info} bucket={args.bucket} region={args.region}")
+    try:
+        openai_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+        if openai_key:
+            masked = f"{openai_key[:8]}......{openai_key[-8:]}" if len(openai_key) > 16 else "[masked]"
+            logger.info(f"[cloud_worker] OPENAI_API_KEY detected: {masked}")
+        else:
+            logger.warning("[cloud_worker] OPENAI_API_KEY not set in environment")
+    except Exception:
+        pass
 
     try:
         if args.mode == "long-poll":
