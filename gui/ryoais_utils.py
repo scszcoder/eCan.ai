@@ -63,12 +63,13 @@ def save_ryoais_models(models: list, host: str, username: str = None) -> bool:
         return False
 
 
-def load_ryoais_models(username: str = None) -> dict:
+def load_ryoais_models(username: str = None, model_type: str = None) -> dict:
     """
     Load RyoAIS models from ryoais_models.json file.
     
     Args:
         username: Optional username/email
+        model_type: Optional model type filter ('llm', 'embedding', 'rerank'). If None, returns all models.
     
     Returns:
         Dict with 'host' and 'models' keys, or empty dict if file doesn't exist
@@ -82,7 +83,15 @@ def load_ryoais_models(username: str = None) -> dict:
         with open(models_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
-        logger.debug(f"[RyoAIS] Loaded {len(data.get('models', []))} models from {models_path}")
+        # Filter by model_type if specified
+        if model_type:
+            all_models = data.get('models', [])
+            filtered_models = [m for m in all_models if m.get('type') == model_type]
+            data['models'] = filtered_models
+            logger.debug(f"[RyoAIS] Loaded {len(filtered_models)} {model_type} models from {models_path}")
+        else:
+            logger.debug(f"[RyoAIS] Loaded {len(data.get('models', []))} models from {models_path}")
+        
         return data
     except Exception as e:
         logger.error(f"[RyoAIS] Failed to load ryoais_models.json: {e}")
@@ -422,7 +431,7 @@ def merge_ryoais_models_to_providers(
     # Load RyoAIS models if not provided
     if ryoais_models is None:
         try:
-            ryoais_models = load_ryoais_models()
+            ryoais_models = load_ryoais_models(model_type=provider_type)
         except Exception as e:
             logger.warning(f"[RyoAIS] Failed to load ryoais_models: {e}")
             return providers
@@ -472,7 +481,7 @@ def merge_ryoais_models_to_config_providers(
     # Load RyoAIS models if not provided
     if ryoais_models is None:
         try:
-            ryoais_models = load_ryoais_models()
+            ryoais_models = load_ryoais_models(model_type=provider_type)
         except Exception as e:
             logger.warning(f"[RyoAIS] Failed to load ryoais_models: {e}")
             return providers
