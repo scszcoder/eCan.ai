@@ -1,17 +1,18 @@
 """
 DeepSeek Output Format Adapter for browser-use
 
-This module provides an adapter to make DeepSeek's LLM output compatible with browser-use.
+Standard approach: Use browser-use's compatibility flags:
+- add_schema_to_system_prompt=True
+- dont_force_structured_output=True
+- remove_min_items_from_schema=True
+- remove_defaults_from_schema=True
 
-Problem:
-- DeepSeek-chat returns JSON that doesn't conform to browser-use's Pydantic schema
-- Common issues: missing 'done' field, mixed action types, invalid action names
-- Results in 90+ validation errors and requires multiple retries
+This adapter ONLY handles DeepSeek-specific issues:
+1. Filter invalid action types (file operations)
+2. Handle mixed action types in single object
+3. Convert completion indicators to 'done' action
 
-Solution:
-- Adapt LLM output before Pydantic validation
-- Transform format to match browser-use schema automatically
-- Reduce validation errors from 13/run to 0-1/run
+All structural validation is handled by browser-use's Pydantic validation.
 """
 
 import json
@@ -40,7 +41,7 @@ class DeepSeekOutputAdapter:
     # Invalid actions that DeepSeek sometimes generates
     INVALID_ACTIONS = {
         'read_file', 'write_file', 'move_file', 'verify_file', 
-        'delete_file', 'list_files', 'create_directory'
+        'delete_file', 'list_files', 'create_directory', 'replace_file'
     }
     
     def __init__(self):
@@ -64,9 +65,10 @@ class DeepSeekOutputAdapter:
         """
         try:
             # Parse JSON
-            data = json.loads(raw_output)
+            # Note: Generic cleaning (markdown, think tags) is already done by LoggingBrowserUseChatOpenAI base class
+            data = json.loads(raw_output.strip())
             
-            # Adapt the data structure
+            # Adapt the data structure (DeepSeek-specific)
             adapted_data = self._adapt_structure(data)
             
             # Convert back to JSON
@@ -83,22 +85,42 @@ class DeepSeekOutputAdapter:
 
     
     def _adapt_structure(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Adapt the overall structure of the output."""
+        """
+        Adapt the overall structure.
+        
+        Ensures required fields exist for browser-use AgentOutput schema.
+        Even with compatibility flags, LLM may not output all required fields.
+        """
         if not isinstance(data, dict):
             return data
         
         # Adapt actions array
         if 'action' in data:
             data['action'] = self._adapt_actions(data['action'])
+        else:
+            # Ensure action exists (required field)
+            data['action'] = self._adapt_actions([])
         
-        # Ensure current_state exists
-        if 'current_state' not in data:
-            data['current_state'] = {}
+        # Ensure required fields exist (browser-use schema requires these)
+        # Even with compatibility flags, missing fields cause validation errors
+        if 'evaluation_previous_goal' not in data or data.get('evaluation_previous_goal') is None:
+            data['evaluation_previous_goal'] = ''
+        if 'memory' not in data or data.get('memory') is None:
+            data['memory'] = ''
+        if 'next_goal' not in data or data.get('next_goal') is None:
+            data['next_goal'] = ''
         
         return data
     
     def _adapt_actions(self, actions: Any) -> List[Dict[str, Any]]:
-        """Adapt the actions array."""
+        """
+        Adapt the actions array.
+        
+        Handles:
+        1. Filter invalid action types
+        2. Handle mixed action types
+        3. Ensure at least one action exists (min_items=1 requirement)
+        """
         if not isinstance(actions, list):
             actions = [actions] if actions else []
         
@@ -111,7 +133,7 @@ class DeepSeekOutputAdapter:
             if adapted_action:
                 adapted_actions.append(adapted_action)
         
-        # If no valid actions, create a done action
+        # If no valid actions, create a done action (browser-use requires min_items=1)
         if not adapted_actions:
             logger.warning("[DeepSeekAdapter] No valid actions found, creating done action")
             adapted_actions = [{
@@ -126,12 +148,11 @@ class DeepSeekOutputAdapter:
     
     def _adapt_single_action(self, action: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
-        Adapt a single action object to browser-use schema.
+        Adapt a single action - MINIMAL approach.
         
-        Common adaptations:
-        1. Add missing 'done' field when task is complete
-        2. Split multiple action types (should be separate)
-        3. Remove invalid action types (file operations)
+        Only handle DeepSeek-specific issues:
+        1. Remove invalid action types (file operations)
+        2. Handle mixed action types (keep first valid one)
         """
         # Remove invalid actions
         action = self._remove_invalid_actions(action)
@@ -139,16 +160,6 @@ class DeepSeekOutputAdapter:
         # If action is empty after cleanup, skip it
         if not action:
             return None
-        
-        # Check if this looks like a completion but missing 'done'
-        if self._should_be_done_action(action):
-            logger.info("[DeepSeekAdapter] Converting to done action")
-            return {
-                'done': {
-                    'text': self._extract_completion_text(action),
-                    'success': True
-                }
-            }
         
         # If action has multiple types, keep only the first valid one
         action_types = [k for k in action.keys() if k in self.VALID_ACTIONS]
@@ -177,45 +188,6 @@ class DeepSeekOutputAdapter:
         
         return cleaned
     
-    def _should_be_done_action(self, action: Dict[str, Any]) -> bool:
-        """
-        Check if this action should be converted to a 'done' action.
-        
-        Heuristics:
-        - Has 'input' or 'extract' but also mentions completion
-        - Has text indicating task is done
-        """
-        # Check for completion keywords in any text fields
-        completion_keywords = ['完成', 'completed', 'finished', 'done', '成功', 'success']
-        
-        for value in action.values():
-            if isinstance(value, dict):
-                for v in value.values():
-                    if isinstance(v, str):
-                        if any(keyword in v.lower() for keyword in completion_keywords):
-                            return True
-            elif isinstance(value, str):
-                if any(keyword in value.lower() for keyword in completion_keywords):
-                    return True
-        
-        return False
-    
-    def _extract_completion_text(self, action: Dict[str, Any]) -> str:
-        """Extract meaningful text from action for done message."""
-        # Try to find text in nested structures
-        for value in action.values():
-            if isinstance(value, dict):
-                if 'text' in value:
-                    return str(value['text'])
-                # Return first string value
-                for v in value.values():
-                    if isinstance(v, str) and len(v) > 5:
-                        return v
-            elif isinstance(value, str) and len(value) > 5:
-                return value
-        
-        return "Task completed"
-    
     def get_stats(self) -> Dict[str, int]:
         """Get statistics about adaptations applied."""
         return {
@@ -228,128 +200,64 @@ def wrap_llm_with_compatible_output(llm: Any) -> Any:
     """
     Wrap an LLM to automatically transform output to browser-use compatible format.
     
-    This wrapper intercepts LLM responses and applies the DeepSeekOutputAdapter
-    to ensure all outputs conform to browser-use's Pydantic schema.
+    This wrapper intercepts OpenAI client responses at the lowest level,
+    before browser-use calls model_validate_json().
     
     Args:
-        llm: Original LLM instance (ChatDeepSeek or ChatOpenAI with DeepSeek endpoint)
+        llm: BrowserUseChatOpenAI instance
         
     Returns:
-        Wrapped LLM instance with automatic output adaptation
-        
-    Example:
-        >>> from langchain_openai import ChatOpenAI
-        >>> base_llm = ChatOpenAI(model="deepseek-chat")
-        >>> compatible_llm = wrap_llm_with_compatible_output(base_llm)
-        >>> # Now compatible_llm will auto-adapt all DeepSeek outputs
+        Wrapped LLM with output adaptation
     """
-    from langchain_core.language_models.chat_models import BaseChatModel
-    from langchain_core.messages import AIMessage, BaseMessage
-    from typing import List, Optional
-    
-    class DeepSeekCompatibleLLM(BaseChatModel):
-        """LLM wrapper that adapts DeepSeek output format."""
+    try:
+        from functools import wraps
         
-        def __init__(self, base_llm: BaseChatModel):
-            super().__init__()
-            self._base_llm = base_llm
-            self._adapter = DeepSeekOutputAdapter()
-            
-            # Copy attributes from base LLM
-            for attr in ['model', 'model_name', 'temperature', 'max_tokens']:
-                if hasattr(base_llm, attr):
-                    setattr(self, attr, getattr(base_llm, attr))
+        adapter = DeepSeekOutputAdapter()
         
-        def _generate(self, messages: List[BaseMessage], **kwargs) -> Any:
-            """Synchronous generation with output adaptation."""
-            result = self._base_llm._generate(messages, **kwargs)
+        # Store original get_client method
+        original_get_client = llm.get_client
+        
+        def wrapped_get_client():
+            """Wrapped get_client that adds response adaptation."""
+            client = original_get_client()
+            original_create = client.chat.completions.create
             
-            # Transform output to compatible format
-            if result.generations and result.generations[0]:
-                original_content = result.generations[0][0].text
-                compatible_content = self._adapter.make_compatible_output(original_content)
+            @wraps(original_create)
+            async def create_with_adaptation(*args, **kwargs):
+                """Intercept response and apply DeepSeek adaptation."""
+                response = await original_create(*args, **kwargs)
                 
-                if original_content != compatible_content:
-                    logger.info("[DeepSeekAdapter] Transformed output to compatible format")
-                    result.generations[0][0].text = compatible_content
-            
-            return result
-        
-        async def _agenerate(self, messages: List[BaseMessage], **kwargs) -> Any:
-            """Async generation with output adaptation."""
-            result = await self._base_llm._agenerate(messages, **kwargs)
-            
-            # Transform output to compatible format
-            if result.generations and result.generations[0]:
-                original_content = result.generations[0][0].text
-                compatible_content = self._adapter.make_compatible_output(original_content)
+                # Adapt response content before browser-use processes it
+                try:
+                    if hasattr(response, 'choices') and response.choices and len(response.choices) > 0:
+                        message = response.choices[0].message
+                        if hasattr(message, 'content') and message.content:
+                            original_content = message.content
+                            logger.debug(f"[DeepSeekAdapter] Original output (first 500 chars): {original_content[:500]}")
+                            
+                            # Apply DeepSeek-specific adaptation
+                            compatible_content = adapter.make_compatible_output(original_content)
+                            
+                            if original_content != compatible_content:
+                                logger.info("[DeepSeekAdapter] ✅ Transformed output to compatible format")
+                                logger.debug(f"[DeepSeekAdapter] Adapted output (first 500 chars): {compatible_content[:500]}")
+                                message.content = compatible_content
+                            else:
+                                logger.debug("[DeepSeekAdapter] No transformation needed")
+                except Exception as e:
+                    logger.error(f"[DeepSeekAdapter] ❌ Failed to adapt response: {e}", exc_info=True)
                 
-                if original_content != compatible_content:
-                    logger.info("[DeepSeekAdapter] Transformed output to compatible format")
-                    result.generations[0][0].text = compatible_content
+                return response
             
-            return result
+            client.chat.completions.create = create_with_adaptation
+            return client
         
-        @property
-        def _llm_type(self) -> str:
-            return "deepseek_compatible"
+        # Replace get_client method
+        llm.get_client = wrapped_get_client
         
-        def get_adaptation_stats(self) -> Dict[str, int]:
-            """Get statistics about adaptations applied."""
-            return self._adapter.get_stats()
-    
-    return DeepSeekCompatibleLLM(llm)
-
-
-# Convenience function for quick testing
-def test_adapter():
-    """Test the DeepSeek output adapter with sample problematic outputs."""
-    adapter = DeepSeekOutputAdapter()
-    
-    # Test case 1: Invalid file operations
-    test1 = json.dumps({
-        "action": [{
-            "read_file": {"file_path": "test.json"},
-            "done": {"text": "File read", "success": True}
-        }],
-        "current_state": {}
-    })
-    
-    print("Test 1 - Invalid file operations:")
-    print("Input:", test1)
-    print("Output:", adapter.make_compatible_output(test1))
-    print()
-    
-    # Test case 2: Missing done field
-    test2 = json.dumps({
-        "action": [{
-            "input": {"element_index": 123, "text": "Task completed successfully"}
-        }],
-        "current_state": {}
-    })
-    
-    print("Test 2 - Missing done field:")
-    print("Input:", test2)
-    print("Output:", adapter.make_compatible_output(test2))
-    print()
-    
-    # Test case 3: Multiple action types
-    test3 = json.dumps({
-        "action": [{
-            "click": {"index": 456},
-            "input": {"element_index": 789, "text": "test"},
-            "done": {"text": "Done", "success": True}
-        }],
-        "current_state": {}
-    })
-    
-    print("Test 3 - Multiple action types:")
-    print("Input:", test3)
-    print("Output:", adapter.make_compatible_output(test3))
-    print()
-    
-    print("Stats:", adapter.get_stats())
-
-
-if __name__ == "__main__":
-    test_adapter()
+        logger.info("[DeepSeekAdapter] ✅ DeepSeek output adapter applied successfully")
+        return llm
+        
+    except Exception as e:
+        logger.error(f"[DeepSeekAdapter] ❌ Failed to wrap LLM: {e}", exc_info=True)
+        return llm

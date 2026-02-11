@@ -1068,9 +1068,34 @@ def handle_save_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) 
             if key in params:
                 logger.info(f"[LightRAG] {key} = {params[key]}")
         
+        # Process rerank provider settings - auto-configure proxy for non-native providers
+        from knowledge.lightrag_constants import is_native_rerank_provider
+        
+        if 'RERANK_BINDING' in params:
+            rerank_binding = params.get('RERANK_BINDING', '').lower()
+            
+            # Check if this is a non-native provider that needs proxy
+            if rerank_binding and not is_native_rerank_provider(rerank_binding):
+                logger.info(f"[LightRAG] Non-native rerank provider detected: {rerank_binding}")
+                
+                # Get local server port
+                from app_context import AppContext
+                main_window = AppContext.get_main_window()
+                if main_window:
+                    local_server_port = main_window.get_local_server_port()
+                    proxy_url = f"http://localhost:{local_server_port}/api/rerank"
+                    
+                    # Only set proxy URL, keep original RERANK_BINDING for UI display
+                    params['RERANK_BINDING_HOST'] = proxy_url
+                    
+                    logger.info(f"[LightRAG] Auto-configured rerank proxy:")
+                    logger.info(f"[LightRAG]   - Provider: {rerank_binding}")
+                    logger.info(f"[LightRAG]   - Proxy URL: {proxy_url}")
+                    logger.info(f"[LightRAG]   - Note: Will be converted to jina format at runtime")
+        
         # Filter out system-managed keys to avoid saving them to local env file
         # This ensures the file remains clean and system settings remain authoritative
-        keys_to_exclude = ['_SYSTEM_LLM_KEY_SOURCE', '_SYSTEM_EMBED_KEY_SOURCE']
+        keys_to_exclude = ['_SYSTEM_LLM_KEY_SOURCE', '_SYSTEM_EMBED_KEY_SOURCE', '_SYSTEM_RERANK_KEY_SOURCE']
         
         # Also exclude the actual API key fields if they are system managed
         # The frontend sends back the system key value (masked or raw), but we must NOT save it
@@ -1079,6 +1104,9 @@ def handle_save_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) 
             
         if params.get('_SYSTEM_EMBED_KEY_SOURCE'):
             keys_to_exclude.append('EMBEDDING_BINDING_API_KEY')
+        
+        if params.get('_SYSTEM_RERANK_KEY_SOURCE'):
+            keys_to_exclude.append('RERANK_BINDING_API_KEY')
         
         settings_to_save = {k: v for k, v in params.items() if k not in keys_to_exclude}
         

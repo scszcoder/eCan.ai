@@ -194,13 +194,20 @@ class InstallationManager:
 
         exe_path = cmd[0]
         args_list = cmd[1:]
-        args_cmdline = subprocess.list2cmdline(args_list) if args_list else ""
-
-        ps_cmd = (
-            f"Start-Sleep -Seconds {int(delay_seconds)}; "
-            f"Start-Process -FilePath {exe_path!r}"
-            + (f" -ArgumentList {args_cmdline!r}" if args_cmdline else "")
-        )
+        
+        # Convert arguments to PowerShell array format: 'arg1','arg2','arg3'
+        # This is critical - PowerShell -ArgumentList needs comma-separated quoted strings
+        if args_list:
+            args_ps_array = ','.join(f"'{arg}'" for arg in args_list)
+            ps_cmd = (
+                f"Start-Sleep -Seconds {int(delay_seconds)}; "
+                f"Start-Process -FilePath '{exe_path}' -ArgumentList {args_ps_array}"
+            )
+        else:
+            ps_cmd = (
+                f"Start-Sleep -Seconds {int(delay_seconds)}; "
+                f"Start-Process -FilePath '{exe_path}'"
+            )
 
         creation_flags = (
             subprocess.DETACHED_PROCESS |
@@ -208,6 +215,9 @@ class InstallationManager:
             subprocess.CREATE_NO_WINDOW
         )
 
+        logger.info(f"PowerShell command to execute: {ps_cmd}")
+        logger.debug(f"Full PowerShell args: powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command \"{ps_cmd}\"")
+        
         p = subprocess.Popen(
             [
                 "powershell",
@@ -221,6 +231,7 @@ class InstallationManager:
             ],
             creationflags=creation_flags,
         )
+        logger.info(f"PowerShell script launched successfully (PID: {p.pid})")
         return p.pid
     
     def _create_backup(self) -> bool:
@@ -372,20 +383,20 @@ class InstallationManager:
                     from ota.core.download_manager import download_manager
                     download_manager.set_installing(True)
                     
-                    # Use standard install directory even in dev mode
-                    install_dir = self._get_windows_standard_install_dir()
-                    
+                    # Development OTA command - silent mode with progress
+                    # Note: Skip /DIR parameter in dev mode to let Inno Setup use default location
                     cmd = [
                         str(package_path),
                         '/SILENT',              # Shows progress bar, skips wizard pages
                         '/SUPPRESSMSGBOXES',
                         '/NORESTART',
                         '/SP-',                  # Skip startup message
-                        f'/DIR="{install_dir}"'  # Ensure consistent install directory
+                        '/CLOSEAPPLICATIONS',    # Force close running instances
                     ]
 
                     self._append_inno_log_if_enabled(cmd)
                     logger.info(f"Development OTA command: {' '.join(cmd)}")
+                    logger.info("Note: /DIR parameter omitted in dev mode - installer will use default location")
 
                     if sys.platform == 'win32':
                         creation_flags = (
@@ -397,8 +408,10 @@ class InstallationManager:
                         creation_flags = 0
 
                     if sys.platform == 'win32':
-                        pid = self._launch_windows_installer_delayed(cmd, delay_seconds=5)
+                        # Use longer delay in dev mode to ensure app fully exits
+                        pid = self._launch_windows_installer_delayed(cmd, delay_seconds=8)
                         logger.info(f"Installer launch script started (PID: {pid})")
+                        logger.info("Installer will start in 8 seconds after app exits")
                     else:
                         process = subprocess.Popen(cmd, creationflags=creation_flags)
                         logger.info(f"Installer launched (PID: {process.pid})")
@@ -406,7 +419,7 @@ class InstallationManager:
                     # Schedule application exit for development environment
                     import threading
                     def delayed_exit():
-                        time.sleep(3)
+                        time.sleep(5)  # Increased from 3 to 5 seconds
                         logger.info("Development mode: Exiting for installer to replace files...")
                         # Force flush all file handles and buffers
                         import sys as sys_module
@@ -418,7 +431,7 @@ class InstallationManager:
                         os._exit(0)
                     
                     threading.Thread(target=delayed_exit, daemon=True).start()
-                    logger.info("Development mode: Application will exit in 2 seconds...")
+                    logger.info("Development mode: Application will exit in 5 seconds...")
                     
                     return True
             else:

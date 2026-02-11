@@ -99,9 +99,9 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
   }, [initialEditMode, prompt, onEditModeConsumed]);
   const [draft, setDraft] = useState<Prompt | null>(prompt);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [topHeight, setTopHeight] = useState<number>(360); // px
-  const [dragging, setDragging] = useState(false);
   const [autoSizeEnabled, setAutoSizeEnabled] = useState(false);
+  const [previewHeight, setPreviewHeight] = useState<number>(() => Math.floor(window.innerHeight * 0.7));
+  const [isDraggingPreview, setIsDraggingPreview] = useState(false);
   const undoStackRef = useRef<Prompt[]>([]);
   const redoStackRef = useRef<Prompt[]>([]);
   const [canUndo, setCanUndo] = useState(false);
@@ -234,15 +234,6 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
     };
   }, [flushAutosave]);
 
-  // Initialize topHeight as 60% of container height on mount
-  useEffect(() => {
-    const el = containerRef.current;
-    if (el) {
-      const h = el.clientHeight || 0;
-      if (h > 0) setTopHeight(Math.max(200, Math.min(h - 150, Math.round(h * 0.6))));
-    }
-  }, []);
-
   // Enable TextArea autoSize only after the container has a measurable layout
   useEffect(() => {
     const checkLayoutReady = () => {
@@ -273,28 +264,47 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
     };
   }, [prompt, draft]);
 
-  // Drag handlers
+  // Preview drag handlers with optimized performance
   useEffect(() => {
+    if (!isDraggingPreview) return;
+
+    let rafId: number | null = null;
+    let lastY: number | null = null;
+
     const onMove = (e: MouseEvent) => {
-      if (!dragging || !containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      let next = e.clientY - rect.top; // distance from top of container
-      const minTop = 200; // px
-      const maxTop = rect.height - 150; // leave at least 150px for preview
-      next = Math.max(minTop, Math.min(maxTop, next));
-      setTopHeight(next);
+      lastY = e.clientY;
       e.preventDefault();
+      
+      if (rafId === null) {
+        rafId = requestAnimationFrame(() => {
+          if (lastY !== null) {
+            const newHeight = window.innerHeight - lastY;
+            setPreviewHeight(Math.max(100, Math.min(window.innerHeight - 50, newHeight)));
+          }
+          rafId = null;
+        });
+      }
     };
-    const onUp = () => setDragging(false);
-    if (dragging) {
-      window.addEventListener('mousemove', onMove);
-      window.addEventListener('mouseup', onUp);
-    }
+
+    const onUp = () => {
+      setIsDraggingPreview(false);
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+    };
+
+    window.addEventListener('mousemove', onMove, { passive: false });
+    window.addEventListener('mouseup', onUp);
+
     return () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
     };
-  }, [dragging]);
+  }, [isDraggingPreview]);
 
   useEffect(() => {
     undoStackRef.current = [];
@@ -794,23 +804,15 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
   };
 
   return (
-    <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0f172a' }}>
       {!hasDraft ? (
         <div style={{ padding: 16, color: 'rgba(255,255,255,0.65)' }}>
           {t('pages.prompts.selectPrompt', { defaultValue: 'Select a prompt to view details' })}
         </div>
       ) : (
         <>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '12px 16px',
-          borderBottom: '1px solid rgba(148,163,184,0.18)',
-          background: 'rgba(15,23,42,0.75)',
-          zIndex: 2,
-        }}>
-          <Typography.Title level={4} style={{ margin: 0, color: '#fff' }}>
+        <div className={styles.header}>
+          <Typography.Title level={4} className={styles.headerTitle}>
             {active.title || t('pages.prompts.details', { defaultValue: 'Prompt Details' })}
           </Typography.Title>
           <Space size={8}>
@@ -834,6 +836,20 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                 className={styles.smallButton}
               />
             </Tooltip>
+            {editing && (
+              <Button
+                size="small"
+                icon={<UndoOutlined />}
+                onClick={() => {
+                  setDraft(clonePrompt(prompt!));
+                  setEditing(false);
+                  cancelAutosave();
+                }}
+                className={styles.smallButtonWithText}
+              >
+                {t('common.cancel')}
+              </Button>
+            )}
             <Button
               type={editing ? 'primary' : 'default'}
               size="small"
@@ -845,7 +861,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
             </Button>
           </Space>
         </div>
-      <div style={{ height: topHeight, minHeight: 150, overflow: 'auto', paddingBottom: 8 }}>
+      <div className={styles.scrollContainer} style={{ flex: 1, minHeight: 150, overflow: 'auto', padding: '16px 20px' }}>
         {/* Top editable area */}
         <SectionContainer
           title={t('pages.prompts.fields.title', { defaultValue: 'Title' })}
@@ -857,11 +873,11 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
             value={safeString(editing ? active.title : (exampleSlug ? lx(`pages.prompts.examples.${exampleSlug}.title`, active.title) : active.title))}
             onChange={(e) => updateFields({ title: e.target.value })}
             onKeyDown={handleTabKeyDown}
-            placeholder={t('pages.prompts.placeholders.title', { defaultValue: 'Title' })}
+            placeholder={t('pages.prompts.placeholders.title', { defaultValue: 'Enter prompt title...' })}
             disabled={isReadOnly}
-            style={{ lineHeight: '20px', fontSize: 14 }}
+            className={styles.titleInput}
           />
-          <Divider style={{ margin: '16px 0' }} />
+          <Divider className={styles.divider} />
           <TextArea
             key={`topic-ta-${autoSizeEnabled ? 'auto' : 'fixed'}`}
             autoSize={autoSizeEnabled && editing ? { minRows: 2, maxRows: 4 } : undefined}
@@ -869,9 +885,9 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
             value={safeString(active.topic)}
             onChange={(e) => updateFields({ topic: e.target.value })}
             onKeyDown={handleTabKeyDown}
-            placeholder={t('pages.prompts.placeholders.topic', { defaultValue: 'Topic / short description' })}
+            placeholder={t('pages.prompts.placeholders.topic', { defaultValue: 'Enter topic or short description...' })}
             disabled={isReadOnly}
-            style={{ lineHeight: '20px', fontSize: 14 }}
+            className={styles.topicInput}
           />
         </SectionContainer>
 
@@ -894,7 +910,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                   size="small"
                   value={customSectionName}
                   onChange={(e) => setCustomSectionName(e.target.value)}
-                  placeholder="Custom section name"
+                  placeholder={t('pages.prompts.placeholders.customSectionName', { defaultValue: 'Custom section name' })}
                   style={{ width: 150 }}
                   disabled={!isEditable}
                 />
@@ -911,10 +927,9 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
               </Tooltip>
               <Tooltip title={t('pages.prompts.removeAllSections', { defaultValue: 'Remove all sections' })}>
                 <Button
-                  danger
                   type="text"
                   size="small"
-                  icon={<DeleteOutlined style={{ color: '#000' }} />}
+                  icon={<DeleteOutlined style={{ color: '#ef4444', fontSize: '14px' }} />}
                   onClick={handleRemoveAllSections}
                   disabled={!isEditable || sortedSections.length === 0}
                   className={styles.tinyIconButton}
@@ -925,9 +940,9 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
         >
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
             {sortedSections.length === 0 && (
-              <Typography.Text type="secondary">
+              <div className={styles.emptyState}>
                 {t('pages.prompts.emptySections', { defaultValue: 'No sections yet. Add one using the selector above.' })}
-              </Typography.Text>
+              </div>
             )}
             {sortedSections.map((section, index) => {
               const label = section.customLabel || getSectionLabel(section.type);
@@ -962,11 +977,10 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                       </Tooltip>
                       <Tooltip title={t('common.remove', { defaultValue: 'Remove' })}>
                         <Button
-                          danger
                           type="text"
                           size="small"
                           className={styles.tinyIconButton}
-                          icon={<DeleteOutlined style={{ color: '#000' }} />}
+                          icon={<DeleteOutlined style={{ color: '#ef4444', fontSize: '14px' }} />}
                           disabled={!isEditable}
                           onClick={() => handleSectionRemove(section.id)}
                         />
@@ -974,7 +988,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                     </Space>
                   }
                 >
-                  <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
                     {section.type === 'tools_to_use' ? (
                       <Collapse
                         size="small"
@@ -993,10 +1007,9 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%' }}>
                                 <span>{idx + 1}) {header}</span>
                                 <Button
-                                  danger
                                   type="text"
                                   size="small"
-                                  icon={<DeleteOutlined style={{ color: '#000' }} />}
+                                  icon={<DeleteOutlined style={{ color: '#ef4444', fontSize: '14px' }} />}
                                   disabled={!isEditable}
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -1047,8 +1060,15 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                       />
                     ) : (
                       section.items.map((item, idx) => (
-                        <div key={`${section.id}-${idx}`} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                          <Typography.Text style={{ color: 'rgba(148,163,184,0.9)', minWidth: 28 }}>
+                        <div key={`${section.id}-${idx}`} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                          <Typography.Text style={{ 
+                            color: '#94a3b8', 
+                            minWidth: 32,
+                            fontSize: '13px',
+                            fontWeight: 500,
+                            paddingTop: '10px',
+                            lineHeight: '1.5'
+                          }}>
                             {idx + 1})
                           </Typography.Text>
                           <TextArea
@@ -1059,32 +1079,39 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                             onChange={(e) => handleSectionItemUpdate(section.id, idx, e.target.value)}
                             onKeyDown={handleTabKeyDown}
                             disabled={isReadOnly}
-                            style={{ lineHeight: '20px', fontSize: 14 }}
+                            className={styles.itemTextarea}
                           />
                           <Button
-                            danger
                             type="text"
                             size="small"
-                            icon={<DeleteOutlined style={{ color: '#000' }} />}
+                            icon={<DeleteOutlined style={{ color: '#ef4444', fontSize: '14px' }} />}
                             disabled={!isEditable}
                             onClick={() => handleSectionItemRemove(section.id, idx)}
                             className={styles.tinyIconButton}
-                            style={{ marginTop: 4 }}
+                            style={{ marginTop: 8 }}
                           />
                         </div>
                       ))
                     )}
-                    <Button
-                      type="dashed"
-                      size="small"
-                      icon={<PlusOutlined />}
-                      onClick={() => handleSectionItemAdd(section.id)}
-                      disabled={!isEditable}
-                      className={styles.smallButtonWithText}
-                    >
-                      {t('pages.prompts.addItem', { defaultValue: 'Add item' })}
-                    </Button>
-                  </Space>
+                    <div style={{ marginTop: '12px' }}>
+                      <Button
+                        type="dashed"
+                        size="small"
+                        icon={<PlusOutlined />}
+                        onClick={() => handleSectionItemAdd(section.id)}
+                        disabled={!isEditable}
+                        block
+                        style={{
+                          borderColor: 'rgba(148, 163, 184, 0.3)',
+                          color: '#94a3b8',
+                          fontSize: '13px',
+                          textAlign: 'left'
+                        }}
+                      >
+                        {t('pages.prompts.addItem', { defaultValue: 'Add item' })}
+                      </Button>
+                    </div>
+                  </div>
                 </Card>
               );
             })}
@@ -1110,7 +1137,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                   size="small"
                   value={customUserSectionName}
                   onChange={(e) => setCustomUserSectionName(e.target.value)}
-                  placeholder="Custom section name"
+                  placeholder={t('pages.prompts.placeholders.customSectionName', { defaultValue: 'Custom section name' })}
                   style={{ width: 150 }}
                   disabled={!isEditable}
                 />
@@ -1125,12 +1152,11 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                   className={styles.smallButton}
                 />
               </Tooltip>
-              <Tooltip title={t('pages.prompts.removeAllSections', { defaultValue: 'Remove all sections' })}>
+              <Tooltip title={t('pages.prompts.removeAllSections', { defaultValue: 'Remove all' })}>
                 <Button
-                  danger
                   type="text"
                   size="small"
-                  icon={<DeleteOutlined style={{ color: '#000' }} />}
+                  icon={<DeleteOutlined style={{ color: '#ef4444', fontSize: '14px' }} />}
                   onClick={handleRemoveAllUserSections}
                   disabled={!isEditable || (active.userSections?.length ?? 0) === 0}
                   className={styles.tinyIconButton}
@@ -1178,11 +1204,10 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                       </Tooltip>
                       <Tooltip title={t('common.remove', { defaultValue: 'Remove' })}>
                         <Button
-                          danger
                           type="text"
                           size="small"
                           className={styles.tinyIconButton}
-                          icon={<DeleteOutlined style={{ color: '#000' }} />}
+                          icon={<DeleteOutlined style={{ color: '#ef4444', fontSize: '14px' }} />}
                           disabled={!isEditable}
                           onClick={() => handleUserSectionRemove(section.id)}
                         />
@@ -1190,7 +1215,7 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                     </Space>
                   }
                 >
-                  <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
                     {section.type === 'tools_to_use' ? (
                       <Collapse
                         size="small"
@@ -1209,10 +1234,9 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%' }}>
                                 <span>{idx + 1}) {header}</span>
                                 <Button
-                                  danger
                                   type="text"
                                   size="small"
-                                  icon={<DeleteOutlined style={{ color: '#000' }} />}
+                                  icon={<DeleteOutlined style={{ color: '#ef4444', fontSize: '14px' }} />}
                                   disabled={!isEditable}
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -1263,8 +1287,15 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                       />
                     ) : (
                       section.items.map((item, idx) => (
-                        <div key={`${section.id}-${idx}`} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                          <Typography.Text style={{ color: 'rgba(148,163,184,0.9)', minWidth: 28 }}>
+                        <div key={`${section.id}-${idx}`} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                          <Typography.Text style={{ 
+                            color: '#94a3b8', 
+                            minWidth: 32,
+                            fontSize: '13px',
+                            fontWeight: 500,
+                            paddingTop: '10px',
+                            lineHeight: '1.5'
+                          }}>
                             {idx + 1})
                           </Typography.Text>
                           <TextArea
@@ -1275,31 +1306,39 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
                             disabled={isReadOnly}
                             onChange={(e) => handleUserSectionItemUpdate(section.id, idx, e.target.value)}
                             onKeyDown={handleTabKeyDown}
+                            className={styles.itemTextarea}
                           />
                           <Button
-                            danger
                             type="text"
                             size="small"
-                            icon={<DeleteOutlined style={{ color: '#000' }} />}
+                            icon={<DeleteOutlined style={{ color: '#ef4444', fontSize: '14px' }} />}
                             disabled={!isEditable}
                             onClick={() => handleUserSectionItemRemove(section.id, idx)}
                             className={styles.tinyIconButton}
-                            style={{ marginTop: 4 }}
+                            style={{ marginTop: 8 }}
                           />
                         </div>
                       ))
                     )}
-                    <Button
-                      type="dashed"
-                      size="small"
-                      icon={<PlusOutlined />}
-                      onClick={() => handleUserSectionItemAdd(section.id)}
-                      disabled={!isEditable}
-                      className={styles.smallButtonWithText}
-                    >
-                      {t('common.add')}
-                    </Button>
-                  </Space>
+                    <div style={{ marginTop: '12px' }}>
+                      <Button
+                        type="dashed"
+                        size="small"
+                        icon={<PlusOutlined />}
+                        onClick={() => handleUserSectionItemAdd(section.id)}
+                        disabled={!isEditable}
+                        block
+                        style={{
+                          borderColor: 'rgba(148, 163, 184, 0.3)',
+                          color: '#94a3b8',
+                          fontSize: '13px',
+                          textAlign: 'left'
+                        }}
+                      >
+                        {t('common.add')}
+                      </Button>
+                    </div>
+                  </div>
                 </Card>
               );
             })}
@@ -1309,28 +1348,93 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
         </>
       )}
 
-      {/* Drag handle divider */}
-      <div
-        onMouseDown={() => setDragging(true)}
-        style={{
-          height: 6,
-          cursor: 'row-resize',
-          background: 'linear-gradient(90deg, rgba(255,255,255,0.08), rgba(255,255,255,0.18), rgba(255,255,255,0.08))',
-          borderTop: '1px solid rgba(255,255,255,0.08)',
-          borderBottom: '1px solid rgba(0,0,0,0.2)'
-        }}
-        title={t('pages.prompts.dragToResize', { defaultValue: 'Drag to resize' })}
-      />
-
-      {/* Bottom preview panel */}
-      <div style={{ flex: 1, overflow: 'auto', padding: 16, position: 'relative' }}>
-        <div style={{ position: 'absolute', top: 16, right: 16 }}>
-          <Tooltip title={t('pages.prompts.copyPreview', { defaultValue: 'Copy preview' })}>
-            <Button size="small" icon={<CopyOutlined />} onClick={copyPreview} className={styles.smallButton} />
-          </Tooltip>
+      {/* Preview Collapse Panel */}
+      <div style={{ 
+        borderTop: '1px solid rgba(148, 163, 184, 0.2)',
+        background: 'rgba(15, 23, 42, 0.8)'
+      }}>
+        {/* Drag handle - above the title */}
+        <div
+          onMouseDown={() => setIsDraggingPreview(true)}
+          style={{
+            height: 12,
+            cursor: 'row-resize',
+            background: isDraggingPreview 
+              ? 'linear-gradient(90deg, rgba(59,130,246,0.3), rgba(59,130,246,0.6), rgba(59,130,246,0.3))'
+              : 'linear-gradient(90deg, rgba(148,163,184,0.2), rgba(148,163,184,0.4), rgba(148,163,184,0.2))',
+            borderTop: '1px solid rgba(148,163,184,0.3)',
+            borderBottom: '1px solid rgba(148,163,184,0.1)',
+            transition: 'background 0.2s ease',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
+          }}
+          title={t('pages.prompts.dragToResize', { defaultValue: 'Drag to resize' })}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'linear-gradient(90deg, rgba(148,163,184,0.3), rgba(148,163,184,0.6), rgba(148,163,184,0.3))';
+          }}
+          onMouseLeave={(e) => {
+            if (!isDraggingPreview) {
+              e.currentTarget.style.background = 'linear-gradient(90deg, rgba(148,163,184,0.2), rgba(148,163,184,0.4), rgba(148,163,184,0.2))';
+            }
+          }}
+        >
+          <div style={{
+            width: '40px',
+            height: '3px',
+            background: 'rgba(148,163,184,0.5)',
+            borderRadius: '2px'
+          }} />
         </div>
-        <Typography.Text strong style={{ color: '#fff' }}>{t('pages.prompts.preview.title', { defaultValue: 'Preview' })}</Typography.Text>
-        <pre style={{ marginTop: 8, whiteSpace: 'pre-wrap', color: 'rgba(255,255,255,0.85)' }}>{previewText}</pre>
+        <Collapse
+          ghost
+          expandIconPosition="end"
+          style={{
+            background: 'transparent',
+            border: 'none'
+          }}
+          items={[{
+            key: 'preview',
+            label: (
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                padding: '8px 0',
+                width: '100%'
+              }}>
+                <Typography.Text strong style={{ color: '#e2e8f0', fontSize: '14px' }}>
+                  {t('pages.prompts.preview.title', { defaultValue: 'Preview' })}
+                </Typography.Text>
+              </div>
+            ),
+            children: (
+              <div style={{ 
+                height: previewHeight,
+                overflow: 'auto',
+                padding: '16px'
+              }}>
+                <pre className={styles.previewContent} style={{ position: 'relative' }}>
+                  <Tooltip title={t('pages.prompts.copyPreview', { defaultValue: 'Copy preview' })}>
+                    <Button 
+                      size="small" 
+                      icon={<CopyOutlined />} 
+                      onClick={copyPreview} 
+                      className={styles.smallButton}
+                      style={{
+                        position: 'absolute',
+                        top: '8px',
+                        right: '8px',
+                        zIndex: 10
+                      }}
+                    />
+                  </Tooltip>
+                  {previewText}
+                </pre>
+              </div>
+            )
+          }]}
+        />
       </div>
     </div>
   );

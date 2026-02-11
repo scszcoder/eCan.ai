@@ -168,31 +168,63 @@ class CustomWebEnginePage(QWebEnginePage):
         logger.debug(f"Allowing navigation: {url_str}")
         return True
 
+    # Track temporary pages created by createWindow to prevent premature GC
+    _temp_pages = None
+
     def createWindow(self, _type):
-        """Handle JavaScript window.open calls without creating visible popup windows"""
+        """Handle JavaScript window.open calls without creating visible popup windows.
+        
+        IMPORTANT: The returned page is held by Chromium's C++ layer. We must NOT
+        destroy it immediately via deleteLater() because Chromium may still access
+        the page pointer after urlChanged fires. Instead, we use a delayed timer
+        to give Chromium enough time to release its reference.
+        """
         logger.debug(f"Window creation requested, type: {_type}")
+
+        # Lazy-init the temp page tracking list
+        if self._temp_pages is None:
+            self._temp_pages = []
 
         # Create a temporary page to capture the target URL, then open in system browser
         temp_page = CustomWebEnginePage(self.profile(), self)
+        self._temp_pages.append(temp_page)
 
         def _open_external(url):
             try:
+                # Disconnect immediately to prevent multiple firings (e.g. redirects)
+                try:
+                    temp_page.urlChanged.disconnect(_open_external)
+                except (RuntimeError, TypeError):
+                    pass
+
                 url_str = url.toString()
-                if url_str.startswith(('http://', 'https://')):
+                if url_str and url_str.startswith(('http://', 'https://')):
                     import webbrowser
                     webbrowser.open(url_str)
                     logger.info(f"Opened external window.open URL in system browser: {url_str}")
             except Exception as e:
                 logger.warning(f"Failed to open external URL from window.open: {e}")
             finally:
-                try:
-                    temp_page.deleteLater()
-                except Exception:
-                    pass
+                # Schedule safe cleanup after a delay so Chromium can release its reference
+                self._schedule_temp_page_cleanup(temp_page)
 
         # When the temp page receives a URL, handle it externally and dispose the page
         temp_page.urlChanged.connect(_open_external)
         return temp_page
+
+    def _schedule_temp_page_cleanup(self, page):
+        """Safely schedule cleanup of a temporary page after Chromium releases it."""
+        from PySide6.QtCore import QTimer
+        def _do_cleanup():
+            try:
+                if self._temp_pages and page in self._temp_pages:
+                    self._temp_pages.remove(page)
+                page.deleteLater()
+                logger.debug("[createWindow] Temp page cleaned up safely")
+            except (RuntimeError, TypeError):
+                pass  # Page already destroyed or parent gone
+        # 10 second delay gives Chromium plenty of time to release the page reference
+        QTimer.singleShot(10000, _do_cleanup)
 
 
 class WebEngineView(QWebEngineView):

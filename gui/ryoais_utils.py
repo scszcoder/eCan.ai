@@ -63,12 +63,13 @@ def save_ryoais_models(models: list, host: str, username: str = None) -> bool:
         return False
 
 
-def load_ryoais_models(username: str = None) -> dict:
+def load_ryoais_models(username: str = None, model_type: str = None) -> dict:
     """
     Load RyoAIS models from ryoais_models.json file.
     
     Args:
         username: Optional username/email
+        model_type: Optional model type filter ('llm', 'embedding', 'rerank'). If None, returns all models.
     
     Returns:
         Dict with 'host' and 'models' keys, or empty dict if file doesn't exist
@@ -82,11 +83,61 @@ def load_ryoais_models(username: str = None) -> dict:
         with open(models_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
-        logger.debug(f"[RyoAIS] Loaded {len(data.get('models', []))} models from {models_path}")
+        # Filter by model_type if specified
+        if model_type:
+            all_models = data.get('models', [])
+            filtered_models = [m for m in all_models if m.get('type') == model_type]
+            data['models'] = filtered_models
+            logger.debug(f"[RyoAIS] Loaded {len(filtered_models)} {model_type} models from {models_path}")
+        else:
+            logger.debug(f"[RyoAIS] Loaded {len(data.get('models', []))} models from {models_path}")
+        
         return data
     except Exception as e:
         logger.error(f"[RyoAIS] Failed to load ryoais_models.json: {e}")
         return {}
+
+
+def _detect_embedding_dimension(host: str, model_id: str, api_key: str = None) -> int:
+    """
+    Detect the actual embedding dimension by making a test API call.
+    
+    Args:
+        host: RyoAIS API host
+        model_id: Model ID to test
+        api_key: Optional API key for authentication
+    
+    Returns:
+        Embedding dimension (int), or None if detection fails
+    """
+    import requests
+    
+    try:
+        embeddings_url = f"{host}/embeddings"
+        headers = {'Content-Type': 'application/json'}
+        if api_key:
+            headers['Authorization'] = f'Bearer {api_key}'
+        
+        payload = {
+            'model': model_id,
+            'input': 'test'
+        }
+        
+        response = requests.post(embeddings_url, json=payload, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if 'data' in data and len(data['data']) > 0:
+                embedding = data['data'][0].get('embedding', [])
+                dimension = len(embedding)
+                logger.info(f"[RyoAIS] Detected dimension for {model_id}: {dimension}")
+                return dimension
+        else:
+            logger.warning(f"[RyoAIS] Failed to detect dimension for {model_id}: HTTP {response.status_code}")
+    except Exception as e:
+        logger.warning(f"[RyoAIS] Error detecting dimension for {model_id}: {e}")
+    
+    return None
 
 
 def fetch_ryoais_models(host: str, api_key: str = None, username: str = None) -> Tuple[bool, list, str]:
@@ -132,6 +183,7 @@ def fetch_ryoais_models(host: str, api_key: str = None, username: str = None) ->
         
         # Extract model info
         model_list = []
+        embedding_models_to_test = []
         
         for model in models_data:
             model_id = model.get('id', '')
@@ -148,9 +200,12 @@ def fetch_ryoais_models(host: str, api_key: str = None, username: str = None) ->
                 model_name_lower = model_id.lower()
                 if 'embed' in model_name_lower:
                     model_info['type'] = 'embedding'
-                    # Try to detect embedding dimension
+                    # Try to detect embedding dimension from API response
                     if 'dimensions' in model:
                         model_info['dimensions'] = model.get('dimensions')
+                    else:
+                        # Mark for dimension detection
+                        embedding_models_to_test.append(model_info)
                 elif 'rerank' in model_name_lower:
                     model_info['type'] = 'rerank'
                 # BGE models are primarily embedding models, but some can be used for both
@@ -159,10 +214,20 @@ def fetch_ryoais_models(host: str, api_key: str = None, username: str = None) ->
                     # Default to embedding, but also mark as available for LLM
                     model_info['type'] = 'embedding'
                     model_info['supports_llm'] = True
+                    # Mark for dimension detection
+                    embedding_models_to_test.append(model_info)
                 else:
                     model_info['type'] = 'llm'
                 
                 model_list.append(model_info)
+        
+        # Detect dimensions for embedding models (limit to first 5 to avoid too many API calls)
+        if embedding_models_to_test:
+            logger.info(f"[RyoAIS] Detecting dimensions for {len(embedding_models_to_test)} embedding models...")
+            for model_info in embedding_models_to_test[:5]:  # Limit to 5 models
+                dimension = _detect_embedding_dimension(host, model_info['id'], api_key)
+                if dimension:
+                    model_info['dimensions'] = dimension
         
         total_duration = time.time() - start_time
         logger.info(f"[RyoAIS] Found {len(model_list)} models (total time: {total_duration:.2f}s)")
@@ -366,7 +431,7 @@ def merge_ryoais_models_to_providers(
     # Load RyoAIS models if not provided
     if ryoais_models is None:
         try:
-            ryoais_models = load_ryoais_models()
+            ryoais_models = load_ryoais_models(model_type=provider_type)
         except Exception as e:
             logger.warning(f"[RyoAIS] Failed to load ryoais_models: {e}")
             return providers
@@ -416,7 +481,7 @@ def merge_ryoais_models_to_config_providers(
     # Load RyoAIS models if not provided
     if ryoais_models is None:
         try:
-            ryoais_models = load_ryoais_models()
+            ryoais_models = load_ryoais_models(model_type=provider_type)
         except Exception as e:
             logger.warning(f"[RyoAIS] Failed to load ryoais_models: {e}")
             return providers
