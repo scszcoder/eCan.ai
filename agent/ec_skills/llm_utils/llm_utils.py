@@ -1460,7 +1460,8 @@ def _create_llm_instance(provider, config_manager=None, allow_no_api_key=False):
             return None
             
     except Exception as e:
-        logger.error(f"Error creating LLM instance for {provider.get('name')}: {e}")
+        provider_name = getattr(provider, 'name', None) or (provider.get('name') if isinstance(provider, dict) else 'unknown')
+        logger.error(f"Error creating LLM instance for {provider_name}: {e}")
         return None
 
 
@@ -1514,8 +1515,12 @@ def get_browser_use_supported_providers() -> list:
         'deepseek',
         'dashscope',
         'ollama',
+        'ryoais',
         'qwen',
-        'qwq'
+        'qwq',
+        'zhipuai',
+        'bytedance',
+        'baidu_qianfan'
     ]
 
 
