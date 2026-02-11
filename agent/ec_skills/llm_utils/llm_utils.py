@@ -1531,9 +1531,10 @@ def _get_logging_browser_use_class():
     try:
         from functools import wraps
         from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
+        from agent.ec_skills.llm_utils.output_cleaner import clean_llm_output
         
         class LoggingBrowserUseChatOpenAI(BrowserUseChatOpenAI):
-            """BrowserUseChatOpenAI with custom logging for all LLM responses."""
+            """BrowserUseChatOpenAI with custom logging and generic output cleaning for all LLM responses."""
             
             def __init__(self, *args, **kwargs):
                 """Initialize with all parent class parameters."""
@@ -1555,7 +1556,7 @@ def _get_logging_browser_use_class():
                     except AttributeError:
                         pass
                     
-                    # Log LLM response
+                    # Log and apply generic output cleaning for ALL providers
                     try:
                         if hasattr(response, 'choices') and response.choices and len(response.choices) > 0:
                             message = response.choices[0].message
@@ -1563,10 +1564,18 @@ def _get_logging_browser_use_class():
                                 content = message.content
                                 logger.debug(f"[BrowserUse] Received LLM response, length: {len(content)}")
                                 logger.debug(f"[BrowserUse] LLM Response preview: {content[:200]}...")
+                                
+                                # Apply generic cleaning (markdown blocks, think tags, JSON extraction)
+                                # Safe for all providers - only removes formatting artifacts
+                                cleaned = clean_llm_output(content)
+                                if cleaned != content:
+                                    logger.info(f"[BrowserUse] 🧹 Applied generic output cleaning (original: {len(content)}, cleaned: {len(cleaned)})")
+                                    logger.debug(f"[BrowserUse] Cleaned preview: {cleaned[:200]}...")
+                                    message.content = cleaned
                             else:
                                 logger.debug(f"[BrowserUse] LLM response has no content")
                     except Exception as e:
-                        logger.error(f"[BrowserUse] ❌ Failed to log response: {e}", exc_info=True)
+                        logger.error(f"[BrowserUse] ❌ Failed to log/clean response: {e}", exc_info=True)
                     
                     return response
                 
@@ -1601,6 +1610,10 @@ def _create_and_validate_browser_use_llm(bu_config: dict):
         # Extract special config flags
         adapt_deepseek_output = bu_config.pop('adapt_deepseek_output', False)
         adapt_qwen_output = bu_config.pop('adapt_qwen_output', False)
+        # Save provider_type_id before removing it (needed for guided_json detection)
+        provider_type_id = bu_config.get('provider_type_id', '')
+        # Remove provider_type_id (not a valid LLM param)
+        bu_config.pop('provider_type_id', None)
         
         # Remove extra_body parameter - BrowserUseChatOpenAI doesn't support it
         # This parameter is used for standard LangChain ChatOpenAI (e.g., Qwen thinking control)
@@ -1635,8 +1648,18 @@ def _create_and_validate_browser_use_llm(bu_config: dict):
         if adapt_qwen_output:
             try:
                 from agent.ec_skills.browser_use_extension.qwen_adapter import wrap_qwen_llm
-                llm_instance = wrap_qwen_llm(llm_instance)
-                logger.info("[_create_and_validate_browser_use_llm] ✅ Applied Qwen/Ollama output format adapter")
+                
+                # Check if this is RyoAIS (vLLM) - enable guided_json for strict JSON output
+                # Note: provider_type_id was saved earlier before being removed from bu_config
+                enable_guided_json = (provider_type_id == 'ryoais')
+                
+                if enable_guided_json:
+                    logger.info("[_create_and_validate_browser_use_llm] Detected RyoAIS/vLLM - enabling guided_json")
+                    llm_instance = wrap_qwen_llm(llm_instance, enable_guided_json=True)
+                    logger.info("[_create_and_validate_browser_use_llm] ✅ Applied Qwen adapter with vLLM guided_json")
+                else:
+                    llm_instance = wrap_qwen_llm(llm_instance, enable_guided_json=False)
+                    logger.info("[_create_and_validate_browser_use_llm] ✅ Applied Qwen/Ollama output format adapter")
             except Exception as e:
                 logger.warning(f"[_create_and_validate_browser_use_llm] Failed to apply Qwen output adapter: {e}")
         
@@ -1809,6 +1832,8 @@ def create_browser_use_llm_by_provider_type(
             logger.info(f"[create_browser_use_llm_by_provider_type] Enabled DeepSeek adapter (post-process to filter invalid actions)")
         elif provider_type_id in ['ollama', 'ryoais', 'qwen', 'qwq', 'dashscope']:
             bu_config['adapt_qwen_output'] = True
+            # Store provider_type_id for guided_json detection
+            bu_config['provider_type_id'] = provider_type_id
             logger.info(f"[create_browser_use_llm_by_provider_type] Enabled Qwen/Ollama adapter (post-process to filter invalid actions)")
             logger.info(f"[create_browser_use_llm_by_provider_type] Set timeout=180s for {provider_type_id} (slow inference support)")
                 

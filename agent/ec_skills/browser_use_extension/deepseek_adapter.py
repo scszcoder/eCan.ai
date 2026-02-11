@@ -65,9 +65,10 @@ class DeepSeekOutputAdapter:
         """
         try:
             # Parse JSON
-            data = json.loads(raw_output)
+            # Note: Generic cleaning (markdown, think tags) is already done by LoggingBrowserUseChatOpenAI base class
+            data = json.loads(raw_output.strip())
             
-            # Adapt the data structure
+            # Adapt the data structure (DeepSeek-specific)
             adapted_data = self._adapt_structure(data)
             
             # Convert back to JSON
