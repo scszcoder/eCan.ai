@@ -2204,7 +2204,13 @@
     "forgotResetError": "Failed to reset password",
     "lastError": "Last error:",
     "retryHint": "Please check your credentials and try again.",
-    "sessionExpired": "Session expired, please login again"
+    "sessionExpired": "Session expired, please login again",
+    "passwordFormatHint": "Password must be at least 8 characters, including uppercase, lowercase, number, and special character (e.g. !@#$%^&*)",
+    "passwordMinLength": "Password must be at least 8 characters",
+    "passwordNeedUppercase": "Must contain at least one uppercase letter",
+    "passwordNeedLowercase": "Must contain at least one lowercase letter",
+    "passwordNeedNumber": "Must contain at least one number",
+    "passwordNeedSpecialChar": "Must contain at least one special character (e.g. !@#$%^&*)"
   },
   "agents": {
     "addAgent": "Add Agent"

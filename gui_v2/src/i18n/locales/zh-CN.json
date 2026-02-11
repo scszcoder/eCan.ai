@@ -2204,7 +2204,13 @@
     "forgotResetError": "重置密码失败",
     "lastError": "上次错误：",
     "retryHint": "请检查您的凭据并重试。",
-    "sessionExpired": "会话已过期，请重新登录"
+    "sessionExpired": "会话已过期，请重新登录",
+    "passwordFormatHint": "密码至少8位，需包含大写字母、小写字母、数字和特殊字符（如 !@#$%^&*）",
+    "passwordMinLength": "密码长度至少8位",
+    "passwordNeedUppercase": "需包含至少一个大写字母",
+    "passwordNeedLowercase": "需包含至少一个小写字母",
+    "passwordNeedNumber": "需包含至少一个数字",
+    "passwordNeedSpecialChar": "需包含至少一个特殊字符（如 !@#$%^&*）"
   },
   "agents": {
     "addAgent": "添加代理"
