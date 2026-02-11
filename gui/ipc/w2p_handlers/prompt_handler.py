@@ -454,23 +454,39 @@ def handle_save_prompt(request: IPCRequest, params: Optional[dict]) -> IPCRespon
             # GraphQL format: { username, input: [{id, owner, prompt: JSON, version}] }
             if 'input' in params and isinstance(params['input'], list) and len(params['input']) > 0:
                 graphql_input = params['input'][0]
+                graphql_id = graphql_input.get('id')
+                logger.debug(f"[prompts] GraphQL save_prompt: id={graphql_id}, keys={list(graphql_input.keys())}")
                 # Extract prompt from GraphQL format
                 if 'prompt' in graphql_input and isinstance(graphql_input['prompt'], str):
-                    prompt_data = json.loads(graphql_input['prompt'])
+                    try:
+                        prompt_data = json.loads(graphql_input['prompt'])
+                    except json.JSONDecodeError as je:
+                        logger.error(f"[prompts] Failed to parse prompt JSON: {je}")
+                        return create_error_response(request, 'INVALID_PARAMS', f'Invalid prompt JSON: {je}')
+                    # Build prompt dict: spread prompt_data first, then override id
+                    # to ensure graphql_input['id'] always takes precedence
                     prompt = {
-                        'id': graphql_input.get('id'),
-                        **prompt_data
+                        **prompt_data,
+                        'id': graphql_id,
                     }
+                else:
+                    # prompt field is not a JSON string, try using graphql_input directly
+                    prompt = {'id': graphql_id, **{k: v for k, v in graphql_input.items() if k not in ('owner', 'version')}}
             # Direct format: { prompt: {...} }
             elif 'prompt' in params:
                 prompt = params['prompt']
+            # Fallback: params itself might be the prompt object (from direct IPC call)
+            elif 'id' in params and ('title' in params or 'topic' in params):
+                prompt = params
         
         if not prompt or not isinstance(prompt, dict):
+            logger.warning(f"[prompts] save_prompt: no valid prompt found in params keys={list((params or {}).keys())}")
             return create_error_response(request, 'INVALID_PARAMS', 'prompt object is required')
         
         # Check if id exists and is not empty string
         prompt_id = prompt.get('id')
         if not prompt_id or not isinstance(prompt_id, str) or not prompt_id.strip():
+            logger.warning(f"[prompts] save_prompt: invalid prompt id={prompt_id!r}, prompt keys={list(prompt.keys())}")
             return create_error_response(request, 'INVALID_PARAMS', 'prompt with valid id is required')
         
         if prompt.get('readOnly'):
@@ -479,7 +495,7 @@ def handle_save_prompt(request: IPCRequest, params: Optional[dict]) -> IPCRespon
         logger.debug(f"[prompts] saved prompt {normalized.get('id')} to my_prompts")
         return create_success_response(request, {"prompt": normalized})
     except Exception as e:
-        logger.error(f"[prompts] save_prompt error: {e}")
+        logger.error(f"[prompts] save_prompt error: {e}", exc_info=True)
         return create_error_response(request, 'SAVE_PROMPT_ERROR', str(e))
 
 @IPCHandlerRegistry.handler('delete_prompt')

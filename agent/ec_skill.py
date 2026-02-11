@@ -565,47 +565,20 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
             In cloud mode, uses cloud logger instead of IPC to avoid PySide6 dependency.
             """
             try:
-                from agent.cloud_worker.cloud_logger import is_cloud_mode, send_skill_editor_log
-                import time as time_mod
-                
-                # Get run_id from runtime context if available
-                run_id = "dev_run_singleton"  # default for dev runs
-                try:
-                    run_id = runtime.context.get("run_id", "dev_run_singleton")
-                except Exception:
-                    pass
-                
-                if is_cloud_mode():
-                    # Cloud mode: use cloud logger (publishes to AppSync or just logs)
-                    send_skill_editor_log(
-                        level="info",
-                        message=f"[node_status] node={node_name} status={status_label} run_id={run_id}",
-                        node_id=node_name,
-                    )
-                    logger.debug(f"[node_builder] sent cloud log for node={node_name}, status={status_label}")
-                else:
-                    # Desktop mode: use IPC
-                    from gui.ipc.api import IPCAPI
-                    ipc = IPCAPI.get_instance()
-                    logger.info(f"[SIM][node_builder] sending {status_label} status for node={node_name}, run_id={run_id}")
-                    ipc.update_run_stat(
-                        agent_task_id=run_id,
-                        current_node=node_name,
-                        status=status_label,
-                        langgraph_state=st,
-                        timestamp=int(time_mod.time() * 1000)
-                    )
-                    logger.info(f"[SIM][node_builder] status update sent successfully for node={node_name}, status={status_label}")
-                
-                # For "running" we keep a tiny delay to ensure the frontend
-                # sees the node enter the running state before completion.
-                if status_label == "running":
-                    time_mod.sleep(0.05)
+                run_id = runtime.context.get("run_id") or "unknown"
+                from gui.ipc.api import IPCAPI
+                ipc = IPCAPI.get_instance()
+                logger.info(f"[SIM][node_builder] sending {status_label} status for node={node_name}, run_id={run_id}")
+                ipc.update_run_stat(
+                    agent_task_id=run_id,
+                    current_node=node_name,
+                    status=status_label,
+                    langgraph_state=st,
+                    timestamp=int(time.time() * 1000)
+                )
+                logger.info(f"[SIM][node_builder] status update sent successfully for node={node_name}, status={status_label}")
             except Exception as ex:
-                import traceback
-                logger.error(f"[node_builder] Failed to send {status_label} status for {node_name}: {ex}")
-                logger.error(f"[node_builder] Traceback: {traceback.format_exc()}")
-                pass
+                logger.debug(f"[node_builder] Failed to send status update: {ex}")
 
         # Step-once: pause at the very next node regardless of configured breakpoints
         try:

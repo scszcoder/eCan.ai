@@ -31,11 +31,6 @@ from langchain_core.messages.base import BaseMessage, BaseMessageChunk
 
 
 # ==================== Module-level Constants ====================
-# Thinking control system instruction (used in SystemMessage)
-THINKING_SUPPRESSION_INSTRUCTION = (
-    "You must respond directly without using <think> tags, reasoning steps, or internal monologue. "
-    "Provide only the final answer or action."
-)
 
 
 # ==================== Helper Functions ====================
@@ -1269,46 +1264,6 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 return state
 
             # so far we have get API key, LLM model setup among difference possible choices.
-
-            # ==================== Unified Thinking Control (Prompt Injection) ====================
-            # Apply thinking control via prompt injection for all providers when disabled
-            # Note: Qwen also uses extra_body parameter (set during LLM creation above) as primary control,
-            #       but prompt injection provides additional reinforcement
-            def apply_thinking_control_prompt(use_thinking: bool, context_messages: list):
-                """
-                Apply thinking control via SystemMessage for all providers.
-                Adds suppression instruction to SystemMessage when thinking is disabled.
-                
-                Args:
-                    use_thinking: Whether to enable thinking mode
-                    context_messages: List of messages to modify
-                
-                Note: Using SystemMessage keeps user messages clean and follows best practices
-                """
-                if not use_thinking:
-                    suppression_text = THINKING_SUPPRESSION_INSTRUCTION.strip()
-                    
-                    # Find existing SystemMessage or create new one
-                    system_msg_found = False
-                    if context_messages and len(context_messages) > 0:
-                        # Check if first message is SystemMessage
-                        if isinstance(context_messages[0], SystemMessage):
-                            # Append to existing SystemMessage
-                            original_content = context_messages[0].content
-                            context_messages[0].content = original_content + "\n\n" + suppression_text
-                            system_msg_found = True
-                            logger.info(f"[LLM] Applied thinking suppression to existing SystemMessage")
-                    
-                    # If no SystemMessage exists, create one at the beginning
-                    if not system_msg_found:
-                        context_messages.insert(0, SystemMessage(content=suppression_text))
-                        logger.info(f"[LLM] Created new SystemMessage with thinking suppression")
-                else:
-                    logger.debug(f"[LLM] Thinking enabled (no suppression)")
-            
-            # Apply thinking control (modifies recent_context in-place)
-            apply_thinking_control_prompt(node_use_thinking, recent_context)
-            # ==================== End Thinking Control ====================
 
             # Log LLM configuration for debugging
             log_msg = f"🔧 LLM Config (node_config): provider={llm_provider}, model={model_name}, temperature={temperature}, use_thinking={node_use_thinking}"
@@ -3306,7 +3261,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             from browser_use import Agent as BUAgent
             from browser_use.browser.profile import BrowserProfile
             from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller
-            # from browser_use.browser.context import BrowserContext as BUBrowserContext
+            # from browser_use.browser.context import BUBrowserContext as BUBrowserContext
             log_msg = f"🤖 Executing node Browser Automation node: {node_name}"
             logger.debug(log_msg)
             send_skill_editor_log("log", log_msg)
@@ -3418,8 +3373,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm, create_browser_use_llm_by_provider_type
             
             llm = None
+            
             if node_llm_provider and node_model_name:
-                # Node editor has specific provider/model selected - use those
+                # Node editor has specific provider/model selected - use those (no fallback)
                 logger.info(f"[BrowserAutomation] Using node-specific LLM: provider={node_llm_provider}, model={node_model_name}")
                 
                 # Get API key and base_url from mainwin's config for this provider
@@ -3434,7 +3390,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         logger.debug(f"[BrowserAutomation] provider_dict keys: {list(provider_dict.keys())}")
                         
                         # Use extract_provider_config to get configuration
-                        config = extract_provider_config(provider_dict, config_manager=config_manager)
+                        # Pass node_model_name to ensure node-specified model takes priority over global default
+                        config = extract_provider_config(provider_dict, config_manager=config_manager, node_model_name=node_model_name)
                         logger.info(f"[BrowserAutomation] extract_provider_config returned: {config is not None}")
                         logger.debug(f"[BrowserAutomation] config keys: {list(config.keys()) if config else 'None'}")
                         
@@ -3445,27 +3402,81 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         
                         logger.debug(f"[BrowserAutomation] api_key: {'***' if api_key else 'None'}, base_url: {base_url}")
                         
+                        # Use standard provider_type from config (not display name)
+                        # This ensures we pass the correct provider ID (e.g., 'dashscope' not 'qwen (dashscope)')
+                        provider_type_id = config.get('provider_type')
+                        logger.debug(f"[BrowserAutomation] Using provider_type: {provider_type_id} (from config, not display name: {node_llm_provider})")
+                        
                         # Use node-selected model, not the default from config
                         llm = create_browser_use_llm_by_provider_type(
-                            provider_type=node_llm_provider.lower(),
+                            provider_type=provider_type_id,
                             model_name=node_model_name,
                             api_key=api_key,
                             base_url=base_url,
                             mainwin=mainwin
                         )
-                        logger.info(f"[BrowserAutomation] Created LLM with node settings: provider={node_llm_provider}, model={node_model_name}")
+                        
+                        if llm is None:
+                            # Don't fallback - raise error to surface the problem
+                            raise ValueError(
+                                f"Failed to create LLM with provider '{provider_type_id}' (display: {node_llm_provider}), "
+                                f"model '{node_model_name}'. Check API key and base_url configuration."
+                            )
+                        
+                        logger.info(f"[BrowserAutomation] ✅ Created LLM with node settings: provider={node_llm_provider}, model={node_model_name}")
                     else:
-                        logger.warning(f"[BrowserAutomation] Provider '{node_llm_provider}' not found in config, falling back to default")
+                        error_msg = f"Provider '{node_llm_provider}' not found in config. Please check provider name in node settings."
+                        logger.error(f"[BrowserAutomation] ❌ {error_msg}")
+                        raise ValueError(error_msg)
                 except Exception as e:
-                    logger.warning(f"[BrowserAutomation] Failed to create LLM from node settings: {e}, falling back to default")
+                    error_msg = (
+                        f"Failed to create LLM with node settings:\n"
+                        f"  Provider: {node_llm_provider}\n"
+                        f"  Model: {node_model_name}\n"
+                        f"  Error: {str(e)}\n\n"
+                        f"Please check:\n"
+                        f"  1. Provider name is correct in node settings\n"
+                        f"  2. Model name is correct and belongs to the provider\n"
+                        f"  3. API key is configured in Settings > LLM Management\n"
+                        f"  4. Base URL is correct (if using local/custom provider)"
+                    )
+                    logger.error(f"[BrowserAutomation] ❌ {error_msg}")
+                    raise ValueError(error_msg) from e
             
-            # Fall back to mainwin's default LLM configuration
-            if not llm:
-                logger.info("[BrowserAutomation] Using mainwin default LLM configuration")
-                llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True)
+            else:
+                # No node-specific settings - use global default LLM
+                logger.info("[BrowserAutomation] No node-specific LLM settings, using global default LLM")
+                try:
+                    llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True)
+                    if llm:
+                        logger.info("[BrowserAutomation] ✅ Using global default LLM")
+                    else:
+                        error_msg = (
+                            "Failed to create LLM from global default settings.\n\n"
+                            "Please configure a default LLM in Settings > LLM Management:\n"
+                            "  1. Select a provider (OpenAI, DeepSeek, Qwen, etc.)\n"
+                            "  2. Enter API key\n"
+                            "  3. Set as default provider"
+                        )
+                        logger.error(f"[BrowserAutomation] ❌ {error_msg}")
+                        raise ValueError(error_msg)
+                except Exception as e:
+                    error_msg = (
+                        f"Failed to create LLM from global default settings:\n"
+                        f"  Error: {str(e)}\n\n"
+                        f"Please check Settings > LLM Management:\n"
+                        f"  1. Verify default provider is set\n"
+                        f"  2. Verify API key is configured\n"
+                        f"  3. Verify base URL is correct (if using local provider)"
+                    )
+                    logger.error(f"[BrowserAutomation] ❌ {error_msg}")
+                    raise ValueError(error_msg) from e
             
+            # Final validation
             if not llm:
-                raise ValueError("Failed to create browser_use LLM. Please configure LLM provider API key in Settings.")
+                error_msg = "LLM creation failed. This should not happen - please report this bug."
+                logger.error(f"[BrowserAutomation] ❌ {error_msg}")
+                raise ValueError(error_msg)
 
             controller = custom_controller
                         
@@ -3488,11 +3499,6 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             if browser_profile:
                 agent_kwargs['browser_profile'] = browser_profile
             
-            # Apply thinking control via extend_system_message (BEST PRACTICE)
-            # This keeps user task clean and puts constraint in SystemMessage
-            if not node_use_thinking:
-                agent_kwargs['extend_system_message'] = THINKING_SUPPRESSION_INSTRUCTION.strip()
-                logger.info("[BrowserAutomation] Applied thinking suppression via extend_system_message")
             
             logger.info(f"[BrowserAutomation] Agent kwargs: {agent_kwargs}")
             logger.debug("[BROWSER USE]Agent task:", task)
@@ -3633,7 +3639,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNode")
             logger.error(err_msg)
             send_skill_editor_log("error", err_msg)
-            return {"error": str(err_msg)}
+            # Re-raise the exception so LangGraph can mark the node as failed
+            raise RuntimeError(f"Browser automation failed: {str(e)}") from e
 
     def _auto(state: dict, *, runtime=None, store=None, **kwargs):
         active_system_prompt, active_user_prompt = _resolve_prompt_templates(
@@ -3806,7 +3813,13 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             resolve_async_operation(task, correlation_id, error=str(e))
                     except Exception:
                         pass
-                info = {"error": f"browser-use run failed: {e}"}
+                
+                # Log error and push to frontend
+                error_msg = f"browser-use run failed: {e}"
+                logger.error(f"[BrowserAutomation] {error_msg}")
+                send_skill_editor_log("error", f"❌ [BrowserAutomation] {error_msg}")
+                
+                info = {"error": error_msg}
             state.setdefault("tool_result", {})
             # state["tool_result"][node_name] = {
             state["tool_result"] = {
