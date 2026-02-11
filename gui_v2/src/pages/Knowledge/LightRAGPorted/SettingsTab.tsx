@@ -962,6 +962,10 @@ const SettingsTab: React.FC = () => {
     );
 
     const commonStyle = { width: '100%' };
+    const inputNumberStyle = { 
+      width: '100%',
+      ...(disabled ? { height: '24px' } : {})
+    };
 
     switch (field.type) {
       case 'text':
@@ -1003,7 +1007,7 @@ const SettingsTab: React.FC = () => {
               value={value ? Number(value) : undefined}
               placeholder={placeholder}
               onChange={(val) => updateSetting(field.key, val?.toString() || '')}
-              style={commonStyle}
+              style={inputNumberStyle}
               size="small"
               disabled={disabled}
               min={0}
@@ -1204,8 +1208,9 @@ const SettingsTab: React.FC = () => {
             )}
             <div style={{ 
               display: 'grid', 
-              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', 
-              gap: 12 
+              gridTemplateColumns: 'repeat(2, 1fr)', 
+              gap: '12px 16px',
+              maxWidth: '100%'
             }}>
               {sectionFields.map(field => renderField(field))}
             </div>
@@ -1469,8 +1474,9 @@ const SettingsTab: React.FC = () => {
               >
                 <div style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-                  gap: 12
+                  gridTemplateColumns: 'repeat(2, 1fr)',
+                  gap: '12px 16px',
+                  maxWidth: '100%'
                 }}>
                   {STORAGE_COMMON_POSTGRES.map(field => renderField(field as any))}
                 </div>

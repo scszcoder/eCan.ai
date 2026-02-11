@@ -391,19 +391,20 @@ class LightragServer:
             env['EMBEDDING_BINDING'] = mapped
         
         # Map Rerank binding (LightRAG natively supports: cohere, jina, aliyun ONLY)
-        # Special handling for Ollama: redirect to eCan proxy
+        # Note: Non-native providers (ollama, ryoais, etc.) will be converted by launcher
+        # The launcher will save original binding and convert to 'jina' for LightRAG compatibility
         RERANK_NATIVE_SUPPORTED = ['cohere', 'jina', 'aliyun']
         rerank_binding = env.get('RERANK_BINDING')
         if rerank_binding and rerank_binding.lower() not in ['null', 'none', '']:
             rerank_binding_lower = rerank_binding.lower()
             
-            # Special case: Ollama rerank -> use eCan proxy
-            if rerank_binding_lower == 'ollama':
-                self._intercept_ollama_rerank(env)
-            elif rerank_binding_lower not in RERANK_NATIVE_SUPPORTED:
-                # Map other unsupported providers to aliyun
-                logger.info(f"[LightragServer] Mapped Rerank binding '{rerank_binding}' -> 'aliyun' (Alibaba-compatible API)")
-                env['RERANK_BINDING'] = 'aliyun'
+            # Keep original binding, let launcher handle conversion
+            # Launcher will convert non-native providers to 'jina' format
+            logger.info(f"[LightragServer] Rerank binding: '{rerank_binding}' (will be processed by launcher)")
+            
+            # Legacy Ollama interception - now handled by universal proxy
+            # if rerank_binding_lower == 'ollama':
+            #     self._intercept_ollama_rerank(env)
         
         # 7. Add SSL/TLS configuration to fix certificate errors
         # Disable SSL verification for development/testing (can be overridden by extra_env)
@@ -791,11 +792,12 @@ class LightragServer:
                 rerank_provider = env.get('RERANK_BINDING', 'null')
                 rerank_model = env.get('RERANK_MODEL', '')
                 rerank_enabled = env.get('RERANK_BY_DEFAULT', 'false')
-                summary.append(f"🔄 Rerank Provider:    {rerank_provider}")
+                summary.append(f"🔄 Rerank Provider:    {rerank_provider} (from config)")
                 summary.append(f"   Rerank Model:      {rerank_model if rerank_model else 'N/A'}")
                 summary.append(f"   Enabled by Default: {rerank_enabled}")
                 if env.get('RERANK_BINDING_HOST'):
                     summary.append(f"   Rerank Host:       {env.get('RERANK_BINDING_HOST')}")
+                summary.append(f"   Note: Non-native providers will be converted by launcher")
                 if env.get('RERANK_BINDING_API_KEY'):
                     summary.append(f"   Rerank Key:        {self._mask_env_value('RERANK_API_KEY', env['RERANK_BINDING_API_KEY'])}")
 
@@ -837,14 +839,26 @@ class LightragServer:
                 self._write_pid_file(self.proc.pid, env)
                 
                 if wait_gating:
-                    health_timeout = float(env.get('LIGHTRAG_HEALTH_TIMEOUT', 45.0))
+                    health_timeout = float(env.get('LIGHTRAG_HEALTH_TIMEOUT', 120.0))
                     if self._wait_for_server_ready(int(env['PORT']), timeout=health_timeout):
                         return True
                     else:
-                        logger.error("[LightragServer] Server failed to become ready, stopping...")
-                        self._log_startup_failure()
-                        self.stop()
-                        return False
+                        # Check if process is still alive - if so, don't kill it
+                        # The server may just be slow to initialize (e.g. first-time FAISS/NetworkX setup)
+                        if self.proc and self.proc.poll() is None:
+                            logger.warning(
+                                "[LightragServer] Server not ready within timeout, but process is still alive. "
+                                "Keeping server running in background - it may become ready later."
+                            )
+                            self._log_startup_failure()
+                            # Start background health monitor to detect when server becomes ready
+                            self._start_background_health_monitor(int(env['PORT']))
+                            return True  # Return success so the app doesn't block
+                        else:
+                            logger.error("[LightragServer] Server failed to become ready and process has exited.")
+                            self._log_startup_failure()
+                            self.stop()
+                            return False
                 
                 return True
             return False
@@ -852,7 +866,7 @@ class LightragServer:
             logger.error(f"[LightragServer] Start error: {e}")
             return False
 
-    def _wait_for_server_ready(self, port, timeout=45.0):
+    def _wait_for_server_ready(self, port, timeout=120.0):
         start_time = time.time()
         import requests
         
@@ -869,7 +883,7 @@ class LightragServer:
                 
                 # Use /auth-status instead of /health (which requires authentication)
                 # /auth-status is public and returns server status
-                response = requests.get(f"http://127.0.0.1:{port}/auth-status", timeout=2)
+                response = requests.get(f"http://127.0.0.1:{port}/auth-status", timeout=3)
                 if response.status_code == 200:
                     data = response.json()
                     logger.info(f"[LightragServer] Server is ready on port {port} (took {elapsed:.1f}s, {attempt} attempts)")
@@ -883,10 +897,53 @@ class LightragServer:
                 logger.debug(f"[LightragServer] Health check attempt {attempt} timeout ({elapsed:.1f}s elapsed)")
             except Exception as e:
                 logger.debug(f"[LightragServer] Health check attempt {attempt} error: {type(e).__name__} ({elapsed:.1f}s elapsed)")
-            time.sleep(0.5)
+            # Progressive interval: 0.5s for first 30s, 1s for 30-60s, 2s after 60s
+            if elapsed < 30:
+                time.sleep(0.5)
+            elif elapsed < 60:
+                time.sleep(1.0)
+            else:
+                time.sleep(2.0)
         
         logger.error(f"[LightragServer] Timeout waiting for server ready on port {port} after {timeout}s ({attempt} attempts)")
         return False
+
+    def _start_background_health_monitor(self, port, check_interval=5.0, max_duration=300.0):
+        """Start a background thread that continues health-checking the server.
+        
+        This is used when the initial wait_for_server_ready times out but the process
+        is still alive. The server may just be slow to initialize (e.g. first-time
+        FAISS index build, NetworkX graph loading).
+        
+        Args:
+            port: Server port to check
+            check_interval: Seconds between health checks
+            max_duration: Maximum time to keep monitoring (seconds)
+        """
+        def _monitor():
+            import requests
+            start = time.time()
+            logger.info(f"[LightragServer] Background health monitor started (port={port}, max={max_duration}s)")
+            while time.time() - start < max_duration:
+                try:
+                    if self.proc and self.proc.poll() is not None:
+                        logger.error("[LightragServer] Background monitor: server process has exited")
+                        return
+                    response = requests.get(f"http://127.0.0.1:{port}/auth-status", timeout=3)
+                    if response.status_code == 200:
+                        elapsed = time.time() - start
+                        logger.info(
+                            f"[LightragServer] Background monitor: server is NOW ready on port {port} "
+                            f"(took {elapsed:.1f}s after initial timeout)"
+                        )
+                        return
+                except Exception:
+                    pass
+                time.sleep(check_interval)
+            logger.warning(f"[LightragServer] Background monitor: gave up after {max_duration}s, server may still start later")
+
+        t = threading.Thread(target=_monitor, name="LightragBgHealthMonitor", daemon=True)
+        t.start()
 
     def start(self, wait_ready=False):
         if self.is_running(): return True

@@ -572,6 +572,17 @@ class BrowserManager:
                     final_cdp_url = f"http://127.0.0.1:{cdp_port}"
                     final_cdp_port = cdp_port
                 
+                # Auto-start Chrome if not running
+                from gui.unified_browser_manager import _is_port_in_use, _start_chrome_with_cdp
+                if not _is_port_in_use(final_cdp_port):
+                    logger.info(f"[BrowserManager] Chrome not detected on port {final_cdp_port}, auto-starting...")
+                    headless = False  # Default to non-headless for better debugging
+                    if not _start_chrome_with_cdp(final_cdp_port, headless):
+                        logger.warning(f"[BrowserManager] Failed to auto-start Chrome on port {final_cdp_port}")
+                        logger.warning(f"[BrowserManager] Please manually start Chrome with: chrome --remote-debugging-port={final_cdp_port}")
+                    else:
+                        logger.info(f"[BrowserManager] ✅ Chrome auto-started successfully on port {final_cdp_port}")
+                
                 # For webdriver, we need just the address without protocol
                 selenium_address = f"127.0.0.1:{cdp_port}"
                 
