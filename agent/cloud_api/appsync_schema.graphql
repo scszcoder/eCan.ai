@@ -600,6 +600,9 @@ type WanChatMessage @aws_api_key @aws_cognito_user_pools {
 	chatID: String
 	sender: String
 	receiver: String
+	type: String
+	contents: String
+	parameters: String
 	msg: String
 	options: AWSJSON
 	background: String

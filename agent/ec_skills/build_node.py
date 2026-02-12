@@ -644,7 +644,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         hard_timeout_config = str(hard_timeout_val).lower() in ('true', '1', 'yes', 'on') if hard_timeout_val else False
     except Exception:
         pass
-    # Prefer explicit provider; infer from apiHost if absent
+    # Get explicit provider from frontend (guaranteed by form-meta.tsx)
     raw_provider = None
     try:
         raw_provider = ((inputs.get("modelProvider") or {}).get("content")
@@ -705,28 +705,13 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         user_prompt_template = get_prompt_content(user_prompt_id, resolved_user_prompt)
     else:
         user_prompt_template = resolved_user_prompt
-    # Infer provider when not explicitly set
-    def _infer_provider(host: str, model: str) -> str:
-        try:
-            h = (host or "").lower()
-            m = (model or "").lower()
-            if "anthropic" in h or m.startswith("claude"):
-                return "anthropic"
-            if "google" in h or "generativeai" in h or m.startswith("gemini"):
-                return "google"
-            return "openai"
-        except Exception:
-            return "openai"
-
-    model_provider = raw_provider or _infer_provider(api_host, model_name)
-    llm_provider = (model_provider or "openai").lower()
-
     # Normalize provider names dynamically from llm_manager
     # This automatically syncs with gui/config/llm_providers.json
     def _get_provider_mapping() -> dict:
         """
         Dynamically build provider mapping from llm_manager.
-        This ensures consistency with llm_providers.json and reduces maintenance.
+        Maps all known name variants (name, display_name, class_name, provider_id)
+        to the canonical provider_id. No hardcoded provider list needed.
         
         Returns:
             Dictionary mapping various provider name formats to canonical provider identifiers
@@ -774,17 +759,16 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
             return {}
     
     # Get dynamic provider mapping from llm_manager
-    # This automatically includes all providers defined in llm_providers.json:
-    # - provider_id (e.g., "deepseek")
-    # - name (e.g., "DeepSeek")
-    # - display_name
-    # - class_name (e.g., "ChatDeepSeek")
+    # Resolves any name variant (name/display_name/class_name/provider_id) → canonical provider_id
     provider_mapping = _get_provider_mapping()
+
+    # Resolve raw_provider (e.g. "DeepSeek", "Qwen (DashScope)") to canonical provider_id (e.g. "deepseek", "dashscope")
+    # Frontend is responsible for always passing correct modelProvider via form-meta.tsx
+    model_provider = provider_mapping.get((raw_provider or "").lower(), raw_provider or "openai")
+    llm_provider = (model_provider or "openai").lower()
     
     logger.info(f"llm config: system_prompt_template='{system_prompt_template}' user_prompt_template='{user_prompt_template}' ")
     logger.info(f"llm config: model_name={model_name} api_host={api_host} api_key={api_key} model_provider={model_provider} llm_provider={llm_provider}")
-
-    llm_provider = provider_mapping.get(llm_provider, llm_provider)
 
     # This is the actual function that will be executed as the node in the graph
     def llm_node_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
@@ -3262,6 +3246,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             from browser_use.browser.profile import BrowserProfile
             from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller
             # from browser_use.browser.context import BUBrowserContext as BUBrowserContext
+            
+            # Patch navigation timeout to reduce "Page readiness timeout" warnings
+            # browser_use hardcodes 4s cross-domain / 2s same-domain, which is too short for many sites
+            from agent.ec_skills.browser_use_extension.session_patch import patch_navigation_timeout
+            patch_navigation_timeout(cross_domain_timeout=10.0, same_domain_timeout=5.0)
             log_msg = f"🤖 Executing node Browser Automation node: {node_name}"
             logger.debug(log_msg)
             send_skill_editor_log("log", log_msg)
@@ -3491,9 +3480,22 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             from config.app_settings import app_settings
             disable_extensions = app_settings.is_dev_mode
             
-            # Create browser profile with extensions control
+            # Create browser profile with extensions control and persistent user_data_dir
             # Note: BrowserProfile uses enable_default_extensions (not disable_extensions)
-            browser_profile = BrowserProfile(enable_default_extensions=not disable_extensions)
+            # Auto-assign persistent user_data_dir so login state survives restarts
+            profile_settings = _get_browser_profile_settings(node_profile)
+            _bp_user_data_dir = profile_settings.get('user_data_dir', '') if profile_settings else ''
+            if not _bp_user_data_dir:
+                from utils.user_path_helper import ensure_user_data_dir
+                import re as _re
+                _bp_id = profile_settings.get('id') or profile_settings.get('name') or node_profile or 'default'
+                _bp_safe_id = _re.sub(r'[^\w\-]', '_', str(_bp_id))
+                _bp_user_data_dir = ensure_user_data_dir(subdir=os.path.join('browser_profiles', _bp_safe_id))
+                logger.info(f"[BrowserAutomation] Auto-assigned user_data_dir: {_bp_user_data_dir}")
+            browser_profile = BrowserProfile(
+                enable_default_extensions=not disable_extensions,
+                user_data_dir=_bp_user_data_dir,
+            )
             logger.info(f"[BrowserAutomation] Extensions {'disabled (dev mode)' if disable_extensions else 'enabled (production mode)'}")
            
             if browser_profile:

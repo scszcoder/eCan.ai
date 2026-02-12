@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Form, Input, Button, Card, Select, Typography, App, Modal, Spin } from 'antd';
 import { UserOutlined, LockOutlined, LoadingOutlined, InfoCircleOutlined } from '@ant-design/icons';
@@ -56,6 +56,9 @@ const Login: React.FC = () => {
 	const [googleLoginProgress, setGoogleLoginProgress] = useState<'idle' | 'opening' | 'authenticating' | 'success' | 'redirecting'>('idle');
 	// ErrorStatus
 	const [lastError, setLastError] = useState<string | null>(null);
+	// Debounce: prevent rapid repeated login attempts (min 3s interval)
+	const lastLoginAttemptRef = useRef<number>(0);
+	const LOGIN_DEBOUNCE_MS = 3000;
 
 	// Poll backend initialization progress during login
 	const { progress: initProgress } = useInitializationProgress(loading || showInitProgress);
@@ -68,8 +71,9 @@ const Login: React.FC = () => {
 
 		setHasNavigated(true);
 		console.log('[Login] ui_ready && loginSuccessful, navigating to main page');
-		setLoading(false);
-		setShowInitProgress(false);
+		// Navigate first — do NOT reset loading/showInitProgress before navigation,
+		// otherwise the login form flashes briefly before the route change takes effect.
+		// The component will unmount after navigation, cleaning up state automatically.
 		navigate('/agents');
 	}, [initProgress, loginSuccessful, hasNavigated, navigate]);
 
@@ -95,10 +99,10 @@ const Login: React.FC = () => {
 					timeoutPromise
 				]) as APIResponse<any>;
 
-				console.log('[Login] Last login info', response.data);
+				console.log('[Login] Last login info received');
 				if (response?.data?.last_login) {
 					const { username, password, machine_role, language } = response.data.last_login;
-					console.log('last_login', response.data.last_login);
+					console.log('[Login] last_login user:', username, 'role:', machine_role);
 
 					// Apply saved language preference if available
 					if (language && i18n.language !== language) {
@@ -373,6 +377,14 @@ const Login: React.FC = () => {
 
 	const handleSubmit = async (values: LoginFormValues) => {
 		if (loading || loginSuccessful) return; // Prevent double submission
+
+		// Time-based debounce: reject if last attempt was less than 3s ago
+		const now = Date.now();
+		if (now - lastLoginAttemptRef.current < LOGIN_DEBOUNCE_MS) {
+			console.log('[Login] Debounce: too soon since last attempt, ignoring');
+			return;
+		}
+		lastLoginAttemptRef.current = now;
 
 		if (isWeb) {
 			setLoading(true);

@@ -1211,16 +1211,19 @@ export class IPCAPI {
     );
 
         // Transform getAllMine response to initialization progress format
-        // If we got data from getAllMine, initialization is complete
+        // Respect the backend's actual progress values — do NOT override ui_ready/fully_ready.
+        // The backend returns accurate progress (e.g., ui_ready: false when MainWindow isn't created).
+        // Only set defaults for fields that are missing from the response.
         if (response.success && response.data) {
+            const data = response.data;
             const initProgress = {
-                ...response.data,
-                ui_ready: true,
-                critical_services_ready: true,
-                async_init_complete: true,
-                fully_ready: true,  // Data loaded = fully ready
-                sync_init_complete: true,
-                message: 'Initialization complete'
+                ui_ready: data.ui_ready ?? false,
+                critical_services_ready: data.critical_services_ready ?? false,
+                async_init_complete: data.async_init_complete ?? false,
+                fully_ready: data.fully_ready ?? false,
+                sync_init_complete: data.sync_init_complete ?? false,
+                message: data.message ?? 'Checking initialization...',
+                ...data,  // Preserve any extra fields from backend
             };
             return {
                 success: true,

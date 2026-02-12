@@ -2230,8 +2230,15 @@ def safe_parse_response(jresp, operation_name, data_key):
                 return response_data
         else:
             # No data and errors - this is a failure
-            logger.error(f"❌ GraphQL Error: {error_message}")
-            logger.error(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
+            # Detect "Cannot return null for non-nullable type" as a known backend schema issue
+            is_schema_null_error = "Cannot return null for non-nullable type" in error_message
+            if is_schema_null_error:
+                logger.error(f"❌ GraphQL Schema Error: {error_message}")
+                logger.error(f"📋 This is a known backend issue: AppSync resolver returned null for a non-nullable field.")
+                logger.error(f"📋 Action required: Check AppSync Lambda resolver for '{operation_name}' - ensure it returns all required fields.")
+            else:
+                logger.error(f"❌ GraphQL Error: {error_message}")
+                logger.error(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
             raise Exception(f"{operation_name} failed: {error_message}")
     else:
         if response_data is not None:
@@ -2252,6 +2259,7 @@ def safe_parse_response(jresp, operation_name, data_key):
             logger.debug(f"   3. Data validation failed on server")
             logger.debug(f"   4. Permission denied (check IAM/Cognito)")
             logger.debug(f"   5. Backend timeout or internal error")
+            return None
 
 # =================================================================================================
 # interface appsync, directly use HTTP request.
