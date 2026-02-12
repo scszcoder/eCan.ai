@@ -228,8 +228,18 @@ def _create_browser_session_for_cdp(cdp_url: str, session_id_prefix: str = "br",
     }
     
     # Apply profile settings if available
+    # Auto-assign a persistent user_data_dir so login state (cookies, sessions) survives restarts
     if profile_settings.get('user_data_dir'):
         profile_kwargs['user_data_dir'] = profile_settings['user_data_dir']
+    else:
+        # Use current user's data directory for browser profiles
+        from utils.user_path_helper import ensure_user_data_dir
+        _profile_id = profile_settings.get('id') or profile_settings.get('name') or profile_name or 'default'
+        import re as _re
+        _safe_id = _re.sub(r'[^\w\-]', '_', str(_profile_id))
+        _auto_dir = ensure_user_data_dir(subdir=os.path.join('browser_profiles', _safe_id))
+        profile_kwargs['user_data_dir'] = _auto_dir
+        logger.info(f"[BrowserManager] Auto-assigned user_data_dir for profile '{_profile_id}': {_auto_dir}")
     if profile_settings.get('user_agent'):
         profile_kwargs['user_agent'] = profile_settings['user_agent']
     if profile_settings.get('viewport_width') and profile_settings.get('viewport_height'):

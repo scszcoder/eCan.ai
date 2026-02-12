@@ -16,8 +16,6 @@ All structural validation is handled by browser-use's Pydantic validation.
 """
 
 import json
-import logging
-import re
 from typing import Any, Dict, List, Optional
 
 from utils.logger_helper import logger_helper as logger
@@ -31,11 +29,14 @@ class DeepSeekOutputAdapter:
         adapter = DeepSeekOutputAdapter()
     """
     
-    # Valid browser-use action types
+    # Valid browser-use action types (current version)
     VALID_ACTIONS = {
-        'go_to_url', 'click', 'input_text', 'scroll', 'extract',
-        'done', 'search_google', 'open_tab', 'go_back', 'switch_tab',
-        'close_tab', 'save_file', 'get_dropdown_options', 'select_dropdown_option'
+        'navigate', 'click', 'input', 'scroll', 'extract',
+        'done', 'search', 'go_back', 'wait', 'switch', 'close',
+        'send_keys', 'find_text', 'upload_file', 'dropdown_options', 'select_dropdown',
+        # Legacy names (still accepted for filtering, will be remapped elsewhere)
+        'go_to_url', 'input_text', 'search_google', 'open_tab', 'switch_tab',
+        'close_tab', 'click_element', 'extract_content', 'scroll_down', 'scroll_up',
     }
     
     # Invalid actions that DeepSeek sometimes generates
