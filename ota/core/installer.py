@@ -180,11 +180,12 @@ class InstallationManager:
             logger.debug(f"Failed to enable Inno Setup logging (safe to ignore): {e}")
 
     def _launch_windows_installer_delayed(self, cmd: list[str], delay_seconds: int = 10) -> int:
-        """Launch installer through a detached delayed script.
+        """Launch installer through a detached BAT script.
 
-        Rationale: Inno Setup may start replacing files immediately. If our app still holds
-        locks (or is about to exit), the installer hits MoveFile error 183 and rolls back.
-        Starting the installer after a delay greatly reduces file-in-use failures.
+        Uses a .bat file launched via ``cmd /c`` so the child process truly
+        survives the parent calling ``os._exit(0)``.  Previous approach used
+        ``powershell`` directly with ``DETACHED_PROCESS``, but PowerShell
+        children were still killed when the Python process exited.
 
         Returns:
             PID of the launched script process.
@@ -193,21 +194,18 @@ class InstallationManager:
             raise RuntimeError("Windows-only helper")
 
         exe_path = cmd[0]
-        args_list = cmd[1:]
-        
-        # Convert arguments to PowerShell array format: 'arg1','arg2','arg3'
-        # This is critical - PowerShell -ArgumentList needs comma-separated quoted strings
-        if args_list:
-            args_ps_array = ','.join(f"'{arg}'" for arg in args_list)
-            ps_cmd = (
-                f"Start-Sleep -Seconds {int(delay_seconds)}; "
-                f"Start-Process -FilePath '{exe_path}' -ArgumentList {args_ps_array}"
-            )
-        else:
-            ps_cmd = (
-                f"Start-Sleep -Seconds {int(delay_seconds)}; "
-                f"Start-Process -FilePath '{exe_path}'"
-            )
+        args_str = ' '.join(cmd[1:])
+
+        # Write a small .bat launcher next to the downloaded installer
+        bat_path = os.path.join(tempfile.gettempdir(), "ecan_ota_launcher.bat")
+        bat_content = (
+            "@echo off\r\n"
+            f"timeout /t {int(delay_seconds)} /nobreak >nul\r\n"
+            f'start "" "{exe_path}" {args_str}\r\n'
+        )
+
+        with open(bat_path, 'w', encoding='utf-8') as f:
+            f.write(bat_content)
 
         creation_flags = (
             subprocess.DETACHED_PROCESS |
@@ -215,23 +213,19 @@ class InstallationManager:
             subprocess.CREATE_NO_WINDOW
         )
 
-        logger.info(f"PowerShell command to execute: {ps_cmd}")
-        logger.debug(f"Full PowerShell args: powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command \"{ps_cmd}\"")
-        
+        logger.info(f"BAT launcher written to: {bat_path}")
+        logger.info(f"Installer command: {exe_path} {args_str}")
+        logger.info(f"Delay before launch: {delay_seconds}s")
+
         p = subprocess.Popen(
-            [
-                "powershell",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-WindowStyle",
-                "Hidden",
-                "-Command",
-                ps_cmd,
-            ],
+            ['cmd', '/c', bat_path],
             creationflags=creation_flags,
+            close_fds=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
-        logger.info(f"PowerShell script launched successfully (PID: {p.pid})")
+        logger.info(f"BAT launcher started successfully (PID: {p.pid})")
         return p.pid
     
     def _create_backup(self) -> bool:
