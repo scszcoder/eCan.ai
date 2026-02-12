@@ -120,7 +120,14 @@ class CognitoService:
 
     def login(self, username, password):
         import time
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
         start_time = time.time()
+
+        # Overall timeout to prevent indefinite waiting (e.g., DNS/SSL delays beyond boto3's control)
+        # boto3 retries internally (max_attempts * (connect_timeout + read_timeout) ≈ 105s worst case)
+        # We add a hard ceiling of 60s to fail fast for users in high-latency networks
+        auth_flow_config = perf_config.get_auth_flow_config()
+        overall_timeout = auth_flow_config.get('total_timeout', 30)
 
         try:
             if perf_config.should_log_timing():
@@ -128,14 +135,28 @@ class CognitoService:
 
             client = self._get_cognito_client()
 
-            response = client.initiate_auth(
-                ClientId=AuthConfig.COGNITO.CLIENT_ID,
-                AuthFlow='USER_PASSWORD_AUTH',
-                AuthParameters={
-                    'USERNAME': username,
-                    'PASSWORD': password
-                }
-            )
+            def _do_auth():
+                return client.initiate_auth(
+                    ClientId=AuthConfig.COGNITO.CLIENT_ID,
+                    AuthFlow='USER_PASSWORD_AUTH',
+                    AuthParameters={
+                        'USERNAME': username,
+                        'PASSWORD': password
+                    }
+                )
+
+            # Execute with overall timeout to prevent 185s+ waits
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_do_auth)
+                try:
+                    response = future.result(timeout=overall_timeout)
+                except FuturesTimeoutError:
+                    elapsed_time = time.time() - start_time
+                    logger.error(f"Cognito authentication overall timeout: {username}, "
+                               f"timeout={overall_timeout}s, elapsed: {elapsed_time:.2f}s")
+                    # Reset cognito_client so next attempt creates a fresh connection
+                    self.cognito_client = None
+                    return {'success': False, 'error': f'Authentication timeout after {overall_timeout}s. Please check your network connection.'}
 
             elapsed_time = time.time() - start_time
 

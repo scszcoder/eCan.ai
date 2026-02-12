@@ -293,6 +293,13 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                                   const providerConfig = getProviderConfig(currentProvider);
                                   if (!providerConfig) return;
 
+                                  // Persist resolved provider back to document model if missing
+                                  // This ensures modelProvider is saved even for legacy nodes
+                                  if (!providerField.value && currentProvider) {
+                                    setTimeout(() => providerField.onChange(currentProvider), 0);
+                                    console.log(`[LLM Node] Persisted missing modelProvider: ${currentProvider}`);
+                                  }
+
                                   // Save current values to temp storage (for future use)
 
                                   // Get or create temporary settings for current provider
