@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Form, Input, Button, Card, Select, Typography, App, Modal, Spin } from 'antd';
-import { UserOutlined, LockOutlined, LoadingOutlined } from '@ant-design/icons';
+import { UserOutlined, LockOutlined, LoadingOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { ipcClient } from '../../services/ipc/ipcClient';
 import { APIResponse, IPCAPI } from '../../services/ipc/api';
@@ -667,7 +667,14 @@ const Login: React.FC = () => {
 								<>
 									<Form.Item
 										name="password"
-										rules={[{ required: true, message: t('login.passwordRequired') }]}
+										rules={[
+											{ required: true, message: t('login.passwordRequired') },
+											{ min: 8, message: t('login.passwordMinLength') },
+											{ pattern: /[A-Z]/, message: t('login.passwordNeedUppercase') },
+											{ pattern: /[a-z]/, message: t('login.passwordNeedLowercase') },
+											{ pattern: /[0-9]/, message: t('login.passwordNeedNumber') },
+											{ pattern: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~]/, message: t('login.passwordNeedSpecialChar') },
+										]}
 									>
 										<Input.Password
 											prefix={<LockOutlined />}
@@ -676,6 +683,12 @@ const Login: React.FC = () => {
 											className="form-input"
 										/>
 									</Form.Item>
+									<div style={{ marginTop: -12, marginBottom: 16, padding: '8px 12px', background: 'rgba(255, 255, 255, 0.06)', borderRadius: 6, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+										<Text style={{ fontSize: 12, color: 'rgba(255, 255, 255, 0.65)', lineHeight: '18px' }}>
+											<InfoCircleOutlined style={{ marginRight: 6, color: 'rgba(100, 160, 255, 0.8)' }} />
+											{t('login.passwordFormatHint')}
+										</Text>
+									</div>
 									<Form.Item
 										name="confirmPassword"
 										rules={[
@@ -747,7 +760,14 @@ const Login: React.FC = () => {
 									</Form.Item>
 									<Form.Item
 										name="newPassword"
-										rules={[{ required: true, message: t('login.newPasswordRequired') }]}
+										rules={[
+											{ required: true, message: t('login.newPasswordRequired') },
+											{ min: 8, message: t('login.passwordMinLength') },
+											{ pattern: /[A-Z]/, message: t('login.passwordNeedUppercase') },
+											{ pattern: /[a-z]/, message: t('login.passwordNeedLowercase') },
+											{ pattern: /[0-9]/, message: t('login.passwordNeedNumber') },
+											{ pattern: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?`~]/, message: t('login.passwordNeedSpecialChar') },
+										]}
 									>
 										<Input.Password
 											prefix={<LockOutlined />}
@@ -756,6 +776,12 @@ const Login: React.FC = () => {
 											className="form-input"
 										/>
 									</Form.Item>
+									<div style={{ marginTop: -12, marginBottom: 16, padding: '8px 12px', background: 'rgba(255, 255, 255, 0.06)', borderRadius: 6, border: '1px solid rgba(255, 255, 255, 0.08)' }}>
+										<Text style={{ fontSize: 12, color: 'rgba(255, 255, 255, 0.65)', lineHeight: '18px' }}>
+											<InfoCircleOutlined style={{ marginRight: 6, color: 'rgba(100, 160, 255, 0.8)' }} />
+											{t('login.passwordFormatHint')}
+										</Text>
+									</div>
 									<Form.Item>
 										<Button
 											type="primary"
