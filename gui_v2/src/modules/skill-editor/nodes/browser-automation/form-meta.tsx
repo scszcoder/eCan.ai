@@ -384,6 +384,15 @@ export const FormRender = (_props: FormRenderProps<any>) => {
             {({ field: providerField }) => {
               const currentProvider = (providerField.value as string) || providers[0] || 'OpenAI';
               const providerOptions = providers.map(p => ({ label: p, value: p }));
+
+              // Persist resolved provider back to document model if missing
+              useEffect(() => {
+                if (!providerField.value && currentProvider) {
+                  setTimeout(() => providerField.onChange(currentProvider), 0);
+                  console.log(`[Browser Node] Persisted missing modelProvider: ${currentProvider}`);
+                }
+              }, [currentProvider, providerField.value]);
+
               return (
                 <Select
                   value={currentProvider}
