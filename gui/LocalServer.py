@@ -387,7 +387,24 @@ class RequestHandlers:
             
             # 使用 IPCHandlerRegistry 统一处理
             from gui.ipc.registry import IPCHandlerRegistry
-            result_data = IPCHandlerRegistry.handle_graphql_request(method, request_params)
+            
+            # Only run known blocking handlers in a thread executor to avoid freezing the event loop.
+            # The login handler calls Cognito which can block for 3-185s.
+            # Other handlers must run synchronously to preserve request ordering and timing
+            # (e.g., get_initialization_progress must not respond while login is still in progress).
+            _BLOCKING_METHODS = {'login', 'google_login'}
+            
+            if method in _BLOCKING_METHODS:
+                import asyncio
+                loop = asyncio.get_event_loop()
+                result_data = await loop.run_in_executor(
+                    None,
+                    IPCHandlerRegistry.handle_graphql_request,
+                    method,
+                    request_params
+                )
+            else:
+                result_data = IPCHandlerRegistry.handle_graphql_request(method, request_params)
             
             # 使用 operation_name 作为响应的字段名（如果没有则使用 method）
             response_field_name = operation_name or method
@@ -638,27 +655,31 @@ class MCPHandler:
 
     @staticmethod
     async def cleanup():
-        """Clean up MCP session manager resources."""
-        try:
-            if MCPHandler._session_manager_context:
-                logger.info("🧹 [MCP] Cleaning up session manager context...")
-                # Avoid __aexit__ in a different task - just reset the reference
-                # The context manager will be cleaned up when the original task exits
-                MCPHandler._session_manager_context = None
-                logger.info("✅ [MCP] Session manager context cleaned up")
-        except Exception as e:
-            logger.debug(f"⚠️  [MCP] Error cleaning up session manager context: {e}")
+        """Clean up MCP session manager resources.
         
-        try:
-            if MCPHandler._session_manager_instance:
-                logger.info("🧹 [MCP] Cleaning up session manager instance...")
-                # Reset the instance
-                MCPHandler._session_manager_instance = None
-                logger.info("✅ [MCP] Session manager instance cleaned up")
-        except Exception as e:
-            logger.warning(f"⚠️  [MCP] Error cleaning up session manager instance: {e}")
+        The StreamableHTTPSessionManager uses an async generator with a TaskGroup.
+        We cannot call __aexit__ from a different task (causes RuntimeError).
+        Instead, we try to gracefully close the async generator via aclose(),
+        suppressing the expected TaskGroup error during shutdown.
+        """
+        ctx = MCPHandler._session_manager_context
+        if ctx:
+            logger.info("🧹 [MCP] Cleaning up session manager context...")
+            MCPHandler._session_manager_context = None
+            try:
+                # Try to gracefully close the async generator
+                await ctx.aclose()
+                logger.info("✅ [MCP] Session manager context closed gracefully")
+            except (RuntimeError, BaseExceptionGroup, GeneratorExit) as e:
+                # Expected during shutdown: "Attempted to exit cancel scope in a different task"
+                logger.debug(f"[MCP] Expected shutdown error (harmless): {type(e).__name__}")
+            except Exception as e:
+                logger.debug(f"[MCP] Error closing session manager context: {e}")
         
-        # Reset initialization flag
+        if MCPHandler._session_manager_instance:
+            logger.info("🧹 [MCP] Cleaning up session manager instance...")
+            MCPHandler._session_manager_instance = None
+        
         MCPHandler._session_manager_initialized = False
         logger.info("✅ [MCP] Handler cleanup completed")
 
@@ -1042,6 +1063,22 @@ class ServerManager:
                     loop = asyncio.get_running_loop()
                     app_ws_manager.set_event_loop(loop)
                     logger.info(f"[AppWS] Event loop captured for WebSocket broadcasting")
+                    
+                    # Suppress MCP StreamableHTTPSessionManager TaskGroup errors during shutdown.
+                    # These occur because the async generator's TaskGroup is torn down in a different
+                    # task context during event loop cleanup — harmless but noisy.
+                    original_handler = loop.get_exception_handler()
+                    def _shutdown_exception_handler(loop, context):
+                        exc = context.get("exception")
+                        msg = context.get("message", "")
+                        if exc and ("cancel scope" in str(exc) or "StreamableHTTP" in msg or "asyncgen" in msg):
+                            logger.debug(f"[MCP] Suppressed expected shutdown error: {type(exc).__name__}")
+                            return
+                        if original_handler:
+                            original_handler(loop, context)
+                        else:
+                            loop.default_exception_handler(context)
+                    loop.set_exception_handler(_shutdown_exception_handler)
                     
                     # 标记服务器就绪
                     self.server_ready.set()
