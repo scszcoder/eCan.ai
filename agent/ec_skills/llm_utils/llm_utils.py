@@ -2071,7 +2071,8 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                 # Get supports_vision from config (default True if not found)
                 supports_vision = config.get('supports_vision', True)
                 
-                log_msg = f"[create_browser_use_llm] provider_type:{provider_type}, model_name:{model_name}, api_key:{api_key}, base_url:{base_url}, class_name:{class_name}, supports_vision:{supports_vision}"
+                masked_key = (api_key[:8] + '...' + api_key[-4:]) if api_key and len(api_key) > 12 else '***'
+                log_msg = f"[create_browser_use_llm] provider_type:{provider_type}, model_name:{model_name}, api_key:{masked_key}, base_url:{base_url}, class_name:{class_name}, supports_vision:{supports_vision}"
                 logger.debug(log_msg)
                 send_skill_editor_log("log", log_msg)
 
