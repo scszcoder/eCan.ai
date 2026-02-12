@@ -3246,6 +3246,11 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             from browser_use.browser.profile import BrowserProfile
             from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller
             # from browser_use.browser.context import BUBrowserContext as BUBrowserContext
+            
+            # Patch navigation timeout to reduce "Page readiness timeout" warnings
+            # browser_use hardcodes 4s cross-domain / 2s same-domain, which is too short for many sites
+            from agent.ec_skills.browser_use_extension.session_patch import patch_navigation_timeout
+            patch_navigation_timeout(cross_domain_timeout=10.0, same_domain_timeout=5.0)
             log_msg = f"🤖 Executing node Browser Automation node: {node_name}"
             logger.debug(log_msg)
             send_skill_editor_log("log", log_msg)
@@ -3475,9 +3480,22 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             from config.app_settings import app_settings
             disable_extensions = app_settings.is_dev_mode
             
-            # Create browser profile with extensions control
+            # Create browser profile with extensions control and persistent user_data_dir
             # Note: BrowserProfile uses enable_default_extensions (not disable_extensions)
-            browser_profile = BrowserProfile(enable_default_extensions=not disable_extensions)
+            # Auto-assign persistent user_data_dir so login state survives restarts
+            profile_settings = _get_browser_profile_settings(node_profile)
+            _bp_user_data_dir = profile_settings.get('user_data_dir', '') if profile_settings else ''
+            if not _bp_user_data_dir:
+                from utils.user_path_helper import ensure_user_data_dir
+                import re as _re
+                _bp_id = profile_settings.get('id') or profile_settings.get('name') or node_profile or 'default'
+                _bp_safe_id = _re.sub(r'[^\w\-]', '_', str(_bp_id))
+                _bp_user_data_dir = ensure_user_data_dir(subdir=os.path.join('browser_profiles', _bp_safe_id))
+                logger.info(f"[BrowserAutomation] Auto-assigned user_data_dir: {_bp_user_data_dir}")
+            browser_profile = BrowserProfile(
+                enable_default_extensions=not disable_extensions,
+                user_data_dir=_bp_user_data_dir,
+            )
             logger.info(f"[BrowserAutomation] Extensions {'disabled (dev mode)' if disable_extensions else 'enabled (production mode)'}")
            
             if browser_profile:

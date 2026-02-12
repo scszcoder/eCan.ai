@@ -58,51 +58,135 @@ def _convert_flat_action(data: dict) -> dict | None:
         action_name = data['action'].lower().strip()
         params = {k: v for k, v in data.items() if k not in ('action', 'thinking', 'evaluation_previous_goal', 'memory', 'next_goal')}
         
-        # Map common simplified action names to browser-use action names
+        # Map common simplified action names to browser-use registered action names
+        # Current browser_use action names (from AgentOutput validation):
+        #   navigate, search, go_back, wait, click, input, upload_file,
+        #   switch, close, extract, scroll, send_keys, find_text,
+        #   dropdown_options, select_dropdown, done
         action_map = {
-            'navigate': 'go_to_url',
-            'goto': 'go_to_url',
-            'go_to': 'go_to_url',
-            'open': 'go_to_url',
-            'go_to_url': 'go_to_url',
-            'click': 'click_element',
-            'click_element': 'click_element',
-            'input': 'input_text',
-            'input_text': 'input_text',
-            'type': 'input_text',
-            'scroll': 'scroll_down',
-            'scroll_down': 'scroll_down',
-            'scroll_up': 'scroll_up',
+            'navigate': 'navigate',
+            'goto': 'navigate',
+            'go_to': 'navigate',
+            'open': 'navigate',
+            'open_url': 'navigate',
+            'go_to_url': 'navigate',
+            'click': 'click',
+            'click_element': 'click',
+            'input': 'input',
+            'input_text': 'input',
+            'type': 'input',
+            'scroll': 'scroll',
+            'scroll_down': 'scroll',
+            'scroll_up': 'scroll',
             'done': 'done',
             'finish': 'done',
             'complete': 'done',
             'wait': 'wait',
-            'extract': 'extract_content',
-            'extract_content': 'extract_content',
-            'screenshot': 'screenshot',
+            'extract': 'extract',
+            'extract_content': 'extract',
+            'screenshot': 'extract',
+            'search': 'search',
+            'search_google': 'search',
+            'go_back': 'go_back',
+            'back': 'go_back',
+            'send_keys': 'send_keys',
+            'find_text': 'find_text',
+            'scroll_to': 'find_text',
+            'scroll_to_text': 'find_text',
+            'switch': 'switch',
+            'switch_tab': 'switch',
+            'close': 'close',
+            'close_tab': 'close',
+            'upload_file': 'upload_file',
+            'select_dropdown': 'select_dropdown',
+            'dropdown_options': 'dropdown_options',
         }
         
         bu_action_name = action_map.get(action_name, action_name)
         
+        # Valid browser_use action names
+        valid_bu_actions = {
+            'navigate', 'click', 'input', 'scroll', 'extract', 'done', 'search',
+            'go_back', 'wait', 'switch', 'close', 'send_keys', 'find_text',
+            'upload_file', 'dropdown_options', 'select_dropdown',
+        }
+        
+        # If action name is not recognized, convert to extract (let agent observe the page)
+        if bu_action_name not in valid_bu_actions:
+            thought = params.get('thought', params.get('reason', params.get('target', action_name)))
+            logger.warning(f"[QwenAdapter] ⚠️ Unknown action '{action_name}', converting to extract action")
+            action_obj = {'extract': {'query': str(thought)[:500]}}
+            bu_action_name = 'extract'
         # Build action params based on action type
-        if bu_action_name == 'go_to_url':
+        elif bu_action_name == 'navigate':
             url = params.get('url', params.get('href', params.get('link', '')))
             action_obj = {bu_action_name: {'url': url}}
-        elif bu_action_name in ('click_element',):
-            index = params.get('index', params.get('element', params.get('xpath', 0)))
-            action_obj = {bu_action_name: {'index': int(index) if str(index).isdigit() else 0}}
-        elif bu_action_name == 'input_text':
-            index = params.get('index', params.get('element', 0))
+        elif bu_action_name == 'click':
+            raw_index = params.get('index', params.get('element', params.get('xpath')))
+            # Check if raw_index is actually a numeric index
+            index_val = None
+            element_as_text = ''
+            if raw_index is not None:
+                if str(raw_index).isdigit() and int(raw_index) >= 1:
+                    index_val = int(raw_index)
+                else:
+                    # Non-numeric element value (e.g. "百度一下") — treat as text target
+                    element_as_text = str(raw_index)
+            target = params.get('target', params.get('label', params.get('text', ''))) or element_as_text
+            if index_val is not None:
+                action_obj = {bu_action_name: {'index': index_val}}
+            elif target:
+                # LLM gave text target but no index — use find_text to scroll to it first
+                logger.info(f"[QwenAdapter] 🔄 click has target '{target}' but no index, converting to find_text")
+                action_obj = {'find_text': {'text': str(target)}}
+                bu_action_name = 'find_text'
+            else:
+                # No index and no target — use extract to observe the page
+                logger.info(f"[QwenAdapter] 🔄 click has no index or target, converting to extract")
+                action_obj = {'extract': {'query': 'Find clickable elements on the page'}}
+                bu_action_name = 'extract'
+        elif bu_action_name == 'input':
+            raw_index = params.get('index', params.get('element'))
             text = params.get('text', params.get('value', ''))
-            action_obj = {bu_action_name: {'index': int(index) if str(index).isdigit() else 0, 'text': str(text)}}
+            # Check if raw_index is actually a numeric index
+            index_val = None
+            element_as_text = ''
+            if raw_index is not None:
+                if str(raw_index).isdigit() and int(raw_index) >= 1:
+                    index_val = int(raw_index)
+                else:
+                    element_as_text = str(raw_index)
+            target = params.get('target', params.get('label', '')) or element_as_text
+            if index_val is not None:
+                action_obj = {bu_action_name: {'index': index_val, 'text': str(text)}}
+            elif target:
+                # LLM gave text target but no index — use find_text to scroll to it first
+                logger.info(f"[QwenAdapter] 🔄 input has target '{target}' but no index, converting to find_text")
+                action_obj = {'find_text': {'text': str(target)}}
+                bu_action_name = 'find_text'
+            else:
+                # No valid index — use extract to observe the page
+                logger.info(f"[QwenAdapter] 🔄 input has no valid index, converting to extract")
+                action_obj = {'extract': {'query': 'Find input elements on the page'}}
+                bu_action_name = 'extract'
         elif bu_action_name == 'done':
             text = params.get('text', params.get('message', params.get('result', 'Task completed')))
             success = params.get('success', True)
             action_obj = {bu_action_name: {'text': str(text), 'success': bool(success)}}
-        elif bu_action_name in ('scroll_down', 'scroll_up', 'wait', 'screenshot'):
+        elif bu_action_name == 'search':
+            query = params.get('query', params.get('text', params.get('q', '')))
+            action_obj = {bu_action_name: {'query': query}}
+        elif bu_action_name == 'find_text':
+            text = params.get('text', params.get('element', params.get('target', params.get('label', ''))))
+            if text:
+                action_obj = {bu_action_name: {'text': str(text)}}
+            else:
+                action_obj = {'extract': {'query': 'Find text elements on the page'}}
+                bu_action_name = 'extract'
+        elif bu_action_name in ('scroll', 'wait', 'extract', 'go_back', 'switch', 'close',
+                                'send_keys', 'upload_file', 'dropdown_options', 'select_dropdown'):
             action_obj = {bu_action_name: params or {}}
         else:
-            # Unknown action - wrap as-is
             action_obj = {bu_action_name: params}
         
         logger.info(f"[QwenAdapter] 🔄 Converted flat action '{action_name}' → '{bu_action_name}'")
@@ -116,9 +200,26 @@ def _convert_flat_action(data: dict) -> dict | None:
     # Pattern 2: {"go_to_url": {"url": "..."}} or {"navigate": {"url": "..."}}
     # (action dict at top level, no wrapping)
     known_actions = {
-        'go_to_url', 'click_element', 'input_text', 'done', 'scroll_down', 'scroll_up',
-        'wait', 'screenshot', 'extract_content', 'navigate', 'click', 'open_tab',
-        'switch_tab', 'close_tab', 'go_back', 'search_google',
+        'navigate', 'click', 'input', 'done', 'scroll', 'wait', 'extract',
+        'search', 'go_back', 'switch', 'close', 'send_keys', 'find_text',
+        'upload_file', 'dropdown_options', 'select_dropdown',
+        # Legacy names that LLMs may still output
+        'go_to_url', 'click_element', 'input_text', 'scroll_down', 'scroll_up',
+        'extract_content', 'open_url', 'open_tab', 'switch_tab', 'close_tab', 'search_google',
+    }
+    # Map non-standard/legacy top-level action names to current browser-use names
+    top_level_action_map = {
+        'go_to_url': 'navigate',
+        'open_url': 'navigate',
+        'click_element': 'click',
+        'input_text': 'input',
+        'scroll_down': 'scroll',
+        'scroll_up': 'scroll',
+        'extract_content': 'extract',
+        'open_tab': 'navigate',
+        'switch_tab': 'switch',
+        'close_tab': 'close',
+        'search_google': 'search',
     }
     top_level_actions = set(data.keys()) & known_actions
     if top_level_actions and 'action' not in data:
@@ -126,8 +227,10 @@ def _convert_flat_action(data: dict) -> dict | None:
         action_params = data[action_name]
         if not isinstance(action_params, dict):
             action_params = {}
-        action_obj = {action_name: action_params}
-        logger.info(f"[QwenAdapter] 🔄 Converted top-level action '{action_name}' to action array")
+        # Remap to browser-use canonical name if needed
+        bu_name = top_level_action_map.get(action_name, action_name)
+        action_obj = {bu_name: action_params}
+        logger.info(f"[QwenAdapter] 🔄 Converted top-level action '{action_name}' → '{bu_name}' to action array")
         return _make_agent_output([action_obj])
     
     return None
@@ -228,6 +331,115 @@ def _convert_plain_text(content: str) -> str | None:
     return None
 
 
+def _sanitize_action_array(actions: list) -> list:
+    """
+    Sanitize action array items to fix common LLM output issues:
+    1. Unwrap model class names: {"DoneActionModel": {"done": true}} → {"done": {"text": "Task completed", "success": true}}
+    2. Fix index values < 1 for click/input actions (browser_use requires index >= 1)
+    3. Map legacy action names to current browser_use names
+    """
+    # Valid browser_use action names
+    valid_actions = {
+        'navigate', 'click', 'input', 'scroll', 'extract', 'done', 'search',
+        'go_back', 'wait', 'switch', 'close', 'send_keys', 'find_text',
+        'upload_file', 'dropdown_options', 'select_dropdown',
+    }
+    # Model class name → action name mapping
+    model_class_map = {
+        'doneactionmodel': 'done',
+        'navigateactionmodel': 'navigate',
+        'clickactionmodel': 'click',
+        'inputactionmodel': 'input',
+        'scrollactionmodel': 'scroll',
+        'extractactionmodel': 'extract',
+        'searchactionmodel': 'search',
+        'gobackactionmodel': 'go_back',
+        'waitactionmodel': 'wait',
+        'switchactionmodel': 'switch',
+        'closeactionmodel': 'close',
+        'sendkeysactionmodel': 'send_keys',
+        'findtextactionmodel': 'find_text',
+        'uploadfileactionmodel': 'upload_file',
+        'dropdownoptionsactionmodel': 'dropdown_options',
+        'selectdropdownactionmodel': 'select_dropdown',
+    }
+    # Legacy action name mapping
+    legacy_map = {
+        'go_to_url': 'navigate', 'open_url': 'navigate',
+        'click_element': 'click', 'input_text': 'input',
+        'scroll_down': 'scroll', 'scroll_up': 'scroll',
+        'scroll_to': 'find_text', 'scroll_to_text': 'find_text',
+        'extract_content': 'extract', 'search_google': 'search',
+        'switch_tab': 'switch', 'close_tab': 'close', 'open_tab': 'navigate',
+    }
+
+    sanitized = []
+    for action in actions:
+        if not isinstance(action, dict):
+            continue
+
+        # Check if action uses model class name as key
+        keys = list(action.keys())
+        if len(keys) == 1:
+            key = keys[0]
+            key_lower = key.lower()
+
+            # Unwrap model class name
+            if key_lower in model_class_map:
+                real_action = model_class_map[key_lower]
+                inner = action[key]
+                if isinstance(inner, dict):
+                    # e.g. {"DoneActionModel": {"done": true}} → {"done": {"text": "Task completed", "success": true}}
+                    action = {real_action: inner}
+                elif isinstance(inner, bool):
+                    # e.g. {"DoneActionModel": {"done": true}} where inner is just True
+                    if real_action == 'done':
+                        action = {'done': {'text': 'Task completed', 'success': bool(inner)}}
+                    else:
+                        action = {real_action: {}}
+                else:
+                    action = {real_action: {}}
+                logger.info(f"[QwenAdapter] 🔄 Unwrapped model class '{key}' → '{real_action}'")
+
+            # Map legacy action names
+            elif key_lower in legacy_map:
+                real_action = legacy_map[key_lower]
+                action = {real_action: action[key] if isinstance(action[key], dict) else {}}
+                logger.info(f"[QwenAdapter] 🔄 Remapped legacy action '{key}' → '{real_action}'")
+
+        # Check if action has any valid key; if not, convert to extract
+        action_keys = set(action.keys())
+        if not (action_keys & valid_actions):
+            # No valid action key found — convert to extract
+            info = str(action)[:500]
+            logger.warning(f"[QwenAdapter] ⚠️ No valid action key in {list(action_keys)}, converting to extract")
+            action = {'extract': {'query': info}}
+
+        # Fix index values for click/input (must be >= 1)
+        for act_name in ('click', 'input'):
+            if act_name in action and isinstance(action[act_name], dict):
+                idx = action[act_name].get('index')
+                if idx is not None and isinstance(idx, (int, float)) and idx < 1:
+                    action[act_name]['index'] = 1
+                    logger.info(f"[QwenAdapter] 🔧 Fixed {act_name} index {idx} → 1 (minimum)")
+
+        # Fix done action: ensure it has text and success fields
+        if 'done' in action and isinstance(action['done'], dict):
+            done_params = action['done']
+            if 'text' not in done_params:
+                done_params['text'] = 'Task completed'
+            if 'success' not in done_params:
+                done_params['success'] = True
+
+        sanitized.append(action)
+
+    # If all actions were invalid, create a fallback done action
+    if not sanitized:
+        sanitized = [{'done': {'text': 'Task completed', 'success': True}}]
+
+    return sanitized
+
+
 def clean_qwen_response(content: str) -> str:
     """
     Clean and adapt Qwen/Ollama model response to browser-use AgentOutput format.
@@ -276,16 +488,18 @@ def clean_qwen_response(content: str) -> str:
     action_is_valid_array = isinstance(data.get('action'), list) and len(data.get('action', [])) > 0
     
     if has_required and action_is_valid_array:
-        # Already valid - just clean extra fields
+        # Sanitize action array (fix model class names, invalid index values, etc.)
+        data['action'] = _sanitize_action_array(data['action'])
+        # Clean extra fields
         allowed_fields = {'evaluation_previous_goal', 'memory', 'next_goal', 'action', 'thinking'}
         extra_fields = set(data.keys()) - allowed_fields
         if extra_fields:
             logger.debug(f"[QwenAdapter] Removing extra fields: {extra_fields}")
             for field in extra_fields:
                 data.pop(field, None)
-            content = json.dumps(data, ensure_ascii=False)
+        content = json.dumps(data, ensure_ascii=False)
         if content != original_content:
-            logger.info(f"[QwenAdapter] ✂️ Cleaned valid response (removed extra fields)")
+            logger.info(f"[QwenAdapter] ✂️ Cleaned valid response (sanitized actions)")
         return content
     
     # Step 4: Try conversion strategies (in priority order)
@@ -309,6 +523,10 @@ def clean_qwen_response(content: str) -> str:
     for field in ['evaluation_previous_goal', 'memory', 'next_goal']:
         if field not in data or data.get(field) is None:
             data[field] = ''
+    
+    # Sanitize existing action array if present
+    if isinstance(data.get('action'), list) and len(data.get('action', [])) > 0:
+        data['action'] = _sanitize_action_array(data['action'])
     
     # Fix action field
     if 'action' not in data or not isinstance(data.get('action'), list) or len(data.get('action', [])) == 0:
