@@ -138,7 +138,7 @@ def _safe_eval_expr(expr: str, state: dict) -> bool:
     """
     try:
         log_msg = f"🤖 Executing conditional edge: {expr}"
-        logger.debug(log_msg)
+        logger.info(log_msg)
         send_skill_editor_log("log", log_msg)
         
         # Log state keys and result for debugging
@@ -146,6 +146,7 @@ def _safe_eval_expr(expr: str, state: dict) -> bool:
         state_result = state.get("result", "NO_RESULT_KEY") if isinstance(state, dict) else None
         logger.info(f"[condition-eval] state.keys={state_keys}")
         logger.info(f"[condition-eval] state['result']={state_result}")
+        send_skill_editor_log("log", f"[condition-eval] Checking: {expr}, result={state_result}")
 
         safe_globals = {"__builtins__": {}}
         attrs = state.get("attributes", {}) if isinstance(state, dict) else {}

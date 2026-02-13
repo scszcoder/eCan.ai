@@ -59,8 +59,8 @@ class PassiveCommandService:
     async def start(self) -> None:
         """Start the service and begin listening for commands."""
         if self._started:
-            logger.warning("[PassiveCommandService] Already started")
-            return
+            logger.info("[PassiveCommandService] Already started, stopping old subscription first")
+            await self.stop()
         
         def on_command(cmd: PassiveBrowserCommand) -> None:
             """Handle incoming command by routing to task."""

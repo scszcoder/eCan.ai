@@ -76,15 +76,15 @@ class GraphQLBuilder:
         # First-Level Relationship Operations
         # ============================================================================
         (DataType.AGENT_SKILL, Operation.ADD): "addAgentSkillRelations",
-        (DataType.AGENT_SKILL, Operation.UPDATE): "updateAgentSkillRelations",
+        (DataType.AGENT_SKILL, Operation.UPDATE): "addAgentSkillRelations",  # Cloud has no updateAgentSkillRelations - use add (upsert)
         (DataType.AGENT_SKILL, Operation.DELETE): "removeAgentSkillRelations",
         
         (DataType.AGENT_TASK, Operation.ADD): "addAgentTaskRelations",
-        (DataType.AGENT_TASK, Operation.UPDATE): "updateAgentTaskRelations",
+        (DataType.AGENT_TASK, Operation.UPDATE): "addAgentTaskRelations",  # Cloud may not have update - use add (upsert)
         (DataType.AGENT_TASK, Operation.DELETE): "removeAgentTaskRelations",
         
         (DataType.AGENT_TOOL, Operation.ADD): "addAgentToolRelations",
-        (DataType.AGENT_TOOL, Operation.UPDATE): "updateAgentToolRelations",
+        (DataType.AGENT_TOOL, Operation.UPDATE): "addAgentToolRelations",  # Cloud may not have update - use add (upsert)
         (DataType.AGENT_TOOL, Operation.DELETE): "removeAgentToolRelations",
         
         # ============================================================================

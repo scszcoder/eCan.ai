@@ -2364,7 +2364,12 @@ def run_async_in_sync(awaitable):
     try:
         # Ensure the newly created loop is current in this thread
         asyncio.set_event_loop(loop)
-        return loop.run_until_complete(awaitable)
+        # Wrap in a Task so that asyncio.wait_for / asyncio.timeout (used by
+        # browser_use's CDP click handler) work correctly.  Without this,
+        # Python 3.11+ raises "RuntimeError: Timeout should be used inside a task"
+        # which causes every CDP coordinate click to fail and fall back to a JS
+        # .click() that doesn't honour target="_blank".
+        return loop.run_until_complete(loop.create_task(awaitable))
     finally:
         try:
             pending_tasks = [t for t in asyncio.all_tasks(loop) if not t.done()]
@@ -2425,7 +2430,7 @@ def run_async_in_worker_thread(awaitable_or_factory):
                 coro = awaitable_or_factory()
             else:
                 coro = awaitable_or_factory
-            res = loop.run_until_complete(coro)
+            res = loop.run_until_complete(loop.create_task(coro))
             result_holder["result"] = res
         except Exception as e:
             error_holder["error"] = e

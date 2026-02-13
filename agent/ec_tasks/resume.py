@@ -162,6 +162,56 @@ def _deep_merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def apply_adapt_to_state_mapping(
+    state_patch: Dict[str, Any],
+    event_data: Dict[str, Any],
+    adapt_to_state_config: Dict[str, str],
+    on_conflict: str = "overwrite"
+) -> None:
+    """
+    Apply adapt_to_state mapping from data_mapping.json to write event data to state paths.
+    
+    This is a modular function that can be used for any event type, not just passive_command.
+    
+    Args:
+        state_patch: The state patch dict to write to
+        event_data: The event data dict containing source values
+        adapt_to_state_config: Mapping from source keys to target state paths
+            Example: {
+                "actions": "state.attributes.passive_command_actions",
+                "run_id": "state.attributes.passive_run_id",
+                "step_id": "state.attributes.passive_step_id"
+            }
+        on_conflict: Conflict resolution policy for _write()
+    
+    The target paths can start with "state." which will be stripped, or be direct paths.
+    Example: "state.attributes.foo" -> writes to state_patch["attributes"]["foo"]
+    """
+    if not isinstance(adapt_to_state_config, dict) or not isinstance(event_data, dict):
+        return
+    
+    for source_key, target_path in adapt_to_state_config.items():
+        if not isinstance(target_path, str):
+            continue
+        
+        # Get value from event_data
+        value = event_data.get(source_key)
+        if value is None:
+            continue
+        
+        # Normalize target path - strip "state." prefix if present
+        normalized_path = target_path
+        if normalized_path.startswith("state."):
+            normalized_path = normalized_path[6:]  # Remove "state." prefix
+        
+        # Write to state_patch
+        try:
+            _write(state_patch, normalized_path, value, on_conflict=on_conflict)
+            logger.debug(f"[adapt_to_state] Wrote {source_key} -> {normalized_path}")
+        except Exception as e:
+            logger.warning(f"[adapt_to_state] Failed to write {source_key} -> {normalized_path}: {e}")
+
+
 def _to_string(v: Any) -> str:
     """Best-effort convert a value to a UTF-8-safe JSON/string representation."""
     if isinstance(v, str):
@@ -818,10 +868,42 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
                     _write(state_patch, "browser_use_actions", actions, on_conflict="overwrite")
                     _write(state_patch, "attributes.passive_command", callback_result, on_conflict="overwrite")
                     
+                    # Write to paths expected by adapt_to_state config in data_mapping.json
+                    # This ensures compatibility with skill-defined state paths
+                    _write(state_patch, "attributes.passive_command_actions", actions, on_conflict="overwrite")
+                    _write(state_patch, "attributes.passive_run_id", callback_result.get("run_id", ""), on_conflict="overwrite")
+                    _write(state_patch, "attributes.passive_step_id", callback_result.get("step_id", ""), on_conflict="overwrite")
+                    
+                    # Apply any adapt_to_state mapping from the task's data_mapping.json
+                    try:
+                        task_mapping = load_mapping_for_task(task)
+                        event_routing = task_mapping.get("event_routing", {})
+                        passive_cmd_routing = event_routing.get("passive_command", {}) or event_routing.get("PassiveCommandEvent", {})
+                        adapt_config = passive_cmd_routing.get("adapt_to_state", {})
+                        if adapt_config:
+                            apply_adapt_to_state_mapping(state_patch, callback_result, adapt_config)
+                            logger.debug(f"[build_general_resume_payload] Applied adapt_to_state mapping: {list(adapt_config.keys())}")
+                    except Exception as adapt_err:
+                        logger.debug(f"[build_general_resume_payload] adapt_to_state mapping skipped: {adapt_err}")
+                    
                     logger.info(f"[build_general_resume_payload] Extracted passive browser command: node_id={node_id}, actions_count={len(actions)}, state_patch_keys={list(state_patch.keys())}")
                 else:
                     # Generic async_callback result - store in attributes
                     _write(state_patch, "attributes.async_callback_result", callback_result, on_conflict="overwrite")
+                    
+                    # Try to apply adapt_to_state mapping for any event type
+                    try:
+                        task_mapping = load_mapping_for_task(task)
+                        event_routing = task_mapping.get("event_routing", {})
+                        # Check for routing config matching the callback result type
+                        result_type = callback_result.get("type", "")
+                        routing_config = event_routing.get(result_type, {})
+                        adapt_config = routing_config.get("adapt_to_state", {})
+                        if adapt_config:
+                            apply_adapt_to_state_mapping(state_patch, callback_result, adapt_config)
+                            logger.debug(f"[build_general_resume_payload] Applied adapt_to_state for {result_type}: {list(adapt_config.keys())}")
+                    except Exception:
+                        pass
         
         # Capture chat metadata for send_chat events
         message_mtype = (
