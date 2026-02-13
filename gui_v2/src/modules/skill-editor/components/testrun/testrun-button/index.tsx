@@ -19,6 +19,7 @@ import { useSkillInfoStore } from '../../../stores/skill-info-store';
 import { useSheetsStore } from '../../../stores/sheets-store';
 import { useRunningNodeStore } from '../../../stores/running-node-store';
 import { useRuntimeStateStore } from '../../../stores/runtime-state-store';
+import { registerDevTaskCleanup } from '../../../services/devTaskCleanup';
 
 import styles from './index.module.less';
 
@@ -34,6 +35,9 @@ export function TestRunButton(props: { disabled: boolean }) {
   const localHelperSkillId = useSkillInfoStore((state) => state.localHelperSkillId);
   const localHelperMachine = useSkillInfoStore((state) => state.localHelperMachine);
   const setRunningNodeId = useRunningNodeStore((state) => state.setRunningNodeId);
+
+  // Ensure dev-task logout cleanup is registered (idempotent, runs once)
+  useEffect(() => { registerDevTaskCleanup(); }, []);
 
   const updateValidateData = useCallback(() => {
     if (isValidationDisabled()) {
@@ -155,6 +159,29 @@ export function TestRunButton(props: { disabled: boolean }) {
           content: response?.error?.message || 'An unknown error occurred.',
         });
       }
+      // Capture the active run_id so the Stop button can reference it for cancel
+      try {
+        const returnedRunId = (response as any)?.data?.runId;
+        const activeRunId = returnedRunId || (metaData as any)?.run_id || null;
+        if (activeRunId) {
+          useRunningNodeStore.getState().setActiveRunId(activeRunId);
+        }
+        // Track dev-mode Fargate tasks for cleanup on logout
+        if (runInCloud && activeRunId) {
+          const responseData = (response as any)?.data?.data;
+          let ecsTaskArn: string | undefined;
+          try {
+            const parsed = typeof responseData === 'string' ? JSON.parse(responseData) : responseData;
+            ecsTaskArn = parsed?.ecs_task_arn;
+          } catch {}
+          useRunningNodeStore.getState().addDevTask({
+            runId: activeRunId,
+            skillId: (skillInfo as any)?.skillId || (skillInfo as any)?.skill_id,
+            ecsTaskArn,
+            startedAt: Date.now(),
+          });
+        }
+      } catch {}
       // Proactively request current state to kick UI updates if backend is slow to push
       try {
         await ipcApi.requestSkillState(username, { id: (skillInfo as any)?.skillId, name: (skillInfo as any)?.skillName });

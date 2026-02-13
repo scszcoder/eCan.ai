@@ -33,6 +33,7 @@ import { NewPage } from './new-page';
 import { ProblemButton } from '../problem-panel';
 import { IPCAPI } from '../../../../services/ipc/api';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
+import { useRunningNodeStore } from '../../stores/running-node-store';
 import { useUserStore } from '../../../../stores/userStore';
 
 // Error boundary that auto-recovers from context errors during React transitions
@@ -151,9 +152,25 @@ const ToolsInner = () => {
     };
 
     switch (action) {
-      case 'cancel':
-        ipcApi.cancelRunSkill(username, skillInfo);
+      case 'cancel': {
+        // Inject run_id and skill_id so the Lambda can locate and stop the Fargate task
+        const activeRunId = useRunningNodeStore.getState().activeRunId;
+        const cancelPayload = {
+          ...skillInfo,
+          run_id: activeRunId || '0123456789',
+          skill_id: (skillInfoFromStore as any)?.skillId || (skillInfoFromStore as any)?.skill_id,
+        };
+        console.log('[ToolBar] cancelRunSkill with run_id:', cancelPayload.run_id, 'skill_id:', cancelPayload.skill_id);
+        ipcApi.cancelRunSkill(username, cancelPayload);
+        // Remove from dev task tracking
+        if (activeRunId) {
+          useRunningNodeStore.getState().removeDevTask(activeRunId);
+        }
+        // Clear the active run tracking
+        useRunningNodeStore.getState().setActiveRunId(null);
+        useRunningNodeStore.getState().setRunningNodeId(null);
         break;
+      }
       case 'pause':
         ipcApi.pauseRunSkill(username, skillInfo);
         break;

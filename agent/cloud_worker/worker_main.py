@@ -51,10 +51,13 @@ def set_global_passive_transport(transport) -> None:
     """Set the global passive transport for CloudAgent to use."""
     global _global_passive_transport
     _global_passive_transport = transport
+    logger.info(f"[cloud_worker] set_global_passive_transport: type={type(transport).__name__}, id={id(transport)}")
 
 def get_global_passive_transport():
     """Get the global passive transport (or None if not set)."""
-    return _global_passive_transport
+    result = _global_passive_transport
+    logger.info(f"[cloud_worker] get_global_passive_transport: result={type(result).__name__ if result else 'None'}, id={id(result) if result else 'N/A'}")
+    return result
 
 def clear_global_passive_transport() -> None:
     """Clear the global passive transport."""
@@ -1483,6 +1486,22 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
                         else:
                             result_dict = result_raw or {}
                         
+                        # Parse dom_tree from the ENVELOPE (separate field from result)
+                        # The client sends dom_tree as a top-level envelope field, not inside result
+                        dom_tree_data = None
+                        dom_tree_raw = envelope.get("dom_tree")
+                        if dom_tree_raw:
+                            try:
+                                dom_tree_data = json.loads(dom_tree_raw) if isinstance(dom_tree_raw, str) else dom_tree_raw
+                                # Ignore empty dict — treat as no dom_tree
+                                if isinstance(dom_tree_data, dict) and not dom_tree_data:
+                                    dom_tree_data = None
+                            except (json.JSONDecodeError, TypeError):
+                                dom_tree_data = None
+                        # Fallback: check inside result_dict (legacy format)
+                        if not dom_tree_data:
+                            dom_tree_data = result_dict.get("dom_tree")
+
                         # Build PassiveBrowserStepResult from envelope
                         step_result = PassiveBrowserStepResult(
                             run_id=envelope.get("runId", run_id),
@@ -1493,7 +1512,7 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
                             action_results=result_dict.get("action_results", []),
                             errors=result_dict.get("errors", []),
                             browser=result_dict.get("browser_state") or result_dict.get("browser", {}),
-                            dom_tree=result_dict.get("dom_tree"),
+                            dom_tree=dom_tree_data,
                         )
                         
                         # Deliver to transport's queue

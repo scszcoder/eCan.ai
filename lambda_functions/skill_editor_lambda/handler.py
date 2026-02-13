@@ -1399,7 +1399,8 @@ def _handle_cancel_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
         skill = skill_json or {}
     
     run_id = skill.get("run_id")
-    skill_id = skill.get("skill_id")
+    # Support both snake_case (backend) and camelCase (frontend) key names
+    skill_id = skill.get("skill_id") or skill.get("skillId")
     
     logger.info(f"[cancelRunSkill] username={username}, run_id={run_id}, skill_id={skill_id}")
     
