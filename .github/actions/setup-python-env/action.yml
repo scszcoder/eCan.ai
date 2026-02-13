@@ -19,7 +19,7 @@ inputs:
   pyinstaller-version:
     description: 'PyInstaller version to install'
     required: false
-    default: '6.15.0'
+    default: '6.18.0'
   extra-packages:
     description: 'Extra packages to install (comma-separated)'
     required: false
