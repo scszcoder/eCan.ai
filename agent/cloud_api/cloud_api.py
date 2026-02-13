@@ -2341,11 +2341,11 @@ def send_get_agents_request_to_cloud(session, token, endpoint):
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     if "errors" in jresp:
-        logger.error("AppSync queryAgents error: " + json.dumps(jresp))
         if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
-            logger.info("No agents data found for user - returning empty list")
+            logger.warning("AppSync queryAgents: no data for user - returning empty list")
             jresponse = []
         else:
+            logger.error("AppSync queryAgents error: " + json.dumps(jresp))
             jresponse = jresp["errors"][0] if jresp["errors"] else {}
     else:
         try:
@@ -3105,12 +3105,11 @@ def send_get_agent_skills_request_to_cloud(session, token, endpoint):
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     if "errors" in jresp:
-        logger.error("AppSync queryAgentSkills error: " + json.dumps(jresp))
-        # Handle case where user has no agent skills data (return empty list)
         if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
-            logger.info("No agent skills data found for user - returning empty list")
+            logger.warning("AppSync queryAgentSkills: no data for user - returning empty list")
             jresponse = []
         else:
+            logger.error("AppSync queryAgentSkills error: " + json.dumps(jresp))
             jresponse = jresp["errors"][0] if jresp["errors"] else {}
     else:
         # Response is already parsed as array of objects (not AWSJSON string)
@@ -3239,11 +3238,11 @@ def send_get_agent_tasks_request_to_cloud(session, token, endpoint):
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     if "errors" in jresp:
-        logger.error("AppSync queryAgentTasks error: " + json.dumps(jresp))
         if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
-            logger.info("No agent tasks data found for user - returning empty dict")
+            logger.warning("AppSync queryAgentTasks: no data for user - returning empty dict")
             jresponse = {}
         else:
+            logger.error("AppSync queryAgentTasks error: " + json.dumps(jresp))
             jresponse = jresp["errors"][0] if jresp["errors"] else {}
     else:
         try:
@@ -3377,11 +3376,11 @@ def send_get_agent_tools_request_to_cloud(session, token, endpoint):
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
 
     if "errors" in jresp:
-        logger.error("AppSync queryAgentTools error: " + json.dumps(jresp))
         if any("Cannot return null for non-nullable type" in str(error.get("message", "")) for error in jresp.get("errors", [])):
-            logger.info("No agent tools data found for user - returning empty dict")
+            logger.warning("AppSync queryAgentTools: no data for user - returning empty dict")
             jresponse = {}
         else:
+            logger.error("AppSync queryAgentTools error: " + json.dumps(jresp))
             jresponse = jresp["errors"][0] if jresp["errors"] else {}
     else:
         try:

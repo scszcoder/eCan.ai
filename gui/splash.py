@@ -839,8 +839,8 @@ def init_startup_splash():
 
         # Set application icon as early as possible (before splash)
         try:
-            from utils.app_setup_helper import set_app_icon_early
-            success = set_app_icon_early(app)
+            from utils.app_setup_helper import set_app_icon
+            success = set_app_icon(app)
             print(f"Early icon setting: {'success' if success else 'failed'}")
         except Exception as e:
             # Don't let icon setting failure prevent splash from showing
@@ -890,9 +890,9 @@ def init_minimal_splash():
     exact visual appearance of ThemedSplashScreen for seamless transition.
     """
     try:
-        from PySide6.QtWidgets import QWidget, QApplication, QLabel, QVBoxLayout
+        from PySide6.QtWidgets import QWidget, QApplication, QLabel, QVBoxLayout, QGraphicsDropShadowEffect
         from PySide6.QtCore import Qt
-        from PySide6.QtGui import QGraphicsDropShadowEffect
+        from PySide6.QtGui import QColor
         import sys
         
         app = QApplication.instance()
