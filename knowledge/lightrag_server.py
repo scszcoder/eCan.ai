@@ -853,7 +853,7 @@ class LightragServer:
             else:
                 time.sleep(2.0)
         
-        logger.error(f"[LightragServer] Timeout waiting for server ready on port {port} after {timeout}s ({attempt} attempts)")
+        logger.warning(f"[LightragServer] Timeout waiting for server ready on port {port} after {timeout}s ({attempt} attempts). Server may still be initializing (first-time FAISS/NetworkX setup can be slow).")
         return False
 
     def _start_background_health_monitor(self, port, check_interval=5.0, max_duration=300.0):
