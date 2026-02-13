@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import os
+import time
 import threading
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -301,12 +302,42 @@ class AppSyncPassiveClient:
 
         self._stopped = False
         self._lock = threading.Lock()
+        self._reconnect_delay = float(os.getenv("ECAN_PASSIVE_WS_RECONNECT_DELAY", "3.0"))
+        self._max_reconnect_delay = float(os.getenv("ECAN_PASSIVE_WS_MAX_RECONNECT_DELAY", "60.0"))
+        self._current_reconnect_delay = self._reconnect_delay
+        self._reconnect_count = 0
+
+    def _close_existing_ws(self) -> None:
+        """Close any existing WebSocket connection and wait for thread to finish."""
+        old_ws = self._ws
+        old_thread = self._ws_thread
+        self._ws = None
+        self._ws_thread = None
+        if old_ws is not None:
+            try:
+                old_ws.close()
+                logger.info("[AppSyncPassiveClient] Closed stale WebSocket")
+            except Exception:
+                pass
+        if old_thread is not None and old_thread.is_alive():
+            try:
+                old_thread.join(timeout=5.0)
+            except Exception:
+                pass
 
     async def start(self) -> None:
         logger.info(f"[AppSyncPassiveClient] Starting subscription for run_id={self._config.run_id}, client_id={self._config.client_id}")
+        # Fix C: Clean up any stale WebSocket from a previous run
+        self._close_existing_ws()
+        with self._lock:
+            self._stopped = False
         if self._loop is None:
             self._loop = asyncio.get_running_loop()
 
+        self._start_ws()
+
+    def _start_ws(self) -> None:
+        """Create and start the WebSocket connection (called by start() and reconnect)."""
         signed_ws_url = _make_signed_ws_url(
             self._config.ws_endpoint,
             api_host=self._config.api_host,
@@ -406,12 +437,18 @@ class AppSyncPassiveClient:
                 except Exception:
                     pass
 
+        def on_close(ws, close_status_code, close_msg) -> None:
+            logger.warning(f"[AppSyncPassiveClient] WebSocket closed: status={close_status_code}, msg={close_msg}")
+            if not self._stopped:
+                self._schedule_reconnect()
+
         self._ws = websocket.WebSocketApp(
             signed_ws_url,
             header=[],
             on_message=on_message,
             on_open=on_open,
             on_error=on_error,
+            on_close=on_close,
             subprotocols=["graphql-ws"],
         )
 
@@ -441,11 +478,27 @@ class AppSyncPassiveClient:
     async def _publish_step_result(self, result: PassiveBrowserStepResult) -> None:
         # Mask large data to avoid AppSync payload size limit (240KB)
         result_dict = result.model_dump()
-        dom_tree_payload = result_dict.pop("dom_tree", None)
+        result_dict.pop("dom_tree", None)  # Remove from result dict, we'll extract from browser.dom_text
         max_dom_tree_bytes = int(os.getenv("ECAN_PASSIVE_DOM_TREE_MAX_BYTES", "204800"))
         browser_data = result_dict.get("browser")
         logger.info(f"[AppSyncPassiveClient] browser_data type={type(browser_data).__name__}, keys={list(browser_data.keys()) if isinstance(browser_data, dict) else 'N/A'}")
+        
+        # Extract dom_text and selector_map from browser to use as dom_tree (separate AppSync field)
+        dom_tree_payload = {}
         if browser_data and isinstance(browser_data, dict):
+            # Extract dom_text and move to dom_tree field
+            dom_text = browser_data.pop("dom_text", None)
+            if dom_text and isinstance(dom_text, str):
+                dom_tree_payload["dom_text"] = dom_text
+                logger.info(f"[AppSyncPassiveClient] ✅ Extracted dom_text ({len(dom_text)} chars) for dom_tree field")
+            
+            # Extract selector_map and move to dom_tree field (cloud worker needs it for element interaction)
+            selector_map = browser_data.pop("selector_map", None)
+            if selector_map and isinstance(selector_map, (list, dict)):
+                dom_tree_payload["selector_map"] = selector_map
+                selector_map_len = len(json.dumps(selector_map)) if selector_map else 0
+                logger.info(f"[AppSyncPassiveClient] ✅ Extracted selector_map ({selector_map_len} bytes, {len(selector_map) if isinstance(selector_map, list) else 'dict'} items) for dom_tree field")
+            
             # Mask screenshot
             screenshot = browser_data.get("screenshot_base64")
             if screenshot and isinstance(screenshot, str) and len(screenshot) > 100:
@@ -453,20 +506,6 @@ class AppSyncPassiveClient:
                 browser_data["screenshot_base64"] = "[OCR_PENDING]"
                 browser_data.setdefault("ocr_text", "[OCR_PLACEHOLDER]")
                 logger.info(f"[AppSyncPassiveClient] ✅ Replaced screenshot_base64 with OCR placeholder ({screenshot_len} bytes)")
-            
-            # Mask DOM tree (selector_map/elements) - temporarily mask to stay under 240KB limit
-            selector_map = browser_data.get("selector_map")
-            if selector_map and isinstance(selector_map, (list, dict)):
-                selector_map_len = len(json.dumps(selector_map)) if selector_map else 0
-                browser_data["selector_map"] = f"[MASKED:{selector_map_len} bytes, {len(selector_map) if isinstance(selector_map, list) else 'dict'} items]"
-                logger.info(f"[AppSyncPassiveClient] ✅ Masked selector_map ({selector_map_len} bytes)")
-            
-            # Also mask dom_text if it's large
-            dom_text = browser_data.get("dom_text")
-            if dom_text and isinstance(dom_text, str) and len(dom_text) > 10000:
-                dom_text_len = len(dom_text)
-                browser_data["dom_text"] = f"[MASKED:{dom_text_len} chars]"
-                logger.info(f"[AppSyncPassiveClient] ✅ Masked dom_text ({dom_text_len} chars)")
         else:
             logger.warning(f"[AppSyncPassiveClient] browser_data is not a dict, cannot mask")
         
@@ -523,6 +562,10 @@ class AppSyncPassiveClient:
             "result": json.dumps(result_dict),  # AWSJSON type - JSON-encoded string
             "dom_tree": dom_tree_json,
         }
+        
+        # Log full envelope before sending
+        logger.debug(f"[_publish_step_result] Sending envelope: runId={envelope['runId']}, stepId={envelope['stepId']}, result_len={len(envelope['result'])}, dom_tree_len={len(envelope['dom_tree'])}")
+        logger.debug(f"[_publish_step_result] Full envelope: {envelope}")
 
         auth_headers = _build_auth_headers(self._config.auth_token)
 
@@ -542,14 +585,37 @@ class AppSyncPassiveClient:
             if isinstance(data, dict) and data.get("errors"):
                 raise RuntimeError(f"AppSync publishPassiveStepResult failed: {data.get('errors')}")
 
+    def _schedule_reconnect(self) -> None:
+        """Schedule a reconnect attempt after exponential backoff delay."""
+        if self._stopped:
+            return
+        self._reconnect_count += 1
+        delay = min(self._current_reconnect_delay, self._max_reconnect_delay)
+        logger.info(f"[AppSyncPassiveClient] Scheduling reconnect #{self._reconnect_count} in {delay:.1f}s")
+
+        def _reconnect() -> None:
+            time.sleep(delay)
+            if self._stopped:
+                return
+            logger.info(f"[AppSyncPassiveClient] Reconnecting (attempt #{self._reconnect_count})...")
+            try:
+                self._start_ws()
+                # Reset delay on successful reconnect start
+                self._current_reconnect_delay = self._reconnect_delay
+                logger.info(f"[AppSyncPassiveClient] Reconnect #{self._reconnect_count} initiated")
+            except Exception as e:
+                logger.error(f"[AppSyncPassiveClient] Reconnect failed: {e}")
+                # Exponential backoff
+                self._current_reconnect_delay = min(self._current_reconnect_delay * 2, self._max_reconnect_delay)
+                self._schedule_reconnect()
+
+        t = threading.Thread(target=_reconnect, daemon=True)
+        t.start()
+
     async def stop(self) -> None:
         with self._lock:
             self._stopped = True
-        if self._ws is not None:
-            try:
-                self._ws.close()
-            except Exception:
-                pass
+        self._close_existing_ws()
 
 
 def make_appsync_passive_client_from_env(

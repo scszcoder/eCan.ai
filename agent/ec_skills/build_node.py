@@ -3024,8 +3024,13 @@ def build_rag_node(config_metadata: dict, node_name: str, skill_name: str, owner
 
 # Module-level lock and cache for preventing duplicate passive command execution
 import asyncio as _asyncio_module
-_passive_steps_lock = _asyncio_module.Lock()
+import threading as _threading_module
+_passive_steps_lock = _threading_module.Lock()  # threading.Lock — safe across event loops
 _passive_steps_processed: set[str] = set()
+
+# Module-level cache for PassiveAgent - reuse across loop iterations
+# Key: browser_session id, Value: PassiveAgent instance
+_cached_passive_agents: dict[int, "PassiveAgent"] = {}
 
 
 def build_browser_automation_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
@@ -3200,10 +3205,69 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         # return session._cdp_client_root is not None
         return session.session_manager is not None
 
+    def _is_session_alive(session) -> bool:
+        """Check session is started AND its event bus is still operational."""
+        if not _is_session_started(session):
+            logger.debug(f"[BrowserAutomation] _is_session_alive: session_manager is None")
+            return False
+        try:
+            eb = getattr(session, 'event_bus', None)
+            if eb is None:
+                logger.debug(f"[BrowserAutomation] _is_session_alive: event_bus is None")
+                return False
+            eq = getattr(eb, 'event_queue', None)
+            eq_shutdown = getattr(eq, '_is_shutdown', False) if eq is not None else 'no_queue'
+            eb_running = getattr(eb, '_is_running', False)
+            rl_task = getattr(eb, '_runloop_task', None)
+            rl_done = rl_task.done() if rl_task is not None else 'no_task'
+            logger.debug(
+                f"[BrowserAutomation] _is_session_alive: "
+                f"eb._is_running={eb_running}, eq._is_shutdown={eq_shutdown}, "
+                f"runloop_task.done={rl_done}, session_id={session.id}"
+            )
+            if eq is not None and getattr(eq, '_is_shutdown', False):
+                return False
+            if not eb_running:
+                return False
+            return True
+        except Exception as e:
+            logger.debug(f"[BrowserAutomation] _is_session_alive: exception: {e}")
+            return False
+
+    # Fix E-F1: Cache browser_session across steps so we don't create a new one
+    # each iteration.  BrowserManager.acquire_browser marks the browser IN_USE,
+    # so subsequent find_available_browser calls miss it and create_browser builds
+    # a brand-new BrowserSession (resetting agent_focus_target_id to the first tab).
+    _cached_browser_session = None
+    _last_known_focus_target_id: str | None = None  # survives session recreation
+
     async def _get_or_create_browser_session(mainwin):
         """Get or create browser session based on node editor settings."""
+        nonlocal _cached_browser_session, _last_known_focus_target_id
         import asyncio
         from gui.manager.browser_manager import BrowserManager, BrowserType, BrowserStatus
+
+        # Return cached session if still valid AND event bus alive
+        if _cached_browser_session is not None and _is_session_alive(_cached_browser_session):
+            logger.debug(f"[BrowserAutomation] Reusing cached browser session: {_cached_browser_session.id}")
+            return _cached_browser_session
+
+        # Invalidate stale cache — but preserve the focus target
+        if _cached_browser_session is not None:
+            # Save the focus target from the dying session
+            old_focus = getattr(_cached_browser_session, 'agent_focus_target_id', None)
+            if old_focus:
+                _last_known_focus_target_id = old_focus
+                logger.info(f"[BrowserAutomation] Saved focus target from dying session: ...{old_focus[-4:]}")
+            # Also check if the PassiveAgent had a saved focus
+            old_sid = id(_cached_browser_session)
+            old_pa = _cached_passive_agents.get(old_sid)
+            if old_pa and hasattr(old_pa, '_last_focus_target_id') and old_pa._last_focus_target_id:
+                _last_known_focus_target_id = old_pa._last_focus_target_id
+                logger.info(f"[BrowserAutomation] Saved focus target from PassiveAgent: ...{old_pa._last_focus_target_id[-4:]}")
+            logger.info(f"[BrowserAutomation] Cached session {_cached_browser_session.id} is stale (event bus dead), creating new one")
+            _cached_passive_agents.pop(old_sid, None)
+            _cached_browser_session = None
         
         # Load profile settings if a profile is specified
         profile_settings = _get_browser_profile_settings(node_profile)
@@ -3267,6 +3331,25 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 logger.info(log_msg)
                 send_skill_editor_log("log", log_msg)
 
+                # Fix E-F5: Restore focus to the tab from the previous (dead) session
+                if _last_known_focus_target_id:
+                    try:
+                        from browser_use.browser.events import SwitchTabEvent
+                        cur_focus = auto_browser.browser_session.agent_focus_target_id
+                        if cur_focus != _last_known_focus_target_id:
+                            await auto_browser.browser_session.event_bus.dispatch(
+                                SwitchTabEvent(target_id=_last_known_focus_target_id)
+                            )
+                            logger.info(
+                                f"[BrowserAutomation] Restored focus from ...{cur_focus[-4:] if cur_focus else 'None'} "
+                                f"to ...{_last_known_focus_target_id[-4:]} after session recreation"
+                            )
+                        else:
+                            logger.debug(f"[BrowserAutomation] Focus already on correct target: ...{cur_focus[-4:]}")
+                    except Exception as e:
+                        logger.warning(f"[BrowserAutomation] Failed to restore focus after session recreation: {e}")
+
+                _cached_browser_session = auto_browser.browser_session
                 return auto_browser.browser_session
             
             return auto_browser
@@ -3276,6 +3359,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             return None
 
     async def _run_browser_use(task: str, mainwin, state: dict | None = None, calling_agent_id: str | None = None) -> dict:
+        nonlocal _last_known_focus_target_id
         try:
             import asyncio
             from browser_use import Agent as BUAgent
@@ -3325,7 +3409,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
                     # Guard against double-execution: check if this step_id was already processed
                     # Use module-level lock and set to prevent race condition
-                    global _passive_steps_lock, _passive_steps_processed
+                    global _passive_steps_processed
                     
                     passive_cmd_check = None
                     if isinstance(state, dict):
@@ -3347,7 +3431,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 step_key = f"{run_id_fallback}:{node_name}"
                     
                     if step_key:
-                        async with _passive_steps_lock:
+                        with _passive_steps_lock:
                             if step_key in _passive_steps_processed:
                                 logger.info(f"[BrowserAutomation] Skipping duplicate execution for step: {step_key}")
                                 return {"passive": True, "skipped": True, "reason": "duplicate_execution"}
@@ -3372,33 +3456,86 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         task = asyncio.create_task(browser_session.start())
                         await task
 
-                    actions = None
-                    try:
-                        tool_input = state.get("tool_input") if isinstance(state, dict) else None
-                    except Exception:
-                        tool_input = None
-
-                    if isinstance(tool_input, dict):
-                        node_input = tool_input.get(node_name)
-                        if isinstance(node_input, dict) and isinstance(node_input.get("actions"), list):
-                            actions = node_input.get("actions")
-                        elif isinstance(tool_input.get("actions"), list):
-                            actions = tool_input.get("actions")
-
-                    if actions is None:
-                        if isinstance(state, dict) and isinstance(state.get("browser_use_actions"), list):
-                            actions = state.get("browser_use_actions")
-
-                    if actions is None:
-                        actions = []
+                    # Extract actions from multiple possible state paths (modular for future event types)
+                    def _extract_actions_from_state(st: dict, nd_name: str) -> list:
+                        """
+                        Extract actions from state, checking multiple possible paths.
+                        Returns list of actions or empty list.
+                        
+                        Priority order:
+                        1. state.tool_input.{node_name}.actions
+                        2. state.tool_input.actions
+                        3. state.browser_use_actions
+                        4. state.attributes.passive_command.actions
+                        5. state.attributes.passive_command_actions (from adapt_to_state mapping)
+                        """
+                        if not isinstance(st, dict):
+                            return []
+                        
+                        # 1. Check tool_input.{node_name}.actions
+                        try:
+                            tool_input = st.get("tool_input")
+                            if isinstance(tool_input, dict):
+                                node_input = tool_input.get(nd_name)
+                                if isinstance(node_input, dict) and isinstance(node_input.get("actions"), list):
+                                    logger.debug(f"[PassiveMode] Found actions in tool_input.{nd_name}.actions")
+                                    return node_input.get("actions")
+                                # 2. Check tool_input.actions
+                                if isinstance(tool_input.get("actions"), list):
+                                    logger.debug("[PassiveMode] Found actions in tool_input.actions")
+                                    return tool_input.get("actions")
+                        except Exception:
+                            pass
+                        
+                        # 3. Check browser_use_actions
+                        if isinstance(st.get("browser_use_actions"), list):
+                            logger.debug("[PassiveMode] Found actions in browser_use_actions")
+                            return st.get("browser_use_actions")
+                        
+                        # 4. Check attributes.passive_command.actions
+                        try:
+                            attrs = st.get("attributes", {})
+                            passive_cmd = attrs.get("passive_command")
+                            if isinstance(passive_cmd, dict) and isinstance(passive_cmd.get("actions"), list):
+                                logger.debug("[PassiveMode] Found actions in attributes.passive_command.actions")
+                                return passive_cmd.get("actions")
+                        except Exception:
+                            pass
+                        
+                        # 5. Check attributes.passive_command_actions (from adapt_to_state mapping)
+                        try:
+                            attrs = st.get("attributes", {})
+                            if isinstance(attrs.get("passive_command_actions"), list):
+                                logger.debug("[PassiveMode] Found actions in attributes.passive_command_actions")
+                                return attrs.get("passive_command_actions")
+                        except Exception:
+                            pass
+                        
+                        return []
+                    
+                    actions = _extract_actions_from_state(state, node_name)
+                    logger.info(f"[PassiveMode] Extracted {len(actions)} actions from state")
                     if not isinstance(actions, list):
                         return {"error": "browser-use passive mode enabled but actions is not a list"}
 
-                    passive_agent = PassiveAgent(
-                        browser_session=browser_session,
-                        tools=custom_controller,
-                        privacy_enabled=True,
-                    )
+                    # Reuse PassiveAgent across loop iterations (keyed by browser_session id)
+                    global _cached_passive_agents
+                    session_id = id(browser_session)
+                    if session_id in _cached_passive_agents:
+                        passive_agent = _cached_passive_agents[session_id]
+                        logger.debug(f"[PassiveMode] Reusing cached PassiveAgent for session {session_id}")
+                    else:
+                        passive_agent = PassiveAgent(
+                            browser_session=browser_session,
+                            tools=custom_controller,
+                            privacy_enabled=True,
+                        )
+                        # Transfer saved focus target from previous session
+                        if _last_known_focus_target_id:
+                            passive_agent._last_focus_target_id = _last_known_focus_target_id
+                            logger.info(f"[PassiveMode] Transferred focus target ...{_last_known_focus_target_id[-4:]} to new PassiveAgent")
+                        _cached_passive_agents[session_id] = passive_agent
+                        logger.info(f"[PassiveMode] Created new PassiveAgent for session {session_id}")
 
                     # Get passive_command from state.attributes for run_id/step_id
                     passive_cmd = None
@@ -3419,6 +3556,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             stop_on_error=stop_on_error,
                             include_screenshot=include_screenshot,
                         )
+                        # Update closure-level focus target after successful execution
+                        if hasattr(passive_agent, '_last_focus_target_id') and passive_agent._last_focus_target_id:
+                            _last_known_focus_target_id = passive_agent._last_focus_target_id
                     except Exception as e:
                         exec_error = e
                         err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNodePassive")
@@ -3464,6 +3604,13 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     if exec_error:
                         return {"error": str(payload.get("error", str(exec_error)))}
                     
+                    # Strip screenshot_base64 from browser dict before returning to langgraph state
+                    # to keep state history logs clean (no huge base64 blobs).
+                    if isinstance(payload.get("browser"), dict):
+                        payload["browser"].pop("screenshot_base64", None)
+
+                    logger.info(f"[PassiveMode] Browser automation node returning. Workflow should continue to loop condition check.")
+                    send_skill_editor_log("log", f"[PassiveMode] Browser automation complete. Loop should continue.")
                     return {"passive": True, **payload}
                 except Exception as e:
                     err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNodePassive")
@@ -4044,7 +4191,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": f"Automation pending: {action}"})
 
             state["n_steps"] += 1
-            add_to_history(state, ActionMessage(content=f"action: browser-use {task_instructions}; result: {info}"))
+            # Truncate info for history to avoid huge screenshot_base64 in logs
+            from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
+            info_for_history = truncate_screenshot_for_logging(info)
+            add_to_history(state, ActionMessage(content=f"action: browser-use {task_instructions}; result: {info_for_history}"))
 
             return state
 

@@ -5,6 +5,7 @@
   "last_updated": "2025-10-15",
   
   "field_mapping": {
+    "id": "toolid"
   },
   
   "cloud_required_fields": {
@@ -14,7 +15,6 @@
   "excluded_fields": [
     "agid",
     "tool_id",
-    "toolid",
     "owner"
   ],
   

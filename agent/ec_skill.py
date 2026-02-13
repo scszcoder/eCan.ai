@@ -871,7 +871,7 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
             log_state = truncate_screenshot_for_logging(state)
         except Exception:
             log_state = str(state)[:500] + "..." if len(str(state)) > 500 else state
-        logger.debug("[node_builder]returning state...", log_state)
+        logger.debug(f"[node_builder]returning state... {log_state}")
         return state
     # The node_builder itself returns the wrapper function
     return wrapper

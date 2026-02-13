@@ -478,6 +478,14 @@ class TaskExecutor:
             
             # Step 7: Process stream
             for step in agen:
+                # Truncate screenshot data for logging
+                try:
+                    from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
+                    log_step_sync = truncate_screenshot_for_logging(step)
+                except Exception:
+                    log_step_sync = str(step)[:500] + "..."
+                logger.debug(f"sync Step output: {log_step_sync}")
+                
                 # Check for cancellation
                 if self.task.cancellation_event.is_set():
                     logger.info(f"Task {self.task.name} ({self.task.run_id}) received cancellation signal. Stopping.")
@@ -510,7 +518,7 @@ class TaskExecutor:
                 # Check for interrupt/input required
                 if step.get("require_user_input") or step.get("await_agent") or step.get("__interrupt__"):
                     self.task.status.state = TaskState.input_required
-                    logger.debug(f"input required... {step}")
+                    logger.debug(f"input required... {log_step_sync}")
                     
                     if step.get("__interrupt__"):
                         i_tag, current_checkpoint = self.handle_interrupt(step, effective_config)
@@ -602,7 +610,13 @@ class TaskExecutor:
             
             # Step 6: Process async stream
             async for step in agen:
-                logger.debug(f"async Step output: {step}")
+                # Truncate screenshot data for logging
+                try:
+                    from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
+                    log_step = truncate_screenshot_for_logging(step)
+                except Exception:
+                    log_step = str(step)[:500] + "..."
+                logger.debug(f"async Step output: {log_step}")
                 await self.task.pause_event.wait()
                 
                 # Check for cancellation

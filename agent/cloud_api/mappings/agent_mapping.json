@@ -5,6 +5,7 @@
   "last_updated": "2025-12-24",
   
   "field_mapping": {
+    "id": "agid"
   },
   
   "cloud_required_fields": {
@@ -22,7 +23,6 @@
     "tasks",
     "tools",
     "owner",
-    "agid",
     "org_id",
     "created_at",
     "updated_at",

@@ -2001,21 +2001,36 @@ class MainWindow:
                     target_task, rule = routing_result
                     if target_task and hasattr(target_task, 'queue') and target_task.queue:
                         # Determine how to format the event based on rule config
+                        # Supports: event_type (explicit type), convert_to_callback (legacy flag)
+                        event_type_override = rule.get("event_type")
                         convert_to_callback = rule.get("convert_to_callback", True)
                         
-                        if convert_to_callback:
+                        cmd_data = cmd.model_dump() if hasattr(cmd, 'model_dump') else cmd
+                        
+                        if event_type_override:
+                            # Use explicit event_type from routing config (modular for future event types)
+                            routed_event = {
+                                "type": event_type_override,
+                                "run_id": run_id,
+                                "step_id": step_id,
+                                "data": cmd_data,
+                                "command": cmd,
+                            }
+                            target_task.queue.put(routed_event)
+                            logger.info(f"[PassiveCommand] Routed as {event_type_override} to task {target_task.id}")
+                        elif convert_to_callback:
                             # Convert to async_callback for pending_event resolution
                             correlation_id = f"{run_id}:{step_id}" if step_id else run_id
                             callback_event = {
                                 "type": "async_callback",
                                 "correlation_id": correlation_id,
-                                "result": cmd.model_dump() if hasattr(cmd, 'model_dump') else cmd,
+                                "result": cmd_data,
                             }
                             target_task.queue.put(callback_event)
                             logger.info(f"[PassiveCommand] Routed as async_callback to task {target_task.id} (correlation_id={correlation_id})")
                         else:
                             # Route as raw passive_command
-                            target_task.queue.put({"type": "passive_command", "command": cmd})
+                            target_task.queue.put({"type": "passive_command", "command": cmd, "data": cmd_data})
                             logger.info(f"[PassiveCommand] Routed as passive_command to task {target_task.id}")
                         return True
             
@@ -2025,6 +2040,9 @@ class MainWindow:
                 for task in agent_tasks:
                     task_run_id = getattr(task, 'run_id', None)
                     task_id = getattr(task, 'id', None)
+                    task_name = getattr(task, 'name', 'NO_NAME')
+                    # Debug: log each task being checked
+                    logger.debug(f"[PassiveCommand] Checking task: name={task_name}, run_id={task_run_id}, id={task_id}, looking_for={run_id}")
                     if task_run_id == run_id or task_id == run_id:
                         if hasattr(task, 'queue') and task.queue:
                             # Convert to async_callback for pending event resolution
@@ -2037,6 +2055,28 @@ class MainWindow:
                             task.queue.put(callback_event)
                             logger.info(f"[PassiveCommand] Fallback routed to task run_id={task_run_id}, id={task_id} as async_callback (correlation_id={correlation_id})")
                             return True
+            
+            # Check dev_runner's active dev task (for standalone skill runs)
+            for agent in getattr(self, 'agents', []) or []:
+                if hasattr(agent, 'runner') and hasattr(agent.runner, 'dev_runner'):
+                    dev_runner = agent.runner.dev_runner
+                    dev_task = getattr(dev_runner, '_dev_task', None)
+                    if dev_task:
+                        dev_task_run_id = getattr(dev_task, 'run_id', None)
+                        logger.debug(f"[PassiveCommand] Checking dev_runner._dev_task: run_id={dev_task_run_id}, looking_for={run_id}")
+                        if dev_task_run_id == run_id:
+                            if hasattr(dev_task, 'queue') and dev_task.queue:
+                                correlation_id = f"{run_id}:{step_id}" if step_id else run_id
+                                callback_event = {
+                                    "type": "async_callback",
+                                    "correlation_id": correlation_id,
+                                    "result": cmd.model_dump() if hasattr(cmd, 'model_dump') else cmd,
+                                }
+                                dev_task.queue.put(callback_event)
+                                logger.info(f"[PassiveCommand] Routed to dev_runner._dev_task run_id={dev_task_run_id} as async_callback (correlation_id={correlation_id})")
+                                return True
+                            else:
+                                logger.warning(f"[PassiveCommand] dev_runner._dev_task has no queue")
             
             logger.warning(f"[PassiveCommand] No task found for run_id={run_id}")
             return False
