@@ -288,10 +288,10 @@ export const FormRender = (_props: FormRenderProps<any>) => {
             {({ field }) => (
               <input
                 type="text"
-                value={(field.value as string) || ''}
+                value={(field.value as string) || '9228'}
                 onChange={(e) => field.onChange(e.target.value)}
-                placeholder="CDP Port (e.g., 9222)"
-                style={{ width: '100%', padding: '6px 12px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '3px' }}
+                placeholder="9228 (default)"
+                style={{ width: '100%', padding: '6px 12px', fontSize: '14px', border: '1px solid #d9d9d9', borderRadius: '3px', color: '#000000', backgroundColor: '#ffffff' }}
               />
             )}
           </Field>
@@ -384,6 +384,15 @@ export const FormRender = (_props: FormRenderProps<any>) => {
             {({ field: providerField }) => {
               const currentProvider = (providerField.value as string) || providers[0] || 'OpenAI';
               const providerOptions = providers.map(p => ({ label: p, value: p }));
+
+              // Persist resolved provider back to document model if missing
+              useEffect(() => {
+                if (!providerField.value && currentProvider) {
+                  setTimeout(() => providerField.onChange(currentProvider), 0);
+                  console.log(`[Browser Node] Persisted missing modelProvider: ${currentProvider}`);
+                }
+              }, [currentProvider, providerField.value]);
+
               return (
                 <Select
                   value={currentProvider}

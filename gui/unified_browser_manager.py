@@ -111,23 +111,55 @@ def _start_chrome_with_cdp(port: int = 9228, headless: bool = False) -> bool:
     
     # Determine Chrome executable path
     system = platform.system()
+    chrome_path = None
+    
     if system == "Darwin":  # macOS
         chrome_path = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
     elif system == "Windows":
-        chrome_path = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
-        if not os.path.exists(chrome_path):
-            chrome_path = "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe"
+        # Try multiple possible Chrome installation locations on Windows
+        possible_paths = [
+            "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+            "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+            os.path.expandvars("%LOCALAPPDATA%\\Google\\Chrome\\Application\\chrome.exe"),
+            os.path.expandvars("%PROGRAMFILES%\\Google\\Chrome\\Application\\chrome.exe"),
+            os.path.expandvars("%PROGRAMFILES(X86)%\\Google\\Chrome\\Application\\chrome.exe"),
+        ]
+        for path in possible_paths:
+            if os.path.exists(path):
+                chrome_path = path
+                break
     else:  # Linux
-        chrome_path = "/usr/bin/google-chrome"
-        if not os.path.exists(chrome_path):
-            chrome_path = "/usr/bin/chromium-browser"
+        possible_paths = [
+            "/usr/bin/google-chrome",
+            "/usr/bin/chromium-browser",
+            "/usr/bin/chromium",
+        ]
+        for path in possible_paths:
+            if os.path.exists(path):
+                chrome_path = path
+                break
     
-    if not os.path.exists(chrome_path):
-        logger.error(f"[BrowserManager] Chrome not found at {chrome_path}")
+    if not chrome_path or not os.path.exists(chrome_path):
+        error_msg = f"[BrowserManager] Chrome not found. Searched locations: "
+        if system == "Windows":
+            error_msg += "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe, "
+            error_msg += "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe, "
+            error_msg += "%LOCALAPPDATA%\\Google\\Chrome\\Application\\chrome.exe"
+            logger.error(error_msg)
+            logger.error("[BrowserManager] Please install Chrome or manually start it with: ")
+            logger.error('  chrome.exe --remote-debugging-port=9228 --user-data-dir="C:\\chrome-debug"')
+        else:
+            error_msg += str(possible_paths)
+            logger.error(error_msg)
         return False
     
+    logger.info(f"[BrowserManager] Found Chrome at: {chrome_path}")
+    
     # Prepare Chrome arguments
-    user_data_dir = "/tmp/chrome-cdp-profile"
+    if system == "Windows":
+        user_data_dir = os.path.expandvars("%TEMP%\\chrome-cdp-profile")
+    else:
+        user_data_dir = "/tmp/chrome-cdp-profile"
     args = [
         chrome_path,
         f"--remote-debugging-port={port}",

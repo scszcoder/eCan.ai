@@ -52,11 +52,11 @@ from gui.ipc.context_bridge import get_handler_context
 
 @IPCHandlerRegistry.handler('run_skill')
 def handle_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
-    """Handle get available test items request
+    """Handle run skill request - routes to local or cloud execution based on meta_data.run_in_cloud
 
     Args:
         request: IPC request object
-        params: None
+        params: Request parameters containing skill and optional meta_data
 
     Returns:
         str: JSON formatted response message
@@ -66,19 +66,22 @@ def handle_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
         truncated_request = request_str[:300] + "..." if len(request_str) > 300 else request_str
         logger.debug(f"Get start skill run handler called with request: {truncated_request}")
 
-        # Lazy import to avoid slow startup
-        from agent.ec_skills.dev_utils.skill_dev_utils import run_dev_skill
-
         ctx = get_handler_context(request, params)
         # Extract skill from params.input.skill (GraphQL format) or params.skill (direct format)
         input_data = (params or {}).get("input") or {}
         skill = input_data.get("skill") or (params or {}).get("skill")
         
+        # Extract meta_data for cloud execution
+        meta_data = skill.get("meta_data") if isinstance(skill, dict) else None
+        run_in_cloud = meta_data.get("run_in_cloud", False) if isinstance(meta_data, dict) else False
+        
         if skill:
             logger.debug(f"[IPC][run_skill] skill source: params.input.skill or params.skill")
+            logger.debug(f"[IPC][run_skill] run_in_cloud: {run_in_cloud}, meta_data: {meta_data}")
         else:
             logger.warning(f"[IPC][run_skill] No skill found in params: {params}")
             raise ValueError("No skill data provided in request")
+        
         try:
             diagram = (skill or {}).get("diagram") or {}
             wf = diagram.get("workFlow") or {}
@@ -87,10 +90,18 @@ def handle_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
             logger.debug(f"[IPC][run_skill] incoming diagram.bundle.sheets: count={len(bundle)} names={[ (s.get('name') or s.get('id')) for s in bundle if isinstance(s, dict) ]}")
         except Exception as _e:
             logger.debug(f"[IPC][run_skill] payload debug logging failed: {_e}")
-        results = run_dev_skill(ctx.main_window, skill)
+        
+        # Route to cloud or local execution
+        if run_in_cloud:
+            results = _run_skill_in_cloud(ctx, skill, meta_data)
+        else:
+            # Lazy import to avoid slow startup
+            from agent.ec_skills.dev_utils.skill_dev_utils import run_dev_skill
+            results = run_dev_skill(ctx.main_window, skill)
+        
         return create_success_response(request, {
             "results": results,
-            'message': "Start skill run successful" if results["success"] else "Start skill run failed"
+            'message': "Start skill run successful" if results.get("success") else "Start skill run failed"
         })
 
     except Exception as e:
@@ -100,6 +111,269 @@ def handle_run_skill(request: IPCRequest, params: Optional[Any]) -> IPCResponse:
             'LOGIN_ERROR',
             f"Error during start skill run: {str(e)}"
         )
+
+
+def _run_skill_in_cloud(ctx, skill: dict, meta_data: dict) -> dict:
+    """
+    Run skill in cloud mode:
+    1. If hybrid_cloud_mode, start local helper skill first and get its run_id/agent_id
+    2. Subscribe to onPassiveCommand using the run_id and client_id (agent_id)
+    3. Upload skill files to S3 via writeSkillFile mutation
+    4. Call runSkill mutation to execute in cloud worker
+    
+    Args:
+        ctx: Handler context with main_window and login info
+        skill: Skill data dict
+        meta_data: Metadata with run_in_cloud, client_id, run_id, hybrid_cloud_mode, local_helper_skill_id
+    
+    Returns:
+        dict with success, error, run_status
+    """
+    import requests
+    import uuid
+    from agent.cloud_api.cloud_api import (
+        upload_skill_files_to_cloud,
+        run_skill_in_cloud,
+        get_appsync_endpoint
+    )
+    
+    try:
+        logger.info(f"[CloudSkill] Starting cloud execution with meta_data: {meta_data}")
+        
+        # Get auth token and endpoint
+        login = AppContext.get_login()
+        if not login or not login.access_token:
+            return {"success": False, "error": "Not authenticated - no access token", "run_status": None}
+        
+        token = login.access_token
+        endpoint = get_appsync_endpoint()
+        username = login.auth_manager.current_user if login.auth_manager else "unknown"
+        
+        # Check for hybrid cloud mode
+        hybrid_cloud_mode = meta_data.get("hybrid_cloud_mode", False) if meta_data else False
+        local_helper_skill_id = meta_data.get("local_helper_skill_id") if meta_data else None
+        
+        # Initialize run_id and client_id
+        run_id = meta_data.get("run_id", str(uuid.uuid4())) if meta_data else str(uuid.uuid4())
+        client_id = meta_data.get("client_id", "client-0123456789") if meta_data else "client-0123456789"
+        local_helper_task_id = None
+        
+        # Step 0: If hybrid cloud mode, start local helper skill first
+        if hybrid_cloud_mode and local_helper_skill_id:
+            logger.info(f"[CloudSkill] Hybrid cloud mode enabled, starting local helper skill: {local_helper_skill_id}")
+            helper_result = _start_local_helper_skill(ctx, local_helper_skill_id)
+            
+            if not helper_result.get("success"):
+                error_msg = helper_result.get("error", "Failed to start local helper skill")
+                logger.error(f"[CloudSkill] {error_msg}")
+                return {"success": False, "error": error_msg, "run_status": None}
+            
+            # Use the helper skill's run_id and agent_id for cloud execution
+            run_id = helper_result.get("run_id", run_id)
+            client_id = helper_result.get("agent_id", client_id)
+            local_helper_task_id = helper_result.get("task_id")
+            
+            logger.info(f"[CloudSkill] Local helper started: task_id={local_helper_task_id}, run_id={run_id}, client_id={client_id}")
+            
+            # Step 0.5: Subscribe to onPassiveCommand for this run
+            _subscribe_to_passive_command(ctx, client_id, run_id)
+        
+        # Update meta_data with actual run_id and client_id
+        updated_meta_data = {
+            **(meta_data or {}),
+            "run_id": run_id,
+            "client_id": client_id,
+            "local_helper_task_id": local_helper_task_id
+        }
+        
+        # Prepare skill files for upload
+        skill_name = skill.get("skillName", "dev_skill")
+        skill_json = json.dumps(skill)
+        
+        # Build file path for cloud storage (similar to web mode)
+        # Format: my_skills/<skill_name>_skill/diagram_dir/<skill_name>_skill.json
+        safe_username = username.replace("@", "_").replace(".", "_") if username else "unknown"
+        skill_file_path = f"{safe_username}/my_skills/{skill_name}_skill/diagram_dir/{skill_name}_skill.json"
+        
+        files_to_upload = [{
+            "filePath": skill_file_path,
+            "content": skill_json,
+            "userId": username
+        }]
+        
+        # Step 1: Upload skill files to S3
+        logger.info(f"[CloudSkill] Step 1: Uploading skill files to S3...")
+        session = requests.Session()
+        upload_result = upload_skill_files_to_cloud(session, token, files_to_upload, endpoint)
+        
+        if not upload_result.get("success"):
+            error_msg = upload_result.get("errors") or upload_result.get("error") or "Upload failed"
+            logger.error(f"[CloudSkill] Failed to upload skill files: {error_msg}")
+            return {"success": False, "error": f"Failed to upload skill: {error_msg}", "run_status": None}
+        
+        logger.info(f"[CloudSkill] Skill files uploaded successfully")
+        
+        # Step 2: Call runSkill mutation
+        logger.info(f"[CloudSkill] Step 2: Calling runSkill mutation...")
+        run_result = run_skill_in_cloud(session, token, skill_json, username, updated_meta_data, endpoint)
+        
+        if not run_result.get("success"):
+            error_msg = run_result.get("errors") or run_result.get("error") or "Run failed"
+            logger.error(f"[CloudSkill] Failed to run skill in cloud: {error_msg}")
+            return {"success": False, "error": f"Failed to run skill: {error_msg}", "run_status": None}
+        
+        run_data = run_result.get("data", {})
+        logger.info(f"[CloudSkill] Skill run initiated: runId={run_data.get('runId')}, status={run_data.get('status')}")
+        
+        return {
+            "success": True,
+            "error": "",
+            "run_status": {
+                "runId": run_data.get("runId") or run_id,
+                "status": run_data.get("status"),
+                "message": run_data.get("message"),
+                "cloud_execution": True,
+                "hybrid_cloud_mode": hybrid_cloud_mode,
+                "local_helper_task_id": local_helper_task_id,
+                "client_id": client_id
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"[CloudSkill] Cloud execution failed: {e} {traceback.format_exc()}")
+        return {"success": False, "error": str(e), "run_status": None}
+
+
+def _start_local_helper_skill(ctx, skill_id: str) -> dict:
+    """
+    Start a local helper skill and return its run_id and agent_id.
+    
+    Args:
+        ctx: Handler context with main_window
+        skill_id: ID of the skill to start
+    
+    Returns:
+        dict with success, run_id, agent_id, task_id
+    """
+    import uuid
+    
+    try:
+        main_window = ctx.main_window
+        if not main_window:
+            return {"success": False, "error": "No main window available"}
+        
+        # Get agent and skills
+        agents = getattr(main_window, 'agents', [])
+        if not agents:
+            return {"success": False, "error": "No agents available"}
+        
+        agent = agents[0]  # Use first agent
+        agent_id = getattr(getattr(agent, 'card', None), 'id', None) or str(uuid.uuid4())
+        
+        # Find the skill by ID or name
+        skills = getattr(agent, 'skills', []) or getattr(main_window, 'agent_skills', []) or []
+        target_skill = None
+        for skill in skills:
+            if getattr(skill, 'id', '') == skill_id or getattr(skill, 'name', '') == skill_id:
+                target_skill = skill
+                break
+        
+        if not target_skill:
+            available_skills = [f"{getattr(s, 'id', 'unknown')}:{getattr(s, 'name', 'unknown')}" for s in skills]
+            return {"success": False, "error": f"Skill '{skill_id}' not found. Available: {available_skills}"}
+        
+        skill_name = getattr(target_skill, 'name', skill_id)
+        
+        # Create task for the helper skill
+        from agent.ec_tasks import ManagedTask
+        
+        task_id = str(uuid.uuid4())
+        run_id = str(uuid.uuid4())
+        task_name = f"{skill_name}_helper_{task_id[:8]}"
+        
+        new_task = ManagedTask(
+            id=task_id,
+            run_id=run_id,
+            name=task_name,
+            skill=target_skill,
+            trigger="hybrid_cloud",
+            metadata={"is_helper_skill": True, "parent_cloud_skill": True}
+        )
+        
+        # Add task to agent
+        if not hasattr(agent, 'tasks') or agent.tasks is None:
+            agent.tasks = []
+        agent.tasks.append(new_task)
+        
+        # Start the task via runner
+        runner = getattr(agent, 'runner', None)
+        if runner:
+            from concurrent.futures import ThreadPoolExecutor
+            thread_pool = getattr(agent, 'thread_pool_executor', None)
+            if not thread_pool:
+                thread_pool = ThreadPoolExecutor(max_workers=4)
+                agent.thread_pool_executor = thread_pool
+            
+            future = thread_pool.submit(
+                runner.launch_unified_run,
+                new_task,
+                "hybrid_cloud"
+            )
+            
+            if hasattr(agent, 'active_tasks') and hasattr(agent, 'task_lock'):
+                with agent.task_lock:
+                    agent.active_tasks[run_id] = future
+            
+            logger.info(f"[CloudSkill] Local helper task submitted: {task_id}, run_id={run_id}")
+        else:
+            logger.warning(f"[CloudSkill] No runner available, task created but not started")
+        
+        return {
+            "success": True,
+            "task_id": task_id,
+            "run_id": run_id,
+            "agent_id": agent_id,
+            "skill_name": skill_name
+        }
+        
+    except Exception as e:
+        logger.error(f"[CloudSkill] Failed to start local helper skill: {e} {traceback.format_exc()}")
+        return {"success": False, "error": str(e)}
+
+
+def _subscribe_to_passive_command(ctx, client_id: str, run_id: str):
+    """
+    Subscribe to onPassiveCommand for the given client_id and run_id.
+    This allows the local helper skill to receive commands from the cloud skill.
+    
+    Args:
+        ctx: Handler context with main_window
+        client_id: The agent ID to use as client_id
+        run_id: The run ID for this execution
+    """
+    try:
+        main_window = ctx.main_window
+        if not main_window:
+            logger.warning("[CloudSkill] No main window, cannot subscribe to passive command")
+            return
+        
+        # Check if main_window has the subscription method
+        if hasattr(main_window, 'subscribe_passive_command'):
+            main_window.subscribe_passive_command(client_id, run_id)
+            logger.info(f"[CloudSkill] Subscribed to onPassiveCommand: client_id={client_id}, run_id={run_id}")
+        elif hasattr(main_window, 'ws_manager'):
+            # Use WebSocket manager to subscribe
+            ws_manager = main_window.ws_manager
+            if hasattr(ws_manager, 'subscribe_passive_command'):
+                ws_manager.subscribe_passive_command(client_id, run_id)
+                logger.info(f"[CloudSkill] Subscribed via ws_manager: client_id={client_id}, run_id={run_id}")
+            else:
+                logger.warning("[CloudSkill] ws_manager has no subscribe_passive_command method")
+        else:
+            logger.warning("[CloudSkill] No subscription method available for passive command")
+            
+    except Exception as e:
+        logger.error(f"[CloudSkill] Failed to subscribe to passive command: {e}")
 
 
 @IPCHandlerRegistry.handler('cancel_run_skill')

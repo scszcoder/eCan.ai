@@ -60,21 +60,20 @@ async def build_agent_skills_parallel(mainwin):
         ("rpa_helper_chatter", create_rpa_helper_chatter_skill),
     ]
 
-    # Batch 3: Advanced skills (example skills from resource/my_skills + complex skills)
+    # Batch 3: Advanced skills - auto-scan resource/my_skills directory
+    # This automatically discovers all skill folders in resource/my_skills/
+    resource_skill_names = scan_resource_skills()
+    
+    # Create async wrapper for each discovered skill
+    async def create_resource_skill_wrapper(skill_name: str):
+        """Async wrapper for create_skill_from_resource"""
+        return create_skill_from_resource(skill_name)
+    
     advanced_skills = [
-        # Example skills from resource/my_skills (loaded from JSON)
-        ("demo0", create_demo0_skill),
-        ("ebay_fullfill_messages", create_ebay_fullfill_messages_skill),
-        ("search_digikey_chatter", create_search_digikey_chatter_skill),
-        # ("rpa_supervisor_scheduling", create_rpa_supervisor_scheduling_skill),
-        # ("rpa_supervisor_scheduling_chatter", create_rpa_supervisor_scheduling_chatter_skill),
-        # ("rpa_supervisor", create_rpa_supervisor_skill),
-        # ("rpa_supervisor_chatter", create_rpa_supervisor_chatter_skill),
-        # ("search_1688", create_search_1688_skill),
-        # ("search_digi_key", create_search_digi_key_skill),
-        # ("search_parts", create_search_parts_skill),
-        # ("search_parts_chatter", create_search_parts_chatter_skill),
+        (name, lambda mw, n=name: create_resource_skill_wrapper(n))
+        for name in resource_skill_names
     ]
+    logger.info(f"[build_agent_skills] Auto-discovered {len(advanced_skills)} skills from resource/my_skills: {resource_skill_names}")
 
     start_time = time.time()
     total_skills = len(core_skills) + len(rpa_skills) + len(advanced_skills)
@@ -141,6 +140,13 @@ def _create_skill_from_workflow(
         if run_mode in ("developing", "released"):
             sk.run_mode = run_mode
 
+        # Cloud execution settings - check both top-level (from file) and config dict (from DB)
+        config = sk.config or {}
+        sk.run_in_cloud = bool(core_dict.get("run_in_cloud", config.get("run_in_cloud", False)))
+        sk.hybrid_cloud_mode = bool(core_dict.get("hybrid_cloud_mode", config.get("hybrid_cloud_mode", False)))
+        sk.local_helper_skill_id = core_dict.get("local_helper_skill_id", config.get("local_helper_skill_id", None))
+        sk.local_helper_machine = core_dict.get("local_helper_machine", config.get("local_helper_machine", None))
+
         sk.set_work_flow(workflow)
         sk.source = source
         sk.path = str(json_path)
@@ -157,6 +163,40 @@ def _create_skill_from_workflow(
         return None
 
 
+def scan_resource_skills() -> List[str]:
+    """Scan resource/my_skills directory and return list of skill names.
+    
+    Looks for directories matching pattern *_skill/ that contain diagram_dir/.
+    
+    Returns:
+        List of skill names (without _skill suffix)
+    """
+    try:
+        skills_root = _get_resource_skills_root()
+        if not skills_root.exists():
+            logger.warning(f"[scan_resource_skills] resource/my_skills not found: {skills_root}")
+            return []
+        
+        skill_names = []
+        for item in skills_root.iterdir():
+            if item.is_dir() and item.name.endswith('_skill'):
+                # Check if it has diagram_dir or code_dir/code_skill
+                has_diagram = (item / 'diagram_dir').exists()
+                has_code = (item / 'code_dir').exists() or (item / 'code_skill').exists()
+                
+                if has_diagram or has_code:
+                    skill_name = item.name[:-6]  # Remove '_skill' suffix
+                    skill_names.append(skill_name)
+                    logger.debug(f"[scan_resource_skills] Found skill: {skill_name}")
+        
+        logger.info(f"[scan_resource_skills] Found {len(skill_names)} skills in resource/my_skills: {skill_names}")
+        return skill_names
+        
+    except Exception as e:
+        logger.error(f"[scan_resource_skills] Error scanning: {e}")
+        return []
+
+
 def create_skill_from_resource(
     skill_name: str,
     json_filename: Optional[str] = None,
@@ -165,20 +205,18 @@ def create_skill_from_resource(
     """
     Create a skill from resource/my_skills directory.
     
-    Automatically constructs paths and loads skill configuration from JSON files.
-    Used by create_xxx_skill functions for resource/my_skills examples.
+    Uses load_skill_from_folder to handle both diagram_dir and code_dir skills.
     
     Args:
         skill_name: Name of the skill (e.g., "web_rag_assistant", "demo0")
-        json_filename: Optional custom JSON filename. If None, uses "{skill_name}_skill.json"
-        bundle_filename: Optional custom bundle filename. If None, uses "{skill_name}_skill_bundle.json"
+        json_filename: Optional custom JSON filename (legacy, ignored)
+        bundle_filename: Optional custom bundle filename (legacy, ignored)
     
     Returns:
         EC_Skill object or None if creation fails
     
     Example:
-        create_skill_from_resource("web_rag_assistant")  # Auto: web_rag_assistant_skill.json
-        create_skill_from_resource("demo0", "custom.json")  # Custom filename
+        create_skill_from_resource("passive0")  # Loads from resource/my_skills/passive0_skill/
     """
     try:
         # Get root directory
@@ -190,66 +228,21 @@ def create_skill_from_resource(
             logger.error(f"[create_skill_from_resource] Skill folder not found: {skill_folder}")
             return None
         
-        # Construct diagram directory path
-        diagram_dir = skill_folder / "diagram_dir"
-        if not diagram_dir.exists():
-            logger.error(f"[create_skill_from_resource] diagram_dir not found: {diagram_dir}")
+        # Use load_skill_from_folder which handles both diagram_dir and code_dir
+        sk = load_skill_from_folder(skill_folder, mainwin=None)
+        if not sk:
+            logger.error(f"[create_skill_from_resource] Failed to load skill from {skill_folder}")
             return None
-        
-        # Construct JSON file path with default naming convention
-        if json_filename is None:
-            json_filename = f"{skill_name}_skill.json"
-        json_path = diagram_dir / json_filename
-        
-        if not json_path.exists():
-            logger.error(f"[create_skill_from_resource] JSON file not found: {json_path}")
-            return None
-        
-        # Load main JSON file
-        with open(json_path, 'r', encoding='utf-8') as f:
-            core_dict = json.load(f)
-        
-        # Try to load bundle file if exists (with default naming convention)
-        if bundle_filename is None:
-            bundle_filename = f"{skill_name}_skill_bundle.json"
-        bundle_path = diagram_dir / bundle_filename
-        
-        bundle_dict = None
-        if bundle_path.exists():
-            try:
-                with open(bundle_path, 'r', encoding='utf-8') as f:
-                    bundle_dict = json.load(f)
-            except Exception as e:
-                logger.warning(f"[create_skill_from_resource] Failed to load bundle: {e}")
 
-        # Keep consistent breakpoint manager behavior with file-loaded skills
-        bp_mgr = BreakpointManager()
-        workflow, _breakpoints = flowgram2langgraph_v2(core_dict, bundle_json=bundle_dict, enable_subgraph=False, bp_mgr=bp_mgr)
+        # Treat resource examples as code-based skills (read-only + deterministic id)
+        sk.source = "code"
         try:
-            if isinstance(_breakpoints, (list, tuple)):
-                bp_mgr.set_breakpoints(list(_breakpoints))
+            from agent.ec_skill import _generate_stable_id
+            sk.id = _generate_stable_id(sk.name, sk.source)
         except Exception:
             pass
 
-        if not workflow:
-            logger.error(f"[create_skill_from_resource] Failed to convert workflow for {skill_name}")
-            return None
-
-        # Create skill object using common helper (field population only)
-        sk = _create_skill_from_workflow(
-            core_dict=core_dict,
-            workflow=workflow,
-            skill_name=skill_name,
-            json_path=json_path,
-            source="code",
-        )
-
-        if sk:
-            # Load mapping rules using common helper
-            mapping_rules = _load_mapping_rules_from_path(str(json_path), sk.name)
-            if mapping_rules:
-                sk.mapping_rules = mapping_rules
-            logger.info(f"[create_skill_from_resource] ✅ Created skill '{sk.name}' from {skill_folder.name}")
+        logger.info(f"[create_skill_from_resource] ✅ Created skill '{sk.name}' from {skill_folder.name}")
         return sk
         
     except Exception as e:
@@ -608,6 +601,13 @@ def _fill_skill_from_db_view(skill_obj: EC_Skill, v: DBAgentSkill) -> None:
     skill_obj.ui_info = v.dict('ui_info', getattr(skill_obj, 'ui_info', {}) or {})
     skill_obj.objectives = v.list('objectives', getattr(skill_obj, 'objectives', []) or [])
     skill_obj.need_inputs = v.list('need_inputs', getattr(skill_obj, 'need_inputs', []) or [])
+    
+    # Cloud execution settings are stored in config dict
+    config = skill_obj.config or {}
+    skill_obj.run_in_cloud = bool(config.get('run_in_cloud', False))
+    skill_obj.hybrid_cloud_mode = bool(config.get('hybrid_cloud_mode', False))
+    skill_obj.local_helper_skill_id = config.get('local_helper_skill_id', None)
+    skill_obj.local_helper_machine = config.get('local_helper_machine', None)
 
 
 def _load_core_and_bundle_for_skill_path(skill_path: str) -> tuple[dict | None, dict | None]:

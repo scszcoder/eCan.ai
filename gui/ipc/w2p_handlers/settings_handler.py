@@ -12,6 +12,45 @@ from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create
 
 from utils.logger_helper import logger_helper as logger
 
+@IPCHandlerRegistry.handler('get_hostname')
+def handle_get_hostname(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Get the current machine's hostname.
+    
+    Returns:
+        IPCResponse with hostname
+    """
+    try:
+        import socket
+        import platform
+        
+        # Try multiple methods to get hostname
+        hostname = None
+        try:
+            hostname = socket.gethostname()
+        except Exception:
+            pass
+        
+        if not hostname:
+            try:
+                hostname = platform.node()
+            except Exception:
+                pass
+        
+        if not hostname:
+            hostname = "Unknown-Computer"
+        
+        # Clean up hostname (remove domain suffix if present)
+        if "." in hostname:
+            hostname = hostname.split(".", 1)[0]
+        
+        logger.debug(f"[get_hostname] Returning hostname: {hostname}")
+        return create_success_response(request, {'hostname': hostname})
+        
+    except Exception as e:
+        logger.error(f"Error getting hostname: {e}")
+        return create_error_response(request, 'HOSTNAME_ERROR', f"Error getting hostname: {str(e)}")
+
+
 @IPCHandlerRegistry.handler('get_settings')
 def handle_get_settings(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Handle login request
@@ -292,6 +331,9 @@ def handle_update_user_preferences(request: IPCRequest, params: Optional[Dict[st
 # Import them here for backward compatibility
 from gui.ollama_utils import get_ollama_tags_path, save_ollama_tags, load_ollama_tags, fetch_ollama_models
 
+# RyoAIS models management functions
+from gui.ryoais_utils import get_ryoais_models_path, save_ryoais_models, load_ryoais_models, fetch_ryoais_models
+
 
 @IPCHandlerRegistry.background_handler('settings.getOllamaModels')
 def handle_get_ollama_models(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
@@ -323,5 +365,41 @@ def handle_get_ollama_models(request: IPCRequest, params: Optional[Dict[str, Any
             error_type = 'OLLAMA_API_ERROR'
         else:
             error_type = 'OLLAMA_ERROR'
+        
+        return create_error_response(request, error_type, error_msg)
+
+
+@IPCHandlerRegistry.background_handler('settings.getRyoAISModels')
+def handle_get_ryoais_models(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """
+    Fetch available models from RyoAIS OpenAI-compatible API and save to local file.
+    
+    Expected params:
+    - host: str - RyoAIS API host (e.g., 'http://localhost/v1')
+    - api_key: str - Optional API key for authentication
+    - username: str - Optional username for saving to user-specific path
+    """
+    host = params.get('host', 'http://localhost/v1') if params else 'http://localhost/v1'
+    api_key = params.get('api_key') if params else None
+    username = params.get('username') if params else None
+    
+    # Use the common fetch_ryoais_models function
+    success, model_list, error_msg = fetch_ryoais_models(host, api_key, username)
+    
+    if success:
+        return create_success_response(request, {
+            'models': model_list,
+            'host': host
+        })
+    else:
+        # Determine error type based on error message
+        if 'Cannot connect' in error_msg:
+            error_type = 'RYOAIS_CONNECTION_ERROR'
+        elif 'timed out' in error_msg:
+            error_type = 'RYOAIS_TIMEOUT'
+        elif 'status' in error_msg:
+            error_type = 'RYOAIS_API_ERROR'
+        else:
+            error_type = 'RYOAIS_ERROR'
         
         return create_error_response(request, error_type, error_msg)

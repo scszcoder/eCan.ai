@@ -50,3 +50,6 @@ skill-editor-cache/
 # Pattern: */debug/workflows/
 */debug/workflows/
 debug/workflows/
+
+# Local-only lambda download
+/lambda_functions/ecbAccountManager/

@@ -162,6 +162,56 @@ def _deep_merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def apply_adapt_to_state_mapping(
+    state_patch: Dict[str, Any],
+    event_data: Dict[str, Any],
+    adapt_to_state_config: Dict[str, str],
+    on_conflict: str = "overwrite"
+) -> None:
+    """
+    Apply adapt_to_state mapping from data_mapping.json to write event data to state paths.
+    
+    This is a modular function that can be used for any event type, not just passive_command.
+    
+    Args:
+        state_patch: The state patch dict to write to
+        event_data: The event data dict containing source values
+        adapt_to_state_config: Mapping from source keys to target state paths
+            Example: {
+                "actions": "state.attributes.passive_command_actions",
+                "run_id": "state.attributes.passive_run_id",
+                "step_id": "state.attributes.passive_step_id"
+            }
+        on_conflict: Conflict resolution policy for _write()
+    
+    The target paths can start with "state." which will be stripped, or be direct paths.
+    Example: "state.attributes.foo" -> writes to state_patch["attributes"]["foo"]
+    """
+    if not isinstance(adapt_to_state_config, dict) or not isinstance(event_data, dict):
+        return
+    
+    for source_key, target_path in adapt_to_state_config.items():
+        if not isinstance(target_path, str):
+            continue
+        
+        # Get value from event_data
+        value = event_data.get(source_key)
+        if value is None:
+            continue
+        
+        # Normalize target path - strip "state." prefix if present
+        normalized_path = target_path
+        if normalized_path.startswith("state."):
+            normalized_path = normalized_path[6:]  # Remove "state." prefix
+        
+        # Write to state_patch
+        try:
+            _write(state_patch, normalized_path, value, on_conflict=on_conflict)
+            logger.debug(f"[adapt_to_state] Wrote {source_key} -> {normalized_path}")
+        except Exception as e:
+            logger.warning(f"[adapt_to_state] Failed to write {source_key} -> {normalized_path}: {e}")
+
+
 def _to_string(v: Any) -> str:
     """Best-effort convert a value to a UTF-8-safe JSON/string representation."""
     if isinstance(v, str):
@@ -608,7 +658,13 @@ def build_resume_from_mapping(event: Json, state: Json, node_output: Optional[Js
         "timestamp": event.get("timestamp"),
     })
 
-    logger.debug("state after mapping:", state_patch)
+    # Truncate screenshot data for logging
+    try:
+        from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
+        log_state_patch = truncate_screenshot_for_logging(state_patch)
+    except Exception:
+        log_state_patch = str(state_patch)[:500] + "..."
+    logger.debug("state after mapping:", log_state_patch)
     return resume, state_patch
 
 
@@ -654,7 +710,13 @@ def build_node_transfer_patch(node_id: str, state_snapshot: Json, node_transfer_
         # Reuse the existing mapping engine. For per-node transfer, we have no external event,
         # and sources are expected to be state.* only now.
         logger.debug("build_node_transfer_patch......node_id", node_id)
-        logger.debug("build_node_transfer_patch......state_snapshot", state_snapshot)
+        # Truncate screenshot data for logging
+        try:
+            from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
+            log_state_snapshot = truncate_screenshot_for_logging(state_snapshot)
+        except Exception:
+            log_state_snapshot = str(state_snapshot)[:500] + "..."
+        logger.debug("build_node_transfer_patch......state_snapshot", log_state_snapshot)
         logger.debug("build_node_transfer_patch......mapping", mapping)
 
         resume_patch, state_patch = build_resume_from_mapping(event={}, state=state_snapshot or {}, node_output=None, mapping=mapping)
@@ -772,12 +834,77 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
 
     mapping = load_mapping_for_task(task)
     current_state = (task.metadata or {}).get("state") or {}
-    logger.debug("build resume load, current_state>>>>", current_state)
+    # Truncate screenshot data for logging
+    try:
+        from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
+        log_current_state = truncate_screenshot_for_logging(current_state)
+    except Exception:
+        log_current_state = str(current_state)[:500] + "..."
+    logger.debug("build resume load, current_state>>>>", log_current_state)
     logger.debug("build resume load, mapping>>>>", mapping)
     resume_payload, state_patch = build_resume_from_mapping(event, current_state, node_output=None, mapping=mapping)
 
     # Fallback enrichment when mapping rules do not produce payload
     try:
+        # Handle async_callback events (e.g., passive browser commands from cloud)
+        if isinstance(msg, dict) and msg.get("type") == "async_callback":
+            callback_result = msg.get("result")
+            if isinstance(callback_result, dict):
+                # Check if this is a passive browser command
+                cmd_type = callback_result.get("type", "")
+                if "browser" in cmd_type.lower() or "passive" in cmd_type.lower() or callback_result.get("actions") is not None:
+                    # Extract browser command data into state_patch for browser_automation node
+                    node_id = callback_result.get("node_id", "")
+                    actions = callback_result.get("actions", [])
+                    
+                    # Put actions in tool_input for browser_automation node to find
+                    if node_id:
+                        _write(state_patch, f"tool_input.{node_id}.actions", actions, on_conflict="overwrite")
+                        _write(state_patch, f"tool_input.{node_id}.include_screenshot", callback_result.get("include_screenshot", True), on_conflict="overwrite")
+                        _write(state_patch, f"tool_input.{node_id}.stop_on_error", callback_result.get("stop_on_error", True), on_conflict="overwrite")
+                    
+                    # Also put in generic locations as fallback
+                    _write(state_patch, "tool_input.actions", actions, on_conflict="overwrite")
+                    _write(state_patch, "browser_use_actions", actions, on_conflict="overwrite")
+                    _write(state_patch, "attributes.passive_command", callback_result, on_conflict="overwrite")
+                    
+                    # Write to paths expected by adapt_to_state config in data_mapping.json
+                    # This ensures compatibility with skill-defined state paths
+                    _write(state_patch, "attributes.passive_command_actions", actions, on_conflict="overwrite")
+                    _write(state_patch, "attributes.passive_run_id", callback_result.get("run_id", ""), on_conflict="overwrite")
+                    _write(state_patch, "attributes.passive_step_id", callback_result.get("step_id", ""), on_conflict="overwrite")
+                    
+                    # Apply any adapt_to_state mapping from the task's data_mapping.json
+                    try:
+                        task_mapping = load_mapping_for_task(task)
+                        event_routing = task_mapping.get("event_routing", {})
+                        passive_cmd_routing = event_routing.get("passive_command", {}) or event_routing.get("PassiveCommandEvent", {})
+                        adapt_config = passive_cmd_routing.get("adapt_to_state", {})
+                        if adapt_config:
+                            apply_adapt_to_state_mapping(state_patch, callback_result, adapt_config)
+                            logger.debug(f"[build_general_resume_payload] Applied adapt_to_state mapping: {list(adapt_config.keys())}")
+                    except Exception as adapt_err:
+                        logger.debug(f"[build_general_resume_payload] adapt_to_state mapping skipped: {adapt_err}")
+                    
+                    logger.info(f"[build_general_resume_payload] Extracted passive browser command: node_id={node_id}, actions_count={len(actions)}, state_patch_keys={list(state_patch.keys())}")
+                else:
+                    # Generic async_callback result - store in attributes
+                    _write(state_patch, "attributes.async_callback_result", callback_result, on_conflict="overwrite")
+                    
+                    # Try to apply adapt_to_state mapping for any event type
+                    try:
+                        task_mapping = load_mapping_for_task(task)
+                        event_routing = task_mapping.get("event_routing", {})
+                        # Check for routing config matching the callback result type
+                        result_type = callback_result.get("type", "")
+                        routing_config = event_routing.get(result_type, {})
+                        adapt_config = routing_config.get("adapt_to_state", {})
+                        if adapt_config:
+                            apply_adapt_to_state_mapping(state_patch, callback_result, adapt_config)
+                            logger.debug(f"[build_general_resume_payload] Applied adapt_to_state for {result_type}: {list(adapt_config.keys())}")
+                    except Exception:
+                        pass
+        
         # Capture chat metadata for send_chat events
         message_mtype = (
             _safe_get(msg, "params.message.metadata.mtype")
@@ -808,8 +935,14 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
     except Exception:
         pass
 
+    # Truncate screenshot data for logging
+    try:
+        from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
+        log_state_patch = truncate_screenshot_for_logging(state_patch)
+    except Exception:
+        log_state_patch = str(state_patch)[:500] + "..."
     logger.debug("build_general_resume_payload===>", resume_payload)
-    logger.debug("state_patch===>", state_patch)
+    logger.debug("state_patch===>", log_state_patch)
     # Preserve existing behavior: inject cloud_task_id into checkpoint attributes, and mirror into state attributes
     cloud_task_id = event.get("tag")
     if cp and cloud_task_id:

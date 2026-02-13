@@ -12,8 +12,18 @@ from uuid import uuid4
 
 from utils.logger_helper import logger_helper as logger
 
+# Hardcoded AppSync realtime endpoint for the cloud worker.
+EC_APPSYNC_WS_ENDPOINT = "wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql"
+os.environ["EC_APPSYNC_WS_ENDPOINT"] = EC_APPSYNC_WS_ENDPOINT
+
 # Revision marker for tracking deployments
-WORKER_REVISION = "20260128j"
+WORKER_REVISION = "20260203a"
+
+# =============================================================================
+# L2C Test Mode - Wait for first passive step result before running skill
+# Set to True to test L2C WebSocket pub/sub; set to False for production
+# =============================================================================
+L2C_TEST_MODE = False
 
 from agent.cloud.s3_settings_loader import (
     DEFAULT_ECAN_SKILLS_BUCKET,
@@ -29,6 +39,30 @@ from agent.cloud_worker.cloud_logger import (
     stop_cloud_logger,
     get_skill_editor_logger,
 )
+
+
+# =============================================================================
+# Global Passive Transport Registry
+# Used to share the CloudWorkerPassiveTransport with CloudAgent in build_node.py
+# =============================================================================
+_global_passive_transport = None
+
+def set_global_passive_transport(transport) -> None:
+    """Set the global passive transport for CloudAgent to use."""
+    global _global_passive_transport
+    _global_passive_transport = transport
+    logger.info(f"[cloud_worker] set_global_passive_transport: type={type(transport).__name__}, id={id(transport)}")
+
+def get_global_passive_transport():
+    """Get the global passive transport (or None if not set)."""
+    result = _global_passive_transport
+    logger.info(f"[cloud_worker] get_global_passive_transport: result={type(result).__name__ if result else 'None'}, id={id(result) if result else 'N/A'}")
+    return result
+
+def clear_global_passive_transport() -> None:
+    """Clear the global passive transport."""
+    global _global_passive_transport
+    _global_passive_transport = None
 
 
 # =============================================================================
@@ -261,6 +295,147 @@ class RunControlListener:
         if self._task and not self._task.done():
             self._task.cancel()
             logger.info("[RunControlListener] Stopped listener")
+
+
+# =============================================================================
+# AppSync Subscription Listener for Passive Step Results (L2C - Local to Cloud)
+# =============================================================================
+
+class PassiveStepResultListener:
+    """
+    Listens to AppSync subscriptions for passive step results from local clients.
+    Used in hybrid cloud mode where local browser sends results back to cloud worker.
+    Also useful for L2C WS Test to verify local-to-cloud pub/sub.
+    """
+    
+    def __init__(
+        self,
+        appsync_url: str,
+        appsync_api_key: str,
+        client_id: str,
+        run_id: str,
+        owner: str,
+        auth_token: Optional[str] = None,
+        on_result: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ):
+        self.appsync_url = appsync_url
+        self.appsync_api_key = appsync_api_key
+        self.client_id = client_id
+        self.run_id = run_id
+        self.owner = owner
+        self.auth_token = auth_token
+        self.on_result = on_result
+        self._task: Optional[asyncio.Task] = None
+        # Event that signals first result received (for L2C test mode)
+        self.first_result_received: asyncio.Event = asyncio.Event()
+        self._subscription_ready: asyncio.Event = asyncio.Event()
+    
+    async def _handle_envelope(self, envelope: Dict[str, Any]) -> None:
+        """Handle incoming passive step result."""
+        try:
+            logger.info(
+                f"[PassiveStepResultListener] Raw envelope: {json.dumps(envelope, default=str)[:500]}"
+            )
+            step_id = envelope.get("stepId", "")
+            result_raw = envelope.get("result")
+            dom_tree_raw = envelope.get("dom_tree")
+            
+            # Parse AWSJSON fields
+            if isinstance(result_raw, str):
+                try:
+                    result = json.loads(result_raw)
+                except json.JSONDecodeError:
+                    result = {"raw": result_raw}
+            else:
+                result = result_raw or {}
+            
+            logger.info(f"[PassiveStepResultListener] Received step result: stepId={step_id}, clientId={self.client_id}")
+            
+            # Echo back via SkillEditorStreamEvent for testing/debugging
+            se_logger = get_skill_editor_logger()
+            if se_logger:
+                # Truncate screenshot for logging
+                from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
+                log_result = truncate_screenshot_for_logging(result)
+                se_logger.log(
+                    f"[L2C] ✅ Received PassiveStepResult: stepId={step_id}, result={json.dumps(log_result)[:500]}"
+                )
+            
+            # Signal that first result is received (for L2C test mode)
+            if not self.first_result_received.is_set():
+                self.first_result_received.set()
+                logger.info(f"[PassiveStepResultListener] First result received, signaling ready to proceed")
+            
+            # Call custom handler if provided
+            if self.on_result:
+                self.on_result(envelope)
+                
+        except Exception as e:
+            logger.error(f"[PassiveStepResultListener] Error handling envelope: {e}")
+    
+    async def start(self) -> None:
+        """Start listening for passive step results."""
+        from agent.ec_tasks.appsync_pubsub import AppSyncApiKeyConfig, _subscribe
+        
+        config = AppSyncApiKeyConfig(
+            http_endpoint=self.appsync_url,
+            api_key=self.appsync_api_key,
+            auth_token=self.auth_token,
+        )
+        
+        # Subscribe to passive step results for this client/run
+        query = """
+        subscription OnPassiveStepResult($clientId: ID!, $runId: ID!) {
+          onPassiveStepResult(clientId: $clientId, runId: $runId) {
+            clientId
+            runId
+            stepId
+            result
+            dom_tree
+            timestamp
+          }
+        }
+        """
+        
+        logger.info(f"[PassiveStepResultListener] Starting subscription for clientId={self.client_id}, runId={self.run_id}")
+        
+        # Log to skill editor console that listener is ready
+        se_logger = get_skill_editor_logger()
+        if se_logger:
+            se_logger.log(
+                f"[L2C] 🎧 PassiveStepResultListener READY - waiting for messages on clientId={self.client_id}, runId={self.run_id}"
+            )
+        
+        # Signal that subscription is ready
+        self._subscription_ready.set()
+        
+        try:
+            await _subscribe(
+                config=config,
+                query=query,
+                variables={"clientId": self.client_id, "runId": self.run_id},
+                operation_name="OnPassiveStepResult",
+                field_name="onPassiveStepResult",
+                on_envelope=self._handle_envelope,
+                max_retries=5,
+            )
+        except asyncio.CancelledError:
+            logger.info("[PassiveStepResultListener] Subscription cancelled")
+        except Exception as e:
+            logger.error(f"[PassiveStepResultListener] Subscription error: {e}")
+    
+    def start_background(self, loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
+        """Start the listener in the background."""
+        if loop is None:
+            loop = asyncio.get_event_loop()
+        self._task = loop.create_task(self.start())
+        logger.info(f"[PassiveStepResultListener] Started background listener for client={self.client_id}, run={self.run_id}")
+    
+    def stop(self) -> None:
+        """Stop the listener."""
+        if self._task and not self._task.done():
+            self._task.cancel()
+            logger.info("[PassiveStepResultListener] Stopped listener")
 
 
 # =============================================================================
@@ -868,9 +1043,9 @@ async def handle_skill_run_message(
         )
     
     # Choose execution mode
-    # Set up cloud prompt context for S3-based prompt loading
+    # Set up cloud prompt context for DynamoDB-based prompt loading
     from agent.cloud.cloud_prompt_loader import set_cloud_prompt_context, clear_cloud_prompt_context
-    set_cloud_prompt_context(bucket=bucket, user_prefix=username, region=region)
+    set_cloud_prompt_context(owner_id=username, region=region)
     
     try:
         if dev_mode and diagram and diagram.get("nodes"):
@@ -1256,8 +1431,15 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
         
         # Start AppSync subscription listener for control commands
         control_listener: Optional[RunControlListener] = None
+        passive_listener: Optional[PassiveStepResultListener] = None
         appsync_url = os.environ.get("APPSYNC_API_URL", "")
         appsync_key = os.environ.get("APPSYNC_API_KEY", "")
+        appsync_auth_token = (
+            os.environ.get("APPSYNC_AUTH_TOKEN")
+            or os.environ.get("EC_APPSYNC_TOKEN")
+            or os.environ.get("EC_BROWSER_PASSIVE_TOKEN")
+            or ""
+        ).strip() or None
         if appsync_url and appsync_key:
             control_listener = RunControlListener(
                 appsync_url=appsync_url,
@@ -1275,6 +1457,117 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
                 flowgram_id=skill_id,
             )
             logger.info(f"[cloud_worker] Cloud logger configured for run {run_id}")
+            
+            # Start passive step result listener for L2C (local-to-cloud) communication
+            # This enables hybrid cloud mode and L2C WS Test
+            passive_client_id = msg_data.get("passive_client_id") or os.environ.get("EC_BROWSER_PASSIVE_CLIENT_ID", "")
+            passive_run_id = msg_data.get("passive_run_id") or msg_data.get("chat_id") or msg_data.get("chatId")
+            if passive_client_id:
+                # Create the CloudWorkerPassiveTransport for CloudAgent to use
+                from agent.ec_skills.browser_use_extension.cloud_agent import CloudWorkerPassiveTransport
+                from agent.ec_skills.browser_use_extension.passive_protocol import PassiveBrowserStepResult
+                
+                passive_transport = CloudWorkerPassiveTransport(
+                    appsync_url=appsync_url,
+                    appsync_api_key=appsync_key,
+                    client_id=passive_client_id,
+                )
+                
+                # Register transport globally so CloudAgent can access it
+                set_global_passive_transport(passive_transport)
+                logger.info(f"[cloud_worker] CloudWorkerPassiveTransport registered for client={passive_client_id}")
+                
+                # Callback to deliver results to the transport
+                def on_passive_result(envelope: Dict[str, Any]) -> None:
+                    try:
+                        result_raw = envelope.get("result")
+                        if isinstance(result_raw, str):
+                            result_dict = json.loads(result_raw)
+                        else:
+                            result_dict = result_raw or {}
+                        
+                        # Parse dom_tree from the ENVELOPE (separate field from result)
+                        # The client sends dom_tree as a top-level envelope field, not inside result
+                        dom_tree_data = None
+                        dom_tree_raw = envelope.get("dom_tree")
+                        if dom_tree_raw:
+                            try:
+                                dom_tree_data = json.loads(dom_tree_raw) if isinstance(dom_tree_raw, str) else dom_tree_raw
+                                # Ignore empty dict — treat as no dom_tree
+                                if isinstance(dom_tree_data, dict) and not dom_tree_data:
+                                    dom_tree_data = None
+                            except (json.JSONDecodeError, TypeError):
+                                dom_tree_data = None
+                        # Fallback: check inside result_dict (legacy format)
+                        if not dom_tree_data:
+                            dom_tree_data = result_dict.get("dom_tree")
+
+                        # Build PassiveBrowserStepResult from envelope
+                        step_result = PassiveBrowserStepResult(
+                            run_id=envelope.get("runId", run_id),
+                            step_id=envelope.get("stepId", ""),
+                            ok=result_dict.get("ok", result_dict.get("success", True)),
+                            elapsed_ms=result_dict.get("elapsed_ms", 0),
+                            actions=result_dict.get("actions", []),
+                            action_results=result_dict.get("action_results", []),
+                            errors=result_dict.get("errors", []),
+                            browser=result_dict.get("browser_state") or result_dict.get("browser", {}),
+                            dom_tree=dom_tree_data,
+                        )
+                        
+                        # Deliver to transport's queue
+                        passive_transport.deliver_result(step_result)
+                        logger.info(f"[cloud_worker] Delivered PassiveStepResult to transport: stepId={step_result.step_id}")
+                    except Exception as e:
+                        logger.error(f"[cloud_worker] Failed to deliver result to transport: {e}")
+                
+                listener_run_id = passive_run_id or run_id
+                logger.info(
+                    f"[cloud_worker] Passive listener identifiers: client_id={passive_client_id}, run_id={listener_run_id}"
+                )
+                passive_listener = PassiveStepResultListener(
+                    appsync_url=appsync_url,
+                    appsync_api_key=appsync_key,
+                    client_id=passive_client_id,
+                    run_id=listener_run_id,
+                    owner=username,
+                    auth_token=appsync_auth_token,
+                    on_result=on_passive_result,  # Connect listener to transport
+                )
+                passive_listener.start_background()
+                logger.info(f"[cloud_worker] Passive step result listener started for client={passive_client_id}")
+                
+                # # L2C TEST MODE: Wait for subscription to be ready, then wait for first message
+                # # Uncomment this block to test L2C WebSocket pub/sub
+                # if L2C_TEST_MODE:
+                #     se_logger = get_skill_editor_logger()
+                #     
+                #     # Wait for subscription to be ready (max 5 seconds)
+                #     try:
+                #         await asyncio.wait_for(passive_listener._subscription_ready.wait(), timeout=5.0)
+                #         logger.info(f"[cloud_worker] L2C TEST: Subscription is ready")
+                #         if se_logger:
+                #             se_logger.log("[L2C TEST] ⏳ Waiting for first PassiveStepResult message before running skill...")
+                #     except asyncio.TimeoutError:
+                #         logger.warning("[cloud_worker] L2C TEST: Subscription ready timeout, proceeding anyway")
+                #         if se_logger:
+                #             se_logger.log("[L2C TEST] ⚠️ Subscription ready timeout, proceeding anyway")
+                #     
+                #     # Wait for first result (max 120 seconds)
+                #     logger.info(f"[cloud_worker] L2C TEST: Waiting for first PassiveStepResult (max 120s)...")
+                #     if se_logger:
+                #         se_logger.log("[L2C TEST] 📡 Now listening... Send L2C_WS_Test to continue!")
+                #     try:
+                #         await asyncio.wait_for(passive_listener.first_result_received.wait(), timeout=120.0)
+                #         logger.info(f"[cloud_worker] L2C TEST: First result received, proceeding with skill run")
+                #         if se_logger:
+                #             se_logger.log("[L2C TEST] ✅ First message received! Proceeding with skill run...")
+                #     except asyncio.TimeoutError:
+                #         logger.warning("[cloud_worker] L2C TEST: Timeout waiting for first result, proceeding anyway")
+                #         if se_logger:
+                #             se_logger.log("[L2C TEST] ⏱️ Timeout (120s) waiting for message, proceeding anyway")
+            else:
+                logger.debug("[cloud_worker] No passive_client_id provided, skipping passive listener")
         
         try:
             # Publish start event
@@ -1343,6 +1636,25 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
             
             raise
         finally:
+            if passive_listener:
+                grace_seconds = int(os.getenv("ECAN_PASSIVE_RESULT_GRACE_SECONDS", "300"))
+                if grace_seconds > 0 and not passive_listener.first_result_received.is_set():
+                    logger.info(
+                        f"[cloud_worker] Waiting up to {grace_seconds}s for passive step result before shutdown"
+                    )
+                    try:
+                        await asyncio.wait_for(
+                            passive_listener.first_result_received.wait(),
+                            timeout=grace_seconds,
+                        )
+                        logger.info("[cloud_worker] Passive step result received during grace period")
+                    except asyncio.TimeoutError:
+                        logger.warning("[cloud_worker] Grace period elapsed without passive step result")
+            # Stop the passive step result listener
+            if passive_listener:
+                passive_listener.stop()
+            # Clear global passive transport
+            clear_global_passive_transport()
             # Stop the control listener
             if control_listener:
                 control_listener.stop()
@@ -1353,7 +1665,25 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
         await handle_one_message(raw_message=message_json, bucket=bucket, base_prefix=base_prefix, region=region)
 
 
+async def run_single_with_timeout(*, message_json: str, bucket: str, base_prefix: str, region: str, timeout_seconds: int) -> None:
+    """
+    Wrapper to run a single skill execution with a timeout.
+    If the task exceeds the timeout, it will be forcefully terminated.
+    """
+    try:
+        await asyncio.wait_for(
+            run_single(message_json=message_json, bucket=bucket, base_prefix=base_prefix, region=region),
+            timeout=timeout_seconds
+        )
+    except asyncio.TimeoutError:
+        logger.error(f"[cloud_worker] Task exceeded timeout of {timeout_seconds}s ({timeout_seconds/3600:.1f} hours), forcing exit")
+        raise SystemExit(f"Task timeout after {timeout_seconds}s")
+
+
 def main() -> None:
+    # Default timeout: 3 hours = 10800 seconds
+    DEFAULT_TIMEOUT_SECONDS = 10800
+    
     parser = argparse.ArgumentParser(prog="ecan-cloud-worker")
     parser.add_argument("--mode", choices=["long-poll", "single"], default=os.getenv("ECAN_WORKER_MODE", "long-poll"))
     parser.add_argument("--queue-url", default=os.getenv("ECAN_SQS_QUEUE_URL", ""))
@@ -1361,6 +1691,8 @@ def main() -> None:
     parser.add_argument("--bucket", default=os.getenv("ECAN_SKILLS_BUCKET", DEFAULT_ECAN_SKILLS_BUCKET))
     parser.add_argument("--base-prefix", default=os.getenv("ECAN_USER_BASE_PREFIX", DEFAULT_USER_BASE_PREFIX))
     parser.add_argument("--region", default=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+    parser.add_argument("--timeout", type=int, default=int(os.getenv("ECAN_WORKER_TIMEOUT", DEFAULT_TIMEOUT_SECONDS)),
+                        help=f"Maximum execution time in seconds (default: {DEFAULT_TIMEOUT_SECONDS}s = 3 hours). Set to 0 to disable timeout.")
 
     args = parser.parse_args()
 
@@ -1370,13 +1702,32 @@ def main() -> None:
         raise SystemExit("--message-json is required for --mode single")
 
     t0 = time.time()
-    logger.info(f"[cloud_worker] starting rev={WORKER_REVISION} mode={args.mode} bucket={args.bucket} region={args.region}")
+    timeout_info = f"timeout={args.timeout}s" if args.timeout > 0 else "timeout=disabled"
+    logger.info(f"[cloud_worker] starting rev={WORKER_REVISION} mode={args.mode} {timeout_info} bucket={args.bucket} region={args.region}")
+    try:
+        openai_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+        if openai_key:
+            masked = f"{openai_key[:8]}......{openai_key[-8:]}" if len(openai_key) > 16 else "[masked]"
+            logger.info(f"[cloud_worker] OPENAI_API_KEY detected: {masked}")
+        else:
+            logger.warning("[cloud_worker] OPENAI_API_KEY not set in environment")
+    except Exception:
+        pass
 
     try:
         if args.mode == "long-poll":
             asyncio.run(run_long_poll(queue_url=args.queue_url, bucket=args.bucket, base_prefix=args.base_prefix, region=args.region))
         else:
-            asyncio.run(run_single(message_json=args.message_json, bucket=args.bucket, base_prefix=args.base_prefix, region=args.region))
+            if args.timeout > 0:
+                asyncio.run(run_single_with_timeout(
+                    message_json=args.message_json,
+                    bucket=args.bucket,
+                    base_prefix=args.base_prefix,
+                    region=args.region,
+                    timeout_seconds=args.timeout
+                ))
+            else:
+                asyncio.run(run_single(message_json=args.message_json, bucket=args.bucket, base_prefix=args.base_prefix, region=args.region))
     finally:
         logger.info(f"[cloud_worker] exiting after {time.time() - t0:.2f}s")
 

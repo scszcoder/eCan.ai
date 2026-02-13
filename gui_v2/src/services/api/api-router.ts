@@ -266,9 +266,22 @@ export class APIRouter {
     }
 
     try {
+      const normalizedParams = (() => {
+        if (!params || typeof params !== 'object') return params;
+        if (!gqlString.includes('getAllMine')) return params;
+        if (!('username' in params)) return params;
+        if ('owner' in params || 'userId' in params) return params;
+
+        return {
+          ...params,
+          owner: (params as any).username,
+          userId: (params as any).username,
+        };
+      })();
+
       // IMPORTANT: LocalServer GraphQL handler requires extensions.method for routing.
       // Pass definition.method to appSyncRequest so appSyncClient can include it in body.extensions.
-      const data = await appSyncRequest<any>(gqlString, params, undefined, definition.method);
+      const data = await appSyncRequest<any>(gqlString, normalizedParams, undefined, definition.method);
       
       // 根据 resultPath 提取数据
       let result = data;

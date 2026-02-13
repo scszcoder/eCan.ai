@@ -193,14 +193,24 @@ def handle_get_last_login(request: IPCRequest, params: Optional[Any]) -> IPCResp
 
         login = AppContext.get_login()
         if login is None:
-            logger.warning("Login object is None - user may have logged out")
-            return create_error_response(request, 
-                'LOGIN_REQUIRED',
-                'Login required - please login again')
-        
-        result = login.handleGetLastLogin()
+            # Fallback: try to get saved login info directly from AuthManager
+            logger.warning("Login object is None - attempting direct AuthManager access")
+            try:
+                from auth.auth_manager import AuthManager
+                auth_manager = AuthManager()
+                result = auth_manager.get_saved_login_info()
+                logger.info(f"[get_last_login] Retrieved via fallback AuthManager: username={result.get('username')}")
+            except Exception as fallback_error:
+                logger.error(f"Fallback AuthManager access failed: {fallback_error}")
+                return create_error_response(request, 
+                    'LOGIN_REQUIRED',
+                    'Login required - please login again')
+        else:
+            result = login.handleGetLastLogin()
 
-        logger.info("last saved user info:", result)
+        # Mask sensitive fields before logging
+        safe_result = {k: ('***' if k == 'password' and v else v) for k, v in result.items()} if isinstance(result, dict) else result
+        logger.info(f"last saved user info: {safe_result}")
         return create_success_response(request, {
             'last_login': result,
             'message': auth_messages.get_message('get_last_login_success')
@@ -470,3 +480,29 @@ def handle_get_account_info(request: IPCRequest, params: Optional[Dict[str, Any]
         import traceback
         logger.error(traceback.format_exc())
         return create_error_response(request, 'GET_ACCOUNT_INFO_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('get_auth_token')
+def handle_get_auth_token(request: IPCRequest, params: Optional[Dict[str, Any]] = None) -> IPCResponse:
+    """Get the Cognito JWT auth token from MainWindow."""
+    try:
+        logger.info("[GetAuthToken] Getting main window...")
+        mainwin = AppContext.get_main_window()
+        logger.info(f"[GetAuthToken] mainwin type: {type(mainwin)}, is None: {mainwin is None}")
+        if not mainwin:
+            return create_error_response(request, 'NO_MAINWIN', 'MainWindow not available')
+        
+        logger.info(f"[GetAuthToken] Checking get_auth_token method exists: {hasattr(mainwin, 'get_auth_token')}")
+        logger.info(f"[GetAuthToken] get_auth_token type: {type(getattr(mainwin, 'get_auth_token', None))}")
+        
+        token = mainwin.get_auth_token()
+        logger.info(f"[GetAuthToken] Token retrieved, length: {len(token) if token else 0}")
+        if not token:
+            return create_error_response(request, 'NO_TOKEN', 'No auth token available')
+        
+        return create_success_response(request, token)
+    except Exception as e:
+        logger.error(f"[GetAuthToken] Error: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return create_error_response(request, 'GET_AUTH_TOKEN_ERROR', str(e))

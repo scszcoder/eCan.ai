@@ -99,15 +99,19 @@ def find_shared_providers(env_vars: list, provider_type: str, request=None, para
 
 @IPCHandlerRegistry.handler('get_llm_providers')
 def handle_get_llm_providers(request: IPCRequest, params: Optional[Dict[str, Any]] = None) -> IPCResponse:
-    """Get all LLM providers with Ollama models merged"""
+    """Get all LLM providers with Ollama and RyoAIS models merged"""
     try:
         from gui.ollama_utils import merge_ollama_models_to_providers
+        from gui.ryoais_utils import merge_ryoais_models_to_providers
         
         llm_manager = get_llm_manager(request, params)
         providers = llm_manager.get_all_providers()
         
         # Merge Ollama models using shared utility
         providers = merge_ollama_models_to_providers(providers, provider_type='llm')
+        
+        # Merge RyoAIS models using shared utility
+        providers = merge_ryoais_models_to_providers(providers, provider_type='llm')
         
         logger.info(f"Retrieved {len(providers)} LLM providers")
 
@@ -831,12 +835,16 @@ def handle_get_llm_providers_with_credentials(request: IPCRequest, params: Optio
     """
     try:
         from gui.ollama_utils import merge_ollama_models_to_providers
+        from gui.ryoais_utils import merge_ryoais_models_to_providers
         
         llm_manager = get_llm_manager(request, params)
         all_providers = llm_manager.get_all_providers()
         
         # Merge Ollama models using shared utility
         all_providers = merge_ollama_models_to_providers(all_providers, provider_type='llm')
+        
+        # Merge RyoAIS models using shared utility
+        all_providers = merge_ryoais_models_to_providers(all_providers, provider_type='llm')
         
         # Enhance providers with API key information
         enhanced_providers = []

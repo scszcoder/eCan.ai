@@ -30,15 +30,19 @@ def get_rerank_manager(request=None, params=None):
 
 @IPCHandlerRegistry.handler('get_rerank_providers')
 def handle_get_rerank_providers(request: IPCRequest, params: Optional[Dict[str, Any]] = None) -> IPCResponse:
-    """Get all Rerank providers with Ollama models merged"""
+    """Get all Rerank providers with Ollama and RyoAIS models merged"""
     try:
         from gui.ollama_utils import merge_ollama_models_to_providers
+        from gui.ryoais_utils import merge_ryoais_models_to_providers
         
         rerank_manager = get_rerank_manager(request, params)
         providers = rerank_manager.get_all_providers()
         
         # Merge Ollama models using shared utility
         providers = merge_ollama_models_to_providers(providers, provider_type='rerank')
+        
+        # Merge RyoAIS models using shared utility
+        providers = merge_ryoais_models_to_providers(providers, provider_type='rerank')
         
         logger.info(f"Retrieved {len(providers)} Rerank providers")
 

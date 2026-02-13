@@ -98,11 +98,12 @@ const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect
                         const resolvedTitle = (() => {
                           if (rawTitle) return rawTitle;
                           const slug = (item.topic || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+                          if (!slug) return item.topic || item.id;
                           const titleKey = `pages.prompts.examples.${slug}.title`;
                           const titleText = t(titleKey, { defaultValue: '' });
                           if (titleText && titleText !== titleKey) return titleText;
-                          const fallback = t(`pages.prompts.examples.${slug}`, { defaultValue: item.topic });
-                          return fallback || item.id;
+                          const fallback = t(`pages.prompts.examples.${slug}`, { defaultValue: '' });
+                          return (fallback && fallback !== `pages.prompts.examples.${slug}`) ? fallback : (item.topic || item.id);
                         })();
                         const trimmedId = (item.id || '').trim();
                         const displayId = trimmedId.replace(/^pr-/, '');

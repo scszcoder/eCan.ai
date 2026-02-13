@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import os
+import time
 import threading
 from dataclasses import dataclass
 from typing import Any, Callable
@@ -96,6 +97,171 @@ def _on_command_subscription() -> str:
     """
 
 
+_INTERACTIVE_TAGS = {
+    "a",
+    "button",
+    "input",
+    "select",
+    "textarea",
+    "option",
+}
+_INTERACTIVE_ROLES = {
+    "button",
+    "link",
+    "textbox",
+    "combobox",
+    "listbox",
+    "checkbox",
+    "radio",
+    "menu",
+    "menuitemcheckbox",
+    "tab",
+    "menuitem",
+    "switch",
+}
+_KEEP_ATTRS = ("id", "class", "className", "role", "aria-label", "name", "value", "href")
+
+
+def _truncate_text(value: str | None, max_len: int = 2000) -> str | None:
+    if not value or not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    return value[:max_len]
+
+
+def _node_text(node: dict[str, Any]) -> str | None:
+    for key in ("text", "textContent", "nodeValue", "value"):
+        value = node.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
+def _node_tag(node: dict[str, Any]) -> str | None:
+    for key in ("tag", "tag_name", "tagName", "nodeName"):
+        value = node.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip().lower()
+    return None
+
+
+def _node_role(node: dict[str, Any], attrs: dict[str, Any]) -> str | None:
+    for key in ("role", "ariaRole"):
+        value = node.get(key) or attrs.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip().lower()
+    return None
+
+
+def _node_children(node: dict[str, Any]) -> list[Any]:
+    for key in ("children", "childNodes"):
+        value = node.get(key)
+        if isinstance(value, list):
+            return value
+    return []
+
+
+def _reduce_dom_tree_node(node: Any, max_bytes: int) -> tuple[dict[str, Any] | None, int]:
+    if not isinstance(node, dict) or max_bytes <= 0:
+        return None, max_bytes
+
+    attrs = node.get("attributes") if isinstance(node.get("attributes"), dict) else {}
+    tag = _node_tag(node)
+    role = _node_role(node, attrs)
+    text_value = _truncate_text(_node_text(node))
+    is_text = bool(text_value)
+    is_interactive = bool(
+        node.get("is_interactive")
+        or node.get("interactive")
+        or (tag in _INTERACTIVE_TAGS)
+        or (role in _INTERACTIVE_ROLES)
+    )
+
+    reduced: dict[str, Any] = {}
+    if tag:
+        reduced["tag"] = tag
+    if role:
+        reduced["role"] = role
+    if text_value:
+        reduced["text"] = text_value
+
+    for key in _KEEP_ATTRS:
+        value = node.get(key) if key in node else attrs.get(key)
+        if isinstance(value, str) and value.strip():
+            reduced_key = "class" if key == "className" else key
+            reduced.setdefault(reduced_key, value.strip())
+
+    children = _node_children(node)
+    if not (is_text or is_interactive or children):
+        return None, max_bytes
+
+    base_size = len(json.dumps(reduced))
+    if base_size > max_bytes:
+        return None, max_bytes
+
+    remaining = max_bytes - base_size
+    reduced_children: list[dict[str, Any]] = []
+    for child in children:
+        child_reduced, remaining = _reduce_dom_tree_node(child, remaining)
+        if not child_reduced:
+            if remaining <= 0:
+                break
+            continue
+        candidate = dict(reduced, children=reduced_children + [child_reduced])
+        candidate_size = len(json.dumps(candidate))
+        if candidate_size > max_bytes:
+            break
+        reduced_children.append(child_reduced)
+        remaining = max_bytes - candidate_size
+
+    if reduced_children:
+        reduced["children"] = reduced_children
+
+    return reduced, max_bytes - len(json.dumps(reduced))
+
+
+def _reduce_dom_tree_payload(payload: Any, max_bytes: int) -> Any:
+    if not payload or max_bytes <= 0:
+        return {}
+
+    try:
+        if isinstance(payload, dict) and ("root" in payload or "_root" in payload):
+            root_key = "root" if "root" in payload else "_root"
+            reduced_root, _ = _reduce_dom_tree_node(payload.get(root_key), max_bytes)
+            if not reduced_root:
+                return {}
+            reduced_payload: Any = {root_key: reduced_root}
+        elif isinstance(payload, list):
+            reduced_list: list[dict[str, Any]] = []
+            remaining = max_bytes
+            for node in payload:
+                reduced_node, remaining = _reduce_dom_tree_node(node, remaining)
+                if reduced_node:
+                    reduced_list.append(reduced_node)
+                if remaining <= 0:
+                    break
+            reduced_payload = reduced_list
+        elif isinstance(payload, dict):
+            reduced_node, _ = _reduce_dom_tree_node(payload, max_bytes)
+            reduced_payload = reduced_node or {}
+        else:
+            return {}
+
+        if len(json.dumps(reduced_payload)) > max_bytes:
+            return {
+                "_truncated": True,
+                "original_bytes": len(json.dumps(payload)),
+                "max_bytes": max_bytes,
+                "note": "dom_tree reduced but still exceeded size cap",
+            }
+        return reduced_payload
+    except Exception as exc:
+        logger.error(f"[AppSyncPassiveClient] Failed to reduce dom_tree: {exc}")
+        return {}
+
+
 def _publish_step_result_mutation() -> str:
     return """
     mutation PublishPassiveStepResult($input: PassiveBrowserStepResultEnvelopeInput!) {
@@ -103,6 +269,7 @@ def _publish_step_result_mutation() -> str:
         runId
         clientId
         stepId
+        result
         dom_tree
       }
     }
@@ -135,12 +302,42 @@ class AppSyncPassiveClient:
 
         self._stopped = False
         self._lock = threading.Lock()
+        self._reconnect_delay = float(os.getenv("ECAN_PASSIVE_WS_RECONNECT_DELAY", "3.0"))
+        self._max_reconnect_delay = float(os.getenv("ECAN_PASSIVE_WS_MAX_RECONNECT_DELAY", "60.0"))
+        self._current_reconnect_delay = self._reconnect_delay
+        self._reconnect_count = 0
+
+    def _close_existing_ws(self) -> None:
+        """Close any existing WebSocket connection and wait for thread to finish."""
+        old_ws = self._ws
+        old_thread = self._ws_thread
+        self._ws = None
+        self._ws_thread = None
+        if old_ws is not None:
+            try:
+                old_ws.close()
+                logger.info("[AppSyncPassiveClient] Closed stale WebSocket")
+            except Exception:
+                pass
+        if old_thread is not None and old_thread.is_alive():
+            try:
+                old_thread.join(timeout=5.0)
+            except Exception:
+                pass
 
     async def start(self) -> None:
         logger.info(f"[AppSyncPassiveClient] Starting subscription for run_id={self._config.run_id}, client_id={self._config.client_id}")
+        # Fix C: Clean up any stale WebSocket from a previous run
+        self._close_existing_ws()
+        with self._lock:
+            self._stopped = False
         if self._loop is None:
             self._loop = asyncio.get_running_loop()
 
+        self._start_ws()
+
+    def _start_ws(self) -> None:
+        """Create and start the WebSocket connection (called by start() and reconnect)."""
         signed_ws_url = _make_signed_ws_url(
             self._config.ws_endpoint,
             api_host=self._config.api_host,
@@ -188,7 +385,24 @@ class AppSyncPassiveClient:
                 return
 
             if msg_type == "data" and data.get("id") == self._subscription_id:
-                payload_data = (data.get("payload") or {}).get("data")
+                # Log the raw message for debugging (truncate screenshot data)
+                from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
+                try:
+                    log_data = truncate_screenshot_for_logging(data)
+                    log_msg = json.dumps(log_data)
+                    print(f"[AppSyncPassiveClient] Raw WebSocket message received: {log_msg[:500]}..." if len(log_msg) > 500 else f"[AppSyncPassiveClient] Raw WebSocket message received: {log_msg}")
+                except Exception:
+                    print(f"[AppSyncPassiveClient] Raw WebSocket message received: {message[:200]}...")
+
+                # Check for errors in the payload
+                payload = data.get("payload") or {}
+                errors = payload.get("errors")
+                if errors:
+                    logger.error(f"[AppSyncPassiveClient] AppSync subscription error: {errors}")
+                    print(f"[AppSyncPassiveClient] ❌ AppSync subscription error: {errors}")
+                    return
+
+                payload_data = payload.get("data")
                 if not isinstance(payload_data, dict):
                     return
                 envelope = payload_data.get("onPassiveCommand")
@@ -223,12 +437,18 @@ class AppSyncPassiveClient:
                 except Exception:
                     pass
 
+        def on_close(ws, close_status_code, close_msg) -> None:
+            logger.warning(f"[AppSyncPassiveClient] WebSocket closed: status={close_status_code}, msg={close_msg}")
+            if not self._stopped:
+                self._schedule_reconnect()
+
         self._ws = websocket.WebSocketApp(
             signed_ws_url,
             header=[],
             on_message=on_message,
             on_open=on_open,
             on_error=on_error,
+            on_close=on_close,
             subprotocols=["graphql-ws"],
         )
 
@@ -256,13 +476,96 @@ class AppSyncPassiveClient:
                     pass
 
     async def _publish_step_result(self, result: PassiveBrowserStepResult) -> None:
+        # Mask large data to avoid AppSync payload size limit (240KB)
+        result_dict = result.model_dump()
+        result_dict.pop("dom_tree", None)  # Remove from result dict, we'll extract from browser.dom_text
+        max_dom_tree_bytes = int(os.getenv("ECAN_PASSIVE_DOM_TREE_MAX_BYTES", "204800"))
+        browser_data = result_dict.get("browser")
+        logger.info(f"[AppSyncPassiveClient] browser_data type={type(browser_data).__name__}, keys={list(browser_data.keys()) if isinstance(browser_data, dict) else 'N/A'}")
+        
+        # Extract dom_text and selector_map from browser to use as dom_tree (separate AppSync field)
+        dom_tree_payload = {}
+        if browser_data and isinstance(browser_data, dict):
+            # Extract dom_text and move to dom_tree field
+            dom_text = browser_data.pop("dom_text", None)
+            if dom_text and isinstance(dom_text, str):
+                dom_tree_payload["dom_text"] = dom_text
+                logger.info(f"[AppSyncPassiveClient] ✅ Extracted dom_text ({len(dom_text)} chars) for dom_tree field")
+            
+            # Extract selector_map and move to dom_tree field (cloud worker needs it for element interaction)
+            selector_map = browser_data.pop("selector_map", None)
+            if selector_map and isinstance(selector_map, (list, dict)):
+                dom_tree_payload["selector_map"] = selector_map
+                selector_map_len = len(json.dumps(selector_map)) if selector_map else 0
+                logger.info(f"[AppSyncPassiveClient] ✅ Extracted selector_map ({selector_map_len} bytes, {len(selector_map) if isinstance(selector_map, list) else 'dict'} items) for dom_tree field")
+            
+            # Mask screenshot
+            screenshot = browser_data.get("screenshot_base64")
+            if screenshot and isinstance(screenshot, str) and len(screenshot) > 100:
+                screenshot_len = len(screenshot)
+                browser_data["screenshot_base64"] = "[OCR_PENDING]"
+                browser_data.setdefault("ocr_text", "[OCR_PLACEHOLDER]")
+                logger.info(f"[AppSyncPassiveClient] ✅ Replaced screenshot_base64 with OCR placeholder ({screenshot_len} bytes)")
+        else:
+            logger.warning(f"[AppSyncPassiveClient] browser_data is not a dict, cannot mask")
+        
+        # Remove null values - AppSync AWSJSON cannot handle null in non-nullable fields
+        from agent.ec_skills.browser_use_extension.passive_utils import remove_null_values
+        result_dict = remove_null_values(result_dict)
+        
+        # Ensure all required fields have valid defaults (not null)
+        # Required format: {"schema_version":1,"type":"browser_use_passive_step_result","ok":true,"elapsed_ms":5,"actions":[],"action_results":[],"errors":[],"browser":{}}
+        if "schema_version" not in result_dict:
+            result_dict["schema_version"] = 1
+        if "type" not in result_dict:
+            result_dict["type"] = "browser_use_passive_step_result"
+        if "ok" not in result_dict:
+            result_dict["ok"] = True
+        if "elapsed_ms" not in result_dict:
+            result_dict["elapsed_ms"] = 0
+        if "actions" not in result_dict:
+            result_dict["actions"] = []
+        if "action_results" not in result_dict:
+            result_dict["action_results"] = []
+        if "errors" not in result_dict:
+            result_dict["errors"] = []
+        if not result_dict.get("browser"):
+            result_dict["browser"] = {}
+
+        dom_tree_original_json = json.dumps(dom_tree_payload or {})
+        if len(dom_tree_original_json) > max_dom_tree_bytes:
+            logger.warning(
+                "[AppSyncPassiveClient] dom_tree exceeds cap: %s bytes > %s bytes. Reducing.",
+                len(dom_tree_original_json),
+                max_dom_tree_bytes,
+            )
+        dom_tree_payload = _reduce_dom_tree_payload(dom_tree_payload or {}, max_dom_tree_bytes)
+        dom_tree_json = json.dumps(dom_tree_payload or {})
+        if len(dom_tree_json) > max_dom_tree_bytes:
+            logger.warning(
+                "[AppSyncPassiveClient] Reduced dom_tree still exceeds cap: %s bytes > %s bytes. Truncating.",
+                len(dom_tree_json),
+                max_dom_tree_bytes,
+            )
+            dom_tree_payload = {
+                "_truncated": True,
+                "original_bytes": len(dom_tree_original_json),
+                "max_bytes": max_dom_tree_bytes,
+                "note": "dom_tree truncated to stay under websocket payload limit",
+            }
+            dom_tree_json = json.dumps(dom_tree_payload)
+        
         envelope = {
             "runId": result.run_id,
             "clientId": self._config.client_id,
             "stepId": result.step_id,
-            "result": result.model_dump(),
-            "dom_tree": result.dom_tree,
+            "result": json.dumps(result_dict),  # AWSJSON type - JSON-encoded string
+            "dom_tree": dom_tree_json,
         }
+        
+        # Log full envelope before sending
+        logger.debug(f"[_publish_step_result] Sending envelope: runId={envelope['runId']}, stepId={envelope['stepId']}, result_len={len(envelope['result'])}, dom_tree_len={len(envelope['dom_tree'])}")
+        logger.debug(f"[_publish_step_result] Full envelope: {envelope}")
 
         auth_headers = _build_auth_headers(self._config.auth_token)
 
@@ -282,14 +585,37 @@ class AppSyncPassiveClient:
             if isinstance(data, dict) and data.get("errors"):
                 raise RuntimeError(f"AppSync publishPassiveStepResult failed: {data.get('errors')}")
 
+    def _schedule_reconnect(self) -> None:
+        """Schedule a reconnect attempt after exponential backoff delay."""
+        if self._stopped:
+            return
+        self._reconnect_count += 1
+        delay = min(self._current_reconnect_delay, self._max_reconnect_delay)
+        logger.info(f"[AppSyncPassiveClient] Scheduling reconnect #{self._reconnect_count} in {delay:.1f}s")
+
+        def _reconnect() -> None:
+            time.sleep(delay)
+            if self._stopped:
+                return
+            logger.info(f"[AppSyncPassiveClient] Reconnecting (attempt #{self._reconnect_count})...")
+            try:
+                self._start_ws()
+                # Reset delay on successful reconnect start
+                self._current_reconnect_delay = self._reconnect_delay
+                logger.info(f"[AppSyncPassiveClient] Reconnect #{self._reconnect_count} initiated")
+            except Exception as e:
+                logger.error(f"[AppSyncPassiveClient] Reconnect failed: {e}")
+                # Exponential backoff
+                self._current_reconnect_delay = min(self._current_reconnect_delay * 2, self._max_reconnect_delay)
+                self._schedule_reconnect()
+
+        t = threading.Thread(target=_reconnect, daemon=True)
+        t.start()
+
     async def stop(self) -> None:
         with self._lock:
             self._stopped = True
-        if self._ws is not None:
-            try:
-                self._ws.close()
-            except Exception:
-                pass
+        self._close_existing_ws()
 
 
 def make_appsync_passive_client_from_env(

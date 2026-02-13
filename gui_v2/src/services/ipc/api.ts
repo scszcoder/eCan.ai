@@ -11,6 +11,7 @@ import { ipcClient } from './ipcClient';
 import { detectPlatform } from '../../config/platform';
 import { apiRouter } from '../api/api-router';
 import { GRAPHQL_QUERIES, GRAPHQL_MUTATIONS } from '../api/api-config';
+import { useUserStore } from '../../stores/userStore';
 
 // Web Bridge mechanism has been deprecated and removed.
 // All requests now go directly through IPC for consistency and reliability.
@@ -46,6 +47,11 @@ export interface TestConfig {
 export class IPCAPI {
     private static instance: IPCAPI;
     private clientInitPromise: Promise<void> | null = null;
+
+    // Cached settings data from getSettings (includes providers)
+    private _settingsData: any = null;
+    private _settingsUsername: string | null = null;
+    private _settingsPromise: Promise<any> | null = null;
 
     // 新增 chat Field
     public chatApi: ReturnType<typeof createChatApi>;
@@ -242,6 +248,10 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'get_last_login' });
     }
 
+    public async getHostname<T>(): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'get_hostname' });
+    }
+
     public async logout<T>(): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'logout' });
     }
@@ -267,7 +277,7 @@ export class IPCAPI {
     }
 
     public async getAll<T>(username: string): Promise<APIResponse<T>> {
-        return apiRouter.execute(
+        const response = await apiRouter.execute<T>(
       {
         method: 'get_all',
         graphql: {
@@ -275,8 +285,25 @@ export class IPCAPI {
           resultPath: 'getAllMine'
         }
       },
-      { username }
+      { owner: username, userId: username }
     );
+
+        // Cache settings from getAllMine response so provider methods work
+        // without requiring a separate getSettings call
+        if (response.success && response.data) {
+            const data = response.data as any;
+            if (data.settings && !this._settingsData) {
+                // settings from getAllMine may be a JSON string
+                let parsed = data.settings;
+                if (typeof parsed === 'string') {
+                    try { parsed = JSON.parse(parsed); } catch (_e) { /* keep as-is */ }
+                }
+                this._settingsData = parsed;
+                this._settingsUsername = username;
+                console.log('[IPCAPI] _settingsData cached from getAllMine, keys:', Object.keys(parsed));
+            }
+        }
+        return response;
     }
 
     public async getAllOrgAgents<T>(username: string, companyName?: string): Promise<APIResponse<T>> {
@@ -319,7 +346,7 @@ export class IPCAPI {
           resultPath: 'getAllMine.agents'
         }
       },
-      { username, agent_id }
+      { owner: username, userId: username, agent_id }
     );
     }
 
@@ -332,7 +359,7 @@ export class IPCAPI {
           resultPath: 'getAllMine.skills'
         }
       },
-      { username, skill_ids }
+      { owner: username, userId: username, skill_ids }
     );
     }
 
@@ -349,7 +376,7 @@ export class IPCAPI {
           resultPath: 'getAgentTasks'
         }
       },
-      { username, task_ids: agent_task_ids }
+      { owner: username, userId: username, task_ids: agent_task_ids }
     );
     }
 
@@ -362,7 +389,7 @@ export class IPCAPI {
           resultPath: 'getAllMine.prompts'
         }
       },
-      { username }
+      { owner: username, userId: username }
     );
     }
 
@@ -453,7 +480,7 @@ export class IPCAPI {
           resultPath: 'getAllMine.tools'
         }
       },
-      { username, tool_ids }
+      { owner: username, userId: username, tool_ids }
     );
     }
 
@@ -486,7 +513,86 @@ export class IPCAPI {
     // }
 
     public async getSettings<T>(username: string): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'get_settings' }, {username});
+        this._settingsUsername = username;
+
+        const doFetch = async (): Promise<APIResponse<T>> => {
+            const response = await apiRouter.execute<T>({
+                method: 'get_settings',
+                graphql: {
+                    query: GRAPHQL_QUERIES.GET_SETTINGS,
+                    resultPath: 'getSettings'
+                }
+            }, { username });
+
+            // AWSJSON comes back as a JSON string — parse it into an object
+            if (response.success && typeof response.data === 'string') {
+                try {
+                    response.data = JSON.parse(response.data) as T;
+                } catch (_e) {
+                    // already parsed or not JSON
+                }
+            }
+
+            // Cache the full settings response (includes providers)
+            if (response.success && response.data) {
+                this._settingsData = response.data;
+                console.log('[IPCAPI] _settingsData cached, keys:', Object.keys(response.data));
+                console.log('[IPCAPI] _settingsData.llm_providers?', typeof (response.data as any)?.llm_providers, !!(response.data as any)?.llm_providers);
+            }
+            return response;
+        };
+
+        // Deduplicate concurrent calls
+        if (!this._settingsPromise) {
+            this._settingsPromise = doFetch().finally(() => { this._settingsPromise = null; });
+        }
+        return this._settingsPromise;
+    }
+
+    /**
+     * Ensure settings are loaded (for provider methods that depend on cache)
+     */
+    private async _ensureSettingsLoaded(): Promise<void> {
+        if (this._settingsData) return;
+        if (this._settingsPromise) {
+            await this._settingsPromise;
+            return;
+        }
+        // Try to get username from user store if not already set
+        if (!this._settingsUsername) {
+            const storeUsername = useUserStore.getState().username;
+            if (storeUsername) {
+                this._settingsUsername = storeUsername;
+                console.log('[IPCAPI] _ensureSettingsLoaded: got username from userStore:', storeUsername);
+            }
+        }
+        // Fetch settings if we have a username
+        if (this._settingsUsername) {
+            await this.getSettings(this._settingsUsername);
+        }
+    }
+
+    /**
+     * Extract provider array from cached settings data
+     */
+    private _extractProviders(key: string): any[] | null {
+        const raw = this._settingsData?.[key];
+        if (!raw) return null;
+        const providersDict = raw.providers || raw;
+        let arr: any[];
+        if (typeof providersDict === 'object' && !Array.isArray(providersDict)) {
+            arr = Object.values(providersDict);
+        } else if (Array.isArray(providersDict)) {
+            arr = providersDict;
+        } else {
+            return null;
+        }
+        // Derive api_key_configured from api_key presence (cloud/DynamoDB mode
+        // doesn't store this flag — compute it on the fly)
+        return arr.map((p: any) => ({
+            ...p,
+            api_key_configured: p.api_key_configured ?? (!!p.api_key && p.api_key.length > 0),
+        }));
     }
 
     public async updateUserPreferences<T>(language?: string, theme?: string): Promise<APIResponse<T>> {
@@ -498,10 +604,42 @@ export class IPCAPI {
 
     // LLM Management APIs
     public async getLLMProviders<T>(): Promise<APIResponse<T>> {
+        // Ensure settings are loaded (providers come from DynamoDB settings)
+        await this._ensureSettingsLoaded();
+        console.log('[IPCAPI] getLLMProviders: _settingsData keys=', this._settingsData ? Object.keys(this._settingsData) : 'NULL');
+        console.log('[IPCAPI] getLLMProviders: _settingsUsername=', this._settingsUsername);
+        const providers = this._extractProviders('llm_providers');
+        console.log('[IPCAPI] getLLMProviders: extracted providers=', providers);
+        if (providers) {
+            return { success: true, data: { providers } as T };
+        }
+        console.warn('[IPCAPI] getLLMProviders: cache miss, falling back to GraphQL');
         return apiRouter.execute({ method: 'get_llm_providers' });
     }
 
     public async setDefaultLLM<T>(name: string, username: string, model?: string): Promise<APIResponse<T>> {
+        // Persist default LLM to DynamoDB settings
+        await this._ensureSettingsLoaded();
+        if (this._settingsData && this._settingsUsername) {
+            const settings = this._settingsData.settings
+                ? JSON.parse(JSON.stringify(this._settingsData.settings))
+                : {};
+            settings.default_llm = name;
+            if (model) settings.default_llm_model = model;
+            const savePayload = {
+                username: this._settingsUsername,
+                settings,
+                llm_providers: this._settingsData.llm_providers || {},
+                embedding_providers: this._settingsData.embedding_providers || {},
+                rerank_providers: this._settingsData.rerank_providers || {},
+            };
+            const saveResponse = await this.saveSettings(savePayload);
+            if (saveResponse.success) {
+                this._settingsData = null;
+                return { success: true, data: { message: `Default LLM set to ${name}` } as unknown as T };
+            }
+            return { success: false, error: { message: 'Failed to save default LLM setting' } } as APIResponse<T>;
+        }
         const params: any = { name, username };
         if (model) {
             params.model = model;
@@ -510,6 +648,51 @@ export class IPCAPI {
     }
 
     public async updateLLMProvider<T>(name: string, apiKey: string, azureEndpoint?: string, awsAccessKeyId?: string, awsSecretAccessKey?: string): Promise<APIResponse<T>> {
+        // Try to persist via DynamoDB settings (needed in web/cloud mode where
+        // 'update_llm_provider' has no GraphQL resolver and goes nowhere)
+        await this._ensureSettingsLoaded();
+        if (this._settingsData && this._settingsUsername) {
+            const llmProviders = this._settingsData.llm_providers
+                ? JSON.parse(JSON.stringify(this._settingsData.llm_providers))
+                : {};
+            const providersDict = llmProviders.providers || llmProviders;
+
+            // Find and update the matching provider entry
+            let found = false;
+            for (const key of Object.keys(providersDict)) {
+                const p = providersDict[key];
+                if (p && (p.provider === name || p.name === name || key === name)) {
+                    p.api_key = apiKey;
+                    p.api_key_configured = !!apiKey && apiKey.length > 0;
+                    if (azureEndpoint) p.azure_endpoint = azureEndpoint;
+                    if (awsAccessKeyId) p.aws_access_key_id = awsAccessKeyId;
+                    if (awsSecretAccessKey) p.aws_secret_access_key = awsSecretAccessKey;
+                    found = true;
+                    break;
+                }
+            }
+
+            if (found) {
+                // Save full settings back to DynamoDB
+                const savePayload = {
+                    username: this._settingsUsername,
+                    settings: this._settingsData.settings || {},
+                    llm_providers: llmProviders,
+                    embedding_providers: this._settingsData.embedding_providers || {},
+                    rerank_providers: this._settingsData.rerank_providers || {},
+                };
+
+                const saveResponse = await this.saveSettings(savePayload);
+                if (saveResponse.success) {
+                    // Invalidate cache so next load picks up fresh data
+                    this._settingsData = null;
+                    return { success: true, data: { message: `Provider ${name} updated successfully` } as unknown as T };
+                }
+                return { success: false, error: { message: 'Failed to save provider settings' } } as APIResponse<T>;
+            }
+        }
+
+        // Fallback to original IPC/local backend path
         const params: any = { name, api_key: apiKey };
         if (azureEndpoint) {
             params.azure_endpoint = azureEndpoint;
@@ -520,14 +703,82 @@ export class IPCAPI {
         if (awsSecretAccessKey) {
             params.aws_secret_access_key = awsSecretAccessKey;
         }
+        if (baseUrl) {
+            params.base_url = baseUrl;
+        }
         return apiRouter.execute({ method: 'update_llm_provider' }, params);
     }
 
     public async setLLMProviderModel<T>(name: string, model: string): Promise<APIResponse<T>> {
+        // Persist model selection to DynamoDB (web mode has no GraphQL resolver for this)
+        await this._ensureSettingsLoaded();
+        if (this._settingsData && this._settingsUsername) {
+            const llmProviders = this._settingsData.llm_providers
+                ? JSON.parse(JSON.stringify(this._settingsData.llm_providers))
+                : {};
+            const providersDict = llmProviders.providers || llmProviders;
+            let found = false;
+            for (const key of Object.keys(providersDict)) {
+                const p = providersDict[key];
+                if (p && (p.provider === name || p.name === name || key === name)) {
+                    p.default_model = model;
+                    p.preferred_model = model;
+                    found = true;
+                    break;
+                }
+            }
+            if (found) {
+                const savePayload = {
+                    username: this._settingsUsername,
+                    settings: this._settingsData.settings || {},
+                    llm_providers: llmProviders,
+                    embedding_providers: this._settingsData.embedding_providers || {},
+                    rerank_providers: this._settingsData.rerank_providers || {},
+                };
+                const saveResponse = await this.saveSettings(savePayload);
+                if (saveResponse.success) {
+                    this._settingsData = null; // invalidate cache
+                    return { success: true, data: { message: `Model for ${name} set to ${model}` } as unknown as T };
+                }
+                return { success: false, error: { message: 'Failed to save model selection' } } as APIResponse<T>;
+            }
+        }
         return apiRouter.execute({ method: 'set_llm_provider_model' }, { name, model });
     }
 
     public async setLLMProviderEnableThinking<T>(name: string, enableThinking: boolean): Promise<APIResponse<T>> {
+        // Persist enable_thinking to DynamoDB
+        await this._ensureSettingsLoaded();
+        if (this._settingsData && this._settingsUsername) {
+            const llmProviders = this._settingsData.llm_providers
+                ? JSON.parse(JSON.stringify(this._settingsData.llm_providers))
+                : {};
+            const providersDict = llmProviders.providers || llmProviders;
+            let found = false;
+            for (const key of Object.keys(providersDict)) {
+                const p = providersDict[key];
+                if (p && (p.provider === name || p.name === name || key === name)) {
+                    p.enable_thinking = enableThinking;
+                    found = true;
+                    break;
+                }
+            }
+            if (found) {
+                const savePayload = {
+                    username: this._settingsUsername,
+                    settings: this._settingsData.settings || {},
+                    llm_providers: llmProviders,
+                    embedding_providers: this._settingsData.embedding_providers || {},
+                    rerank_providers: this._settingsData.rerank_providers || {},
+                };
+                const saveResponse = await this.saveSettings(savePayload);
+                if (saveResponse.success) {
+                    this._settingsData = null;
+                    return { success: true, data: { message: `Thinking mode for ${name} set to ${enableThinking}` } as unknown as T };
+                }
+                return { success: false, error: { message: 'Failed to save thinking mode' } } as APIResponse<T>;
+            }
+        }
         return apiRouter.execute({ method: 'set_llm_provider_enable_thinking' }, { name, enable_thinking: enableThinking });
     }
 
@@ -540,19 +791,58 @@ export class IPCAPI {
     }
 
     public async getConfiguredLLMProviders<T>(): Promise<APIResponse<T>> {
+        // In cloud mode, return providers from settings cache that have api_key configured
+        await this._ensureSettingsLoaded();
+        const providers = this._extractProviders('llm_providers');
+        if (providers) {
+            const configured = providers.filter((p: any) => p.api_key_configured);
+            return { success: true, data: { providers: configured } as T };
+        }
         return apiRouter.execute({ method: 'get_configured_llm_providers' });
     }
 
     public async getLLMProvidersWithCredentials<T>(): Promise<APIResponse<T>> {
+        // In cloud mode, return all providers from settings cache (they already include api_key)
+        await this._ensureSettingsLoaded();
+        const providers = this._extractProviders('llm_providers');
+        if (providers) {
+            return { success: true, data: { providers } as T };
+        }
         return apiRouter.execute({ method: 'get_llm_providers_with_credentials' });
     }
 
     // Embedding Management APIs
     public async getEmbeddingProviders<T>(): Promise<APIResponse<T>> {
+        await this._ensureSettingsLoaded();
+        const providers = this._extractProviders('embedding_providers');
+        if (providers) {
+            return { success: true, data: { providers } as T };
+        }
         return apiRouter.execute({ method: 'get_embedding_providers' });
     }
 
     public async setDefaultEmbedding<T>(name: string, username: string, model?: string): Promise<APIResponse<T>> {
+        // Persist default embedding to DynamoDB settings
+        await this._ensureSettingsLoaded();
+        if (this._settingsData && this._settingsUsername) {
+            const settings = this._settingsData.settings
+                ? JSON.parse(JSON.stringify(this._settingsData.settings))
+                : {};
+            settings.default_embedding = name;
+            if (model) settings.default_embedding_model = model;
+            const savePayload = {
+                username: this._settingsUsername,
+                settings,
+                llm_providers: this._settingsData.llm_providers || {},
+                embedding_providers: this._settingsData.embedding_providers || {},
+                rerank_providers: this._settingsData.rerank_providers || {},
+            };
+            const saveResponse = await this.saveSettings(savePayload);
+            if (saveResponse.success) {
+                this._settingsData = null;
+                return { success: true, data: { message: `Default embedding set to ${name}` } as unknown as T };
+            }
+        }
         const params: any = { name, username };
         if (model) {
             params.model = model;
@@ -561,14 +851,81 @@ export class IPCAPI {
     }
 
     public async updateEmbeddingProvider<T>(name: string, apiKey: string, azureEndpoint?: string): Promise<APIResponse<T>> {
+        // Persist embedding provider API key to DynamoDB
+        await this._ensureSettingsLoaded();
+        if (this._settingsData && this._settingsUsername) {
+            const embeddingProviders = this._settingsData.embedding_providers
+                ? JSON.parse(JSON.stringify(this._settingsData.embedding_providers))
+                : {};
+            const providersDict = embeddingProviders.providers || embeddingProviders;
+            let found = false;
+            for (const key of Object.keys(providersDict)) {
+                const p = providersDict[key];
+                if (p && (p.provider === name || p.name === name || key === name)) {
+                    p.api_key = apiKey;
+                    p.api_key_configured = !!apiKey && apiKey.length > 0;
+                    if (azureEndpoint) p.azure_endpoint = azureEndpoint;
+                    found = true;
+                    break;
+                }
+            }
+            if (found) {
+                const savePayload = {
+                    username: this._settingsUsername,
+                    settings: this._settingsData.settings || {},
+                    llm_providers: this._settingsData.llm_providers || {},
+                    embedding_providers: embeddingProviders,
+                    rerank_providers: this._settingsData.rerank_providers || {},
+                };
+                const saveResponse = await this.saveSettings(savePayload);
+                if (saveResponse.success) {
+                    this._settingsData = null;
+                    return { success: true, data: { message: `Embedding provider ${name} updated` } as unknown as T };
+                }
+            }
+        }
         const params: any = { name, api_key: apiKey };
         if (azureEndpoint) {
             params.azure_endpoint = azureEndpoint;
+        }
+        if (baseUrl) {
+            params.base_url = baseUrl;
         }
         return apiRouter.execute({ method: 'update_embedding_provider' }, params);
     }
 
     public async setEmbeddingProviderModel<T>(name: string, model: string): Promise<APIResponse<T>> {
+        await this._ensureSettingsLoaded();
+        if (this._settingsData && this._settingsUsername) {
+            const embeddingProviders = this._settingsData.embedding_providers
+                ? JSON.parse(JSON.stringify(this._settingsData.embedding_providers))
+                : {};
+            const providersDict = embeddingProviders.providers || embeddingProviders;
+            let found = false;
+            for (const key of Object.keys(providersDict)) {
+                const p = providersDict[key];
+                if (p && (p.provider === name || p.name === name || key === name)) {
+                    p.default_model = model;
+                    p.preferred_model = model;
+                    found = true;
+                    break;
+                }
+            }
+            if (found) {
+                const savePayload = {
+                    username: this._settingsUsername,
+                    settings: this._settingsData.settings || {},
+                    llm_providers: this._settingsData.llm_providers || {},
+                    embedding_providers: embeddingProviders,
+                    rerank_providers: this._settingsData.rerank_providers || {},
+                };
+                const saveResponse = await this.saveSettings(savePayload);
+                if (saveResponse.success) {
+                    this._settingsData = null;
+                    return { success: true, data: { message: `Embedding model for ${name} set to ${model}` } as unknown as T };
+                }
+            }
+        }
         return apiRouter.execute({ method: 'set_embedding_provider_model' }, { name, model });
     }
 
@@ -586,10 +943,35 @@ export class IPCAPI {
 
     // Rerank Management APIs
     public async getRerankProviders<T>(): Promise<APIResponse<T>> {
+        await this._ensureSettingsLoaded();
+        const providers = this._extractProviders('rerank_providers');
+        if (providers) {
+            return { success: true, data: { providers } as T };
+        }
         return apiRouter.execute({ method: 'get_rerank_providers' });
     }
 
     public async setDefaultRerank<T>(name: string, username: string, model?: string): Promise<APIResponse<T>> {
+        await this._ensureSettingsLoaded();
+        if (this._settingsData && this._settingsUsername) {
+            const settings = this._settingsData.settings
+                ? JSON.parse(JSON.stringify(this._settingsData.settings))
+                : {};
+            settings.default_rerank = name;
+            if (model) settings.default_rerank_model = model;
+            const savePayload = {
+                username: this._settingsUsername,
+                settings,
+                llm_providers: this._settingsData.llm_providers || {},
+                embedding_providers: this._settingsData.embedding_providers || {},
+                rerank_providers: this._settingsData.rerank_providers || {},
+            };
+            const saveResponse = await this.saveSettings(savePayload);
+            if (saveResponse.success) {
+                this._settingsData = null;
+                return { success: true, data: { message: `Default rerank set to ${name}` } as unknown as T };
+            }
+        }
         const params: any = { name, username };
         if (model) {
             params.model = model;
@@ -598,14 +980,80 @@ export class IPCAPI {
     }
 
     public async updateRerankProvider<T>(name: string, apiKey: string, azureEndpoint?: string): Promise<APIResponse<T>> {
+        await this._ensureSettingsLoaded();
+        if (this._settingsData && this._settingsUsername) {
+            const rerankProviders = this._settingsData.rerank_providers
+                ? JSON.parse(JSON.stringify(this._settingsData.rerank_providers))
+                : {};
+            const providersDict = rerankProviders.providers || rerankProviders;
+            let found = false;
+            for (const key of Object.keys(providersDict)) {
+                const p = providersDict[key];
+                if (p && (p.provider === name || p.name === name || key === name)) {
+                    p.api_key = apiKey;
+                    p.api_key_configured = !!apiKey && apiKey.length > 0;
+                    if (azureEndpoint) p.azure_endpoint = azureEndpoint;
+                    found = true;
+                    break;
+                }
+            }
+            if (found) {
+                const savePayload = {
+                    username: this._settingsUsername,
+                    settings: this._settingsData.settings || {},
+                    llm_providers: this._settingsData.llm_providers || {},
+                    embedding_providers: this._settingsData.embedding_providers || {},
+                    rerank_providers: rerankProviders,
+                };
+                const saveResponse = await this.saveSettings(savePayload);
+                if (saveResponse.success) {
+                    this._settingsData = null;
+                    return { success: true, data: { message: `Rerank provider ${name} updated` } as unknown as T };
+                }
+            }
+        }
         const params: any = { name, api_key: apiKey };
         if (azureEndpoint) {
             params.azure_endpoint = azureEndpoint;
+        }
+        if (baseUrl) {
+            params.base_url = baseUrl;
         }
         return apiRouter.execute({ method: 'update_rerank_provider' }, params);
     }
 
     public async setRerankProviderModel<T>(name: string, model: string): Promise<APIResponse<T>> {
+        await this._ensureSettingsLoaded();
+        if (this._settingsData && this._settingsUsername) {
+            const rerankProviders = this._settingsData.rerank_providers
+                ? JSON.parse(JSON.stringify(this._settingsData.rerank_providers))
+                : {};
+            const providersDict = rerankProviders.providers || rerankProviders;
+            let found = false;
+            for (const key of Object.keys(providersDict)) {
+                const p = providersDict[key];
+                if (p && (p.provider === name || p.name === name || key === name)) {
+                    p.default_model = model;
+                    p.preferred_model = model;
+                    found = true;
+                    break;
+                }
+            }
+            if (found) {
+                const savePayload = {
+                    username: this._settingsUsername,
+                    settings: this._settingsData.settings || {},
+                    llm_providers: this._settingsData.llm_providers || {},
+                    embedding_providers: this._settingsData.embedding_providers || {},
+                    rerank_providers: rerankProviders,
+                };
+                const saveResponse = await this.saveSettings(savePayload);
+                if (saveResponse.success) {
+                    this._settingsData = null;
+                    return { success: true, data: { message: `Rerank model for ${name} set to ${model}` } as unknown as T };
+                }
+            }
+        }
         return apiRouter.execute({ method: 'set_rerank_provider_model' }, { name, model });
     }
 
@@ -623,6 +1071,10 @@ export class IPCAPI {
 
     public async getOllamaModels<T>(host: string, username?: string): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'settings.getOllamaModels' }, { host, username });
+    }
+
+    public async getRyoAISModels<T>(host: string, username?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'settings.getRyoAISModels' }, { host, username });
     }
 
     public async runTest<T>(tests: TestConfig[]): Promise<APIResponse<T>> {
@@ -1198,16 +1650,19 @@ export class IPCAPI {
     );
 
         // Transform getAllMine response to initialization progress format
-        // If we got data from getAllMine, initialization is complete
+        // Respect the backend's actual progress values — do NOT override ui_ready/fully_ready.
+        // The backend returns accurate progress (e.g., ui_ready: false when MainWindow isn't created).
+        // Only set defaults for fields that are missing from the response.
         if (response.success && response.data) {
+            const data = response.data;
             const initProgress = {
-                ...response.data,
-                ui_ready: true,
-                critical_services_ready: true,
-                async_init_complete: true,
-                fully_ready: true,  // Data loaded = fully ready
-                sync_init_complete: true,
-                message: 'Initialization complete'
+                ui_ready: data.ui_ready ?? false,
+                critical_services_ready: data.critical_services_ready ?? false,
+                async_init_complete: data.async_init_complete ?? false,
+                fully_ready: data.fully_ready ?? false,
+                sync_init_complete: data.sync_init_complete ?? false,
+                message: data.message ?? 'Checking initialization...',
+                ...data,  // Preserve any extra fields from backend
             };
             return {
                 success: true,

@@ -31,6 +31,7 @@ const vehicleService = require("./services/vehicleService");
 const orgService = require("./services/orgService");
 const avatarService = require("./services/avatarService");
 const promptService = require("./services/promptService");
+const settingsService = require("./services/settingsService");
 
 // const axios = require('axios');
 
@@ -4870,6 +4871,46 @@ async function processEvent(event, context, callback, test_stub) {
               returnData = await skillEditorService.deleteSkillEditorChatSession(event.arguments?.sessionId || "");
             }
             break;
+          case "updateSettings":
+            {
+              // Upsert settings into DynamoDB ECAN_Settings table
+              const input = event.arguments?.input;
+
+              // input is [AWSJSON] — first element contains the settings payload
+              let payload = {};
+              if (Array.isArray(input) && input.length > 0) {
+                payload = typeof input[0] === "string" ? JSON.parse(input[0]) : input[0];
+              } else if (typeof input === "string") {
+                payload = JSON.parse(input);
+              } else if (typeof input === "object" && input !== null) {
+                payload = input;
+              }
+
+              // Use username from payload (consistent with getSettings which uses event.arguments.username)
+              const settingsOwnerU = normalizeEmailForPath(payload.username || ownerEmail || owner);
+              console.log(`[agentScheduler] updateSettings: owner=${settingsOwnerU}`);
+
+              // Check if user already has a settings record to preserve sid
+              const existing = await settingsService.getSettingsByOwner(settingsOwnerU);
+              const existingSid = existing ? existing.sid : null;
+
+              // Build the upsert payload — separate general settings from providers
+              // The frontend sends flat form values: { username, schedule_mode, debug_mode, default_llm, ... }
+              // Extract providers if present, treat the rest as general settings
+              const { llm_providers, embedding_providers, rerank_providers, username: _u, ...generalFields } = payload;
+
+              const upsertPayload = {
+                settings: payload.settings || payload.general_settings || generalFields || {},
+                llm_providers: llm_providers || (existing ? existing.llm_providers : {}),
+                embedding_providers: embedding_providers || (existing ? existing.embedding_providers : {}),
+                rerank_providers: rerank_providers || (existing ? existing.rerank_providers : {}),
+              };
+
+              const result = await settingsService.upsertSettings(settingsOwnerU, upsertPayload, existingSid);
+              console.log(`[agentScheduler] updateSettings: upserted sid=${result.sid}`);
+              returnData = { success: true, sid: result.sid };
+            }
+            break;
           default:
             return UNRECOGNIZED_INPUT;
         }
@@ -5193,24 +5234,37 @@ async function processEvent(event, context, callback, test_stub) {
             break;
           case "getSettings":
             {
-              const userName = normalizeEmailForPath(owner);
-              const userPrefix = `${userName}/`;
-              const settingsKey = `${userPrefix}settings/settings.json`;
+              // Try DynamoDB first (ECAN_Settings table)
+              // Prefer explicit username argument (Cognito access token may not have email in claims)
+              const settingsOwnerRaw = event.arguments?.username || ownerEmail || owner;
+              const settingsOwner = normalizeEmailForPath(settingsOwnerRaw);
+              console.log(`[agentScheduler] getSettings: querying DynamoDB for owner=${settingsOwner}`);
+              const dbSettings = await settingsService.getSettingsByOwner(settingsOwner);
 
-              if (!(await objectExists(SKILL_BUCKET, settingsKey))) {
-                await ensureUserSkillFolders(SKILL_BUCKET, userPrefix);
-                const copied = await copyPublicSettingsToUser(SKILL_BUCKET, userPrefix);
-                if (!copied) {
-                  await s3.send(new PutObjectCommand({
-                    Bucket: SKILL_BUCKET,
-                    Key: settingsKey,
-                    Body: JSON.stringify({})
-                  }));
+              if (dbSettings) {
+                console.log(`[agentScheduler] getSettings: found DynamoDB record sid=${dbSettings.sid}`);
+                returnData = dbSettings;
+              } else {
+                // Fallback: read from S3 (legacy)
+                console.log(`[agentScheduler] getSettings: no DynamoDB record, falling back to S3`);
+                const userPrefix = `${settingsOwner}/`;
+                const settingsKey = `${userPrefix}settings/settings.json`;
+
+                if (!(await objectExists(SKILL_BUCKET, settingsKey))) {
+                  await ensureUserSkillFolders(SKILL_BUCKET, userPrefix);
+                  const copied = await copyPublicSettingsToUser(SKILL_BUCKET, userPrefix);
+                  if (!copied) {
+                    await s3.send(new PutObjectCommand({
+                      Bucket: SKILL_BUCKET,
+                      Key: settingsKey,
+                      Body: JSON.stringify({})
+                    }));
+                  }
                 }
-              }
 
-              const settings = await loadUserSettings(SKILL_BUCKET, settingsKey);
-              returnData = settings;
+                const settings = await loadUserSettings(SKILL_BUCKET, settingsKey);
+                returnData = { settings };
+              }
             }
             break;
           case "getAllMine":
@@ -5269,6 +5323,19 @@ async function processEvent(event, context, callback, test_stub) {
                 return owner ? all.filter(v => v.owner === owner) : all;
               });
 
+              // Load user settings from DynamoDB
+              let userSettings = null;
+              try {
+                const settingsOwnerAll = normalizeEmailForPath(owner);
+                const dbSettingsAll = await settingsService.getSettingsByOwner(settingsOwnerAll);
+                if (dbSettingsAll) {
+                  userSettings = dbSettingsAll;
+                  console.log(`[agentScheduler] getAllMine: loaded settings sid=${dbSettingsAll.sid}`);
+                }
+              } catch (err) {
+                util.log("ERROR", `getAllMine settings failed: ${err.message}`, api_caller, "processEvent", logFlag);
+              }
+
               returnData = {
                 agents,
                 tasks,
@@ -5279,7 +5346,8 @@ async function processEvent(event, context, callback, test_stub) {
                 orgs,
                 avatars,
                 vehicles,
-                accountInfo: accountRecord
+                accountInfo: accountRecord,
+                settings: userSettings
               };
             }
             break;
@@ -5309,7 +5377,8 @@ async function processEvent(event, context, callback, test_stub) {
         orgs: [],
         avatars: [],
         vehicles: [],
-        accountInfo: accountRecord || {}
+        accountInfo: accountRecord || {},
+        settings: null
       };
     } else {
       returnData = { error: "ACCOUNT INSUFFICIENT" };

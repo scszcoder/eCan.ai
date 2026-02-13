@@ -32,19 +32,42 @@ def generate_reference_list_from_chunks_with_scores(chunks: list[dict]) -> tuple
     # 1. Extract all valid file_paths, count their occurrences, and collect scores
     file_path_counts = {}
     file_path_scores = {}  # Collect scores for each file_path
+    chunks_with_scores = 0
     for chunk in chunks:
         file_path = chunk.get("file_path", "")
         if file_path and file_path != "unknown_source":
             file_path_counts[file_path] = file_path_counts.get(file_path, 0) + 1
             # Collect rerank_score or other score fields
+            # Priority: rerank_score > score > similarity > distance (converted to similarity)
             score = chunk.get("rerank_score") or chunk.get("score") or chunk.get("similarity")
+            
+            # If no score found, try distance and convert to similarity (1 - distance)
+            if score is None:
+                distance = chunk.get("distance")
+                if distance is not None:
+                    try:
+                        # Convert distance to similarity: similarity = 1 - distance
+                        # Assuming distance is normalized between 0 and 1
+                        score = 1.0 - float(distance)
+                    except (ValueError, TypeError):
+                        pass
+            
             if score is not None:
                 if file_path not in file_path_scores:
                     file_path_scores[file_path] = []
                 try:
                     file_path_scores[file_path].append(float(score))
+                    chunks_with_scores += 1
                 except (ValueError, TypeError):
                     pass
+    
+    logger.info(f"[utils_custom] Processing {len(chunks)} chunks: {chunks_with_scores} have score data")
+    
+    # Debug: Show first chunk structure to diagnose missing scores
+    if chunks and chunks_with_scores == 0:
+        first_chunk_keys = list(chunks[0].keys()) if chunks[0] else []
+        logger.warning(f"[utils_custom] First chunk has keys: {first_chunk_keys}")
+        logger.warning(f"[utils_custom] First chunk sample: {str(chunks[0])[:200]}...")
 
     # 2. Sort file paths by frequency (descending), then by first appearance order
     file_path_with_indices = []
@@ -77,15 +100,20 @@ def generate_reference_list_from_chunks_with_scores(chunks: list[dict]) -> tuple
 
     # 5. Build reference_list with scores (for confidence scoring)
     reference_list = []
+    refs_with_scores = 0
     for i, file_path in enumerate(unique_file_paths):
         ref_item = {"reference_id": str(i + 1), "file_path": file_path}
         # Add average score if available (for confidence scoring)
         if file_path in file_path_scores and file_path_scores[file_path]:
             scores = file_path_scores[file_path]
             ref_item["score"] = sum(scores) / len(scores)  # Average score
+            refs_with_scores += 1
+            logger.info(f"[utils_custom] Reference [{i+1}] '{file_path}' has score: {ref_item['score']:.4f} (from {len(scores)} chunks)")
+        else:
+            logger.warning(f"[utils_custom] Reference [{i+1}] '{file_path}' has NO score data")
         reference_list.append(ref_item)
 
-    logger.debug(f"[utils_custom] Generated {len(reference_list)} references with scores from {len(chunks)} chunks")
+    logger.info(f"[utils_custom] Generated {len(reference_list)} references ({refs_with_scores} with scores) from {len(chunks)} chunks")
     
     return reference_list, updated_chunks
 

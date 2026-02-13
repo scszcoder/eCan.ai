@@ -59,8 +59,8 @@ class PassiveCommandService:
     async def start(self) -> None:
         """Start the service and begin listening for commands."""
         if self._started:
-            logger.warning("[PassiveCommandService] Already started")
-            return
+            logger.info("[PassiveCommandService] Already started, stopping old subscription first")
+            await self.stop()
         
         def on_command(cmd: PassiveBrowserCommand) -> None:
             """Handle incoming command by routing to task."""
@@ -140,11 +140,11 @@ def make_passive_command_service_from_mainwin(
     client_id = mainwin.getAcctSiteID()
     
     # AppSync subscriptions require exact match - wildcards don't work
-    # Default to "test-run-001" for testing; in production, use specific run_id
+    # Default to "0123456789" for testing; in production, use specific run_id
     import os
     run_id = (os.environ.get("EC_BROWSER_PASSIVE_RUN_ID") or "").strip()
     if not run_id or run_id == "*":
-        run_id = "test-run-001"
+        run_id = "0123456789"
         logger.warning(f"[PassiveCommandService] EC_BROWSER_PASSIVE_RUN_ID not set or '*', defaulting to '{run_id}'")
     
     config = AppSyncPassiveClientConfig(

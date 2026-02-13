@@ -16,7 +16,7 @@ from typing import Any, Callable, ClassVar, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from a2a.types import Task, TaskState, Message, TextPart
+from a2a.types import Task, TaskState, TaskStatus as A2ATaskStatus, Message, TextPart
 
 
 # ==================== Utility Functions ====================
@@ -134,6 +134,11 @@ class PendingEventStatus(str, Enum):
     TIMED_OUT = "timed_out"
     CANCELLED = "cancelled"
 
+class TaskStatus(str, Enum):
+    """Legacy task status enum used for older task records."""
+    UNAVAILABLE = "unavailable"
+    READY = "ready"
+    IN_PROGRESS = "in_progress"
 
 # ==================== Pending Event Model ====================
 
@@ -153,7 +158,7 @@ class PendingEvent(BaseModel):
     result: Optional[Any] = None  # Callback result when completed
     error: Optional[str] = None  # Error message if failed/timed_out
     
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
     
     def is_pending(self) -> bool:
         """Check if this event is still pending."""
@@ -206,7 +211,7 @@ class ManagedTask(Task):
     name: str
     description: str = ""
     source: str = "ui"  # "code" for code-based, "ui" for UI-created
-    
+    agent_id: str = Field(default="", alias="agentId")
     # Skill reference (Any to avoid strict validation)
     skill: Any = None
 
@@ -229,7 +234,7 @@ class ManagedTask(Task):
     schedule: Optional[TaskSchedule] = None
     priority: Optional[PriorityType] = None
     last_run_datetime: Optional[datetime] = None
-    already_run_flag: bool = False
+    status: A2ATaskStatus = Field(default_factory=lambda: A2ATaskStatus(state=TaskState.submitted))
     
     # Checkpoints for interrupt/resume
     checkpoint_nodes: Optional[List[dict]] = None
@@ -248,13 +253,54 @@ class ManagedTask(Task):
     consecutive_failures: int = 0
     max_failures: int = 3  # Stop after this many consecutive failures
     
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(arbitrary_types_allowed=True, populate_by_name=True)
     
     @field_validator('priority', mode='before')
     @classmethod
     def validate_priority(cls, v):
         """Validate and normalize priority field using generic enum validator."""
         return create_enum_validator(PriorityType, invalid_values={'none', ''})(v)
+
+    @field_validator('agent_id', mode='before')
+    @classmethod
+    def validate_agent_id(cls, v):
+        if v is None:
+            return ""
+        if isinstance(v, str):
+            return v
+        return str(v)
+
+    @field_validator('status', mode='before')
+    @classmethod
+    def validate_status(cls, v):
+        if v is None:
+            return A2ATaskStatus(state=TaskState.submitted)
+        if isinstance(v, A2ATaskStatus):
+            return v
+        if isinstance(v, TaskStatus):
+            if v == TaskStatus.IN_PROGRESS:
+                return A2ATaskStatus(state=TaskState.working)
+            if v == TaskStatus.UNAVAILABLE:
+                return A2ATaskStatus(state=TaskState.unknown)
+            return A2ATaskStatus(state=TaskState.submitted)
+        if isinstance(v, TaskState):
+            return A2ATaskStatus(state=v)
+        if hasattr(v, "state"):
+            state = getattr(v, "state", None)
+            if isinstance(state, TaskState):
+                return A2ATaskStatus(state=state)
+        if isinstance(v, str):
+            try:
+                return A2ATaskStatus(state=TaskState(v))
+            except Exception:
+                v_lower = v.lower()
+                if v_lower == "working":
+                    return A2ATaskStatus(state=TaskState.working)
+                if v_lower in {"submitted", "input-required", "ready"}:
+                    return A2ATaskStatus(state=TaskState.submitted)
+                if v_lower in {"completed", "canceled", "cancelled", "failed", "unknown", "unavailable"}:
+                    return A2ATaskStatus(state=TaskState.unknown)
+        return A2ATaskStatus(state=TaskState.submitted)
     
     def __init__(self, **data):
         super().__init__(**data)

@@ -1,8 +1,9 @@
-﻿import os
+import os
 from utils.logger_helper import logger_helper as logger
 from browser_use.agent.views import ActionResult
 from browser_use import BrowserSession, Controller
 from agent.ec_skills.browser_use_extension.extension_tools_views import (
+    ExtractDomAction,
     FileRenameAction,
     FilesPrintAction,
     LabelInputFile,
@@ -97,3 +98,92 @@ async def reformat_labels(params: LabelsReformatAction, browser_session: Browser
     except Exception as e:
         logger.error(f"[Browser Use Extension] Reformat error: {e}")
         return ActionResult(error=f"Reformat failed: {str(e)}")
+
+
+@custom_controller.action(
+    'Extract raw DOM/markdown content from the current page. Returns webpage content for cloud-side analysis without requiring local LLM.',
+    param_model=ExtractDomAction
+)
+async def extract_dom(params: ExtractDomAction, browser_session: BrowserSession):
+    """Extract raw markdown content from the current page without LLM analysis.
+    
+    This action is used in passive mode where the cloud agent will analyze the content.
+    It extracts the same content that browser-use's extract action would feed to an LLM,
+    but returns it raw for the cloud to process.
+    """
+    MAX_CHAR_LIMIT = 30000
+    query = params.query or ""
+    extract_links = params.extract_links
+    start_from_char = params.start_from_char or 0
+
+    try:
+        from browser_use.dom.markdown_extractor import extract_clean_markdown
+        content, content_stats = await extract_clean_markdown(
+            browser_session=browser_session, extract_links=extract_links
+        )
+    except Exception as e:
+        logger.error(f"[extract_dom] Failed to extract markdown: {e}", exc_info=True)
+        return ActionResult(error=f"Could not extract clean markdown: {type(e).__name__}: {e}")
+
+    final_filtered_length = content_stats.get("final_filtered_chars", len(content))
+
+    if start_from_char > 0:
+        if start_from_char >= len(content):
+            return ActionResult(
+                error=f"start_from_char ({start_from_char}) exceeds content length {final_filtered_length} characters."
+            )
+        content = content[start_from_char:]
+        content_stats["started_from_char"] = start_from_char
+
+    # Smart truncation with context preservation
+    truncated = False
+    if len(content) > MAX_CHAR_LIMIT:
+        truncate_at = MAX_CHAR_LIMIT
+        # Look for paragraph break within last 500 chars of limit
+        paragraph_break = content.rfind("\n\n", MAX_CHAR_LIMIT - 500, MAX_CHAR_LIMIT)
+        if paragraph_break > 0:
+            truncate_at = paragraph_break
+        else:
+            # Look for sentence break within last 200 chars of limit
+            sentence_break = content.rfind(".", MAX_CHAR_LIMIT - 200, MAX_CHAR_LIMIT)
+            if sentence_break > 0:
+                truncate_at = sentence_break + 1
+        content = content[:truncate_at]
+        truncated = True
+        next_start = (start_from_char or 0) + truncate_at
+        content_stats["truncated_at_char"] = truncate_at
+        content_stats["next_start_char"] = next_start
+
+    # Build stats summary (same format as browser-use)
+    original_html_length = content_stats.get("original_html_chars", 0)
+    initial_markdown_length = content_stats.get("initial_markdown_chars", 0)
+    chars_filtered = content_stats.get("filtered_chars_removed", 0)
+
+    stats_summary = f"Content processed: {original_html_length:,} HTML chars → {initial_markdown_length:,} initial markdown → {final_filtered_length:,} filtered markdown"
+    if start_from_char > 0:
+        stats_summary += f" (started from char {start_from_char:,})"
+    if truncated:
+        stats_summary += f" → {len(content):,} final chars (truncated, use start_from_char={content_stats['next_start_char']} to continue)"
+    elif chars_filtered > 0:
+        stats_summary += f" (filtered {chars_filtered:,} chars of noise)"
+
+    try:
+        current_url = await browser_session.get_current_page_url()
+    except Exception:
+        current_url = "unknown"
+
+    # Return raw content in same format as browser-use's extract action LLM input
+    extracted_content = (
+        f"<url>\n{current_url}\n</url>\n"
+        f"<query>\n{query}\n</query>\n"
+        f"<content_stats>\n{stats_summary}\n</content_stats>\n"
+        f"<webpage_content>\n{content}\n</webpage_content>"
+    )
+
+    logger.info(f"[extract_dom] Extracted {len(content):,} chars from {current_url}")
+
+    return ActionResult(
+        extracted_content=extracted_content,
+        include_in_memory=True,
+        long_term_memory=f"Extracted raw markdown for query: {query}",
+    )

@@ -213,6 +213,12 @@ class EC_Skill(AgentSkill):
     public: bool = False
     rentable: bool = False
 
+    # Cloud execution settings
+    run_in_cloud: bool = False
+    hybrid_cloud_mode: bool = False
+    local_helper_skill_id: str | None = None
+    local_helper_machine: str | None = None
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @model_validator(mode='after')
@@ -291,6 +297,10 @@ class EC_Skill(AgentSkill):
             "price_model": self.price_model,
             "public": self.public,
             "rentable": self.rentable,
+            "run_in_cloud": self.run_in_cloud,
+            "hybrid_cloud_mode": self.hybrid_cloud_mode,
+            "local_helper_skill_id": self.local_helper_skill_id,
+            "local_helper_machine": self.local_helper_machine,
         }
 
 
@@ -569,9 +579,9 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                 import time as time_mod
                 
                 # Get run_id from runtime context if available
-                run_id = "dev_run_singleton"  # default for dev runs
+                run_id = "0123456789"  # default for dev runs
                 try:
-                    run_id = runtime.context.get("run_id", "dev_run_singleton")
+                    run_id = runtime.context.get("run_id", "0123456789")
                 except Exception:
                     pass
                 
@@ -855,7 +865,13 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
         except Exception:
             pass
 
-        logger.debug("[node_builder]returning state...", state)
+        # Truncate screenshot data in state for logging
+        try:
+            from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
+            log_state = truncate_screenshot_for_logging(state)
+        except Exception:
+            log_state = str(state)[:500] + "..." if len(str(state)) > 500 else state
+        logger.debug(f"[node_builder]returning state... {log_state}")
         return state
     # The node_builder itself returns the wrapper function
     return wrapper
