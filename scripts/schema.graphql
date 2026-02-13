@@ -196,6 +196,8 @@ type AvatarResource @aws_api_key @aws_cognito_user_pools {
   last_used_at: AWSDateTime
   name: String
   owner: String
+  presigned_image_url: String
+  presigned_video_url: String
   resource_type: String!
   usage_count: Int
   video_hash: String
@@ -294,41 +296,41 @@ type LongLLMTaskResult @aws_api_key @aws_cognito_user_pools {
 }
 
 type Mutation {
-  RemoveLabelFormats(ids: [ID!]!): [MutationResult!]!
-  RemoveWareHouses(ids: [ID!]!): [MutationResult!]!
-  UpdateLabelFormats(input: [LabelFormatUpdateInput!]!): [LabelFormat!]!
-  UpdateWarehouses(input: [WarehouseUpdateInput!]!): [Warehouse!]!
-  addAccts(input: [Account]!): AWSJSON!
-  addAgentKnowledges(input: [KnowledgeInput!]!): [KnowledgeMutationResult!]!
-  addAgentSkills(input: [SkillInput!]!): [SkillMutationResult!]!
-  addAgentTasks(input: [TaskInput!]!): [TaskMutationResult!]!
-  addAgentTools(input: [ToolInput!]!): [ToolMutationResult!]!
-  addAgents(input: [AgentInput!]!): [AgentMutationResult!]!
-  addAvatars(input: [AvatarInput!]!): [AvatarMutationResult!]!
-  addBots(input: [Bot]!): AWSJSON!
-  addLabelFormats(input: [LabelFormatInput!]!): [LabelFormat!]!
-  addMissions(input: [Mission]!, settings: AWSJSON!): AWSJSON!
-  addOrgs(input: [OrgInput!]!): [OrgMutationResult!]!
-  addProducts(input: [ProductInput!]!): [Product!]!
-  addPrompts(input: [PromptInput!]!): [PromptMutationResult!]!
-  addSkills(input: [Skill]!): AWSJSON!
-  addVehicles(input: [VehicleInput!]!): [VehicleMutationResult!]!
-  addWareHouses(input: [WarehouseInput!]!): [Warehouse!]!
-  cancelRunSkill(input: RunControlInput!): RunControlResult
-  cancelSkillEditorChatGeneration(sessionId: ID!): Boolean!
-  clearEditorCache(userId: ID!): Boolean!
-  clearSkillBreakpoints(node_name: String!, username: String!): ActionResult
-  copySkillTo(input: SkillCopyInput!): SkillCopyResult
-  createSkillEditorChatSession(input: SkillEditorChatSessionInput!): SkillEditorChatSession
-  deleteScene(id: ID!): Boolean!
-  deleteSkillEditorChatSession(sessionId: ID!): Boolean!
+  RemoveLabelFormats(ids: [ID!]!): [MutationResult!]! @aws_api_key @aws_cognito_user_pools
+  RemoveWareHouses(ids: [ID!]!): [MutationResult!]! @aws_api_key @aws_cognito_user_pools
+  UpdateLabelFormats(input: [LabelFormatUpdateInput!]!): [LabelFormat!]! @aws_api_key @aws_cognito_user_pools
+  UpdateWarehouses(input: [WarehouseUpdateInput!]!): [Warehouse!]! @aws_api_key @aws_cognito_user_pools
+  addAccts(input: [Account]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  addAgentKnowledges(input: [KnowledgeInput!]!): [KnowledgeMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  addAgentSkills(input: [SkillInput!]!): [SkillMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  addAgentTasks(input: [TaskInput!]!): [TaskMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  addAgentTools(input: [ToolInput!]!): [ToolMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  addAgents(input: [AgentInput!]!): [AgentMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  addAvatars(input: [AvatarInput!]!): [AvatarMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  addBots(input: [Bot]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  addLabelFormats(input: [LabelFormatInput!]!): [LabelFormat!]! @aws_api_key @aws_cognito_user_pools
+  addMissions(input: [Mission]!, settings: AWSJSON!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  addOrgs(input: [OrgInput!]!): [OrgMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  addProducts(input: [ProductInput!]!): [Product!]! @aws_api_key @aws_cognito_user_pools
+  addPrompts(input: [PromptInput!]!): [PromptMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  addSkills(input: [Skill]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  addVehicles(input: [VehicleInput!]!): [VehicleMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  addWareHouses(input: [WarehouseInput!]!): [Warehouse!]! @aws_api_key @aws_cognito_user_pools
+  cancelRunSkill(input: RunControlInput!): RunControlResult @aws_api_key @aws_cognito_user_pools
+  cancelSkillEditorChatGeneration(sessionId: ID!): Boolean! @aws_api_key @aws_cognito_user_pools
+  clearEditorCache(userId: ID!): Boolean! @aws_api_key @aws_cognito_user_pools
+  clearSkillBreakpoints(node_name: String!, username: String!): ActionResult @aws_api_key @aws_cognito_user_pools
+  copySkillTo(input: SkillCopyInput!): SkillCopyResult @aws_api_key @aws_cognito_user_pools
+  createSkillEditorChatSession(input: SkillEditorChatSessionInput!): SkillEditorChatSession @aws_api_key @aws_cognito_user_pools
+  deleteScene(id: ID!): Boolean! @aws_api_key @aws_cognito_user_pools
+  deleteSkillEditorChatSession(sessionId: ID!): Boolean! @aws_api_key @aws_cognito_user_pools
   endLongLLMTask(input: [LongLLMTaskResultInput!]!): [LongLLMTaskResult!]! @aws_api_key @aws_cognito_user_pools
   initReqScene(input: ReqSceneInput!): ReqSceneResponse! @aws_cognito_user_pools
-  injectSkillState(skill: AWSJSON!, username: String!): ActionResult
-  loadSkillSchemas(skill: AWSJSON!, username: String!): ActionResult
-  makeBusinessOrders(input: [Order]!): AWSJSON!
-  makeOrder(input: [Order]!): AWSJSON!
-  pauseRunSkill(input: RunControlInput!): RunControlResult
+  injectSkillState(skill: AWSJSON!, username: String!): ActionResult @aws_api_key @aws_cognito_user_pools
+  loadSkillSchemas(skill: AWSJSON!, username: String!): ActionResult @aws_api_key @aws_cognito_user_pools
+  makeBusinessOrders(input: [Order]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  makeOrder(input: [Order]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  pauseRunSkill(input: RunControlInput!): RunControlResult @aws_api_key @aws_cognito_user_pools
   publishAccountNotification(input: AccountNotificationInput!): AccountNotification! @aws_api_key @aws_cognito_user_pools @aws_iam
   publishPassiveCommand(input: PassiveBrowserCommandEnvelopeInput!): PassiveBrowserCommandEnvelope @aws_api_key @aws_cognito_user_pools @aws_iam
   publishPassiveHello(input: PassiveBrowserHelloEnvelopeInput!): PassiveBrowserHelloEnvelope @aws_api_key @aws_cognito_user_pools @aws_iam
@@ -338,74 +340,74 @@ type Mutation {
   publishSkillEditorStreamEvent(input: SkillEditorStreamEventInput!): SkillEditorStreamEvent @aws_api_key @aws_cognito_user_pools @aws_iam
   publishTaskStatus(input: TaskStatusInput!): TaskStatus @aws_api_key @aws_cognito_user_pools @aws_iam
   readyReqScene(input: ReadyReqSceneInput!): ReqSceneResponse! @aws_cognito_user_pools
-  removeAccts(input: [RemoveOrder]!): AWSJSON!
+  removeAccts(input: [RemoveOrder]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
   removeAgentKnowledges(input: [ID!]!): [KnowledgeMutationResult!]! @aws_api_key @aws_cognito_user_pools
   removeAgentSkills(input: [ID!]!): [SkillMutationResult!]! @aws_api_key @aws_cognito_user_pools
   removeAgentTasks(input: [ID!]!): [TaskMutationResult!]! @aws_api_key @aws_cognito_user_pools
   removeAgentTools(input: [ID!]!): [ToolMutationResult!]! @aws_api_key @aws_cognito_user_pools
   removeAgents(input: [ID!]!): [AgentMutationResult!]! @aws_api_key @aws_cognito_user_pools
   removeAvatars(input: [ID!]!): [AvatarMutationResult!]! @aws_api_key @aws_cognito_user_pools
-  removeBots(input: [RemoveOrder]!): AWSJSON!
-  removeBusinessOrders(input: [RemoveBusinessOrder]!): AWSJSON!
-  removeMissions(input: [RemoveOrder]!): AWSJSON!
+  removeBots(input: [RemoveOrder]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  removeBusinessOrders(input: [RemoveBusinessOrder]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  removeMissions(input: [RemoveOrder]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
   removeOrgs(input: [ID!]!): [OrgMutationResult!]! @aws_api_key @aws_cognito_user_pools
-  removeProducts(ids: [ID!]!): [MutationResult!]!
+  removeProducts(ids: [ID!]!): [MutationResult!]! @aws_api_key @aws_cognito_user_pools
   removePrompts(input: [ID!]!): [PromptMutationResult!]! @aws_api_key @aws_cognito_user_pools
   removeSkills(input: [RemoveOrder]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
-  removeVehicles(input: [ID!]!): [VehicleMutationResult!]!
-  reportRunExtSkillStatus(input: [SkillRunStatus]): AWSJSON!
-  reportStatus(input: [MissionStatus]!): AWSJSON!
-  reqPuzzleSolver(input: [PuzzleInput]!): Puzzle!
+  removeVehicles(input: [ID!]!): [VehicleMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  reportRunExtSkillStatus(input: [SkillRunStatus]): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  reportStatus(input: [MissionStatus]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  reqPuzzleSolver(input: [PuzzleInput]!): Puzzle! @aws_api_key @aws_cognito_user_pools
   reqRAGStore(input: [RAGIN]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
   reqScene(input: ReqSceneInput!): ReqSceneResponse! @aws_api_key @aws_cognito_user_pools
-  reqTrain(input: [Skill]!): AWSJSON!
-  requestPuzzleSolve(input: [PuzzleInput]!): Puzzle!
-  requestRunExtSkill(input: [SkillRun]): AWSJSON!
-  requestSkillState(skill: AWSJSON!, username: String!): ActionResult
-  resumeRunSkill(input: RunControlInput!): RunControlResult
-  runCloudTasks(taskIDs: [String]!): AWSJSON!
-  runSkill(input: RunSkillInput!): RunControlResult
+  reqTrain(input: [Skill]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  requestPuzzleSolve(input: [PuzzleInput]!): Puzzle! @aws_api_key @aws_cognito_user_pools
+  requestRunExtSkill(input: [SkillRun]): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  requestSkillState(skill: AWSJSON!, username: String!): ActionResult @aws_api_key @aws_cognito_user_pools
+  resumeRunSkill(input: RunControlInput!): RunControlResult @aws_api_key @aws_cognito_user_pools
+  runCloudTasks(taskIDs: [String]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  runSkill(input: RunSkillInput!): RunControlResult @aws_api_key @aws_cognito_user_pools
   runTest(input: [TestInput]!): AWSJSON! @aws_api_key @aws_cognito_user_pools @aws_iam
-  saveEditorCache(input: EditorCacheInput!): EditorCacheSaveResult
-  scaffoldSkill(input: SkillScaffoldInput!): SkillScaffoldResult
+  saveEditorCache(input: EditorCacheInput!): EditorCacheSaveResult @aws_api_key @aws_cognito_user_pools
+  scaffoldSkill(input: SkillScaffoldInput!): SkillScaffoldResult @aws_api_key @aws_cognito_user_pools
   sendA2AMessage(input: A2AMessageInput!): A2AMessage! @aws_api_key @aws_cognito_user_pools @aws_iam
-  sendCloudA2AMessage(input: A2AMessageInput!): A2AMessage!
-  sendPuzzleSolution(input: PuzzleSolutionInput): PuzzleSolution
-  sendSkillEditorChatMessage(input: SkillEditorChatMessageInput!): SkillEditorChatResponse
-  sendWanMessage(input: WanChatMessageInput): WanChatMessage
-  setSkillBreakpoints(node_name: String!, username: String!): ActionResult
-  setupSimStep(bundle: AWSJSON!): RunControlResult
-  simSseEvent: RunControlResult
-  simTimerEvent: RunControlResult
-  simWebhookEvent: RunControlResult
-  simWebsocketEvent: RunControlResult
+  sendCloudA2AMessage(input: A2AMessageInput!): A2AMessage! @aws_api_key @aws_cognito_user_pools
+  sendPuzzleSolution(input: PuzzleSolutionInput): PuzzleSolution @aws_api_key @aws_cognito_user_pools
+  sendSkillEditorChatMessage(input: SkillEditorChatMessageInput!): SkillEditorChatResponse @aws_api_key @aws_cognito_user_pools
+  sendWanMessage(input: WanChatMessageInput): WanChatMessage @aws_api_key @aws_cognito_user_pools
+  setSkillBreakpoints(node_name: String!, username: String!): ActionResult @aws_api_key @aws_cognito_user_pools
+  setupSimStep(bundle: AWSJSON!): RunControlResult @aws_api_key @aws_cognito_user_pools
+  simSseEvent: RunControlResult @aws_api_key @aws_cognito_user_pools
+  simTimerEvent: RunControlResult @aws_api_key @aws_cognito_user_pools
+  simWebhookEvent: RunControlResult @aws_api_key @aws_cognito_user_pools
+  simWebsocketEvent: RunControlResult @aws_api_key @aws_cognito_user_pools
   startLongLLMTask(task_input: AWSJSON!): AWSJSON! @aws_cognito_user_pools
   startSoap(input: StartSoapInput!): StartSoapResponse!
-  stepRunSkill(input: RunControlInput!): RunControlResult
-  stepSim: RunControlResult
-  stopSoap(soap_id: ID!): Boolean!
-  testLanggraph2Flowgram: RunControlResult
-  updateAccts(input: [Account]!): AWSJSON!
-  updateAgentKnowledges(input: [KnowledgeUpdateInput!]!): [KnowledgeMutationResult!]!
-  updateAgentSkills(input: [SkillUpdateInput!]!): [SkillMutationResult!]!
-  updateAgentTasks(input: [TaskUpdateInput!]!): [TaskMutationResult!]!
-  updateAgentTools(input: [ToolUpdateInput!]!): [ToolMutationResult!]!
-  updateAgents(input: [AgentUpdateInput!]!): [AgentMutationResult!]!
-  updateAvatars(input: [AvatarUpdateInput!]!): [AvatarMutationResult!]!
-  updateBots(input: [Bot]!): AWSJSON!
-  updateBusinessOrders(input: [Order]!): AWSJSON!
-  updateMissions(input: [Mission]!): AWSJSON!
-  updateMissionsExStatus(input: [MissionStatus]!): AWSJSON!
-  updateOrgs(input: [OrgUpdateInput!]!): [OrgMutationResult!]!
-  updateProducts(input: [ProductUpdateInput!]!): [Product!]!
-  updatePrompts(input: [PromptUpdateInput!]!): [PromptMutationResult!]!
+  stepRunSkill(input: RunControlInput!): RunControlResult @aws_api_key @aws_cognito_user_pools
+  stepSim: RunControlResult @aws_api_key @aws_cognito_user_pools
+  stopSoap(soap_id: ID!): Boolean! @aws_api_key @aws_cognito_user_pools
+  testLanggraph2Flowgram: RunControlResult @aws_api_key @aws_cognito_user_pools
+  updateAccts(input: [Account]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  updateAgentKnowledges(input: [KnowledgeUpdateInput!]!): [KnowledgeMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  updateAgentSkills(input: [SkillUpdateInput!]!): [SkillMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  updateAgentTasks(input: [TaskUpdateInput!]!): [TaskMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  updateAgentTools(input: [ToolUpdateInput!]!): [ToolMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  updateAgents(input: [AgentUpdateInput!]!): [AgentMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  updateAvatars(input: [AvatarUpdateInput!]!): [AvatarMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  updateBots(input: [Bot]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  updateBusinessOrders(input: [Order]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  updateMissions(input: [Mission]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  updateMissionsExStatus(input: [MissionStatus]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  updateOrgs(input: [OrgUpdateInput!]!): [OrgMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  updateProducts(input: [ProductUpdateInput!]!): [Product!]! @aws_api_key @aws_cognito_user_pools
+  updatePrompts(input: [PromptUpdateInput!]!): [PromptMutationResult!]! @aws_api_key @aws_cognito_user_pools
   updateScene(input: SceneInput!): Scene @aws_api_key @aws_cognito_user_pools
-  updateSettings(input: [AWSJSON]!): AWSJSON!
-  updateSkills(input: [Skill]!): AWSJSON!
-  updateStory(input: StoryUpdateInput!): Story!
-  updateVehicles(input: [VehicleUpdateInput!]!): [VehicleMutationResult!]!
+  updateSettings(input: [AWSJSON]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  updateSkills(input: [Skill]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  updateStory(input: StoryUpdateInput!): Story! @aws_api_key @aws_cognito_user_pools
+  updateVehicles(input: [VehicleUpdateInput!]!): [VehicleMutationResult!]! @aws_api_key @aws_cognito_user_pools
   #  Skill editor (web mode) support
-  writeSkillFile(input: [SkillFileInput!]): [SkillFileInfo]
+  writeSkillFile(input: [SkillFileInput!]): [SkillFileInfo] @aws_api_key @aws_cognito_user_pools
 }
 
 type MutationResult @aws_api_key @aws_cognito_user_pools {
@@ -533,66 +535,66 @@ type PuzzleSolution @aws_api_key @aws_cognito_user_pools {
 }
 
 type Query {
-  checkSkillExists(name: String!): CheckResult!
-  genSchedules(settings: AWSJSON!): AWSJSON!
+  checkSkillExists(name: String!): CheckResult! @aws_api_key @aws_cognito_user_pools
+  genSchedules(settings: AWSJSON!): AWSJSON! @aws_api_key @aws_cognito_user_pools
   getA2AMessages(channelId: String!, limit: Int, nextToken: String): A2AMessageConnection! @aws_api_key @aws_cognito_user_pools
-  getAgentKnowledges: [AgentKnowledge!]!
+  getAgentKnowledges: [AgentKnowledge!]! @aws_api_key @aws_cognito_user_pools
   getAgentSkills: [AgentSkill!]! @aws_api_key @aws_cognito_user_pools
   getAgentTasks: [Task!]! @aws_api_key @aws_cognito_user_pools
   getAgentTools: [AgentTool!]! @aws_api_key @aws_cognito_user_pools
   getAgents: [Agent!]! @aws_api_key @aws_cognito_user_pools
   getAllMine(owner: String, userId: String): GetAllMineResponse! @aws_api_key @aws_cognito_user_pools
-  getAvatars: [AvatarResource!]!
-  getBots(ids: [ID!]): AWSJSON!
-  getEditorCache(userId: ID!): EditorCacheResponse
-  getFB(fb_reqs: [FbReq]!): AWSJSON
-  getLabelFormats(input: LabelFormatQueryInput): [LabelFormat!]!
+  getAvatars: [AvatarResource!]! @aws_api_key @aws_cognito_user_pools
+  getBots(ids: [ID!]): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  getEditorCache(userId: ID!): EditorCacheResponse @aws_api_key @aws_cognito_user_pools
+  getFB(fb_reqs: [FbReq]!): AWSJSON @aws_api_key @aws_cognito_user_pools
+  getLabelFormats(input: LabelFormatQueryInput): [LabelFormat!]! @aws_api_key @aws_cognito_user_pools
   #  Skill editor (web mode) support
-  getNodeStateSchema: NodeStateSchema
+  getNodeStateSchema: NodeStateSchema @aws_api_key @aws_cognito_user_pools
   getOrgAgentTree(root_id: ID, username: String): OrgTree @aws_api_key @aws_cognito_user_pools
   getOrgTree(root_id: ID): OrgTree @aws_api_key @aws_cognito_user_pools
-  getOrgs: [Org!]!
-  getProducts(input: ProductQueryInput): [Product!]!
-  getPrompts(owner: String): [Prompt!]!
-  getScene(id: ID!): Scene
-  getSceneRequestStatus(request_id: ID!): ReqSceneResponse
-  getSceneTemplates(emotion: String!, style: SceneStyle): [SceneTemplate!]!
-  getSettings(ids: [ID!], username: String): AWSJSON!
-  getSkillEditorChatHistory(limit: Int, offset: Int, sessionId: ID!): [SkillEditorChatMessage!]!
-  getSkillEditorChatSessions(userId: ID!): [SkillEditorChatSession!]!
-  getSkillEditorEvents(sessionId: String!, since: AWSDateTime): [SkillEditorEvent!]!
-  getSkillRunStatus(runId: ID!, since: AWSDateTime): [SkillRunEvent!]!
-  getStory(id: ID!): Story
-  getVehicles: [Vehicle!]!
-  getWanMessage(ids: [ID!]): [WanChatMessage]!
-  getWarehouses(input: WarehouseQueryInput): [Warehouse!]!
-  listSkillFiles(limit: Int, nextToken: String, prefix: String, userId: String): [SkillFileInfo!]!
-  listStories(acctSiteID: String!, limit: Int, nextToken: String): StoryConnection
-  loadSkillEditorContexts(input: SkillEditorContextRequestInput!): SkillEditorContextResponse
-  openSkillFile(filePath: String!, skillName: String, userId: String): SkillFileContent
+  getOrgs: [Org!]! @aws_api_key @aws_cognito_user_pools
+  getProducts(input: ProductQueryInput): [Product!]! @aws_api_key @aws_cognito_user_pools
+  getPrompts(owner: String): [Prompt!]! @aws_api_key @aws_cognito_user_pools
+  getScene(id: ID!): Scene @aws_api_key @aws_cognito_user_pools
+  getSceneRequestStatus(request_id: ID!): ReqSceneResponse @aws_api_key @aws_cognito_user_pools
+  getSceneTemplates(emotion: String!, style: SceneStyle): [SceneTemplate!]! @aws_api_key @aws_cognito_user_pools
+  getSettings(ids: [ID!], username: String): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  getSkillEditorChatHistory(limit: Int, offset: Int, sessionId: ID!): [SkillEditorChatMessage!]! @aws_api_key @aws_cognito_user_pools
+  getSkillEditorChatSessions(userId: ID!): [SkillEditorChatSession!]! @aws_api_key @aws_cognito_user_pools
+  getSkillEditorEvents(sessionId: String!, since: AWSDateTime): [SkillEditorEvent!]! @aws_api_key @aws_cognito_user_pools
+  getSkillRunStatus(runId: ID!, since: AWSDateTime): [SkillRunEvent!]! @aws_api_key @aws_cognito_user_pools
+  getStory(id: ID!): Story @aws_api_key @aws_cognito_user_pools
+  getVehicles: [Vehicle!]! @aws_api_key @aws_cognito_user_pools
+  getWanMessage(ids: [ID!]): [WanChatMessage]! @aws_api_key @aws_cognito_user_pools
+  getWarehouses(input: WarehouseQueryInput): [Warehouse!]! @aws_api_key @aws_cognito_user_pools
+  listSkillFiles(limit: Int, nextToken: String, prefix: String, userId: String): [SkillFileInfo!]! @aws_api_key @aws_cognito_user_pools
+  listStories(acctSiteID: String!, limit: Int, nextToken: String): StoryConnection @aws_api_key @aws_cognito_user_pools
+  loadSkillEditorContexts(input: SkillEditorContextRequestInput!): SkillEditorContextResponse @aws_api_key @aws_cognito_user_pools
+  openSkillFile(filePath: String!, skillName: String, userId: String): SkillFileContent @aws_api_key @aws_cognito_user_pools
   queryAgentKnowledges(input: KnowledgeQueryInput): [AgentKnowledge!]! @aws_api_key @aws_cognito_user_pools
   queryAgentSkills(input: SkillQueryInput): [AgentSkill!]! @aws_api_key @aws_cognito_user_pools
   queryAgentTasks(input: TaskQueryInput): [Task!]! @aws_api_key @aws_cognito_user_pools
   queryAgentTools(input: ToolQueryInput): [AgentTool!]! @aws_api_key @aws_cognito_user_pools
   queryAgents(input: AgentQueryInput): [Agent!]! @aws_api_key @aws_cognito_user_pools
   queryAvatars(input: AvatarQueryInput): [AvatarResource!]! @aws_api_key @aws_cognito_user_pools
-  queryBots(qb: AWSJSON!): AWSJSON!
-  queryChats(msgs: [ChatReq]!): AWSJSON
-  queryExtBotSkillRun(qbsr: [SkillRunConfig!]): AWSJSON!
-  queryMissions(qm: [MissionIdentifiers!]): AWSJSON!
+  queryBots(qb: AWSJSON!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  queryChats(msgs: [ChatReq]!): AWSJSON @aws_api_key @aws_cognito_user_pools
+  queryExtBotSkillRun(qbsr: [SkillRunConfig!]): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  queryMissions(qm: [MissionIdentifiers!]): AWSJSON! @aws_api_key @aws_cognito_user_pools
   queryOrgs(input: OrgQueryInput): [Org!]! @aws_api_key @aws_cognito_user_pools
   queryPrompts(input: PromptQueryInput): [Prompt!]! @aws_api_key @aws_cognito_user_pools
-  queryScenes(input: SceneQueryInput!): SceneConnection!
+  queryScenes(input: SceneQueryInput!): SceneConnection! @aws_api_key @aws_cognito_user_pools
   querySkills(qs: AWSJSON!): AWSJSON! @aws_api_key @aws_cognito_user_pools
   queryVehicles(input: VehicleQueryInput): [Vehicle!]! @aws_api_key @aws_cognito_user_pools
-  readSkillFile(filePath: String!, userId: String): [SkillFileContent]
-  regSteps(inSteps: [Step]!): AWSJSON!
-  reqAccountInfo(ops: [AcctOp!]): AWSJSON!
-  reqFileOp(fo: [FileOp!]): AWSJSON!
-  reqMachineLanAddr(mid: String): AWSJSON!
-  reqOrderInfo(ops: [OrderOp!]): AWSJSON!
-  reqScreenIconRead(inScrn: [ScreenImg]!): [ScreenInfo]
-  reqScreenTxtRead(inScrn: [ScreenImg]!): AWSJSON!
+  readSkillFile(filePath: String!, userId: String): [SkillFileContent] @aws_api_key @aws_cognito_user_pools
+  regSteps(inSteps: [Step]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  reqAccountInfo(ops: [AcctOp!]): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  reqFileOp(fo: [FileOp!]): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  reqMachineLanAddr(mid: String): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  reqOrderInfo(ops: [OrderOp!]): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  reqScreenIconRead(inScrn: [ScreenImg]!): [ScreenInfo] @aws_api_key @aws_cognito_user_pools
+  reqScreenTxtRead(inScrn: [ScreenImg]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
 }
 
 type RecentFileInfo @aws_api_key @aws_cognito_user_pools {

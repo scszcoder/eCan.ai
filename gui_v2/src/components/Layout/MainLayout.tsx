@@ -126,6 +126,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         { key: '/vehicles', icon: <LaptopOutlined />, label: t('menu.vehicles') },
         { key: '/tools', icon: <ToolOutlined />, label: t('menu.tools') },
         { key: '/prompts', icon: <ReadOutlined />, label: t('menu.prompts') },
+        { key: '/avatars', icon: <UserOutlined />, label: t('menu.avatars') },
         { key: '/warehouses', icon: <ShopOutlined />, label: t('menu.warehouses') },
         { key: '/products', icon: <ShoppingOutlined />, label: t('menu.products') },
         { key: '/knowledge-ported', icon: <ReadOutlined />, label: t('menu.knowledge') },

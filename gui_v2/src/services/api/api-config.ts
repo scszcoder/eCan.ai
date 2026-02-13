@@ -104,8 +104,7 @@ export const GRAPHQL_QUERIES = {
   GET_LABEL_FORMATS: `
     query GetLabelFormats($input: LabelFormatQueryInput) {
       getLabelFormats(input: $input) {
-        id name unit sheet_width sheet_height label_width label_height
-        top_margin left_margin rows cols row_pitch col_pitch _filepath _filename
+        id name settings size status dpi carrier service template_url created_at updated_at
       }
     }
   `,
@@ -242,6 +241,29 @@ export const GRAPHQL_QUERIES = {
       }
     }
   `,
+
+  // ==================== Avatar Resources ====================
+  QUERY_AVATAR_RESOURCES: `
+    query QueryAvatars($input: AvatarQueryInput) {
+      queryAvatars(input: $input) {
+        id name owner resource_type description
+        cloud_image_url cloud_video_url cloud_image_key cloud_video_key
+        is_public usage_count image_hash image_path video_path
+        presigned_image_url presigned_video_url
+      }
+    }
+  `,
+
+  GET_AVATAR_RESOURCES: `
+    query GetAvatars {
+      getAvatars {
+        id name owner resource_type description
+        cloud_image_url cloud_video_url cloud_image_key cloud_video_key
+        is_public usage_count image_hash image_path video_path
+        presigned_image_url presigned_video_url
+      }
+    }
+  `,
 };
 
 /**
@@ -249,6 +271,23 @@ export const GRAPHQL_QUERIES = {
  */
 export const GRAPHQL_MUTATIONS = {
   // ==================== A2A Messages (Chat) ====================
+  // ==================== Avatar Resources ====================
+  ADD_AVATAR_RESOURCES: `
+    mutation AddAvatars($input: [AvatarInput!]!) {
+      addAvatars(input: $input) {
+        id success error image_upload_url video_upload_url
+      }
+    }
+  `,
+
+  REMOVE_AVATAR_RESOURCES: `
+    mutation RemoveAvatars($input: [ID!]!) {
+      removeAvatars(input: $input) {
+        id success error
+      }
+    }
+  `,
+
   SEND_CLOUD_A2A_MESSAGE: `
     mutation SendCloudA2AMessage($input: A2AMessageInput!) {
       sendCloudA2AMessage(input: $input) {
@@ -425,57 +464,57 @@ export const GRAPHQL_MUTATIONS = {
   // ==================== Warehouse Management ====================
   ADD_WAREHOUSES: `
     mutation AddWareHouses($input: [WarehouseInput!]!) {
-      addWareHouses(input: $input) { id success error }
+      addWareHouses(input: $input) { id name code contact_name contact_phone status notes created_at updated_at }
     }
   `,
 
   UPDATE_WAREHOUSES: `
     mutation UpdateWarehouses($input: [WarehouseUpdateInput!]!) {
-      UpdateWarehouses(input: $input) { id success error }
+      UpdateWarehouses(input: $input) { id name code contact_name contact_phone status notes created_at updated_at }
     }
   `,
 
   REMOVE_WAREHOUSES: `
-    mutation RemoveWareHouses($input: [ID!]!) {
-      RemoveWareHouses(input: $input) { id success error }
+    mutation RemoveWareHouses($ids: [ID!]!) {
+      RemoveWareHouses(ids: $ids) { id success message }
     }
   `,
 
   // ==================== Label Formats Management ====================
   ADD_LABEL_FORMATS: `
     mutation AddLabelFormats($input: [LabelFormatInput!]!) {
-      addLabelFormats(input: $input) { id success error }
+      addLabelFormats(input: $input) { id name size settings status created_at updated_at }
     }
   `,
 
   UPDATE_LABEL_FORMATS: `
     mutation UpdateLabelFormats($input: [LabelFormatUpdateInput!]!) {
-      UpdateLabelFormats(input: $input) { id success error }
+      UpdateLabelFormats(input: $input) { id name size settings status created_at updated_at }
     }
   `,
 
   REMOVE_LABEL_FORMATS: `
-    mutation RemoveLabelFormats($input: [ID!]!) {
-      RemoveLabelFormats(input: $input) { id success error }
+    mutation RemoveLabelFormats($ids: [ID!]!) {
+      RemoveLabelFormats(ids: $ids) { id success message }
     }
   `,
 
   // ==================== Products Management ====================
   ADD_PRODUCTS: `
     mutation AddProducts($input: [ProductInput!]!) {
-      addProducts(input: $input) { id success error }
+      addProducts(input: $input) { id name sku barcode description status attributes created_at updated_at }
     }
   `,
 
   UPDATE_PRODUCTS: `
     mutation UpdateProducts($input: [ProductUpdateInput!]!) {
-      updateProducts(input: $input) { id success error }
+      updateProducts(input: $input) { id name sku barcode description status attributes created_at updated_at }
     }
   `,
 
   REMOVE_PRODUCTS: `
-    mutation RemoveProducts($input: [ID!]!) {
-      removeProducts(input: $input) { id success error }
+    mutation RemoveProducts($ids: [ID!]!) {
+      removeProducts(ids: $ids) { id success message }
     }
   `,
 
