@@ -137,6 +137,10 @@ def _on_step_result_subscription() -> str:
 
 
 class AppSyncPassivePubSubTransport:
+    # Maximum number of pending (unclaimed) results to keep.
+    # Prevents memory leaks from stale results that were never collected.
+    _MAX_PENDING = 50
+
     def __init__(self, *, config: AppSyncPassiveTransportConfig) -> None:
         self._config = config
 
@@ -145,6 +149,7 @@ class AppSyncPassivePubSubTransport:
 
         self._loop: asyncio.AbstractEventLoop | None = None
         self._started = False
+        self._closed = False  # Set True after close() — stops all processing
 
         self._pending: dict[tuple[str, str], PassiveBrowserStepResult] = {}
         self._waiters: dict[tuple[str, str], asyncio.Future[PassiveBrowserStepResult]] = {}
@@ -153,6 +158,11 @@ class AppSyncPassivePubSubTransport:
         self._subscription_id = "PassiveStepResult1"
         self._subscribed_run_id: str | None = None
         self._subscription_acked = threading.Event()
+
+        # Reconnection state
+        self._max_reconnect_attempts = 10
+        self._reconnect_attempt = 0
+        self._intentionally_closed = False
 
     async def publish_command(self, cmd: PassiveBrowserCommand) -> None:
         # AWSJSON scalar expects a JSON string, not a nested object
@@ -251,8 +261,9 @@ class AppSyncPassivePubSubTransport:
                 return
 
             if msg_type == "start_ack":
-                print(f"[AppSyncPassiveTransport] ✅ Subscription ACKNOWLEDGED by AppSync: id={msg_id}")
+                _transport_log(f"[PassiveTransport] ✅ Subscription ACKNOWLEDGED by AppSync: id={msg_id}")
                 self._subscription_acked.set()
+                self._reconnect_attempt = 0  # Reset on successful subscription
                 return
 
             if msg_type == "error":
@@ -268,7 +279,7 @@ class AppSyncPassivePubSubTransport:
                 print(f"[AppSyncPassiveTransport] ❌ Connection ERROR: {data.get('payload', {})}")
                 return
 
-            if msg_type == "data" and msg_id == self._subscription_id:
+            if msg_type == "data" and msg_id == self._subscription_id and not self._closed:
                 # Log raw WebSocket data to frontend
                 _transport_log(f"[PassiveTransport] 📨 RAW WS DATA received: {message[:500]}...")
                 
@@ -287,6 +298,21 @@ class AppSyncPassivePubSubTransport:
                 
                 # Log what we're waiting for vs what we received
                 waiting_keys = list(self._waiters.keys())
+                
+                # Skip processing if we're not waiting for this step
+                # (avoids triple-processing from duplicate subscriptions)
+                key = (received_run_id, received_step_id)
+                if key not in self._waiters and key not in self._pending:
+                    if not waiting_keys:
+                        # This transport instance has no active waiters at all — skip silently
+                        return
+                    # We're waiting for something else, log and skip
+                    _transport_log(
+                        f"[PassiveTransport] ⏭️ Skipping stepId={received_step_id} (not in waiting_for={waiting_keys})",
+                        level='debug',
+                    )
+                    return
+                
                 _transport_log(
                     f"[PassiveTransport] ✅ Envelope received: stepId={received_step_id}, runId={received_run_id}, "
                     f"waiting_for={waiting_keys}"
@@ -305,7 +331,19 @@ class AppSyncPassivePubSubTransport:
                     # Also inject dom_tree if present in envelope
                     dom_tree_raw = envelope.get("dom_tree")
                     if dom_tree_raw:
-                        result_obj["dom_tree"] = json.loads(dom_tree_raw) if isinstance(dom_tree_raw, str) else dom_tree_raw
+                        dom_tree_parsed = json.loads(dom_tree_raw) if isinstance(dom_tree_raw, str) else dom_tree_raw
+                        result_obj["dom_tree"] = dom_tree_parsed
+                        _transport_log(f"[PassiveTransport] 🌳 dom_tree injected: type={type(dom_tree_parsed).__name__}, keys={list(dom_tree_parsed.keys()) if isinstance(dom_tree_parsed, dict) else 'N/A'}")
+                    else:
+                        _transport_log(f"[PassiveTransport] ⚠️ No dom_tree in envelope for stepId={received_step_id}", level='warning')
+                    
+                    # Log dom_text status from browser dict
+                    _browser = result_obj.get('browser') or {}
+                    _dt = _browser.get('dom_text', '')
+                    _dt_info = f"len={len(_dt)}" if isinstance(_dt, str) else f"type={type(_dt).__name__}"
+                    if isinstance(_dt, str) and _dt.startswith('[MASKED:'):
+                        _dt_info += f" MASKED"
+                    _transport_log(f"[PassiveTransport] 📄 dom_text: {_dt_info}")
                     
                     parsed = PassiveBrowserStepResult.model_validate(result_obj)
                     _transport_log(f"[PassiveTransport] ✅ Pydantic validation PASSED for stepId={received_step_id}")
@@ -330,10 +368,17 @@ class AppSyncPassivePubSubTransport:
                 return
 
         def on_error(ws, error) -> None:
-            print(f"[AppSyncPassiveTransport] ❌ WebSocket error: {error}")
+            _transport_log(f"[PassiveTransport] ❌ WebSocket error: {error}", level="error")
 
         def on_close(ws, close_status_code, close_msg) -> None:
-            print(f"[AppSyncPassiveTransport] WebSocket closed: code={close_status_code}, msg={close_msg}")
+            _transport_log(
+                f"[PassiveTransport] WebSocket closed: code={close_status_code}, msg={close_msg}",
+                level="warning",
+            )
+            if self._intentionally_closed:
+                return
+            # Auto-reconnect in a background thread
+            self._schedule_reconnect()
 
         self._ws = websocket.WebSocketApp(
             signed_ws_url,
@@ -350,8 +395,84 @@ class AppSyncPassivePubSubTransport:
             daemon=True,
         )
         self._ws_thread.start()
+        # NOTE: Do NOT reset _reconnect_attempt here. It is only reset
+        # on a successful subscription ack (start_ack) in on_message.
+        # Resetting here caused an infinite reconnect loop: the counter
+        # went back to 0 every time a new WS thread started, so the
+        # max-attempts check in _schedule_reconnect() never triggered.
+
+    def _schedule_reconnect(self) -> None:
+        """Schedule a reconnection attempt with exponential backoff."""
+        self._reconnect_attempt += 1
+        if self._reconnect_attempt > self._max_reconnect_attempts:
+            _transport_log(
+                f"[PassiveTransport] ❌ Max reconnect attempts ({self._max_reconnect_attempts}) exceeded. Giving up.",
+                level="error",
+            )
+            # Mark transport as permanently dead so callers don't hang
+            self._closed = True
+            # Cancel all pending waiters
+            for key, fut in list(self._waiters.items()):
+                if not fut.done():
+                    fut.set_exception(
+                        ConnectionError("WebSocket reconnect attempts exhausted")
+                    )
+            self._waiters.clear()
+            return
+
+        backoff = min(2 ** self._reconnect_attempt, 30)
+        _transport_log(
+            f"[PassiveTransport] 🔄 Reconnecting in {backoff}s (attempt {self._reconnect_attempt}/{self._max_reconnect_attempts})...",
+            level="warning",
+        )
+
+        def _reconnect() -> None:
+            import time as _time
+            _time.sleep(backoff)
+            if self._intentionally_closed:
+                return
+            # Reset state so _ensure_subscription_started re-creates everything
+            with self._lock:
+                self._started = False
+                self._subscription_acked.clear()
+            run_id = self._subscribed_run_id
+            if run_id:
+                _transport_log(f"[PassiveTransport] 🔄 Reconnecting WebSocket for runId={run_id}...")
+                self._ensure_subscription_started(run_id=run_id)
+            else:
+                _transport_log("[PassiveTransport] ❌ Cannot reconnect: no subscribed_run_id", level="error")
+
+        t = threading.Thread(target=_reconnect, daemon=True)
+        t.start()
+
+    def close(self) -> None:
+        """Close the WebSocket and stop processing messages.
+
+        Call this when the transport is no longer needed (e.g. run finished)
+        to prevent stale subscriptions from processing future messages.
+        """
+        self._closed = True
+        self._intentionally_closed = True
+        _transport_log("[PassiveTransport] close() called — shutting down WebSocket", level="info")
+
+        # Cancel all pending waiters so callers don't hang
+        for key, fut in list(self._waiters.items()):
+            if not fut.done():
+                fut.cancel()
+        self._waiters.clear()
+        self._pending.clear()
+
+        ws = self._ws
+        if ws is not None:
+            try:
+                ws.close()
+            except Exception:
+                pass
+        self._ws = None
 
     def _deliver_from_thread(self, result: PassiveBrowserStepResult) -> None:
+        if self._closed:
+            return
         loop = self._loop
         if loop is None:
             return
@@ -362,6 +483,14 @@ class AppSyncPassivePubSubTransport:
             if fut is not None and not fut.done():
                 fut.set_result(result)
                 return
+            # Cap pending dict size to prevent unbounded growth
+            if len(self._pending) >= self._MAX_PENDING:
+                # Remove oldest entry
+                try:
+                    oldest_key = next(iter(self._pending))
+                    self._pending.pop(oldest_key, None)
+                except StopIteration:
+                    pass
             self._pending[key] = result
 
         try:

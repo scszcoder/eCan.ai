@@ -3710,8 +3710,13 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         if transport:
                             logger.info(f"[BrowserAutomation] Using global CloudWorkerPassiveTransport from cloud worker")
                             send_skill_editor_log("log", f"[BrowserAutomation] Using cloud worker passive transport")
-                    except ImportError:
-                        pass
+                        else:
+                            logger.warning("[BrowserAutomation] get_global_passive_transport() returned None — was set_global_passive_transport() called?")
+                            send_skill_editor_log("log", "[BrowserAutomation] ⚠️ Global passive transport is None, falling back to env-based transport")
+                    except ImportError as ie:
+                        logger.warning(f"[BrowserAutomation] Could not import get_global_passive_transport: {ie}")
+                    except Exception as ex:
+                        logger.warning(f"[BrowserAutomation] Error getting global transport: {ex}")
                     
                     # Fall back to creating transport from environment
                     if not transport:

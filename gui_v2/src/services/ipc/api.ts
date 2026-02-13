@@ -11,6 +11,7 @@ import { ipcClient } from './ipcClient';
 import { detectPlatform } from '../../config/platform';
 import { apiRouter } from '../api/api-router';
 import { GRAPHQL_QUERIES, GRAPHQL_MUTATIONS } from '../api/api-config';
+import { useUserStore } from '../../stores/userStore';
 
 // Web Bridge mechanism has been deprecated and removed.
 // All requests now go directly through IPC for consistency and reliability.
@@ -276,7 +277,7 @@ export class IPCAPI {
     }
 
     public async getAll<T>(username: string): Promise<APIResponse<T>> {
-        return apiRouter.execute(
+        const response = await apiRouter.execute<T>(
       {
         method: 'get_all',
         graphql: {
@@ -286,6 +287,23 @@ export class IPCAPI {
       },
       { owner: username, userId: username }
     );
+
+        // Cache settings from getAllMine response so provider methods work
+        // without requiring a separate getSettings call
+        if (response.success && response.data) {
+            const data = response.data as any;
+            if (data.settings && !this._settingsData) {
+                // settings from getAllMine may be a JSON string
+                let parsed = data.settings;
+                if (typeof parsed === 'string') {
+                    try { parsed = JSON.parse(parsed); } catch (_e) { /* keep as-is */ }
+                }
+                this._settingsData = parsed;
+                this._settingsUsername = username;
+                console.log('[IPCAPI] _settingsData cached from getAllMine, keys:', Object.keys(parsed));
+            }
+        }
+        return response;
     }
 
     public async getAllOrgAgents<T>(username: string, companyName?: string): Promise<APIResponse<T>> {
@@ -540,6 +558,14 @@ export class IPCAPI {
             await this._settingsPromise;
             return;
         }
+        // Try to get username from user store if not already set
+        if (!this._settingsUsername) {
+            const storeUsername = useUserStore.getState().username;
+            if (storeUsername) {
+                this._settingsUsername = storeUsername;
+                console.log('[IPCAPI] _ensureSettingsLoaded: got username from userStore:', storeUsername);
+            }
+        }
         // Fetch settings if we have a username
         if (this._settingsUsername) {
             await this.getSettings(this._settingsUsername);
@@ -762,10 +788,23 @@ export class IPCAPI {
     }
 
     public async getConfiguredLLMProviders<T>(): Promise<APIResponse<T>> {
+        // In cloud mode, return providers from settings cache that have api_key configured
+        await this._ensureSettingsLoaded();
+        const providers = this._extractProviders('llm_providers');
+        if (providers) {
+            const configured = providers.filter((p: any) => p.api_key_configured);
+            return { success: true, data: { providers: configured } as T };
+        }
         return apiRouter.execute({ method: 'get_configured_llm_providers' });
     }
 
     public async getLLMProvidersWithCredentials<T>(): Promise<APIResponse<T>> {
+        // In cloud mode, return all providers from settings cache (they already include api_key)
+        await this._ensureSettingsLoaded();
+        const providers = this._extractProviders('llm_providers');
+        if (providers) {
+            return { success: true, data: { providers } as T };
+        }
         return apiRouter.execute({ method: 'get_llm_providers_with_credentials' });
     }
 
