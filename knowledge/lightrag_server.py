@@ -306,105 +306,53 @@ class LightragServer:
             env['HOST'] = '127.0.0.1'
 
         # 6. Map provider bindings to LightRAG-supported values
-        # LightRAG only supports: lollms, ollama, openai, azure_openai, aws_bedrock
-        # Map all other providers to OpenAI-compatible API
+        # LightRAG server whitelist (from lightrag/api/lightrag_server.py):
+        #   LLM:       lollms, ollama, openai, azure_openai, aws_bedrock, gemini
+        #   Embedding: lollms, ollama, openai, azure_openai, aws_bedrock, jina, gemini
+        #   Rerank:    cohere, jina, aliyun (handled by launcher)
+        # All other providers must be mapped to one of these.
         
-        # Build provider mapping dynamically from llm_manager
-        def _build_lightrag_provider_mapping() -> dict:
-            """
-            Dynamically build LightRAG provider mapping from llm_manager.
-            Maps unsupported providers to their LightRAG-compatible equivalents.
-            
-            Returns:
-                Dictionary mapping provider names to LightRAG-supported providers
-            """
-            mapping = {}
-            
-            try:
-                from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
-                llm_manager = get_llm_manager()
-                
-                if llm_manager:
-                    providers = llm_manager.get_all_providers()
-                    
-                    for provider in providers:
-                        provider_id = (provider.get("provider") or "").lower()
-                        name = (provider.get("name") or "").lower()
-                        
-                        if not provider_id:
-                            continue
-                        
-                        # Map provider_id
-                        if provider_id == 'bedrock':
-                            mapping[provider_id] = 'aws_bedrock'
-                        elif provider_id in ['anthropic', 'google', 'deepseek', 'dashscope', 
-                                            'bytedance', 'baidu_qianfan', 'zhipuai']:
-                            mapping[provider_id] = 'openai'
-                        
-                        # Map display name
-                        if name and name not in ['openai', 'ollama', 'ryoais', 'azure openai', 'aws bedrock']:
-                            if 'bedrock' in name:
-                                mapping[name] = 'aws_bedrock'
-                            else:
-                                mapping[name] = 'openai'
-                    
-                    logger.debug(f"[LightragServer] Built provider mapping with {len(mapping)} entries from llm_manager")
-                    
-            except Exception as e:
-                logger.warning(f"[LightragServer] Failed to build provider mapping from llm_manager: {e}")
-            
-            return mapping
+        # LightRAG natively supported providers (hardcoded in lightrag/api/lightrag_server.py)
+        # Note: ryoais is NOT in these sets because LightRAG doesn't recognize it.
+        #       It uses OpenAI-compatible API, so it's mapped to 'openai' via PROVIDER_MAPPING.
+        LIGHTRAG_LLM_SUPPORTED = {'lollms', 'ollama', 'openai', 'azure_openai', 'aws_bedrock', 'gemini'}
+        LIGHTRAG_EMBED_SUPPORTED = LIGHTRAG_LLM_SUPPORTED | {'jina'}
+        LIGHTRAG_RERANK_SUPPORTED = {'cohere', 'jina', 'aliyun'}
         
-        # LightRAG natively supported providers (based on llm_providers.json)
-        # Note: LightRAG internally uses 'aws_bedrock', but we use 'bedrock' to match llm_providers.json
-        LIGHTRAG_SUPPORTED = ['ollama', 'ryoais', 'openai', 'azure_openai', 'bedrock']
-        PROVIDER_MAPPING = _build_lightrag_provider_mapping()
+        # Static mapping: provider identifier -> LightRAG-compatible binding
+        # Covers all providers from llm_providers.json + common aliases
+        PROVIDER_MAPPING = {
+            # OpenAI-compatible providers (use openai binding)
+            'ryoais':        'openai',
+            'anthropic':     'openai',
+            'deepseek':      'openai',
+            'dashscope':     'openai',
+            'bytedance':     'openai',
+            'baidu_qianfan': 'openai',
+            'zhipuai':       'openai',
+            'google':        'openai',  # Google via OpenAI-compatible API
+            # AWS Bedrock alias
+            'bedrock':       'aws_bedrock',
+        }
         
-        # Map LLM binding (case-insensitive)
-        llm_binding = env.get('LLM_BINDING')
-        if llm_binding and llm_binding not in LIGHTRAG_SUPPORTED:
-            # Try case-insensitive matching
-            mapped = None
-            llm_binding_lower = llm_binding.lower()
-            for key, value in PROVIDER_MAPPING.items():
-                if key.lower() == llm_binding_lower:
-                    mapped = value
-                    break
-            if mapped is None:
-                mapped = 'openai'  # Default fallback
-            logger.info(f"[LightragServer] Mapped LLM binding '{llm_binding}' -> '{mapped}'")
-            env['LLM_BINDING'] = mapped
+        def _map_binding(binding_value, supported_set, binding_name, default='openai'):
+            """Map a provider binding to a LightRAG-supported value."""
+            if not binding_value:
+                return
+            key = binding_value.lower()
+            if key in supported_set:
+                return  # Already supported, no mapping needed
+            mapped = PROVIDER_MAPPING.get(key, default)
+            logger.info(f"[LightragServer] Mapped {binding_name} '{binding_value}' -> '{mapped}'")
+            env[binding_name] = mapped
         
-        # Map Embedding binding (case-insensitive, also supports 'jina')
-        embedding_binding = env.get('EMBEDDING_BINDING')
-        if embedding_binding and embedding_binding not in LIGHTRAG_SUPPORTED + ['jina']:
-            # Try case-insensitive matching
-            mapped = None
-            embedding_binding_lower = embedding_binding.lower()
-            for key, value in PROVIDER_MAPPING.items():
-                if key.lower() == embedding_binding_lower:
-                    mapped = value
-                    break
-            if mapped is None:
-                mapped = 'openai'  # Default fallback
-            logger.info(f"[LightragServer] Mapped Embedding binding '{embedding_binding}' -> '{mapped}'")
-            env['EMBEDDING_BINDING'] = mapped
+        _map_binding(env.get('LLM_BINDING'), LIGHTRAG_LLM_SUPPORTED, 'LLM_BINDING')
+        _map_binding(env.get('EMBEDDING_BINDING'), LIGHTRAG_EMBED_SUPPORTED, 'EMBEDDING_BINDING')
         
-        # Map Rerank binding (LightRAG natively supports: cohere, jina, aliyun ONLY)
-        # Note: Non-native providers (ollama, ryoais, etc.) will be converted by launcher
-        # The launcher will save original binding and convert to 'jina' for LightRAG compatibility
-        RERANK_NATIVE_SUPPORTED = ['cohere', 'jina', 'aliyun']
+        # Rerank binding: map non-native providers to 'jina' (launcher may further process)
         rerank_binding = env.get('RERANK_BINDING')
-        if rerank_binding and rerank_binding.lower() not in ['null', 'none', '']:
-            rerank_binding_lower = rerank_binding.lower()
-            
-            # Keep original binding, let launcher handle conversion
-            # Launcher will convert non-native providers to 'jina' format
-            logger.info(f"[LightragServer] Rerank binding: '{rerank_binding}' (will be processed by launcher)")
-            
-            # Legacy Ollama interception - now handled by universal proxy
-            # if rerank_binding_lower == 'ollama':
-            #     self._intercept_ollama_rerank(env)
+        if rerank_binding and rerank_binding.lower() not in ('null', 'none', ''):
+            _map_binding(rerank_binding, LIGHTRAG_RERANK_SUPPORTED, 'RERANK_BINDING', default='jina')
         
         # 7. Add SSL/TLS configuration to fix certificate errors
         # Disable SSL verification for development/testing (can be overridden by extra_env)
@@ -905,7 +853,7 @@ class LightragServer:
             else:
                 time.sleep(2.0)
         
-        logger.error(f"[LightragServer] Timeout waiting for server ready on port {port} after {timeout}s ({attempt} attempts)")
+        logger.warning(f"[LightragServer] Timeout waiting for server ready on port {port} after {timeout}s ({attempt} attempts). Server may still be initializing (first-time FAISS/NetworkX setup can be slow).")
         return False
 
     def _start_background_health_monitor(self, port, check_interval=5.0, max_duration=300.0):
