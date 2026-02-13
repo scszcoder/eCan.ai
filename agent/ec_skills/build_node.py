@@ -1720,8 +1720,8 @@ def build_api_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
     if not api_endpoint:
         err_msg = "'api_endpoint' is missing in config_metadata for api_node."
-        logger.error(err_msg)
-        send_skill_editor_log("error", err_msg)
+        logger.warning(err_msg)
+        send_skill_editor_log("warning", err_msg)
         return lambda state, runtime=None, store=None, **kwargs: {**state, 'error': 'API endpoint not configured'}
 
     def _format_from_state(template, attributes):
@@ -4201,8 +4201,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 _run_browser_use(combined_task, mainwin, state, agent_id),
                                 timeout=effective_timeout
                             )
-                        from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
-                        info = run_async_in_sync(_run_with_hard_timeout()) or {}
+                        from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
+                        info = run_async_in_worker_thread(_run_with_hard_timeout) or {}
                     except asyncio.TimeoutError:
                         error_msg = f"Browser automation timed out after {effective_timeout}s (hard timeout)"
                         logger.error(f"[BROWSER_HARD_TIMEOUT] {error_msg}")
@@ -4218,8 +4218,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             pass
                         info = {"error": error_msg, "timed_out": True}
                 else:
-                    from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
-                    info = run_async_in_sync(_run_browser_use(combined_task, mainwin, state, agent_id)) or {}
+                    from agent.ec_skills.llm_utils.llm_utils import run_async_in_worker_thread
+                    info = run_async_in_worker_thread(lambda: _run_browser_use(combined_task, mainwin, state, agent_id)) or {}
                 
                 # Cancel guardrail timer on success
                 if correlation_id:

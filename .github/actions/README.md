@@ -9,7 +9,7 @@
 设置Python环境，包括虚拟环境创建和依赖安装。
 
 **输入参数:**
-- `python-version`: Python版本 (默认: '3.11')
+- `python-version`: Python版本 (默认: '3.12')
 - `requirements-file`: 需求文件路径 (默认: 'requirements-base.txt')
 - `platform`: 平台 (必需: 'windows', 'macos', 'linux')
 - `install-pyinstaller`: 是否安装PyInstaller (默认: 'true')

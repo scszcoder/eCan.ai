@@ -38,8 +38,10 @@ class SecureStore:
         self._fallback_dir = os.path.join(os.path.expanduser('~'), '.ecan')
         self._fallback_file = os.path.join(self._fallback_dir, 'llm_keys.json')
         
-        # Check keyring accessibility on startup (similar to auth_manager)
-        self._keyring_available = self._check_keyring_availability()
+        # Lazy keyring detection: assume available, disable on first failure
+        # This avoids triggering macOS Keychain popup on every startup
+        self._keyring_available = True
+        self._keyring_checked = False
 
     # ---------- Public API ----------
     def set(self, key: str, value: str, username: Optional[str] = None) -> bool:
@@ -68,7 +70,8 @@ class SecureStore:
                 return True
             except Exception as e:
                 logger.warning(f"[SecureStore] Keyring storage failed for {isolated_key}: {e}")
-                logger.info("[SecureStore] Falling back to file storage")
+                self._keyring_available = False
+                logger.info("[SecureStore] Keyring disabled, falling back to file storage")
         
         # Fallback to file storage
         return self._fallback_set(env, isolated_key, value)
@@ -94,10 +97,11 @@ class SecureStore:
             try:
                 value = keyring.get_password(service_name, safe_key)
                 if value:
-                    # logger.debug(f"[SecureStore] Retrieved {isolated_key} from keyring")
                     return value
             except Exception as e:
-                logger.error(f"[SecureStore] Keyring retrieval failed for {isolated_key}: {e}")
+                logger.warning(f"[SecureStore] Keyring retrieval failed for {isolated_key}: {e}")
+                self._keyring_available = False
+                logger.info("[SecureStore] Keyring disabled, falling back to file storage")
         
         # Try file fallback
         return self._fallback_get(env, isolated_key)
@@ -196,34 +200,12 @@ class SecureStore:
         return sanitized
 
     def _check_keyring_availability(self) -> bool:
-        """Check if keyring is accessible.
+        """Check if keyring is accessible (lazy, no-op).
         
-        Similar to auth_manager._check_keychain_access() but simpler.
+        Keyring availability is now determined lazily on first actual use.
+        This avoids triggering macOS Keychain authorization popup on every startup.
         """
-        try:
-            test_service = f"{SERVICE_NAME_PREFIX}_test"
-            test_key = "test_key"
-            test_value = "test_value"
-            
-            keyring.set_password(test_service, test_key, test_value)
-            retrieved = keyring.get_password(test_service, test_key)
-            keyring.delete_password(test_service, test_key)
-            
-            if retrieved == test_value:
-                logger.debug("[SecureStore] Keyring is available and working")
-                return True
-            else:
-                logger.warning("[SecureStore] Keyring test failed - using file fallback")
-                return False
-                
-        except Exception as e:
-            error_msg = str(e)
-            if "(-25244" in error_msg:
-                logger.warning("[SecureStore] Keychain access denied (-25244)")
-                logger.info("[SecureStore] File storage will be used as fallback")
-            else:
-                logger.debug(f"[SecureStore] Keyring not available: {e}")
-            return False
+        return self._keyring_available
 
     # ---------- File fallback storage ----------
     def _ensure_fallback(self) -> None:

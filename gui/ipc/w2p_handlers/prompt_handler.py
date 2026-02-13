@@ -456,11 +456,11 @@ def handle_save_prompt(request: IPCRequest, params: Optional[dict]) -> IPCRespon
         prompt = params.get('prompt')
 
         if not prompt:
-            # Try GraphQL format: input is an array of prompt objects
+            # Try GraphQL format: { input: [{ id, owner, prompt: JSON_STRING, version }] }
+            # Frontend always sends id via api.ts savePrompt(): id: id || `pr-${random}`
             input_list = params.get('input')
             if input_list and isinstance(input_list, list) and len(input_list) > 0:
                 graphql_prompt = input_list[0]
-                # GraphQL format has nested 'prompt' as JSON string
                 if isinstance(graphql_prompt, dict):
                     prompt_id = graphql_prompt.get('id')
                     prompt_owner = graphql_prompt.get('owner')
