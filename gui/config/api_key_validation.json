@@ -3,17 +3,17 @@
     "OPENAI_API_KEY": {
       "prefix": "sk-",
       "min_length": 20,
-      "description": "OpenAI API key should start with 'sk-'"
+      "description": "OpenAI API key"
     },
     "ANTHROPIC_API_KEY": {
       "prefix": "sk-ant-",
       "min_length": 20,
-      "description": "Anthropic API key should start with 'sk-ant-'"
+      "description": "Anthropic API key"
     },
     "DEEPSEEK_API_KEY": {
       "prefix": "sk-",
       "min_length": 20,
-      "description": "DeepSeek API key should start with 'sk-'"
+      "description": "DeepSeek API key"
     },
     "GEMINI_API_KEY": {
       "min_length": 20,
