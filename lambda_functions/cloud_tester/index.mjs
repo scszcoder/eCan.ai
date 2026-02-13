@@ -206,8 +206,10 @@ const testEndLongLLMTask = async (url, apiKey, params) => {
 };
 
 const testPublishPassiveCommand = async (url, apiKey, params) => {
-  const clientId = params.clientId || "test-client-" + randomUUID().slice(0, 8);
-  const runId = params.runId || randomUUID();
+  // const clientId = params.clientId || "test-client-" + randomUUID().slice(0, 8);
+  // const runId = params.runId || randomUUID();
+  const clientId = "songc_yahoo_com_SCHOME";
+  const runId = "0123456789";
   console.log(`[cloud_tester] testPublishPassiveCommand: clientId=${clientId}, runId=${runId}`);
   const input = {
     clientId,
@@ -326,7 +328,7 @@ const testPingCloudWorker = async (url, apiKey, params) => {
 const testSendPassiveCmd = async (url, apiKey, params) => {
   // Hard-coded to match what clients subscribe to
   const clientId = "songc_yahoo_com_SCHOME";
-  const runId = "test-run-001";
+  const runId = "0123456789";
   const stepId = params.stepId || params.step_id || randomUUID();
   console.log(`[cloud_tester] testSendPassiveCmd: clientId=${clientId}, runId=${runId}`);
   

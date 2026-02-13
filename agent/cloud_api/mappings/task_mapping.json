@@ -5,6 +5,8 @@
   "last_updated": "2025-10-15",
   
   "field_mapping": {
+    "id": "ataskid",
+    "trigger": "trigger_type"
   },
   
   "cloud_required_fields": {
@@ -14,17 +16,16 @@
   "excluded_fields": [
     "agid",
     "task_id",
-    "ataskid",
     "owner",
-    "source"
+    "source",
+    "settings"
   ],
   
   "json_serialize_fields": [
     "objectives",
     "schedule",
     "metadata",
-    "result",
-    "settings"
+    "result"
   ],
   
   "aws_datetime_fields": [

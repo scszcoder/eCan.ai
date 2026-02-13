@@ -7,9 +7,10 @@
  */
 
 import { getSettings } from '../../stores/settingsStore';
-import { detectPlatform } from '../../config/platform';
-import { eventBus } from '../../utils/eventBus';
-import { useAdStore } from '../../stores/adStore';
+import { eventBus } from '@/utils/eventBus';
+import { unifiedEventHandler, createStandardizedEvent } from '@/services/events/unifiedEventHandler';
+import { detectPlatform } from '@/config/platform';
+import { useAdStore } from '@/stores/adStore';
 
 type MessageHandler = (data: any) => void;
 
@@ -323,127 +324,54 @@ class LocalWebSocketClient {
   }
 
   /**
-   * Map WebSocket messages to IPC-style events for compatibility
+   * Map WebSocket messages to unified event handler
+   * Now uses centralized event processing instead of duplicate switch-case logic
    */
   private mapToIpcEvents(message: any): void {
-    const { type, sessionId, messageId, chunk, chunkIndex, fullContent, commandType, payload } = message;
+    const { type, sessionId } = message;
     
     // Use same event types as AppSync subscriptions for compatibility
     // AppSync uses eventType field, local WS uses type field - handle both
     const eventType = message.eventType || type;
     const eventPayload = message.payload || {};
     
-    switch (eventType) {
-      case 'skill_editor.chat.stream_chunk':
-        const chunkData = eventPayload.chunk || chunk;
-        const chunkIdx = eventPayload.chunkIndex ?? chunkIndex;
-        console.log('[LocalWS] 📝 Emitting stream chunk:', { sessionId, chunkIndex: chunkIdx, chunkLength: chunkData?.length });
-        // Emit in same format as AppSync subscription handler
-        eventBus.emit('skill_editor:chat:stream_chunk', {
-          sessionId,
-          messageId: messageId || eventPayload.messageId,
-          chunk: chunkData,
-          chunkIndex: chunkIdx
-        });
-        break;
-        
-      case 'skill_editor.chat.stream_end':
-        const fullMsg = eventPayload.fullContent || fullContent;
-        console.log('[LocalWS] ✅ Emitting stream end:', { sessionId, contentLength: fullMsg?.length });
-        // Emit in same format as AppSync subscription handler
-        eventBus.emit('skill_editor:chat:stream_end', {
-          sessionId,
-          messageId: messageId || eventPayload.messageId,
-          fullContent: fullMsg
-        });
-        break;
-        
-      case 'skill_editor.chat.error':
-        console.log('[LocalWS] ❌ Emitting stream error:', { sessionId });
-        eventBus.emit('skill_editor:chat:error', {
-          sessionId,
-          ...eventPayload
-        });
-        break;
-        
-      case 'skill_editor.event':
-        console.log('[LocalWS] 🎨 Emitting skill editor event:', { sessionId, commandType: eventPayload.commandType, type: eventPayload.type, hasFlowgram: !!eventPayload.flowgram });
-        console.log('[LocalWS] 🎨 Full eventPayload:', JSON.stringify(eventPayload).substring(0, 500));
-        eventBus.emit('skill_editor:event', {
-          sessionId,
-          ...eventPayload
-        });
-        break;
-      
-      // ==================== Data Update Events ====================
-      case 'update_org_agents':
-        console.log('[LocalWS] 🏢 Emitting update_org_agents');
-        eventBus.emit('org-agents-update', {
-          timestamp: Date.now(),
-          source: 'local_websocket',
-          data: eventPayload
-        });
-        break;
-      
-      // ==================== Chat Events ====================
-      case 'push_chat_message':
-        console.log('[LocalWS] 💬 Emitting push_chat_message');
-        eventBus.emit('ws:push_chat_message', eventPayload);
-        break;
-        
-      case 'push_chat_notification':
-        console.log('[LocalWS] 🔔 Emitting push_chat_notification');
-        eventBus.emit('ws:push_chat_notification', eventPayload);
-        break;
-      
-      // ==================== Ad Banner Events ====================
-      case 'push_ad':
-        console.log('[LocalWS] 📢 Emitting push_ad:', { bannerText: eventPayload.bannerText?.substring(0, 50), hasPopup: !!eventPayload.popupHtml });
-        // Directly update ad store for local desktop mode
-        this.handlePushAd(eventPayload);
-        break;
-      
-      // ==================== Skill Run Events ====================
-      case 'update_skill_run_stat':
-        console.log('[LocalWS] 📊 Emitting update_skill_run_stat:', { agentTaskId: eventPayload.agentTaskId, currentNode: eventPayload.currentNode });
-        eventBus.emit('ws:update_skill_run_stat', eventPayload);
-        break;
-        
-      case 'update_tasks_stat':
-        console.log('[LocalWS] 📈 Emitting update_tasks_stat');
-        eventBus.emit('ws:update_tasks_stat', eventPayload);
-        break;
-      
-      // ==================== LightRAG Events ====================
-      case 'lightrag.queryStream.chunk':
-        console.log('[LocalWS] 💡 Emitting lightrag chunk');
-        eventBus.emit('ws:lightrag:chunk', eventPayload);
-        break;
-        
-      case 'lightrag.queryStream.done':
-        console.log('[LocalWS] ✅ Emitting lightrag done');
-        eventBus.emit('ws:lightrag:done', eventPayload);
-        break;
-        
-      case 'lightrag.queryStream.error':
-        console.log('[LocalWS] ❌ Emitting lightrag error');
-        eventBus.emit('ws:lightrag:error', eventPayload);
-        break;
-      
-      // ==================== UI Events ====================
-      case 'refresh_dashboard':
-        console.log('[LocalWS] 🔄 Emitting refresh_dashboard');
-        eventBus.emit('ws:refresh_dashboard', eventPayload);
-        break;
-        
-      case 'update_screens':
-        console.log('[LocalWS] 🖥️ Emitting update_screens');
-        eventBus.emit('ws:update_screens', eventPayload);
-        break;
-        
-      default:
-        console.log('[LocalWS] ⚠️ Unknown event type:', eventType);
+    // Merge top-level fields into payload for backward compatibility
+    const mergedPayload = {
+      ...eventPayload,
+      ...(message.messageId && { messageId: message.messageId }),
+      ...(message.chunk && { chunk: message.chunk }),
+      ...(message.chunkIndex !== undefined && { chunkIndex: message.chunkIndex }),
+      ...(message.fullContent && { fullContent: message.fullContent }),
+    };
+    
+    console.log(`[LocalWS] Processing event: ${eventType}`, { sessionId });
+    
+    // Handle special cases that don't go through unified handler
+    if (eventType === 'push_ad') {
+      console.log('[LocalWS] 📢 Handling push_ad directly');
+      this.handlePushAd(mergedPayload);
+      return;
     }
+    
+    if (eventType === 'update_org_agents') {
+      console.log('[LocalWS] 🏢 Emitting org-agents-update');
+      eventBus.emit('org-agents-update', {
+        timestamp: Date.now(),
+        source: 'local_websocket',
+        data: mergedPayload
+      });
+      return;
+    }
+    
+    // Use unified event handler for all other events
+    const standardizedEvent = createStandardizedEvent(
+      eventType,
+      mergedPayload,
+      'local-ws',
+      sessionId
+    );
+    
+    unifiedEventHandler.handle(standardizedEvent);
   }
 
   /**

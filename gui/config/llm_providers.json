@@ -28,40 +28,138 @@
           "description": "Most capable model for professional work (Dec 2025, 93.2% GPQA Diamond)"
         },
         {
-          "name": "gpt-5.2-thinking",
-          "display_name": "GPT-5.2 Thinking",
-          "model_id": "gpt-5.2-thinking",
+          "name": "gpt-5.2-pro",
+          "display_name": "GPT-5.2 Pro",
+          "model_id": "gpt-5.2-pro",
           "default_temperature": 0.7,
-          "max_tokens": 400000,
+          "max_tokens": 128000,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
-          "cost_per_1k_tokens": 0.015,
-          "description": "Extended reasoning model (92.4% GPQA Diamond)"
+          "cost_per_1k_tokens": 0.0,
+          "description": "更强推理与深度输出版"
         },
         {
           "name": "gpt-5.2-codex",
           "display_name": "GPT-5.2 Codex",
           "model_id": "gpt-5.2-codex",
           "default_temperature": 0.7,
-          "max_tokens": 400000,
+          "max_tokens": 128000,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": false,
-          "cost_per_1k_tokens": 0.012,
-          "description": "Advanced agentic coding model for software engineering (Jan 2026)"
+          "cost_per_1k_tokens": 0.0,
+          "description": "在 GPT-5.2 基础上增强编程与代理任务能力"
         },
         {
-          "name": "gpt-5.2-codex-long",
-          "display_name": "GPT-5.2 Codex Long",
-          "model_id": "gpt-5.2-codex-long",
+          "name": "gpt-5",
+          "display_name": "GPT-5",
+          "model_id": "gpt-5",
           "default_temperature": 0.7,
-          "max_tokens": 400000,
+          "max_tokens": 128000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.0,
+          "description": "上一代旗舰，高级任务与长上下文处理主力"
+        },
+        {
+          "name": "gpt-5-mini",
+          "display_name": "GPT-5 Mini",
+          "model_id": "gpt-5-mini",
+          "default_temperature": 0.7,
+          "max_tokens": 128000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.0,
+          "description": "速度更快、成本更低的轻量版"
+        },
+        {
+          "name": "gpt-5-nano",
+          "display_name": "GPT-5 Nano",
+          "model_id": "gpt-5-nano",
+          "default_temperature": 0.7,
+          "max_tokens": 128000,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": false,
+          "cost_per_1k_tokens": 0.0,
+          "description": "最小、最便宜的版本"
+        },
+        {
+          "name": "gpt-4o",
+          "display_name": "GPT-4o",
+          "model_id": "gpt-4o",
+          "default_temperature": 1.0,
+          "max_tokens": 16384,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.0,
+          "description": "Most capable GPT-4 model with vision, 128K context"
+        },
+        {
+          "name": "gpt-4o-mini",
+          "display_name": "GPT-4o Mini",
+          "model_id": "gpt-4o-mini",
+          "default_temperature": 1.0,
+          "max_tokens": 16384,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.00015,
+          "description": "Fast and affordable GPT-4 model with vision, 128K context"
+        },
+        {
+          "name": "o1",
+          "display_name": "o1",
+          "model_id": "o1",
+          "default_temperature": 1.0,
+          "max_tokens": 100000,
+          "supports_streaming": true,
+          "supports_function_calling": false,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.015,
+          "description": "Advanced reasoning model with extended thinking, 200K context"
+        },
+        {
+          "name": "o1-mini",
+          "display_name": "o1-mini",
+          "model_id": "o1-mini",
+          "default_temperature": 1.0,
+          "max_tokens": 65536,
+          "supports_streaming": true,
+          "supports_function_calling": false,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.003,
+          "description": "Fast reasoning model for coding and STEM, 128K context"
+        },
+        {
+          "name": "gpt-4-turbo",
+          "display_name": "GPT-4 Turbo",
+          "model_id": "gpt-4-turbo",
+          "default_temperature": 1.0,
+          "max_tokens": 4096,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.01,
+          "description": "Previous generation GPT-4 Turbo with vision, 128K context"
           "cost_per_1k_tokens": 0.018,
           "description": "Optimized for long-running coding tasks"
+        },
+        {
+          "name": "gpt-5-mini",
+          "display_name": "GPT-5 Mini",
+          "model_id": "gpt-5-mini",
+          "default_temperature": 0.7,
+          "max_tokens": 128000,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": true,
+          "cost_per_1k_tokens": 0.003,
+          "description": "Fast, affordable small model with structured output support"
         }
       ]
     },
@@ -222,7 +320,7 @@
       ],
       "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
       "default_model": "qwen3-max",
-      "description": "Alibaba Qwen3 series - Latest models (Jan 2026)",
+      "description": "Alibaba Cloud Model Studio (DashScope) - Qwen3 + QwQ commercial models",
       "documentation_url": "https://help.aliyun.com/zh/model-studio/getting-started/models",
       "is_local": false,
       "enable_thinking": false,
@@ -232,24 +330,120 @@
           "display_name": "Qwen3-Max",
           "model_id": "qwen3-max",
           "default_temperature": 0.7,
+          "max_tokens": 8192,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.02,
+          "description": "Commercial Qwen3-Max (Stable)"
+        },
+        {
+          "name": "qwen3-coder-plus",
+          "display_name": "Qwen3-Coder-Plus",
+          "model_id": "qwen3-coder-plus",
+          "default_temperature": 0.7,
+          "max_tokens": 65536,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.015,
+          "description": "Commercial Qwen3 code generation model (Stable)"
+        },
+        {
+          "name": "qwen3-coder-flash",
+          "display_name": "Qwen3-Coder-Flash",
+          "model_id": "qwen3-coder-flash",
+          "default_temperature": 0.7,
+          "max_tokens": 65536,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.008,
+          "description": "Commercial Qwen3 code generation model (Stable, fast)"
+        },
+        {
+          "name": "qwen3-vl-plus",
+          "display_name": "Qwen3-VL-Plus",
+          "model_id": "qwen3-vl-plus",
+          "default_temperature": 0.7,
           "max_tokens": 32768,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
-          "cost_per_1k_tokens": 0.01,
-          "description": "Flagship Qwen3 model with thinking mode (Jan 2026)"
+          "cost_per_1k_tokens": 0.015,
+          "description": "Commercial Qwen3 vision-language model (Stable)"
         },
         {
-          "name": "qwen3-235b",
-          "display_name": "Qwen3-235B",
-          "model_id": "qwen3-235b",
+          "name": "qwen3-vl-flash",
+          "display_name": "Qwen3-VL-Flash",
+          "model_id": "qwen3-vl-flash",
           "default_temperature": 0.7,
           "max_tokens": 32768,
           "supports_streaming": true,
           "supports_function_calling": true,
           "supports_vision": true,
           "cost_per_1k_tokens": 0.008,
-          "description": "Qwen3-235B: Competitive coding and math performance (Jan 2026)"
+          "description": "Commercial Qwen3 vision-language model (Stable, fast)"
+        },
+        {
+          "name": "qwq-plus",
+          "display_name": "QwQ-Plus",
+          "model_id": "qwq-plus",
+          "default_temperature": 0.7,
+          "max_tokens": 8192,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.0,
+          "description": "Commercial QwQ reasoning model (Stable)"
+        },
+        {
+          "name": "qwq-plus-latest",
+          "display_name": "QwQ-Plus (Latest)",
+          "model_id": "qwq-plus-latest",
+          "default_temperature": 0.7,
+          "max_tokens": 8192,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.0,
+          "description": "Commercial QwQ reasoning model alias"
+        },
+        {
+          "name": "qwen-max-latest",
+          "display_name": "Qwen-Max (Latest)",
+          "model_id": "qwen-max-latest",
+          "default_temperature": 0.7,
+          "max_tokens": 8192,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.02,
+          "description": "Qwen-Max alias"
+        },
+        {
+          "name": "qwen-flash",
+          "display_name": "Qwen-Flash",
+          "model_id": "qwen-flash",
+          "default_temperature": 0.7,
+          "max_tokens": 8192,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.0,
+          "description": "Recommended replacement for Qwen-Turbo"
+        },
+        {
+          "name": "qwen-plus",
+          "display_name": "Qwen-Plus",
+          "model_id": "qwen-plus",
+          "default_temperature": 0.7,
+          "max_tokens": 8192,
+          "supports_streaming": true,
+          "supports_function_calling": true,
+          "supports_vision": false,
+          "cost_per_1k_tokens": 0.004,
+          "description": "Qwen-Plus (Stable)"
         }
       ]
     },
@@ -571,12 +765,28 @@
       "is_local": true,
       "enable_thinking": false,
       "supported_models": []
+    },
+    "RyoAIS": {
+      "name": "RyoAIS",
+      "display_name": "RyoAIS",
+      "provider": "ryoais",
+      "class_name": "ChatOpenAI",
+      "api_key_env_vars": [
+        "RYOAIS_LLM_API_KEY"
+      ],
+      "base_url": "http://localhost/v1",
+      "default_model": "",
+      "description": "RyoAIS - OpenAI-compatible API with dynamic model list support",
+      "documentation_url": "http://localhost/docs?lang=zh-CN",
+      "is_local": true,
+      "enable_thinking": false,
+      "supported_models": []
     }
   },
   "metadata": {
     "version": "2.0.0",
-    "last_updated": "2026-01-21",
-    "description": "LLM provider configurations for eCan.ai - Jan 2026 Latest Models: GPT-5.2, Claude 4.5, Gemini 3, GLM-4.7, DeepSeek V3.2/R1, Qwen3-Max",
+    "last_updated": "2025-02-06",
+    "description": "LLM provider configurations for eCan.ai - Latest models: GPT-4.1, o3, o4-mini, Qwen3-Max, DeepSeek V3/R1",
     "schema_version": "1.0"
   }
 }

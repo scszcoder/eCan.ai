@@ -40,6 +40,20 @@ class LabelInputFile(BaseModel):
 	)
 
 
+class ExtractDomAction(BaseModel):
+	"""Extract raw DOM/markdown content from the current page without LLM analysis.
+	Used in passive mode where cloud agent will analyze the content."""
+	query: str = Field(
+		default="", description="The extraction query describing what to look for"
+	)
+	extract_links: bool = Field(
+		default=False, description="Whether to include links in the extracted content"
+	)
+	start_from_char: int = Field(
+		default=0, description="Character position to start extraction from (for pagination)"
+	)
+
+
 class LabelsReformatAction(BaseModel):
 	in_files: list[LabelInputFile] = Field(
 		default_factory=list, description="list of input file specifications with per-file note settings"

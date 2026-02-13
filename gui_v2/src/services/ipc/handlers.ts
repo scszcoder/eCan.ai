@@ -20,6 +20,7 @@ import { avatarSceneOrchestrator } from '../avatarSceneOrchestrator';
 import type { SceneClip } from '@/types/avatarScene';
 import { useAdStore } from '../../stores/adStore';
 import { useAccountStore } from '../../stores/accountStore';
+import { unifiedEventHandler, createStandardizedEvent } from '@/services/events/unifiedEventHandler';
 
 // Process?TypeDefinition
 type Handler = (request: IPCRequest) => Promise<unknown>;
@@ -85,41 +86,71 @@ export class IPCHandlers {
         return { ...this.handlers };
     }
 
-    // LightRAG Handlers
+    // LightRAG Handlers - Using unified event handler
     async handleLightRagChunk(request: IPCRequest): Promise<{ success: boolean }> {
-        const params = request.params as any;
-        eventBus.emit('lightrag:queryStream:chunk', params);
+        const event = createStandardizedEvent(
+            'lightrag.queryStream.chunk',
+            request.params as any,
+            'ipc'
+        );
+        unifiedEventHandler.handle(event);
         return { success: true };
     }
 
     async handleLightRagDone(request: IPCRequest): Promise<{ success: boolean }> {
-        const params = request.params as any;
-        eventBus.emit('lightrag:queryStream:done', params);
+        const event = createStandardizedEvent(
+            'lightrag.queryStream.done',
+            request.params as any,
+            'ipc'
+        );
+        unifiedEventHandler.handle(event);
         return { success: true };
     }
 
     async handleLightRagError(request: IPCRequest): Promise<{ success: boolean }> {
-        const params = request.params as any;
-        eventBus.emit('lightrag:queryStream:error', params);
+        const event = createStandardizedEvent(
+            'lightrag.queryStream.error',
+            request.params as any,
+            'ipc'
+        );
+        unifiedEventHandler.handle(event);
         return { success: true };
     }
 
-    // Skill editor chat streaming handlers
+    // Skill editor chat streaming handlers - Using unified event handler
     async handleSkillEditorChatChunk(request: IPCRequest): Promise<{ success: boolean }> {
         const params = request.params as any;
-        eventBus.emit('skill_editor:chat:stream_chunk', params);
+        const event = createStandardizedEvent(
+            'skill_editor.chat.stream_chunk',
+            params,
+            'ipc',
+            params.sessionId
+        );
+        unifiedEventHandler.handle(event);
         return { success: true };
     }
 
     async handleSkillEditorChatDone(request: IPCRequest): Promise<{ success: boolean }> {
         const params = request.params as any;
-        eventBus.emit('skill_editor:chat:stream_end', params);
+        const event = createStandardizedEvent(
+            'skill_editor.chat.stream_end',
+            params,
+            'ipc',
+            params.sessionId
+        );
+        unifiedEventHandler.handle(event);
         return { success: true };
     }
 
     async handleSkillEditorChatError(request: IPCRequest): Promise<{ success: boolean }> {
         const params = request.params as any;
-        eventBus.emit('skill_editor:chat:error', params);
+        const event = createStandardizedEvent(
+            'skill_editor.chat.error',
+            params,
+            'ipc',
+            params.sessionId
+        );
+        unifiedEventHandler.handle(event);
         return { success: true };
     }
 
@@ -191,8 +222,12 @@ export class IPCHandlers {
     }
 
     async pushChatMessage(request: IPCRequest): Promise<{ success: boolean }> {
-        // logger.info('Received pushChatMessage request:', request.params);
-        eventBus.emit('chat:newMessage', request.params);
+        const event = createStandardizedEvent(
+            'push_chat_message',
+            request.params as any,
+            'ipc'
+        );
+        unifiedEventHandler.handle(event);
         return { success: true };
     }
 
@@ -263,8 +298,8 @@ export class IPCHandlers {
         }
       } catch {}
 
-      try { console.log('emitting chat:newNotification'); } catch {}
-      eventBus.emit('chat:newNotification', { chatId, content: body, isRead, timestamp, uid });
+      try { console.log('emitting ws:push_chat_notification'); } catch {}
+      eventBus.emit('ws:push_chat_notification', { chatId, content: body, isRead, timestamp, uid });
       return { success: true };
     }
 
@@ -680,13 +715,14 @@ export class IPCHandlers {
           logger.warn('updateSkillRunStat: failed to capture runtime state', e as any);
         }
 
-        eventBus.emit('chat:latestSkillRunStat', request.params);
+        // Note: The actual skill run stat update is already handled by the store updates above
+        // No need to emit additional events here as wsEventListeners already handles ws:update_skill_run_stat
         return { success: true };
     }
 
     async updateTasksStat(request: IPCRequest): Promise<{ success: boolean }> {
         // logger.info('Received updateTasksStat request:', request.params);
-        eventBus.emit('chat:newMessage', request.params);
+        eventBus.emit('ws:update_tasks_stat', request.params);
         return { success: true };
     }
 

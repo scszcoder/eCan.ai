@@ -17,12 +17,15 @@ import {
   EyeInvisibleOutlined,
   GlobalOutlined,
   ReloadOutlined,
+  ScanOutlined,
 } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { get_ipc_api } from "../../../services/ipc_api";
 import type { LLMProvider } from "../types";
 import { isOllamaProvider, validateOllamaProvider } from "../utils/ollamaValidation";
 import { saveOllamaConfig } from "../utils/ollamaConfigUtils";
+import { isRyoAISProvider, validateRyoAISProvider } from "../utils/ryoaisValidation";
+import { saveRyoAISConfig } from "../utils/ryoaisConfigUtils";
 
 interface LLMManagementProps {
   username: string | null;
@@ -79,6 +82,16 @@ const LLMManagement = React.forwardRef<
   const [tempOllamaHost, setTempOllamaHost] = useState('');
   const [ollamaApiKey, setOllamaApiKey] = useState('');
 
+  // RyoAIS dynamic model state
+  const [ryoaisModels, setRyoaisModels] = useState<Array<{ name: string; size: number }>>([]);
+  const [ryoaisLoading, setRyoaisLoading] = useState(false);
+  const [ryoaisHost, setRyoaisHost] = useState('http://localhost/v1');
+  const [editingRyoaisHost, setEditingRyoaisHost] = useState(false);
+  const [tempRyoaisHost, setTempRyoaisHost] = useState('');
+  const [ryoaisApiKey, setRyoaisApiKey] = useState('');
+  const [ryoaisScanning, setRyoaisScanning] = useState(false);
+  const [ryoaisDevices, setRyoaisDevices] = useState<Array<{ name: string; url: string }>>([]);
+
   // Enable thinking state for Qwen providers
   const [enableThinkingMap, setEnableThinkingMap] = useState<Record<string, boolean>>({});
 
@@ -107,6 +120,86 @@ const LLMManagement = React.forwardRef<
     }
   }, [ollamaHost, username, message, t]);
 
+  // Fetch RyoAIS models and save to backend
+  const fetchRyoAISModels = useCallback(async (host?: string) => {
+    const targetHost = host || ryoaisHost;
+    setRyoaisLoading(true);
+    try {
+      // Pass username so backend can save to user-specific path
+      const response = await get_ipc_api().getRyoAISModels<{ models: Array<{ name: string; size: number }>; host: string }>(targetHost, username || undefined);
+      if (response.success && response.data) {
+        setRyoaisModels(response.data.models || []);
+        // Return true to indicate success, caller can reload providers if needed
+        return true;
+      } else {
+        message.error(response.error?.message || t('pages.settings.ryoais_fetch_error'));
+        setRyoaisModels([]);
+        return false;
+      }
+    } catch (error: any) {
+      message.error(error.message || t('pages.settings.ryoais_fetch_error'));
+      setRyoaisModels([]);
+      return false;
+    } finally {
+      setRyoaisLoading(false);
+    }
+  }, [ryoaisHost, username, message, t]);
+
+  // Scan for RyoAIS devices using mDNS
+  const scanRyoAISDevices = useCallback(async () => {
+    setRyoaisScanning(true);
+    try {
+      const response = await get_ipc_api().executeRequest<{
+        devices: Array<{ name: string; url: string; hostname?: string; ip?: string }>;
+        count: number;
+        scan_duration: number;
+      }>('ryoais.scanDevices', {
+        timeout: 10,
+        environment: 'production'
+      });
+
+      if (response && response.success && response.data) {
+        const rawDevices = response.data.devices || [];
+        
+        // Generate complete host URLs by appending /v1 if not present
+        const devices = rawDevices.map(device => {
+          let url = device.url;
+          // Ensure URL has /v1 path for RyoAIS API
+          if (!url.endsWith('/v1')) {
+            url = url.replace(/\/$/, '') + '/v1';
+          }
+          return {
+            ...device,
+            url
+          };
+        });
+        
+        setRyoaisDevices(devices);
+        
+        if (devices.length > 0) {
+          message.success(t('pages.settings.ryoais.scan_success', { count: devices.length }));
+          
+          // Auto-fill if only one device found
+          if (devices.length === 1) {
+            setTempRyoaisHost(devices[0].url);
+            message.info(t('pages.settings.ryoais.auto_filled'));
+          }
+        } else {
+          message.info(t('pages.settings.ryoais.no_devices_found'));
+        }
+      } else {
+        message.error(t('pages.settings.ryoais.scan_failed'));
+        setRyoaisDevices([]);
+      }
+    } catch (error: any) {
+      console.error('[RyoAIS] Scan error:', error);
+      message.error(t('pages.settings.ryoais.scan_error'));
+      setRyoaisDevices([]);
+    } finally {
+      setRyoaisScanning(false);
+    }
+  }, [message, t]);
+
   // Load LLM providers
   const loadProviders = useCallback(async () => {
     if (!username) return;
@@ -131,6 +224,19 @@ const LLMManagement = React.forwardRef<
         if (!editingOllamaHost && loadedOllamaHost && loadedOllamaHost !== ollamaHost) {
           setOllamaHost(loadedOllamaHost);
         }
+
+        // Load RyoAIS host from provider config
+        const ryoaisProvider = loadedProviders.find(
+          (p) =>
+            (p.provider || "").toLowerCase() === "ryoais" ||
+            (p.name || "").toLowerCase().includes("ryoais") ||
+            (p.display_name || "").toLowerCase().includes("ryoais")
+        );
+        const loadedRyoaisHost = ryoaisProvider?.base_url;
+        if (!editingRyoaisHost && loadedRyoaisHost && loadedRyoaisHost !== ryoaisHost) {
+          setRyoaisHost(loadedRyoaisHost);
+        }
+
         // Debug: Check OpenAI provider name
         const openaiProvider = loadedProviders.find(p => 
           p.name === 'OpenAI' || p.name === 'ChatOpenAI' || p.display_name?.toLowerCase().includes('openai')
@@ -156,7 +262,7 @@ const LLMManagement = React.forwardRef<
     } finally {
       setLoading(false);
     }
-  }, [username, defaultLLM, t, message, editingOllamaHost, ollamaHost]);
+  }, [username, defaultLLM, t, message, editingOllamaHost, ollamaHost, editingRyoaisHost, ryoaisHost]);
 
   // Expose loadProviders method via ref
   useImperativeHandle(ref, () => ({
@@ -375,9 +481,16 @@ const LLMManagement = React.forwardRef<
     const modelToUse = selectedModel || provider.preferred_model || provider.default_model || undefined;
 
     // Validate Ollama provider configuration
-    const validation = validateOllamaProvider(provider, modelToUse, t);
-    if (!validation.valid) {
-      message.warning(validation.errorMessage);
+    const ollamaValidation = validateOllamaProvider(provider, modelToUse, t);
+    if (!ollamaValidation.valid) {
+      message.warning(ollamaValidation.errorMessage);
+      return;
+    }
+
+    // Validate RyoAIS provider configuration
+    const ryoaisValidation = validateRyoAISProvider(provider, modelToUse, t);
+    if (!ryoaisValidation.valid) {
+      message.warning(ryoaisValidation.errorMessage);
       return;
     }
 
@@ -389,7 +502,7 @@ const LLMManagement = React.forwardRef<
       );
 
       if (response.success) {
-        setDefaultLLM(providerName);
+        setDefaultLLM(providerIdentifier);
         // Notify parent component to update settings - use providerIdentifier for consistency
         onDefaultLLMChange?.(providerIdentifier, modelToUse);
         message.success(
@@ -521,8 +634,14 @@ const LLMManagement = React.forwardRef<
       return;
     }
 
-    // Check if this is the default LLM (compare using provider identifier)
-    const isDefault = providerIdentifier && (defaultLLM || "").toLowerCase() === (providerIdentifier || "").toLowerCase();
+    // Check if this is the default LLM (compare using all possible identifiers)
+    const dlm = (defaultLLM || "").toLowerCase();
+    const isDefault = providerIdentifier && (
+      dlm === (providerIdentifier || "").toLowerCase()
+      || dlm === (provider.class_name || "").toLowerCase()
+      || dlm === (provider.name || "").toLowerCase()
+      || dlm === (provider.display_name || "").toLowerCase()
+    );
     
     // Show confirmation dialog using modal from App.useApp() for proper theme support
     modal.confirm({
@@ -956,6 +1075,112 @@ const LLMManagement = React.forwardRef<
           );
         }
 
+        // RyoAIS specific rendering with host and optional API key
+        if (isRyoAISProvider(record)) {
+          if (editingRyoaisHost) {
+            // Determine whether to show Select or Input based on scanned devices
+            const hasMultipleDevices = ryoaisDevices.length > 1;
+            
+            return (
+              <Space direction="vertical" style={{ width: "100%" }}>
+                <Space.Compact style={{ width: "300px" }}>
+                  {hasMultipleDevices ? (
+                    // Show Select when multiple devices found
+                    <Select
+                      value={tempRyoaisHost}
+                      onChange={setTempRyoaisHost}
+                      placeholder={t("pages.settings.ryoais_host_placeholder")}
+                      style={{ flex: 1 }}
+                      optionLabelProp="label"
+                    >
+                      {ryoaisDevices.map(device => (
+                        <Select.Option key={device.url} value={device.url} label={device.url}>
+                          <div>
+                            <div style={{ fontWeight: 500 }}>{device.url}</div>
+                            {device.name && (
+                              <div style={{ fontSize: '12px', color: '#999' }}>{device.name}</div>
+                            )}
+                          </div>
+                        </Select.Option>
+                      ))}
+                    </Select>
+                  ) : (
+                    // Show Input when no devices or single device
+                    <Input
+                      value={tempRyoaisHost}
+                      onChange={(e) => setTempRyoaisHost(e.target.value)}
+                      placeholder={t("pages.settings.ryoais_host_placeholder")}
+                      style={{ flex: 1 }}
+                    />
+                  )}
+                  <Tooltip title={t("pages.settings.ryoais.scan_devices")}>
+                    <Button
+                      icon={<ScanOutlined />}
+                      loading={ryoaisScanning}
+                      onClick={scanRyoAISDevices}
+                    />
+                  </Tooltip>
+                </Space.Compact>
+                <Input
+                  value={ryoaisApiKey}
+                  onChange={(e) => setRyoaisApiKey(e.target.value)}
+                  placeholder={t("pages.settings.ryoais_api_key_placeholder")}
+                  style={{ width: "300px" }}
+                  addonBefore="API Key"
+                />
+                <Space>
+                  <Button
+                    size="small"
+                    type="primary"
+                    onClick={async () => {
+                      if (tempRyoaisHost) {
+                        await saveRyoAISConfig({
+                          providerType: 'llm',
+                          host: tempRyoaisHost,
+                          apiKey: ryoaisApiKey,
+                          onSuccess: async () => {
+                            setRyoaisHost(tempRyoaisHost);
+                            await fetchRyoAISModels(tempRyoaisHost);
+                            setEditingRyoaisHost(false);
+                            message.success(t("pages.settings.ryoais_config_saved"));
+                          },
+                          onError: (error) => message.error(error)
+                        });
+                      }
+                    }}
+                  >
+                    {t("common.save")}
+                  </Button>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      setEditingRyoaisHost(false);
+                      setTempRyoaisHost(ryoaisHost);
+                    }}
+                  >
+                    {t("common.cancel")}
+                  </Button>
+                </Space>
+              </Space>
+            );
+          }
+
+          return (
+            <Space direction="vertical" size={2}>
+              <Space>
+                <span style={{ color: "#999", fontSize: "12px" }}>Host:</span>
+                <span style={{ fontFamily: "monospace", fontSize: "12px" }}>{ryoaisHost}</span>
+              </Space>
+              {ryoaisApiKey && (
+                <Space>
+                  <span style={{ color: "#999", fontSize: "12px" }}>API Key:</span>
+                  <span style={{ fontFamily: "monospace", fontSize: "12px" }}>••••••••</span>
+                </Space>
+              )}
+            </Space>
+          );
+        }
+
         if (isEditing) {
           return (
             <Space direction="vertical" style={{ width: "100%" }}>
@@ -1151,6 +1376,53 @@ const LLMManagement = React.forwardRef<
           );
         }
 
+        // Check if this is RyoAIS provider
+        if (isRyoAISProvider(record)) {
+          // Use cached options derived from provider.supported_models (which are merged from ryoais_models.json)
+          const ryoaisOptions = modelOptionsCache[record.name] || [];
+          const uiSelectedModel = currentModelSelections[record.name];
+          const backendModel = record.preferred_model || record.default_model || undefined;
+          const currentValue = uiSelectedModel || backendModel;
+
+          return (
+            <Space>
+              <Select
+                size="small"
+                style={{ width: 160 }}
+                value={currentValue || undefined}
+                onChange={(value) => handleModelSelection(record.name, value)}
+                loading={ryoaisLoading || !!modelLoadingMap[record.name]}
+                placeholder={ryoaisLoading ? t("pages.settings.loading") : t("pages.settings.select_model")}
+                optionLabelProp="label"
+                popupMatchSelectWidth={false}
+                showSearch
+                allowClear
+                notFoundContent={ryoaisOptions.length === 0 ? t("pages.settings.no_models_available") : null}
+              >
+                {ryoaisOptions.map((option) => (
+                  <Select.Option key={option.value} value={option.value} label={option.label}>
+                    {option.label}
+                  </Select.Option>
+                ))}
+              </Select>
+              <Tooltip title={t("pages.settings.refresh_models")}>
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<ReloadOutlined spin={ryoaisLoading} />}
+                  onClick={async () => {
+                    const success = await fetchRyoAISModels();
+                    if (success) {
+                      // Reload providers to get merged RyoAIS models from backend
+                      loadProviders();
+                    }
+                  }}
+                />
+              </Tooltip>
+            </Space>
+          );
+        }
+
         const options = modelOptionsCache[record.name] || [];
 
         if (!options.length) {
@@ -1226,9 +1498,14 @@ const LLMManagement = React.forwardRef<
       key: "default",
       width: 80,
       render: (name: string, record: LLMProvider) => {
-        // Compare using provider identifier (canonical), not display name
+        // Compare defaultLLM against all known identifiers for this provider
+        // (settings may store class_name like "ChatOpenAI", provider id like "openai", or display name like "OpenAI")
         const providerIdentifier = record.provider;
-        const isChecked = (defaultLLM || "").toLowerCase() === (providerIdentifier || "").toLowerCase();
+        const dlm = (defaultLLM || "").toLowerCase();
+        const isChecked = dlm === (providerIdentifier || "").toLowerCase()
+          || dlm === (record.class_name || "").toLowerCase()
+          || dlm === (record.name || "").toLowerCase()
+          || dlm === (record.display_name || "").toLowerCase();
         // Debug logging for OpenAI specifically
         if (name === 'OpenAI' || name === 'ChatOpenAI' || providerIdentifier === 'openai') {
           console.log(`🔍 [Radio] ${name} (${providerIdentifier}): checked=${isChecked}, defaultLLM=${defaultLLM}, api_key_configured=${record.api_key_configured}`);
@@ -1269,12 +1546,76 @@ const LLMManagement = React.forwardRef<
                   }}
                 />
               </Tooltip>
+              <Tooltip title={t("common.refresh")}>
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<ReloadOutlined />}
+                  loading={ollamaLoading}
+                  onClick={async () => {
+                    const success = await fetchOllamaModels();
+                    if (success) {
+                      await loadProviders();
+                    }
+                  }}
+                />
+              </Tooltip>
               <Tooltip title={t("pages.settings.open_ollama")}>
                 <Button
                   size="small"
                   type="text"
                   icon={<GlobalOutlined />}
                   onClick={() => window.open(ollamaHost, '_blank')}
+                />
+              </Tooltip>
+              <Tooltip title={t("common.delete")}>
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<DeleteOutlined style={{ color: "#999" }} />}
+                  style={{ color: "#999" }}
+                  disabled={true}
+                />
+              </Tooltip>
+            </Space>
+          );
+        }
+
+        // RyoAIS specific actions
+        if (isRyoAISProvider(record)) {
+          return (
+            <Space>
+              <Tooltip title={t("common.edit")}>
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<EditOutlined />}
+                  onClick={() => {
+                    setTempRyoaisHost(ryoaisHost);
+                    setEditingRyoaisHost(true);
+                  }}
+                />
+              </Tooltip>
+              <Tooltip title={t("common.refresh")}>
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<ReloadOutlined />}
+                  loading={ryoaisLoading}
+                  onClick={async () => {
+                    const success = await fetchRyoAISModels();
+                    if (success) {
+                      await loadProviders();
+                    }
+                  }}
+                />
+              </Tooltip>
+              <Tooltip title={t("pages.settings.open_ryoais")}>
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<GlobalOutlined />}
+                  onClick={() => window.open(ryoaisHost, '_blank')}
                 />
               </Tooltip>
               <Tooltip title={t("common.delete")}>

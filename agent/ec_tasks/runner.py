@@ -22,7 +22,7 @@ from pathlib import Path
 from queue import Queue, Empty
 from typing import Any, Dict, Generic, List, Optional, Tuple, TypeVar, TYPE_CHECKING
 
-from a2a.types import TaskState, Message, TextPart, MessageSendParams
+from a2a.types import TaskState, Message, TextPart, MessageSendParams, TaskStatus as A2ATaskStatus
 from agent.ec_skills.llm_utils.llm_utils import send_response_back
 from agent.ec_skills.prep_skills_run import prep_skills_run
 from langgraph.types import Command
@@ -190,7 +190,13 @@ class TaskRunner(Generic[Context]):
     def launch_dev_run(self, init_state: dict, dev_task: ManagedTask) -> dict:
         """Launch a dev run via the unified execution loop."""
         try:
-            logger.debug(f"[TaskRunner][launch_dev_run] init_state: {init_state}")
+            # Truncate screenshot data for logging
+            try:
+                from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
+                log_init_state = truncate_screenshot_for_logging(init_state)
+            except Exception:
+                log_init_state = str(init_state)[:500] + "..."
+            logger.debug(f"[TaskRunner][launch_dev_run] init_state: {log_init_state}")
             dev_init_state = init_state or {}
             try:
                 if isinstance(dev_init_state.get("messages"), list) and not dev_init_state["messages"]:
@@ -554,7 +560,30 @@ class TaskRunner(Generic[Context]):
     
     # ==================== Event Routing ====================
     
-    def _resolve_event_routing(self, event_type: str, request: Any, source: str = "") -> Optional[ManagedTask]:
+    def _extract_nested_value(self, data: Any, key_path: str) -> Any:
+        """
+        Extract a value from nested dict/object using dot notation.
+        E.g., "command.run_id" extracts data["command"]["run_id"] or data.command.run_id
+        """
+        try:
+            parts = key_path.split(".")
+            current = data
+            for part in parts:
+                if isinstance(current, dict):
+                    current = current.get(part)
+                elif hasattr(current, part):
+                    current = getattr(current, part)
+                elif hasattr(current, "model_dump"):
+                    current = current.model_dump().get(part)
+                else:
+                    return None
+                if current is None:
+                    return None
+            return current
+        except Exception:
+            return None
+
+    def _resolve_event_routing(self, event_type: str, request: Any, source: str = "") -> Optional[Tuple[ManagedTask, dict]]:
         """
         Use skill mapping DSL to route events to tasks.
         
@@ -564,7 +593,7 @@ class TaskRunner(Generic[Context]):
             source: Optional source identifier.
             
         Returns:
-            The matching ManagedTask or None.
+            Tuple of (matching ManagedTask, routing rule dict) or None.
         """
         try:
             event = normalize_event(event_type, request, src=source)
@@ -612,12 +641,27 @@ class TaskRunner(Generic[Context]):
                     logger.debug(f"[ROUTING] No rule for event type '{etype}' in skill: {skill_name}")
                     continue
                 
-                # Evaluate selector
+                # Check routing_key for dynamic matching (e.g., by run_id, node_id)
+                routing_key = rule.get("routing_key")
+                if routing_key:
+                    key_value = self._extract_nested_value(request, routing_key)
+                    if key_value:
+                        logger.debug(f"[ROUTING] routing_key '{routing_key}' = '{key_value}'")
+                        # Match by run_id (task.id)
+                        if "run_id" in routing_key and str(t.id) == str(key_value):
+                            logger.info(f"[ROUTING] ✅ Matched task by run_id: {t.name}, id={t.id}")
+                            return (t, rule)
+                        # Match by skill_id
+                        if "skill_id" in routing_key and str(getattr(skill, "id", "")) == str(key_value):
+                            logger.info(f"[ROUTING] ✅ Matched task by skill_id: {t.name}")
+                            return (t, rule)
+                
+                # Evaluate selector (fallback)
                 selector = rule.get("task_selector") or ""
                 logger.debug(f"[ROUTING] Evaluating selector '{selector}' for task: {t.name}, skill: {skill_name}")
                 if self._evaluate_selector(selector, t):
                     logger.info(f"[ROUTING] ✅ Matched task: {t.name}, id={t.id}")
-                    return t
+                    return (t, rule)
                 else:
                     logger.debug(f"[ROUTING] ❌ Selector '{selector}' did not match task: {t.name}")
                     
@@ -655,6 +699,41 @@ class TaskRunner(Generic[Context]):
             return found[0]
         logger.error("NO chatter tasks found!")
         return None
+
+    def _ensure_chatter_task(self) -> Optional[ManagedTask]:
+        """Ensure the agent has a chatter task for routing human_chat/a2a events."""
+        existing = self.find_chatter_tasks()
+        if existing:
+            return existing
+
+        skills = getattr(self.agent, "skills", []) or []
+        chatter_skill = next((sk for sk in skills if sk and "chatter" in (getattr(sk, "name", "")).lower()), None)
+        if not chatter_skill:
+            logger.error("[ensure_chatter_task] No chatter skill found; cannot auto-create chatter task")
+            return None
+
+        task_id = f"auto-chatter-{uuid.uuid4()}"
+        task = ManagedTask(
+            id=task_id,
+            context_id=task_id,
+            name=f"chat:Auto Chatter Task ({getattr(chatter_skill, 'name', 'chatter')})",
+            description="Auto-created chatter task for routing",
+            source="code",
+            status=A2ATaskStatus(state=TaskState.submitted),
+            sessionId="",
+            skill=chatter_skill,
+            metadata={"state": {"top": "ready"}},
+            state={"top": "ready"},
+            resume_from="",
+            trigger="message",
+            agent_id=getattr(getattr(self.agent, "card", None), "id", "") or "",
+        )
+
+        if getattr(self.agent, "tasks", None) is None:
+            self.agent.tasks = []
+        self.agent.tasks.append(task)
+        logger.info(f"[ensure_chatter_task] Auto-created chatter task: {task.name}")
+        return task
     
     def find_suitable_tasks(self, msg) -> List[ManagedTask]:
         """Find suitable tasks for a message."""
@@ -700,8 +779,9 @@ class TaskRunner(Generic[Context]):
                     pass
             
             # Route to target task
-            target_task = self._resolve_event_routing(event_type, request, source)
-            if target_task:
+            routing_result = self._resolve_event_routing(event_type, request, source)
+            if routing_result:
+                target_task, rule = routing_result
                 if not hasattr(target_task, "queue") or target_task.queue is None:
                     logger.error(f"[QUEUE] Target task has no queue: {target_task.name}")
                     return
@@ -712,6 +792,15 @@ class TaskRunner(Generic[Context]):
                 except Exception as e:
                     logger.error(f"[QUEUE] Failed to enqueue: {e}")
             else:
+                if event_type in {"human_chat", "a2a"}:
+                    fallback_task = self._ensure_chatter_task()
+                    if fallback_task and getattr(fallback_task, "queue", None) is not None:
+                        try:
+                            fallback_task.queue.put_nowait(request)
+                            logger.info(f"[QUEUE] Message queued for fallback task={fallback_task.name}")
+                            return
+                        except Exception as e:
+                            logger.error(f"[QUEUE] Failed to enqueue to fallback chatter task: {e}")
                 logger.error(f"[QUEUE] No target task for event: {event_type}")
                 
         except Exception as e:
@@ -775,12 +864,12 @@ class TaskRunner(Generic[Context]):
     
     def _find_task_by_id(self, task_id: str) -> Optional[ManagedTask]:
         """
-        Find a task by its ID.
+        Find a task by its ID or run_id.
         
         Searches both self.tasks and agent.tasks.
         
         Args:
-            task_id: The task ID to find
+            task_id: The task ID or run_id to find
             
         Returns:
             The ManagedTask if found, None otherwise
@@ -789,10 +878,10 @@ class TaskRunner(Generic[Context]):
         if task_id in self.tasks:
             return self.tasks[task_id]
         
-        # Check agent.tasks list
+        # Check agent.tasks list (match by id or run_id)
         try:
             for t in getattr(self.agent, "tasks", []) or []:
-                if t and getattr(t, "id", None) == task_id:
+                if t and (getattr(t, "id", None) == task_id or getattr(t, "run_id", None) == task_id):
                     return t
         except Exception:
             pass

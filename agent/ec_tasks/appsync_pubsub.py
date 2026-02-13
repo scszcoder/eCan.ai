@@ -16,6 +16,7 @@ from utils.logger_helper import logger_helper as logger
 class AppSyncApiKeyConfig:
     http_endpoint: str
     api_key: str
+    auth_token: Optional[str] = None
     ws_endpoint: Optional[str] = None
     host: Optional[str] = None
 
@@ -53,15 +54,24 @@ def _mk_http_headers(api_key: str) -> Dict[str, str]:
     }
 
 
-def _mk_ws_headers(host: str, api_key: str) -> Dict[str, str]:
-    return {
-        "host": host,
-        "x-api-key": api_key,
-    }
+def _build_auth_headers(auth_token: Optional[str], api_key: str) -> Dict[str, str]:
+    tok = (auth_token or "").strip()
+    if tok:
+        if tok.lower().startswith("bearer "):
+            return {"Authorization": tok}
+        if tok.count(".") >= 2:
+            return {"Authorization": tok}
+    return {"x-api-key": api_key}
 
 
-def _mk_ws_url(ws_endpoint: str, *, host: str, api_key: str) -> str:
-    headers = _mk_ws_headers(host, api_key)
+def _mk_ws_headers(host: str, api_key: str, auth_token: Optional[str]) -> Dict[str, str]:
+    headers = _build_auth_headers(auth_token, api_key)
+    headers["host"] = host
+    return headers
+
+
+def _mk_ws_url(ws_endpoint: str, *, host: str, api_key: str, auth_token: Optional[str]) -> str:
+    headers = _mk_ws_headers(host, api_key, auth_token)
     header_b64 = base64.b64encode(json.dumps(headers).encode("utf-8")).decode("utf-8")
     return f"{ws_endpoint}?header={header_b64}&payload=e30="
 
@@ -286,7 +296,7 @@ async def _subscribe(
 ) -> None:
     ws_endpoint = config.resolved_ws_endpoint()
     host = config.resolved_host()
-    ws_url = _mk_ws_url(ws_endpoint, host=host, api_key=config.api_key)
+    ws_url = _mk_ws_url(ws_endpoint, host=host, api_key=config.api_key, auth_token=config.auth_token)
 
     retry = 0
     base_backoff = 2
@@ -317,7 +327,7 @@ async def _subscribe(
                         elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
                             raise RuntimeError("connection closed during ack")
 
-                    api_headers = _mk_ws_headers(host, config.api_key)
+                    api_headers = _mk_ws_headers(host, config.api_key, config.auth_token)
                     sub_data = {
                         "query": query,
                         "operationName": operation_name,

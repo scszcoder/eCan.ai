@@ -31,11 +31,6 @@ from langchain_core.messages.base import BaseMessage, BaseMessageChunk
 
 
 # ==================== Module-level Constants ====================
-# Thinking control system instruction (used in SystemMessage)
-THINKING_SUPPRESSION_INSTRUCTION = (
-    "You must respond directly without using <think> tags, reasoning steps, or internal monologue. "
-    "Provide only the final answer or action."
-)
 
 
 # ==================== Helper Functions ====================
@@ -248,7 +243,7 @@ BROWSER_AUTOMATION_SYS_PROMPT = "You are a helpful browser automation agent."
 
 def _load_prompt_data(selection: str) -> tuple[dict | None, Any]:
     """
-    Load prompt data either from cloud (S3) or local (GUI prompt_handler).
+    Load prompt data either from cloud (DynamoDB) or local (GUI prompt_handler).
     
     Returns:
         (prompt_data, normalizer_module) - prompt_data is the raw prompt dict,
@@ -264,12 +259,12 @@ def _load_prompt_data(selection: str) -> tuple[dict | None, Any]:
         
         cloud_ctx = get_cloud_prompt_context()
         if cloud_ctx is not None:
-            # We're in cloud mode - use S3-based prompt loading
+            # We're in cloud mode - use DynamoDB-based prompt loading
             logger.debug(f"[prompts] Using cloud prompt loader for selection '{selection}'")
             loader = get_cloud_prompt_loader(
-                bucket=cloud_ctx.bucket,
-                user_prefix=cloud_ctx.user_prefix,
+                owner_id=cloud_ctx.owner_id,
                 region=cloud_ctx.region,
+                table_name=cloud_ctx.table_name,
             )
             prompt_data = loader.get_prompt_by_id(selection)
             
@@ -353,6 +348,7 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
     def _get_tool_schemas_for_names(tool_names: list[str]) -> list[dict]:
         """Fetch full tool schemas for the given tool names from MCP registry."""
         try:
+            from app_context import AppContext
             mainwin = AppContext.get_main_window()
             all_schemas = getattr(mainwin, 'mcp_tools_schemas', None) or []
             logger.debug(f"[_get_tool_schemas_for_names] Looking for {len(tool_names)} tools in registry with {len(all_schemas)} schemas")
@@ -649,7 +645,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         hard_timeout_config = str(hard_timeout_val).lower() in ('true', '1', 'yes', 'on') if hard_timeout_val else False
     except Exception:
         pass
-    # Prefer explicit provider; infer from apiHost if absent
+    # Get explicit provider from frontend (guaranteed by form-meta.tsx)
     raw_provider = None
     try:
         raw_provider = ((inputs.get("modelProvider") or {}).get("content")
@@ -658,7 +654,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         raw_provider = None
     model_name = ((inputs.get("modelName") or {}).get("content")
                   or (inputs.get("model") or {}).get("content")
-                  or "gpt-3.5-turbo")
+                  or "gpt-5-mini")
     api_key = ((inputs.get("apiKey") or {}).get("content") or "")
     api_host = ((inputs.get("apiHost") or {}).get("content") or "")
     try:
@@ -710,40 +706,70 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         user_prompt_template = get_prompt_content(user_prompt_id, resolved_user_prompt)
     else:
         user_prompt_template = resolved_user_prompt
-    # Infer provider when not explicitly set
-    def _infer_provider(host: str, model: str) -> str:
+    # Normalize provider names dynamically from llm_manager
+    # This automatically syncs with gui/config/llm_providers.json
+    def _get_provider_mapping() -> dict:
+        """
+        Dynamically build provider mapping from llm_manager.
+        Maps all known name variants (name, display_name, class_name, provider_id)
+        to the canonical provider_id. No hardcoded provider list needed.
+        
+        Returns:
+            Dictionary mapping various provider name formats to canonical provider identifiers
+        """
         try:
-            h = (host or "").lower()
-            m = (model or "").lower()
-            if "anthropic" in h or m.startswith("claude"):
-                return "anthropic"
-            if "google" in h or "generativeai" in h or m.startswith("gemini"):
-                return "google"
-            return "openai"
-        except Exception:
-            return "openai"
+            from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
+            llm_manager = get_llm_manager()
+            
+            if not llm_manager:
+                logger.warning("[build_llm_node] LLM manager not available, using fallback mapping")
+                return {}
+            
+            providers = llm_manager.get_all_providers()
+            mapping = {}
+            
+            for provider in providers:
+                # Get canonical provider identifier (e.g., "openai", "deepseek")
+                provider_id = (provider.get("provider") or "").lower()
+                if not provider_id:
+                    continue
+                
+                # Map provider identifier to itself
+                mapping[provider_id] = provider_id
+                
+                # Map display name to provider identifier (e.g., "OpenAI" -> "openai")
+                name = (provider.get("name") or "").lower()
+                if name:
+                    mapping[name] = provider_id
+                
+                # Map display_name if different from name
+                display_name = (provider.get("display_name") or "").lower()
+                if display_name and display_name != name:
+                    mapping[display_name] = provider_id
+                
+                # Map class_name for backward compatibility (e.g., "ChatOpenAI" -> "openai")
+                class_name = (provider.get("class_name") or "").lower()
+                if class_name:
+                    mapping[class_name] = provider_id
+            
+            logger.debug(f"[build_llm_node] Built provider mapping with {len(mapping)} entries from llm_manager")
+            return mapping
+            
+        except Exception as e:
+            logger.warning(f"[build_llm_node] Failed to build provider mapping from llm_manager: {e}")
+            return {}
+    
+    # Get dynamic provider mapping from llm_manager
+    # Resolves any name variant (name/display_name/class_name/provider_id) → canonical provider_id
+    provider_mapping = _get_provider_mapping()
 
-    model_provider = raw_provider or _infer_provider(api_host, model_name)
+    # Resolve raw_provider (e.g. "DeepSeek", "Qwen (DashScope)") to canonical provider_id (e.g. "deepseek", "dashscope")
+    # Frontend is responsible for always passing correct modelProvider via form-meta.tsx
+    model_provider = provider_mapping.get((raw_provider or "").lower(), raw_provider or "openai")
     llm_provider = (model_provider or "openai").lower()
-
-    # Normalize provider names (handle spaces in provider names)
-    # Map frontend provider names to backend identifiers
-    provider_mapping = {
-        'azure openai': 'azure',
-        'anthropic claude': 'anthropic',
-        'aws bedrock': 'bedrock',
-        'google gemini': 'google',
-        'qwen (dashscope)': 'qwen',
-        'ollama (local)': 'ollama',
-        'bytedance doubao': 'bytedance',
-        'dashscope/qwen': 'dashscope',
-        'baidu qianfan': 'baidu_qianfan',
-        '百度千帆': 'baidu_qianfan',
-    }
+    
     logger.info(f"llm config: system_prompt_template='{system_prompt_template}' user_prompt_template='{user_prompt_template}' ")
     logger.info(f"llm config: model_name={model_name} api_host={api_host} api_key={api_key} model_provider={model_provider} llm_provider={llm_provider}")
-
-    llm_provider = provider_mapping.get(llm_provider, llm_provider)
 
     # This is the actual function that will be executed as the node in the graph
     def llm_node_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
@@ -1022,32 +1048,41 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             return secure_store.get(name, username=username)
                         except Exception:
                             return None
+                    def env_first(name: str) -> str | None:
+                        env_value = (os.getenv(name) or "").strip()
+                        if env_value:
+                            return env_value
+                        return gs(name)
+
                     if provider_l in ("openai",):
-                        return gs("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+                        return env_first("OPENAI_API_KEY")
                     if provider_l in ("anthropic", "claude"):
-                        return gs("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY")
+                        return env_first("ANTHROPIC_API_KEY")
                     if provider_l in ("google", "gemini"):
-                        return gs("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
+                        return env_first("GEMINI_API_KEY")
                     if provider_l in ("deepseek",):
-                        return gs("DEEPSEEK_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
+                        return env_first("DEEPSEEK_API_KEY")
                     if provider_l in ("dashscope", "qwen", "qwq"):
-                        return gs("DASHSCOPE_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
+                        return env_first("DASHSCOPE_API_KEY")
                     if provider_l in ("bytedance", "doubao"):
-                        return gs("ARK_API_KEY") or os.getenv("ARK_API_KEY")
+                        return env_first("ARK_API_KEY")
                     if provider_l in ("baidu", "qianfan", "baidu_qianfan"):
-                        return gs("BAIDU_API_KEY") or os.getenv("BAIDU_API_KEY")
+                        return env_first("BAIDU_API_KEY")
                     if provider_l in ("zhipuai", "chatglm", "glm"):
-                        return gs("ZHIPUAI_API_KEY") or os.getenv("ZHIPUAI_API_KEY")
+                        return env_first("ZHIPUAI_API_KEY")
                     if provider_l in ("azure", "azure_openai"):
                         # Azure uses a different key name
-                        return gs("AZURE_OPENAI_API_KEY") or os.getenv("AZURE_OPENAI_API_KEY")
+                        return env_first("AZURE_OPENAI_API_KEY")
                     return None
 
                 key = _resolve_api_key(llm_provider, api_key)
                 host = (api_host or "").strip()
                 prov = llm_provider
 
-                key_preview = "" if not key else f"{key[:6]}...{key[-6:]}"
+                if key:
+                    key_preview = f"{key[:8]}......{key[-8:]}"
+                else:
+                    key_preview = ""
                 logger.debug(f"real llm settings: api_key={key_preview} host={host} llm_provider={prov}")
                 
                 # ==================== Unified LLM Parameter Preparation ====================
@@ -1223,46 +1258,6 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                 return state
 
             # so far we have get API key, LLM model setup among difference possible choices.
-
-            # ==================== Unified Thinking Control (Prompt Injection) ====================
-            # Apply thinking control via prompt injection for all providers when disabled
-            # Note: Qwen also uses extra_body parameter (set during LLM creation above) as primary control,
-            #       but prompt injection provides additional reinforcement
-            def apply_thinking_control_prompt(use_thinking: bool, context_messages: list):
-                """
-                Apply thinking control via SystemMessage for all providers.
-                Adds suppression instruction to SystemMessage when thinking is disabled.
-                
-                Args:
-                    use_thinking: Whether to enable thinking mode
-                    context_messages: List of messages to modify
-                
-                Note: Using SystemMessage keeps user messages clean and follows best practices
-                """
-                if not use_thinking:
-                    suppression_text = THINKING_SUPPRESSION_INSTRUCTION.strip()
-                    
-                    # Find existing SystemMessage or create new one
-                    system_msg_found = False
-                    if context_messages and len(context_messages) > 0:
-                        # Check if first message is SystemMessage
-                        if isinstance(context_messages[0], SystemMessage):
-                            # Append to existing SystemMessage
-                            original_content = context_messages[0].content
-                            context_messages[0].content = original_content + "\n\n" + suppression_text
-                            system_msg_found = True
-                            logger.info(f"[LLM] Applied thinking suppression to existing SystemMessage")
-                    
-                    # If no SystemMessage exists, create one at the beginning
-                    if not system_msg_found:
-                        context_messages.insert(0, SystemMessage(content=suppression_text))
-                        logger.info(f"[LLM] Created new SystemMessage with thinking suppression")
-                else:
-                    logger.debug(f"[LLM] Thinking enabled (no suppression)")
-            
-            # Apply thinking control (modifies recent_context in-place)
-            apply_thinking_control_prompt(node_use_thinking, recent_context)
-            # ==================== End Thinking Control ====================
 
             # Log LLM configuration for debugging
             log_msg = f"🔧 LLM Config (node_config): provider={llm_provider}, model={model_name}, temperature={temperature}, use_thinking={node_use_thinking}"
@@ -1529,6 +1524,14 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                                      "Please check your API key configuration.")
                     logger.error(f"{err_msg} | Original error: {error_str}")
                     send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
+                elif "Error code: 402" in error_str or "Insufficient Balance" in error_str or "insufficient balance" in error_str.lower():
+                    err_msg = (f"💰 {llm_provider} 余额不足 (Insufficient Balance): "
+                                     f"您的 {llm_provider} API 账户余额已用尽，无法继续调用。"
+                                     f"请前往 {llm_provider} 平台充值后再试。")
+                    logger.error(f"{err_msg}")
+                    logger.error(f"[BALANCE_ERROR] Provider: {llm_provider}, Model: {model_name}")
+                    logger.error(f"[BALANCE_ERROR] API Host: {api_host or 'default'}")
+                    send_skill_editor_log("error", err_msg)
                 elif "RateLimitError" in error_type or "rate limit" in error_str.lower() or "quota" in error_str.lower():
                     err_msg = (f"❌ LLM Rate Limit Exceeded: {llm_provider} quota exhausted or rate limit reached. "
                                      "Please check your usage limits.")
@@ -1551,7 +1554,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     send_skill_editor_log("error", err_msg)
                     # Check if it's a model not found error
                     if "model" in error_str.lower() and ("not found" in error_str.lower() or "does not exist" in error_str.lower()):
-                        err_msg = f"💡 Hint: Model '{model_name}' does not exist. Common OpenAI models: gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-3.5-turbo"
+                        err_msg = f"💡 Hint: Model '{model_name}' does not exist. Common OpenAI models: gpt-5.2, gpt-5-mini, gpt-4o, gpt-4o-mini"
                         logger.error(err_msg)
                         send_skill_editor_log("error", err_msg)
                 else:
@@ -2156,6 +2159,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
 
     def _get_tool_schema_by_name(tool_name: str):
         try:
+            from app_context import AppContext
             mainwin = AppContext.get_main_window()
             schemas = getattr(mainwin, 'mcp_tools_schemas', None)
             if not schemas:
@@ -2755,9 +2759,15 @@ def build_pend_event_node(config_metadata: dict, node_name: str, skill_name: str
         send_skill_editor_log("log", log_msg)
 
         current_node_name = runtime.context["this_node"].get("name")
-        log_msg = f"[Pending For Event Node] pend_for_event_node: {current_node_name}, {state}"
+        # Truncate screenshot data for logging
+        try:
+            from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
+            log_state = truncate_screenshot_for_logging(state)
+        except Exception:
+            log_state = str(state)[:500] + "..."
+        log_msg = f"[Pending For Event Node] pend_for_event_node: {current_node_name}, {log_state}"
         logger.debug(log_msg)
-        send_skill_editor_log("log", log_msg)
+        send_skill_editor_log("log", str(log_msg)[:500])
         if state.get("metadata"):
             qa_form = state.get("metadata").get("qa_form", None)
             notification = state.get("metadata").get("notification", None)
@@ -3005,6 +3015,17 @@ def build_rag_node(config_metadata: dict, node_name: str, skill_name: str, owner
     return node_builder(_rag, node_name, skill_name, owner, bp_manager)
 
 
+# Module-level lock and cache for preventing duplicate passive command execution
+import asyncio as _asyncio_module
+import threading as _threading_module
+_passive_steps_lock = _threading_module.Lock()  # threading.Lock — safe across event loops
+_passive_steps_processed: set[str] = set()
+
+# Module-level cache for PassiveAgent - reuse across loop iterations
+# Key: browser_session id, Value: PassiveAgent instance
+_cached_passive_agents: dict[int, "PassiveAgent"] = {}
+
+
 def build_browser_automation_node(config_metadata: dict, node_name: str, skill_name: str, owner: str, bp_manager: BreakpointManager):
     """Browser automation scaffold.
 
@@ -3177,9 +3198,69 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         # return session._cdp_client_root is not None
         return session.session_manager is not None
 
+    def _is_session_alive(session) -> bool:
+        """Check session is started AND its event bus is still operational."""
+        if not _is_session_started(session):
+            logger.debug(f"[BrowserAutomation] _is_session_alive: session_manager is None")
+            return False
+        try:
+            eb = getattr(session, 'event_bus', None)
+            if eb is None:
+                logger.debug(f"[BrowserAutomation] _is_session_alive: event_bus is None")
+                return False
+            eq = getattr(eb, 'event_queue', None)
+            eq_shutdown = getattr(eq, '_is_shutdown', False) if eq is not None else 'no_queue'
+            eb_running = getattr(eb, '_is_running', False)
+            rl_task = getattr(eb, '_runloop_task', None)
+            rl_done = rl_task.done() if rl_task is not None else 'no_task'
+            logger.debug(
+                f"[BrowserAutomation] _is_session_alive: "
+                f"eb._is_running={eb_running}, eq._is_shutdown={eq_shutdown}, "
+                f"runloop_task.done={rl_done}, session_id={session.id}"
+            )
+            if eq is not None and getattr(eq, '_is_shutdown', False):
+                return False
+            if not eb_running:
+                return False
+            return True
+        except Exception as e:
+            logger.debug(f"[BrowserAutomation] _is_session_alive: exception: {e}")
+            return False
+
+    # Fix E-F1: Cache browser_session across steps so we don't create a new one
+    # each iteration.  BrowserManager.acquire_browser marks the browser IN_USE,
+    # so subsequent find_available_browser calls miss it and create_browser builds
+    # a brand-new BrowserSession (resetting agent_focus_target_id to the first tab).
+    _cached_browser_session = None
+    _last_known_focus_target_id: str | None = None  # survives session recreation
+
     async def _get_or_create_browser_session(mainwin):
         """Get or create browser session based on node editor settings."""
+        nonlocal _cached_browser_session, _last_known_focus_target_id
+        import asyncio
         from gui.manager.browser_manager import BrowserManager, BrowserType, BrowserStatus
+
+        # Return cached session if still valid AND event bus alive
+        if _cached_browser_session is not None and _is_session_alive(_cached_browser_session):
+            logger.debug(f"[BrowserAutomation] Reusing cached browser session: {_cached_browser_session.id}")
+            return _cached_browser_session
+
+        # Invalidate stale cache — but preserve the focus target
+        if _cached_browser_session is not None:
+            # Save the focus target from the dying session
+            old_focus = getattr(_cached_browser_session, 'agent_focus_target_id', None)
+            if old_focus:
+                _last_known_focus_target_id = old_focus
+                logger.info(f"[BrowserAutomation] Saved focus target from dying session: ...{old_focus[-4:]}")
+            # Also check if the PassiveAgent had a saved focus
+            old_sid = id(_cached_browser_session)
+            old_pa = _cached_passive_agents.get(old_sid)
+            if old_pa and hasattr(old_pa, '_last_focus_target_id') and old_pa._last_focus_target_id:
+                _last_known_focus_target_id = old_pa._last_focus_target_id
+                logger.info(f"[BrowserAutomation] Saved focus target from PassiveAgent: ...{old_pa._last_focus_target_id[-4:]}")
+            logger.info(f"[BrowserAutomation] Cached session {_cached_browser_session.id} is stale (event bus dead), creating new one")
+            _cached_passive_agents.pop(old_sid, None)
+            _cached_browser_session = None
         
         # Load profile settings if a profile is specified
         profile_settings = _get_browser_profile_settings(node_profile)
@@ -3234,11 +3315,34 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 send_skill_editor_log("log", log_msg)
 
                 if not _is_session_started(auto_browser.browser_session):
-                    await auto_browser.browser_session.start()
+                    # Python 3.14 requires asyncio.wait_for/timeout to run inside a Task
+                    # Wrap in create_task to ensure proper task context for bubus event handling
+                    import asyncio
+                    task = asyncio.create_task(auto_browser.browser_session.start())
+                    await task
                 log_msg = f"[BrowserAutomation] Browser session started!"
                 logger.info(log_msg)
                 send_skill_editor_log("log", log_msg)
 
+                # Fix E-F5: Restore focus to the tab from the previous (dead) session
+                if _last_known_focus_target_id:
+                    try:
+                        from browser_use.browser.events import SwitchTabEvent
+                        cur_focus = auto_browser.browser_session.agent_focus_target_id
+                        if cur_focus != _last_known_focus_target_id:
+                            await auto_browser.browser_session.event_bus.dispatch(
+                                SwitchTabEvent(target_id=_last_known_focus_target_id)
+                            )
+                            logger.info(
+                                f"[BrowserAutomation] Restored focus from ...{cur_focus[-4:] if cur_focus else 'None'} "
+                                f"to ...{_last_known_focus_target_id[-4:]} after session recreation"
+                            )
+                        else:
+                            logger.debug(f"[BrowserAutomation] Focus already on correct target: ...{cur_focus[-4:]}")
+                    except Exception as e:
+                        logger.warning(f"[BrowserAutomation] Failed to restore focus after session recreation: {e}")
+
+                _cached_browser_session = auto_browser.browser_session
                 return auto_browser.browser_session
             
             return auto_browser
@@ -3248,11 +3352,18 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             return None
 
     async def _run_browser_use(task: str, mainwin, state: dict | None = None, calling_agent_id: str | None = None) -> dict:
+        nonlocal _last_known_focus_target_id
         try:
+            import asyncio
             from browser_use import Agent as BUAgent
             from browser_use.browser.profile import BrowserProfile
             from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller
-            # from browser_use.browser.context import BrowserContext as BUBrowserContext
+            # from browser_use.browser.context import BUBrowserContext as BUBrowserContext
+            
+            # Patch navigation timeout to reduce "Page readiness timeout" warnings
+            # browser_use hardcodes 4s cross-domain / 2s same-domain, which is too short for many sites
+            from agent.ec_skills.browser_use_extension.session_patch import patch_navigation_timeout
+            patch_navigation_timeout(cross_domain_timeout=10.0, same_domain_timeout=5.0)
             log_msg = f"🤖 Executing node Browser Automation node: {node_name}"
             logger.debug(log_msg)
             send_skill_editor_log("log", log_msg)
@@ -3294,46 +3405,210 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 try:
                     from agent.ec_skills.browser_use_extension.passive_agent import PassiveAgent
 
+                    # Guard against double-execution: check if this step_id was already processed
+                    # Use module-level lock and set to prevent race condition
+                    global _passive_steps_processed
+                    
+                    passive_cmd_check = None
+                    if isinstance(state, dict):
+                        attrs_check = state.get("attributes", {})
+                        passive_cmd_check = attrs_check.get("passive_command")
+                    
+                    # Build step_key from passive_command or fall back to node_name + run_id
+                    step_key = None
+                    if isinstance(passive_cmd_check, dict):
+                        step_id_check = passive_cmd_check.get("step_id", "")
+                        run_id_check = passive_cmd_check.get("run_id", "")
+                        step_key = f"{run_id_check}:{step_id_check}"
+                    else:
+                        # Fallback: use node_name + run_id from state.attributes
+                        if isinstance(state, dict):
+                            attrs = state.get("attributes", {})
+                            run_id_fallback = attrs.get("run_id", "")
+                            if run_id_fallback:
+                                step_key = f"{run_id_fallback}:{node_name}"
+                    
+                    if step_key:
+                        with _passive_steps_lock:
+                            if step_key in _passive_steps_processed:
+                                logger.info(f"[BrowserAutomation] Skipping duplicate execution for step: {step_key}")
+                                return {"passive": True, "skipped": True, "reason": "duplicate_execution"}
+                            
+                            # Mark this step as being processed (inside lock to prevent race condition)
+                            _passive_steps_processed.add(step_key)
+                            logger.info(f"[BrowserAutomation] Processing step: {step_key}")
+                            # Limit cache size to prevent memory leak
+                            if len(_passive_steps_processed) > 1000:
+                                # Remove oldest entries (convert to list, slice, convert back)
+                                _passive_steps_processed = set(list(_passive_steps_processed)[-500:])
+                    else:
+                        logger.warning(f"[BrowserAutomation] No step_key available for duplicate detection, proceeding anyway")
+
                     browser_session = await _get_or_create_browser_session(mainwin)
                     if not browser_session:
                         return {"error": "browser-use passive mode: failed to acquire browser session"}
 
                     if not _is_session_started(browser_session):
-                        await browser_session.start()
+                        # Python 3.14 requires asyncio.wait_for/timeout to run inside a Task
+                        import asyncio
+                        task = asyncio.create_task(browser_session.start())
+                        await task
 
-                    actions = None
-                    try:
-                        tool_input = state.get("tool_input") if isinstance(state, dict) else None
-                    except Exception:
-                        tool_input = None
-
-                    if isinstance(tool_input, dict):
-                        node_input = tool_input.get(node_name)
-                        if isinstance(node_input, dict) and isinstance(node_input.get("actions"), list):
-                            actions = node_input.get("actions")
-                        elif isinstance(tool_input.get("actions"), list):
-                            actions = tool_input.get("actions")
-
-                    if actions is None:
-                        if isinstance(state, dict) and isinstance(state.get("browser_use_actions"), list):
-                            actions = state.get("browser_use_actions")
-
-                    if actions is None:
-                        actions = []
+                    # Extract actions from multiple possible state paths (modular for future event types)
+                    def _extract_actions_from_state(st: dict, nd_name: str) -> list:
+                        """
+                        Extract actions from state, checking multiple possible paths.
+                        Returns list of actions or empty list.
+                        
+                        Priority order:
+                        1. state.tool_input.{node_name}.actions
+                        2. state.tool_input.actions
+                        3. state.browser_use_actions
+                        4. state.attributes.passive_command.actions
+                        5. state.attributes.passive_command_actions (from adapt_to_state mapping)
+                        """
+                        if not isinstance(st, dict):
+                            return []
+                        
+                        # 1. Check tool_input.{node_name}.actions
+                        try:
+                            tool_input = st.get("tool_input")
+                            if isinstance(tool_input, dict):
+                                node_input = tool_input.get(nd_name)
+                                if isinstance(node_input, dict) and isinstance(node_input.get("actions"), list):
+                                    logger.debug(f"[PassiveMode] Found actions in tool_input.{nd_name}.actions")
+                                    return node_input.get("actions")
+                                # 2. Check tool_input.actions
+                                if isinstance(tool_input.get("actions"), list):
+                                    logger.debug("[PassiveMode] Found actions in tool_input.actions")
+                                    return tool_input.get("actions")
+                        except Exception:
+                            pass
+                        
+                        # 3. Check browser_use_actions
+                        if isinstance(st.get("browser_use_actions"), list):
+                            logger.debug("[PassiveMode] Found actions in browser_use_actions")
+                            return st.get("browser_use_actions")
+                        
+                        # 4. Check attributes.passive_command.actions
+                        try:
+                            attrs = st.get("attributes", {})
+                            passive_cmd = attrs.get("passive_command")
+                            if isinstance(passive_cmd, dict) and isinstance(passive_cmd.get("actions"), list):
+                                logger.debug("[PassiveMode] Found actions in attributes.passive_command.actions")
+                                return passive_cmd.get("actions")
+                        except Exception:
+                            pass
+                        
+                        # 5. Check attributes.passive_command_actions (from adapt_to_state mapping)
+                        try:
+                            attrs = st.get("attributes", {})
+                            if isinstance(attrs.get("passive_command_actions"), list):
+                                logger.debug("[PassiveMode] Found actions in attributes.passive_command_actions")
+                                return attrs.get("passive_command_actions")
+                        except Exception:
+                            pass
+                        
+                        return []
+                    
+                    actions = _extract_actions_from_state(state, node_name)
+                    logger.info(f"[PassiveMode] Extracted {len(actions)} actions from state")
                     if not isinstance(actions, list):
                         return {"error": "browser-use passive mode enabled but actions is not a list"}
 
-                    passive_agent = PassiveAgent(
-                        browser_session=browser_session,
-                        tools=custom_controller,
-                        privacy_enabled=True,
-                    )
+                    # Reuse PassiveAgent across loop iterations (keyed by browser_session id)
+                    global _cached_passive_agents
+                    session_id = id(browser_session)
+                    if session_id in _cached_passive_agents:
+                        passive_agent = _cached_passive_agents[session_id]
+                        logger.debug(f"[PassiveMode] Reusing cached PassiveAgent for session {session_id}")
+                    else:
+                        passive_agent = PassiveAgent(
+                            browser_session=browser_session,
+                            tools=custom_controller,
+                            privacy_enabled=True,
+                        )
+                        # Transfer saved focus target from previous session
+                        if _last_known_focus_target_id:
+                            passive_agent._last_focus_target_id = _last_known_focus_target_id
+                            logger.info(f"[PassiveMode] Transferred focus target ...{_last_known_focus_target_id[-4:]} to new PassiveAgent")
+                        _cached_passive_agents[session_id] = passive_agent
+                        logger.info(f"[PassiveMode] Created new PassiveAgent for session {session_id}")
 
-                    payload = await passive_agent.execute_actions(
-                        actions=actions,
-                        stop_on_error=True,
-                        include_screenshot=False,
-                    )
+                    # Get passive_command from state.attributes for run_id/step_id
+                    passive_cmd = None
+                    include_screenshot = False
+                    stop_on_error = True
+                    if isinstance(state, dict):
+                        attrs = state.get("attributes", {})
+                        passive_cmd = attrs.get("passive_command")
+                        if isinstance(passive_cmd, dict):
+                            include_screenshot = bool(passive_cmd.get("include_screenshot", False))
+                            stop_on_error = bool(passive_cmd.get("stop_on_error", True))
+
+                    payload = None
+                    exec_error = None
+                    try:
+                        payload = await passive_agent.execute_actions(
+                            actions=actions,
+                            stop_on_error=stop_on_error,
+                            include_screenshot=include_screenshot,
+                        )
+                        # Update closure-level focus target after successful execution
+                        if hasattr(passive_agent, '_last_focus_target_id') and passive_agent._last_focus_target_id:
+                            _last_known_focus_target_id = passive_agent._last_focus_target_id
+                    except Exception as e:
+                        exec_error = e
+                        err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNodePassive")
+                        logger.error(err_msg)
+                        send_skill_editor_log("error", err_msg)
+                        payload = {"error": str(err_msg), "errors": [str(err_msg)]}
+
+                    # Publish result back to cloud if we have passive_command info
+                    # This happens even on error so cloud worker knows what happened
+                    if passive_cmd and mainwin:
+                        try:
+                            from agent.ec_skills.browser_use_extension.passive_utils import publish_step_result
+                            from agent.ec_skills.browser_use_extension.passive_protocol import PassiveBrowserStepResult
+                            
+                            run_id = passive_cmd.get("run_id", "")
+                            step_id = passive_cmd.get("step_id", "")
+                            
+                            if run_id and step_id:
+                                result = PassiveBrowserStepResult(
+                                    run_id=run_id,
+                                    step_id=step_id,
+                                    ok=not bool(payload.get("errors")),
+                                    elapsed_ms=int(payload.get("elapsed_ms") or 0),
+                                    actions=payload.get("actions") or [],
+                                    action_results=payload.get("action_results") or [],
+                                    errors=payload.get("errors") or [],
+                                    browser=payload.get("browser") or {},
+                                )
+                                
+                                http_endpoint = mainwin.getWanApiEndpoint()
+                                auth_token = mainwin.get_auth_token()
+                                client_id = mainwin.getAcctSiteID()
+                                logger.info(f"[BrowserAutomation] publish_step_result: client_id={client_id}, run_id={run_id}, step_id={step_id}")
+                                
+                                await publish_step_result(result, http_endpoint, auth_token, client_id)
+                                logger.info(f"[BrowserAutomation] Published passive step result: run_id={run_id}, step_id={step_id}")
+                                send_skill_editor_log("log", f"[BrowserAutomation] Published passive step result to cloud")
+                        except Exception as pub_err:
+                            logger.error(f"[BrowserAutomation] Failed to publish passive step result: {pub_err}")
+                            send_skill_editor_log("warning", f"[BrowserAutomation] Failed to publish result to cloud: {pub_err}")
+
+                    # Return error if execute_actions failed
+                    if exec_error:
+                        return {"error": str(payload.get("error", str(exec_error)))}
+                    
+                    # Strip screenshot_base64 from browser dict before returning to langgraph state
+                    # to keep state history logs clean (no huge base64 blobs).
+                    if isinstance(payload.get("browser"), dict):
+                        payload["browser"].pop("screenshot_base64", None)
+
+                    logger.info(f"[PassiveMode] Browser automation node returning. Workflow should continue to loop condition check.")
+                    send_skill_editor_log("log", f"[PassiveMode] Browser automation complete. Loop should continue.")
                     return {"passive": True, **payload}
                 except Exception as e:
                     err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNodePassive")
@@ -3357,6 +3632,194 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             else:
                 logger.info("[BrowserAutomation] Privacy strategy is 'none', using standard browser_use.Agent")
 
+            # Import LLM creation utilities
+            from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm, create_browser_use_llm_by_provider_type
+            
+            # CLOUD AGENT MODE: Handle hybrid_cloud/full_cloud before checking for mainwin
+            # In cloud mode, we create LLM from node config + environment variables
+            if cloud_agent_enabled:
+                try:
+                    import uuid
+                    from agent.ec_skills.browser_use_extension.cloud_agent import CloudAgent, make_default_cloud_transport_from_env
+                    from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller
+                    
+                    logger.info(f"[BrowserAutomation] Running in CLOUD AGENT mode (hybrid_cloud/full_cloud)")
+                    send_skill_editor_log("log", f"[BrowserAutomation] Starting cloud agent mode")
+                    
+                    # Create LLM from node config + environment variables (no mainwin needed)
+                    llm = None
+                    if node_llm_provider and node_model_name:
+                        # Get API key from environment variables
+                        api_key = None
+                        base_url = None
+                        
+                        # Try provider-specific env vars first
+                        provider_lower = node_llm_provider.lower()
+                        if provider_lower == 'openai':
+                            api_key = os.environ.get('OPENAI_API_KEY', '').strip()
+                            base_url = os.environ.get('OPENAI_BASE_URL', '').strip() or None
+                        elif provider_lower == 'anthropic':
+                            api_key = os.environ.get('ANTHROPIC_API_KEY', '').strip()
+                        elif provider_lower == 'deepseek':
+                            api_key = os.environ.get('DEEPSEEK_API_KEY', '').strip()
+                            base_url = os.environ.get('DEEPSEEK_BASE_URL', 'https://api.deepseek.com').strip()
+                        elif provider_lower in ('azure', 'azure_openai'):
+                            api_key = os.environ.get('AZURE_OPENAI_API_KEY', '').strip()
+                            base_url = os.environ.get('AZURE_OPENAI_ENDPOINT', '').strip() or None
+                        else:
+                            # Fallback to generic env vars
+                            api_key = os.environ.get('LLM_API_KEY', '').strip() or os.environ.get('OPENAI_API_KEY', '').strip()
+                        
+                        if api_key:
+                            llm = create_browser_use_llm_by_provider_type(
+                                provider_type=provider_lower,
+                                model_name=node_model_name,
+                                api_key=api_key,
+                                base_url=base_url,
+                                mainwin=None
+                            )
+                            logger.info(f"[BrowserAutomation] Created cloud LLM: provider={node_llm_provider}, model={node_model_name}")
+                            send_skill_editor_log("log", f"[BrowserAutomation] LLM created: {node_llm_provider}/{node_model_name}")
+                        else:
+                            logger.warning(f"[BrowserAutomation] No API key found for provider {node_llm_provider}")
+                    
+                    if not llm:
+                        # Fallback to OpenAI from environment
+                        openai_key = os.environ.get('OPENAI_API_KEY', '').strip()
+                        if openai_key:
+                            llm = create_browser_use_llm_by_provider_type(
+                                provider_type='openai',
+                                model_name=node_model_name or 'gpt-4o-mini',
+                                api_key=openai_key,
+                                base_url=os.environ.get('OPENAI_BASE_URL', '').strip() or None,
+                                mainwin=None
+                            )
+                            logger.info(f"[BrowserAutomation] Created fallback OpenAI LLM: model={node_model_name or 'gpt-4o-mini'}")
+                    
+                    if not llm:
+                        raise ValueError("Cannot create LLM for cloud agent. Please set OPENAI_API_KEY or provider-specific API key environment variable.")
+                    
+                    # Create transport for cloud communication
+                    # First, try to get the global transport registered by cloud worker
+                    transport = None
+                    try:
+                        from agent.cloud_worker.worker_main import get_global_passive_transport
+                        transport = get_global_passive_transport()
+                        if transport:
+                            logger.info(f"[BrowserAutomation] Using global CloudWorkerPassiveTransport from cloud worker")
+                            send_skill_editor_log("log", f"[BrowserAutomation] Using cloud worker passive transport")
+                        else:
+                            logger.warning("[BrowserAutomation] get_global_passive_transport() returned None — was set_global_passive_transport() called?")
+                            send_skill_editor_log("log", "[BrowserAutomation] ⚠️ Global passive transport is None, falling back to env-based transport")
+                    except ImportError as ie:
+                        logger.warning(f"[BrowserAutomation] Could not import get_global_passive_transport: {ie}")
+                    except Exception as ex:
+                        logger.warning(f"[BrowserAutomation] Error getting global transport: {ex}")
+                    
+                    # Fall back to creating transport from environment
+                    if not transport:
+                        transport = make_default_cloud_transport_from_env()
+                        logger.info(f"[BrowserAutomation] Created transport from environment")
+                    
+                    # Get run_id from state - MUST match the run_id used by PassiveStepResultListener
+                    # The listener is created with the session/chat_id as run_id, so we must use that
+                    run_id = None
+                    try:
+                        if isinstance(state, dict):
+                            # First priority: explicit browser_use_run_id
+                            run_id = state.get("browser_use_run_id")
+                            if not run_id:
+                                attrs = state.get("attributes", {})
+                                # Second priority: chat_id (session ID) - this matches PassiveStepResultListener
+                                run_id = attrs.get("chat_id")
+                            if not run_id:
+                                # Third priority: other run_id fields
+                                attrs = state.get("attributes", {})
+                                run_id = attrs.get("run_id") or attrs.get("thread_id")
+                    except Exception:
+                        run_id = None
+                    
+                    if not isinstance(run_id, str) or not run_id.strip():
+                        run_id = uuid.uuid4().hex
+                    
+                    logger.debug(f"[BrowserAutomation] Cloud mode run_id={run_id}")
+                    
+                    # Get agent/skill/node IDs
+                    cloud_agent_id = None
+                    try:
+                        if isinstance(state, dict):
+                            attrs = state.get("attributes", {})
+                            cloud_agent_id = attrs.get("agent_id")
+                    except Exception:
+                        pass
+                    
+                    # Get acct_site_id: prefer mainwin.getAcctSiteID() for hybrid runs launched from local client
+                    # For cloud worker, get it from the transport's client_id
+                    acct_site_id = None
+                    if mainwin and hasattr(mainwin, 'getAcctSiteID'):
+                        try:
+                            acct_site_id = mainwin.getAcctSiteID()
+                        except Exception:
+                            pass
+                    if not acct_site_id and transport and hasattr(transport, 'client_id'):
+                        # Cloud worker case: transport has the client_id from passive_client_id
+                        acct_site_id = transport.client_id
+                    if not acct_site_id:
+                        acct_site_id = os.environ.get('EC_ACCT_SITE_ID', '').strip() or None
+                    
+                    # Build agent kwargs
+                    agent_kwargs = {
+                        'use_vision': node_use_vision,
+                        'use_thinking': node_use_thinking,
+                        'use_judge': enable_judge_setting,
+                    }
+                    
+                    if not node_use_thinking:
+                        agent_kwargs['extend_system_message'] = THINKING_SUPPRESSION_INSTRUCTION.strip()
+                    
+                    controller = custom_controller
+                    
+                    # Build combined_task from prompts (same logic as non-cloud path)
+                    task_instructions = task_text or system_prompt_content or inline_system_prompt or "You are a helpful browser automation agent."
+                    combined_task = f"System Instructions:\n{task_instructions}"
+                    
+                    agent = CloudAgent(
+                        task=task,  # Use the task parameter passed to _run_browser_use
+                        llm=llm,
+                        controller=controller,
+                        transport=transport,
+                        run_id=run_id,
+                        acct_site_id=acct_site_id,
+                        agent_id=cloud_agent_id,
+                        skill_id=skill_name,
+                        node_id=node_name,
+                        **agent_kwargs,
+                    )
+                    
+                    logger.info(f"[BrowserAutomation] Starting CloudAgent run_id={run_id}")
+                    send_skill_editor_log("log", f"[BrowserAutomation] CloudAgent starting, run_id={run_id}")
+                    
+                    history = await agent.run()
+                    final = history.final_result() if hasattr(history, 'final_result') else None
+                    
+                    logger.info(f"[BrowserAutomation] CloudAgent completed")
+                    send_skill_editor_log("log", f"[BrowserAutomation] CloudAgent completed")
+                    
+                    return {
+                        "cloud": True,
+                        "client_assisted_cloud": True,
+                        "mode": "client_assisted_cloud",
+                        "run_id": run_id,
+                        "final": final,
+                        "history": str(history),
+                    }
+                except Exception as e:
+                    err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNodeCloudAgent")
+                    logger.error(err_msg)
+                    send_skill_editor_log("error", err_msg)
+                    return {"error": str(err_msg)}
+
+            # LOCAL EXECUTION MODES: Require mainwin
             if not mainwin:
                 raise ValueError("mainwin is required. Must use mainwin configuration for browser_use LLM.")
 
@@ -3364,8 +3827,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm, create_browser_use_llm_by_provider_type
             
             llm = None
+            
             if node_llm_provider and node_model_name:
-                # Node editor has specific provider/model selected - use those
+                # Node editor has specific provider/model selected - use those (no fallback)
                 logger.info(f"[BrowserAutomation] Using node-specific LLM: provider={node_llm_provider}, model={node_model_name}")
                 
                 # Get API key and base_url from mainwin's config for this provider
@@ -3380,7 +3844,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         logger.debug(f"[BrowserAutomation] provider_dict keys: {list(provider_dict.keys())}")
                         
                         # Use extract_provider_config to get configuration
-                        config = extract_provider_config(provider_dict, config_manager=config_manager)
+                        # Pass node_model_name to ensure node-specified model takes priority over global default
+                        config = extract_provider_config(provider_dict, config_manager=config_manager, node_model_name=node_model_name)
                         logger.info(f"[BrowserAutomation] extract_provider_config returned: {config is not None}")
                         logger.debug(f"[BrowserAutomation] config keys: {list(config.keys()) if config else 'None'}")
                         
@@ -3391,27 +3856,81 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         
                         logger.debug(f"[BrowserAutomation] api_key: {'***' if api_key else 'None'}, base_url: {base_url}")
                         
+                        # Use standard provider_type from config (not display name)
+                        # This ensures we pass the correct provider ID (e.g., 'dashscope' not 'qwen (dashscope)')
+                        provider_type_id = config.get('provider_type')
+                        logger.debug(f"[BrowserAutomation] Using provider_type: {provider_type_id} (from config, not display name: {node_llm_provider})")
+                        
                         # Use node-selected model, not the default from config
                         llm = create_browser_use_llm_by_provider_type(
-                            provider_type=node_llm_provider.lower(),
+                            provider_type=provider_type_id,
                             model_name=node_model_name,
                             api_key=api_key,
                             base_url=base_url,
                             mainwin=mainwin
                         )
-                        logger.info(f"[BrowserAutomation] Created LLM with node settings: provider={node_llm_provider}, model={node_model_name}")
+                        
+                        if llm is None:
+                            # Don't fallback - raise error to surface the problem
+                            raise ValueError(
+                                f"Failed to create LLM with provider '{provider_type_id}' (display: {node_llm_provider}), "
+                                f"model '{node_model_name}'. Check API key and base_url configuration."
+                            )
+                        
+                        logger.info(f"[BrowserAutomation] ✅ Created LLM with node settings: provider={node_llm_provider}, model={node_model_name}")
                     else:
-                        logger.warning(f"[BrowserAutomation] Provider '{node_llm_provider}' not found in config, falling back to default")
+                        error_msg = f"Provider '{node_llm_provider}' not found in config. Please check provider name in node settings."
+                        logger.error(f"[BrowserAutomation] ❌ {error_msg}")
+                        raise ValueError(error_msg)
                 except Exception as e:
-                    logger.warning(f"[BrowserAutomation] Failed to create LLM from node settings: {e}, falling back to default")
+                    error_msg = (
+                        f"Failed to create LLM with node settings:\n"
+                        f"  Provider: {node_llm_provider}\n"
+                        f"  Model: {node_model_name}\n"
+                        f"  Error: {str(e)}\n\n"
+                        f"Please check:\n"
+                        f"  1. Provider name is correct in node settings\n"
+                        f"  2. Model name is correct and belongs to the provider\n"
+                        f"  3. API key is configured in Settings > LLM Management\n"
+                        f"  4. Base URL is correct (if using local/custom provider)"
+                    )
+                    logger.error(f"[BrowserAutomation] ❌ {error_msg}")
+                    raise ValueError(error_msg) from e
             
-            # Fall back to mainwin's default LLM configuration
-            if not llm:
-                logger.info("[BrowserAutomation] Using mainwin default LLM configuration")
-                llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True)
+            else:
+                # No node-specific settings - use global default LLM
+                logger.info("[BrowserAutomation] No node-specific LLM settings, using global default LLM")
+                try:
+                    llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True)
+                    if llm:
+                        logger.info("[BrowserAutomation] ✅ Using global default LLM")
+                    else:
+                        error_msg = (
+                            "Failed to create LLM from global default settings.\n\n"
+                            "Please configure a default LLM in Settings > LLM Management:\n"
+                            "  1. Select a provider (OpenAI, DeepSeek, Qwen, etc.)\n"
+                            "  2. Enter API key\n"
+                            "  3. Set as default provider"
+                        )
+                        logger.error(f"[BrowserAutomation] ❌ {error_msg}")
+                        raise ValueError(error_msg)
+                except Exception as e:
+                    error_msg = (
+                        f"Failed to create LLM from global default settings:\n"
+                        f"  Error: {str(e)}\n\n"
+                        f"Please check Settings > LLM Management:\n"
+                        f"  1. Verify default provider is set\n"
+                        f"  2. Verify API key is configured\n"
+                        f"  3. Verify base URL is correct (if using local provider)"
+                    )
+                    logger.error(f"[BrowserAutomation] ❌ {error_msg}")
+                    raise ValueError(error_msg) from e
             
+            # Final validation
             if not llm:
-                raise ValueError("Failed to create browser_use LLM. Please configure LLM provider API key in Settings.")
+                error_msg = "LLM creation failed. This should not happen - please report this bug."
+                logger.error(f"[BrowserAutomation] ❌ {error_msg}")
+                raise ValueError(error_msg)
 
             controller = custom_controller
                         
@@ -3426,71 +3945,30 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             from config.app_settings import app_settings
             disable_extensions = app_settings.is_dev_mode
             
-            # Create browser profile with extensions control
+            # Create browser profile with extensions control and persistent user_data_dir
             # Note: BrowserProfile uses enable_default_extensions (not disable_extensions)
-            browser_profile = BrowserProfile(enable_default_extensions=not disable_extensions)
+            # Auto-assign persistent user_data_dir so login state survives restarts
+            profile_settings = _get_browser_profile_settings(node_profile)
+            _bp_user_data_dir = profile_settings.get('user_data_dir', '') if profile_settings else ''
+            if not _bp_user_data_dir:
+                from utils.user_path_helper import ensure_user_data_dir
+                import re as _re
+                _bp_id = profile_settings.get('id') or profile_settings.get('name') or node_profile or 'default'
+                _bp_safe_id = _re.sub(r'[^\w\-]', '_', str(_bp_id))
+                _bp_user_data_dir = ensure_user_data_dir(subdir=os.path.join('browser_profiles', _bp_safe_id))
+                logger.info(f"[BrowserAutomation] Auto-assigned user_data_dir: {_bp_user_data_dir}")
+            browser_profile = BrowserProfile(
+                enable_default_extensions=not disable_extensions,
+                user_data_dir=_bp_user_data_dir,
+            )
             logger.info(f"[BrowserAutomation] Extensions {'disabled (dev mode)' if disable_extensions else 'enabled (production mode)'}")
            
             if browser_profile:
                 agent_kwargs['browser_profile'] = browser_profile
             
-            # Apply thinking control via extend_system_message (BEST PRACTICE)
-            # This keeps user task clean and puts constraint in SystemMessage
-            if not node_use_thinking:
-                agent_kwargs['extend_system_message'] = THINKING_SUPPRESSION_INSTRUCTION.strip()
-                logger.info("[BrowserAutomation] Applied thinking suppression via extend_system_message")
             
             logger.info(f"[BrowserAutomation] Agent kwargs: {agent_kwargs}")
             logger.debug("[BROWSER USE]Agent task:", task)
-
-            if cloud_agent_enabled:
-                try:
-                    import uuid
-
-                    from agent.ec_skills.browser_use_extension.cloud_agent import CloudAgent, make_default_cloud_transport_from_env
-
-                    transport = make_default_cloud_transport_from_env()
-
-                    run_id = None
-                    try:
-                        if isinstance(state, dict):
-                            run_id = state.get("browser_use_run_id") or state.get("run_id")
-                    except Exception:
-                        run_id = None
-
-                    if not isinstance(run_id, str) or not run_id.strip():
-                        run_id = uuid.uuid4().hex
-
-                    cloud_agent_id = calling_agent_id or getattr(mainwin, 'current_agent_id', None)
-
-                    agent = CloudAgent(
-                        task=task,
-                        llm=llm,
-                        controller=controller,
-                        transport=transport,
-                        run_id=run_id,
-                        acct_site_id=mainwin.getAcctSiteID(),
-                        agent_id=cloud_agent_id,
-                        skill_id=skill_name,
-                        node_id=node_name,
-                        **agent_kwargs,
-                    )
-
-                    history = await agent.run()
-                    final = history.final_result() if hasattr(history, 'final_result') else None
-                    return {
-                        "cloud": True,
-                        "client_assisted_cloud": True,
-                        "mode": "client_assisted_cloud",
-                        "run_id": run_id,
-                        "final": final,
-                        "history": str(history),
-                    }
-                except Exception as e:
-                    err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNodeCloudAgent")
-                    logger.error(err_msg)
-                    send_skill_editor_log("error", err_msg)
-                    return {"error": str(err_msg)}
 
             # Optional: Cloud LLM mode for browser-use via PrivacyAgent (feature flagged)
             # Only pass cloud kwargs when using PrivacyAgent (browser_use.Agent won't accept them)).
@@ -3579,14 +4057,14 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNode")
             logger.error(err_msg)
             send_skill_editor_log("error", err_msg)
-            return {"error": str(err_msg)}
+            # Re-raise the exception so LangGraph can mark the node as failed
+            raise RuntimeError(f"Browser automation failed: {str(e)}") from e
 
     def _auto(state: dict, *, runtime=None, store=None, **kwargs):
-        active_system_prompt, active_user_prompt = _resolve_prompt_templates(
-            prompt_selection,
-            inline_system_prompt,
-            inline_user_prompt,
-        )
+        # Use the pre-resolved prompts from build time (when cloud context was available)
+        # instead of calling _resolve_prompt_templates again at runtime
+        active_system_prompt = resolved_system_prompt
+        active_user_prompt = resolved_user_prompt
 
         # Find all variable placeholders (e.g., {{var_name}}) in the prompts
         variables = re.findall(r'\{\{(\w+)\}\}', active_system_prompt + active_user_prompt)
@@ -3625,21 +4103,36 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
         # print("final_user_prompt:", final_user_prompt)
         logger.debug("combined_task:", combined_task)
         if provider == 'browser-use':
-            # Get mainwin from agent via state
+            # Check if we're in cloud mode (hybrid_cloud or full_cloud)
+            # In cloud mode, mainwin is not required
+            is_cloud_mode = run_environment_setting in ('hybrid_cloud', 'full_cloud')
+            
+            # Get mainwin from agent via state (only needed for local modes)
             mainwin = None
+            agent_id = None  # Initialize agent_id for use in _run_browser_use
+            
+            # Try to get agent_id from state (works in both local and cloud mode)
             try:
-                from agent.agent_service import get_agent_by_id
                 if state.get("messages") and len(state["messages"]) > 0:
                     agent_id = state["messages"][0]
-                    agent = get_agent_by_id(agent_id)
-                    if agent and hasattr(agent, 'mainwin'):
-                        mainwin = agent.mainwin
-            except Exception as e:
-                err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNode brower-use")
-                logger.warning(err_msg)
-                send_skill_editor_log("warning", err_msg)
+                elif state.get("attributes", {}).get("agent_id"):
+                    agent_id = state["attributes"]["agent_id"]
+            except Exception:
+                pass
+            
+            if not is_cloud_mode:
+                try:
+                    from agent.agent_service import get_agent_by_id
+                    if agent_id:
+                        agent = get_agent_by_id(agent_id)
+                        if agent and hasattr(agent, 'mainwin'):
+                            mainwin = agent.mainwin
+                except Exception as e:
+                    err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNode brower-use")
+                    logger.warning(err_msg)
+                    send_skill_editor_log("warning", err_msg)
 
-            if not mainwin:
+            if not mainwin and not is_cloud_mode:
                 err_msg = "Cannot create browser_use LLM: mainwin not available. Please ensure agent is properly initialized."
                 logger.error(f"[build_browser_automation_node] {err_msg}")
                 send_skill_editor_log("error", f"[build_browser_automation_node] {err_msg}")
@@ -3752,7 +4245,13 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             resolve_async_operation(task, correlation_id, error=str(e))
                     except Exception:
                         pass
-                info = {"error": f"browser-use run failed: {e}"}
+                
+                # Log error and push to frontend
+                error_msg = f"browser-use run failed: {e}"
+                logger.error(f"[BrowserAutomation] {error_msg}")
+                send_skill_editor_log("error", f"❌ [BrowserAutomation] {error_msg}")
+                
+                info = {"error": error_msg}
             state.setdefault("tool_result", {})
             # state["tool_result"][node_name] = {
             state["tool_result"] = {
@@ -3766,7 +4265,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                 interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": f"Automation pending: {action}"})
 
             state["n_steps"] += 1
-            add_to_history(state, ActionMessage(content=f"action: browser-use {task_instructions}; result: {info}"))
+            # Truncate info for history to avoid huge screenshot_base64 in logs
+            from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
+            info_for_history = truncate_screenshot_for_logging(info)
+            add_to_history(state, ActionMessage(content=f"action: browser-use {task_instructions}; result: {info_for_history}"))
 
             return state
 

@@ -180,11 +180,12 @@ class InstallationManager:
             logger.debug(f"Failed to enable Inno Setup logging (safe to ignore): {e}")
 
     def _launch_windows_installer_delayed(self, cmd: list[str], delay_seconds: int = 10) -> int:
-        """Launch installer through a detached delayed script.
+        """Launch installer through a detached BAT script.
 
-        Rationale: Inno Setup may start replacing files immediately. If our app still holds
-        locks (or is about to exit), the installer hits MoveFile error 183 and rolls back.
-        Starting the installer after a delay greatly reduces file-in-use failures.
+        Uses a .bat file launched via ``cmd /c`` so the child process truly
+        survives the parent calling ``os._exit(0)``.  Previous approach used
+        ``powershell`` directly with ``DETACHED_PROCESS``, but PowerShell
+        children were still killed when the Python process exited.
 
         Returns:
             PID of the launched script process.
@@ -193,14 +194,18 @@ class InstallationManager:
             raise RuntimeError("Windows-only helper")
 
         exe_path = cmd[0]
-        args_list = cmd[1:]
-        args_cmdline = subprocess.list2cmdline(args_list) if args_list else ""
+        args_str = ' '.join(cmd[1:])
 
-        ps_cmd = (
-            f"Start-Sleep -Seconds {int(delay_seconds)}; "
-            f"Start-Process -FilePath {exe_path!r}"
-            + (f" -ArgumentList {args_cmdline!r}" if args_cmdline else "")
+        # Write a small .bat launcher next to the downloaded installer
+        bat_path = os.path.join(tempfile.gettempdir(), "ecan_ota_launcher.bat")
+        bat_content = (
+            "@echo off\r\n"
+            f"timeout /t {int(delay_seconds)} /nobreak >nul\r\n"
+            f'start "" "{exe_path}" {args_str}\r\n'
         )
+
+        with open(bat_path, 'w', encoding='utf-8') as f:
+            f.write(bat_content)
 
         creation_flags = (
             subprocess.DETACHED_PROCESS |
@@ -208,19 +213,19 @@ class InstallationManager:
             subprocess.CREATE_NO_WINDOW
         )
 
+        logger.info(f"BAT launcher written to: {bat_path}")
+        logger.info(f"Installer command: {exe_path} {args_str}")
+        logger.info(f"Delay before launch: {delay_seconds}s")
+
         p = subprocess.Popen(
-            [
-                "powershell",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-WindowStyle",
-                "Hidden",
-                "-Command",
-                ps_cmd,
-            ],
+            ['cmd', '/c', bat_path],
             creationflags=creation_flags,
+            close_fds=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
+        logger.info(f"BAT launcher started successfully (PID: {p.pid})")
         return p.pid
     
     def _create_backup(self) -> bool:
@@ -372,20 +377,20 @@ class InstallationManager:
                     from ota.core.download_manager import download_manager
                     download_manager.set_installing(True)
                     
-                    # Use standard install directory even in dev mode
-                    install_dir = self._get_windows_standard_install_dir()
-                    
+                    # Development OTA command - silent mode with progress
+                    # Note: Skip /DIR parameter in dev mode to let Inno Setup use default location
                     cmd = [
                         str(package_path),
                         '/SILENT',              # Shows progress bar, skips wizard pages
                         '/SUPPRESSMSGBOXES',
                         '/NORESTART',
                         '/SP-',                  # Skip startup message
-                        f'/DIR="{install_dir}"'  # Ensure consistent install directory
+                        '/CLOSEAPPLICATIONS',    # Force close running instances
                     ]
 
                     self._append_inno_log_if_enabled(cmd)
                     logger.info(f"Development OTA command: {' '.join(cmd)}")
+                    logger.info("Note: /DIR parameter omitted in dev mode - installer will use default location")
 
                     if sys.platform == 'win32':
                         creation_flags = (
@@ -397,8 +402,10 @@ class InstallationManager:
                         creation_flags = 0
 
                     if sys.platform == 'win32':
-                        pid = self._launch_windows_installer_delayed(cmd, delay_seconds=5)
+                        # Use longer delay in dev mode to ensure app fully exits
+                        pid = self._launch_windows_installer_delayed(cmd, delay_seconds=8)
                         logger.info(f"Installer launch script started (PID: {pid})")
+                        logger.info("Installer will start in 8 seconds after app exits")
                     else:
                         process = subprocess.Popen(cmd, creationflags=creation_flags)
                         logger.info(f"Installer launched (PID: {process.pid})")
@@ -406,7 +413,7 @@ class InstallationManager:
                     # Schedule application exit for development environment
                     import threading
                     def delayed_exit():
-                        time.sleep(3)
+                        time.sleep(5)  # Increased from 3 to 5 seconds
                         logger.info("Development mode: Exiting for installer to replace files...")
                         # Force flush all file handles and buffers
                         import sys as sys_module
@@ -418,7 +425,7 @@ class InstallationManager:
                         os._exit(0)
                     
                     threading.Thread(target=delayed_exit, daemon=True).start()
-                    logger.info("Development mode: Application will exit in 2 seconds...")
+                    logger.info("Development mode: Application will exit in 5 seconds...")
                     
                     return True
             else:

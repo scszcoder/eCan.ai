@@ -1,9 +1,12 @@
 from typing import TYPE_CHECKING, Any, Optional, Dict
+import json
+import socket
+import requests
 import traceback
 from app_context import AppContext
 if TYPE_CHECKING:
     from gui.MainGUI import MainWindow
-from gui.ipc.handlers import validate_params
+from gui.ipc.handlers import validate_params, resolve_username
 from gui.ipc.registry import IPCHandlerRegistry
 from gui.ipc.types import IPCRequest, IPCResponse, create_error_response, create_success_response
 from agent.cloud_api.constants import Operation
@@ -322,6 +325,164 @@ def _create_clean_agent_task_response(agent_task_id: str, agent_task_data: Dict[
         'metadata': metadata
     }
 
+
+@IPCHandlerRegistry.handler('refresh_agent_task_status')
+def handle_refresh_agent_task_status(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Refresh a single task status from database and return latest data."""
+    try:
+        logger.debug(f"Refresh task status handler called with request: {request}")
+
+        username = resolve_username(request, params)
+        if not username:
+            logger.warning("Invalid parameters for refresh task status: Missing username")
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: username (or owner/userId)')
+
+        if not params or not params.get('task_id'):
+            logger.warning("Invalid parameters for refresh task status: Missing task_id")
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: task_id')
+
+        task_id = str(params.get('task_id'))
+
+        agent_task_service = _get_agent_task_service(request, params)
+        if not agent_task_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
+
+        result = agent_task_service.query_tasks(id=task_id)
+        if not result.get('success') or not result.get('data'):
+            return create_error_response(request, 'TASK_NOT_FOUND', f'Agent task not found: {task_id}')
+
+        task_data = result.get('data', [])[0]
+        _update_agent_task_in_memory(task_id, task_data)
+        clean_task = _create_clean_agent_task_response(task_id, task_data)
+
+        return create_success_response(request, {
+            'message': 'Refresh agent task status successful',
+            'task': clean_task
+        })
+
+    except Exception as e:
+        logger.error(f"Error in refresh task status handler: {e} {traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'REFRESH_TASK_STATUS_ERROR',
+            f"Error during refresh task status: {str(e)}"
+        )
+
+
+@IPCHandlerRegistry.handler('run_agent_task')
+def handle_run_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Run an agent task locally or in cloud depending on cloud_based flag."""
+    try:
+        logger.debug(f"Run agent task handler called with request: {request}")
+
+        username = resolve_username(request, params)
+        if not username:
+            logger.warning("Invalid parameters for run agent task: Missing username")
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: username (or owner/userId)')
+
+        if not params or not params.get('task_id'):
+            logger.warning("Invalid parameters for run agent task: Missing task_id")
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: task_id')
+
+        task_id = str(params.get('task_id'))
+        cloud_based = bool(params.get('cloud_based', False))
+        skill_id = params.get('skill_id')
+        skill_name = params.get('skill')
+
+        from gui.ipc.context_bridge import get_handler_context
+        ctx = get_handler_context(request, params)
+        agents = ctx.get_agents() if ctx else []
+        agent_tasks = ctx.get_agent_tasks() if ctx else []
+
+        task_obj = next((t for t in agent_tasks if getattr(t, 'id', None) == task_id), None)
+
+        if task_obj is None:
+            from agent.ec_agents.create_agent_tasks import _convert_db_agent_task_to_object
+            task_service = _get_agent_task_service(request, params)
+            db_result = task_service.query_tasks(id=task_id) if task_service else {}
+            if db_result.get('success') and db_result.get('data'):
+                task_obj = _convert_db_agent_task_to_object(db_result.get('data')[0])
+                if task_obj and agents:
+                    agents[0].tasks.append(task_obj)
+
+        if task_obj is None:
+            return create_error_response(request, 'TASK_NOT_FOUND', f'Agent task not found: {task_id}')
+
+        # Resolve agent
+        agent_id = getattr(task_obj, 'agent_id', None) or params.get('agent_id')
+        agent = next((ag for ag in agents if getattr(getattr(ag, 'card', None), 'id', None) == agent_id), None) if agents else None
+        agent = agent or (agents[0] if agents else None)
+
+        if not agent:
+            return create_error_response(request, 'AGENT_NOT_FOUND', 'No agent available to run the task')
+
+        # Resolve skill
+        skill_obj = None
+        agent_skills = ctx.get_agent_skills() if ctx else []
+        if skill_id:
+            skill_obj = next((sk for sk in agent_skills if getattr(sk, 'id', None) == skill_id), None)
+        if not skill_obj and skill_name:
+            skill_obj = next((sk for sk in agent_skills if getattr(sk, 'name', None) == skill_name), None)
+
+        if skill_obj:
+            task_obj.skill = skill_obj
+
+        if cloud_based:
+            if not skill_obj:
+                return create_error_response(request, 'SKILL_NOT_FOUND', 'Skill not found for cloud run')
+
+            from agent.cloud_api.cloud_api import run_skill_in_cloud, get_appsync_endpoint
+            login = AppContext.get_login()
+            if not login or not login.access_token:
+                return create_error_response(request, 'TOKEN_REQUIRED', 'Not authenticated - no access token')
+
+            skill_dict = skill_obj.to_dict() if hasattr(skill_obj, 'to_dict') else skill_obj
+            skill_json = json.dumps(skill_dict)
+            metadata = {
+                "run_id": task_id,
+                "dev_mode": False,
+                "local_machine": socket.gethostname()
+            }
+
+            session = requests.Session()
+            endpoint = get_appsync_endpoint()
+            result = run_skill_in_cloud(session, login.access_token, skill_json, username, metadata, endpoint)
+
+            if not result.get('success'):
+                return create_error_response(request, 'RUN_TASK_ERROR', str(result.get('error') or result.get('errors') or 'Cloud run failed'))
+
+            return create_success_response(request, {
+                'message': 'Run agent task in cloud successful',
+                'run_status': result.get('data')
+            })
+
+        # Local execution
+        runner = getattr(agent, 'runner', None)
+        if not runner:
+            return create_error_response(request, 'RUN_TASK_ERROR', 'Agent runner not available')
+
+        thread_pool = getattr(agent, 'thread_pool_executor', None) or getattr(ctx.main_window, 'threadPoolExecutor', None)
+        if not thread_pool:
+            return create_error_response(request, 'RUN_TASK_ERROR', 'Thread pool executor not available')
+
+        future = thread_pool.submit(runner.launch_unified_run, task_obj, task_obj.trigger or 'message')
+        if hasattr(agent, 'active_tasks') and hasattr(agent, 'task_lock') and getattr(task_obj, 'run_id', None):
+            with agent.task_lock:
+                agent.active_tasks[task_obj.run_id] = future
+
+        return create_success_response(request, {
+            'message': 'Run agent task successful',
+            'task_id': task_id
+        })
+
+    except Exception as e:
+        logger.error(f"Error in run agent task handler: {e} {traceback.format_exc()}")
+        return create_error_response(
+            request,
+            'RUN_TASK_ERROR',
+            f"Error during run agent task: {str(e)}"
+        )
+
 @IPCHandlerRegistry.handler('get_agent_tasks')
 def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Get agent tasks list from database
@@ -331,7 +492,7 @@ def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]
 
     Args:
         request: IPC request object
-        params: Request parameters, must contain 'username' field
+        params: Request parameters, can contain 'username', 'owner', or 'userId' field
 
     Returns:
         JSON formatted response message
@@ -339,17 +500,16 @@ def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]
     try:
         logger.debug(f"Get agent tasks handler called with request: {request}")
 
-        # Validate parameters
-        is_valid, data, error = validate_params(params, ['username'])
-        if not is_valid:
-            logger.warning(f"Invalid parameters for get agent tasks: {error}")
+        # Resolve username from params (supports username, owner, userId) or MainWindow context
+        username = resolve_username(request, params)
+        if not username:
+            logger.warning(f"Invalid parameters for get agent tasks: Missing username")
             return create_error_response(
                 request,
                 'INVALID_PARAMS',
-                error
+                'Missing required parameter: username (or owner/userId)'
             )
 
-        username = data['username']
         logger.info(f"Getting agent tasks for user: {username}")
 
         # Get tasks from BOTH sources and merge them:
@@ -477,14 +637,18 @@ def handle_save_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]]
     try:
         logger.debug(f"Save task handler called with request: {request}")
 
-        # Validate parameters
-        is_valid, data, error = validate_params(params, ['username', 'task_info'])
-        if not is_valid:
-            logger.warning(f"Invalid parameters for save task: {error}")
-            return create_error_response(request, 'INVALID_PARAMS', error)
+        # Resolve username from params (supports username, owner, userId)
+        username = resolve_username(request, params)
+        if not username:
+            logger.warning(f"Invalid parameters for save task: Missing username")
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: username (or owner/userId)')
 
-        username = data['username']
-        agent_task_info = data['task_info']
+        # Validate task_info parameter
+        if not params or not params.get('task_info'):
+            logger.warning(f"Invalid parameters for save task: Missing task_info")
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: task_info')
+
+        agent_task_info = params['task_info']
         agent_task_id = agent_task_info.get('id')
         
 
@@ -602,14 +766,18 @@ def handle_new_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]])
     try:
         logger.debug(f"Create new task handler called with request: {request}")
 
-        # Validate parameters
-        is_valid, data, error = validate_params(params, ['username', 'task_info'])
-        if not is_valid:
-            logger.warning(f"Invalid parameters for create task: {error}")
-            return create_error_response(request, 'INVALID_PARAMS', error)
+        # Resolve username from params (supports username, owner, userId)
+        username = resolve_username(request, params)
+        if not username:
+            logger.warning(f"Invalid parameters for create task: Missing username")
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: username (or owner/userId)')
 
-        username = data['username']
-        agent_task_info = data['task_info']
+        # Validate task_info parameter
+        if not params or not params.get('task_info'):
+            logger.warning(f"Invalid parameters for create task: Missing task_info")
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: task_info')
+
+        agent_task_info = params['task_info']
 
         logger.info(f"Creating new agent task for user: {username}")
 
@@ -691,14 +859,18 @@ def handle_delete_agent_task(request: IPCRequest, params: Optional[Dict[str, Any
     try:
         logger.debug(f"Delete task handler called with request: {request}")
 
-        # Validate parameters
-        is_valid, data, error = validate_params(params, ['username', 'task_id'])
-        if not is_valid:
-            logger.warning(f"Invalid parameters for delete task: {error}")
-            return create_error_response(request, 'INVALID_PARAMS', error)
+        # Resolve username from params (supports username, owner, userId)
+        username = resolve_username(request, params)
+        if not username:
+            logger.warning(f"Invalid parameters for delete task: Missing username")
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: username (or owner/userId)')
 
-        username = data['username']
-        agent_task_id = data['task_id']
+        # Validate task_id parameter
+        if not params or not params.get('task_id'):
+            logger.warning(f"Invalid parameters for delete task: Missing task_id")
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: task_id')
+
+        agent_task_id = params['task_id']
 
         # ⚠️ Prevent deleting code-generated tasks from database
         # First check if this is a code-generated task by checking memory

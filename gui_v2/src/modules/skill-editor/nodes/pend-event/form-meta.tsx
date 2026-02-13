@@ -7,7 +7,7 @@ import { FormHeader, FormContent, FormItem } from '../../form-components';
 import { defaultFormMeta } from '../default-form-meta';
 
 const EVENT_TYPES = [
-  'human_chat', 'a2a', 'webhook', 'websocket', 'mqtt', 'sse', 'timer', 'other'
+  'human_chat', 'a2a', 'webhook', 'websocket', 'mqtt', 'sse', 'timer', 'system', 'other'
 ];
 
 export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
@@ -29,7 +29,7 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
         <Field<any> name="inputsValues.eventType">
           {({ field }) => {
             const et = String(field.value?.content ?? 'human_chat');
-            if (["websocket", "sse", "webhook"].includes(et)) {
+            if (["websocket", "sse", "webhook", "system"].includes(et)) {
               return (
                 <FormItem key={`main-extra-${et}`} name="Message Type" type="string" vertical>
                   <Field<any> name="inputsValues.messageType">
@@ -104,7 +104,7 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                             Delete
                           </Button>
                         </div>
-                        {['websocket', 'sse', 'webhook'].includes(et) && (
+                        {['websocket', 'sse', 'webhook', 'system'].includes(et) && (
                           <FormItem key={`list-extra-${i}-${et}`} name="Message Type" type="string" vertical>
                             <Input
                               value={item.messageType ?? ''}

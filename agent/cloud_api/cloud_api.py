@@ -423,31 +423,56 @@ def gen_obtain_review_request_string(query):
 
 
 def gen_report_vehicles_string(vehicles):
+    """Generate GraphQL mutation string for reporting vehicles.
+    
+    Now uses updateVehicles API instead of deprecated reportVehicles.
+    Maps old field names to new VehicleUpdateInput schema.
+    """
     query_string = """
         mutation MyMutation {
-      reportVehicles (input:[
+      updateVehicles (input:[
     """
     rec_string = ""
     for i in range(len(vehicles)):
-        rec_string = rec_string + "{ vid: " + str(int(vehicles[i]["vid"])) + ", "
-        rec_string = rec_string + "vname: \"" + vehicles[i]["vname"] + "\", "
-        rec_string = rec_string + "owner: \"" + vehicles[i]["owner"] + "\", "
-        rec_string = rec_string + "status: \"" + vehicles[i]["status"] + "\", "
-        rec_string = rec_string + "lastseen: \"" + vehicles[i]["lastseen"] + "\", "
-        rec_string = rec_string + "functions: \"" + vehicles[i]["functions"] + "\", "
-        rec_string = rec_string + "bids: \"" + vehicles[i]["agent_ids"] + "\", "
-        rec_string = rec_string + "hardware: \"" + vehicles[i]["hardware"] + "\", "
-        rec_string = rec_string + "software: \"" + vehicles[i]["software"] + "\", "
-        rec_string = rec_string + "ip: \"" + vehicles[i]["ip"] + "\", "
-        rec_string = rec_string + "created_at: \"" + vehicles[i]["created_at"] + "\" }"
+        v = vehicles[i]
+        # Use vname as the vehicle ID (unique identifier)
+        vname = v.get("vname", "")
+        
+        rec_string += "{ "
+        rec_string += f'id: "{vname}"'
+        rec_string += f', name: "{vname}"'
+        rec_string += f', status: "{v.get("status", "")}"'
+        rec_string += f', architecture: "{v.get("hardware", "")}"'
+        rec_string += f', platform: "{v.get("software", "")}"'
+        rec_string += f', ip_address: "{v.get("ip", "")}"'
+        
+        # Store additional fields in extra_metadata as JSON
+        extra_metadata = {
+            "owner": v.get("owner", ""),
+            "lastseen": v.get("lastseen", ""),
+            "functions": v.get("functions", ""),
+            "agent_ids": v.get("agent_ids", ""),
+            "vid": v.get("vid", 0),
+            "created_at": v.get("created_at", "")
+        }
+        extra_json = json.dumps(extra_metadata, ensure_ascii=False).replace('"', '\\"')
+        rec_string += f', extra_metadata: "{extra_json}"'
+        
+        # Store functions/capabilities
+        if v.get("functions"):
+            caps = {"functions": v.get("functions", "")}
+            caps_json = json.dumps(caps, ensure_ascii=False).replace('"', '\\"')
+            rec_string += f', capabilities: "{caps_json}"'
+        
+        rec_string += " }"
 
         if i != len(vehicles) - 1:
-            rec_string = rec_string + ', '
+            rec_string += ', '
         else:
-            rec_string = rec_string + ']'
+            rec_string += ']'
 
     tail_string = """
-        ) 
+        ) { id success error }
         } """
     query_string = query_string + rec_string + tail_string
 
@@ -786,10 +811,13 @@ def send_make_order_request_to_cloud(session, orders, token, endpoint):
 
 
 def send_report_vehicles_to_cloud(session, token, vehicles, endpoint):
+    """Report vehicle status to cloud using updateVehicles API.
+    
+    Note: Previously used deprecated reportVehicles API, now uses updateVehicles.
+    """
     queryInfo = gen_report_vehicles_string(vehicles)
 
     jresp = appsync_http_request(queryInfo, session, token, endpoint)
-    # jresp = {"data": {"reportVehicles": {}}}
     if "errors" in jresp:
         screen_error = True
         print("JRESP:", jresp)
@@ -797,7 +825,8 @@ def send_report_vehicles_to_cloud(session, token, vehicles, endpoint):
             jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
     else:
-        jresponse = json.loads(jresp["data"]["reportVehicles"])
+        # updateVehicles returns [VehicleMutationResult!]! not AWSJSON
+        jresponse = jresp.get("data", {}).get("updateVehicles", [])
 
     return jresponse
 
@@ -2230,8 +2259,15 @@ def safe_parse_response(jresp, operation_name, data_key):
                 return response_data
         else:
             # No data and errors - this is a failure
-            logger.error(f"❌ GraphQL Error: {error_message}")
-            logger.error(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
+            # Detect "Cannot return null for non-nullable type" as a known backend schema issue
+            is_schema_null_error = "Cannot return null for non-nullable type" in error_message
+            if is_schema_null_error:
+                logger.error(f"❌ GraphQL Schema Error: {error_message}")
+                logger.error(f"📋 This is a known backend issue: AppSync resolver returned null for a non-nullable field.")
+                logger.error(f"📋 Action required: Check AppSync Lambda resolver for '{operation_name}' - ensure it returns all required fields.")
+            else:
+                logger.error(f"❌ GraphQL Error: {error_message}")
+                logger.error(f"📋 Full error response: {json.dumps(jresp, ensure_ascii=False)}")
             raise Exception(f"{operation_name} failed: {error_message}")
     else:
         if response_data is not None:
@@ -2252,6 +2288,7 @@ def safe_parse_response(jresp, operation_name, data_key):
             logger.debug(f"   3. Data validation failed on server")
             logger.debug(f"   4. Permission denied (check IAM/Cognito)")
             logger.debug(f"   5. Backend timeout or internal error")
+            return None
 
 # =================================================================================================
 # interface appsync, directly use HTTP request.
@@ -6944,3 +6981,158 @@ def send_run_test_to_cloud(session, token, tests, endpoint=None, timeout=60):
     except Exception as e:
         logger.error(f"[C2L-WS-Test] Failed to parse response: {e}")
         return {"success": True, "data": jresp.get("data", {}).get("runTest")}
+
+
+# ==========================================================
+# Cloud Skill Execution (run_in_cloud mode)
+# ==========================================================
+
+def gen_write_skill_file_mutation_string(files: list) -> str:
+    """
+    Generate GraphQL mutation string for writeSkillFile.
+    
+    Schema:
+    input SkillFileInput {
+        content: String!
+        filePath: String!
+        userId: String
+    }
+    writeSkillFile(input: [SkillFileInput!]): [SkillFileInfo]
+    """
+    query_string = """
+        mutation WriteSkillFileMutation {
+      writeSkillFile (input:[
+    """
+    rec_string = ""
+    for i, file_item in enumerate(files):
+        file_path = file_item.get('filePath', '').replace('"', '\\"').replace('\\', '\\\\')
+        content = file_item.get('content', '').replace('\\', '\\\\').replace('"', '\\"')
+        user_id = file_item.get('userId', '').replace('"', '\\"')
+        
+        rec_string += '{'
+        rec_string += f'filePath: "{file_path}", '
+        rec_string += f'content: "{content}"'
+        if user_id:
+            rec_string += f', userId: "{user_id}"'
+        rec_string += '}'
+        if i < len(files) - 1:
+            rec_string += ','
+    
+    query_string += rec_string
+    query_string += """
+      ]) {
+        filePath
+        fileName
+        fileSize
+        skillName
+        updatedAt
+      }
+    }
+    """
+    return query_string
+
+
+def gen_run_skill_mutation_string(skill_json: str, username: str, meta_data: dict = None) -> str:
+    """
+    Generate GraphQL mutation string for runSkill.
+    
+    Schema:
+    input RunSkillInput {
+        skill: AWSJSON!
+        username: String
+        meta_data: AWSJSON
+    }
+    runSkill(input: RunSkillInput!): RunControlResult
+    """
+    # Escape the skill JSON for GraphQL
+    skill_escaped = skill_json.replace('\\', '\\\\').replace('"', '\\"')
+    username_escaped = username.replace('"', '\\"') if username else ''
+    
+    meta_data_part = ""
+    if meta_data:
+        meta_data_json = json.dumps(meta_data).replace('\\', '\\\\').replace('"', '\\"')
+        meta_data_part = f', meta_data: "{meta_data_json}"'
+    
+    query_string = f"""
+        mutation RunSkillMutation {{
+          runSkill(input: {{
+            skill: "{skill_escaped}",
+            username: "{username_escaped}"{meta_data_part}
+          }}) {{
+            runId
+            status
+            message
+            data
+          }}
+        }}
+    """
+    return query_string
+
+
+def upload_skill_files_to_cloud(session, token, files: list, endpoint=None, timeout=60):
+    """
+    Upload skill files to cloud S3 via writeSkillFile mutation.
+    
+    Args:
+        session: requests.Session object
+        token: Authentication token
+        files: List of file items, each with filePath, content, userId
+        endpoint: API endpoint URL (optional)
+        timeout: Request timeout in seconds
+    
+    Returns:
+        Response from cloud with uploaded file info
+    """
+    mutation_string = gen_write_skill_file_mutation_string(files)
+    logger.info(f"[CloudSkill] Uploading {len(files)} skill files to cloud")
+    logger.debug(f"[CloudSkill] writeSkillFile mutation: {mutation_string[:300]}...")
+    
+    jresp = appsync_http_request(mutation_string, session, token, endpoint, timeout=timeout)
+    
+    if "errors" in jresp:
+        logger.error(f"[CloudSkill] writeSkillFile error: {jresp['errors']}")
+        return {"success": False, "errors": jresp["errors"]}
+    
+    try:
+        result = jresp.get("data", {}).get("writeSkillFile")
+        logger.info(f"[CloudSkill] writeSkillFile success: {len(result) if result else 0} files uploaded")
+        return {"success": True, "data": result}
+    except Exception as e:
+        logger.error(f"[CloudSkill] Failed to parse writeSkillFile response: {e}")
+        return {"success": False, "error": str(e)}
+
+
+def run_skill_in_cloud(session, token, skill_json: str, username: str, meta_data: dict = None, endpoint=None, timeout=120):
+    """
+    Run a skill in the cloud via runSkill mutation.
+    
+    Args:
+        session: requests.Session object
+        token: Authentication token
+        skill_json: JSON string of the skill to run
+        username: Username for the run
+        meta_data: Optional metadata dict with run_in_cloud, client_id, run_id
+        endpoint: API endpoint URL (optional)
+        timeout: Request timeout in seconds
+    
+    Returns:
+        Response from cloud with run status
+    """
+    mutation_string = gen_run_skill_mutation_string(skill_json, username, meta_data)
+    logger.info(f"[CloudSkill] Sending runSkill mutation to cloud for user: {username}")
+    logger.debug(f"[CloudSkill] meta_data: {meta_data}")
+    logger.debug(f"[CloudSkill] runSkill mutation: {mutation_string[:300]}...")
+    
+    jresp = appsync_http_request(mutation_string, session, token, endpoint, timeout=timeout)
+    
+    if "errors" in jresp:
+        logger.error(f"[CloudSkill] runSkill error: {jresp['errors']}")
+        return {"success": False, "errors": jresp["errors"]}
+    
+    try:
+        result = jresp.get("data", {}).get("runSkill")
+        logger.info(f"[CloudSkill] runSkill success: runId={result.get('runId') if result else 'N/A'}")
+        return {"success": True, "data": result}
+    except Exception as e:
+        logger.error(f"[CloudSkill] Failed to parse runSkill response: {e}")
+        return {"success": False, "error": str(e)}

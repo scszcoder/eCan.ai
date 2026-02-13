@@ -65,7 +65,7 @@ interface LLMProvider {
 // Cache for providers data
 let providersCache: LLMProvider[] = [];
 let providersCacheTime: number = 0;
-const CACHE_TTL = 10000; // 10 seconds cache
+const CACHE_TTL = 2000; // 2 seconds cache - shorter to ensure dynamic models are up-to-date
 
 // Fetch all providers with credentials from backend
 async function fetchProvidersWithCredentials(): Promise<LLMProvider[]> {
@@ -191,9 +191,13 @@ export const FormRender = (_props: FormRenderProps<any>) => {
   const providerOptions = providers.map(p => ({ label: p.display_name, value: p.name }));
   
   // Build model map (provider name -> models)
-  const modelMap: Record<string, string[]> = {};
+  // Store both model_id (value) and display_name (label) for better UX
+  const modelMap: Record<string, Array<{label: string, value: string}>> = {};
   providers.forEach(p => {
-    modelMap[p.name] = p.supported_models.map(m => m.model_id || m.name);
+    modelMap[p.name] = p.supported_models.map(m => ({
+      label: m.display_name || m.name,  // Show friendly name like "DeepSeek-V3.2"
+      value: m.model_id || m.name        // Use actual model ID like "deepseek-chat"
+    }));
   });
 
   // Get provider config by name
@@ -289,6 +293,13 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                                   const providerConfig = getProviderConfig(currentProvider);
                                   if (!providerConfig) return;
 
+                                  // Persist resolved provider back to document model if missing
+                                  // This ensures modelProvider is saved even for legacy nodes
+                                  if (!providerField.value && currentProvider) {
+                                    setTimeout(() => providerField.onChange(currentProvider), 0);
+                                    console.log(`[LLM Node] Persisted missing modelProvider: ${currentProvider}`);
+                                  }
+
                                   // Save current values to temp storage (for future use)
 
                                   // Get or create temporary settings for current provider
@@ -357,16 +368,17 @@ export const FormRender = (_props: FormRenderProps<any>) => {
                                   // If there is already a model name value (e.g. loaded from skill file
                                   // or previously chosen by the user), we keep it as-is here and let the
                                   // separate Model Name selector handle invalid values.
-                                  const models = modelMap[currentProvider] || [];
+                                  const modelOptions = modelMap[currentProvider] || [];
+                                  const modelValues = modelOptions.map(m => m.value);
                                   const currentModelValue = (modelNameField.value as string | undefined) || '';
 
                                   if (!currentModelValue) {
-                                    if (tempSettings.modelName && models.includes(tempSettings.modelName)) {
+                                    if (tempSettings.modelName && modelValues.includes(tempSettings.modelName)) {
                                       setTimeout(() => modelNameField.onChange(tempSettings.modelName!), 0);
-                                    } else if (providerConfig.default_model && models.includes(providerConfig.default_model)) {
+                                    } else if (providerConfig.default_model && modelValues.includes(providerConfig.default_model)) {
                                       setTimeout(() => modelNameField.onChange(providerConfig.default_model), 0);
-                                    } else if (models.length > 0) {
-                                      setTimeout(() => modelNameField.onChange(models[0]), 0);
+                                    } else if (modelValues.length > 0) {
+                                      setTimeout(() => modelNameField.onChange(modelValues[0]), 0);
                                     }
                                   }
 
@@ -405,16 +417,16 @@ export const FormRender = (_props: FormRenderProps<any>) => {
               <Field<string> name="inputsValues.modelProvider.content">
                 {({ field: providerField }) => {
                   const provider = (providerField.value as string) || (providers[0]?.name) || 'OpenAI';
-                  const models = modelMap[provider] || [];
-                  const modelOptions = models.map(m => ({ label: m, value: m }));
-                  const value = modelField.value || models[0] || '';
+                  const modelOptions = modelMap[provider] || [];
+                  const modelValues = modelOptions.map(m => m.value);
+                  const value = modelField.value || modelValues[0] || '';
                   
                   // Auto-correct model name if it's not in provider list
                   useEffect(() => {
-                    if (value && models.length && !models.includes(value)) {
-                      setTimeout(() => modelField.onChange(models[0]), 0);
+                    if (value && modelValues.length && !modelValues.includes(value)) {
+                      setTimeout(() => modelField.onChange(modelValues[0]), 0);
                     }
-                  }, [provider, value, models]);
+                  }, [provider, value, modelValues]);
 
                   return (
                     <div style={{ width: '100%', maxWidth: '100%' }}>

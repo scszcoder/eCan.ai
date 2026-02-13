@@ -104,6 +104,8 @@ class DBAgentSkill(BaseModel, TimestampMixin, ExtensibleMixin):
     price_model = Column(Text)
     public = Column(Boolean, default=False)
     rentable = Column(Boolean, default=False)
+    # Note: Cloud execution settings (run_in_cloud, hybrid_cloud_mode, local_helper_skill_id, local_helper_machine)
+    # are stored in the config JSON column
     # Note: members relationship commented out due to missing foreign key
     # members = relationship('Member', back_populates='agent_skills', cascade='all, delete-orphan')
 

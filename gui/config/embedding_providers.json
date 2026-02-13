@@ -327,6 +327,21 @@
       "documentation_url": "https://ollama.com/library",
       "is_local": true,
       "supported_models": []
+    },
+    "RyoAIS": {
+      "name": "RyoAIS",
+      "display_name": "RyoAIS",
+      "provider": "ryoais",
+      "class_name": "OpenAIEmbeddings",
+      "api_key_env_vars": [
+        "RYOAIS_EMBEDDING_API_KEY"
+      ],
+      "base_url": "http://localhost/v1",
+      "default_model": "",
+      "description": "RyoAIS Embeddings - OpenAI-compatible API",
+      "documentation_url": "http://localhost/docs?lang=zh-CN",
+      "is_local": true,
+      "supported_models": []
     }
   },
   "metadata": {

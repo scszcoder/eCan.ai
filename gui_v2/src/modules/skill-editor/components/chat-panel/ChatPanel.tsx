@@ -1441,7 +1441,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
                 placeholder="Type a message..."
                 autoSize={{ minRows: 1, maxRows: 4 }}
                 style={{
-                  flex: 1,
+                  width: '100%',
                   background: 'rgba(15, 23, 42, 0.8)',
                   border: '1px solid rgba(148, 163, 184, 0.2)',
                   borderRadius: 8,

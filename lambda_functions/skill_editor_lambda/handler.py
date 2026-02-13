@@ -14,6 +14,44 @@ from agent.skill_editor.skill_editor_agent import SkillEditorAgent, _safe_user_d
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+# =============================================================================
+# DEV MODE Constants for Skill Editor Testing
+# When dev_mode=True, use deterministic client_id and run_id for predictable
+# WebSocket pub/sub matching between cloud worker and local passive agent
+# =============================================================================
+DEV_MODE_RUN_ID = "test-run-001"
+DEV_MODE_DEFAULT_SITE = "SCHOME"
+
+
+def _generate_dev_mode_client_id(username: str, skill: Dict[str, Any]) -> str:
+    """
+    Generate client_id for dev mode matching local passive agent's getAcctSiteID().
+    
+    Format: {user}_{site}
+    - user: username with @ and . replaced with _
+    - site: from skill's diagram.local_helper_machine, fallback to DEV_MODE_DEFAULT_SITE
+    
+    This matches the client-side logic:
+        def getAcctSiteID(self):
+            site = self.machine_name
+            user = self.user.replace("@", "_").replace(".", "_")
+            return f"{user}_{site}"
+    """
+    # Normalize username: replace @ and . with _
+    user_part = (username or "unknown").replace("@", "_").replace(".", "_")
+    
+    # Get site from skill's diagram or flowgram settings
+    # Priority: diagram.local_helper_machine > skill.local_helper_machine > fallback
+    diagram = skill.get("diagram") or {}
+    site = (
+        diagram.get("local_helper_machine") or 
+        skill.get("local_helper_machine") or 
+        DEV_MODE_DEFAULT_SITE
+    )
+    
+    client_id = f"{user_part}_{site}"
+    return client_id
+
 DEFAULT_DATA_MAPPING: Dict[str, Any] = {
     "developing": {
         "mappings": [],
@@ -57,6 +95,13 @@ def _require_env(name: str) -> str:
     if not value:
         raise RuntimeError(f"Missing required env var: {name}")
     return value
+
+
+def _mask_secret(value: str, prefix: int = 8, suffix: int = 8) -> str:
+    raw = (value or "").strip()
+    if len(raw) <= prefix + suffix:
+        return raw
+    return f"{raw[:prefix]}....{raw[-suffix:]}"
 
 
 def _load_env() -> _Env:
@@ -1061,6 +1106,32 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
     else:
         skill = skill_json or {}
     
+    # Parse meta_data if provided
+    meta_data_json = input_data.get("meta_data")
+    if isinstance(meta_data_json, str):
+        try:
+            meta_data = json.loads(meta_data_json)
+        except json.JSONDecodeError:
+            meta_data = {}
+    else:
+        meta_data = meta_data_json or {}
+    
+    # Extract run_in_cloud flag and optional client_id/run_id from meta_data
+    # For hybrid workflow:
+    # - client_id: identifies the local passive agent (same as agent_id on client)
+    # - run_id: unique ID for this run session (generated on client side)
+    meta_run_in_cloud = meta_data.get("run_in_cloud", False)
+    meta_client_id = meta_data.get("client_id")  # From local client for hybrid mode
+    meta_run_id = meta_data.get("run_id")  # From local client for hybrid mode
+    meta_jwt = meta_data.get("jwt") or meta_data.get("token")
+    passive_run_id = (
+        meta_run_id
+        or input_data.get("sessionId")
+        or input_data.get("chatId")
+        or input_data.get("session_id")
+        or input_data.get("chat_id")
+    )
+    
     skill_id = skill.get("skill_id") or str(uuid4())
     skill_name = skill.get("skill_name") or "unnamed_skill"
     skill_run_mode = skill.get("skill_run_mode") or "cloud"
@@ -1068,6 +1139,8 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
     dev_mode = input_data.get("dev_mode", False) or skill.get("dev_mode", False)
     
     logger.info(f"[runSkill] username={username}, skill_id={skill_id}, skill_name={skill_name}, mode={skill_run_mode}, dev_mode={dev_mode}")
+    logger.info(f"[runSkill] meta_data: run_in_cloud={meta_run_in_cloud}, client_id={meta_client_id}, run_id={meta_run_id}")
+    logger.info(f"[runSkill] meta_jwt present: {bool(meta_jwt)}, meta_data keys: {list(meta_data.keys())}")
     
     # Validate environment for cloud runs
     if skill_run_mode in ("cloud", "hybrid"):
@@ -1089,18 +1162,42 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
             }
     
     # Generate run ID
-    run_id = str(uuid4())
+    # Priority: 1) meta_data.run_id (from local client), 2) dev_mode deterministic, 3) random UUID
+    if meta_run_id:
+        run_id = meta_run_id
+        logger.info(f"[runSkill] Using run_id from meta_data: {run_id}")
+    elif dev_mode:
+        run_id = DEV_MODE_RUN_ID
+        logger.info(f"[runSkill] dev_mode enabled - using deterministic run_id={run_id}")
+    else:
+        run_id = str(uuid4())
+        logger.info(f"[runSkill] Generated random run_id: {run_id}")
     created_at = _utc_now_iso()
+    
+    # Generate passive_client_id early so it can be included in payloads
+    # Priority: 1) meta_data.client_id (from local client), 2) dev_mode deterministic, 3) skill.passive_client_id, 4) auto-generated
+    if meta_client_id:
+        passive_client_id = meta_client_id
+        logger.info(f"[runSkill] Using client_id from meta_data: {passive_client_id}")
+    elif dev_mode:
+        # In dev mode, generate client_id matching local passive agent's getAcctSiteID()
+        passive_client_id = _generate_dev_mode_client_id(username, skill)
+        logger.info(f"[runSkill] dev_mode enabled - using deterministic passive_client_id={passive_client_id}")
+    else:
+        passive_client_id = skill.get("passive_client_id") or f"cloud-worker-{run_id}"
+        logger.info(f"[runSkill] Using passive_client_id: {passive_client_id}")
     
     # Create the skill run payload
     run_payload = {
         "run_id": run_id,
+        "passive_run_id": passive_run_id,
         "username": username,
         "skill_id": skill_id,
         "skill_name": skill_name,
         "skill_run_mode": skill_run_mode,
         "dev_mode": dev_mode,  # Enable breakpoint/step support in worker
         "skill": skill,  # Full skill payload including diagram
+        "passive_client_id": passive_client_id,  # For hybrid cloud browser automation
         "created_at": created_at,
     }
     
@@ -1124,11 +1221,14 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
     # This stays well under the 8KB limit
     ref_payload = {
         "run_id": run_id,
+        "passive_run_id": passive_run_id,
+        "passive_jwt": meta_jwt,
         "username": username,
         "skill_id": skill_id,
         "skill_name": skill_name,
         "payload_s3_bucket": env.s3_bucket,
         "payload_s3_key": payload_s3_key,
+        "passive_client_id": passive_client_id,  # For hybrid cloud browser automation
         "created_at": created_at,
     }
     
@@ -1137,18 +1237,44 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
     try:
         ecs = _ecs_client()
         
+        # Build base container environment variables
+        # passive_client_id was already determined earlier
+        container_env = [
+            {"name": "ECAN_WORKER_MODE", "value": "single"},
+            {"name": "ECAN_WORKER_MESSAGE_JSON", "value": json.dumps(ref_payload, ensure_ascii=False)},
+            {"name": "ECAN_RUN_ID", "value": run_id},
+            {"name": "ECAN_USERNAME", "value": username},
+            # Pass AppSync config for real-time status updates (cloud_logger)
+            {"name": "APPSYNC_API_URL", "value": env.appsync_api_url},
+            {"name": "APPSYNC_API_KEY", "value": env.appsync_api_key},
+            # Always provide browser passive transport config for cloud runs
+            # Individual browser automation nodes may be configured for hybrid_cloud mode
+            # which requires these to communicate with local PassiveAgent
+            {"name": "EC_BROWSER_PASSIVE_TRANSPORT", "value": "appsync"},
+            {"name": "EC_APPSYNC_HTTP_ENDPOINT", "value": env.appsync_api_url},
+            {"name": "EC_APPSYNC_TOKEN", "value": meta_jwt or env.appsync_api_key},
+            {"name": "EC_BROWSER_PASSIVE_CLIENT_ID", "value": passive_client_id},
+        ]
+        openai_api_key = (os.environ.get("OPENAI_API_KEY") or "").strip()
+        if openai_api_key:
+            masked_key = _mask_secret(openai_api_key)
+            logger.info(f"[runSkill] OPENAI_API_KEY detected for ECS: {masked_key}")
+            container_env.append({"name": "OPENAI_API_KEY", "value": openai_api_key})
+        else:
+            logger.warning("[runSkill] OPENAI_API_KEY not set in Lambda env; cloud worker may fail LLM calls")
+        if meta_jwt:
+            container_env.append({"name": "APPSYNC_AUTH_TOKEN", "value": meta_jwt})
+
+        grace_seconds = (os.environ.get("ECAN_PASSIVE_RESULT_GRACE_SECONDS") or "").strip()
+        if grace_seconds:
+            container_env.append({"name": "ECAN_PASSIVE_RESULT_GRACE_SECONDS", "value": grace_seconds})
+        
+        logger.info(f"[runSkill] Cloud run with passive_client_id={passive_client_id} for hybrid node support")
+        
         # Build container overrides with reference to S3 payload
         container_overrides = {
             "name": "ecan-cloud-worker",  # Must match container name in task def
-            "environment": [
-                {"name": "ECAN_WORKER_MODE", "value": "single"},
-                {"name": "ECAN_WORKER_MESSAGE_JSON", "value": json.dumps(ref_payload, ensure_ascii=False)},
-                {"name": "ECAN_RUN_ID", "value": run_id},
-                {"name": "ECAN_USERNAME", "value": username},
-                # Pass AppSync config for real-time status updates
-                {"name": "APPSYNC_API_URL", "value": env.appsync_api_url},
-                {"name": "APPSYNC_API_KEY", "value": env.appsync_api_key},
-            ],
+            "environment": container_env,
         }
         
         # Build network configuration
@@ -1223,11 +1349,18 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
         logger.warning(f"[runSkill] Failed to save run state (non-fatal): {e}")
     
     logger.info(f"[runSkill] Skill run started successfully: run_id={run_id}, task_arn={ecs_task_arn}")
+    
+    # Build response data with task ARN and passive client info for hybrid node support
+    response_data = {
+        "ecs_task_arn": ecs_task_arn,
+        "passive_client_id": passive_client_id,  # For hybrid nodes that need local PassiveAgent
+    }
+    
     return {
         "runId": run_id,
         "status": "starting",
         "message": f"Skill '{skill_name}' starting on cloud worker",
-        "data": json.dumps({"ecs_task_arn": ecs_task_arn}),
+        "data": json.dumps(response_data),
     }
 
 
@@ -1266,7 +1399,8 @@ def _handle_cancel_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
         skill = skill_json or {}
     
     run_id = skill.get("run_id")
-    skill_id = skill.get("skill_id")
+    # Support both snake_case (backend) and camelCase (frontend) key names
+    skill_id = skill.get("skill_id") or skill.get("skillId")
     
     logger.info(f"[cancelRunSkill] username={username}, run_id={run_id}, skill_id={skill_id}")
     

@@ -29,8 +29,10 @@ class AuthManager:
         self.machine_role = "Platoon"  # Default role
         self.ecb_data_homepath = getECBotDataHome()
         self.acct_file = self.ecb_data_homepath + "/uli.json"
+        logger.info(f"[AuthManager.__init__] Initial acct_file path: {self.acct_file}")
 
         if not exists(self.acct_file):
+            logger.debug(f"[AuthManager.__init__] uli.json not found at {self.acct_file}, checking fallback locations")
             candidate_files: list[str] = []
 
             try:
@@ -46,9 +48,11 @@ class AuthManager:
             except Exception:
                 pass
 
+            logger.debug(f"[AuthManager.__init__] Candidate files: {candidate_files}")
             for candidate in candidate_files:
                 if candidate and exists(candidate):
                     self.acct_file = candidate
+                    logger.info(f"[AuthManager.__init__] Found uli.json at fallback location: {candidate}")
                     break
         self.refresh_task = None
 
@@ -355,7 +359,9 @@ class AuthManager:
         """Get saved login information from keyring storage."""
         try:
             username = self._get_saved_username()
+            logger.debug(f"[get_saved_login_info] Retrieved username from uli.json: '{username}'")
             self.machine_role = self._get_saved_machine_role()
+            logger.debug(f"[get_saved_login_info] Retrieved machine_role: '{self.machine_role}'")
 
             # Ensure machine_role is never None (should have default from _get_saved_machine_role)
             if not self.machine_role:
@@ -366,8 +372,9 @@ class AuthManager:
                 success, result = self._get_credentials(username)
                 if success:
                     password = result
+                    logger.debug(f"[get_saved_login_info] Password retrieved successfully (length: {len(password)})")
                 else:
-                    logger.warning(f"Could not retrieve password: {result}")
+                    logger.warning(f"[get_saved_login_info] Could not retrieve password: {result}")
 
             # Read language and theme from uli.json
             language = None
@@ -396,6 +403,7 @@ class AuthManager:
     def _update_saved_login_info(self, username, password, role):
         """Update saved login information with new username and password."""
         try:
+            logger.info(f"[_update_saved_login_info] Saving login info to: {self.acct_file}")
             data = {}
             if exists(self.acct_file):
                 try:
@@ -428,20 +436,26 @@ class AuthManager:
     def _store_credentials(self, username, password):
         """Securely store credentials in the system keyring."""
         try:
+            logger.debug(f"[_store_credentials] Storing password for username: '{username}'")
             keyring.set_password("ecan_auth", username, password)
+            logger.info(f"[_store_credentials] Successfully stored password for username: '{username}'")
             return True
         except Exception as e:
-            logger.error(f"Failed to store credentials: {e}")
+            logger.error(f"[_store_credentials] Failed to store credentials for '{username}': {e}")
             return False
 
     def _get_credentials(self, username):
         """Retrieve credentials from the system keyring."""
         try:
+            logger.debug(f"[_get_credentials] Attempting to retrieve password for username: '{username}'")
             password = keyring.get_password("ecan_auth", username)
             if password is None:
+                logger.warning(f"[_get_credentials] No password found in keyring for username: '{username}'")
                 return False, "No password found"
+            logger.debug(f"[_get_credentials] Successfully retrieved password (length: {len(password)})")
             return True, password
         except Exception as e:
+            logger.error(f"[_get_credentials] Exception retrieving password: {e}")
             return False, str(e)
 
     # --- Session persistence helpers ---

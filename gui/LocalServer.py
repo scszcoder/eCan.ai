@@ -7,6 +7,7 @@ import uuid
 import json
 import socket
 import time
+import sniffio
 from typing import Optional
 from starlette.applications import Starlette
 import typing
@@ -122,7 +123,7 @@ class AppWebSocketManager:
         else:
             targets = self._all_connections
         
-        logger.info(f"[SkillEditorWS] 📤 Broadcasting {msg_type} to {len(targets)} clients (channel: {channel_id})")
+        logger.trace(f"[SkillEditorWS] 📤 Broadcasting {msg_type} to {len(targets)} clients (channel: {channel_id})")
         
         disconnected = []
         for websocket in targets:
@@ -135,67 +136,7 @@ class AppWebSocketManager:
         # Clean up disconnected clients
         for ws in disconnected:
             self.disconnect(ws, channel_id)
-    
-    async def send_to_session(self, session_id: str, message: dict):
-        """Send a message to a specific session channel."""
-        await self.broadcast(message, channel_id=f"session:{session_id}")
-    
-    async def send_chat_chunk(self, session_id: str, message_id: str, chunk: str, chunk_index: int):
-        """Send a chat streaming chunk."""
-        logger.debug(f"[SkillEditorWS] 📝 Sending chunk #{chunk_index} for message {message_id[:8]}... ({len(chunk)} chars)")
-        # Use same event type as AppSync for compatibility
-        await self.send_to_session(session_id, {
-            "type": "skill_editor.chat.stream_chunk",
-            "eventType": "skill_editor.chat.stream_chunk",
-            "sessionId": session_id,
-            "messageId": message_id,
-            "payload": {
-                "chunk": chunk,
-                "chunkIndex": chunk_index
-            }
-        })
-    
-    async def send_chat_done(self, session_id: str, message_id: str, full_content: str):
-        """Send chat completion message."""
-        logger.info(f"[SkillEditorWS] ✅ Sending done for message {message_id[:8]}... ({len(full_content)} chars total)")
-        logger.info(f"[SkillEditorWS] ✅ full content:::{(full_content)}")
-        # Use same event type as AppSync for compatibility
-        await self.send_to_session(session_id, {
-            "type": "skill_editor.chat.stream_end",
-            "eventType": "skill_editor.chat.stream_end",
-            "sessionId": session_id,
-            "payload": {
-                "messageId": message_id,
-                "fullContent": full_content
-            }
-        })
-    
-    async def send_canvas_command(self, session_id: str, command_type: str, payload: dict):
-        """Send a canvas command."""
-        # Use same event type as AppSync for compatibility
-        await self.send_to_session(session_id, {
-            "type": "skill_editor.event",
-            "eventType": "skill_editor.event",
-            "sessionId": session_id,
-            "payload": {
-                "commandType": command_type,
-                **payload
-            }
-        })
-    
-    async def send_flowgram(self, session_id: str, flowgram: dict):
-        """Send a flowgram event to load on canvas."""
-        logger.info(f"[AppWS] 🎨 Sending flowgram to session {session_id} ({len(flowgram.get('nodes', []))} nodes)")
-        await self.send_to_session(session_id, {
-            "type": "skill_editor.event",
-            "eventType": "skill_editor.event",
-            "sessionId": session_id,
-            "payload": {
-                "type": "canvas.load_flowgram_data",  # Event type for canvas handler
-                "commandType": "load_flowgram",
-                "flowgram": flowgram
-            }
-        })
+
     
     # ==================== Ad Banner Events ====================
     
@@ -212,96 +153,8 @@ class AppWebSocketManager:
             }
         })
 
-    # ==================== Chat Events ====================
-    
-    async def send_push_chat_message(self, chat_id: str, message: dict):
-        """Push a chat message to clients."""
-        await self.broadcast({
-            "type": "push_chat_message",
-            "eventType": "push_chat_message",
-            "payload": {"chatId": chat_id, "message": message}
-        }, channel_id=f"chat:{chat_id}")
-    
-    async def send_push_chat_notification(self, chat_id: str, content: dict, is_read: bool, timestamp: int, uid: str):
-        """Push a chat notification to clients."""
-        await self.broadcast({
-            "type": "push_chat_notification",
-            "eventType": "push_chat_notification",
-            "payload": {
-                "chatId": chat_id,
-                "content": content,
-                "isRead": is_read,
-                "timestamp": timestamp,
-                "uid": uid
-            }
-        }, channel_id=f"chat:{chat_id}")
-    
-    # ==================== Skill Run Events ====================
-    
-    async def send_update_skill_run_stat(self, agent_task_id: str, current_node: str, status: str, langgraph_state: dict, timestamp: int = None):
-        """Push skill run statistics update."""
-        logger.debug(f"[AppWS] 📊 Sending skill run stat: task={agent_task_id}, node={current_node}, status={status}")
-        await self.broadcast({
-            "type": "update_skill_run_stat",
-            "eventType": "update_skill_run_stat",
-            "payload": {
-                "agentTaskId": agent_task_id,
-                "currentNode": current_node,
-                "current_node": current_node,  # Legacy compatibility
-                "status": status,
-                "langgraphState": langgraph_state,
-                "nodeState": langgraph_state,  # Legacy compatibility
-                "timestamp": timestamp
-            }
-        }, channel_id=f"task:{agent_task_id}")
-    
-    async def send_update_task_stat(self, agent_task_id: str, langgraph_state: dict, timestamp: int = None):
-        """Push task statistics update."""
-        await self.broadcast({
-            "type": "update_tasks_stat",
-            "eventType": "update_tasks_stat",
-            "payload": {
-                "agentTaskId": agent_task_id,
-                "langgraphState": langgraph_state,
-                "timestamp": timestamp
-            }
-        }, channel_id=f"task:{agent_task_id}")
-    
-    # ==================== LightRAG Events ====================
-    
-    async def send_lightrag_chunk(self, stream_id: str, chunk_data: str):
-        """Push LightRAG stream chunk."""
-        await self.broadcast({
-            "type": "lightrag.queryStream.chunk",
-            "eventType": "lightrag.queryStream.chunk",
-            "payload": {"id": stream_id, "chunk": chunk_data}
-        }, channel_id=f"lightrag:{stream_id}")
-    
-    async def send_lightrag_done(self, stream_id: str):
-        """Push LightRAG stream done event."""
-        await self.broadcast({
-            "type": "lightrag.queryStream.done",
-            "eventType": "lightrag.queryStream.done",
-            "payload": {"id": stream_id}
-        }, channel_id=f"lightrag:{stream_id}")
-    
-    async def send_lightrag_error(self, stream_id: str, error: str):
-        """Push LightRAG stream error event."""
-        await self.broadcast({
-            "type": "lightrag.queryStream.error",
-            "eventType": "lightrag.queryStream.error",
-            "payload": {"id": stream_id, "error": error}
-        }, channel_id=f"lightrag:{stream_id}")
-    
-    # ==================== UI Events ====================
-    
-    async def send_update_screens(self, screens: list):
-        """Push screens update event."""
-        await self.broadcast({
-            "type": "update_screens",
-            "eventType": "update_screens",
-            "payload": {"screens": screens}
-        })
+    # Note: Chat, Skill Run, LightRAG, and UI event methods removed.
+    # All these events are now handled via api.py's unified _send_request() method.
     
     # ==================== Sync Helper for IPCAPI ====================
     
@@ -314,19 +167,19 @@ class AppWebSocketManager:
         }
         
         if self._event_loop and self._event_loop.is_running():
-            # Schedule the coroutine on the event loop
+            # Schedule the coroutine on the event loop (fire-and-forget)
+            # Don't wait for completion to avoid blocking the caller thread
             import asyncio
-            future = asyncio.run_coroutine_threadsafe(
-                self.broadcast(message, channel_id),
-                self._event_loop
-            )
             try:
-                # Wait briefly for completion (non-blocking for caller)
-                future.result(timeout=0.5)
+                asyncio.run_coroutine_threadsafe(
+                    self.broadcast(message, channel_id),
+                    self._event_loop
+                )
+                logger.trace(f"[AppWS] 📤 Broadcast scheduled: {event_type}")
             except Exception as e:
-                logger.warning(f"[AppWS] broadcast_sync timeout/error: {e}")
+                logger.warning(f"[AppWS] ❌ Failed to schedule broadcast for event {event_type}: {e}")
         else:
-            logger.warning(f"[AppWS] No event loop available for broadcast_sync, event: {event_type}")
+            logger.warning(f"[AppWS] ⚠️  No event loop available for broadcast_sync, event: {event_type}")
 
 
 # Global WebSocket manager instance
@@ -444,12 +297,14 @@ class RequestHandlers:
         
         return FileResponse(file_path)
     
-    async def ollama_rerank_proxy(self, request):
+    async def lightrag_rerank_proxy(self, request):
         """
-        Ollama Rerank Proxy - Delegates to the ollama_proxy module.
+        LightRAG Rerank Proxy - Handles all non-native rerank providers.
+
+        Supports: Ollama, RyoAIS, Baidu, and other OpenAI-compatible providers.
         """
-        from gui.ollama_proxy import ollama_rerank_proxy
-        return await ollama_rerank_proxy(request)
+        from gui.lightrag_rerank_proxy import lightrag_rerank_proxy
+        return await lightrag_rerank_proxy(request)
 
     async def graphql_handler(self, request):
         """
@@ -533,7 +388,24 @@ class RequestHandlers:
             
             # 使用 IPCHandlerRegistry 统一处理
             from gui.ipc.registry import IPCHandlerRegistry
-            result_data = IPCHandlerRegistry.handle_graphql_request(method, request_params)
+
+            # Only run known blocking handlers in a thread executor to avoid freezing the event loop.
+            # The login handler calls Cognito which can block for 3-185s.
+            # Other handlers must run synchronously to preserve request ordering and timing
+            # (e.g., get_initialization_progress must not respond while login is still in progress).
+            _BLOCKING_METHODS = {'login', 'google_login'}
+
+            if method in _BLOCKING_METHODS:
+                import asyncio
+                loop = asyncio.get_event_loop()
+                result_data = await loop.run_in_executor(
+                    None,
+                    IPCHandlerRegistry.handle_graphql_request,
+                    method,
+                    request_params
+                )
+            else:
+                result_data = IPCHandlerRegistry.handle_graphql_request(method, request_params)
             
             # 使用 operation_name 作为响应的字段名（如果没有则使用 method）
             response_field_name = operation_name or method
@@ -628,18 +500,10 @@ async def local_ws_test(request):
     results = []
     
     try:
-        # Test all pub/sub event types
+        # Test all pub/sub event types (matching api.py methods)
         test_events = [
-            # Data update events
-            ("update_agents", {"agents": [{"id": test_id, "name": "Test Agent", "status": "active"}]}),
-            ("update_skills", {"skills": [{"id": test_id, "name": "Test Skill", "level": 1}]}),
-            ("update_tasks", {"tasks": [{"id": test_id, "name": "Test Task", "status": "pending"}]}),
-            ("update_tools", {"tools": [{"id": test_id, "name": "Test Tool", "tool_type": "test"}]}),
-            ("update_settings", {"settings": {"test_key": "test_value", "timestamp": timestamp}}),
-            ("update_vehicles", {"vehicles": [{"id": test_id, "name": "Test Vehicle", "status": "idle"}]}),
-            ("update_knowledge", {"knowledge": [{"id": test_id, "name": "Test Knowledge", "type": "test"}]}),
-            ("update_chats", {"chats": [{"id": test_id, "name": "Test Chat"}]}),
-            ("update_all", {"test": True, "timestamp": timestamp}),
+            # Organization and agent updates
+            ("update_org_agents", {}),
             # Chat events
             ("push_chat_message", {"chatId": test_id, "message": {"role": "system", "content": "Test message"}}),
             ("push_chat_notification", {"chatId": test_id, "content": {"text": "Test notification"}, "isRead": False, "timestamp": timestamp, "uid": test_id}),
@@ -653,11 +517,8 @@ async def local_ws_test(request):
             # Skill editor events
             ("skill_editor.chat.stream_chunk", {"sessionId": test_id, "messageId": f"msg-{test_id}", "chunk": "Test stream chunk", "chunkIndex": 0}),
             ("skill_editor.chat.stream_end", {"sessionId": test_id, "messageId": f"msg-{test_id}", "fullContent": "Test complete message"}),
-            ("skill_editor.chat.error", {"sessionId": test_id, "error": "Test error", "code": "TEST_ERROR"}),
-            ("skill_editor.event", {"sessionId": test_id, "commandType": "test", "type": "canvas_command", "payload": {"action": "test"}}),
-            # UI events
-            ("refresh_dashboard", {"source": "local_ws_test", "timestamp": timestamp}),
-            ("update_screens", {"screens": [{"id": test_id, "name": "Test Screen"}]}),
+            ("skill_editor.chat.error", {"sessionId": test_id, "code": "TEST_ERROR", "message": "Test error"}),
+            ("skill_editor.event", {"sessionId": test_id, "type": "canvas_command", "payload": {"action": "test"}}),
         ]
         
         for event_type, payload in test_events:
@@ -795,27 +656,31 @@ class MCPHandler:
 
     @staticmethod
     async def cleanup():
-        """Clean up MCP session manager resources."""
-        try:
-            if MCPHandler._session_manager_context:
-                logger.info("🧹 [MCP] Cleaning up session manager context...")
-                # Avoid __aexit__ in a different task - just reset the reference
-                # The context manager will be cleaned up when the original task exits
-                MCPHandler._session_manager_context = None
-                logger.info("✅ [MCP] Session manager context cleaned up")
-        except Exception as e:
-            logger.debug(f"⚠️  [MCP] Error cleaning up session manager context: {e}")
-        
-        try:
-            if MCPHandler._session_manager_instance:
-                logger.info("🧹 [MCP] Cleaning up session manager instance...")
-                # Reset the instance
-                MCPHandler._session_manager_instance = None
-                logger.info("✅ [MCP] Session manager instance cleaned up")
-        except Exception as e:
-            logger.warning(f"⚠️  [MCP] Error cleaning up session manager instance: {e}")
-        
-        # Reset initialization flag
+        """Clean up MCP session manager resources.
+
+        The StreamableHTTPSessionManager uses an async generator with a TaskGroup.
+        We cannot call __aexit__ from a different task (causes RuntimeError).
+        Instead, we try to gracefully close the async generator via aclose(),
+        suppressing the expected TaskGroup error during shutdown.
+        """
+        ctx = MCPHandler._session_manager_context
+        if ctx:
+            logger.info("🧹 [MCP] Cleaning up session manager context...")
+            MCPHandler._session_manager_context = None
+            try:
+                # Try to gracefully close the async generator
+                await ctx.aclose()
+                logger.info("✅ [MCP] Session manager context closed gracefully")
+            except (RuntimeError, BaseExceptionGroup, GeneratorExit) as e:
+                # Expected during shutdown: "Attempted to exit cancel scope in a different task"
+                logger.debug(f"[MCP] Expected shutdown error (harmless): {type(e).__name__}")
+            except Exception as e:
+                logger.debug(f"[MCP] Error closing session manager context: {e}")
+
+        if MCPHandler._session_manager_instance:
+            logger.info("🧹 [MCP] Cleaning up session manager instance...")
+            MCPHandler._session_manager_instance = None
+
         MCPHandler._session_manager_initialized = False
         logger.info("✅ [MCP] Handler cleanup completed")
 
@@ -919,7 +784,7 @@ class RouteBuilder:
             WebSocketRoute("/ws/skill-editor", self.request_handlers.skill_editor_websocket),
             Route('/api/initialize', self.request_handlers.initialize, methods=['POST']),
             Route('/api/avatar', self.request_handlers.serve_avatar, methods=['GET']),
-            Route('/api/rerank', self.request_handlers.ollama_rerank_proxy, methods=['POST'])
+            Route('/api/rerank', self.request_handlers.lightrag_rerank_proxy, methods=['POST'])
         ]
 
     def get_mcp_routes(self):
@@ -1200,6 +1065,26 @@ class ServerManager:
                     app_ws_manager.set_event_loop(loop)
                     logger.info(f"[AppWS] Event loop captured for WebSocket broadcasting")
                     
+                    # Fix sniffio AsyncLibraryNotFoundError by setting the async library context
+                    # This is needed when uvicorn runs in a thread and FileResponse uses anyio
+                    sniffio.current_async_library_cvar.set("asyncio")
+
+                    # Suppress MCP StreamableHTTPSessionManager TaskGroup errors during shutdown.
+                    # These occur because the async generator's TaskGroup is torn down in a different
+                    # task context during event loop cleanup — harmless but noisy.
+                    original_handler = loop.get_exception_handler()
+                    def _shutdown_exception_handler(loop, context):
+                        exc = context.get("exception")
+                        msg = context.get("message", "")
+                        if exc and ("cancel scope" in str(exc) or "StreamableHTTP" in msg or "asyncgen" in msg):
+                            logger.debug(f"[MCP] Suppressed expected shutdown error: {type(exc).__name__}")
+                            return
+                        if original_handler:
+                            original_handler(loop, context)
+                        else:
+                            loop.default_exception_handler(context)
+                    loop.set_exception_handler(_shutdown_exception_handler)
+
                     # 标记服务器就绪
                     self.server_ready.set()
                     

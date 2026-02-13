@@ -43,10 +43,21 @@ export const usePromptStore = create<PromptStoreState>((set, get) => ({
       // Transform GraphQL format to frontend format
       // GraphQL returns: { id, owner, prompt: { title, sections, ... }, version }
       // Frontend expects: { id, title, sections, ... }
+      // Note: AWSJSON fields may come as strings that need parsing
       const incoming = rawPrompts.map((p: any) => {
+        let nested = p.prompt;
+        // AWSJSON may be a string that needs parsing
+        if (typeof nested === 'string') {
+          try {
+            nested = JSON.parse(nested);
+          } catch (e) {
+            console.warn('[promptStore] Failed to parse prompt AWSJSON:', e);
+            nested = null;
+          }
+        }
         // If prompt has nested 'prompt' field (GraphQL format), flatten it
-        if (p.prompt && typeof p.prompt === 'object') {
-          const { prompt: nested, ...rest } = p;
+        if (nested && typeof nested === 'object') {
+          const { prompt: _, ...rest } = p;
           return {
             ...rest,
             ...nested,

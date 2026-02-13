@@ -251,9 +251,13 @@ class EC_Agent(Agent):
 
 	def add_tasks(self, tasks):
 		self.tasks += tasks  # or: self.tasks.extend(tasks)
+		for task in tasks:
+			task.agent_id = self.card.id
 
 	def remove_tasks(self, tasks):
 		self.tasks = [t for t in self.tasks if t not in tasks]
+		for task in tasks:
+			task.agent_id = ""
 
 	def update_tasks(self, tasks):
 		# Replace existing tasks with same ID or append if new
@@ -452,7 +456,7 @@ class EC_Agent(Agent):
 	def _task_done_callback(self, run_id: str, future: concurrent.futures.Future):
 		"""Callback to remove a task from the registry upon completion."""
 		# Keep dev run alive; it manages pause/step/resume explicitly.
-		if run_id == "dev_run_singleton":
+		if run_id == "0123456789":
 			try:
 				_ = future.result()  # raise if task errored, so we can log it
 			except Exception as e:
@@ -956,7 +960,7 @@ class EC_Agent(Agent):
 	def launch_dev_run_task(self, init_state):
 		"""Launches a development run, ensuring any previous dev run is cancelled first."""
 		logger.info("Attempting to launch dev run task...")
-		DEV_RUN_ID = "dev_run_singleton"
+		DEV_RUN_ID = "0123456789"
 
 		try:
 			# Check if a dev run is already active and cancel it

@@ -255,6 +255,7 @@ type GetAllMineResponse @aws_api_key @aws_cognito_user_pools {
   knowledges: [AgentKnowledge!]!
   orgs: [Org!]!
   prompts: [Prompt!]!
+  settings: AWSJSON
   skills: [AgentSkill!]!
   tasks: [Task!]!
   tools: [AgentTool!]!
@@ -364,7 +365,7 @@ type Mutation {
   resumeRunSkill(input: RunControlInput!): RunControlResult
   runCloudTasks(taskIDs: [String]!): AWSJSON!
   runSkill(input: RunSkillInput!): RunControlResult
-  runTest(input: [TestInput]!): AWSJSON!
+  runTest(input: [TestInput]!): AWSJSON! @aws_api_key @aws_cognito_user_pools @aws_iam
   saveEditorCache(input: EditorCacheInput!): EditorCacheSaveResult
   scaffoldSkill(input: SkillScaffoldInput!): SkillScaffoldResult
   sendA2AMessage(input: A2AMessageInput!): A2AMessage! @aws_api_key @aws_cognito_user_pools @aws_iam
@@ -556,7 +557,7 @@ type Query {
   getScene(id: ID!): Scene
   getSceneRequestStatus(request_id: ID!): ReqSceneResponse
   getSceneTemplates(emotion: String!, style: SceneStyle): [SceneTemplate!]!
-  getSettings(ids: [ID!]): AWSJSON!
+  getSettings(ids: [ID!], username: String): AWSJSON!
   getSkillEditorChatHistory(limit: Int, offset: Int, sessionId: ID!): [SkillEditorChatMessage!]!
   getSkillEditorChatSessions(userId: ID!): [SkillEditorChatSession!]!
   getSkillEditorEvents(sessionId: String!, since: AWSDateTime): [SkillEditorEvent!]!
@@ -830,7 +831,7 @@ type Subscription {
   onPuzzleReceived: Puzzle @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["requestPuzzleSolve"])
   onPuzzleResultReceived: PuzzleSolution @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["sendPuzzleSolution"])
   onSceneComplete(acctSiteID: String!): SceneResult @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["publishSceneResult"])
-  onSkillEditorStreamEvent(owner: String!): SkillEditorStreamEvent @aws_subscribe(mutations : ["publishSkillEditorStreamEvent"])
+  onSkillEditorStreamEvent(owner: String!): SkillEditorStreamEvent @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["publishSkillEditorStreamEvent"])
   onStoryUpdate(acctSiteID: String!): Story @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["updateStory"])
   onTaskStatus(runner: String!): TaskStatus @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["publishTaskStatus"])
 }
@@ -1562,6 +1563,7 @@ input RunControlInput {
 }
 
 input RunSkillInput {
+  meta_data: AWSJSON
   skill: AWSJSON!
   username: String
 }
