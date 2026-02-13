@@ -31,11 +31,6 @@ from langchain_core.messages.base import BaseMessage, BaseMessageChunk
 
 
 # ==================== Module-level Constants ====================
-# Thinking control system instruction (used in SystemMessage)
-THINKING_SUPPRESSION_INSTRUCTION = (
-    "You must respond directly without using <think> tags, reasoning steps, or internal monologue. "
-    "Provide only the final answer or action."
-)
 
 
 # ==================== Helper Functions ====================
@@ -650,7 +645,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         hard_timeout_config = str(hard_timeout_val).lower() in ('true', '1', 'yes', 'on') if hard_timeout_val else False
     except Exception:
         pass
-    # Prefer explicit provider; infer from apiHost if absent
+    # Get explicit provider from frontend (guaranteed by form-meta.tsx)
     raw_provider = None
     try:
         raw_provider = ((inputs.get("modelProvider") or {}).get("content")
@@ -711,40 +706,70 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         user_prompt_template = get_prompt_content(user_prompt_id, resolved_user_prompt)
     else:
         user_prompt_template = resolved_user_prompt
-    # Infer provider when not explicitly set
-    def _infer_provider(host: str, model: str) -> str:
+    # Normalize provider names dynamically from llm_manager
+    # This automatically syncs with gui/config/llm_providers.json
+    def _get_provider_mapping() -> dict:
+        """
+        Dynamically build provider mapping from llm_manager.
+        Maps all known name variants (name, display_name, class_name, provider_id)
+        to the canonical provider_id. No hardcoded provider list needed.
+        
+        Returns:
+            Dictionary mapping various provider name formats to canonical provider identifiers
+        """
         try:
-            h = (host or "").lower()
-            m = (model or "").lower()
-            if "anthropic" in h or m.startswith("claude"):
-                return "anthropic"
-            if "google" in h or "generativeai" in h or m.startswith("gemini"):
-                return "google"
-            return "openai"
-        except Exception:
-            return "openai"
+            from gui.ipc.w2p_handlers.llm_handler import get_llm_manager
+            llm_manager = get_llm_manager()
+            
+            if not llm_manager:
+                logger.warning("[build_llm_node] LLM manager not available, using fallback mapping")
+                return {}
+            
+            providers = llm_manager.get_all_providers()
+            mapping = {}
+            
+            for provider in providers:
+                # Get canonical provider identifier (e.g., "openai", "deepseek")
+                provider_id = (provider.get("provider") or "").lower()
+                if not provider_id:
+                    continue
+                
+                # Map provider identifier to itself
+                mapping[provider_id] = provider_id
+                
+                # Map display name to provider identifier (e.g., "OpenAI" -> "openai")
+                name = (provider.get("name") or "").lower()
+                if name:
+                    mapping[name] = provider_id
+                
+                # Map display_name if different from name
+                display_name = (provider.get("display_name") or "").lower()
+                if display_name and display_name != name:
+                    mapping[display_name] = provider_id
+                
+                # Map class_name for backward compatibility (e.g., "ChatOpenAI" -> "openai")
+                class_name = (provider.get("class_name") or "").lower()
+                if class_name:
+                    mapping[class_name] = provider_id
+            
+            logger.debug(f"[build_llm_node] Built provider mapping with {len(mapping)} entries from llm_manager")
+            return mapping
+            
+        except Exception as e:
+            logger.warning(f"[build_llm_node] Failed to build provider mapping from llm_manager: {e}")
+            return {}
+    
+    # Get dynamic provider mapping from llm_manager
+    # Resolves any name variant (name/display_name/class_name/provider_id) → canonical provider_id
+    provider_mapping = _get_provider_mapping()
 
-    model_provider = raw_provider or _infer_provider(api_host, model_name)
+    # Resolve raw_provider (e.g. "DeepSeek", "Qwen (DashScope)") to canonical provider_id (e.g. "deepseek", "dashscope")
+    # Frontend is responsible for always passing correct modelProvider via form-meta.tsx
+    model_provider = provider_mapping.get((raw_provider or "").lower(), raw_provider or "openai")
     llm_provider = (model_provider or "openai").lower()
-
-    # Normalize provider names (handle spaces in provider names)
-    # Map frontend provider names to backend identifiers
-    provider_mapping = {
-        'azure openai': 'azure',
-        'anthropic claude': 'anthropic',
-        'aws bedrock': 'bedrock',
-        'google gemini': 'google',
-        'qwen (dashscope)': 'qwen',
-        'ollama (local)': 'ollama',
-        'bytedance doubao': 'bytedance',
-        'dashscope/qwen': 'dashscope',
-        'baidu qianfan': 'baidu_qianfan',
-        '百度千帆': 'baidu_qianfan',
-    }
+    
     logger.info(f"llm config: system_prompt_template='{system_prompt_template}' user_prompt_template='{user_prompt_template}' ")
     logger.info(f"llm config: model_name={model_name} api_host={api_host} api_key={api_key} model_provider={model_provider} llm_provider={llm_provider}")
-
-    llm_provider = provider_mapping.get(llm_provider, llm_provider)
 
     # This is the actual function that will be executed as the node in the graph
     def llm_node_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
@@ -1234,46 +1259,6 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
             # so far we have get API key, LLM model setup among difference possible choices.
 
-            # ==================== Unified Thinking Control (Prompt Injection) ====================
-            # Apply thinking control via prompt injection for all providers when disabled
-            # Note: Qwen also uses extra_body parameter (set during LLM creation above) as primary control,
-            #       but prompt injection provides additional reinforcement
-            def apply_thinking_control_prompt(use_thinking: bool, context_messages: list):
-                """
-                Apply thinking control via SystemMessage for all providers.
-                Adds suppression instruction to SystemMessage when thinking is disabled.
-                
-                Args:
-                    use_thinking: Whether to enable thinking mode
-                    context_messages: List of messages to modify
-                
-                Note: Using SystemMessage keeps user messages clean and follows best practices
-                """
-                if not use_thinking:
-                    suppression_text = THINKING_SUPPRESSION_INSTRUCTION.strip()
-                    
-                    # Find existing SystemMessage or create new one
-                    system_msg_found = False
-                    if context_messages and len(context_messages) > 0:
-                        # Check if first message is SystemMessage
-                        if isinstance(context_messages[0], SystemMessage):
-                            # Append to existing SystemMessage
-                            original_content = context_messages[0].content
-                            context_messages[0].content = original_content + "\n\n" + suppression_text
-                            system_msg_found = True
-                            logger.info(f"[LLM] Applied thinking suppression to existing SystemMessage")
-                    
-                    # If no SystemMessage exists, create one at the beginning
-                    if not system_msg_found:
-                        context_messages.insert(0, SystemMessage(content=suppression_text))
-                        logger.info(f"[LLM] Created new SystemMessage with thinking suppression")
-                else:
-                    logger.debug(f"[LLM] Thinking enabled (no suppression)")
-            
-            # Apply thinking control (modifies recent_context in-place)
-            apply_thinking_control_prompt(node_use_thinking, recent_context)
-            # ==================== End Thinking Control ====================
-
             # Log LLM configuration for debugging
             log_msg = f"🔧 LLM Config (node_config): provider={llm_provider}, model={model_name}, temperature={temperature}, use_thinking={node_use_thinking}"
             logger.info(log_msg)
@@ -1539,6 +1524,14 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                                      "Please check your API key configuration.")
                     logger.error(f"{err_msg} | Original error: {error_str}")
                     send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
+                elif "Error code: 402" in error_str or "Insufficient Balance" in error_str or "insufficient balance" in error_str.lower():
+                    err_msg = (f"💰 {llm_provider} 余额不足 (Insufficient Balance): "
+                                     f"您的 {llm_provider} API 账户余额已用尽，无法继续调用。"
+                                     f"请前往 {llm_provider} 平台充值后再试。")
+                    logger.error(f"{err_msg}")
+                    logger.error(f"[BALANCE_ERROR] Provider: {llm_provider}, Model: {model_name}")
+                    logger.error(f"[BALANCE_ERROR] API Host: {api_host or 'default'}")
+                    send_skill_editor_log("error", err_msg)
                 elif "RateLimitError" in error_type or "rate limit" in error_str.lower() or "quota" in error_str.lower():
                     err_msg = (f"❌ LLM Rate Limit Exceeded: {llm_provider} quota exhausted or rate limit reached. "
                                      "Please check your usage limits.")
@@ -3365,7 +3358,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             from browser_use import Agent as BUAgent
             from browser_use.browser.profile import BrowserProfile
             from agent.ec_skills.browser_use_extension.extension_tools_service import custom_controller
-            # from browser_use.browser.context import BrowserContext as BUBrowserContext
+            # from browser_use.browser.context import BUBrowserContext as BUBrowserContext
+            
+            # Patch navigation timeout to reduce "Page readiness timeout" warnings
+            # browser_use hardcodes 4s cross-domain / 2s same-domain, which is too short for many sites
+            from agent.ec_skills.browser_use_extension.session_patch import patch_navigation_timeout
+            patch_navigation_timeout(cross_domain_timeout=10.0, same_domain_timeout=5.0)
             log_msg = f"🤖 Executing node Browser Automation node: {node_name}"
             logger.debug(log_msg)
             send_skill_editor_log("log", log_msg)
@@ -3829,8 +3827,9 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             from agent.ec_skills.llm_utils.llm_utils import create_browser_use_llm, create_browser_use_llm_by_provider_type
             
             llm = None
+            
             if node_llm_provider and node_model_name:
-                # Node editor has specific provider/model selected - use those
+                # Node editor has specific provider/model selected - use those (no fallback)
                 logger.info(f"[BrowserAutomation] Using node-specific LLM: provider={node_llm_provider}, model={node_model_name}")
                 
                 # Get API key and base_url from mainwin's config for this provider
@@ -3845,7 +3844,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         logger.debug(f"[BrowserAutomation] provider_dict keys: {list(provider_dict.keys())}")
                         
                         # Use extract_provider_config to get configuration
-                        config = extract_provider_config(provider_dict, config_manager=config_manager)
+                        # Pass node_model_name to ensure node-specified model takes priority over global default
+                        config = extract_provider_config(provider_dict, config_manager=config_manager, node_model_name=node_model_name)
                         logger.info(f"[BrowserAutomation] extract_provider_config returned: {config is not None}")
                         logger.debug(f"[BrowserAutomation] config keys: {list(config.keys()) if config else 'None'}")
                         
@@ -3856,27 +3856,81 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         
                         logger.debug(f"[BrowserAutomation] api_key: {'***' if api_key else 'None'}, base_url: {base_url}")
                         
+                        # Use standard provider_type from config (not display name)
+                        # This ensures we pass the correct provider ID (e.g., 'dashscope' not 'qwen (dashscope)')
+                        provider_type_id = config.get('provider_type')
+                        logger.debug(f"[BrowserAutomation] Using provider_type: {provider_type_id} (from config, not display name: {node_llm_provider})")
+                        
                         # Use node-selected model, not the default from config
                         llm = create_browser_use_llm_by_provider_type(
-                            provider_type=node_llm_provider.lower(),
+                            provider_type=provider_type_id,
                             model_name=node_model_name,
                             api_key=api_key,
                             base_url=base_url,
                             mainwin=mainwin
                         )
-                        logger.info(f"[BrowserAutomation] Created LLM with node settings: provider={node_llm_provider}, model={node_model_name}")
+                        
+                        if llm is None:
+                            # Don't fallback - raise error to surface the problem
+                            raise ValueError(
+                                f"Failed to create LLM with provider '{provider_type_id}' (display: {node_llm_provider}), "
+                                f"model '{node_model_name}'. Check API key and base_url configuration."
+                            )
+                        
+                        logger.info(f"[BrowserAutomation] ✅ Created LLM with node settings: provider={node_llm_provider}, model={node_model_name}")
                     else:
-                        logger.warning(f"[BrowserAutomation] Provider '{node_llm_provider}' not found in config, falling back to default")
+                        error_msg = f"Provider '{node_llm_provider}' not found in config. Please check provider name in node settings."
+                        logger.error(f"[BrowserAutomation] ❌ {error_msg}")
+                        raise ValueError(error_msg)
                 except Exception as e:
-                    logger.warning(f"[BrowserAutomation] Failed to create LLM from node settings: {e}, falling back to default")
+                    error_msg = (
+                        f"Failed to create LLM with node settings:\n"
+                        f"  Provider: {node_llm_provider}\n"
+                        f"  Model: {node_model_name}\n"
+                        f"  Error: {str(e)}\n\n"
+                        f"Please check:\n"
+                        f"  1. Provider name is correct in node settings\n"
+                        f"  2. Model name is correct and belongs to the provider\n"
+                        f"  3. API key is configured in Settings > LLM Management\n"
+                        f"  4. Base URL is correct (if using local/custom provider)"
+                    )
+                    logger.error(f"[BrowserAutomation] ❌ {error_msg}")
+                    raise ValueError(error_msg) from e
             
-            # Fall back to mainwin's default LLM configuration
-            if not llm:
-                logger.info("[BrowserAutomation] Using mainwin default LLM configuration")
-                llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True)
+            else:
+                # No node-specific settings - use global default LLM
+                logger.info("[BrowserAutomation] No node-specific LLM settings, using global default LLM")
+                try:
+                    llm = create_browser_use_llm(mainwin=mainwin, skip_playwright_check=True)
+                    if llm:
+                        logger.info("[BrowserAutomation] ✅ Using global default LLM")
+                    else:
+                        error_msg = (
+                            "Failed to create LLM from global default settings.\n\n"
+                            "Please configure a default LLM in Settings > LLM Management:\n"
+                            "  1. Select a provider (OpenAI, DeepSeek, Qwen, etc.)\n"
+                            "  2. Enter API key\n"
+                            "  3. Set as default provider"
+                        )
+                        logger.error(f"[BrowserAutomation] ❌ {error_msg}")
+                        raise ValueError(error_msg)
+                except Exception as e:
+                    error_msg = (
+                        f"Failed to create LLM from global default settings:\n"
+                        f"  Error: {str(e)}\n\n"
+                        f"Please check Settings > LLM Management:\n"
+                        f"  1. Verify default provider is set\n"
+                        f"  2. Verify API key is configured\n"
+                        f"  3. Verify base URL is correct (if using local provider)"
+                    )
+                    logger.error(f"[BrowserAutomation] ❌ {error_msg}")
+                    raise ValueError(error_msg) from e
             
+            # Final validation
             if not llm:
-                raise ValueError("Failed to create browser_use LLM. Please configure LLM provider API key in Settings.")
+                error_msg = "LLM creation failed. This should not happen - please report this bug."
+                logger.error(f"[BrowserAutomation] ❌ {error_msg}")
+                raise ValueError(error_msg)
 
             controller = custom_controller
                         
@@ -3891,19 +3945,27 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             from config.app_settings import app_settings
             disable_extensions = app_settings.is_dev_mode
             
-            # Create browser profile with extensions control
+            # Create browser profile with extensions control and persistent user_data_dir
             # Note: BrowserProfile uses enable_default_extensions (not disable_extensions)
-            browser_profile = BrowserProfile(enable_default_extensions=not disable_extensions)
+            # Auto-assign persistent user_data_dir so login state survives restarts
+            profile_settings = _get_browser_profile_settings(node_profile)
+            _bp_user_data_dir = profile_settings.get('user_data_dir', '') if profile_settings else ''
+            if not _bp_user_data_dir:
+                from utils.user_path_helper import ensure_user_data_dir
+                import re as _re
+                _bp_id = profile_settings.get('id') or profile_settings.get('name') or node_profile or 'default'
+                _bp_safe_id = _re.sub(r'[^\w\-]', '_', str(_bp_id))
+                _bp_user_data_dir = ensure_user_data_dir(subdir=os.path.join('browser_profiles', _bp_safe_id))
+                logger.info(f"[BrowserAutomation] Auto-assigned user_data_dir: {_bp_user_data_dir}")
+            browser_profile = BrowserProfile(
+                enable_default_extensions=not disable_extensions,
+                user_data_dir=_bp_user_data_dir,
+            )
             logger.info(f"[BrowserAutomation] Extensions {'disabled (dev mode)' if disable_extensions else 'enabled (production mode)'}")
            
             if browser_profile:
                 agent_kwargs['browser_profile'] = browser_profile
             
-            # Apply thinking control via extend_system_message (BEST PRACTICE)
-            # This keeps user task clean and puts constraint in SystemMessage
-            if not node_use_thinking:
-                agent_kwargs['extend_system_message'] = THINKING_SUPPRESSION_INSTRUCTION.strip()
-                logger.info("[BrowserAutomation] Applied thinking suppression via extend_system_message")
             
             logger.info(f"[BrowserAutomation] Agent kwargs: {agent_kwargs}")
             logger.debug("[BROWSER USE]Agent task:", task)
@@ -3995,7 +4057,8 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             err_msg = get_traceback(e, "ErrorBuildBrowserAutomationNode")
             logger.error(err_msg)
             send_skill_editor_log("error", err_msg)
-            return {"error": str(err_msg)}
+            # Re-raise the exception so LangGraph can mark the node as failed
+            raise RuntimeError(f"Browser automation failed: {str(e)}") from e
 
     def _auto(state: dict, *, runtime=None, store=None, **kwargs):
         # Use the pre-resolved prompts from build time (when cloud context was available)
@@ -4182,7 +4245,13 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             resolve_async_operation(task, correlation_id, error=str(e))
                     except Exception:
                         pass
-                info = {"error": f"browser-use run failed: {e}"}
+                
+                # Log error and push to frontend
+                error_msg = f"browser-use run failed: {e}"
+                logger.error(f"[BrowserAutomation] {error_msg}")
+                send_skill_editor_log("error", f"❌ [BrowserAutomation] {error_msg}")
+                
+                info = {"error": error_msg}
             state.setdefault("tool_result", {})
             # state["tool_result"][node_name] = {
             state["tool_result"] = {

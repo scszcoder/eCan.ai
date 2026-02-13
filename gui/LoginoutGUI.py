@@ -151,11 +151,22 @@ class Login:
                     logger.info("[Login] Web mode detected - skipping MainWindow launch")
                     self._update_progress(100, "Web session ready")
                 else:
-                    # Start async task to create MainWindow
+                    # Start async task to create MainWindow using the main event loop
                     try:
-                        asyncio.create_task(self._async_launch_main_window(request))
+                        # Use the main event loop from AppContext to ensure task is scheduled correctly
+                        loop = AppContext.main_loop
+                        if loop and loop.is_running():
+                            asyncio.run_coroutine_threadsafe(
+                                self._async_launch_main_window(request), 
+                                loop
+                            )
+                            logger.info("[Login] MainWindow launch task scheduled successfully")
+                        else:
+                            logger.error("[Login] Main event loop not available or not running")
+                            return {'success': False, 'error': 'System not ready - event loop unavailable'}
                     except Exception as e:
                         logger.error(f"[Login] Failed to start async main window launch: {e}")
+                        return {'success': False, 'error': f'Failed to launch main window: {str(e)}'}
                 
                 return {'success': True, 'message': 'Authentication successful'}
             else:

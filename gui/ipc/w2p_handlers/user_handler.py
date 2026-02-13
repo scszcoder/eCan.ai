@@ -208,7 +208,9 @@ def handle_get_last_login(request: IPCRequest, params: Optional[Any]) -> IPCResp
         else:
             result = login.handleGetLastLogin()
 
-        logger.info("last saved user info:", result)
+        # Mask sensitive fields before logging
+        safe_result = {k: ('***' if k == 'password' and v else v) for k, v in result.items()} if isinstance(result, dict) else result
+        logger.info(f"last saved user info: {safe_result}")
         return create_success_response(request, {
             'last_login': result,
             'message': auth_messages.get_message('get_last_login_success')

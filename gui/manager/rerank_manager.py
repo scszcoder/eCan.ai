@@ -43,28 +43,32 @@ class RerankManager:
         self.config_manager = config_manager
         self._checking_provider = False  # Flag to prevent recursion
         
-        # Load and merge Ollama models at initialization
+        # Load and merge Ollama and RyoAIS models at initialization
         # This ensures consistency with LLMManager and prepares for future validation
-        self._load_and_merge_ollama_models()
+        self._load_and_merge_local_provider_models()
     
-    def _load_and_merge_ollama_models(self):
+    def _load_and_merge_local_provider_models(self):
         """
-        Load ollama_tags.json and merge models into Ollama provider's supported_models.
+        Load local provider models (Ollama, RyoAIS) and merge into providers' supported_models.
         
         Note: Rerank uses proxy mechanism, but we load models for consistency.
         """
         try:
             from gui.ollama_utils import merge_ollama_models_to_config_providers
+            from gui.ryoais_utils import merge_ryoais_models_to_config_providers
             from gui.config.rerank_config import rerank_config
             
             # Get all providers as dict
             all_providers = rerank_config.get_all_providers()
             
-            # Use the unified merge function (auto-loads ollama_tags)
+            # Merge Ollama models
             merge_ollama_models_to_config_providers(all_providers, provider_type='rerank')
             
+            # Merge RyoAIS models
+            merge_ryoais_models_to_config_providers(all_providers, provider_type='rerank')
+            
         except Exception as e:
-            logger.warning(f"[RerankManager] Failed to load Ollama models during init: {e}")
+            logger.warning(f"[RerankManager] Failed to load local provider models during init: {e}")
     
     # API Key Management Methods - Using Environment Variables
     
@@ -294,12 +298,20 @@ class RerankManager:
             # Validate configuration
             validation = rerank_config.validate_provider_config(provider_name)
             
-            # For Ollama, use base_url from settings.json if available (user preference)
+            # For Ollama and RyoAIS, use base_url from settings.json if available (user preference)
             base_url = provider_config.base_url
             if 'ollama' in provider_config.name.lower() or 'ollama' in provider_config.provider.value.lower():
                 try:
                     from gui.manager.provider_settings_helper import get_ollama_base_url
-                    settings_base_url = get_ollama_base_url('rerank', provider_config)
+                    settings_base_url = get_ollama_base_url('rerank', provider_config, provider_identifier='ollama')
+                    if settings_base_url and settings_base_url.strip():
+                        base_url = settings_base_url
+                except Exception:
+                    pass
+            elif 'ryoais' in provider_config.name.lower() or 'ryoais' in provider_config.provider.value.lower():
+                try:
+                    from gui.manager.provider_settings_helper import get_ollama_base_url
+                    settings_base_url = get_ollama_base_url('rerank', provider_config, provider_identifier='ryoais')
                     if settings_base_url and settings_base_url.strip():
                         base_url = settings_base_url
                 except Exception:

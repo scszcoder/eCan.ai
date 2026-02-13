@@ -703,6 +703,9 @@ export class IPCAPI {
         if (awsSecretAccessKey) {
             params.aws_secret_access_key = awsSecretAccessKey;
         }
+        if (baseUrl) {
+            params.base_url = baseUrl;
+        }
         return apiRouter.execute({ method: 'update_llm_provider' }, params);
     }
 
@@ -885,6 +888,9 @@ export class IPCAPI {
         if (azureEndpoint) {
             params.azure_endpoint = azureEndpoint;
         }
+        if (baseUrl) {
+            params.base_url = baseUrl;
+        }
         return apiRouter.execute({ method: 'update_embedding_provider' }, params);
     }
 
@@ -1010,6 +1016,9 @@ export class IPCAPI {
         if (azureEndpoint) {
             params.azure_endpoint = azureEndpoint;
         }
+        if (baseUrl) {
+            params.base_url = baseUrl;
+        }
         return apiRouter.execute({ method: 'update_rerank_provider' }, params);
     }
 
@@ -1062,6 +1071,10 @@ export class IPCAPI {
 
     public async getOllamaModels<T>(host: string, username?: string): Promise<APIResponse<T>> {
         return apiRouter.execute({ method: 'settings.getOllamaModels' }, { host, username });
+    }
+
+    public async getRyoAISModels<T>(host: string, username?: string): Promise<APIResponse<T>> {
+        return apiRouter.execute({ method: 'settings.getRyoAISModels' }, { host, username });
     }
 
     public async runTest<T>(tests: TestConfig[]): Promise<APIResponse<T>> {
@@ -1235,24 +1248,6 @@ export class IPCAPI {
     );
     }
 
-    public async runAgentTask<T>(username: string, params: { task_id: string; cloud_based?: boolean; skill_id?: string; skill?: any }): Promise<APIResponse<T>> {
-        return apiRouter.execute(
-      {
-        method: 'run_agent_task'
-      },
-      { username, ...params }
-    );
-    }
-
-    public async refreshAgentTaskStatus<T>(username: string, task_id: string): Promise<APIResponse<T>> {
-        return apiRouter.execute(
-      {
-        method: 'refresh_agent_task_status'
-      },
-      { username, task_id }
-    );
-    }
-
     public async saveAgentSkill<T>(username: string, skill_info: T): Promise<APIResponse<void>> {
         // GraphQL mutation expects input: [SkillUpdateInput!]!
         // Note: owner is NOT in SkillUpdateInput schema - backend gets it from identity claims
@@ -1297,15 +1292,9 @@ export class IPCAPI {
     );
     }
 
-    public async runSkill<T>(username: string, skill: T, metaData?: any): Promise<APIResponse<void>> {
-        // AWSJSON as direct variable needs stringified JSON
+    public async runSkill<T>(username: string, skill: T): Promise<APIResponse<void>> {
+        // skill must be JSON-stringified for AWSJSON type in GraphQL schema
         const skillJson = typeof skill === 'string' ? skill : JSON.stringify(skill);
-        // meta_data is required (AWSJSON!), default to empty object if not provided
-        const metaDataValue = metaData || {};
-        const metaDataJson = typeof metaDataValue === 'string' ? metaDataValue : JSON.stringify(metaDataValue);
-        console.log('[IPCAPI.runSkill] username:', username);
-        console.log('[IPCAPI.runSkill] skillJson length:', skillJson?.length);
-        console.log('[IPCAPI.runSkill] metaData:', metaDataValue);
         return apiRouter.execute(
       {
         method: 'run_skill',
@@ -1314,7 +1303,7 @@ export class IPCAPI {
           resultPath: 'runSkill'
         }
       },
-      { username, skill: skillJson, meta_data: metaDataJson }
+      { input: { username, skill: skillJson } }
     );
     }
 
@@ -1328,7 +1317,7 @@ export class IPCAPI {
           resultPath: 'cancelRunSkill'
         }
       },
-      { username, skill: skillJson }
+      { input: { username, skill: skillJson } }
     );
     }
 
@@ -1342,7 +1331,7 @@ export class IPCAPI {
           resultPath: 'pauseRunSkill'
         }
       },
-      { username, skill: skillJson }
+      { input: { username, skill: skillJson } }
     );
     }
 
@@ -1356,7 +1345,7 @@ export class IPCAPI {
           resultPath: 'resumeRunSkill'
         }
       },
-      { username, skill: skillJson }
+      { input: { username, skill: skillJson } }
     );
     }
 
@@ -1370,7 +1359,7 @@ export class IPCAPI {
           resultPath: 'stepRunSkill'
         }
       },
-      { username, skill: skillJson }
+      { input: { username, skill: skillJson } }
     );
     }
 
@@ -1401,8 +1390,6 @@ export class IPCAPI {
     }
 
     public async requestSkillState<T>(username: string, skill: T): Promise<APIResponse<void>> {
-        // skill must be JSON-stringified for AWSJSON type in GraphQL schema
-        const skillJson = typeof skill === 'string' ? skill : JSON.stringify(skill);
         return apiRouter.execute(
       {
         method: 'request_skill_state',
@@ -1411,13 +1398,11 @@ export class IPCAPI {
           resultPath: 'requestSkillState'
         }
       },
-      {username, skill: skillJson}
+      {username, skill}
     );
     }
 
     public async injectSkillState<T>(username: string, skill: T): Promise<APIResponse<void>> {
-        // skill must be JSON-stringified for AWSJSON type in GraphQL schema
-        const skillJson = typeof skill === 'string' ? skill : JSON.stringify(skill);
         return apiRouter.execute(
       {
         method: 'inject_skill_state',
@@ -1426,13 +1411,11 @@ export class IPCAPI {
           resultPath: 'injectSkillState'
         }
       },
-      {username, skill: skillJson}
+      {username, skill}
     );
     }
 
     public async loadSkillSchemas<T>(username: string, skill: T): Promise<APIResponse<void>> {
-        // skill must be JSON-stringified for AWSJSON type in GraphQL schema
-        const skillJson = typeof skill === 'string' ? skill : JSON.stringify(skill);
         return apiRouter.execute(
       {
         method: 'load_skill_schemas',
@@ -1441,22 +1424,20 @@ export class IPCAPI {
           resultPath: 'loadSkillSchemas'
         }
       },
-      {username, skill: skillJson}
+      {username, skill}
     );
     }
 
     public async saveSettings<T>(value: T): Promise<APIResponse<void>> {
-        // Wrap the payload as [AWSJSON] for the updateSettings mutation
-        const payload = typeof value === 'string' ? value : JSON.stringify(value);
         return apiRouter.execute(
       {
         method: 'save_settings',
         graphql: {
-          mutation: GRAPHQL_MUTATIONS.UPDATE_SETTINGS,
-          resultPath: 'updateSettings'
+          mutation: GRAPHQL_MUTATIONS.UPDATE_AGENTS,
+          resultPath: 'updateAgents'
         }
       },
-      { input: [payload] }
+      value
     );
     }
 
@@ -1669,16 +1650,19 @@ export class IPCAPI {
     );
 
         // Transform getAllMine response to initialization progress format
-        // If we got data from getAllMine, initialization is complete
+        // Respect the backend's actual progress values — do NOT override ui_ready/fully_ready.
+        // The backend returns accurate progress (e.g., ui_ready: false when MainWindow isn't created).
+        // Only set defaults for fields that are missing from the response.
         if (response.success && response.data) {
+            const data = response.data;
             const initProgress = {
-                ...response.data,
-                ui_ready: true,
-                critical_services_ready: true,
-                async_init_complete: true,
-                fully_ready: true,  // Data loaded = fully ready
-                sync_init_complete: true,
-                message: 'Initialization complete'
+                ui_ready: data.ui_ready ?? false,
+                critical_services_ready: data.critical_services_ready ?? false,
+                async_init_complete: data.async_init_complete ?? false,
+                fully_ready: data.fully_ready ?? false,
+                sync_init_complete: data.sync_init_complete ?? false,
+                message: data.message ?? 'Checking initialization...',
+                ...data,  // Preserve any extra fields from backend
             };
             return {
                 success: true,

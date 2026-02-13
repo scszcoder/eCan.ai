@@ -799,7 +799,91 @@ def _create_no_proxy_http_client():
         return None, None
 
 
-def extract_provider_config(provider, config_manager=None):
+def _select_model_with_priority(
+    supported_models,
+    original_provider_model,
+    provider_name,
+    node_model_name=None,
+    config_manager=None,
+    is_pydantic=False
+):
+    """
+    Helper function to select model with priority: node_model_name > user_selected_model > provider default.
+    
+    Args:
+        supported_models: List of supported models (Pydantic objects or dicts)
+        original_provider_model: Provider's default model
+        provider_name: Provider name for logging
+        node_model_name: Optional model from node configuration (highest priority)
+        config_manager: Optional ConfigManager for user-selected model
+        is_pydantic: True if supported_models are Pydantic objects, False if dicts
+    
+    Returns:
+        Tuple of (model_name, selected_model_config)
+    """
+    model_name = original_provider_model
+    selected_model_config = None
+    
+    def matches_model(model, target_name):
+        """Check if model matches target name (works for both Pydantic and dict)"""
+        if is_pydantic:
+            return (target_name == model.model_id or 
+                    target_name == model.name or
+                    target_name == model.display_name)
+        else:
+            model_id = model.get('model_id', '')
+            model_name_key = model.get('name', '')
+            display_name = model.get('display_name', '')
+            return (target_name == model_id or 
+                    target_name == model_name_key or
+                    target_name == display_name)
+    
+    # Priority 1: node_model_name (highest priority)
+    if node_model_name:
+        is_valid_model = False
+        if supported_models:
+            for model in supported_models:
+                if matches_model(model, node_model_name):
+                    is_valid_model = True
+                    selected_model_config = model
+                    break
+        
+        if is_valid_model:
+            logger.debug(f"[extract_provider_config] Using node-specified model: {node_model_name}")
+            model_name = node_model_name
+        else:
+            model_name = original_provider_model
+            logger.warning(
+                f"[extract_provider_config] Node-specified model '{node_model_name}' "
+                f"does not belong to provider '{provider_name}'. Using provider's default model '{model_name}' instead."
+            )
+    
+    # Priority 2: user_selected_model (if no node model)
+    elif config_manager and hasattr(config_manager, 'general_settings'):
+        user_selected_model = config_manager.general_settings.default_llm_model
+        if user_selected_model:
+            is_valid_model = False
+            if supported_models:
+                for model in supported_models:
+                    if matches_model(model, user_selected_model):
+                        is_valid_model = True
+                        selected_model_config = model
+                        break
+            
+            if is_valid_model:
+                logger.debug(f"[extract_provider_config] Using user-selected model: {user_selected_model} (instead of {model_name})")
+                model_name = user_selected_model
+            else:
+                model_name = original_provider_model
+                logger.warning(
+                    f"[extract_provider_config] User-selected model '{user_selected_model}' "
+                    f"does not belong to provider '{provider_name}'. Using provider's default model '{model_name}' instead."
+                )
+    
+    return model_name, selected_model_config
+
+
+def extract_provider_config(provider, config_manager=None, node_model_name=None):
     """
     Extract common configuration from provider (dict or LLMProvider object).
     
@@ -810,10 +894,11 @@ def extract_provider_config(provider, config_manager=None):
     Args:
         provider: Either a dict or LLMProvider instance
         config_manager: Optional ConfigManager to get user-selected model (overrides provider's default)
+        node_model_name: Optional model name from node configuration (highest priority)
     
     Returns:
         Dict with:
-            - model_name: The model to use (user-selected or provider default)
+            - model_name: The model to use (node-specified > user-selected > provider default)
             - api_key: The API key
             - base_url: The base URL (if applicable)
             - provider_type: The provider type (openai, deepseek, etc.)
@@ -839,46 +924,28 @@ def extract_provider_config(provider, config_manager=None):
         # Get current model name (may include preferred_model from user settings)
         model_name = provider.get_model_name()
         
-        # Get supports_vision from model config (default True if not found)
+        # Select model with priority: node_model_name > user_selected_model > provider default
+        model_name, selected_model_config = _select_model_with_priority(
+            supported_models=provider.supported_models,
+            original_provider_model=original_provider_model,
+            provider_name=provider.name,
+            node_model_name=node_model_name,
+            config_manager=config_manager,
+            is_pydantic=True
+        )
+        
+        # Get supports_vision from selected model config
         supports_vision = True  # Default to True
-        if provider.supported_models:
+        if selected_model_config:
+            supports_vision = getattr(selected_model_config, 'supports_vision', True)
+        elif provider.supported_models:
+            # Find current model in supported_models
             for model in provider.supported_models:
                 if (model.model_id == model_name or 
                     model.name == model_name or
                     model.display_name == model_name):
                     supports_vision = getattr(model, 'supports_vision', True)
                     break
-        
-        # Override with user-selected model if available and valid for this provider
-        if config_manager and hasattr(config_manager, 'general_settings'):
-            user_selected_model = config_manager.general_settings.default_llm_model
-            if user_selected_model:
-                # Validate that user-selected model belongs to this provider
-                is_valid_model = False
-                selected_model_config = None
-                if provider.supported_models:
-                    # Check if model_id or name matches
-                    for model in provider.supported_models:
-                        if (user_selected_model == model.model_id or 
-                            user_selected_model == model.name or
-                            user_selected_model == model.display_name):
-                            is_valid_model = True
-                            selected_model_config = model
-                            break
-                
-                if is_valid_model:
-                    logger.debug(f"[extract_provider_config] Using user-selected model: {user_selected_model} (instead of {model_name})")
-                    model_name = user_selected_model
-                    # Update supports_vision from selected model
-                    if selected_model_config:
-                        supports_vision = getattr(selected_model_config, 'supports_vision', True)
-                else:
-                    # Use the original provider default model, not preferred_model (which may be from wrong provider)
-                    model_name = original_provider_model
-                    logger.warning(
-                        f"[extract_provider_config] User-selected model '{user_selected_model}' "
-                        f"does not belong to provider '{provider.name}'. Using provider's default model '{model_name}' instead."
-                    )
         
         return {
             'model_name': model_name,
@@ -923,37 +990,15 @@ def extract_provider_config(provider, config_manager=None):
     
     # Get supports_vision from model config (default True if not found)
     supports_vision = True  # Default to True
-    selected_model_config = None
-    
-    # Override with user-selected model if available and valid for this provider (for dict-based providers)
-    if config_manager and hasattr(config_manager, 'general_settings'):
-        user_selected_model = config_manager.general_settings.default_llm_model
-        if user_selected_model:
-            # Validate that user-selected model belongs to this provider
-            is_valid_model = False
-            if supported_models:
-                # Check if model_id or name matches
-                for model in supported_models:
-                    model_id = model.get('model_id', '')
-                    model_name_key = model.get('name', '')
-                    display_name = model.get('display_name', '')
-                    if (user_selected_model == model_id or 
-                        user_selected_model == model_name_key or
-                        user_selected_model == display_name):
-                        is_valid_model = True
-                        selected_model_config = model
-                        break
-            
-            if is_valid_model:
-                logger.debug(f"[extract_provider_config] Using user-selected model: {user_selected_model} (instead of {model_name})")
-                model_name = user_selected_model
-            else:
-                # Use the original provider default model, not preferred_model (which may be from wrong provider)
-                model_name = original_provider_model
-                logger.warning(
-                    f"[extract_provider_config] User-selected model '{user_selected_model}' "
-                    f"does not belong to provider '{provider_name}'. Using provider's default model '{model_name}' instead."
-                )
+    # Select model with priority: node_model_name > user_selected_model > provider default
+    model_name, selected_model_config = _select_model_with_priority(
+        supported_models=supported_models,
+        original_provider_model=original_provider_model,
+        provider_name=provider_name,
+        node_model_name=node_model_name,
+        config_manager=config_manager,
+        is_pydantic=False
+    )
     
     # Get supports_vision from the selected/current model config
     if selected_model_config:
@@ -1006,6 +1051,8 @@ def extract_provider_config(provider, config_manager=None):
             provider_type = 'openai'
         elif 'ollama' in provider_name or 'chatollama' == class_name:
             provider_type = 'ollama'
+        elif 'ryoais' in provider_name:
+            provider_type = 'ryoais'
         elif 'anthropic' in provider_name or 'claude' in provider_name or 'chatanthropic' == class_name:
             provider_type = 'anthropic'
         elif 'azure' in provider_name or 'azureopenai' == class_name:
@@ -1381,12 +1428,40 @@ def _create_llm_instance(provider, config_manager=None, allow_no_api_key=False):
             
             return llm_instance
         
+        # Check for RyoAIS - use ChatOpenAI with OpenAI-compatible API
+        elif 'ryoais' in provider_name.lower():
+            model_name = model_name or 'qwen2.5-72b-instruct'
+            
+            logger.info(f"[RyoAIS] Starting RyoAIS LLM creation - base_url from config: {base_url}")
+            
+            # RyoAIS already uses /v1 endpoint format
+            base_url = base_url.rstrip('/') if base_url else 'http://localhost/v1'
+            
+            logger.info(f"[RyoAIS] Creating ChatOpenAI with model={model_name}, base_url={base_url}")
+            
+            # Get API key from secure store (same as other providers)
+            from gui.manager.provider_settings_helper import get_ollama_api_key
+            ryoais_api_key = get_ollama_api_key('llm', provider_identifier='ryoais')
+            
+            llm_instance = ChatOpenAI(
+                model=model_name,
+                api_key=ryoais_api_key,
+                base_url=base_url,
+                temperature=0
+            )
+            
+            logger.info(f"[RyoAIS] Successfully created RyoAIS LLM instance")
+            logger.info(f"[RyoAIS] Instance details - model: {llm_instance.model_name}, base_url: {llm_instance.openai_api_base if hasattr(llm_instance, 'openai_api_base') else 'N/A'}")
+            
+            return llm_instance
+        
         else:
             logger.warning(f"Unknown provider type: {provider_name} (class_name: {class_name}, provider: {provider_type})")
             return None
             
     except Exception as e:
-        logger.error(f"Error creating LLM instance for {provider.get('name')}: {e}")
+        provider_name = getattr(provider, 'name', None) or (provider.get('name') if isinstance(provider, dict) else 'unknown')
+        logger.error(f"Error creating LLM instance for {provider_name}: {e}")
         return None
 
 
@@ -1412,6 +1487,7 @@ def is_provider_browser_use_compatible(provider_type: str) -> bool:
         'deepseek', 
         'dashscope', 
         'ollama', 
+        'ryoais',
         'qwen', 
         'qwq',
         'zhipuai',
@@ -1439,8 +1515,12 @@ def get_browser_use_supported_providers() -> list:
         'deepseek',
         'dashscope',
         'ollama',
+        'ryoais',
         'qwen',
-        'qwq'
+        'qwq',
+        'zhipuai',
+        'bytedance',
+        'baidu_qianfan'
     ]
 
 
@@ -1456,9 +1536,10 @@ def _get_logging_browser_use_class():
     try:
         from functools import wraps
         from browser_use.llm import ChatOpenAI as BrowserUseChatOpenAI
+        from agent.ec_skills.llm_utils.output_cleaner import clean_llm_output
         
         class LoggingBrowserUseChatOpenAI(BrowserUseChatOpenAI):
-            """BrowserUseChatOpenAI with custom logging for all LLM responses."""
+            """BrowserUseChatOpenAI with custom logging and generic output cleaning for all LLM responses."""
             
             def __init__(self, *args, **kwargs):
                 """Initialize with all parent class parameters."""
@@ -1480,7 +1561,7 @@ def _get_logging_browser_use_class():
                     except AttributeError:
                         pass
                     
-                    # Log LLM response
+                    # Log and apply generic output cleaning for ALL providers
                     try:
                         if hasattr(response, 'choices') and response.choices and len(response.choices) > 0:
                             message = response.choices[0].message
@@ -1488,10 +1569,18 @@ def _get_logging_browser_use_class():
                                 content = message.content
                                 logger.debug(f"[BrowserUse] Received LLM response, length: {len(content)}")
                                 logger.debug(f"[BrowserUse] LLM Response preview: {content[:200]}...")
+                                
+                                # Apply generic cleaning (markdown blocks, think tags, JSON extraction)
+                                # Safe for all providers - only removes formatting artifacts
+                                cleaned = clean_llm_output(content)
+                                if cleaned != content:
+                                    logger.info(f"[BrowserUse] 🧹 Applied generic output cleaning (original: {len(content)}, cleaned: {len(cleaned)})")
+                                    logger.debug(f"[BrowserUse] Cleaned preview: {cleaned[:200]}...")
+                                    message.content = cleaned
                             else:
                                 logger.debug(f"[BrowserUse] LLM response has no content")
                     except Exception as e:
-                        logger.error(f"[BrowserUse] ❌ Failed to log response: {e}", exc_info=True)
+                        logger.error(f"[BrowserUse] ❌ Failed to log/clean response: {e}", exc_info=True)
                     
                     return response
                 
@@ -1526,6 +1615,19 @@ def _create_and_validate_browser_use_llm(bu_config: dict):
         # Extract special config flags
         adapt_deepseek_output = bu_config.pop('adapt_deepseek_output', False)
         adapt_qwen_output = bu_config.pop('adapt_qwen_output', False)
+        # Save provider_type_id before removing it (needed for guided_json detection)
+        provider_type_id = bu_config.get('provider_type_id', '')
+        # Remove provider_type_id (not a valid LLM param)
+        bu_config.pop('provider_type_id', None)
+        
+        # Remove extra_body parameter - BrowserUseChatOpenAI doesn't support it
+        # This parameter is used for standard LangChain ChatOpenAI (e.g., Qwen thinking control)
+        # but browser_use's ChatOpenAI wrapper doesn't accept it
+        if 'extra_body' in bu_config:
+            extra_body_value = bu_config.pop('extra_body')
+            logger.debug(
+                f"[_create_and_validate_browser_use_llm] Removed unsupported 'extra_body' parameter: {extra_body_value}"
+            )
         
         # Get the logging wrapper class
         LoggingBrowserUseChatOpenAI = _get_logging_browser_use_class()
@@ -1551,13 +1653,32 @@ def _create_and_validate_browser_use_llm(bu_config: dict):
         if adapt_qwen_output:
             try:
                 from agent.ec_skills.browser_use_extension.qwen_adapter import wrap_qwen_llm
-                llm_instance = wrap_qwen_llm(llm_instance)
-                logger.info("[_create_and_validate_browser_use_llm] ✅ Applied Qwen/Ollama output format adapter")
+                
+                # Check if this is RyoAIS (vLLM) - enable guided_json for strict JSON output
+                # Note: provider_type_id was saved earlier before being removed from bu_config
+                enable_guided_json = (provider_type_id == 'ryoais')
+                
+                if enable_guided_json:
+                    logger.info("[_create_and_validate_browser_use_llm] Detected RyoAIS/vLLM - enabling guided_json")
+                    llm_instance = wrap_qwen_llm(llm_instance, enable_guided_json=True)
+                    logger.info("[_create_and_validate_browser_use_llm] ✅ Applied Qwen adapter with vLLM guided_json")
+                else:
+                    llm_instance = wrap_qwen_llm(llm_instance, enable_guided_json=False)
+                    logger.info("[_create_and_validate_browser_use_llm] ✅ Applied Qwen/Ollama output format adapter")
             except Exception as e:
                 logger.warning(f"[_create_and_validate_browser_use_llm] Failed to apply Qwen output adapter: {e}")
         
-        # Validate it's actually BrowserUseChatOpenAI (should always be true if creation succeeded)
+        # Validate it's BrowserUseChatOpenAI or an adapter-wrapped instance
+        # Adapters (DeepSeekCompatibleLLM, QwenCompatibleLLM) wrap BrowserUseChatOpenAI
+        # and are fully compatible with browser-use
         if isinstance(llm_instance, BrowserUseChatOpenAI):
+            return llm_instance
+        elif adapt_deepseek_output or adapt_qwen_output:
+            # If adapter was applied, accept the wrapped instance
+            logger.info(
+                f"[_create_and_validate_browser_use_llm] ✅ Returning adapter-wrapped LLM "
+                f"({type(llm_instance).__name__})"
+            )
             return llm_instance
         else:
             logger.warning(
@@ -1633,15 +1754,34 @@ def create_browser_use_llm_by_provider_type(
             'base_url': None
         }
     
+    # Validate provider_type is a standard ID (lowercase, no spaces, no special chars except underscore)
+    # Standard IDs: openai, dashscope, deepseek, ollama, etc.
+    # NOT display names like "Qwen (DashScope)" or "ChatGLM (Zhipu AI)"
+    import re
+    provider_type_clean = provider_type.lower().strip()
+    
+    if not re.match(r'^[a-z0-9_]+$', provider_type_clean):
+        logger.error(
+            f"[create_browser_use_llm_by_provider_type] Invalid provider_type '{provider_type}'. "
+            f"Must be a standard provider ID (lowercase, no spaces, no special chars). "
+            f"Examples: 'openai', 'dashscope', 'deepseek', 'ollama'. "
+            f"NOT display names like 'Qwen (DashScope)'. "
+            f"Please ensure extract_provider_config() returns the 'provider_type' field (standard ID)."
+        )
+        return None
+    
+    # Use the clean provider_type directly (no complex normalization needed)
+    provider_type_id = provider_type_clean
+    
     # Check compatibility
-    is_compatible = is_provider_browser_use_compatible(provider_type)
+    is_compatible = is_provider_browser_use_compatible(provider_type_id)
     logger.debug(
-        f"[create_browser_use_llm_by_provider_type] Provider: {provider_type}, "
+        f"[create_browser_use_llm_by_provider_type] Provider ID: {provider_type_id}, "
         f"Model: {model_name}, Compatible: {is_compatible}"
     )
     
     # OpenAI or Azure OpenAI
-    if provider_type in ['openai', 'azure_openai'] or 'openai' in class_name:
+    if provider_type_id in ['openai', 'azure_openai'] or 'openai' in class_name:
         bu_config = {
             'model': model_name or default_config['model'],
             'api_key': api_key or default_config['api_key']
@@ -1651,58 +1791,90 @@ def create_browser_use_llm_by_provider_type(
         
         logger.info(
             f"[create_browser_use_llm_by_provider_type] Creating BrowserUseChatOpenAI "
-            f"for {provider_type}, model: {bu_config['model']}"
+            f"for {provider_type_id}, model: {bu_config['model']}"
         )
         return _create_and_validate_browser_use_llm(bu_config)
     
-    # OpenAI-compatible providers (DeepSeek, DashScope, Ollama, Qwen, Baidu Qianfan, Bytedance, Zhipu AI, etc.)
-    elif provider_type in ['deepseek', 'dashscope', 'ollama', 'qwen', 'qwq', 'baidu_qianfan', 'bytedance', 'zhipuai']:
+    # OpenAI-compatible providers (DeepSeek, DashScope, Ollama, RyoAIS, Qwen, Baidu Qianfan, Bytedance, Zhipu AI, etc.)
+    elif provider_type_id in ['deepseek', 'dashscope', 'ollama', 'ryoais', 'qwen', 'qwq', 'baidu_qianfan', 'bytedance', 'zhipuai']:
         bu_config = {
             'model': model_name or default_config['model'],
             'api_key': api_key or default_config['api_key'] or 'dummy-key',
             'timeout': 180.0  # 3 minutes timeout for slow inference (especially for Ollama/local models)
         }
         
-        # DeepSeek and some other providers don't support response_format (JSON mode)
-        # Set dont_force_structured_output=True to disable structured output for these providers
-        providers_without_structured_output = ['deepseek', 'dashscope', 'qwen', 'qwq', 'baidu_qianfan', 'bytedance', 'zhipuai', 'ollama']
-        if provider_type in providers_without_structured_output:
-            bu_config['dont_force_structured_output'] = True
-            logger.info(f"[create_browser_use_llm_by_provider_type] Disabled structured output for {provider_type} (not supported)")
+        # All major providers support response_format (JSON mode)
+        # Based on official documentation verification (2026-02-06):
+        # ✅ DeepSeek: https://api-docs.deepseek.com/guides/json_mode
+        # ✅ Qwen/DashScope: https://help.aliyun.com/zh/model-studio/qwen-structured-output
+        # ✅ Ollama: https://docs.ollama.com/capabilities/structured-outputs
+        # ✅ Zhipu AI: https://docs.z.ai/guides/capabilities/struct-output
+        # ✅ Baidu Qianfan: https://ai.baidu.com/ai-doc/AISTUDIO/rm344erns
+        # 
+        # JSON mode ensures valid JSON format, but adapters are still needed to:
+        # 1. Filter invalid actions (replace_file, etc.)
+        # 2. Remove extra fields (thinking, thought, etc.)
+        # 
+        # Some providers' JSON schema support is not compatible with browser-use
+        # Use browser-use's standard compatibility mode (official approach)
+        providers_need_compatibility_mode = ['deepseek', 'ollama', 'ryoais', 'qwen', 'qwq', 'dashscope']
         
-        # Enable DeepSeek output format adapter for DeepSeek provider
-        # This adapts DeepSeek's output format to match browser-use schema
-        if provider_type == 'deepseek':
+        if provider_type_id in providers_need_compatibility_mode:
+            # Standard compatibility flags from browser-use
+            bu_config['add_schema_to_system_prompt'] = True  # Add schema to prompt instead of response_format
+            bu_config['dont_force_structured_output'] = True  # Don't force structured output
+            bu_config['remove_min_items_from_schema'] = True  # Remove minItems constraint
+            bu_config['remove_defaults_from_schema'] = True   # Remove default values
+            logger.info(f"[create_browser_use_llm_by_provider_type] Using browser-use standard compatibility mode for {provider_type_id}")
+        else:
+            # Standard mode: use response_format (JSON schema)
+            logger.info(f"[create_browser_use_llm_by_provider_type] Using structured output (response_format) for {provider_type_id}")
+        
+        # Enable output format adapters for specific providers
+        # Adapters perform post-processing after LLM generates output
+        if provider_type_id == 'deepseek':
             bu_config['adapt_deepseek_output'] = True
-            logger.info(f"[create_browser_use_llm_by_provider_type] Enabled DeepSeek output format adapter")
-        
-        # Enable Qwen/Ollama output format adapter
-        # This fixes common Qwen output issues (numeric keys, markdown blocks, XML tags)
-        if provider_type in ['ollama', 'qwen', 'qwq']:
+            logger.info(f"[create_browser_use_llm_by_provider_type] Enabled DeepSeek adapter (post-process to filter invalid actions)")
+        elif provider_type_id in ['ollama', 'ryoais', 'qwen', 'qwq', 'dashscope']:
             bu_config['adapt_qwen_output'] = True
-            logger.info(f"[create_browser_use_llm_by_provider_type] Enabled Qwen/Ollama output format adapter")
-            logger.info(f"[create_browser_use_llm_by_provider_type] Set timeout=180s for {provider_type} (slow inference support)")
+            # Store provider_type_id for guided_json detection
+            bu_config['provider_type_id'] = provider_type_id
+            logger.info(f"[create_browser_use_llm_by_provider_type] Enabled Qwen/Ollama adapter (post-process to filter invalid actions)")
+            logger.info(f"[create_browser_use_llm_by_provider_type] Set timeout=180s for {provider_type_id} (slow inference support)")
                 
         if base_url:
-            # Special handling for Ollama: convert native URL to OpenAI-compatible endpoint
-            if provider_type == 'ollama':
+            logger.debug(f"[create_browser_use_llm_by_provider_type] Before conversion: provider_type_id={provider_type_id}, base_url={base_url}")
+            # Special handling for Ollama and RyoAIS: convert native URL to OpenAI-compatible endpoint
+            if provider_type_id in ['ollama', 'ryoais']:
                 base_url = base_url.rstrip('/')
                 if not base_url.endswith('/v1'):
                     base_url = f"{base_url}/v1"
-                    logger.debug(f"[create_browser_use_llm_by_provider_type] Converted Ollama URL to OpenAI-compatible: {base_url}")
+                    logger.info(f"[create_browser_use_llm_by_provider_type] Converted {provider_type_id} URL to OpenAI-compatible: {base_url}")
+                else:
+                    logger.debug(f"[create_browser_use_llm_by_provider_type] {provider_type_id} URL already has /v1 suffix: {base_url}")
             bu_config['base_url'] = base_url
+            logger.debug(f"[create_browser_use_llm_by_provider_type] After conversion: base_url={base_url}")
         
         logger.info(
             f"[create_browser_use_llm_by_provider_type] Creating BrowserUseChatOpenAI "
-            f"for {provider_type} (OpenAI-compatible), model: {bu_config['model']}"
+            f"for {provider_type_id} (OpenAI-compatible), model: {bu_config['model']}"
         )
+        
+        # Log compatibility flags for debugging
+        compat_flags = {
+            'add_schema_to_system_prompt': bu_config.get('add_schema_to_system_prompt'),
+            'dont_force_structured_output': bu_config.get('dont_force_structured_output'),
+            'remove_min_items_from_schema': bu_config.get('remove_min_items_from_schema'),
+            'remove_defaults_from_schema': bu_config.get('remove_defaults_from_schema'),
+        }
+        logger.info(f"[create_browser_use_llm_by_provider_type] Compatibility flags: {compat_flags}")
         
         # Check if this is a domestic API that needs proxy bypass
         # Domestic APIs (DashScope, DeepSeek, Baidu Qianfan, Bytedance) may have proxy restrictions
         # Optimization: Only creates no-proxy clients if proxy is actually configured
         domestic_apis_need_direct = ['dashscope', 'qwen', 'qwq', 'deepseek', 'baidu_qianfan', 'bytedance']
         
-        if provider_type in domestic_apis_need_direct:
+        if provider_type_id in domestic_apis_need_direct:
             # Create no-proxy httpx clients (sync + async, thread-safe, doesn't modify global env vars)
             # Optimization: Only creates if proxy is configured
             # Note: browser-use requires AsyncClient for http_client parameter (despite the name)
@@ -1712,7 +1884,7 @@ def create_browser_use_llm_by_provider_type(
             if async_client:
                 # Proxy is configured - use no-proxy ASYNC client (bypass proxy for domestic APIs)
                 logger.debug(
-                    f"[create_browser_use_llm_by_provider_type] Using no-proxy async client for {provider_type} "
+                    f"[create_browser_use_llm_by_provider_type] Using no-proxy async client for {provider_type_id} "
                     f"(proxy detected, bypassing for domestic API)"
                 )
                 # browser-use requires AsyncClient (operates in async context)
@@ -1721,7 +1893,7 @@ def create_browser_use_llm_by_provider_type(
             else:
                 # No proxy configured - use default clients (more efficient, direct connection)
                 logger.debug(
-                    f"[create_browser_use_llm_by_provider_type] No proxy configured for {provider_type}, "
+                    f"[create_browser_use_llm_by_provider_type] No proxy configured for {provider_type_id}, "
                     f"using default clients (direct connection)"
                 )
                 return _create_and_validate_browser_use_llm(bu_config)
@@ -1731,9 +1903,9 @@ def create_browser_use_llm_by_provider_type(
     
     # Non-OpenAI-compatible providers (Anthropic, Google, Bedrock)
     # Try to create BrowserUseChatOpenAI with provider's data, fallback if fails
-    elif provider_type in ['anthropic', 'google', 'bedrock']:
+    elif provider_type_id in ['anthropic', 'google', 'bedrock']:
         logger.warning(
-            f"[create_browser_use_llm_by_provider_type] Provider '{provider_type}' is not natively "
+            f"[create_browser_use_llm_by_provider_type] Provider '{provider_type_id}' is not natively "
             f"supported by browser_use, attempting workaround"
         )
         
@@ -1748,20 +1920,20 @@ def create_browser_use_llm_by_provider_type(
         if llm_instance is not None:
             logger.info(
                 f"[create_browser_use_llm_by_provider_type] Successfully created BrowserUseChatOpenAI "
-                f"for {provider_type} using workaround, model: {bu_config['model']}"
+                f"for {provider_type_id} using workaround, model: {bu_config['model']}"
             )
             return llm_instance
         else:
             logger.error(
                 f"[create_browser_use_llm_by_provider_type] Failed to create BrowserUseChatOpenAI "
-                f"for {provider_type}"
+                f"for {provider_type_id}"
             )
             return None
     
     # Unknown provider - try OpenAI-compatible mode
     else:
         logger.warning(
-            f"[create_browser_use_llm_by_provider_type] Unknown provider '{provider_type}', "
+            f"[create_browser_use_llm_by_provider_type] Unknown provider '{provider_type_id}', "
             f"attempting OpenAI-compatible mode"
         )
         
@@ -1776,13 +1948,13 @@ def create_browser_use_llm_by_provider_type(
         if llm_instance is not None:
             logger.info(
                 f"[create_browser_use_llm_by_provider_type] Successfully created BrowserUseChatOpenAI "
-                f"for {provider_type} (OpenAI-compatible mode), model: {bu_config['model']}"
+                f"for {provider_type_id} (OpenAI-compatible mode), model: {bu_config['model']}"
             )
             return llm_instance
         else:
             logger.error(
                 f"[create_browser_use_llm_by_provider_type] Failed to create BrowserUseChatOpenAI "
-                f"for {provider_type}"
+                f"for {provider_type_id}"
             )
             return None
 
@@ -1899,7 +2071,8 @@ def create_browser_use_llm(mainwin=None, fallback_llm=None, skip_playwright_chec
                 # Get supports_vision from config (default True if not found)
                 supports_vision = config.get('supports_vision', True)
                 
-                log_msg = f"[create_browser_use_llm] provider_type:{provider_type}, model_name:{model_name}, api_key:{api_key}, base_url:{base_url}, class_name:{class_name}, supports_vision:{supports_vision}"
+                masked_key = (api_key[:8] + '...' + api_key[-4:]) if api_key and len(api_key) > 12 else '***'
+                log_msg = f"[create_browser_use_llm] provider_type:{provider_type}, model_name:{model_name}, api_key:{masked_key}, base_url:{base_url}, class_name:{class_name}, supports_vision:{supports_vision}"
                 logger.debug(log_msg)
                 send_skill_editor_log("log", log_msg)
 

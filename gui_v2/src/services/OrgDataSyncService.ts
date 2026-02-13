@@ -71,12 +71,8 @@ class OrgDataSyncService {
                 companyName = '';
             }
 
-            if (!companyName) {
-                logger.warn('[OrgDataSyncService] ⚠️ No company filter set, skipping org sync');
-                return;
-            }
-
-            logger.info(`[OrgDataSyncService] 🔄 Fetching latest org data for user: ${username}`);
+            // Note: companyName is optional - if not set, backend will return all orgs
+            logger.info(`[OrgDataSyncService] 🔄 Fetching latest org data for user: ${username}${companyName ? `, company: ${companyName}` : ' (all companies)'}`);
 
             // 调用 API Get最新Data
             const response = await get_ipc_api().getAllOrgAgents(username, companyName);

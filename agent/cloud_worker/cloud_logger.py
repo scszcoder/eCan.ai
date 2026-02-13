@@ -229,8 +229,10 @@ class SkillEditorLogger:
             if ipc:
                 try:
                     ipc.send_skill_editor_log(level, message)
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Log error instead of silently failing
+                    logger.error(f"[SkillEditor] Failed to send log via IPC: {e}")
+                    logger.debug(f"[SkillEditor] Failed message: {message[:200]}")
         
         # Also log to standard logger for debugging
         log_fn = getattr(logger, level if level in ("debug", "info", "warning", "error") else "info")

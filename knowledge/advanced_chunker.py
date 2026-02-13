@@ -719,8 +719,8 @@ class UniversalTableChunker:
             content,
             split_by_character=None,
             split_by_character_only=False,
-            overlap_token_size=self.chunk_overlap_token_size,
-            max_token_size=self.chunk_token_size,
+            chunk_overlap_token_size=self.chunk_overlap_token_size,
+            chunk_token_size=self.chunk_token_size,
         )
 
 

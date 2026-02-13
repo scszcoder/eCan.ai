@@ -956,6 +956,37 @@ class WebGUI(QMainWindow):
                 except Exception as e:
                     logger.warning(f"Error stopping LightragServer: {e}")
 
+                # Clean up MCP session manager BEFORE stopping the server
+                # This prevents the TaskGroup "exit cancel scope in different task" error
+                try:
+                    from gui.LocalServer import MCPHandler
+                    import asyncio
+                    try:
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            # Schedule cleanup as a coroutine in the running loop
+                            future = asyncio.run_coroutine_threadsafe(MCPHandler.cleanup(), loop)
+                            future.result(timeout=3)  # Wait up to 3s
+                        else:
+                            loop.run_until_complete(MCPHandler.cleanup())
+                    except Exception as e:
+                        # Fallback: just reset references synchronously
+                        MCPHandler._session_manager_context = None
+                        MCPHandler._session_manager_instance = None
+                        MCPHandler._session_manager_initialized = False
+                        logger.debug(f"MCP cleanup fallback: {e}")
+                    logger.info("🔔 [DEBUG] MCP session manager cleaned up")
+                except Exception as e:
+                    logger.warning(f"Error cleaning up MCP: {e}")
+
+                # Stop local Starlette server (uvicorn)
+                try:
+                    from gui.LocalServer import stop_local_server
+                    stop_local_server()
+                    logger.info("🔔 [DEBUG] Local Starlette server stopped")
+                except Exception as e:
+                    logger.warning(f"Error stopping local server: {e}")
+
                 # Force exit
                 logger.info("Force exiting with os._exit(0)")
                 os._exit(0)

@@ -202,6 +202,21 @@
         "proxy_format": "aliyun",
         "comment": "LightRAG server automatically redirects Ollama rerank to eCan proxy"
       }
+    },
+    "RyoAIS": {
+      "name": "RyoAIS",
+      "display_name": "RyoAIS",
+      "provider": "ryoais",
+      "class_name": "RyoAISRerank",
+      "api_key_env_vars": [
+        "RYOAIS_RERANK_API_KEY"
+      ],
+      "base_url": "http://localhost/v1",
+      "default_model": "",
+      "description": "RyoAIS Rerank - OpenAI-compatible API",
+      "documentation_url": "http://localhost/docs?lang=zh-CN",
+      "is_local": true,
+      "supported_models": []
     }
   },
   "metadata": {
