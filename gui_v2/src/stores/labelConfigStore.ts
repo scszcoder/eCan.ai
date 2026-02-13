@@ -1,6 +1,8 @@
 // stores/labelConfigStore.ts
 import { create } from 'zustand';
-import { IPCAPI } from '../services/ipc/api';
+import { apiRouter } from '../services/api/api-router';
+import type { APIResponse } from '../services/ipc/api';
+import { GRAPHQL_QUERIES, GRAPHQL_MUTATIONS } from '../services/api/api-config';
 
 export interface LabelConfig {
   name: string;
@@ -18,12 +20,45 @@ export interface LabelConfig {
   col_pitch: number;
   _filepath?: string;
   _filename?: string;
+  _source?: string;
 }
 
 export type ConfigSource = 'system' | 'user' | 'custom';
 
 const DEFAULT_CONFIG_KEY = 'labelConfig.defaultId';
 const DEFAULT_CONFIG_ID = 'wl_5422'; // Initial default
+
+/**
+ * Unpack a label config from GraphQL response.
+ * The lambda packs all non-schema fields (unit, dimensions, _source, etc.)
+ * into the `settings` AWSJSON field.
+ * For IPC, the data comes with fields directly on the object.
+ */
+function unpackLabelConfig(raw: any): LabelConfig {
+  if (!raw || typeof raw !== 'object') return raw;
+  // If settings is a JSON string, unpack dimension fields and _source
+  // Handle multiple encoding levels: AppSync AWSJSON may return string or object
+  let extra: any = null;
+  if (typeof raw.settings === 'string') {
+    try {
+      let parsed = JSON.parse(raw.settings);
+      // Handle double-encoding: if parsed result is still a string, parse again
+      if (typeof parsed === 'string') {
+        try { parsed = JSON.parse(parsed); } catch { /* use first parse result */ }
+      }
+      if (parsed && typeof parsed === 'object') {
+        extra = parsed;
+      }
+    } catch { /* ignore parse error */ }
+  } else if (raw.settings && typeof raw.settings === 'object') {
+    // AppSync AWSJSON may also return the object directly
+    extra = raw.settings;
+  }
+  if (extra) {
+    return { ...extra, id: raw.id, name: raw.name || extra.name };
+  }
+  return raw;
+}
 
 interface LabelConfigStoreState {
   systemConfigs: LabelConfig[];
@@ -91,19 +126,38 @@ export const useLabelConfigStore = create<LabelConfigStoreState>((set, get) => (
     console.log('[LabelConfigStore] Fetching label configs from backend...');
     set({ loading: true, error: null });
     try {
-      const response = await IPCAPI.getInstance().executeRequest<{
-        system_configs: LabelConfig[];
-        user_configs: LabelConfig[];
-      }>('label_config.get_all', {});
+      const response: APIResponse<any> = await apiRouter.execute(
+        {
+          method: 'label_config.get_all',
+          graphql: {
+            query: GRAPHQL_QUERIES.GET_LABEL_FORMATS,
+            resultPath: 'getLabelFormats'
+          }
+        },
+        {}
+      );
 
       console.log('[LabelConfigStore] Response:', response);
 
       if (response.success && response.data) {
-        const { system_configs, user_configs } = response.data;
-        console.log('[LabelConfigStore] Loaded', system_configs?.length || 0, 'system configs,', user_configs?.length || 0, 'user configs');
+        let system_configs: LabelConfig[] = [];
+        let user_configs: LabelConfig[] = [];
+
+        if (Array.isArray(response.data)) {
+          // GraphQL path: flat array with _source packed in settings
+          const allConfigs = response.data.map(unpackLabelConfig);
+          system_configs = allConfigs.filter((c: any) => c._source === 'system');
+          user_configs = allConfigs.filter((c: any) => c._source === 'user');
+        } else {
+          // IPC path: { system_configs, user_configs }
+          system_configs = response.data.system_configs || [];
+          user_configs = response.data.user_configs || [];
+        }
+
+        console.log('[LabelConfigStore] Loaded', system_configs.length, 'system configs,', user_configs.length, 'user configs');
         set({
-          systemConfigs: system_configs || [],
-          userConfigs: user_configs || [],
+          systemConfigs: system_configs,
+          userConfigs: user_configs,
           loading: false,
           lastFetched: Date.now(),
         });
@@ -174,11 +228,16 @@ export const useLabelConfigStore = create<LabelConfigStoreState>((set, get) => (
     };
 
     try {
-      const response = await IPCAPI.getInstance().executeRequest<{
-        filepath: string;
-        filename: string;
-        config: LabelConfig;
-      }>('label_config.save', { config: configToSave, overwrite });
+      const exists = get().userConfigs.some(c => c.id === configToSave.id);
+      const mutation = exists ? GRAPHQL_MUTATIONS.UPDATE_LABEL_FORMATS : GRAPHQL_MUTATIONS.ADD_LABEL_FORMATS;
+      const resultPath = exists ? 'UpdateLabelFormats' : 'addLabelFormats';
+      const response: APIResponse<any> = await apiRouter.execute(
+        {
+          method: 'label_config.save',
+          graphql: { mutation, resultPath }
+        },
+        { config: configToSave, overwrite, input: [configToSave] }
+      );
 
       if (response.success && response.data) {
         // Refresh configs to get updated list
@@ -207,9 +266,15 @@ export const useLabelConfigStore = create<LabelConfigStoreState>((set, get) => (
 
   deleteUserConfig: async (id: string) => {
     try {
-      const response = await IPCAPI.getInstance().executeRequest<{ deleted: boolean; id: string }>(
-        'label_config.delete',
-        { id }
+      const response: APIResponse<any> = await apiRouter.execute(
+        {
+          method: 'label_config.delete',
+          graphql: {
+            mutation: GRAPHQL_MUTATIONS.REMOVE_LABEL_FORMATS,
+            resultPath: 'RemoveLabelFormats'
+          }
+        },
+        { id, ids: [id] }
       );
 
       if (response.success) {
@@ -237,16 +302,10 @@ export const useLabelConfigStore = create<LabelConfigStoreState>((set, get) => (
   },
 
   checkNameExists: async (name: string, excludeId?: string) => {
-    try {
-      const response = await IPCAPI.getInstance().executeRequest<{ exists: boolean; name: string }>(
-        'label_config.check_name',
-        { name, exclude_id: excludeId }
-      );
-
-      return response.success && response.data?.exists === true;
-    } catch {
-      return false;
-    }
+    // For web mode, check locally in loaded configs instead of IPC call
+    const { systemConfigs, userConfigs } = get();
+    const allConfigs = [...systemConfigs, ...userConfigs];
+    return allConfigs.some(c => c.name === name && c.id !== excludeId);
   },
 
   setDefaultConfig: (id: string) => {

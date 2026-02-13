@@ -109,6 +109,9 @@ const SUBSCRIPTION_REQUIRED_FIELDS = new Set([
   "addAvatars",
   "updateAvatars",
   "removeAvatars",
+  "addAvatarResources",
+  "updateAvatarResources",
+  "removeAvatarResources",
   "addPrompts",
   "updatePrompts",
   "removePrompts",
@@ -141,6 +144,8 @@ const SUBSCRIPTION_REQUIRED_FIELDS = new Set([
   "getOrgAgentTree",
   "getAvatars",
   "queryAvatars",
+  "getAvatarResources",
+  "queryAvatarResources",
   "getAllMine"
 ]);
 
@@ -310,6 +315,37 @@ async function prepareAvatarUploadTargets({ avatar, ownerEmail, ownerSub, genera
   };
 }
 
+/**
+ * Add presigned GET URLs for avatar S3 objects.
+ * Attaches presigned_image_url and presigned_video_url to each record.
+ * URLs expire in 1 hour (3600s).
+ */
+async function presignAvatarRecords(records, expiresIn = 3600) {
+  if (!Array.isArray(records) || records.length === 0) return records;
+  return Promise.all(records.map(async (r) => {
+    const out = { ...r };
+    try {
+      if (r.cloud_image_key) {
+        out.presigned_image_url = await getSignedUrl(
+          s3,
+          new GetObjectCommand({ Bucket: AVATAR_BUCKET, Key: r.cloud_image_key }),
+          { expiresIn }
+        );
+      }
+      if (r.cloud_video_key) {
+        out.presigned_video_url = await getSignedUrl(
+          s3,
+          new GetObjectCommand({ Bucket: AVATAR_BUCKET, Key: r.cloud_video_key }),
+          { expiresIn }
+        );
+      }
+    } catch (err) {
+      console.warn(`[agentScheduler] presignAvatarRecords: failed for id=${r.id}:`, err.message);
+    }
+    return out;
+  }));
+}
+
 function normalizeEmailForPath(email) {
   if (!email) return "unknown";
   return email.replace(/[@.]/g, "_");
@@ -343,11 +379,66 @@ async function listAllObjects(bucket, prefix) {
 }
 
 async function ensureUserSkillFolders(bucket, userPrefix) {
-  const prefixes = ["settings", "prompts", "skills", "contexts", "logs"];
+  const prefixes = ["settings", "prompts", "skills", "contexts", "logs", "my_labels", "my_products", "my_warehouses"];
   await ensurePrefixExists(bucket, userPrefix);
   for (const dir of prefixes) {
     await ensurePrefixExists(bucket, `${userPrefix}${dir}`);
   }
+}
+
+/**
+ * Read all *.json files from an S3 prefix and return parsed objects.
+ * Each object gets _filepath and _filename injected.
+ */
+async function readJsonDir(bucket, prefix) {
+  const keys = await listAllObjects(bucket, prefix);
+  const jsonKeys = keys.filter(k => k.endsWith(".json") && !k.endsWith("/"));
+  const results = [];
+  for (const key of jsonKeys) {
+    try {
+      const res = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+      const raw = await streamToString(res.Body);
+      const parsed = JSON.parse(raw);
+      const obj = Array.isArray(parsed) ? parsed : [parsed];
+      for (const item of obj) {
+        if (item && typeof item === "object") {
+          item._filepath = key;
+          item._filename = key.split("/").pop();
+          results.push(item);
+        }
+      }
+    } catch (err) {
+      console.warn(`[agentScheduler] readJsonDir: skip ${key}: ${err.message}`);
+    }
+  }
+  return results;
+}
+
+/**
+ * Write a JSON item to S3.  Key = prefix/id.json
+ */
+async function writeJsonItem(bucket, prefix, id, data) {
+  const key = `${prefix}/${id}.json`;
+  const clean = { ...data };
+  delete clean._filepath;
+  delete clean._filename;
+  await s3.send(new PutObjectCommand({
+    Bucket: bucket,
+    Key: key,
+    Body: JSON.stringify(clean, null, 2),
+    ContentType: "application/json"
+  }));
+  return key;
+}
+
+/**
+ * Delete a JSON item from S3 by id.
+ */
+async function deleteJsonItem(bucket, prefix, id) {
+  const key = `${prefix}/${id}.json`;
+  const { DeleteObjectCommand } = require("@aws-sdk/client-s3");
+  await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+  return key;
 }
 
 async function copyPublicSettingsToUser(bucket, userPrefix) {
@@ -4238,6 +4329,7 @@ async function processEvent(event, context, callback, test_stub) {
               returnData = deleted;
             }
             break;
+          case "addAvatarResources":
           case "addAvatars":
             {
               const avatarsInput = Array.isArray(event.arguments.input) ? event.arguments.input : [event.arguments.input];
@@ -4277,6 +4369,7 @@ async function processEvent(event, context, callback, test_stub) {
               returnData = created;
             }
             break;
+          case "updateAvatarResources":
           case "updateAvatars":
             {
               const avatarsInput = Array.isArray(event.arguments.input) ? event.arguments.input : [event.arguments.input];
@@ -4319,6 +4412,7 @@ async function processEvent(event, context, callback, test_stub) {
               returnData = updated;
             }
             break;
+          case "removeAvatarResources":
           case "removeAvatars":
             {
               const avatarsInput = Array.isArray(event.arguments.input) ? event.arguments.input : [event.arguments.input];
@@ -4600,106 +4694,219 @@ async function processEvent(event, context, callback, test_stub) {
           case "updateKnowledges":
             returnData = await updateKnowledges(event.arguments.input, owner, callback, logFlag, test_stub);
             break;
+          case "addWareHouses":
           case "addWarehouses":
             {
+              const userDir = normalizeEmailForPath(ownerEmail || owner);
+              await ensureUserSkillFolders(SKILL_BUCKET, `${userDir}/`);
               const items = normalizeInputArray(event.arguments?.input);
-              returnData = items.map((item, idx) => ({
-                id: placeholderId("wh", item?.id, idx),
-                success: true,
-                message: "placeholder"
-              }));
+              const results = [];
+              for (let idx = 0; idx < items.length; idx++) {
+                const item = items[idx];
+                const id = item?.id || `wh_${Date.now()}_${idx}`;
+                const now = new Date().toISOString();
+                const data = { ...item, id, updated_at: now };
+                if (!data.created_at) data.created_at = now;
+                try {
+                  await writeJsonItem(SKILL_BUCKET, `${userDir}/my_warehouses`, id, data);
+                  results.push(data);
+                } catch (err) {
+                  console.error(`[agentScheduler] addWarehouses error for ${id}:`, err);
+                  results.push({ id, name: item?.name || "", status: "error" });
+                }
+              }
+              returnData = results;
             }
             break;
+          case "UpdateWarehouses":
           case "updateWarehouses":
             {
+              const userDir = normalizeEmailForPath(ownerEmail || owner);
               const items = normalizeInputArray(event.arguments?.input);
-              returnData = items.map((item, idx) => {
-                const wid = item?.id || (typeof item === "string" ? item : null);
+              const results = [];
+              for (let idx = 0; idx < items.length; idx++) {
+                const item = items[idx];
+                const wid = item?.id;
                 if (!wid) {
-                  return { id: placeholderId("wh", null, idx), success: false, message: "Missing warehouse id" };
+                  results.push({ id: `wh_unknown_${idx}`, name: "", status: "error" });
+                  continue;
                 }
-                return { id: wid, success: true, message: "placeholder" };
-              });
+                const now = new Date().toISOString();
+                const data = { ...item, id: wid, updated_at: now };
+                try {
+                  await writeJsonItem(SKILL_BUCKET, `${userDir}/my_warehouses`, wid, data);
+                  results.push(data);
+                } catch (err) {
+                  console.error(`[agentScheduler] updateWarehouses error for ${wid}:`, err);
+                  results.push({ id: wid, name: item?.name || "", status: "error" });
+                }
+              }
+              returnData = results;
             }
             break;
+          case "RemoveWareHouses":
           case "removeWarehouses":
             {
-              const items = normalizeInputArray(event.arguments?.input);
-              returnData = items.map((item, idx) => {
-                const wid = typeof item === "string" ? item : item?.id;
+              const userDir = normalizeEmailForPath(ownerEmail || owner);
+              const ids = normalizeInputArray(event.arguments?.ids || event.arguments?.input);
+              const results = [];
+              for (const rawId of ids) {
+                const wid = typeof rawId === "string" ? rawId : rawId?.id;
                 if (!wid) {
-                  return { id: placeholderId("wh", null, idx), success: false, message: "Missing warehouse id" };
+                  results.push({ id: "unknown", success: false, message: "Missing id" });
+                  continue;
                 }
-                return { id: wid, success: true, message: "placeholder" };
-              });
+                try {
+                  await deleteJsonItem(SKILL_BUCKET, `${userDir}/my_warehouses`, wid);
+                  results.push({ id: wid, success: true, message: "Deleted" });
+                } catch (err) {
+                  console.error(`[agentScheduler] removeWarehouses error for ${wid}:`, err);
+                  results.push({ id: wid, success: false, message: err.message });
+                }
+              }
+              returnData = results;
             }
             break;
           case "addLabelFormats":
             {
+              const userDir = normalizeEmailForPath(ownerEmail || owner);
+              await ensureUserSkillFolders(SKILL_BUCKET, `${userDir}/`);
               const items = normalizeInputArray(event.arguments?.input);
-              returnData = items.map((item, idx) => ({
-                id: placeholderId("label", item?.id, idx),
-                success: true,
-                message: "placeholder"
-              }));
+              const results = [];
+              for (let idx = 0; idx < items.length; idx++) {
+                const item = items[idx];
+                const id = item?.id || `label_${Date.now()}_${idx}`;
+                const now = new Date().toISOString();
+                const data = { ...item, id, updated_at: now };
+                if (!data.created_at) data.created_at = now;
+                try {
+                  await writeJsonItem(SKILL_BUCKET, `${userDir}/my_labels`, id, data);
+                  results.push(data);
+                } catch (err) {
+                  console.error(`[agentScheduler] addLabelFormats error for ${id}:`, err);
+                  results.push({ id, name: item?.name || "", status: "error" });
+                }
+              }
+              returnData = results;
             }
             break;
+          case "UpdateLabelFormats":
           case "updateLabelFormats":
             {
+              const userDir = normalizeEmailForPath(ownerEmail || owner);
               const items = normalizeInputArray(event.arguments?.input);
-              returnData = items.map((item, idx) => {
-                const lid = item?.id || (typeof item === "string" ? item : null);
+              const results = [];
+              for (let idx = 0; idx < items.length; idx++) {
+                const item = items[idx];
+                const lid = item?.id;
                 if (!lid) {
-                  return { id: placeholderId("label", null, idx), success: false, message: "Missing label format id" };
+                  results.push({ id: `label_unknown_${idx}`, name: "", status: "error" });
+                  continue;
                 }
-                return { id: lid, success: true, message: "placeholder" };
-              });
+                const now = new Date().toISOString();
+                const data = { ...item, id: lid, updated_at: now };
+                try {
+                  await writeJsonItem(SKILL_BUCKET, `${userDir}/my_labels`, lid, data);
+                  results.push(data);
+                } catch (err) {
+                  console.error(`[agentScheduler] updateLabelFormats error for ${lid}:`, err);
+                  results.push({ id: lid, name: item?.name || "", status: "error" });
+                }
+              }
+              returnData = results;
             }
             break;
+          case "RemoveLabelFormats":
           case "removeLabelFormats":
             {
-              const items = normalizeInputArray(event.arguments?.input);
-              returnData = items.map((item, idx) => {
-                const lid = typeof item === "string" ? item : item?.id;
+              const userDir = normalizeEmailForPath(ownerEmail || owner);
+              const ids = normalizeInputArray(event.arguments?.ids || event.arguments?.input);
+              const results = [];
+              for (const rawId of ids) {
+                const lid = typeof rawId === "string" ? rawId : rawId?.id;
                 if (!lid) {
-                  return { id: placeholderId("label", null, idx), success: false, message: "Missing label format id" };
+                  results.push({ id: "unknown", success: false, message: "Missing id" });
+                  continue;
                 }
-                return { id: lid, success: true, message: "placeholder" };
-              });
+                try {
+                  await deleteJsonItem(SKILL_BUCKET, `${userDir}/my_labels`, lid);
+                  results.push({ id: lid, success: true, message: "Deleted" });
+                } catch (err) {
+                  console.error(`[agentScheduler] removeLabelFormats error for ${lid}:`, err);
+                  results.push({ id: lid, success: false, message: err.message });
+                }
+              }
+              returnData = results;
             }
             break;
           case "addProducts":
             {
+              const userDir = normalizeEmailForPath(ownerEmail || owner);
+              await ensureUserSkillFolders(SKILL_BUCKET, `${userDir}/`);
               const items = normalizeInputArray(event.arguments?.input);
-              returnData = items.map((item, idx) => ({
-                id: placeholderId("prod", item?.id, idx),
-                success: true,
-                message: "placeholder"
-              }));
+              const results = [];
+              for (let idx = 0; idx < items.length; idx++) {
+                const item = items[idx];
+                const id = item?.id || `prod_${Date.now()}_${idx}`;
+                const now = new Date().toISOString();
+                const data = { ...item, id, updated_at: now };
+                if (!data.created_at) data.created_at = now;
+                try {
+                  await writeJsonItem(SKILL_BUCKET, `${userDir}/my_products`, id, data);
+                  results.push(data);
+                } catch (err) {
+                  console.error(`[agentScheduler] addProducts error for ${id}:`, err);
+                  results.push({ id, name: item?.name || "", status: "error" });
+                }
+              }
+              returnData = results;
             }
             break;
           case "updateProducts":
             {
+              const userDir = normalizeEmailForPath(ownerEmail || owner);
               const items = normalizeInputArray(event.arguments?.input);
-              returnData = items.map((item, idx) => {
-                const pid = item?.id || (typeof item === "string" ? item : null);
+              const results = [];
+              for (let idx = 0; idx < items.length; idx++) {
+                const item = items[idx];
+                const pid = item?.id;
                 if (!pid) {
-                  return { id: placeholderId("prod", null, idx), success: false, message: "Missing product id" };
+                  results.push({ id: `prod_unknown_${idx}`, name: "", status: "error" });
+                  continue;
                 }
-                return { id: pid, success: true, message: "placeholder" };
-              });
+                const now = new Date().toISOString();
+                const data = { ...item, id: pid, updated_at: now };
+                try {
+                  await writeJsonItem(SKILL_BUCKET, `${userDir}/my_products`, pid, data);
+                  results.push(data);
+                } catch (err) {
+                  console.error(`[agentScheduler] updateProducts error for ${pid}:`, err);
+                  results.push({ id: pid, name: item?.name || "", status: "error" });
+                }
+              }
+              returnData = results;
             }
             break;
           case "removeProducts":
             {
-              const items = normalizeInputArray(event.arguments?.input);
-              returnData = items.map((item, idx) => {
-                const pid = typeof item === "string" ? item : item?.id;
+              const userDir = normalizeEmailForPath(ownerEmail || owner);
+              const ids = normalizeInputArray(event.arguments?.ids || event.arguments?.input);
+              const results = [];
+              for (const rawId of ids) {
+                const pid = typeof rawId === "string" ? rawId : rawId?.id;
                 if (!pid) {
-                  return { id: placeholderId("prod", null, idx), success: false, message: "Missing product id" };
+                  results.push({ id: "unknown", success: false, message: "Missing id" });
+                  continue;
                 }
-                return { id: pid, success: true, message: "placeholder" };
-              });
+                try {
+                  await deleteJsonItem(SKILL_BUCKET, `${userDir}/my_products`, pid);
+                  results.push({ id: pid, success: true, message: "Deleted" });
+                } catch (err) {
+                  console.error(`[agentScheduler] removeProducts error for ${pid}:`, err);
+                  results.push({ id: pid, success: false, message: err.message });
+                }
+              }
+              returnData = results;
             }
             break;
           case "addInventories":
@@ -5079,12 +5286,36 @@ async function processEvent(event, context, callback, test_stub) {
             break;
           case "getWarehouses":
             {
-              returnData = [];
+              const userDir = normalizeEmailForPath(ownerEmail || owner);
+              await ensureUserSkillFolders(SKILL_BUCKET, `${userDir}/`);
+              const userWarehouses = await readJsonDir(SKILL_BUCKET, `${userDir}/my_warehouses/`);
+              // Pack non-schema fields into notes as JSON for AppSync compatibility
+              const WH_SCHEMA_FIELDS = new Set(["address","code","contact_name","contact_phone","created_at","id","name","notes","status","updated_at"]);
+              for (const w of userWarehouses) {
+                if (!w.id) w.id = (w._filename || "").replace(".json", "");
+                const extra = {};
+                for (const key of Object.keys(w)) {
+                  if (!WH_SCHEMA_FIELDS.has(key)) extra[key] = w[key];
+                }
+                if (Object.keys(extra).length > 0) w.notes = JSON.stringify(extra);
+              }
+              returnData = userWarehouses;
             }
             break;
           case "queryWarehouses":
             {
-              returnData = [];
+              const userDir = normalizeEmailForPath(ownerEmail || owner);
+              const userWarehouses = await readJsonDir(SKILL_BUCKET, `${userDir}/my_warehouses/`);
+              const WH_SCHEMA_FIELDS_Q = new Set(["address","code","contact_name","contact_phone","created_at","id","name","notes","status","updated_at"]);
+              for (const w of userWarehouses) {
+                if (!w.id) w.id = (w._filename || "").replace(".json", "");
+                const extra = {};
+                for (const key of Object.keys(w)) {
+                  if (!WH_SCHEMA_FIELDS_Q.has(key)) extra[key] = w[key];
+                }
+                if (Object.keys(extra).length > 0) w.notes = JSON.stringify(extra);
+              }
+              returnData = userWarehouses;
             }
             break;
           case "getWarehouse":
@@ -5153,12 +5384,63 @@ async function processEvent(event, context, callback, test_stub) {
             break;
           case "getLabelFormats":
             {
-              returnData = [];
+              const userDir = normalizeEmailForPath(ownerEmail || owner);
+              await ensureUserSkillFolders(SKILL_BUCKET, `${userDir}/`);
+              // Read public (system) templates + user's own
+              const [systemLabels, userLabels] = await Promise.all([
+                readJsonDir(SKILL_BUCKET, "public/labels/"),
+                readJsonDir(SKILL_BUCKET, `${userDir}/my_labels/`)
+              ]);
+              for (const l of systemLabels) {
+                if (!l.id) l.id = (l._filename || "").replace(".json", "");
+                l._source = "system";
+              }
+              for (const l of userLabels) {
+                if (!l.id) l.id = (l._filename || "").replace(".json", "");
+                l._source = "user";
+              }
+              // Pack non-schema fields into settings AWSJSON for AppSync compatibility
+              // AWSJSON fields must be a JSON string for Lambda resolvers
+              const LABEL_SCHEMA_FIELDS = new Set(["carrier","created_at","dpi","id","name","service","settings","size","status","template_url","updated_at"]);
+              const allLabels = [...systemLabels, ...userLabels];
+              for (const item of allLabels) {
+                const extra = {};
+                for (const key of Object.keys(item)) {
+                  if (!LABEL_SCHEMA_FIELDS.has(key)) {
+                    extra[key] = item[key];
+                  }
+                }
+                // AppSync AWSJSON: Lambda must return a raw JSON string.
+                // JSON.stringify once is correct — AppSync will NOT re-encode it.
+                // The issue was the client receiving double-escaped strings.
+                // Use the raw object instead: AppSync will serialize it for us.
+                item.settings = extra;
+              }
+              returnData = allLabels;
             }
             break;
           case "queryLabelFormats":
             {
-              returnData = [];
+              const userDir = normalizeEmailForPath(ownerEmail || owner);
+              const [systemLabels, userLabels] = await Promise.all([
+                readJsonDir(SKILL_BUCKET, "public/labels/"),
+                readJsonDir(SKILL_BUCKET, `${userDir}/my_labels/`)
+              ]);
+              for (const l of systemLabels) { if (!l.id) l.id = (l._filename || "").replace(".json", ""); l._source = "system"; }
+              for (const l of userLabels) { if (!l.id) l.id = (l._filename || "").replace(".json", ""); l._source = "user"; }
+              // Pack non-schema fields into settings AWSJSON
+              const LABEL_SCHEMA_FIELDS_Q = new Set(["carrier","created_at","dpi","id","name","service","settings","size","status","template_url","updated_at"]);
+              const allLabelsQ = [...systemLabels, ...userLabels];
+              for (const item of allLabelsQ) {
+                const extra = {};
+                for (const key of Object.keys(item)) {
+                  if (!LABEL_SCHEMA_FIELDS_Q.has(key)) {
+                    extra[key] = item[key];
+                  }
+                }
+                item.settings = extra;
+              }
+              returnData = allLabelsQ;
             }
             break;
           case "getLabelFormat":
@@ -5169,12 +5451,36 @@ async function processEvent(event, context, callback, test_stub) {
             break;
           case "getProducts":
             {
-              returnData = [];
+              const userDir = normalizeEmailForPath(ownerEmail || owner);
+              await ensureUserSkillFolders(SKILL_BUCKET, `${userDir}/`);
+              const userProducts = await readJsonDir(SKILL_BUCKET, `${userDir}/my_products/`);
+              // Pack non-schema fields into attributes AWSJSON
+              const PRODUCT_SCHEMA_FIELDS = new Set(["attributes","barcode","created_at","description","dimensions_cm","id","name","sku","status","updated_at","weight_grams"]);
+              for (const p of userProducts) {
+                if (!p.id) p.id = (p._filename || "").replace(".json", "");
+                const extra = {};
+                for (const key of Object.keys(p)) {
+                  if (!PRODUCT_SCHEMA_FIELDS.has(key)) extra[key] = p[key];
+                }
+                p.attributes = extra;
+              }
+              returnData = userProducts;
             }
             break;
           case "queryProducts":
             {
-              returnData = [];
+              const userDir = normalizeEmailForPath(ownerEmail || owner);
+              const userProducts = await readJsonDir(SKILL_BUCKET, `${userDir}/my_products/`);
+              const PRODUCT_SCHEMA_FIELDS_Q = new Set(["attributes","barcode","created_at","description","dimensions_cm","id","name","sku","status","updated_at","weight_grams"]);
+              for (const p of userProducts) {
+                if (!p.id) p.id = (p._filename || "").replace(".json", "");
+                const extra = {};
+                for (const key of Object.keys(p)) {
+                  if (!PRODUCT_SCHEMA_FIELDS_Q.has(key)) extra[key] = p[key];
+                }
+                p.attributes = extra;
+              }
+              returnData = userProducts;
             }
             break;
           case "getProduct":
@@ -5226,10 +5532,15 @@ async function processEvent(event, context, callback, test_stub) {
                 returnData = result;
               }
               break;
+          case "getAvatarResources":
           case "getAvatars":
             {
-              const avatars = await avatarService.getAvatarResourcesByOwner(owner);
-              returnData = avatars;
+              // Return both public (system) avatars and user's own avatars
+              const [publicAvatars, userAvatars] = await Promise.all([
+                avatarService.getAvatarResourcesByOwner("public"),
+                avatarService.getAvatarResourcesByOwner(owner)
+              ]);
+              returnData = await presignAvatarRecords([...publicAvatars, ...userAvatars]);
             }
             break;
           case "getSettings":
@@ -5317,7 +5628,14 @@ async function processEvent(event, context, callback, test_stub) {
                 return [];
               });
               
-              const avatars = await safeList("avatars", () => avatarService.getAvatarResourcesByOwner(owner));
+              const avatars = await safeList("avatars", async () => {
+                // Include both public (system) avatars and user's own avatars
+                const [publicAvatars, userAvatars] = await Promise.all([
+                  avatarService.getAvatarResourcesByOwner("public"),
+                  avatarService.getAvatarResourcesByOwner(owner)
+                ]);
+                return presignAvatarRecords([...publicAvatars, ...userAvatars]);
+              });
               const vehicles = await safeList("vehicles", async () => {
                 const all = await vehicleService.queryVehicles({ id: null, name: null, description: null });
                 return owner ? all.filter(v => v.owner === owner) : all;
@@ -5351,12 +5669,17 @@ async function processEvent(event, context, callback, test_stub) {
               };
             }
             break;
+          case "queryAvatarResources":
           case "queryAvatars":
             {
-              const qArg = event.arguments?.qa || {};
+              // Accept input: AvatarQueryInput (schema) OR legacy qb/qa string
+              let qArg = event.arguments?.input || event.arguments?.qb || event.arguments?.qa || {};
+              if (typeof qArg === "string") {
+                try { qArg = JSON.parse(qArg); } catch (_e) { qArg = {}; }
+              }
               const ownerFilter = qArg.owner || owner;
               const avatars = await avatarService.getAvatarResourcesByOwner(ownerFilter, qArg.resource_type);
-              returnData = avatars;
+              returnData = await presignAvatarRecords(avatars);
             }
             break;
           default:
@@ -5418,11 +5741,13 @@ exports.handler = async (event, context, callback) => {
   console.log("event: " + JSON.stringify(event));
   
   // there are two ways this can be called? 1) with cognito authorization 2) self-generated api key authorization
-  if (('claims' in event.identity) && ('sourceIp' in event.identity)) {
+  if (event.identity && ('claims' in event.identity) && ('sourceIp' in event.identity)) {
     entranceInfo= {email:event.identity.claims.email, ip:event.identity.sourceIp, input:event.info.fieldName, reqId:context.awsRequestId};
-  } else {
+  } else if (event.request && event.request.headers) {
     
     entranceInfo= {email:event.request.headers['x-api-caller'], ip:event.request.headers['x-client-ip'], input:event.info.fieldName, reqId:context.awsRequestId};
+  } else {
+    entranceInfo= {email:'unknown', ip:'unknown', input:event.info?.fieldName || 'unknown', reqId:context.awsRequestId};
   }
 
   console.log("entrance: " + JSON.stringify(entranceInfo));

@@ -28,6 +28,7 @@ const Orgs = React.lazy(() => import('../pages/Orgs/Orgs'));
 const Warehouses = React.lazy(() => import('../pages/Warehouses/Warehouses'));
 const Products = React.lazy(() => import('../pages/Products/Products'));
 const Prompts = React.lazy(() => import('../pages/Prompts/Prompts'));
+const Avatars = React.lazy(() => import('../pages/Avatars/Avatars'));
 const Account = React.lazy(() => import('../pages/Account/Account'));
 const PaymentPlan = React.lazy(() => import('../pages/Account/PaymentPlan'));
 const ShippingLabel = React.lazy(() => import('../pages/ShippingLabel/ShippingLabel'));
@@ -187,6 +188,11 @@ export const protectedRoutes: RouteConfig[] = [
             {
                 path: 'prompts',
                 element: <LazyWrapper><Prompts /></LazyWrapper>,
+                keepAlive: true,
+            },
+            {
+                path: 'avatars',
+                element: <LazyWrapper><Avatars /></LazyWrapper>,
                 keepAlive: true,
             },
             {
