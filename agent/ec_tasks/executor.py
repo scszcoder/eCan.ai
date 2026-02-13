@@ -25,6 +25,17 @@ if TYPE_CHECKING:
 # Default timeout for waiting on pending events at workflow end
 DEFAULT_PENDING_EVENTS_TIMEOUT = 300  # 5 minutes
 
+# Maximum characters for verbose log output
+MAX_LOG_CHARS = 1000
+
+
+def _truncate_for_log(obj: Any, max_chars: int = MAX_LOG_CHARS) -> str:
+    """Truncate object representation for logging if it exceeds max_chars."""
+    obj_str = str(obj)
+    if len(obj_str) > max_chars:
+        return obj_str[:max_chars] + f"... (truncated, total length: {len(obj_str)} chars)"
+    return obj_str
+
 
 def _create_message(role: str, text: str) -> "Message":
     """Create an A2A Message with required message_id field."""
@@ -226,6 +237,24 @@ class TaskExecutor:
                 pass
         
         return node_name
+    
+    def is_step_node_output(self, step: dict) -> bool:
+        """
+        Check if a step contains the final output of a completed node.
+        
+        A step is considered a node output if it contains keys other than
+        the special metadata/control keys (__metadata__, require_user_input, etc.).
+        
+        Args:
+            step: Step output dict from stream.
+            
+        Returns:
+            True if step contains node output, False otherwise.
+        """
+        return any(
+            key for key in step.keys() 
+            if key not in ['__metadata__', 'require_user_input', 'await_agent', '__interrupt__']
+        )
     
     def get_state_values(self, effective_config: dict) -> dict:
         """
@@ -511,9 +540,14 @@ class TaskExecutor:
                 self.task.status.message = _create_message("agent", str(step))
                 
                 # Emit running status with current node
+                # Skip if this step contains the final output of a completed node
+                # (step dict has node name as key with the node's return value)
                 node_name = self.get_node_name_from_step(step, effective_config)
-                st_js = self.get_state_values(effective_config)
-                self.emit_run_status("running", node_name, st_js)
+                
+                if not self.is_step_node_output(step):
+                    # Only emit running status if this is not a node's final output
+                    st_js = self.get_state_values(effective_config)
+                    self.emit_run_status("running", node_name, st_js)
                 
                 # Check for interrupt/input required
                 if step.get("require_user_input") or step.get("await_agent") or step.get("__interrupt__"):
@@ -540,7 +574,7 @@ class TaskExecutor:
                 logger.info("task completed...")
             
             run_result = self.finalize_run(success, step, current_checkpoint, effective_config)
-            logger.debug(f"synced stream_run result: {run_result}")
+            logger.debug(f"synced stream_run result: {_truncate_for_log(run_result)}")
             return run_result
         
         except Exception as e:
@@ -644,9 +678,14 @@ class TaskExecutor:
                 self.task.status.message = _create_message("agent", str(step))
                 
                 # Emit running status with current node
+                # Skip if this step contains the final output of a completed node
+                # (step dict has node name as key with the node's return value)
                 node_name = self.get_node_name_from_step(step, effective_config)
-                st_js = self.get_state_values(effective_config)
-                self.emit_run_status("running", node_name, st_js)
+                
+                if not self.is_step_node_output(step):
+                    # Only emit running status if this is not a node's final output
+                    st_js = self.get_state_values(effective_config)
+                    self.emit_run_status("running", node_name, st_js)
                 
                 # Check for interrupt/input required
                 if step.get("require_user_input") or step.get("await_agent") or step.get("__interrupt__"):

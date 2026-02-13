@@ -178,17 +178,11 @@ export const ActiveSheetBinder = () => {
         if (isSheetSwitch && view?.zoom && currentPlayground?.config?.updateZoom) {
           currentPlayground.config.updateZoom(view.zoom);
         } else {
-          // TEMPORARILY DISABLED: fitView is causing context invalidation that crashes Tools
-          // TODO: Find a way to call fitView without triggering cascading re-renders
-          /*
           // For initial load, refresh, or new file: always fitView
-          // CRITICAL: Use requestAnimationFrame to ensure React has finished its render cycle
-          // before triggering fitView, which causes internal state updates in flowgram
-          // that can invalidate context during React's transitional state.
-          console.log('[ActiveSheetBinder] Scheduling fitView via requestAnimationFrame...');
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              // Double RAF to ensure we're after React's commit phase
+          // Use setTimeout instead of requestAnimationFrame to avoid context invalidation
+          console.log('[ActiveSheetBinder] Scheduling fitView...');
+          setTimeout(() => {
+            try {
               console.log('[ActiveSheetBinder] Executing fitView (initial/refresh)...');
               if (currentTools?.fitView) {
                 currentTools.fitView();
@@ -199,9 +193,10 @@ export const ActiveSheetBinder = () => {
               } else {
                 console.warn('[ActiveSheetBinder] No fitView method available');
               }
-            });
-          });
-          */
+            } catch (err) {
+              console.error('[ActiveSheetBinder] Error executing fitView:', err);
+            }
+          }, 500); // 500ms delay to ensure all nodes are rendered
         }
         initialFitViewDoneRef.current = true;
       } catch (err) {

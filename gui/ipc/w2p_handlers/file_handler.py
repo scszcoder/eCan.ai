@@ -367,6 +367,38 @@ def handle_open_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]]
                 'fileSize': size
             })
 
+        except IOError as e:
+            error_str = str(e)
+            logger.error(f"[SKILL_IO][BACKEND][OPEN_ERROR] {file_path} {error_str}")
+            
+            # Provide user-friendly error message for permission issues
+            error_message = f'Failed to read file: {error_str}'
+            
+            # macOS-specific permission error handling
+            if "Permission denied" in error_str or "[Errno 13]" in error_str:
+                import platform
+                if platform.system() == "Darwin":  # macOS
+                    if "/Downloads/" in file_path or file_path.startswith(os.path.expanduser("~/Downloads")):
+                        error_message = (
+                            "无法读取 Downloads 文件夹中的文件（权限被拒绝）。\n\n"
+                            "macOS 解决方法：\n"
+                            "1. 使用「文件 → 打开」菜单通过系统对话框选择文件（推荐）\n"
+                            "2. 将文件移动到 Documents 或 Desktop 文件夹\n"
+                            "3. 或在「系统设置 → 隐私与安全性 → 文件和文件夹」中授予 eCan.ai 访问下载文件夹的权限"
+                        )
+                    else:
+                        error_message = (
+                            f"无法读取文件 {os.path.dirname(file_path)}（权限被拒绝）。\n\n"
+                            "建议：\n"
+                            "1. 使用「文件 → 打开」菜单通过系统对话框选择文件\n"
+                            "2. 或在系统设置中授予应用相应的文件夹访问权限"
+                        )
+            
+            return create_error_response(
+                request,
+                'READ_ERROR',
+                error_message
+            )
         except json.JSONDecodeError as e:
             return create_error_response(
                 request,
@@ -459,7 +491,39 @@ def handle_read_skill_file(request: IPCRequest, params: Optional[Dict[str, Any]]
                 'fileName': os.path.basename(file_path),
                 'fileSize': size
             })
+        
+        except IOError as e:
+            error_str = str(e)
+            logger.error(f"[SKILL_IO][BACKEND][READ_ERROR] {file_path} {error_str}")
             
+            # Provide user-friendly error message for permission issues
+            error_message = f'Failed to read file: {error_str}'
+            
+            # macOS-specific permission error handling
+            if "Permission denied" in error_str or "[Errno 13]" in error_str:
+                import platform
+                if platform.system() == "Darwin":  # macOS
+                    if "/Downloads/" in file_path or file_path.startswith(os.path.expanduser("~/Downloads")):
+                        error_message = (
+                            "无法读取 Downloads 文件夹中的文件（权限被拒绝）。\n\n"
+                            "macOS 解决方法：\n"
+                            "1. 使用「文件 → 打开」菜单通过系统对话框选择文件（推荐）\n"
+                            "2. 将文件移动到 Documents 或 Desktop 文件夹\n"
+                            "3. 或在「系统设置 → 隐私与安全性 → 文件和文件夹」中授予 eCan.ai 访问下载文件夹的权限"
+                        )
+                    else:
+                        error_message = (
+                            f"无法读取文件 {os.path.dirname(file_path)}（权限被拒绝）。\n\n"
+                            "建议：\n"
+                            "1. 使用「文件 → 打开」菜单通过系统对话框选择文件\n"
+                            "2. 或在系统设置中授予应用相应的文件夹访问权限"
+                        )
+            
+            return create_error_response(
+                request,
+                'READ_ERROR',
+                error_message
+            )
         except json.JSONDecodeError as e:
             return create_error_response(
                 request,
@@ -658,11 +722,37 @@ def _write_single_file(data: Dict[str, Any]) -> Dict[str, Any]:
             }
             
         except IOError as e:
-            logger.error(f"[SKILL_IO][BACKEND][WRITE_ERROR] {file_path} {str(e)}")
+            error_str = str(e)
+            logger.error(f"[SKILL_IO][BACKEND][WRITE_ERROR] {file_path} {error_str}")
+            
+            # Provide user-friendly error message for permission issues
+            error_message = f'Failed to write file: {error_str}'
+            
+            # macOS-specific permission error handling
+            if "Permission denied" in error_str or "[Errno 13]" in error_str:
+                import platform
+                if platform.system() == "Darwin":  # macOS
+                    if "/Downloads/" in file_path or file_path.startswith(os.path.expanduser("~/Downloads")):
+                        error_message = (
+                            "无法保存到 Downloads 文件夹（权限被拒绝）。\n\n"
+                            "macOS 解决方法：\n"
+                            "1. 使用「另存为」对话框选择保存位置（推荐）\n"
+                            "2. 保存到 Documents 或 Desktop 文件夹\n"
+                            "3. 或在「系统设置 → 隐私与安全性 → 文件和文件夹」中授予 eCan.ai 访问下载文件夹的权限"
+                        )
+                    else:
+                        error_message = (
+                            f"无法保存文件到 {os.path.dirname(file_path)}（权限被拒绝）。\n\n"
+                            "建议：\n"
+                            "1. 使用「另存为」对话框选择有权限的位置\n"
+                            "2. 或在系统设置中授予应用相应的文件夹访问权限"
+                        )
+            
             return {
                 'success': False,
                 'error_code': 'WRITE_ERROR',
-                'error_message': f'Failed to write file: {str(e)}'
+                'error_message': error_message,
+                'original_error': error_str
             }
             
     except Exception as e:

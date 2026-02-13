@@ -212,7 +212,7 @@ class EC_Skill(AgentSkill):
     price_model: str = ""
     public: bool = False
     rentable: bool = False
-    
+
     # Cloud execution settings
     run_in_cloud: bool = False
     hybrid_cloud_mode: bool = False
