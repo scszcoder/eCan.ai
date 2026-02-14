@@ -493,21 +493,26 @@ class CanvasControllerService {
       }
       
       // Update skill info
-      // TEMPORARILY DISABLED: Calling setSkillInfo during loadFlowgram may cause
-      // a re-render cascade that breaks the FreeLayoutEditorProvider context
-      // TODO: Investigate why setSkillInfo causes React error #321
+      // Deferred to next microtask to avoid re-render cascade during loadFlowgram
       if (this.skillInfoStore?.getState) {
         const { setSkillInfo } = this.skillInfoStore.getState();
         if (setSkillInfo) {
-          console.log('[CanvasController] SKIPPING setSkillInfo to test if it causes crash:', { skillName, description });
-          // setSkillInfo({
-          //   skillName,
-          //   description,
-          //   workFlow: {
-          //     nodes: convertedNodes,
-          //     edges: convertedEdges,
-          //   },
-          // });
+          const infoPayload = {
+            skillName,
+            description,
+            workFlow: {
+              nodes: convertedNodes,
+              edges: convertedEdges,
+            },
+          };
+          queueMicrotask(() => {
+            try {
+              setSkillInfo(infoPayload);
+              console.log('[CanvasController] setSkillInfo applied:', { skillName, description });
+            } catch (err) {
+              console.warn('[CanvasController] setSkillInfo error (non-fatal):', err);
+            }
+          });
         }
       }
       
