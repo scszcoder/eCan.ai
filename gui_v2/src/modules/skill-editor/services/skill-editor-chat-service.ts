@@ -12,6 +12,7 @@
 import { apiRouter } from '../../../services/api/api-router';
 import { GRAPHQL_QUERIES, GRAPHQL_MUTATIONS } from '../../../services/api/api-config';
 import { localWebSocketClient } from '../../../services/web/localWebSocketClient';
+import { useUserStore } from '../../../stores/userStore';
 import {
   ChatAttachment,
   CanvasPosition,
@@ -257,6 +258,11 @@ class SkillEditorChatService {
     try {
       // Serialize AWSJSON fields as JSON strings for GraphQL
       const input: Record<string, any> = { sessionId, content };
+      // Include userId so the backend can resolve the correct S3 user directory
+      const userId = useUserStore.getState().username;
+      if (userId) {
+        input.userId = userId;
+      }
       if (attachments && attachments.length > 0) {
         input.attachments = JSON.stringify(attachments);
       }
@@ -307,6 +313,11 @@ class SkillEditorChatService {
     try {
       // Serialize AWSJSON fields as JSON strings for GraphQL
       const input: Record<string, any> = { sessionId, content };
+      // Include userId so the backend can resolve the correct S3 user directory
+      const userId = useUserStore.getState().username;
+      if (userId) {
+        input.userId = userId;
+      }
       if (canvasContext) {
         input.canvasContext = JSON.stringify(canvasContext);
       }

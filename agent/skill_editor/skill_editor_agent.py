@@ -2589,8 +2589,8 @@ class SkillEditorAgent:
         except Exception:
             pass
         try:
-            if isinstance(self._user_name, str) and "@" in self._user_name:
-                return self._user_name
+            if isinstance(self._user_name, str) and self._user_name.strip():
+                return self._user_name.strip()
         except Exception:
             pass
         return "unknown"
