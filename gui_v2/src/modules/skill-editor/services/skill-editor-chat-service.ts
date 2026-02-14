@@ -287,10 +287,22 @@ class SkillEditorChatService {
         return deserialiseResponse(response.data as ChatMessageResponse);
       }
       
+      // Re-throw timeout errors so the caller can handle them gracefully
+      const errMsg = typeof response.error === 'object' && response.error?.message
+        ? response.error.message
+        : String(response.error || '');
+      if (/timed?\s*out/i.test(errMsg)) {
+        throw new Error(errMsg);
+      }
+      
       console.error('[SkillEditorChat] Failed to send message:', response.error);
       return null;
     } catch (error) {
       const errorMessage = error instanceof Error ? `${error.name}: ${error.message}` : JSON.stringify(error);
+      // Re-throw timeout errors for the caller to show a friendly message
+      if (/timed?\s*out/i.test(errorMessage)) {
+        throw error;
+      }
       console.error('[SkillEditorChat] Error sending message:', errorMessage, error);
       return null;
     }
@@ -342,10 +354,22 @@ class SkillEditorChatService {
         return deserialiseResponse(response.data as ChatMessageResponse);
       }
       
+      // Re-throw timeout errors so the caller can handle them gracefully
+      const errMsg = typeof response.error === 'object' && response.error?.message
+        ? response.error.message
+        : String(response.error || '');
+      if (/timed?\s*out/i.test(errMsg)) {
+        throw new Error(errMsg);
+      }
+      
       console.error('[SkillEditorChat] Failed to send clarification:', response.error);
       return null;
     } catch (error) {
       const errorMessage = error instanceof Error ? `${error.name}: ${error.message}` : JSON.stringify(error);
+      // Re-throw timeout errors for the caller to show a friendly message
+      if (/timed?\s*out/i.test(errorMessage)) {
+        throw error;
+      }
       console.error('[SkillEditorChat] Error sending clarification:', errorMessage, error);
       return null;
     }
