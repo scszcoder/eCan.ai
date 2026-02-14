@@ -9,7 +9,7 @@ import {
   ReloadOutlined,
   PlayCircleOutlined,
 } from '@ant-design/icons';
-import { Button, Space, Form, Input, Row, Col, Select, DatePicker, App, Checkbox } from 'antd';
+import { Button, Space, Form, Input, Row, Col, Select, DatePicker, App, Checkbox, Tag } from 'antd';
 import { useTranslation } from 'react-i18next';
 import React, { useRef } from 'react';
 import { useEffectOnActive } from 'keepalive-for-react';
@@ -42,7 +42,7 @@ const DEFAULT_TASK = {
   trigger: 'schedule',
   skills: [] as string[],  // Support multiple skills
   schedule: {
-    repeat_type: 'none',
+    repeat_type: 'by days',  // Default to 'by days' for schedule trigger
     repeat_number: 1,
     repeat_unit: 'by hours',
     start_date_time: dayjs(),
@@ -138,6 +138,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   const [refreshingStatus, setRefreshingStatus] = React.useState(false);
   const [launching, setLaunching] = React.useState(false);
   const [latestStatus, setLatestStatus] = React.useState<string>('');
+  const [currentTrigger, setCurrentTrigger] = React.useState<string>('schedule');
   // skills store and fetch-on-mount if needed
   const skills = useSkillStore((s) => s.items);
   const setSkills = useSkillStore((s) => s.setItems);
@@ -192,12 +193,39 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   const taskStatus = React.useMemo(() => {
     if (!task) return '';
     const statusValue = (task as any).status ?? (task as any).state?.top ?? '';
-    return typeof statusValue === 'string' ? statusValue : String(statusValue || '');
+    
+    // Handle different status formats
+    if (typeof statusValue === 'string') {
+      return statusValue;
+    } else if (statusValue && typeof statusValue === 'object') {
+      // If status is an object like {state: 'submitted', message: null, timestamp: null}
+      return statusValue.state || statusValue.status || String(statusValue);
+    }
+    
+    return String(statusValue || '');
   }, [task]);
 
   React.useEffect(() => {
     setLatestStatus(taskStatus);
   }, [taskStatus]);
+
+  // Watch trigger changes to update repeat_type options
+  const handleTriggerChange = React.useCallback((trigger: string) => {
+    setCurrentTrigger(trigger);
+    
+    // If switching to schedule trigger and repeat_type is 'none', auto-change to 'by days'
+    if (trigger === 'schedule') {
+      const currentRepeatType = form.getFieldValue(['schedule', 'repeat_type']);
+      if (currentRepeatType === 'none') {
+        form.setFieldsValue({
+          schedule: {
+            ...form.getFieldValue('schedule'),
+            repeat_type: 'by days'
+          }
+        });
+      }
+    }
+  }, [form]);
 
   React.useEffect(() => {
     if (task) {
@@ -235,6 +263,10 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       };
 
       form.setFieldsValue(formValues);
+      
+      // Set current trigger for validation
+      const taskTrigger = (task as any).trigger || 'schedule';
+      setCurrentTrigger(taskTrigger);
     } else {
       form.resetFields();
       setEditMode(false);
@@ -295,6 +327,13 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   const handleSave = async () => {
     try {
       const values = await form.validateFields();
+      
+      // Additional validation: schedule trigger cannot have repeat_type 'none'
+      if ((values as any).trigger === 'schedule' && 
+          (values as any).schedule?.repeat_type === 'none') {
+        message.error(t('pages.tasks.scheduleNoneError', 'Schedule tasks must have a repeat type (cannot be "none")'));
+        return;
+      }
 
       // Get skills array from form values and filter out empty values
       const skillNames = ((values as any).skills || []).filter((s: string) => s && s.trim());
@@ -388,7 +427,13 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       const response = await api.refreshAgentTaskStatus<any>(username, taskId);
       if (response.success) {
         const refreshed = (response as any).data?.task || (response as any).data;
-        const nextStatus = refreshed?.status ?? refreshed?.state?.top ?? taskStatus;
+        let nextStatus = refreshed?.status ?? refreshed?.state?.top ?? taskStatus;
+        
+        // Handle object format status
+        if (nextStatus && typeof nextStatus === 'object') {
+          nextStatus = nextStatus.state || nextStatus.status || String(nextStatus);
+        }
+        
         if (nextStatus) {
           setLatestStatus(String(nextStatus));
         }
@@ -502,20 +547,50 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
     []
   );
 
+  // Status color mapping
+  const getStatusColor = (status: string) => {
+    const statusLower = status.toLowerCase();
+    if (statusLower === 'completed' || statusLower === 'success') return 'success';
+    if (statusLower === 'running' || statusLower === 'working') return 'processing';
+    if (statusLower === 'failed' || statusLower === 'error') return 'error';
+    if (statusLower === 'pending' || statusLower === 'submitted') return 'default';
+    if (statusLower === 'cancelled' || statusLower === 'canceled') return 'warning';
+    return 'default';
+  };
+
   return (
     <div style={{ position: 'relative', height: '100%', display: 'flex', flexDirection: 'column' }}>
       <FormContainer ref={scrollContainerRef} style={{ flex: 1, overflowY: 'auto', paddingBottom: '20px' }}>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12, margin: '12px 24px 0' }}>
+        <div style={{ 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center', 
+          padding: '12px 24px',
+          background: 'rgba(255, 255, 255, 0.02)',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.06)',
+          marginBottom: '16px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ color: 'rgba(255, 255, 255, 0.65)', fontSize: 14 }}>
+              {t('pages.tasks.statusLabel', 'Status')}:
+            </span>
+            <Tag 
+              color={getStatusColor(latestStatus)} 
+              style={{ margin: 0, fontSize: 13, padding: '2px 12px' }}
+            >
+              {latestStatus ? t(`pages.tasks.status.${latestStatus}`, latestStatus) : t('pages.tasks.status.unknown', 'Unknown')}
+            </Tag>
+          </div>
           <Button
             type="text"
+            size="small"
             icon={<ReloadOutlined />}
             loading={refreshingStatus}
             onClick={handleRefreshStatus}
             aria-label={t('pages.tasks.refresh', 'Refresh')}
-          />
-          <span style={{ color: 'rgba(255, 255, 255, 0.65)', fontSize: 12 }}>
-            {t('pages.tasks.status', 'Status')}: {latestStatus || 'unknown'}
-          </span>
+          >
+            {t('pages.tasks.refresh', 'Refresh')}
+          </Button>
         </div>
         <Form
           form={form}
@@ -581,6 +656,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                     <Select
                       id="task-trigger"
                       size="large"
+                      onChange={handleTriggerChange}
                       options={TRIGGER_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.trigger.${v}`, v) }))}
                       aria-label={t('pages.tasks.triggerLabel', 'Trigger')}
                     />
@@ -696,11 +772,30 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                           </div>
                           <Row gutter={[12, 12]}>
                             <Col span={8}>
-                              <StyledFormItem label={t('pages.tasks.scheduleRepeatTypeLabel', 'Repeat Type')} name={["schedule", "repeat_type"]} htmlFor="task-repeat-type">
+                              <StyledFormItem 
+                                label={t('pages.tasks.scheduleRepeatTypeLabel', 'Repeat Type')} 
+                                name={["schedule", "repeat_type"]} 
+                                htmlFor="task-repeat-type"
+                                rules={[
+                                  {
+                                    validator: (_, value) => {
+                                      // Validate: schedule trigger cannot use 'none'
+                                      if (currentTrigger === 'schedule' && value === 'none') {
+                                        return Promise.reject(
+                                          new Error(t('pages.tasks.scheduleNoneError', 'Schedule tasks cannot use "none" repeat type'))
+                                        );
+                                      }
+                                      return Promise.resolve();
+                                    }
+                                  }
+                                ]}
+                              >
                                 <Select
                                   id="task-repeat-type"
                                   size="large"
-                                  options={REPEAT_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v) }))}
+                                  options={REPEAT_OPTIONS
+                                    .filter(v => currentTrigger === 'schedule' ? v !== 'none' : true)
+                                    .map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v) }))}
                                   aria-label={t('pages.tasks.scheduleRepeatTypeLabel', 'Repeat Type')}
                                 />
                               </StyledFormItem>

@@ -234,6 +234,7 @@ class ManagedTask(Task):
     schedule: Optional[TaskSchedule] = None
     priority: Optional[PriorityType] = None
     last_run_datetime: Optional[datetime] = None
+    already_run_flag: bool = False  # Flag to prevent duplicate runs within schedule window
     status: A2ATaskStatus = Field(default_factory=lambda: A2ATaskStatus(state=TaskState.submitted))
     
     # Checkpoints for interrupt/resume

@@ -94,7 +94,8 @@
     "status": "Status",
     "continue": "Continue",
     "valid": "Valid",
-    "invalid": "Invalid"
+    "invalid": "Invalid",
+    "default": "Default"
   },
   "personality": {
     "friendly": "Friendly",
@@ -1103,8 +1104,9 @@
           "add_profile": "Add Profile",
           "edit_profile": "Edit Profile",
           "delete_profile": "Delete this profile?",
-          "set_default": "Set as default",
-          "no_profiles": "No profiles configured. Click \"Add Profile\" to create one.",
+          "set_default": "Set as Default",
+          "default_profile_name": "Default Profile",
+          "no_profiles": "No profiles configured. Click 'Add Profile' to create one.",
           "profile_saved": "Profile saved",
           "cannot_delete_default": "Cannot delete the default profile. Set another profile as default first.",
           "basic_settings": "Basic Settings",
@@ -1323,6 +1325,8 @@
       "invalidJson": "Invalid JSON format. Please enter valid JSON (e.g., {\"key\": \"value\"})",
       "latestVersion": "Latest Version",
       "taskId": "Task ID",
+      "ownerAgent": "Owner (Agent)",
+      "cloudRun": "Cloud Run",
       "untitledTask": "Untitled Task",
       "noTasks": "No Tasks",
       "notRun": "Not Run",
@@ -1395,6 +1399,7 @@
         "by months": "By Months",
         "by years": "By Years"
       },
+      "scheduleNoneError": "Schedule tasks must have a repeat type (cannot be \"none\")",
       "filter": {
         "searchPlaceholder": "Search tasks...",
         "allPriorities": "All Priorities",
