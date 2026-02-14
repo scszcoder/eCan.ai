@@ -181,7 +181,8 @@ export const ClarificationCard: React.FC<ClarificationCardProps> = ({
     }
   }, [answers, onSubmit]);
 
-  const isComplete = safeQuestions.every(q => (displayAnswers[q.id] || []).length > 0);
+  const answeredCount = safeQuestions.filter(q => (displayAnswers[q.id] || []).length > 0).length;
+  const isComplete = answeredCount === safeQuestions.length;
 
   // Don't render anything if no valid questions
   if (safeQuestions.length === 0) {
@@ -200,57 +201,72 @@ export const ClarificationCard: React.FC<ClarificationCardProps> = ({
         </CardTitle>
       </CardHeader>
       
-      {safeQuestions.map((question, index) => (
-        <QuestionContainer key={question.id}>
-          <QuestionText>
-            {index + 1}. {question.question}
-          </QuestionText>
-          {question.context && (
-            <QuestionContext>{question.context}</QuestionContext>
-          )}
-          <ChoiceContainer>
-            {question.choices.map(choice => {
-              const isSelected = (displayAnswers[question.id] || []).includes(choice.id);
-              // In read-only mode, only show selected choices
-              if (isReadOnly && !isSelected) {
-                return null;
-              }
-              return (
-                <ChoiceItem
-                  key={choice.id}
-                  $selected={isSelected}
-                  onClick={isReadOnly ? undefined : () => handleChoiceToggle(question.id, choice.id, question.allow_multiple)}
-                  style={isReadOnly ? { cursor: 'default' } : undefined}
-                >
-                  {question.allow_multiple ? (
-                    <Checkbox checked={isSelected} disabled={isReadOnly} style={{ marginTop: 2 }} />
-                  ) : (
-                    <Radio checked={isSelected} disabled={isReadOnly} style={{ marginTop: 2 }} />
-                  )}
-                  <div>
-                    <ChoiceLabel>{choice.label}</ChoiceLabel>
-                    {choice.description && (
-                      <ChoiceDescription>- {choice.description}</ChoiceDescription>
+      {safeQuestions.map((question, index) => {
+        const hasAnswer = (displayAnswers[question.id] || []).length > 0;
+        return (
+          <QuestionContainer key={question.id}>
+            <QuestionText style={!isReadOnly && !hasAnswer ? { color: '#fbbf24' } : undefined}>
+              {index + 1}. {question.question}
+              {!isReadOnly && !hasAnswer && <span style={{ fontSize: 11, marginLeft: 6, color: '#fbbf24' }}>(please select)</span>}
+            </QuestionText>
+            {question.context && (
+              <QuestionContext>{question.context}</QuestionContext>
+            )}
+            <ChoiceContainer>
+              {question.choices.map(choice => {
+                const isSelected = (displayAnswers[question.id] || []).includes(choice.id);
+                // In read-only mode, only show selected choices
+                if (isReadOnly && !isSelected) {
+                  return null;
+                }
+                return (
+                  <ChoiceItem
+                    key={choice.id}
+                    $selected={isSelected}
+                    onClick={isReadOnly ? undefined : (e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      handleChoiceToggle(question.id, choice.id, question.allow_multiple);
+                    }}
+                    style={isReadOnly ? { cursor: 'default' } : undefined}
+                  >
+                    {question.allow_multiple ? (
+                      <Checkbox checked={isSelected} disabled={isReadOnly} style={{ marginTop: 2, pointerEvents: 'none' }} />
+                    ) : (
+                      <Radio checked={isSelected} disabled={isReadOnly} style={{ marginTop: 2, pointerEvents: 'none' }} />
                     )}
-                  </div>
-                </ChoiceItem>
-              );
-            })}
-          </ChoiceContainer>
-        </QuestionContainer>
-      ))}
+                    <div>
+                      <ChoiceLabel>{choice.label}</ChoiceLabel>
+                      {choice.description && (
+                        <ChoiceDescription>- {choice.description}</ChoiceDescription>
+                      )}
+                    </div>
+                  </ChoiceItem>
+                );
+              })}
+            </ChoiceContainer>
+          </QuestionContainer>
+        );
+      })}
       
       {/* Only show submit button in interactive mode */}
       {!isReadOnly && (
-        <SubmitButton
-          type="primary"
-          icon={<CheckOutlined />}
-          onClick={handleSubmit}
-          disabled={!isComplete || isSubmitting}
-          loading={isSubmitting}
-        >
-          {isSubmitting ? 'Submitting...' : 'Submit Answers'}
-        </SubmitButton>
+        <>
+          {!isComplete && (
+            <div style={{ fontSize: 11, color: '#fbbf24', textAlign: 'center', marginTop: 4 }}>
+              Please answer all questions ({answeredCount}/{safeQuestions.length} answered)
+            </div>
+          )}
+          <SubmitButton
+            type="primary"
+            icon={<CheckOutlined />}
+            onClick={handleSubmit}
+            disabled={!isComplete || isSubmitting}
+            loading={isSubmitting}
+          >
+            {isSubmitting ? 'Submitting...' : 'Submit Answers'}
+          </SubmitButton>
+        </>
       )}
     </CardContainer>
   );
