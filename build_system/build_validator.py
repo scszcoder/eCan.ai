@@ -179,8 +179,8 @@ class BuildValidator:
         }
         
         # Python version check
-        if sys.version_info < (3, 8):
-            result["issues"].append(f"Python {sys.version_info.major}.{sys.version_info.minor} is too old. Minimum required: 3.8")
+        if sys.version_info < (3, 12):
+            result["issues"].append(f"Python {sys.version_info.major}.{sys.version_info.minor} is too old. Minimum required: 3.12")
         
         # Check essential tools
         essential_tools = {

@@ -85,7 +85,9 @@ def _get_or_create_task(
             return existing_task
 
         # 3. Create New Task
-        # Default schedule if not provided
+        # Default schedule configuration
+        # Note: For schedule triggers, caller must provide schedule_kwargs with proper repeat_type
+        # UI-created tasks will have correct defaults set by frontend
         default_schedule = {
             "repeat_type": RepeatType.NONE,
             "repeat_number": 1,
@@ -95,6 +97,7 @@ def _get_or_create_task(
             "time_out": 120
         }
         
+        # Override with custom schedule_kwargs if provided
         if schedule_kwargs:
             default_schedule.update(schedule_kwargs)
             
@@ -151,12 +154,21 @@ def create_ec_helper_chat_task(mainwin):
     )
 
 def create_ec_helper_work_task(mainwin):
+    # Explicit schedule configuration for code-generated task
+    schedule_kwargs = {
+        "repeat_type": RepeatType.BY_DAYS,
+        "repeat_number": 1,
+        "start_date_time": "2025-03-31 01:00:00:000",
+        "end_date_time": "2035-12-31 23:59:59:000",
+        "time_out": 1800
+    }
     return _get_or_create_task(
         mainwin,
         skill_matcher="ecbot rpa helper",
         task_name="work:ECBot RPA Helper Task",
         description="Help fix errors/failures during e-commerce RPA run",
-        trigger="schedule"
+        trigger="schedule",
+        schedule_kwargs=schedule_kwargs
     )
 
 
@@ -254,13 +266,22 @@ def create_ec_rpa_operator_work_task(mainwin):
     # Custom matcher for skill: "ecbot rpa operator run RPA" in name
     def skill_matcher(sk):
         return "ecbot rpa operator run RPA" in sk.name
-        
+    
+    # Explicit schedule configuration for code-generated task
+    schedule_kwargs = {
+        "repeat_type": RepeatType.BY_DAYS,
+        "repeat_number": 1,
+        "start_date_time": "2025-03-31 02:00:00:000",
+        "end_date_time": "2035-12-31 23:59:59:000",
+        "time_out": 1800
+    }
     return _get_or_create_task(
         mainwin,
         skill_matcher=skill_matcher,
         task_name="work:ECBot RPA operates daily routine task",
         description="Help fix errors/failures during e-commerce RPA run",
-        trigger="schedule"
+        trigger="schedule",
+        schedule_kwargs=schedule_kwargs
     )
 
 
@@ -274,11 +295,13 @@ def create_ec_rpa_supervisor_chat_task(mainwin):
     )
 
 def create_ec_rpa_supervisor_daily_task(mainwin):
-    # Special schedule for daily supervisor task
+    # Explicit schedule configuration for code-generated task
     schedule_kwargs = {
         "repeat_type": RepeatType.BY_DAYS,
+        "repeat_number": 1,
         "start_date_time": "2025-03-31 03:00:00:000",
-        "end_date_time": "2035-12-31 23:59:59:000"
+        "end_date_time": "2035-12-31 23:59:59:000",
+        "time_out": 1800
     }
     return _get_or_create_task(
         mainwin,
@@ -290,12 +313,21 @@ def create_ec_rpa_supervisor_daily_task(mainwin):
     )
 
 def create_ec_rpa_supervisor_on_request_task(mainwin):
+    # Explicit schedule configuration for code-generated task
+    schedule_kwargs = {
+        "repeat_type": RepeatType.BY_DAYS,
+        "repeat_number": 1,
+        "start_date_time": "2025-03-31 04:00:00:000",
+        "end_date_time": "2035-12-31 23:59:59:000",
+        "time_out": 1800
+    }
     return _get_or_create_task(
         mainwin,
         skill_matcher="ecbot rpa supervisor serve requests",
         task_name="work:eCan.ai RPA Supervisor Service Task",
         description="Serve RPA operators in case they request human in loop or work reports",
-        trigger="schedule"
+        trigger="schedule",
+        schedule_kwargs=schedule_kwargs
     )
 
 
