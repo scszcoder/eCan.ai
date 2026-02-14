@@ -39,7 +39,7 @@ import {
 import styled from '@emotion/styled';
 import { get_ipc_api } from '@/services/ipc_api';
 
-const { Panel } = Collapse;
+// Removed Panel destructuring - using items prop instead
 
 // Styled components
 const SettingsContainer = styled.div`
@@ -307,12 +307,12 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
           const data = response.data;
           agentForm.setFieldsValue(data.agentSettings || defaultAgentSettings);
           sessionForm.setFieldsValue(data.browserSessionSettings || defaultBrowserSessionSettings);
-          setProfiles(data.profiles || [createDefaultProfile('default', 'Default Profile', true)]);
+          setProfiles(data.profiles || [createDefaultProfile('default', tb('profiles.default_profile_name'), true)]);
         } else {
           // Initialize with defaults
           agentForm.setFieldsValue(defaultAgentSettings);
           sessionForm.setFieldsValue(defaultBrowserSessionSettings);
-          setProfiles([createDefaultProfile('default', 'Default Profile', true)]);
+          setProfiles([createDefaultProfile('default', tb('profiles.default_profile_name'), true)]);
         }
         setHasChanges(false);
       } catch (error) {
@@ -321,7 +321,7 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
         // Initialize with defaults on error
         agentForm.setFieldsValue(defaultAgentSettings);
         sessionForm.setFieldsValue(defaultBrowserSessionSettings);
-        setProfiles([createDefaultProfile('default', 'Default Profile', true)]);
+        setProfiles([createDefaultProfile('default', tb('profiles.default_profile_name'), true)]);
       } finally {
         setLoading(false);
       }
@@ -398,7 +398,7 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
     const handleDeleteProfile = (profileId: string) => {
       const profile = profiles.find(p => p.id === profileId);
       if (profile?.isDefault && profiles.length > 1) {
-        message.warning('Cannot delete the default profile. Set another profile as default first.');
+        message.warning(tb('profiles.cannot_delete_default'));
         return;
       }
       
@@ -490,18 +490,20 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
         </HeaderBar>
         
         <ScrollableContent>
-          <Collapse defaultActiveKey={['agent', 'session', 'profiles']} ghost>
-            {/* Agent Settings Section */}
-            <Panel
-              header={
-                <span>
-                  <SettingOutlined style={{ marginRight: 8 }} />
-                  {tb('agent_settings.title')}
-                </span>
-              }
-              key="agent"
-            >
-              <StyledCard size="small">
+          <Collapse 
+            defaultActiveKey={['agent', 'session', 'profiles']} 
+            ghost
+            items={[
+              {
+                key: 'agent',
+                label: (
+                  <span>
+                    <SettingOutlined style={{ marginRight: 8 }} />
+                    {tb('agent_settings.title')}
+                  </span>
+                ),
+                children: (
+                  <StyledCard size="small">
                 <Form
                   form={agentForm}
                   layout="vertical"
@@ -595,19 +597,18 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
                   </Row>
                 </Form>
               </StyledCard>
-            </Panel>
-
-            {/* Browser Session Settings Section */}
-            <Panel
-              header={
-                <span>
-                  <GlobalOutlined style={{ marginRight: 8 }} />
-                  {tb('session_settings.title')}
-                </span>
-              }
-              key="session"
-            >
-              <StyledCard size="small">
+                )
+              },
+              {
+                key: 'session',
+                label: (
+                  <span>
+                    <GlobalOutlined style={{ marginRight: 8 }} />
+                    {tb('session_settings.title')}
+                  </span>
+                ),
+                children: (
+                  <StyledCard size="small">
                 <Form
                   form={sessionForm}
                   layout="vertical"
@@ -679,19 +680,19 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
                   </Row>
                 </Form>
               </StyledCard>
-            </Panel>
-
-            {/* Browser Profiles Section */}
-            <Panel
-              header={
-                <span>
-                  <UserOutlined style={{ marginRight: 8 }} />
-                  {tb('profiles.title')}
-                </span>
-              }
-              key="profiles"
-            >
-              <div style={{ marginBottom: 16 }}>
+                )
+              },
+              {
+                key: 'profiles',
+                label: (
+                  <span>
+                    <UserOutlined style={{ marginRight: 8 }} />
+                    {tb('profiles.title')}
+                  </span>
+                ),
+                children: (
+                  <div>
+                    <div style={{ marginBottom: 16 }}>
                 <Button type="dashed" icon={<PlusOutlined />} onClick={handleAddProfile}>
                   {tb('profiles.add_profile')}
                 </Button>
@@ -701,7 +702,9 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
                 <ProfileCard key={profile.id} size="small">
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontWeight: 500 }}>{profile.name}</span>
+                      <span style={{ fontWeight: 500 }}>
+                        {profile.name === 'Default Profile' ? tb('profiles.default_profile_name') : profile.name}
+                      </span>
                       {profile.isDefault && (
                         <Tag color="gold" icon={<StarFilled />}>{t('common.default')}</Tag>
                       )}
@@ -757,8 +760,11 @@ const BrowserUseSettings = forwardRef<BrowserUseSettingsRef, BrowserUseSettingsP
                   {tb('profiles.no_profiles')}
                 </div>
               )}
-            </Panel>
-          </Collapse>
+                  </div>
+                )
+              }
+            ]}
+          />
         </ScrollableContent>
 
         {/* Profile Edit Modal */}
