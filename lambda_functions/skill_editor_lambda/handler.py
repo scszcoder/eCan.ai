@@ -836,9 +836,11 @@ def _publish(env: _Env, *, owner: str, session_id: str, flowgram_id: Optional[st
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
-
-            run_async_in_sync(_do())
+            # Use a dedicated thread to avoid importing heavy agent modules
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(asyncio.run, _do())
+                future.result(timeout=10)
         else:
             loop.run_until_complete(_do())
     except RuntimeError:
