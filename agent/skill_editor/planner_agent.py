@@ -181,8 +181,59 @@ When you need clarification:
       "allow_multiple": false
     }}
   ],
+  "a2ui": {{
+    "version": "v0.10",
+    "surfaceId": "clarification_<timestamp>",
+    "messages": [
+      {{
+        "createSurface": {{
+          "surfaceId": "clarification_<timestamp>",
+          "catalogId": "https://a2ui.org/specification/v0_10/standard_catalog.json",
+          "theme": {{ "primaryColor": "#3b82f6" }},
+          "sendDataModel": true
+        }}
+      }},
+      {{
+        "updateComponents": {{
+          "surfaceId": "clarification_<timestamp>",
+          "components": [
+            {{ "id": "root", "component": "Column", "children": ["header", "divider", "q1-container", "buttons-row"] }},
+            {{ "id": "header", "component": "Text", "text": "🤔 I have a few questions:", "variant": "h4" }},
+            {{ "id": "divider", "component": "Divider" }},
+            {{ "id": "q1-container", "component": "Column", "children": ["q1-text", "q1-picker"] }},
+            {{ "id": "q1-text", "component": "Text", "text": "1. Question text here?", "variant": "body" }},
+            {{ "id": "q1-picker", "component": "ChoicePicker", "label": "", "variant": "mutuallyExclusive", "options": [
+              {{ "label": "Option A", "value": "choice_1" }},
+              {{ "label": "Option B", "value": "choice_2" }}
+            ], "value": {{ "path": "/answers/q1" }} }},
+            {{ "id": "buttons-row", "component": "Row", "justify": "end", "children": ["cancel-btn", "submit-btn"] }},
+            {{ "id": "cancel-btn", "component": "Button", "child": "cancel-text", "action": {{ "name": "cancel" }} }},
+            {{ "id": "cancel-text", "component": "Text", "text": "Cancel" }},
+            {{ "id": "submit-btn", "component": "Button", "variant": "primary", "child": "submit-text", "action": {{ "name": "submit" }} }},
+            {{ "id": "submit-text", "component": "Text", "text": "Submit" }}
+          ]
+        }}
+      }},
+      {{
+        "updateDataModel": {{
+          "surfaceId": "clarification_<timestamp>",
+          "path": "/answers",
+          "value": {{ "q1": [] }}
+        }}
+      }}
+    ]
+  }},
   "message": "I have a few questions to better understand your requirements."
 }}
+
+**A2UI COMPONENT GUIDELINES:**
+- Use "ChoicePicker" for all question options (variant: "mutuallyExclusive" for single-select, "multipleSelection" for multi-select)
+- Bind each ChoicePicker value to "/answers/<question_id>" path
+- Include a Cancel button with action {{ "name": "cancel" }}
+- Include a Submit button (variant: "primary") with action {{ "name": "submit" }}
+- The ChoicePicker "options" array must use "label" and "value" keys
+- Generate unique surfaceId using format: clarification_<timestamp_ms>
+- All components must be arranged in a Column with proper children references
 
 When you have enough information to generate a plan:
 {{

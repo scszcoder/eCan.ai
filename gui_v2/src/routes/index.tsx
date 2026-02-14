@@ -32,6 +32,7 @@ const Avatars = React.lazy(() => import('../pages/Avatars/Avatars'));
 const Account = React.lazy(() => import('../pages/Account/Account'));
 const PaymentPlan = React.lazy(() => import('../pages/Account/PaymentPlan'));
 const ShippingLabel = React.lazy(() => import('../pages/ShippingLabel/ShippingLabel'));
+const RAGDocuments = React.lazy(() => import('../pages/RAG/RAGDocuments'));
 
 // LoadComponent包装器
 const LazyWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -233,6 +234,11 @@ export const protectedRoutes: RouteConfig[] = [
             {
                 path: 'shipping-label',
                 element: <LazyWrapper><ShippingLabel /></LazyWrapper>,
+                keepAlive: true,
+            },
+            {
+                path: 'rag',
+                element: <LazyWrapper><RAGDocuments /></LazyWrapper>,
                 keepAlive: true,
             },
         ],

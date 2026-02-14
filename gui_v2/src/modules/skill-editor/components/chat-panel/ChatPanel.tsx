@@ -16,7 +16,7 @@ import {
 } from '@ant-design/icons';
 import styled from 'styled-components';
 import { CuteRobotIcon } from './CuteRobotIcon';
-import { ClarificationCard } from './ClarificationCard';
+import { A2UIFormCard } from './a2ui';
 import { PlanCard } from './PlanCard';
 import { skillEditorChatService } from '../../services/skill-editor-chat-service';
 import { canvasController } from '../../services/canvas-controller';
@@ -27,6 +27,13 @@ import type {
   ImplementationPlan,
   PipelineState,
 } from '../../types/skill-editor-chat.types';
+import type { A2UIServerMessage } from './a2ui/types';
+
+/** A2UI response data from LLM */
+interface A2UIData {
+  surfaceId: string;
+  messages: A2UIServerMessage[];
+}
 
 const { TextArea } = Input;
 
@@ -417,13 +424,13 @@ const formatSessionDate = (date: Date): string => {
 const renderMessageContent = (msg: ChatMessage) => {
   const raw = msg.content ?? '';
 
-  // If message has clarification with submitted answers, render read-only ClarificationCard
+  // If message has clarification with submitted answers, render read-only A2UIFormCard
   // Only render if clarification data is valid
   if (msg.clarification && Array.isArray(msg.clarification) && msg.clarification.length > 0 && msg.clarificationAnswers) {
     return (
       <>
         {renderTextContent(raw)}
-        <ClarificationCard
+        <A2UIFormCard
           questions={msg.clarification}
           submittedAnswers={msg.clarificationAnswers}
         />
@@ -490,6 +497,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   const [isLoading, setIsLoading] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [pendingClarification, setPendingClarification] = useState<ClarificationQuestion[] | null>(null);
+  const [pendingA2UI, setPendingA2UI] = useState<A2UIData | null>(null);
   const [pendingPlan, setPendingPlan] = useState<ImplementationPlan | null>(null);
   const [pipelineState, setPipelineState] = useState<PipelineState>('idle');
   const [streamingStatus, setStreamingStatus] = useState<string>('');
@@ -874,10 +882,18 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
         if (response.clarification && response.clarification.length > 0) {
           setPendingClarification(response.clarification);
+          // Also capture A2UI data if provided by LLM
+          if (response.a2ui?.messages && response.a2ui?.surfaceId) {
+            setPendingA2UI({ surfaceId: response.a2ui.surfaceId, messages: response.a2ui.messages });
+          } else {
+            setPendingA2UI(null);
+          }
         } else if (response.plan) {
           setPendingPlan(response.plan);
+          setPendingA2UI(null);
         } else {
           setPendingClarification(null);
+          setPendingA2UI(null);
           setPendingPlan(null);
         }
 
@@ -955,10 +971,17 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
         if (response.clarification && response.clarification.length > 0) {
           setPendingClarification(response.clarification);
+          if (response.a2ui?.messages && response.a2ui?.surfaceId) {
+            setPendingA2UI({ surfaceId: response.a2ui.surfaceId, messages: response.a2ui.messages });
+          } else {
+            setPendingA2UI(null);
+          }
         } else if (response.plan) {
           setPendingPlan(response.plan);
+          setPendingA2UI(null);
         } else {
           setPendingClarification(null);
+          setPendingA2UI(null);
           setPendingPlan(null);
         }
       }
@@ -1111,6 +1134,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         if (response.clarification && response.clarification.length > 0) {
           console.log('[ChatPanel] Received clarification questions:', response.clarification.length);
           setPendingClarification(response.clarification);
+          // Capture A2UI data if provided by LLM
+          if (response.a2ui?.messages && response.a2ui?.surfaceId) {
+            setPendingA2UI({ surfaceId: response.a2ui.surfaceId, messages: response.a2ui.messages });
+          } else {
+            setPendingA2UI(null);
+          }
           setPendingPlan(null);
         }
         // Handle implementation plan
@@ -1118,10 +1147,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           console.log('[ChatPanel] Received implementation plan');
           setPendingPlan(response.plan);
           setPendingClarification(null);
+          setPendingA2UI(null);
         }
         // Clear pending states on completion
         else {
           setPendingClarification(null);
+          setPendingA2UI(null);
           setPendingPlan(null);
         }
         
@@ -1244,9 +1275,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
         // Only clear pending after successful response
         setPendingClarification(null);
+        setPendingA2UI(null);
 
         if (response.clarification && response.clarification.length > 0) {
           setPendingClarification(response.clarification);
+          if (response.a2ui?.messages && response.a2ui?.surfaceId) {
+            setPendingA2UI({ surfaceId: response.a2ui.surfaceId, messages: response.a2ui.messages });
+          }
         } else if (response.plan) {
           setPendingPlan(response.plan);
         }
@@ -1384,8 +1419,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           )}
 
           {!isLoading && pendingClarification && pendingClarification.length > 0 && (
-            <ClarificationCard
+            <A2UIFormCard
               questions={pendingClarification}
+              a2uiMessages={pendingA2UI?.messages}
+              surfaceId={pendingA2UI?.surfaceId}
               onSubmit={handleClarificationSubmit}
               isSubmitting={isLoading}
             />

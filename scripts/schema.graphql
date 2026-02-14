@@ -359,6 +359,11 @@ type Mutation {
   reportStatus(input: [MissionStatus]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
   reqPuzzleSolver(input: [PuzzleInput]!): Puzzle! @aws_api_key @aws_cognito_user_pools
   reqRAGStore(input: [RAGIN]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  # RAG mutations
+  ragRequestUploadURLs(input: [RAGUploadRequestInput!]!): [RAGUploadURL!]! @aws_api_key @aws_cognito_user_pools
+  ragConfirmUploads(docKeys: [String!]!, pid: String): Boolean! @aws_api_key @aws_cognito_user_pools
+  ragTriggerIndex(pid: String): RAGIndexStatus! @aws_api_key @aws_cognito_user_pools
+  ragDeleteDocs(input: RAGDeleteDocsInput!): Boolean! @aws_api_key @aws_cognito_user_pools
   reqScene(input: ReqSceneInput!): ReqSceneResponse! @aws_api_key @aws_cognito_user_pools
   reqTrain(input: [Skill]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
   requestPuzzleSolve(input: [PuzzleInput]!): Puzzle! @aws_api_key @aws_cognito_user_pools
@@ -588,6 +593,10 @@ type Query {
   querySkills(qs: AWSJSON!): AWSJSON! @aws_api_key @aws_cognito_user_pools
   queryVehicles(input: VehicleQueryInput): [Vehicle!]! @aws_api_key @aws_cognito_user_pools
   readSkillFile(filePath: String!, userId: String): [SkillFileContent] @aws_api_key @aws_cognito_user_pools
+  # RAG queries
+  ragQuery(input: RAGQueryInput!): RAGQueryResult! @aws_api_key @aws_cognito_user_pools
+  ragListDocs(pid: String): [RAGDocument!]! @aws_api_key @aws_cognito_user_pools
+  ragGetIndexStatus(pid: String): RAGIndexStatus! @aws_api_key @aws_cognito_user_pools
   regSteps(inSteps: [Step]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
   reqAccountInfo(ops: [AcctOp!]): AWSJSON! @aws_api_key @aws_cognito_user_pools
   reqFileOp(fo: [FileOp!]): AWSJSON! @aws_api_key @aws_cognito_user_pools
@@ -1516,6 +1525,67 @@ input RAGIN {
   pid: ID!
   type: String!
   version: String!
+}
+
+# ==================== RAG Document Management ====================
+
+input RAGUploadRequestInput {
+  fileName: String!
+  fileType: String!
+  fileSize: Int!
+  pid: String
+}
+
+input RAGQueryInput {
+  query: String!
+  pid: String
+  mode: String
+  topK: Int
+}
+
+input RAGDeleteDocsInput {
+  docKeys: [String!]!
+  pid: String
+}
+
+type RAGUploadURL @aws_api_key @aws_cognito_user_pools {
+  uploadUrl: String!
+  docKey: String!
+  expiresIn: Int!
+}
+
+type RAGDocument @aws_api_key @aws_cognito_user_pools {
+  docKey: String!
+  fileName: String!
+  fileType: String!
+  fileSize: Int!
+  uploadedAt: AWSDateTime!
+  status: String!
+  pid: String
+}
+
+type RAGQueryResult @aws_api_key @aws_cognito_user_pools {
+  answer: String
+  chunks: [RAGChunk!]!
+  query: String!
+  mode: String
+}
+
+type RAGChunk @aws_api_key @aws_cognito_user_pools {
+  text: String!
+  score: Float!
+  source: String!
+  metadata: AWSJSON
+}
+
+type RAGIndexStatus @aws_api_key @aws_cognito_user_pools {
+  status: String!
+  message: String
+  progress: Int
+  taskArn: String
+  lastIndexedAt: AWSDateTime
+  docCount: Int
+  chunkCount: Int
 }
 
 input ReadyReqSceneInput {

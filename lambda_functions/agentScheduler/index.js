@@ -48,6 +48,8 @@ const { DynamoDBClient, GetItemCommand } = require("@aws-sdk/client-dynamodb");
 const dynClient = new DynamoDBClient({ region: "us-east-1" });
 const { SQSClient, SendMessageCommand, ReceiveMessageCommand, DeleteMessageCommand, GetQueueAttributesCommand } = require('@aws-sdk/client-sqs');
 const { S3Client, GetObjectCommand, PutObjectCommand, HeadObjectCommand, ListObjectsV2Command, CopyObjectCommand } = require("@aws-sdk/client-s3");
+const { ECSClient, RunTaskCommand } = require("@aws-sdk/client-ecs");
+const ecsClient = new ECSClient({ region: "us-east-1" });
 
 // Initialize the SQS client
 const sqsClient = new SQSClient({ region: 'us-east-1' }); // Set your AWS region
@@ -161,6 +163,11 @@ const APPSYNC_API_KEY = "da2-hwmqigvtbfai7pbl7zfah76fly";
 const AVATAR_BUCKET = process.env.AVATAR_BUCKET || "ecan-avatars";
 const AVATAR_ROOT_PREFIX = process.env.AVATAR_ROOT_PREFIX || "avatars";
 const SKILL_BUCKET = process.env.SKILL_BUCKET || "ecan-skills";
+const RAG_BUCKET = process.env.RAG_BUCKET || "ecan-rags";
+const RAG_ECS_CLUSTER = process.env.RAG_ECS_CLUSTER || process.env.ECS_CLUSTER || "";
+const RAG_ECS_TASK_DEF = process.env.RAG_ECS_TASK_DEF || "";
+const RAG_ECS_SUBNETS = (process.env.RAG_ECS_SUBNETS || process.env.ECS_SUBNETS || "").split(",").filter(Boolean);
+const RAG_ECS_SECURITY_GROUPS = (process.env.RAG_ECS_SECURITY_GROUPS || process.env.ECS_SECURITY_GROUPS || "").split(",").filter(Boolean);
 
 
 const MAXBOTINTS = 5;
@@ -5118,6 +5125,238 @@ async function processEvent(event, context, callback, test_stub) {
               returnData = { success: true, sid: result.sid };
             }
             break;
+
+          // ==================== RAG Document Management (Mutations) ====================
+          case "ragRequestUploadURLs":
+            {
+              const items = event.arguments?.input || [];
+              const userDir = ownerSub || normalizeEmailForPath(ownerEmail || owner);
+              const results = [];
+              for (const item of items) {
+                const pid = item.pid || "default";
+                const fileName = item.fileName || `file_${Date.now()}`;
+                const safeFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+                const docKey = `${userDir}/${pid}/docs/${safeFileName}`;
+                try {
+                  const uploadUrl = await getSignedUrl(
+                    s3,
+                    new PutObjectCommand({
+                      Bucket: RAG_BUCKET,
+                      Key: docKey,
+                      ContentType: item.fileType || "application/octet-stream",
+                    }),
+                    { expiresIn: 900 }
+                  );
+                  results.push({
+                    uploadUrl,
+                    docKey,
+                    expiresIn: 900,
+                  });
+                } catch (err) {
+                  console.error(`[agentScheduler] ragRequestUploadURLs error for ${fileName}:`, err);
+                  results.push({
+                    uploadUrl: "",
+                    docKey,
+                    expiresIn: 0,
+                  });
+                }
+              }
+              returnData = results;
+            }
+            break;
+          case "ragConfirmUploads":
+            {
+              const docKeys = event.arguments?.docKeys || [];
+              const pid = event.arguments?.pid || "default";
+              const userDir = ownerSub || normalizeEmailForPath(ownerEmail || owner);
+              const manifestKey = `${userDir}/${pid}/manifest.json`;
+              // Read existing manifest or create new
+              let manifest = { documents: [], updatedAt: null };
+              try {
+                const res = await s3.send(new GetObjectCommand({ Bucket: RAG_BUCKET, Key: manifestKey }));
+                const raw = await streamToString(res.Body);
+                if (raw) manifest = JSON.parse(raw);
+              } catch (e) {
+                // No manifest yet, use empty one
+              }
+              const now = new Date().toISOString();
+              for (const dk of docKeys) {
+                const existing = manifest.documents.find(d => d.docKey === dk);
+                if (existing) {
+                  existing.status = "uploaded";
+                  existing.uploadedAt = now;
+                } else {
+                  const parts = dk.split("/");
+                  const fileName = parts[parts.length - 1];
+                  manifest.documents.push({
+                    docKey: dk,
+                    fileName,
+                    fileType: "",
+                    fileSize: 0,
+                    uploadedAt: now,
+                    status: "uploaded",
+                    pid,
+                  });
+                }
+              }
+              manifest.updatedAt = now;
+              await s3.send(new PutObjectCommand({
+                Bucket: RAG_BUCKET,
+                Key: manifestKey,
+                Body: JSON.stringify(manifest, null, 2),
+                ContentType: "application/json",
+              }));
+              returnData = true;
+            }
+            break;
+          case "ragTriggerIndex":
+            {
+              const pid = event.arguments?.pid || "default";
+              const userDir = ownerSub || normalizeEmailForPath(ownerEmail || owner);
+              if (!RAG_ECS_CLUSTER || !RAG_ECS_TASK_DEF) {
+                console.error("[agentScheduler] ragTriggerIndex: RAG ECS not configured");
+                returnData = {
+                  status: "error",
+                  message: "RAG worker not configured (missing ECS settings)",
+                  taskArn: null,
+                  lastIndexedAt: null,
+                  docCount: 0,
+                  chunkCount: 0,
+                };
+                break;
+              }
+              // Write index status to S3
+              const statusKey = `${userDir}/${pid}/index_status.json`;
+              const now = new Date().toISOString();
+              const statusPayload = { status: "indexing", message: "Fargate task starting", startedAt: now };
+              await s3.send(new PutObjectCommand({
+                Bucket: RAG_BUCKET,
+                Key: statusKey,
+                Body: JSON.stringify(statusPayload),
+                ContentType: "application/json",
+              }));
+              try {
+                const containerEnv = [
+                  { name: "RAG_BUCKET", value: RAG_BUCKET },
+                  { name: "RAG_USER_DIR", value: userDir },
+                  { name: "RAG_PID", value: pid },
+                  { name: "RAG_MODE", value: "index" },
+                  { name: "OPENAI_API_KEY", value: process.env.OPENAI_API_KEY || "" },
+                ];
+                const networkConfig = {
+                  awsvpcConfiguration: {
+                    subnets: RAG_ECS_SUBNETS,
+                    assignPublicIp: "ENABLED",
+                  },
+                };
+                if (RAG_ECS_SECURITY_GROUPS.length > 0) {
+                  networkConfig.awsvpcConfiguration.securityGroups = RAG_ECS_SECURITY_GROUPS;
+                }
+                const response = await ecsClient.send(new RunTaskCommand({
+                  cluster: RAG_ECS_CLUSTER,
+                  taskDefinition: RAG_ECS_TASK_DEF,
+                  launchType: "FARGATE",
+                  networkConfiguration: networkConfig,
+                  overrides: {
+                    containerOverrides: [{
+                      name: "ecan-rag-worker",
+                      environment: containerEnv,
+                    }],
+                  },
+                  tags: [
+                    { key: "purpose", value: "rag-index" },
+                    { key: "username", value: ownerEmail || owner },
+                    { key: "pid", value: pid },
+                  ],
+                }));
+                const tasks = response.tasks || [];
+                const taskArn = tasks.length > 0 ? tasks[0].taskArn : null;
+                if (taskArn) {
+                  // Update status with task ARN
+                  statusPayload.taskArn = taskArn;
+                  await s3.send(new PutObjectCommand({
+                    Bucket: RAG_BUCKET,
+                    Key: statusKey,
+                    Body: JSON.stringify(statusPayload),
+                    ContentType: "application/json",
+                  }));
+                  returnData = {
+                    status: "indexing",
+                    message: "Fargate task started",
+                    taskArn,
+                    lastIndexedAt: null,
+                    docCount: 0,
+                    chunkCount: 0,
+                  };
+                } else {
+                  const failures = response.failures || [];
+                  const reason = failures.length > 0 ? failures[0].reason : "Unknown";
+                  returnData = {
+                    status: "error",
+                    message: `Failed to start RAG worker: ${reason}`,
+                    taskArn: null,
+                    lastIndexedAt: null,
+                    docCount: 0,
+                    chunkCount: 0,
+                  };
+                }
+              } catch (err) {
+                console.error("[agentScheduler] ragTriggerIndex ECS error:", err);
+                returnData = {
+                  status: "error",
+                  message: err.message,
+                  taskArn: null,
+                  lastIndexedAt: null,
+                  docCount: 0,
+                  chunkCount: 0,
+                };
+              }
+            }
+            break;
+          case "ragDeleteDocs":
+            {
+              const input = event.arguments?.input || {};
+              const docKeys = input.docKeys || [];
+              const pid = input.pid || "default";
+              const userDir = ownerSub || normalizeEmailForPath(ownerEmail || owner);
+              const { DeleteObjectCommand } = require("@aws-sdk/client-s3");
+              // Delete each doc from S3
+              for (const dk of docKeys) {
+                // Security: only allow deleting within user's own directory
+                if (!dk.startsWith(`${userDir}/`)) {
+                  console.warn(`[agentScheduler] ragDeleteDocs: skipping unauthorized key ${dk}`);
+                  continue;
+                }
+                try {
+                  await s3.send(new DeleteObjectCommand({ Bucket: RAG_BUCKET, Key: dk }));
+                } catch (err) {
+                  console.error(`[agentScheduler] ragDeleteDocs error for ${dk}:`, err);
+                }
+              }
+              // Update manifest
+              const manifestKey = `${userDir}/${pid}/manifest.json`;
+              try {
+                const res = await s3.send(new GetObjectCommand({ Bucket: RAG_BUCKET, Key: manifestKey }));
+                const raw = await streamToString(res.Body);
+                if (raw) {
+                  const manifest = JSON.parse(raw);
+                  const deletedSet = new Set(docKeys);
+                  manifest.documents = (manifest.documents || []).filter(d => !deletedSet.has(d.docKey));
+                  manifest.updatedAt = new Date().toISOString();
+                  await s3.send(new PutObjectCommand({
+                    Bucket: RAG_BUCKET,
+                    Key: manifestKey,
+                    Body: JSON.stringify(manifest, null, 2),
+                    ContentType: "application/json",
+                  }));
+                }
+              } catch (e) {
+                // manifest may not exist
+              }
+              returnData = true;
+            }
+            break;
+
           default:
             return UNRECOGNIZED_INPUT;
         }
@@ -5682,6 +5921,167 @@ async function processEvent(event, context, callback, test_stub) {
               returnData = await presignAvatarRecords(avatars);
             }
             break;
+
+          // ==================== RAG Document Management (Queries) ====================
+          case "ragQuery":
+            {
+              const input = event.arguments?.input || {};
+              const query = input.query || "";
+              const pid = input.pid || "default";
+              const mode = input.mode || "hybrid";
+              const topK = input.topK || 5;
+              const userDir = ownerSub || normalizeEmailForPath(ownerEmail || owner);
+              // Read the index results cache from S3 (populated by Fargate worker)
+              const indexKey = `${userDir}/${pid}/index/chunks.json`;
+              let chunks = [];
+              try {
+                const res = await s3.send(new GetObjectCommand({ Bucket: RAG_BUCKET, Key: indexKey }));
+                const raw = await streamToString(res.Body);
+                if (raw) chunks = JSON.parse(raw);
+              } catch (e) {
+                console.log(`[agentScheduler] ragQuery: no index found at ${indexKey}`);
+              }
+              // Keyword search to retrieve relevant chunks
+              const queryLower = query.toLowerCase();
+              const scored = chunks.map(c => {
+                const text = (c.text || c.content || "").toLowerCase();
+                let score = 0;
+                const queryWords = queryLower.split(/\s+/).filter(w => w.length > 2);
+                for (const w of queryWords) {
+                  if (text.includes(w)) score += 1;
+                }
+                return { ...c, score };
+              }).filter(c => c.score > 0)
+                .sort((a, b) => b.score - a.score)
+                .slice(0, topK);
+
+              // ── Call OpenAI to synthesize an answer from retrieved chunks ──
+              let answer = "";
+              const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
+              if (scored.length > 0 && OPENAI_KEY) {
+                try {
+                  const contextText = scored.map((c, i) => {
+                    const src = c.source || c.fileName || "unknown";
+                    const txt = c.text || c.content || "";
+                    return `[Source ${i + 1}: ${src}]\n${txt}`;
+                  }).join("\n\n---\n\n");
+
+                  const sysPrompt = `You are a helpful assistant that answers questions based on the provided document excerpts. 
+Use ONLY the information from the provided excerpts to answer. If the excerpts don't contain enough information, say so honestly.
+Cite sources when possible using [Source N] notation. Be concise but thorough.`;
+
+                  const userPrompt = `Based on the following document excerpts, answer this question:
+
+Question: ${query}
+
+Document Excerpts:
+${contextText}`;
+
+                  const oaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      "Authorization": `Bearer ${OPENAI_KEY}`,
+                    },
+                    body: JSON.stringify({
+                      model: "gpt-4o-mini",
+                      messages: [
+                        { role: "system", content: sysPrompt },
+                        { role: "user", content: userPrompt },
+                      ],
+                      max_tokens: 1024,
+                      temperature: 0.3,
+                    }),
+                  });
+                  if (oaiRes.ok) {
+                    const oaiData = await oaiRes.json();
+                    answer = oaiData.choices?.[0]?.message?.content || "";
+                  } else {
+                    console.log(`[agentScheduler] ragQuery: OpenAI API error ${oaiRes.status}`);
+                  }
+                } catch (oaiErr) {
+                  console.log(`[agentScheduler] ragQuery: OpenAI call failed`, oaiErr.message);
+                }
+              } else if (scored.length === 0) {
+                answer = "No relevant documents found for your query. Please try different keywords or make sure documents have been uploaded and indexed.";
+              } else if (!OPENAI_KEY) {
+                answer = "";  // No API key — return chunks only
+              }
+
+              returnData = {
+                answer,
+                chunks: scored.map(c => ({
+                  text: c.text || c.content || "",
+                  score: c.score,
+                  source: c.source || c.fileName || "",
+                  metadata: c.metadata || null,
+                })),
+                query,
+                mode,
+              };
+            }
+            break;
+          case "ragListDocs":
+            {
+              const pid = event.arguments?.pid || "default";
+              const userDir = ownerSub || normalizeEmailForPath(ownerEmail || owner);
+              const manifestKey = `${userDir}/${pid}/manifest.json`;
+              let documents = [];
+              try {
+                const res = await s3.send(new GetObjectCommand({ Bucket: RAG_BUCKET, Key: manifestKey }));
+                const raw = await streamToString(res.Body);
+                if (raw) {
+                  const manifest = JSON.parse(raw);
+                  documents = manifest.documents || [];
+                }
+              } catch (e) {
+                // No manifest yet — list raw S3 objects as fallback
+                const prefix = `${userDir}/${pid}/docs/`;
+                const keys = await listAllObjects(RAG_BUCKET, prefix);
+                documents = keys.filter(k => !k.endsWith("/")).map(k => {
+                  const parts = k.split("/");
+                  return {
+                    docKey: k,
+                    fileName: parts[parts.length - 1],
+                    fileType: "",
+                    fileSize: 0,
+                    uploadedAt: new Date().toISOString(),
+                    status: "uploaded",
+                    pid,
+                  };
+                });
+              }
+              returnData = documents;
+            }
+            break;
+          case "ragGetIndexStatus":
+            {
+              const pid = event.arguments?.pid || "default";
+              const userDir = ownerSub || normalizeEmailForPath(ownerEmail || owner);
+              const statusKey = `${userDir}/${pid}/index_status.json`;
+              try {
+                const res = await s3.send(new GetObjectCommand({ Bucket: RAG_BUCKET, Key: statusKey }));
+                const raw = await streamToString(res.Body);
+                if (raw) {
+                  const status = JSON.parse(raw);
+                  returnData = {
+                    status: status.status || "unknown",
+                    message: status.message || null,
+                    progress: status.progress != null ? status.progress : (status.status === "ready" ? 100 : 0),
+                    taskArn: status.taskArn || null,
+                    lastIndexedAt: status.completedAt || status.startedAt || null,
+                    docCount: status.docCount || 0,
+                    chunkCount: status.chunkCount || 0,
+                  };
+                } else {
+                  returnData = { status: "none", message: "No index found", progress: 0, taskArn: null, lastIndexedAt: null, docCount: 0, chunkCount: 0 };
+                }
+              } catch (e) {
+                returnData = { status: "none", message: "No index found", progress: 0, taskArn: null, lastIndexedAt: null, docCount: 0, chunkCount: 0 };
+              }
+            }
+            break;
+
           default:
             returnData = UNRECOGNIZED_INPUT;
         }
