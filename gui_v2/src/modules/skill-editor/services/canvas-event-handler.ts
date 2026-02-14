@@ -230,52 +230,25 @@ class CanvasEventHandler {
         // Load flowgram data directly into canvas (from agent-generated flowgram)
         const payload = (event as any).payload;
         console.log('[CanvasEventHandler] Loading flowgram data directly:', payload);
-        if (payload?.flowgram) {
+        // The flowgram may be at payload.flowgram (direct) or payload.payload.flowgram (nested via eventBus)
+        const flowgramData = payload?.flowgram || payload?.payload?.flowgram;
+        if (flowgramData) {
           try {
-            const { useSheetsStore } = await import('../stores/sheets-store');
-            const { useAutoSaveStore } = await import('../stores/editor-auto-save-store');
+            // Use canvasController.loadFlowgram for proper node conversion and skillInfo update
+            const result = await canvasController.loadFlowgram(flowgramData);
+            console.log('[CanvasEventHandler] Flowgram loaded via canvasController:', result);
             
-            // Disable auto-save while loading
-            const autoSaveStore = useAutoSaveStore.getState();
-            const wasAutoSaveEnabled = autoSaveStore.autoSaveEnabled;
-            autoSaveStore.setAutoSaveEnabled(false);
-            console.log('[CanvasEventHandler] Auto-save disabled during flowgram data load');
-            
-            const sheetsStore = useSheetsStore.getState();
-            const flowgram = payload.flowgram;
-            
-            // Create a synthetic bundle from the flowgram data
-            const syntheticBundle = {
-              mainSheetId: 'main',
-              sheets: [{
-                id: 'main',
-                name: 'Main',
-                document: {
-                  nodes: flowgram.nodes || [],
-                  edges: flowgram.edges || [],
-                },
-                createdAt: Date.now(),
-                lastOpenedAt: Date.now(),
-              }],
-              openTabs: ['main'],
-              activeSheetId: 'main',
-            };
-            
-            console.log('[CanvasEventHandler] Loading synthetic bundle with', flowgram.nodes?.length, 'nodes');
-            sheetsStore.loadBundle(syntheticBundle as any);
-            
-            // Re-enable auto-save after a delay
-            setTimeout(() => {
-              if (wasAutoSaveEnabled) {
-                autoSaveStore.setAutoSaveEnabled(true);
-                console.log('[CanvasEventHandler] Auto-save re-enabled after flowgram data load');
-              }
-            }, 500);
-            
-            console.log('[CanvasEventHandler] Flowgram data loaded successfully');
+            // Notify ChatPanel that the flowgram has arrived (clears "Generating" status)
+            eventBus.emit('skill_editor:flowgram_loaded', {
+              success: result.success,
+              skillName: flowgramData.metadata?.skillName,
+              nodeCount: flowgramData.nodes?.length || 0,
+            });
           } catch (error) {
             console.error('[CanvasEventHandler] Error loading flowgram data:', error);
           }
+        } else {
+          console.warn('[CanvasEventHandler] No flowgram data found in payload:', Object.keys(payload || {}));
         }
         break;
       }
