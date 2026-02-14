@@ -24,6 +24,31 @@ import {
 } from '../types';
 
 // ============================================================
+// Helpers
+// ============================================================
+
+/** Parse an AWSJSON field (string → object). Returns the parsed value or the original if already parsed / null. */
+const parseAwsJson = <T>(value: unknown): T | undefined => {
+  if (value == null) return undefined;
+  if (typeof value === 'object') return value as T; // already parsed
+  if (typeof value === 'string') {
+    try { return JSON.parse(value) as T; } catch { return undefined; }
+  }
+  return undefined;
+};
+
+/** Deserialise AWSJSON fields that AppSync returns as JSON strings. */
+const deserialiseResponse = (raw: ChatMessageResponse): ChatMessageResponse => {
+  return {
+    ...raw,
+    clarification: parseAwsJson<ClarificationQuestion[]>(raw.clarification) ?? undefined,
+    plan: parseAwsJson<ImplementationPlan>(raw.plan) ?? undefined,
+    flowgram: parseAwsJson<Flowgram>(raw.flowgram) ?? undefined,
+    validation: parseAwsJson<ValidationResult>(raw.validation) ?? undefined,
+  };
+};
+
+// ============================================================
 // Types
 // ============================================================
 
@@ -253,7 +278,7 @@ class SkillEditorChatService {
       console.log('[SkillEditorChat] Message response received:', { success: response.success });
       
       if (response.success && response.data) {
-        return response.data as ChatMessageResponse;
+        return deserialiseResponse(response.data as ChatMessageResponse);
       }
       
       console.error('[SkillEditorChat] Failed to send message:', response.error);
@@ -303,7 +328,7 @@ class SkillEditorChatService {
       console.log('[SkillEditorChat] Clarification response received:', { success: response.success });
       
       if (response.success && response.data) {
-        return response.data as ChatMessageResponse;
+        return deserialiseResponse(response.data as ChatMessageResponse);
       }
       
       console.error('[SkillEditorChat] Failed to send clarification:', response.error);

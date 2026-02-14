@@ -16,7 +16,7 @@ import {
 } from '@ant-design/icons';
 import styled from 'styled-components';
 import { CuteRobotIcon } from './CuteRobotIcon';
-import { A2UIFormCard } from './a2ui';
+import { ClarificationCard } from './ClarificationCard';
 import { PlanCard } from './PlanCard';
 import { skillEditorChatService } from '../../services/skill-editor-chat-service';
 import { canvasController } from '../../services/canvas-controller';
@@ -424,13 +424,13 @@ const formatSessionDate = (date: Date): string => {
 const renderMessageContent = (msg: ChatMessage) => {
   const raw = msg.content ?? '';
 
-  // If message has clarification with submitted answers, render read-only A2UIFormCard
+  // If message has clarification with submitted answers, render read-only ClarificationCard
   // Only render if clarification data is valid
   if (msg.clarification && Array.isArray(msg.clarification) && msg.clarification.length > 0 && msg.clarificationAnswers) {
     return (
       <>
         {renderTextContent(raw)}
-        <A2UIFormCard
+        <ClarificationCard
           questions={msg.clarification}
           submittedAnswers={msg.clarificationAnswers}
         />
@@ -901,8 +901,32 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           await canvasController.loadFlowgram(response.flowgram);
         }
       }
-    } catch (error) {
-      console.error('[ChatPanel] Error approving plan:', error);
+    } catch (error: any) {
+      const errorMsg = String(error?.message || error || '');
+      const isTimeout = /timed?\s*out/i.test(errorMsg);
+      console.warn('[ChatPanel] Error approving plan (isTimeout=' + isTimeout + '):', errorMsg);
+
+      if (isTimeout) {
+        // AppSync times out after ~30s, but the Lambda keeps running.
+        // Show an informational message; the flowgram will arrive via event subscription.
+        const infoMessage: ChatMessage = {
+          id: `msg-generating-${Date.now()}`,
+          role: 'assistant',
+          content: '⏳ Generating workflow — this may take a minute. The canvas will update automatically once the flowgram is ready.',
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, infoMessage]);
+        setStreamingStatus('Generating flowgram...');
+        setPipelineState('generating');
+      } else {
+        const errMessage: ChatMessage = {
+          id: `msg-error-${Date.now()}`,
+          role: 'assistant',
+          content: `Error generating workflow: ${errorMsg}`,
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, errMessage]);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -1189,15 +1213,29 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         };
         setMessages(prev => [...prev, errorMessage]);
       }
-    } catch (error) {
-      console.error('[ChatPanel] Error sending message:', error);
-      const errorMessage: ChatMessage = {
-        id: `msg-error-${Date.now()}`,
-        role: 'assistant',
-        content: 'Sorry, I encountered an error. Please check if the backend is running.',
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, errorMessage]);
+    } catch (error: any) {
+      const errorMsg = String(error?.message || error || '');
+      const isTimeout = /timed?\s*out/i.test(errorMsg);
+      console.error('[ChatPanel] Error sending message (isTimeout=' + isTimeout + '):', errorMsg);
+
+      if (isTimeout) {
+        const infoMessage: ChatMessage = {
+          id: `msg-generating-${Date.now()}`,
+          role: 'assistant',
+          content: '⏳ Processing — this may take a minute. Results will appear automatically when ready.',
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, infoMessage]);
+        setStreamingStatus('Processing...');
+      } else {
+        const errorMessage: ChatMessage = {
+          id: `msg-error-${Date.now()}`,
+          role: 'assistant',
+          content: 'Sorry, I encountered an error. Please check if the backend is running.',
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, errorMessage]);
+      }
     } finally {
       setIsLoading(false);
       setPendingAttachments([]);
@@ -1419,10 +1457,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           )}
 
           {!isLoading && pendingClarification && pendingClarification.length > 0 && (
-            <A2UIFormCard
+            <ClarificationCard
               questions={pendingClarification}
-              a2uiMessages={pendingA2UI?.messages}
-              surfaceId={pendingA2UI?.surfaceId}
               onSubmit={handleClarificationSubmit}
               isSubmitting={isLoading}
             />
