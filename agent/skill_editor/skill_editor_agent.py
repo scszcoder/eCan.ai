@@ -2461,7 +2461,7 @@ class SkillEditorAgent:
             bucket, key_root = self._get_s3_bucket_and_root()
             prefix = _norm_s3_prefix(key_root)
             user_dir = _safe_user_dir_name(self._get_effective_username())
-            parts = [p for p in [prefix, user_dir, "skills", skill_dir_name] if p]
+            parts = [p for p in [prefix, user_dir, "my_skills", skill_dir_name] if p]
             return f"s3://{bucket}/" + "/".join(parts)
         return str(user_skills_root() / skill_dir_name)
 
@@ -2482,7 +2482,7 @@ class SkillEditorAgent:
         _ = bucket
         prefix = _norm_s3_prefix(key_root)
         user_dir = _safe_user_dir_name(self._get_effective_username())
-        parts = [p for p in [prefix, user_dir, "skills", skill_dir_name, "diagram_dir", f"{skill_dir_name}.json"] if p]
+        parts = [p for p in [prefix, user_dir, "my_skills", skill_dir_name, "diagram_dir", f"{skill_dir_name}.json"] if p]
         return "/".join(parts)
 
     def _s3_bundle_json_key(self, skill_dir_name: str) -> str:
@@ -2490,7 +2490,7 @@ class SkillEditorAgent:
         _ = bucket
         prefix = _norm_s3_prefix(key_root)
         user_dir = _safe_user_dir_name(self._get_effective_username())
-        parts = [p for p in [prefix, user_dir, "skills", skill_dir_name, "diagram_dir", f"{skill_dir_name}_bundle.json"] if p]
+        parts = [p for p in [prefix, user_dir, "my_skills", skill_dir_name, "diagram_dir", f"{skill_dir_name}_bundle.json"] if p]
         return "/".join(parts)
 
     def _s3_put_json(self, key: str, payload: Dict[str, Any]) -> None:
@@ -2532,7 +2532,7 @@ class SkillEditorAgent:
         _ = bucket
         prefix = _norm_s3_prefix(key_root)
         user_dir = _safe_user_dir_name(self._get_effective_username())
-        parts = [p for p in [prefix, user_dir, "skills", skill_dir_name, "contexts", f"{session_id}.json"] if p]
+        parts = [p for p in [prefix, user_dir, "my_skills", skill_dir_name, "contexts", f"{session_id}.json"] if p]
         return "/".join(parts)
 
     def _skill_exists(self, skill_dir_name: str) -> bool:
@@ -2546,7 +2546,7 @@ class SkillEditorAgent:
             bucket, key_root = self._get_s3_bucket_and_root()
             prefix = _norm_s3_prefix(key_root)
             user_dir = _safe_user_dir_name(self._get_effective_username())
-            list_prefix = "/".join([p for p in [prefix, user_dir, "skills"] if p])
+            list_prefix = "/".join([p for p in [prefix, user_dir, "my_skills"] if p])
             if list_prefix:
                 list_prefix = list_prefix + "/"
             try:
