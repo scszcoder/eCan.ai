@@ -7,9 +7,9 @@ import path from 'path'
 // This allows the HTML to correctly reference assets when loaded via file:// protocol
 
 export default defineConfig(({ mode }) => {
-  // Use relative path './' for production to support file:// protocol in PyInstaller bundled apps
-  // Use absolute path only if explicitly set via VITE_BASE environment variable
-  const basePath = process.env.VITE_BASE || (mode === 'production' ? './' : '/');
+  // Use relative path './' for desktop/PyInstaller builds (file:// protocol).
+  // For web deployment, use absolute path so deep routes like /auth/callback resolve assets correctly.
+  const basePath = process.env.VITE_BASE || (mode === 'production' ? '/app/gui-v2/' : '/');
   const localServerPort = process.env.VITE_LOCAL_SERVER_PORT || '4668';
   const localServerTarget = `http://localhost:${localServerPort}`;
 

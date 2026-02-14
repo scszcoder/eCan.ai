@@ -264,6 +264,34 @@ export const GRAPHQL_QUERIES = {
       }
     }
   `,
+
+  // ==================== RAG Document Management ====================
+  RAG_QUERY: `
+    query RAGQuery($input: RAGQueryInput!) {
+      ragQuery(input: $input) {
+        answer
+        chunks { text score source metadata }
+        query
+        mode
+      }
+    }
+  `,
+
+  RAG_LIST_DOCS: `
+    query RAGListDocs($pid: String) {
+      ragListDocs(pid: $pid) {
+        docKey fileName fileType fileSize uploadedAt status pid
+      }
+    }
+  `,
+
+  RAG_GET_INDEX_STATUS: `
+    query RAGGetIndexStatus($pid: String) {
+      ragGetIndexStatus(pid: $pid) {
+        status message progress taskArn lastIndexedAt docCount chunkCount
+      }
+    }
+  `,
 };
 
 /**
@@ -722,6 +750,35 @@ export const GRAPHQL_MUTATIONS = {
   DELETE_SKILL_EDITOR_CHAT_SESSION: `
     mutation DeleteSkillEditorChatSession($sessionId: ID!) {
       deleteSkillEditorChatSession(sessionId: $sessionId)
+    }
+  `,
+
+  // ==================== RAG Document Management ====================
+  RAG_REQUEST_UPLOAD_URLS: `
+    mutation RAGRequestUploadURLs($input: [RAGUploadRequestInput!]!) {
+      ragRequestUploadURLs(input: $input) {
+        uploadUrl docKey expiresIn
+      }
+    }
+  `,
+
+  RAG_CONFIRM_UPLOADS: `
+    mutation RAGConfirmUploads($docKeys: [String!]!, $pid: String) {
+      ragConfirmUploads(docKeys: $docKeys, pid: $pid)
+    }
+  `,
+
+  RAG_TRIGGER_INDEX: `
+    mutation RAGTriggerIndex($pid: String) {
+      ragTriggerIndex(pid: $pid) {
+        status message taskArn lastIndexedAt docCount chunkCount
+      }
+    }
+  `,
+
+  RAG_DELETE_DOCS: `
+    mutation RAGDeleteDocs($input: RAGDeleteDocsInput!) {
+      ragDeleteDocs(input: $input)
     }
   `,
 };
