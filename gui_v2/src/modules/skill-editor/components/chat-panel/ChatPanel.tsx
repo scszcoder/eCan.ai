@@ -676,10 +676,29 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     eventBus.on('skill_editor:chat:stream_end', handleDone);
     eventBus.on('skill_editor:chat:error', handleError);
 
+    // Listen for flowgram-loaded event to clear "Generating" status
+    const handleFlowgramLoaded = (data: any) => {
+      console.log('[ChatPanel] Flowgram loaded via subscription:', data);
+      setStreamingStatus('');
+      setPipelineState('complete');
+      setIsLoading(false);
+      if (data?.skillName) {
+        const doneMessage: ChatMessage = {
+          id: `msg-flowgram-done-${Date.now()}`,
+          role: 'assistant',
+          content: `✅ Workflow **${data.skillName}** loaded on canvas with ${data.nodeCount || 0} nodes.`,
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, doneMessage]);
+      }
+    };
+    eventBus.on('skill_editor:flowgram_loaded', handleFlowgramLoaded);
+
     return () => {
       eventBus.off('skill_editor:chat:stream_chunk', handleChunk);
       eventBus.off('skill_editor:chat:stream_end', handleDone);
       eventBus.off('skill_editor:chat:error', handleError);
+      eventBus.off('skill_editor:flowgram_loaded', handleFlowgramLoaded);
     };
   }, [activeSessionId]);
 
