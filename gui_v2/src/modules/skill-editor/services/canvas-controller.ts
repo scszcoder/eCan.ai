@@ -482,14 +482,29 @@ class CanvasControllerService {
       console.log('[CanvasController] Converted nodes:', convertedNodes.length);
       console.log('[CanvasController] Converted edges:', convertedEdges.length);
       
-      // Initialize the sheets store with the new document
-      if (this.sheetsStore?.initMain) {
+      // Load document into the editor via loadBundle (replaces any existing sheet).
+      // initMain() is a no-op when the 'main' sheet already exists, so we must
+      // use loadBundle() which fully replaces sheet state and bumps revision,
+      // causing ActiveSheetBinder to call ctx.document.fromJSON(doc).
+      if (this.sheetsStore?.loadBundle) {
         const document = {
           nodes: convertedNodes,
           edges: convertedEdges,
         };
-        console.log('[CanvasController] Initializing sheets with document');
-        this.sheetsStore.initMain(document);
+        const syntheticBundle = {
+          mainSheetId: 'main',
+          sheets: [{
+            id: 'main',
+            name: 'Main',
+            document,
+            createdAt: Date.now(),
+            lastOpenedAt: Date.now(),
+          }],
+          openTabs: ['main'],
+          activeSheetId: 'main',
+        };
+        console.log('[CanvasController] Loading flowgram via loadBundle');
+        this.sheetsStore.loadBundle(syntheticBundle);
       }
       
       // Update skill info
