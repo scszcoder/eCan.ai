@@ -122,7 +122,7 @@ python build.py prod --skip-frontend
 
 ```yaml
 # 1. 环境准备
-- 设置Python 3.11
+- 设置Python 3.12
 - 设置Node.js 18
 - 安装平台特定依赖
 
