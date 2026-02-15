@@ -154,21 +154,12 @@ def create_ec_helper_chat_task(mainwin):
     )
 
 def create_ec_helper_work_task(mainwin):
-    # Explicit schedule configuration for code-generated task
-    schedule_kwargs = {
-        "repeat_type": RepeatType.BY_DAYS,
-        "repeat_number": 1,
-        "start_date_time": "2025-03-31 01:00:00:000",
-        "end_date_time": "2035-12-31 23:59:59:000",
-        "time_out": 1800
-    }
     return _get_or_create_task(
         mainwin,
         skill_matcher="ecbot rpa helper",
         task_name="work:ECBot RPA Helper Task",
         description="Help fix errors/failures during e-commerce RPA run",
-        trigger="schedule",
-        schedule_kwargs=schedule_kwargs
+        trigger="schedule"
     )
 
 
@@ -178,8 +169,7 @@ def create_ec_customer_support_chat_task(mainwin):
         skill_matcher="ecbot rpa customer support internal chatter",
         task_name="chat:ECBot RPA Customer Support Internal Chatter Task",
         description="chat with human user about anything related to customer support work.",
-        trigger="message",
-        schedule_kwargs={"repeat_type": RepeatType.BY_DAYS}
+        trigger="message"
     )
 
 def create_ec_customer_support_work_task(mainwin):
@@ -199,8 +189,7 @@ def create_ec_marketing_chat_task(mainwin):
         skill_matcher="ecbot rpa marketing chatter",
         task_name="chat:eCan.ai Marketing Chatter Task",
         description="chat with human user about anything related to e-commerce marketing work.",
-        trigger="message",
-        schedule_kwargs={"repeat_type": RepeatType.BY_DAYS}
+        trigger="message"
     )
 
 def create_ec_marketing_work_task(mainwin):
@@ -266,24 +255,14 @@ def create_ec_rpa_operator_work_task(mainwin):
     # Custom matcher for skill: "ecbot rpa operator run RPA" in name
     def skill_matcher(sk):
         return "ecbot rpa operator run RPA" in sk.name
-    
-    # Explicit schedule configuration for code-generated task
-    schedule_kwargs = {
-        "repeat_type": RepeatType.BY_DAYS,
-        "repeat_number": 1,
-        "start_date_time": "2025-03-31 02:00:00:000",
-        "end_date_time": "2035-12-31 23:59:59:000",
-        "time_out": 1800
-    }
+        
     return _get_or_create_task(
         mainwin,
         skill_matcher=skill_matcher,
         task_name="work:ECBot RPA operates daily routine task",
         description="Help fix errors/failures during e-commerce RPA run",
-        trigger="schedule",
-        schedule_kwargs=schedule_kwargs
+        trigger="schedule"
     )
-
 
 def create_ec_rpa_supervisor_chat_task(mainwin):
     return _get_or_create_task(
@@ -295,13 +274,11 @@ def create_ec_rpa_supervisor_chat_task(mainwin):
     )
 
 def create_ec_rpa_supervisor_daily_task(mainwin):
-    # Explicit schedule configuration for code-generated task
+    # Special schedule for daily supervisor task
     schedule_kwargs = {
         "repeat_type": RepeatType.BY_DAYS,
-        "repeat_number": 1,
         "start_date_time": "2025-03-31 03:00:00:000",
-        "end_date_time": "2035-12-31 23:59:59:000",
-        "time_out": 1800
+        "end_date_time": "2035-12-31 23:59:59:000"
     }
     return _get_or_create_task(
         mainwin,
@@ -313,21 +290,12 @@ def create_ec_rpa_supervisor_daily_task(mainwin):
     )
 
 def create_ec_rpa_supervisor_on_request_task(mainwin):
-    # Explicit schedule configuration for code-generated task
-    schedule_kwargs = {
-        "repeat_type": RepeatType.BY_DAYS,
-        "repeat_number": 1,
-        "start_date_time": "2025-03-31 04:00:00:000",
-        "end_date_time": "2035-12-31 23:59:59:000",
-        "time_out": 1800
-    }
     return _get_or_create_task(
         mainwin,
         skill_matcher="ecbot rpa supervisor serve requests",
         task_name="work:eCan.ai RPA Supervisor Service Task",
         description="Serve RPA operators in case they request human in loop or work reports",
-        trigger="schedule",
-        schedule_kwargs=schedule_kwargs
+        trigger="schedule"
     )
 
 
@@ -337,8 +305,7 @@ def create_ec_sales_chat_task(mainwin):
         skill_matcher="ecbot rpa sales internal chatter",
         task_name="chat:eCan.ai Sales Chatter Task",
         description="chat with human user about anything related to e-commerce sales work.",
-        trigger="message",
-        schedule_kwargs={"repeat_type": RepeatType.BY_DAYS}
+        trigger="message"
     )
 
 def create_ec_sales_work_task(mainwin):
@@ -358,8 +325,7 @@ def create_ec_self_tester_chat_task(mainwin):
         skill_matcher="self_test_chatter",
         task_name="chat:eCan.ai Self Test Chatter Task",
         description="chat with human user about anything related to eCan.ai self test work.",
-        trigger="message",
-        schedule_kwargs={"repeat_type": RepeatType.BY_DAYS}
+        trigger="message"
     )
 
 def create_ec_self_tester_work_task(mainwin):
