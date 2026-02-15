@@ -33,14 +33,18 @@ export function SidebarNodeRenderer(props: { node: FlowNodeEntity }) {
   
   // Check if node state should be hidden (for Loop, BlockStart, BlockEnd)
   const shouldShowNodeState = useMemo(() => {
-    // Get the actual node type from the JSON data
-    // Extract type from node ID (e.g., "loop_xxx" -> "loop", "block_start_xxx" -> "block-start")
+    // Get the actual node type - prefer flowNodeType (set by the editor's node registry)
     const extractTypeFromId = (id: string) => {
       if (id.startsWith('block_start_')) return 'block-start';
       if (id.startsWith('block_end_')) return 'block-end';
+      if (id.startsWith('browser_automation_')) return 'browser-automation';
+      if (id.startsWith('pend_event_')) return 'pend_event_node';
+      if (id.startsWith('pend_input_')) return 'pend_input_node';
+      if (id.startsWith('mcp_tool_')) return 'mcp';
+      if (id.startsWith('chat_node_')) return 'chat_node';
       return id.split('_')[0];
     };
-    const nodeType = (node as any).json?.type || extractTypeFromId(node.id);
+    const nodeType = node.flowNodeType || (node as any).json?.type || extractTypeFromId(node.id);
     
     const shouldHide = 
       nodeType === WorkflowNodeType.Loop || 
