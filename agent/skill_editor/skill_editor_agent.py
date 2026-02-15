@@ -2296,6 +2296,13 @@ class SkillEditorAgent:
         except Exception as e:
             logger.error(f"[SkillEditorAgent] Failed writing skill/bundle: {e}")
 
+    _DEFAULT_DATA_MAPPING: Dict[str, Any] = {
+        "developing": {"mappings": [], "options": {"strict": False, "apply_order": "top_down"}},
+        "released":   {"mappings": [], "options": {"strict": True,  "apply_order": "top_down"}},
+        "node_transfers": {},
+        "event_routing": {},
+    }
+
     def _write_skill_and_bundle_to_s3(self, skill_json: Dict[str, Any], bundle_json: Dict[str, Any], skill_dir_name: str) -> None:
         try:
             self._mirror_workflow_into_bundle(skill_json, bundle_json)
@@ -2303,6 +2310,10 @@ class SkillEditorAgent:
             bundle_key = self._s3_bundle_json_key(skill_dir_name)
             self._s3_put_json(skill_key, skill_json)
             self._s3_put_json(bundle_key, bundle_json)
+            # Write default data_mapping.json if it doesn't exist yet
+            dm_key = self._s3_data_mapping_key(skill_dir_name)
+            if not self._s3_exists(dm_key):
+                self._s3_put_json(dm_key, self._DEFAULT_DATA_MAPPING)
         except Exception as e:
             logger.error(f"[SkillEditorAgent] Failed writing skill/bundle to S3: {e}")
 
@@ -2491,6 +2502,14 @@ class SkillEditorAgent:
         prefix = _norm_s3_prefix(key_root)
         user_dir = _safe_user_dir_name(self._get_effective_username())
         parts = [p for p in [prefix, user_dir, "my_skills", skill_dir_name, "diagram_dir", f"{skill_dir_name}_bundle.json"] if p]
+        return "/".join(parts)
+
+    def _s3_data_mapping_key(self, skill_dir_name: str) -> str:
+        bucket, key_root = self._get_s3_bucket_and_root()
+        _ = bucket
+        prefix = _norm_s3_prefix(key_root)
+        user_dir = _safe_user_dir_name(self._get_effective_username())
+        parts = [p for p in [prefix, user_dir, "my_skills", skill_dir_name, "data_mapping.json"] if p]
         return "/".join(parts)
 
     def _s3_put_json(self, key: str, payload: Dict[str, Any]) -> None:

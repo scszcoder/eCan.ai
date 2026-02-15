@@ -257,7 +257,13 @@ class CanvasEventHandler {
         // Load a skill from disk into the canvas
         const payload = (event as any).payload;
         console.log('[CanvasEventHandler] Loading flowgram:', payload);
-        if (payload?.skillPath && payload?.skillName) {
+        // Handle nested payload from subscription (payload.payload.skillPath)
+        let skillPath = payload?.skillPath || payload?.payload?.skillPath;
+        const skillName = payload?.skillName || payload?.payload?.skillName;
+        if (skillPath && skillName) {
+          // Strip s3://bucket/ prefix — the Lambda API expects relative S3 keys
+          skillPath = skillPath.replace(/^s3:\/\/[^/]+\//, '');
+          
           try {
             const { loadSkillFile } = await import('./skill-loader');
             const { useSkillInfoStore } = await import('../stores/skill-info-store');
@@ -273,7 +279,7 @@ class CanvasEventHandler {
             console.log('[CanvasEventHandler] Auto-save disabled during load');
             
             // Construct the skill file path
-            const skillFilePath = `${payload.skillPath}/diagram_dir/${payload.skillName}_skill.json`;
+            const skillFilePath = `${skillPath}/diagram_dir/${skillName}_skill.json`;
             console.log('[CanvasEventHandler] Loading skill file:', skillFilePath);
             
             const result = await loadSkillFile(skillFilePath);
@@ -322,7 +328,7 @@ class CanvasEventHandler {
                 skillInfoStore.setBreakpoints(breakpointIds);
               }
               
-              console.log('[CanvasEventHandler] Skill loaded and stores updated:', payload.skillName);
+              console.log('[CanvasEventHandler] Skill loaded and stores updated:', skillName);
 
               // Force-refresh prompt store so newly generated prompts (my_prompts/) are visible immediately.
               // This also ensures promptSelection IDs resolve to human-readable titles.
