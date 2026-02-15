@@ -264,19 +264,19 @@ def find_tasks_ready_to_run(tasks: List["ManagedTask"]) -> Optional["ManagedTask
         repeat_seconds = get_repeat_interval_seconds(task.schedule)
         overdue_time = (now - last_runtime).total_seconds()
         
-        logger.debug(f"overdue: {overdue_time}, repeat: {repeat_seconds}, elapsed: {elapsed_since_last_run}")
-        
         # Should we run now?
-        if (now >= last_runtime and
-            elapsed_since_last_run > repeat_seconds / 2 and
-            not task.already_run_flag):
+        # Check: 1) past scheduled time, 2) not already run in this cycle
+        should_run = (now >= last_runtime and not task.already_run_flag)
+        
+        if should_run:
             candidates.append({
                 "overdue": overdue_time,
                 "task": task
             })
         
-        # Reset already_run_flag if now is close to the next scheduled run time
-        if abs((next_runtime - now).total_seconds()) <= 30 * 60:
+        # Reset already_run_flag when entering next schedule cycle
+        # Use a 1-minute window instead of 30 minutes to avoid premature resets
+        if abs((next_runtime - now).total_seconds()) <= 60:
             task.already_run_flag = False
     
     if not candidates:
@@ -286,6 +286,9 @@ def find_tasks_ready_to_run(tasks: List["ManagedTask"]) -> Optional["ManagedTask
     candidates.sort(key=lambda x: x["overdue"], reverse=True)
     
     selected_task = candidates[0]["task"]
+    # IMPORTANT: Set flags immediately at selection time to prevent duplicate selection
+    # during the async execution window. TaskRunner._on_skill_complete will also update
+    # last_run_datetime after execution completes (as a more accurate timestamp).
     selected_task.last_run_datetime = now
     selected_task.already_run_flag = True
     

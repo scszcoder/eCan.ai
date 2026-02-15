@@ -139,10 +139,12 @@ const AppHeader: React.FC<AppHeaderProps> = ({ collapsed, onCollapse, userMenuIt
     // 从存储中获取完整的用户信息（支持账号登录和 Google 登录）
     const storedUserInfo: UserInfo | null = userStorageManager.getUserInfo();
     const isPasswordLogin = storedUserInfo?.login_type === 'password';
-    // 显示名称优先级：password 登录时 username/email，其它登录方式优先 name
-    const displayName = isPasswordLogin
-        ? (storedUserInfo?.username || storedUserInfo?.email || username || t('common.username'))
-        : (storedUserInfo?.name || storedUserInfo?.username || storedUserInfo?.email || username || t('common.username'));
+    // 显示名称优先级：统一优先使用 name，如果没有则使用 username（邮箱用户名部分）
+    const displayName = storedUserInfo?.name 
+        || (storedUserInfo?.username ? storedUserInfo.username.split('@')[0] : undefined)
+        || (storedUserInfo?.email ? storedUserInfo.email.split('@')[0] : undefined)
+        || username 
+        || t('common.username');
     const displayEmail = storedUserInfo?.email;
     const displayRole = storedUserInfo?.role;
     const displayPicture = isPasswordLogin ? undefined : storedUserInfo?.picture;

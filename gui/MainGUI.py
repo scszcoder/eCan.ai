@@ -393,23 +393,33 @@ class MainWindow:
         except Exception as e:
             logger.warning(f"[MainWindow] Failed to register proxy change callback: {e}")
 
-    def _schedule_delayed_metrics_update(self, vehicle):
+    def _schedule_delayed_metrics_update(self, vehicle, retry_count=0, max_retries=5):
         """Schedule delayed performance monitoring update, waiting for event loop availability"""
         try:
-            logger.debug(f"[MainWindow] ðŸ”„ Attempting delayed metrics update for vehicle: {vehicle.getName()}")
+            logger.debug(f"[MainWindow] 🔄 Attempting delayed metrics update for vehicle: {vehicle.getName()} (retry {retry_count}/{max_retries})")
 
             # Try to get event loop again
             try:
                 loop = asyncio.get_running_loop()
                 loop.create_task(self._update_vehicle_metrics_async(vehicle))
-                logger.debug(f"[MainWindow] âœ… Successfully scheduled delayed metrics update for vehicle: {vehicle.getName()}")
+                logger.debug(f"[MainWindow] ✅ Successfully scheduled delayed metrics update for vehicle: {vehicle.getName()}")
             except RuntimeError as e:
-                # If event loop is still not available after delay, log as warning and continue with defaults
-                logger.warning(f"[MainWindow] âš ï¸ Event loop still not available for delayed metrics update: {e}")
-                logger.info(f"[MainWindow] ðŸ“Š Vehicle {vehicle.getName()} will continue with default metrics")
+                # If event loop is still not available, retry with exponential backoff
+                if retry_count < max_retries:
+                    delay = 2.0 * (1.5 ** retry_count)  # Exponential backoff: 2s, 3s, 4.5s, 6.75s, 10.125s
+                    logger.debug(f"[MainWindow] ⏳ Event loop not ready, retrying in {delay:.1f}s (attempt {retry_count + 1}/{max_retries})")
+                    timer = threading.Timer(
+                        delay, 
+                        lambda v=vehicle, r=retry_count: self._schedule_delayed_metrics_update(v, r + 1, max_retries)
+                    )
+                    timer.start()
+                else:
+                    # Max retries reached, give up and use defaults
+                    logger.warning(f"[MainWindow] ⚠️ Event loop still not available after {max_retries} retries: {e}")
+                    logger.info(f"[MainWindow] 📊 Vehicle {vehicle.getName()} will continue with default metrics")
 
         except Exception as e:
-            logger.error(f"[MainWindow] âŒ Failed to schedule delayed metrics update for {vehicle.getName()}: {e}")
+            logger.error(f"[MainWindow] ❌ Failed to schedule delayed metrics update for {vehicle.getName()}: {e}")
 
     async def _async_background_initialization(self):
         """
