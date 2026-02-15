@@ -3889,7 +3889,19 @@ async function processEvent(event, context, callback, test_stub) {
   const ownerSub = event.identity?.sub || event.identity?.claims?.sub || event.identity?.username || "";
   // ownerEmail is the actual email from identity claims - used for querying skills/tasks/etc
   // that are stored with the email as owner (not the sanitized username from frontend)
-  const ownerEmail = event.identity?.claims?.email || owner;
+  // When using access token auth, claims.email is empty. Reverse-sanitize the owner to recover the email.
+  let ownerEmail = event.identity?.claims?.email || "";
+  if (!ownerEmail && owner && !owner.includes("@")) {
+    // Reverse sanitization: songc_yahoo_com → songc@yahoo.com
+    const parts = owner.split("_");
+    if (parts.length >= 3) {
+      const tld = parts[parts.length - 1];
+      const domain = parts[parts.length - 2];
+      const name = parts.slice(0, -2).join("_");
+      ownerEmail = `${name}@${domain}.${tld}`;
+    }
+  }
+  if (!ownerEmail) ownerEmail = owner;
 
   const userName = (owner || "unknown").replace(/[@.]/g, "_");
   // Get today's date in YYYYMMDD format
@@ -5373,9 +5385,9 @@ async function processEvent(event, context, callback, test_stub) {
             break;
           case "getAgentSkills":
               {
-                // Query skills by both email and Cognito sub to handle legacy and new data
-                console.log(`[agentScheduler] getAgentSkills: querying for ownerEmail='${ownerEmail}', ownerSub='${ownerSub}'`);
-                const skills = await skillService.getSkillsByOwners(ownerEmail, ownerSub);
+                // Query skills by email, Cognito sub, and sanitized username to handle all owner formats
+                console.log(`[agentScheduler] getAgentSkills: querying for ownerEmail='${ownerEmail}', ownerSub='${ownerSub}', owner='${owner}'`);
+                const skills = await skillService.getSkillsByOwners(ownerEmail, ownerSub, owner);
                 returnData = skills;
               }
               break;
@@ -5383,7 +5395,7 @@ async function processEvent(event, context, callback, test_stub) {
             {
               // Query tasks by both email and Cognito sub to handle legacy and new data
               console.log(`[agentScheduler] getAgentTasks: querying for ownerEmail='${ownerEmail}', ownerSub='${ownerSub}'`);
-              const tasks = await taskService.getTasksByOwners(ownerEmail, ownerSub);
+              const tasks = await taskService.getTasksByOwners(ownerEmail, ownerSub, owner);
               returnData = tasks;
             }
             break;
@@ -5834,9 +5846,9 @@ async function processEvent(event, context, callback, test_stub) {
               // Query agents by username, email, and Cognito sub to handle all possible owner formats
               const agents = await safeList("agents", () => agentService.getAgentsByOwners(owner, ownerEmail, ownerSub));
               // Query skills by both email and Cognito sub to handle legacy and new data
-              const skills = await safeList("skills", () => skillService.getSkillsByOwners(ownerEmail, ownerSub));
+              const skills = await safeList("skills", () => skillService.getSkillsByOwners(ownerEmail, ownerSub, owner));
               // Query tasks by both email and Cognito sub to handle legacy and new data
-              const tasks = await safeList("tasks", () => taskService.getTasksByOwners(ownerEmail, ownerSub));
+              const tasks = await safeList("tasks", () => taskService.getTasksByOwners(ownerEmail, ownerSub, owner));
               const tools = await safeList("tools", () => toolService.getToolsByOwner(owner));
               const knowledges = await safeList("knowledges", () => knowledgeService.getKnowledgesByOwner(owner));
               const prompts = await safeList("prompts", () => promptService.listPrompts(owner));
