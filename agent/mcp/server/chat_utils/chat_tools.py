@@ -437,7 +437,7 @@ def get_chat_history(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
 
 def add_send_chat_tool_schema(tool_schemas: List[types.Tool]) -> None:
     """Add send_chat tool schema to the tool schemas list."""
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="send_chat",
         description=(
             "<category>Communication</category><sub-category>Chat</sub-category>"
@@ -497,7 +497,7 @@ def add_send_chat_tool_schema(tool_schemas: List[types.Tool]) -> None:
 
 def add_list_chat_agents_tool_schema(tool_schemas: List[types.Tool]) -> None:
     """Add list_chat_agents tool schema to the tool schemas list."""
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="list_chat_agents",
         description=(
             "<category>Communication</category><sub-category>Chat</sub-category>"
@@ -530,7 +530,7 @@ def add_list_chat_agents_tool_schema(tool_schemas: List[types.Tool]) -> None:
 
 def add_get_chat_history_tool_schema(tool_schemas: List[types.Tool]) -> None:
     """Add get_chat_history tool schema to the tool schemas list."""
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="get_chat_history",
         description=(
             "<category>Communication</category><sub-category>Chat</sub-category>"

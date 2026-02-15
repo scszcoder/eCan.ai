@@ -797,7 +797,7 @@ def _wait_for_send_confirmation(driver):
 def add_ebay_read_all_messages_tool_schema(tool_schemas):
     import mcp.types as types
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="ebay_read_all_messages",
         description="read ebay newly received messages list.",
         inputSchema={
@@ -824,7 +824,7 @@ def add_ebay_read_all_messages_tool_schema(tool_schemas):
 def add_ebay_respond_to_message_tool_schema(tool_schemas):
     import mcp.types as types
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="ebay_respond_to_message",
         description="Answer ebay messages with text, attachments, and related actions if any (for example, handle return, cancel, refund/partial refund, send replacement items, etc",
         inputSchema={
@@ -859,7 +859,7 @@ def add_ebay_respond_to_message_tool_schema(tool_schemas):
 def add_ebay_read_next_message_tool_schema(tool_schemas):
     import mcp.types as types
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="ebay_read_next_message",
         description="in ebay seller hub messages page, read next unread message by clicking on the message, read it, summerarize it, reaspond to it, and return the handling details info in json format including ones that require human intervention.",
         inputSchema={

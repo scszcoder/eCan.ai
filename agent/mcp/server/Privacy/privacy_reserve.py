@@ -1,4 +1,4 @@
-﻿import os
+import os
 import re
 from datetime import datetime
 from typing import Any
@@ -140,7 +140,7 @@ async def privacy_reserve(mainwin, args):
 def add_privacy_reserve_tool_schema(tool_schemas):
     import mcp.types as types
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="privacy_reserve",
         description="preserve privacy by either removing or anonymizing related contents from a dom-tree.",
         inputSchema={

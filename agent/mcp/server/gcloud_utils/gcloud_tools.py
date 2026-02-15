@@ -510,7 +510,7 @@ async def gcloud_shutdown(mainwin, args) -> List[TextContent]:
 
 def add_gcloud_read_billing_tool_schema(tool_schemas):
     """Add schema for gcloud_read_billing tool."""
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="gcloud_read_billing",
         description="<category>GCP</category><sub-category>Cost Management</sub-category>Read GCP billing account information and linked projects.",
         inputSchema={
@@ -539,7 +539,7 @@ def add_gcloud_read_billing_tool_schema(tool_schemas):
 
 def add_gcloud_shutdown_tool_schema(tool_schemas):
     """Add schema for gcloud_shutdown tool."""
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="gcloud_shutdown",
         description="""<category>GCP</category><sub-category>Cost Management</sub-category>Emergency shutdown of GCP services.
 

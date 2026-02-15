@@ -1015,7 +1015,7 @@ async def gmail_mark_status(mainwin, args):  # type: ignore
 def add_gmail_delete_email_tool_schema(tool_schemas):
     import mcp.types as types
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="gmail_delete_email",
         description="gmail delete emails.",
         inputSchema={
@@ -1042,7 +1042,7 @@ def add_gmail_delete_email_tool_schema(tool_schemas):
 def add_gmail_write_new_tool_schema(tool_schemas):
     import mcp.types as types
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="gmail_write_new",
         description="gmail write an new email.",
         inputSchema={
@@ -1073,7 +1073,7 @@ def add_gmail_write_new_tool_schema(tool_schemas):
 def add_gmail_respond_tool_schema(tool_schemas):
     import mcp.types as types
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="gmail_respond",
         description="gmail respond to an email",
         inputSchema={
@@ -1120,7 +1120,7 @@ def add_gmail_respond_tool_schema(tool_schemas):
 def add_gmail_read_full_email_tool_schema(tool_schemas):
     import mcp.types as types
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="gmail_read_full_email",
         description="read the unread gmail full contents given the email title, sender and datetime.",
         inputSchema={
@@ -1159,7 +1159,7 @@ def add_gmail_read_full_email_tool_schema(tool_schemas):
 def add_gmail_read_titles_tool_schema(tool_schemas):
     import mcp.types as types
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="gmail_read_titles",
         description="read titles of unread gmails for the past N hours.",
         inputSchema={
@@ -1194,7 +1194,7 @@ def add_gmail_read_titles_tool_schema(tool_schemas):
 def add_gmail_move_email_tool_schema(tool_schemas):
     import mcp.types as types
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="gmail_move_email",
         description="gmail move email to a different folder.",
         inputSchema={
@@ -1221,7 +1221,7 @@ def add_gmail_move_email_tool_schema(tool_schemas):
 def add_gmail_mark_status_tool_schema(tool_schemas):
     import mcp.types as types
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="gmail_mark_status",
         description="gmail mark en email as read/unread.",
         inputSchema={

@@ -669,7 +669,7 @@ def schedule_task(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
 
 def add_describe_self_tool_schema(tool_schemas: List[types.Tool]) -> None:
     """Add describe_self tool schema to the tool schemas list."""
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="describe_self",
         description=(
             "<category>Agent</category><sub-category>Self</sub-category>"
@@ -699,7 +699,7 @@ def add_describe_self_tool_schema(tool_schemas: List[types.Tool]) -> None:
 
 def add_start_task_using_skill_tool_schema(tool_schemas: List[types.Tool]) -> None:
     """Add start_task_using_skill tool schema to the tool schemas list."""
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="start_task_using_skill",
         description=(
             "<category>Agent</category><sub-category>Task</sub-category>"
@@ -740,7 +740,7 @@ def add_start_task_using_skill_tool_schema(tool_schemas: List[types.Tool]) -> No
 
 def add_stop_task_using_skill_tool_schema(tool_schemas: List[types.Tool]) -> None:
     """Add stop_task_using_skill tool schema to the tool schemas list."""
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="stop_task_using_skill",
         description=(
             "<category>Agent</category><sub-category>Task</sub-category>"
@@ -776,7 +776,7 @@ def add_stop_task_using_skill_tool_schema(tool_schemas: List[types.Tool]) -> Non
 
 def add_schedule_task_tool_schema(tool_schemas: List[types.Tool]) -> None:
     """Add schedule_task tool schema to the tool schemas list."""
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="schedule_task",
         description=(
             "<category>Agent</category><sub-category>Task</sub-category>"
