@@ -34,6 +34,9 @@ class CanvasEventHandler {
   private static instance: CanvasEventHandler | null = null;
   private eventHandlers: Map<SkillEditorEventType, Set<EventHandler>> = new Map();
   private isListening: boolean = false;
+  // Track recently loaded flowgrams to avoid duplicate S3 loads
+  private lastFlowgramLoadedAt: number = 0;
+  private lastFlowgramSkillName: string = '';
   
   private constructor() {}
   
@@ -238,6 +241,10 @@ class CanvasEventHandler {
             const result = await canvasController.loadFlowgram(flowgramData);
             console.log('[CanvasEventHandler] Flowgram loaded via canvasController:', result);
             
+            // Track this load to deduplicate the subsequent canvas.load_flowgram event
+            this.lastFlowgramLoadedAt = Date.now();
+            this.lastFlowgramSkillName = flowgramData.metadata?.skillName || '';
+            
             // Notify ChatPanel that the flowgram has arrived (clears "Generating" status)
             eventBus.emit('skill_editor:flowgram_loaded', {
               success: result.success,
@@ -260,6 +267,14 @@ class CanvasEventHandler {
         // Handle nested payload from subscription (payload.payload.skillPath)
         let skillPath = payload?.skillPath || payload?.payload?.skillPath;
         const skillName = payload?.skillName || payload?.payload?.skillName;
+        
+        // Skip if this skill was already loaded via canvas.load_flowgram_data (subscription)
+        // within the last 30 seconds — the subscription delivers the flowgram faster
+        const timeSinceLastLoad = Date.now() - this.lastFlowgramLoadedAt;
+        if (skillName && skillName === this.lastFlowgramSkillName && timeSinceLastLoad < 30_000) {
+          console.log('[CanvasEventHandler] Skipping canvas.load_flowgram — already loaded via subscription:', skillName);
+          break;
+        }
         if (skillPath && skillName) {
           // Strip s3://bucket/ prefix — the Lambda API expects relative S3 keys
           skillPath = skillPath.replace(/^s3:\/\/[^/]+\//, '');
