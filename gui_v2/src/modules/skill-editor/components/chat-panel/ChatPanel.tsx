@@ -27,6 +27,13 @@ import type {
   ImplementationPlan,
   PipelineState,
 } from '../../types/skill-editor-chat.types';
+import type { A2UIServerMessage } from './a2ui/types';
+
+/** A2UI response data from LLM */
+interface A2UIData {
+  surfaceId: string;
+  messages: A2UIServerMessage[];
+}
 
 const { TextArea } = Input;
 
@@ -490,6 +497,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
   const [isLoading, setIsLoading] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [pendingClarification, setPendingClarification] = useState<ClarificationQuestion[] | null>(null);
+  const [pendingA2UI, setPendingA2UI] = useState<A2UIData | null>(null);
   const [pendingPlan, setPendingPlan] = useState<ImplementationPlan | null>(null);
   const [pipelineState, setPipelineState] = useState<PipelineState>('idle');
   const [streamingStatus, setStreamingStatus] = useState<string>('');
@@ -668,10 +676,29 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
     eventBus.on('skill_editor:chat:stream_end', handleDone);
     eventBus.on('skill_editor:chat:error', handleError);
 
+    // Listen for flowgram-loaded event to clear "Generating" status
+    const handleFlowgramLoaded = (data: any) => {
+      console.log('[ChatPanel] Flowgram loaded via subscription:', data);
+      setStreamingStatus('');
+      setPipelineState('complete');
+      setIsLoading(false);
+      if (data?.skillName) {
+        const doneMessage: ChatMessage = {
+          id: `msg-flowgram-done-${Date.now()}`,
+          role: 'assistant',
+          content: `✅ Workflow **${data.skillName}** loaded on canvas with ${data.nodeCount || 0} nodes.`,
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, doneMessage]);
+      }
+    };
+    eventBus.on('skill_editor:flowgram_loaded', handleFlowgramLoaded);
+
     return () => {
       eventBus.off('skill_editor:chat:stream_chunk', handleChunk);
       eventBus.off('skill_editor:chat:stream_end', handleDone);
       eventBus.off('skill_editor:chat:error', handleError);
+      eventBus.off('skill_editor:flowgram_loaded', handleFlowgramLoaded);
     };
   }, [activeSessionId]);
 
@@ -874,10 +901,18 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
         if (response.clarification && response.clarification.length > 0) {
           setPendingClarification(response.clarification);
+          // Also capture A2UI data if provided by LLM
+          if (response.a2ui?.messages && response.a2ui?.surfaceId) {
+            setPendingA2UI({ surfaceId: response.a2ui.surfaceId, messages: response.a2ui.messages });
+          } else {
+            setPendingA2UI(null);
+          }
         } else if (response.plan) {
           setPendingPlan(response.plan);
+          setPendingA2UI(null);
         } else {
           setPendingClarification(null);
+          setPendingA2UI(null);
           setPendingPlan(null);
         }
 
@@ -885,8 +920,32 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           await canvasController.loadFlowgram(response.flowgram);
         }
       }
-    } catch (error) {
-      console.error('[ChatPanel] Error approving plan:', error);
+    } catch (error: any) {
+      const errorMsg = String(error?.message || error || '');
+      const isTimeout = /timed?\s*out/i.test(errorMsg);
+      console.warn('[ChatPanel] Error approving plan (isTimeout=' + isTimeout + '):', errorMsg);
+
+      if (isTimeout) {
+        // AppSync times out after ~30s, but the Lambda keeps running.
+        // Show an informational message; the flowgram will arrive via event subscription.
+        const infoMessage: ChatMessage = {
+          id: `msg-generating-${Date.now()}`,
+          role: 'assistant',
+          content: '⏳ Generating workflow — this may take a minute. The canvas will update automatically once the flowgram is ready.',
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, infoMessage]);
+        setStreamingStatus('Generating flowgram...');
+        setPipelineState('generating');
+      } else {
+        const errMessage: ChatMessage = {
+          id: `msg-error-${Date.now()}`,
+          role: 'assistant',
+          content: `Error generating workflow: ${errorMsg}`,
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, errMessage]);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -955,10 +1014,17 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
         if (response.clarification && response.clarification.length > 0) {
           setPendingClarification(response.clarification);
+          if (response.a2ui?.messages && response.a2ui?.surfaceId) {
+            setPendingA2UI({ surfaceId: response.a2ui.surfaceId, messages: response.a2ui.messages });
+          } else {
+            setPendingA2UI(null);
+          }
         } else if (response.plan) {
           setPendingPlan(response.plan);
+          setPendingA2UI(null);
         } else {
           setPendingClarification(null);
+          setPendingA2UI(null);
           setPendingPlan(null);
         }
       }
@@ -1111,6 +1177,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         if (response.clarification && response.clarification.length > 0) {
           console.log('[ChatPanel] Received clarification questions:', response.clarification.length);
           setPendingClarification(response.clarification);
+          // Capture A2UI data if provided by LLM
+          if (response.a2ui?.messages && response.a2ui?.surfaceId) {
+            setPendingA2UI({ surfaceId: response.a2ui.surfaceId, messages: response.a2ui.messages });
+          } else {
+            setPendingA2UI(null);
+          }
           setPendingPlan(null);
         }
         // Handle implementation plan
@@ -1118,10 +1190,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           console.log('[ChatPanel] Received implementation plan');
           setPendingPlan(response.plan);
           setPendingClarification(null);
+          setPendingA2UI(null);
         }
         // Clear pending states on completion
         else {
           setPendingClarification(null);
+          setPendingA2UI(null);
           setPendingPlan(null);
         }
         
@@ -1158,15 +1232,29 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
         };
         setMessages(prev => [...prev, errorMessage]);
       }
-    } catch (error) {
-      console.error('[ChatPanel] Error sending message:', error);
-      const errorMessage: ChatMessage = {
-        id: `msg-error-${Date.now()}`,
-        role: 'assistant',
-        content: 'Sorry, I encountered an error. Please check if the backend is running.',
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, errorMessage]);
+    } catch (error: any) {
+      const errorMsg = String(error?.message || error || '');
+      const isTimeout = /timed?\s*out/i.test(errorMsg);
+      console.error('[ChatPanel] Error sending message (isTimeout=' + isTimeout + '):', errorMsg);
+
+      if (isTimeout) {
+        const infoMessage: ChatMessage = {
+          id: `msg-generating-${Date.now()}`,
+          role: 'assistant',
+          content: '⏳ Processing — this may take a minute. Results will appear automatically when ready.',
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, infoMessage]);
+        setStreamingStatus('Processing...');
+      } else {
+        const errorMessage: ChatMessage = {
+          id: `msg-error-${Date.now()}`,
+          role: 'assistant',
+          content: 'Sorry, I encountered an error. Please check if the backend is running.',
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, errorMessage]);
+      }
     } finally {
       setIsLoading(false);
       setPendingAttachments([]);
@@ -1244,9 +1332,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
 
         // Only clear pending after successful response
         setPendingClarification(null);
+        setPendingA2UI(null);
 
         if (response.clarification && response.clarification.length > 0) {
           setPendingClarification(response.clarification);
+          if (response.a2ui?.messages && response.a2ui?.surfaceId) {
+            setPendingA2UI({ surfaceId: response.a2ui.surfaceId, messages: response.a2ui.messages });
+          }
         } else if (response.plan) {
           setPendingPlan(response.plan);
         }

@@ -20,6 +20,7 @@ export interface GetAllMineResponse {
   knowledges?: any[];
   prompts?: any[];
   orgs?: any;
+  avatars?: any[];
   vehicles?: any[];
   accountInfo?: any;
 }

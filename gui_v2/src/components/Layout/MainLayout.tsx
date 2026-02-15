@@ -20,7 +20,8 @@ import {
     ApartmentOutlined,
     ShopOutlined,
     ShoppingOutlined,
-    PrinterOutlined
+    PrinterOutlined,
+    DatabaseOutlined
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import styled from '@emotion/styled';
@@ -126,10 +127,12 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         { key: '/vehicles', icon: <LaptopOutlined />, label: t('menu.vehicles') },
         { key: '/tools', icon: <ToolOutlined />, label: t('menu.tools') },
         { key: '/prompts', icon: <ReadOutlined />, label: t('menu.prompts') },
+        { key: '/avatars', icon: <UserOutlined />, label: t('menu.avatars') },
         { key: '/warehouses', icon: <ShopOutlined />, label: t('menu.warehouses') },
         { key: '/products', icon: <ShoppingOutlined />, label: t('menu.products') },
         { key: '/knowledge-ported', icon: <ReadOutlined />, label: t('menu.knowledge') },
         { key: '/shipping-label', icon: <PrinterOutlined />, label: t('menu.shipping_label') },
+        { key: '/rag', icon: <DatabaseOutlined />, label: 'RAG Documents' },
         { key: '/settings', icon: <SettingOutlined />, label: t('menu.settings') },
         { key: '/dashboard', icon: <DashboardOutlined />, label: t('menu.dashboard') },
 

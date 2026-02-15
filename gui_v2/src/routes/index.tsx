@@ -28,9 +28,11 @@ const Orgs = React.lazy(() => import('../pages/Orgs/Orgs'));
 const Warehouses = React.lazy(() => import('../pages/Warehouses/Warehouses'));
 const Products = React.lazy(() => import('../pages/Products/Products'));
 const Prompts = React.lazy(() => import('../pages/Prompts/Prompts'));
+const Avatars = React.lazy(() => import('../pages/Avatars/Avatars'));
 const Account = React.lazy(() => import('../pages/Account/Account'));
 const PaymentPlan = React.lazy(() => import('../pages/Account/PaymentPlan'));
 const ShippingLabel = React.lazy(() => import('../pages/ShippingLabel/ShippingLabel'));
+const RAGDocuments = React.lazy(() => import('../pages/RAG/RAGDocuments'));
 
 // LoadComponent包装器
 const LazyWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -190,6 +192,11 @@ export const protectedRoutes: RouteConfig[] = [
                 keepAlive: true,
             },
             {
+                path: 'avatars',
+                element: <LazyWrapper><Avatars /></LazyWrapper>,
+                keepAlive: true,
+            },
+            {
                 path: 'account',
                 element: <LazyWrapper><Account /></LazyWrapper>,
                 keepAlive: false,
@@ -227,6 +234,11 @@ export const protectedRoutes: RouteConfig[] = [
             {
                 path: 'shipping-label',
                 element: <LazyWrapper><ShippingLabel /></LazyWrapper>,
+                keepAlive: true,
+            },
+            {
+                path: 'rag',
+                element: <LazyWrapper><RAGDocuments /></LazyWrapper>,
                 keepAlive: true,
             },
         ],

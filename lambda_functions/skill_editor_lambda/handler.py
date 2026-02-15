@@ -836,9 +836,11 @@ def _publish(env: _Env, *, owner: str, session_id: str, flowgram_id: Optional[st
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
-
-            run_async_in_sync(_do())
+            # Use a dedicated thread to avoid importing heavy agent modules
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(asyncio.run, _do())
+                future.result(timeout=10)
         else:
             loop.run_until_complete(_do())
     except RuntimeError:
@@ -1676,8 +1678,32 @@ def _handle_send_message(event: Dict[str, Any]) -> Dict[str, Any]:
             if not isinstance(evt, dict):
                 return
             etype = evt.get("type")
-            if etype not in {"progress", "chunk"}:
+            if etype not in {"progress", "chunk", "flowgram"}:
                 return
+
+            # Handle flowgram events — publish via skill_editor.event so
+            # the frontend canvas loads even if AppSync times out.
+            if etype == "flowgram":
+                fg_data = evt.get("data")
+                if not isinstance(fg_data, dict):
+                    return
+                try:
+                    _publish(
+                        env,
+                        owner=owner,
+                        session_id=session_id,
+                        flowgram_id=flowgram_id,
+                        event_type="skill_editor.event",
+                        payload={
+                            "type": "canvas.load_flowgram_data",
+                            "payload": {"flowgram": fg_data},
+                        },
+                    )
+                    logger.info("[sendSkillEditorChatMessage] Published flowgram event via on_event")
+                except Exception as pub_err:
+                    logger.warning(f"[sendSkillEditorChatMessage] Error publishing flowgram event: {pub_err}")
+                return
+
             data = evt.get("data") or {}
             text = data.get("message") if etype == "progress" else data.get("content")
             if not isinstance(text, str) or not text.strip():
