@@ -21,7 +21,7 @@ class AuthPerformanceConfig:
 
         # Authentication flow configuration
         'auth_flow': {
-            'total_timeout': 45,       # Total authentication timeout (seconds) - hard ceiling for entire auth flow
+            'total_timeout': 150,      # Total authentication timeout (seconds) - increased for extremely slow networks
         },
 
         # Performance monitoring configuration
