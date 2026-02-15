@@ -45,7 +45,7 @@ class NodeErrorBoundary extends React.Component<
 }
 
 export const BaseNode = ({ node }: { node: FlowNodeEntity }) => {
-  console.log('[BaseNode] Rendering node:', { nodeId: node?.id, nodeType: (node as any)?.json?.type });
+  console.log('[BaseNode] Rendering node:', { nodeId: node?.id, nodeType: node?.flowNodeType });
   /**
    * Provides methods related to node rendering
    * 提供节点RenderRelated toMethod
@@ -83,14 +83,19 @@ export const BaseNode = ({ node }: { node: FlowNodeEntity }) => {
    */
   const getPopupContainer = useCallback(() => node.renderData.node || document.body, []);
 
-  // Get the actual node type from the JSON data
-  // Extract type from node ID (e.g., "loop_xxx" -> "loop", "block_start_xxx" -> "block-start")
+  // Get the actual node type - prefer flowNodeType (set by the editor's node registry)
+  // Fallback to extracting from the node ID prefix
   const extractTypeFromId = (id: string) => {
     if (id.startsWith('block_start_')) return 'block-start';
     if (id.startsWith('block_end_')) return 'block-end';
+    if (id.startsWith('browser_automation_')) return 'browser-automation';
+    if (id.startsWith('pend_event_')) return 'pend_event_node';
+    if (id.startsWith('pend_input_')) return 'pend_input_node';
+    if (id.startsWith('mcp_tool_')) return 'mcp';
+    if (id.startsWith('chat_node_')) return 'chat_node';
     return id.split('_')[0];
   };
-  const nodeType = (node as any).json?.type || extractTypeFromId(node.id);
+  const nodeType = node.flowNodeType || (node as any).json?.type || extractTypeFromId(node.id);
   
   // Check if node is Loop, BlockStart, or BlockEnd to hide nodeState UI
   const shouldHideNodeState = 

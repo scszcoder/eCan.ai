@@ -16,6 +16,8 @@
     "clean:deps": "rimraf node_modules/.vite"
   },
   "dependencies": {
+    "@a2ui/lit": "file:../../A2UI/renderers/lit",
+    "@a2ui/web_core": "file:../../A2UI/renderers/web_core",
     "@ant-design/icons": "^6.0.0",
     "@ant-design/plots": "^2.4.0",
     "@douyinfe/semi-icons": "^2.82.1",
@@ -35,6 +37,8 @@
     "@flowgram.ai/panel-manager-plugin": "^1.0.3",
     "@flowgram.ai/runtime-interface": "^1.0.3",
     "@flowgram.ai/runtime-js": "^1.0.3",
+    "@lit-labs/signals": "^0.2.0",
+    "@lit/context": "^1.1.6",
     "@monaco-editor/react": "^4.7.0",
     "@react-oauth/google": "^0.12.2",
     "@react-sigma/core": "^5.0.4",
@@ -69,6 +73,7 @@
     "inline-style-prefixer": "^5.1.0",
     "keepalive-for-react": "^4.0.3",
     "keepalive-for-react-router": "^2.0.3",
+    "lit": "^3.3.2",
     "lodash-es": "^4.17.21",
     "lucide-react": "^0.545.0",
     "minisearch": "^7.2.0",

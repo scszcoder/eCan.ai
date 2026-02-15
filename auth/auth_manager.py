@@ -56,13 +56,9 @@ class AuthManager:
                     break
         self.refresh_task = None
 
-        # Check keychain access on startup
-        keychain_ok, keychain_msg = self._check_keychain_access()
-        if keychain_ok:
-            logger.debug(f"Keychain status: {keychain_msg}")
-        else:
-            logger.warning(f"Keychain issue detected: {keychain_msg}")
-            logger.info("Refresh tokens will be stored in encrypted files as fallback")
+        # Keychain availability is determined lazily on first actual use
+        # This avoids triggering macOS Keychain authorization popup on every startup
+        self._keychain_available = True
 
         # Try to restore user info from uli.json for API key isolation
         # This ensures get_current_username() returns the correct user even without full session restore
@@ -469,36 +465,12 @@ class AuthManager:
             return "ecan_refresh_dev"
 
     def _check_keychain_access(self) -> tuple[bool, str]:
-        """Check if keychain is accessible and provide diagnostic information."""
-        try:
-            import platform
-            if platform.system() != "Darwin":
-                return True, "Not macOS - keychain not applicable"
-
-            # Simple check without using actual service name to avoid conflicts
-            try:
-                import sys
-                if getattr(sys, 'frozen', False):
-                    test_service = "ecan_keychain_test"
-                else:
-                    test_service = "ecan_keychain_test_dev"
-                    
-                test_username = "test_user"
-                test_value = "test_value"
-                
-                keyring.set_password(test_service, test_username, test_value)
-                keyring.delete_password(test_service, test_username)
-                return True, "Keychain access is working"
-            except Exception as e:
-                error_msg = str(e)
-                if "(-25244" in error_msg:
-                    return False, "Keychain access denied (-25244). Try: 1) Unlock keychain in Keychain Access app, 2) Grant app permissions when prompted"
-                elif "(-25300" in error_msg:
-                    return False, "Keychain item not found (-25300). This is normal for test operations"
-                else:
-                    return False, f"Keychain error: {error_msg}"
-        except Exception as e:
-            return False, f"Keychain check failed: {e}"
+        """Check if keychain is accessible (lazy, no test writes).
+        
+        Returns cached availability status. Keychain is assumed available
+        until an actual operation fails, avoiding macOS authorization popups on startup.
+        """
+        return getattr(self, '_keychain_available', True), "Lazy check - determined on first use"
 
     def diagnose_keychain_issues(self) -> dict:
         """Provide comprehensive keychain diagnostic information."""
