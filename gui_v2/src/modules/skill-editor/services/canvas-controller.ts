@@ -486,7 +486,7 @@ class CanvasControllerService {
       // initMain() is a no-op when the 'main' sheet already exists, so we must
       // use loadBundle() which fully replaces sheet state and bumps revision,
       // causing ActiveSheetBinder to call ctx.document.fromJSON(doc).
-      if (this.sheetsStore?.loadBundle) {
+      if (this.sheetsStore?.getState) {
         const document = {
           nodes: convertedNodes,
           edges: convertedEdges,
@@ -504,7 +504,7 @@ class CanvasControllerService {
           activeSheetId: 'main',
         };
         console.log('[CanvasController] Loading flowgram via loadBundle');
-        this.sheetsStore.loadBundle(syntheticBundle);
+        this.sheetsStore.getState().loadBundle(syntheticBundle);
       }
       
       // Update skill info
