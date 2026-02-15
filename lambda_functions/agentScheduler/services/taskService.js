@@ -187,21 +187,32 @@ async function getTasksByOwner(owner) {
 }
 
 /**
- * Get tasks by multiple owner identifiers (email and/or Cognito sub)
- * This handles both legacy tasks (stored with Cognito sub) and new tasks (stored with email)
+ * Get tasks by multiple owner identifiers (email, Cognito sub, and/or sanitized username)
+ * This handles legacy tasks (stored with Cognito sub), email-based, and sanitized username tasks
  */
-async function getTasksByOwners(ownerEmail, ownerSub) {
-  const owners = [ownerEmail, ownerSub].filter(o => o && o.trim());
+async function getTasksByOwners(ownerEmail, ownerSub, ownerSanitized) {
+  // Collect unique, non-empty owner candidates
+  const ownerSet = new Set(
+    [ownerEmail, ownerSub, ownerSanitized].filter(o => o && o.trim())
+  );
+  const owners = Array.from(ownerSet);
   if (owners.length === 0) {
     return [];
   }
   if (owners.length === 1) {
     return getTasksByOwner(owners[0]);
   }
-  console.log(`[taskService] getTasksByOwners: querying for ownerEmail='${ownerEmail}' OR ownerSub='${ownerSub}'`);
+  console.log(`[taskService] getTasksByOwners: querying for owners=${JSON.stringify(owners)}`);
+  const conditions = [];
+  const params = [];
+  owners.forEach((o, i) => {
+    const paramName = `owner${i}`;
+    conditions.push(`owner = :${paramName}`);
+    params.push(toDbParam(paramName, o));
+  });
   const res = await execute(
-    "SELECT * FROM agent_tasks WHERE owner = :ownerEmail OR owner = :ownerSub ORDER BY created_at DESC",
-    [toDbParam("ownerEmail", ownerEmail), toDbParam("ownerSub", ownerSub)]
+    `SELECT * FROM agent_tasks WHERE ${conditions.join(" OR ")} ORDER BY created_at DESC`,
+    params
   );
   const tasks = rowsToObjects(res);
   console.log(`[taskService] getTasksByOwners: found ${tasks.length} tasks`);
