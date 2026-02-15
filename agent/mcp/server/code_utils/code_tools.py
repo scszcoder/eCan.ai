@@ -403,7 +403,7 @@ def run_code(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
 
 def add_run_code_tool_schema(tool_schemas: List[types.Tool]) -> None:
     """Add run_code tool schema to the tool schemas list."""
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="run_code",
         description=(
             "<category>Code</category><sub-category>Execution</sub-category>"
@@ -722,7 +722,7 @@ def run_shell_script(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
 
 def add_run_shell_script_tool_schema(tool_schemas: List[types.Tool]) -> None:
     """Add run_shell_script tool schema to the tool schemas list."""
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="run_shell_script",
         description=(
             "<category>Code</category><sub-category>Execution</sub-category>"
@@ -1066,7 +1066,7 @@ def find_files(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
 
 def add_grep_search_tool_schema(tool_schemas: List[types.Tool]) -> None:
     """Add grep_search tool schema to the tool schemas list."""
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="grep_search",
         description=(
             "<category>Search</category><sub-category>Content Search</sub-category>"
@@ -1124,7 +1124,7 @@ def add_grep_search_tool_schema(tool_schemas: List[types.Tool]) -> None:
 
 def add_find_files_tool_schema(tool_schemas: List[types.Tool]) -> None:
     """Add find_files tool schema to the tool schemas list."""
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="find_files",
         description=(
             "<category>Search</category><sub-category>File Search</sub-category>"

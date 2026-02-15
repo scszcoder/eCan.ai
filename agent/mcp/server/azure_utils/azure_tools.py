@@ -983,7 +983,7 @@ async def azure_shutdown(mainwin, args) -> List[TextContent]:
 
 def add_azure_read_billing_tool_schema(tool_schemas):
     """Add schema for azure_read_billing tool."""
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="azure_read_billing",
         description="<category>Azure</category><sub-category>Cost Management</sub-category>Read detailed Azure billing information including costs by service and budget status. Requires Azure credentials.",
         inputSchema={
@@ -1025,7 +1025,7 @@ def add_azure_read_billing_tool_schema(tool_schemas):
 
 def add_azure_shutdown_tool_schema(tool_schemas):
     """Add schema for azure_shutdown tool."""
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="azure_shutdown",
         description="""<category>Azure</category><sub-category>Cost Management</sub-category>Emergency shutdown of Azure services to prevent runaway costs.
 

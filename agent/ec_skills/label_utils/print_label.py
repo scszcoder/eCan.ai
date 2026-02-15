@@ -1376,7 +1376,7 @@ def add_print_labels_tool_schema(tool_schemas):
     """Add print_labels tool schema to the MCP tool schemas list."""
     import mcp.types as types
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="print_labels",
         description="<category>Label</category><sub-category>Print</sub-category>Print label files to a specified printer. Supports PDF, PNG, JPG files. Cross-platform: Windows, macOS, Linux. Compatible with laser, inkjet, and thermal printers via USB, LAN, or Bluetooth.",
         inputSchema={
@@ -1414,7 +1414,7 @@ def add_reformat_labels_tool_schema(tool_schemas):
     """Add reformat_labels tool schema to the MCP tool schemas list."""
     import mcp.types as types
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="reformat_labels",
         description="<category>Label</category><sub-category>Reformat</sub-category>Reformat label PDFs to fit on multi-label sheets. Supports configurable sheet sizes, label layouts (rows/columns), margins, and optional backup copies with per-file note text.",
         inputSchema={

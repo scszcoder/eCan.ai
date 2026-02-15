@@ -1141,7 +1141,7 @@ async def aws_shutdown(mainwin, args) -> List[TextContent]:
 
 def add_aws_read_billing_tool_schema(tool_schemas):
     """Add schema for aws_read_billing tool."""
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="aws_read_billing",
         description="<category>AWS</category><sub-category>Cost Management</sub-category>Read detailed AWS billing information including costs by service, daily breakdown, and budget status. Requires AWS credentials with Cost Explorer permissions.",
         inputSchema={
@@ -1176,7 +1176,7 @@ def add_aws_read_billing_tool_schema(tool_schemas):
 
 def add_aws_shutdown_tool_schema(tool_schemas):
     """Add schema for aws_shutdown tool."""
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="aws_shutdown",
         description="""<category>AWS</category><sub-category>Cost Management</sub-category>Emergency shutdown of AWS services to prevent runaway costs. 
         

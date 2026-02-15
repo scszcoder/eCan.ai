@@ -184,7 +184,7 @@ def add_ragify_tool_schema(tool_schemas):
     """
     import mcp.types as types
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="ragify",
         description="Ingest documents or text into LightRAG for RAG indexing. Supports file upload or direct text insertion. Returns a track_id for monitoring processing status.",
         inputSchema={
@@ -663,7 +663,7 @@ def add_rag_query_tool_schema(tool_schemas):
     """
     import mcp.types as types
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="rag_query",
         description="Query LightRAG knowledge base using RAG. Retrieves relevant documents and generates natural language answers.",
         inputSchema={
@@ -780,7 +780,7 @@ def add_wait_for_rag_completion_tool_schema(tool_schemas):
     """
     import mcp.types as types
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="wait_for_rag_completion",
         description="Wait for RAG ingestion to complete by polling track_id status. Blocks until all documents are processed/failed or timeout. Use this when you need to query the documents immediately after ingestion. Timeout is auto-calculated: (file_size_kb / 10) * 60 + 180 seconds.",
         inputSchema={
@@ -827,7 +827,7 @@ def add_ragify_async_tool_schema(tool_schemas):
     """
     import mcp.types as types
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="ragify_async",
         description="Ingest documents into LightRAG with optional async completion notification. Fire-and-forget by default. Set on_complete=true to receive a notification in the task queue when processing finishes. Timeout is auto-calculated from file size: (size_kb / 10) * 60 + 180 seconds.",
         inputSchema={

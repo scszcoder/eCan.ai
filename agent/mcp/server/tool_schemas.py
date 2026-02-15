@@ -148,7 +148,7 @@ def add_tool_schema(new_schema):
     tool_schemas.append(new_schema)
 
 def build_agent_mcp_tools_schemas():
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
             name="rpa_supervisor_scheduling_work",
             description="<category>RPA</category><sub-category>Supervisor</sub-category>As a RPA supervisor, fetches daily work schedule and run team prep and get ready to dispatch the work to the operator agents on the remote hosts to work on.",
             inputSchema={
@@ -160,7 +160,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="rpa_operator_dispatch_works",
         description="<category>RPA</category><sub-category>Supervisor</sub-category>As a RPA operator, it dispatches the RPA works to be performed by a platoon of bots on this host computer.",
         inputSchema={
@@ -183,7 +183,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="rpa_supervisor_process_work_results",
         description="<category>RPA</category><sub-category>Operator</sub-category>As an RPA supervisor, update overall result with received operator work report.",
         inputSchema={
@@ -206,7 +206,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="rpa_supervisor_run_daily_housekeeping",
         description="<category>RPA</category><sub-category>Operator</sub-category>As an RPA supervisor, after all work reports collected, do necessary housekeeping work such as accounting, book keeping etc.",
         inputSchema={
@@ -229,7 +229,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="rpa_operator_report_work_results",
         description="<category>RPA</category><sub-category>Operator</sub-category>As an RPA operator, report work results to supervisor",
         inputSchema={
@@ -252,7 +252,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_screen_capture",
         description="<category>OS</category><sub-category>Screen Capture</sub-category>Do a screen shot, save to a png file and stores into a cv2 image data structure",
         inputSchema={
@@ -283,7 +283,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_screen_analyze",
         description="<category>OS</category><sub-category>OCR</sub-category>do OCR and icon match on an image and result in structured text in the image",
         inputSchema={
@@ -306,7 +306,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="mouse_click",
         description="<category>PyAutoGUI</category><sub-category>Mouse Action</sub-category>a mouse click function using pyautogui.",
         inputSchema={
@@ -337,7 +337,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="mouse_move",
         description="<category>PyAutoGUI</category><sub-category>Mouse Action</sub-category>a mouse move/hover function using pyautogui.",
         inputSchema={
@@ -364,7 +364,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="mouse_drag_drop",
         description="<category>PyAutoGUI</category><sub-category>Mouse Action</sub-category>a mouse drag and drop function using pyautogui.",
         inputSchema={
@@ -399,7 +399,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="mouse_scroll",
         description="<category>PyAutoGUI</category><sub-category>Mouse Action</sub-category>a mouse scroll function using pyautogui.",
         inputSchema={
@@ -430,7 +430,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="keyboard_text_input",
         description="<category>PyAutoGUI</category><sub-category>Keyboard Action</sub-category>direct drive keyboard type in text string.",
         inputSchema={
@@ -461,7 +461,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="keyboard_keys_input",
         description="<category>PyAutoGUI</category><sub-category>Keyboard Action</sub-category>direct drive keyboard type combo hot keys.",
         inputSchema={
@@ -488,7 +488,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="solve_px_captcha",
         description="<category>PyAutoGUI</category><sub-category>Mouse Action</sub-category>solve px captcha, PerimeterX Captcha, by read screen, and emulate pressing and holding button for certin amount of time.",
         inputSchema={
@@ -515,7 +515,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_wait",
         description="<category>OS</category><sub-category>Timer</sub-category>wait a few seconds.",
         inputSchema={
@@ -539,7 +539,7 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="say_hello",
         description="<category>OS</category><sub-category>General</sub-category>just a test.",
         inputSchema={
@@ -551,7 +551,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="get_current_time",
         description="<category>OS</category><sub-category>Timer</sub-category>Get the current date and time in yyyy-mm-dd hh:mm:ss format.",
         inputSchema={
@@ -564,7 +564,7 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="in_browser_wait_for_element",
         description="<category>Browser Automation</category><sub-category>In Browser Search Action</sub-category>use webdriver or cdp to wait for web elements.",
         inputSchema={
@@ -607,7 +607,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="in_browser_click_element_by_index",
         description="<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to click on a web element based on index in the selector map.",
         inputSchema={
@@ -647,7 +647,7 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="in_browser_click_element_by_selector",
         description="<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to click on an web element based on css selector.",
         inputSchema={
@@ -691,7 +691,7 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="in_browser_click_element_by_xpath",
         description="<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to click on an web element based on xpath.",
         inputSchema={
@@ -735,7 +735,7 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="in_browser_click_element_by_text",
         description="<category>Browser Automation</category><sub-category>Selenium Mouse Action</sub-category>use webdriver or cdp to click on an web element based on text",
         inputSchema={
@@ -779,7 +779,7 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="in_browser_input_text",
         description="<category>Browser Automation</category><sub-category>In Browser Keyboard Action</sub-category>use webdriver or cdp to key in text on a web page's input field.",
         inputSchema={
@@ -831,7 +831,7 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="in_browser_scroll",
         description="<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to scroll within the browser.",
         inputSchema={
@@ -875,7 +875,7 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="in_browser_send_keys",
         description="<category>Browser Automation</category><sub-category>In Browser Keyboard Action</sub-category>use webdriver or cdp to send hot keys to the web page.",
         inputSchema={
@@ -914,7 +914,7 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="in_browser_scroll_to_text",
         description="<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to scroll to the specified text location.",
         inputSchema={
@@ -949,7 +949,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="in_browser_get_dropdown_options",
         description="<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to obtains the list of selection options on the drop down list.",
         inputSchema={
@@ -984,7 +984,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="in_browser_select_dropdown_option",
         description="<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to select an item on the drop down selection list.",
         inputSchema={
@@ -1019,7 +1019,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="in_browser_drag_drop",
         description="<category>Browser Automation</category><sub-category>In Browser Mouse Action</sub-category>use webdriver or cdp to drag and drop an item. Supports both element-based (CSS selectors) and coordinate-based drag and drop.",
         inputSchema={
@@ -1076,7 +1076,7 @@ def build_agent_mcp_tools_schemas():
 
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="in_browser_extract_content",
         description="<category>Browser Automation</category><sub-category>In Browser Extract Content</sub-category>use cdp to extract dom tree from the web page.",
         inputSchema={
@@ -1113,7 +1113,7 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="in_browser_switch_tab",
         description="<category>Browser Automation</category><sub-category>In Browser Tab Action</sub-category>use webdriver or cdp to switch to a tab in a browser.",
         inputSchema={
@@ -1149,7 +1149,7 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="in_browser_open_tab",
         description="<category>Browser Automation</category><sub-category>In Browser Tab Action</sub-category>use webdriver or cdp to open a new tab in a browser and open an specified URL.",
         inputSchema={
@@ -1186,7 +1186,7 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="in_browser_close_tab",
         description="<category>Browser Automation</category><sub-category>In Browser Tab Action</sub-category>use webdriver or cdp to close a tab in a browser.",
         inputSchema={
@@ -1222,7 +1222,7 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="in_browser_execute_javascript",
         description="<category>Browser Automation</category><sub-category>In Browser Run Code Action</sub-category>use webdriver or cdp to execute a javascript on a web page.",
         inputSchema={
@@ -1259,7 +1259,7 @@ def build_agent_mcp_tools_schemas():
 
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="in_browser_save_href_to_file",
         description="<category>Browser Automation</category><sub-category>In Browser Download Action</sub-category>use webdriver or cdp to download a href pointed file on a web page.",
         inputSchema={
@@ -1299,7 +1299,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="in_browser_upload_file",
         description="<category>Browser Automation</category><sub-category>In Browser Upload Action</sub-category>use webdriver or cdp to upload a file.",
         inputSchema={
@@ -1340,7 +1340,7 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="in_browser_go_to_url",
         description="<category>Browser Automation</category><sub-category>In Browser Tab Action</sub-category>use webdriver or cdp to open a new url site.",
         inputSchema={
@@ -1365,7 +1365,7 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_connect_to_adspower",
         description="<category>Browser Automation</category><sub-category>ADSPower Action</sub-category>connect to an already opened and logged in ADS Power and open a new tab in URL.",
         inputSchema={
@@ -1389,7 +1389,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_connect_to_chrome",
         description="<category>Browser Automation</category><sub-category>Chrome Connection</sub-category>connect to an already opened chrome and open a new tab in URL.",
         inputSchema={
@@ -1418,7 +1418,7 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="ecan_ai_new_chromiunm",
         description="<category>Browser Automation</category><sub-category>Launch New Chromium</sub-category>launch a new instance of chromium and open a new tab in URL.",
         inputSchema={
@@ -1451,7 +1451,7 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_reconnect_wifi",
         description="<category>System</category><sub-category>Network</sub-category>use shell command to reconnect wifi (assume wifi access point porfiles exist).",
         inputSchema={
@@ -1478,7 +1478,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_open_app",
         description="<category>System</category><sub-category>General Applications</sub-category>in OS, open an app.",
         inputSchema={
@@ -1501,7 +1501,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_close_app",
         description="<category>System</category><sub-category>General Applications</sub-category>in OS, close an app.",
         inputSchema={
@@ -1524,7 +1524,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_switch_to_app",
         description="<category>System</category><sub-category>General Applications</sub-category>in OS, switch an app to foreground.",
         inputSchema={
@@ -1547,7 +1547,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="python_run_extern",
         description="<category>System</category><sub-category>Run Code</sub-category>run a python script",
         inputSchema={
@@ -1570,7 +1570,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_list_dir",
         description="<category>System</category><sub-category>File System</sub-category>in OS, list files and directories in a given path. Returns a list of file/directory names with optional filtering by pattern.",
         inputSchema={
@@ -1601,7 +1601,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_make_dir",
         description="<category>System</category><sub-category>File System</sub-category>in OS, make a directory",
         inputSchema={
@@ -1624,7 +1624,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_delete_dir",
         description="<category>System</category><sub-category>File System</sub-category>in OS, delete a directory recursively",
         inputSchema={
@@ -1647,7 +1647,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_delete_file",
         description="<category>System</category><sub-category>File System</sub-category>in OS, delete a file",
         inputSchema={
@@ -1670,7 +1670,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_move_file",
         description="<category>System</category><sub-category>File System</sub-category>in OS, move a file from one location to anther",
         inputSchema={
@@ -1697,7 +1697,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_copy_file_dir",
         description="<category>System</category><sub-category>File System</sub-category>in OS, copy a file or directory from one location to anther",
         inputSchema={
@@ -1724,7 +1724,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_seven_zip",
         description="<category>System</category><sub-category>File System</sub-category>Compress or extract files using 7-Zip. Operation is determined by dest extension: if dest ends with .7z/.zip/.tar/.gz/.bz2/.xz, it compresses src into dest archive; otherwise it extracts src archive to dest directory. Wildcards (*, ?) in src are auto-expanded.",
         inputSchema={
@@ -1754,7 +1754,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="os_kill_processes",
         description="<category>System</category><sub-category>Process Management</sub-category>OS kill processes",
         inputSchema={
@@ -1777,7 +1777,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="api_ecan_ai_query_components",
         description="<category>API</category><sub-category>ECAN Search</sub-category>send ecan_ai API to query components and get their parametric filter values.",
         inputSchema={
@@ -1803,7 +1803,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="api_ecan_ai_query_fom",
         description="<category>API</category><sub-category>ECAN Search</sub-category>send ecan_ai API to query figure of merit for an component.",
         inputSchema={
@@ -1846,7 +1846,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="api_ecan_ai_img2text_icons",
         description="<category>API</category><sub-category>ECAN OCR</sub-category>run API to convert image to text and icons matching including generate the text and icons' location cooridnates.",
         inputSchema={
@@ -1870,7 +1870,7 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="api_ecan_ai_cloud_search",
         description="<category>API</category><sub-category>ECAN Search</sub-category>run API to search components.",
         inputSchema={
@@ -1896,7 +1896,7 @@ def build_agent_mcp_tools_schemas():
 
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="api_ecan_ai_rerank_results",
         description="<category>API</category><sub-category>ECAN Search</sub-category>run cloud API to re-rank search results based on human boss specified figure of merit.",
         inputSchema={
@@ -1925,7 +1925,7 @@ def build_agent_mcp_tools_schemas():
 
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="api_ecan_ai_cloud_search",
         description="<category>API</category><sub-category>ECAN Search</sub-category>run cloud API to do search using cloud hosted search specialist agent.",
         inputSchema={
@@ -1949,7 +1949,7 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="ecan_local_search_components",
         description="<category>Local Search</category><sub-category>ECAN Search</sub-category>Locally search components on designated site with parametric filters.",
         inputSchema={
@@ -1989,7 +1989,7 @@ def build_agent_mcp_tools_schemas():
 
     add_tool_schema(tool_schema)
 
-    tool_schema = types.Tool(
+    tool_schema = types.Tool(_meta={"run_in_cloud": False},
         name="ecan_local_sort_search_results",
         description="<category>Local Search</category><sub-category>ECAN Search</sub-category>locally sort search results based on certain column header text either in ascending order or descending order, then extract top max_n rows of results.",
         inputSchema={
@@ -2023,66 +2023,66 @@ def build_agent_mcp_tools_schemas():
     add_tool_schema(tool_schema)
 
 
-    add_get_ebay_summary_tool_schema(tool_schemas)
-    add_ebay_fullfill_next_order_tool_schema(tool_schemas)
-    add_ebay_cancel_orders_tool_schema(tool_schemas)
-    add_ebay_read_next_message_tool_schema(tool_schemas)
-    add_ebay_read_all_messages_tool_schema(tool_schemas)
-    add_ebay_respond_to_message_tool_schema(tool_schemas)
-    add_ebay_search_tool_schema(tool_schemas)
-    add_ebay_gen_labels_tool_schema(tool_schemas)
-    add_ebay_cancel_labels_tool_schema(tool_schemas)
-    add_ebay_handle_return_tool_schema(tool_schemas)
-    add_ebay_handle_refund_tool_schema(tool_schemas)
-    add_ebay_add_listings_tool_schema(tool_schemas)
-    add_ebay_remove_listings_tool_schema(tool_schemas)
-    add_ebay_update_listings_tool_schema(tool_schemas)
-    add_ebay_get_listings_tool_schema(tool_schemas)
-    add_ebay_add_listing_templates_tool_schema(tool_schemas)
-    add_ebay_remove_listing_templates_tool_schema(tool_schemas)
-    add_ebay_update_listing_templates_tool_schema(tool_schemas)
-    add_ebay_collect_campaigns_stats_tool_schema(tool_schemas)
-    add_ebay_adjust_campaigns_tool_schema(tool_schemas)
-    add_ebay_collect_shop_products_stats_tool_schema(tool_schemas)
-    add_ebay_generate_work_summary_tool_schema(tool_schemas)
-
-
-    add_get_etsy_summary_tool_schema(tool_schemas)
-    add_etsy_fullfill_next_order_tool_schema(tool_schemas)
-    add_etsy_handle_next_message_tool_schema(tool_schemas)
-    add_etsy_search_tool_schema(tool_schemas)
-    add_etsy_handle_return_tool_schema(tool_schemas)
-    add_etsy_handle_refund_tool_schema(tool_schemas)
-    add_etsy_add_listings_tool_schema(tool_schemas)
-    add_etsy_remove_listings_tool_schema(tool_schemas)
-    add_etsy_update_listings_tool_schema(tool_schemas)
-    add_etsy_get_listings_tool_schema(tool_schemas)
-    add_etsy_add_listing_templates_tool_schema(tool_schemas)
-    add_etsy_remove_listing_templates_tool_schema(tool_schemas)
-    add_etsy_update_listing_templates_tool_schema(tool_schemas)
-    add_etsy_collect_campaigns_stats_tool_schema(tool_schemas)
-    add_etsy_adjust_campaigns_tool_schema(tool_schemas)
-    add_etsy_collect_shop_products_stats_tool_schema(tool_schemas)
-    add_etsy_generate_work_summary_tool_schema(tool_schemas)
-
-
-    add_get_amazon_summary_tool_schema(tool_schemas)
-    add_amazon_fullfill_next_order_tool_schema(tool_schemas)
-    add_amazon_handle_next_message_tool_schema(tool_schemas)
-    add_amazon_search_tool_schema(tool_schemas)
-    add_amazon_handle_return_tool_schema(tool_schemas)
-    add_amazon_handle_refund_tool_schema(tool_schemas)
-    add_amazon_add_listings_tool_schema(tool_schemas)
-    add_amazon_remove_listings_tool_schema(tool_schemas)
-    add_amazon_update_listings_tool_schema(tool_schemas)
-    add_amazon_get_listings_tool_schema(tool_schemas)
-    add_amazon_add_listing_templates_tool_schema(tool_schemas)
-    add_amazon_remove_listing_templates_tool_schema(tool_schemas)
-    add_amazon_update_listing_templates_tool_schema(tool_schemas)
-    add_amazon_collect_campaigns_stats_tool_schema(tool_schemas)
-    add_amazon_adjust_campaigns_tool_schema(tool_schemas)
-    add_amazon_collect_shop_products_stats_tool_schema(tool_schemas)
-    add_amazon_generate_work_summary_tool_schema(tool_schemas)
+    # add_get_ebay_summary_tool_schema(tool_schemas)
+    # add_ebay_fullfill_next_order_tool_schema(tool_schemas)
+    # add_ebay_cancel_orders_tool_schema(tool_schemas)
+    # add_ebay_read_next_message_tool_schema(tool_schemas)
+    # add_ebay_read_all_messages_tool_schema(tool_schemas)
+    # add_ebay_respond_to_message_tool_schema(tool_schemas)
+    # add_ebay_search_tool_schema(tool_schemas)
+    # add_ebay_gen_labels_tool_schema(tool_schemas)
+    # add_ebay_cancel_labels_tool_schema(tool_schemas)
+    # add_ebay_handle_return_tool_schema(tool_schemas)
+    # add_ebay_handle_refund_tool_schema(tool_schemas)
+    # add_ebay_add_listings_tool_schema(tool_schemas)
+    # add_ebay_remove_listings_tool_schema(tool_schemas)
+    # add_ebay_update_listings_tool_schema(tool_schemas)
+    # add_ebay_get_listings_tool_schema(tool_schemas)
+    # add_ebay_add_listing_templates_tool_schema(tool_schemas)
+    # add_ebay_remove_listing_templates_tool_schema(tool_schemas)
+    # add_ebay_update_listing_templates_tool_schema(tool_schemas)
+    # add_ebay_collect_campaigns_stats_tool_schema(tool_schemas)
+    # add_ebay_adjust_campaigns_tool_schema(tool_schemas)
+    # add_ebay_collect_shop_products_stats_tool_schema(tool_schemas)
+    # add_ebay_generate_work_summary_tool_schema(tool_schemas)
+    #
+    #
+    # add_get_etsy_summary_tool_schema(tool_schemas)
+    # add_etsy_fullfill_next_order_tool_schema(tool_schemas)
+    # add_etsy_handle_next_message_tool_schema(tool_schemas)
+    # add_etsy_search_tool_schema(tool_schemas)
+    # add_etsy_handle_return_tool_schema(tool_schemas)
+    # add_etsy_handle_refund_tool_schema(tool_schemas)
+    # add_etsy_add_listings_tool_schema(tool_schemas)
+    # add_etsy_remove_listings_tool_schema(tool_schemas)
+    # add_etsy_update_listings_tool_schema(tool_schemas)
+    # add_etsy_get_listings_tool_schema(tool_schemas)
+    # add_etsy_add_listing_templates_tool_schema(tool_schemas)
+    # add_etsy_remove_listing_templates_tool_schema(tool_schemas)
+    # add_etsy_update_listing_templates_tool_schema(tool_schemas)
+    # add_etsy_collect_campaigns_stats_tool_schema(tool_schemas)
+    # add_etsy_adjust_campaigns_tool_schema(tool_schemas)
+    # add_etsy_collect_shop_products_stats_tool_schema(tool_schemas)
+    # add_etsy_generate_work_summary_tool_schema(tool_schemas)
+    #
+    #
+    # add_get_amazon_summary_tool_schema(tool_schemas)
+    # add_amazon_fullfill_next_order_tool_schema(tool_schemas)
+    # add_amazon_handle_next_message_tool_schema(tool_schemas)
+    # add_amazon_search_tool_schema(tool_schemas)
+    # add_amazon_handle_return_tool_schema(tool_schemas)
+    # add_amazon_handle_refund_tool_schema(tool_schemas)
+    # add_amazon_add_listings_tool_schema(tool_schemas)
+    # add_amazon_remove_listings_tool_schema(tool_schemas)
+    # add_amazon_update_listings_tool_schema(tool_schemas)
+    # add_amazon_get_listings_tool_schema(tool_schemas)
+    # add_amazon_add_listing_templates_tool_schema(tool_schemas)
+    # add_amazon_remove_listing_templates_tool_schema(tool_schemas)
+    # add_amazon_update_listing_templates_tool_schema(tool_schemas)
+    # add_amazon_collect_campaigns_stats_tool_schema(tool_schemas)
+    # add_amazon_adjust_campaigns_tool_schema(tool_schemas)
+    # add_amazon_collect_shop_products_stats_tool_schema(tool_schemas)
+    # add_amazon_generate_work_summary_tool_schema(tool_schemas)
 
     # add_get_walmart_summary_tool_schema(tool_schemas)
     # add_walmart_fullfill_next_order_tool_schema(tool_schemas)
@@ -2096,9 +2096,9 @@ def build_agent_mcp_tools_schemas():
     # add_chewy_fullfill_next_order_tool_schema(tool_schemas)
     # add_chewy_handle_next_message_tool_schema(tool_schemas)
 
-    add_get_shopify_summary_tool_schema(tool_schemas)
-    add_shopify_fullfill_next_order_tool_schema(tool_schemas)
-    add_shopify_handle_next_message_tool_schema(tool_schemas)
+    # add_get_shopify_summary_tool_schema(tool_schemas)
+    # add_shopify_fullfill_next_order_tool_schema(tool_schemas)
+    # add_shopify_handle_next_message_tool_schema(tool_schemas)
 
     # add_amazon_mcf_tool_schema(tool_schemas)
     # add_ebay_buy_shipping_tool_schema(tool_schemas)
