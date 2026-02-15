@@ -181,7 +181,7 @@ posthog==3.20.0
 # ============================================================================
 # DEVELOPMENT & BUILD TOOLS
 # ============================================================================
-pyinstaller==6.15.0
+pyinstaller==6.18.0
 pyproject_hooks==1.2.0
 setuptools>=80.9.0
 wheel==0.45.1
@@ -324,7 +324,7 @@ networkx==3.4.2
 # MISCELLANEOUS & LEGACY
 # ============================================================================
 acres==0.3.0
-altgraph==0.17.4
+altgraph==0.17.5
 asttokens==3.0.0
 backcall==0.2.0
 cffi==2.0.0
@@ -348,7 +348,7 @@ orderly-set==5.4.1
 outcome==1.3.0.post0
 pandocfilters==1.5.1
 parso==0.8.4
-pefile==2023.2.7
+pefile==2024.8.26
 pickleshare==0.7.5
 propcache==0.2.1
 pure_eval==0.2.3

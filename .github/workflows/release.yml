@@ -1233,7 +1233,7 @@ jobs:
       with:
         platform: macos
         requirements-file: requirements-macos.txt
-        python-version: '3.11'
+        python-version: '3.12'
         architecture: ${{ matrix.target_arch == 'arm64' && 'arm64' || 'x64' }}
 
     - name: Setup Playwright Browsers
@@ -1953,7 +1953,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
       - name: Install dependencies
         run: |
