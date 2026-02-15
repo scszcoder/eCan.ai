@@ -204,21 +204,32 @@ async function getSkillsByOwner(owner) {
 }
 
 /**
- * Get skills by multiple owner identifiers (email and/or Cognito sub)
- * This handles both legacy skills (stored with Cognito sub) and new skills (stored with email)
+ * Get skills by multiple owner identifiers (email, Cognito sub, and/or sanitized username)
+ * This handles legacy skills (stored with Cognito sub), email-based skills, and sanitized username skills
  */
-async function getSkillsByOwners(ownerEmail, ownerSub) {
-  const owners = [ownerEmail, ownerSub].filter(o => o && o.trim());
+async function getSkillsByOwners(ownerEmail, ownerSub, ownerSanitized) {
+  // Collect unique, non-empty owner candidates
+  const ownerSet = new Set(
+    [ownerEmail, ownerSub, ownerSanitized].filter(o => o && o.trim())
+  );
+  const owners = Array.from(ownerSet);
   if (owners.length === 0) {
     return [];
   }
   if (owners.length === 1) {
     return getSkillsByOwner(owners[0]);
   }
-  // Query with OR condition for both identifiers
+  // Build dynamic OR query for all owner candidates
+  const conditions = [];
+  const params = [];
+  owners.forEach((o, i) => {
+    const paramName = `owner${i}`;
+    conditions.push(`owner = :${paramName}`);
+    params.push(toDbParam(paramName, o));
+  });
   const res = await execute(
-    "SELECT * FROM agent_skills WHERE owner = :ownerEmail OR owner = :ownerSub",
-    [toDbParam("ownerEmail", ownerEmail), toDbParam("ownerSub", ownerSub)]
+    `SELECT * FROM agent_skills WHERE ${conditions.join(" OR ")}`,
+    params
   );
   return rowsToObjects(res);
 }
