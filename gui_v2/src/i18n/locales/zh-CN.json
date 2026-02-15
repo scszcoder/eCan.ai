@@ -94,7 +94,8 @@
     "status": "状态",
     "continue": "继续",
     "valid": "有效",
-    "invalid": "无效"
+    "invalid": "无效",
+    "default": "默认"
   },
   "personality": {
     "friendly": "友好",
@@ -1104,6 +1105,7 @@
           "edit_profile": "编辑配置文件",
           "delete_profile": "删除此配置文件？",
           "set_default": "设为默认",
+          "default_profile_name": "默认配置",
           "no_profiles": "未配置任何配置文件。点击「添加配置文件」创建一个。",
           "profile_saved": "配置文件已保存",
           "cannot_delete_default": "无法删除默认配置文件。请先将其他配置文件设为默认。",
@@ -1323,6 +1325,8 @@
       "invalidJson": "JSON 格式无效。请输入有效的 JSON（如 {\"key\": \"value\"}）",
       "latestVersion": "最新版本",
       "taskId": "任务 ID",
+      "ownerAgent": "所属代理",
+      "cloudRun": "云端运行",
       "untitledTask": "未命名任务",
       "noTasks": "暂无任务",
       "notRun": "未运行",
@@ -1395,6 +1399,7 @@
         "by months": "按月",
         "by years": "按年"
       },
+      "scheduleNoneError": "定时任务必须设置重复类型（不能为\"无\"）",
       "filter": {
         "searchPlaceholder": "搜索任务...",
         "allPriorities": "全部优先级",

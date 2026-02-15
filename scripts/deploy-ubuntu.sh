@@ -69,7 +69,7 @@ check_python() {
     elif command -v python &> /dev/null; then
         PYTHON_CMD="python"
     else
-        log_error "Python not found. Please install Python 3.10+ first."
+        log_error "Python not found. Please install Python 3.12+ first."
         exit 1
     fi
     
