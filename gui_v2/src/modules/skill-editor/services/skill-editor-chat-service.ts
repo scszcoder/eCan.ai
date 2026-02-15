@@ -12,6 +12,7 @@
 import { apiRouter } from '../../../services/api/api-router';
 import { GRAPHQL_QUERIES, GRAPHQL_MUTATIONS } from '../../../services/api/api-config';
 import { localWebSocketClient } from '../../../services/web/localWebSocketClient';
+import { useUserStore } from '../../../stores/userStore';
 import {
   ChatAttachment,
   CanvasPosition,
@@ -22,6 +23,31 @@ import {
   PipelineState,
   ChatMessageResponse,
 } from '../types';
+
+// ============================================================
+// Helpers
+// ============================================================
+
+/** Parse an AWSJSON field (string → object). Returns the parsed value or the original if already parsed / null. */
+const parseAwsJson = <T>(value: unknown): T | undefined => {
+  if (value == null) return undefined;
+  if (typeof value === 'object') return value as T; // already parsed
+  if (typeof value === 'string') {
+    try { return JSON.parse(value) as T; } catch { return undefined; }
+  }
+  return undefined;
+};
+
+/** Deserialise AWSJSON fields that AppSync returns as JSON strings. */
+const deserialiseResponse = (raw: ChatMessageResponse): ChatMessageResponse => {
+  return {
+    ...raw,
+    clarification: parseAwsJson<ClarificationQuestion[]>(raw.clarification) ?? undefined,
+    plan: parseAwsJson<ImplementationPlan>(raw.plan) ?? undefined,
+    flowgram: parseAwsJson<Flowgram>(raw.flowgram) ?? undefined,
+    validation: parseAwsJson<ValidationResult>(raw.validation) ?? undefined,
+  };
+};
 
 // ============================================================
 // Types
@@ -232,6 +258,11 @@ class SkillEditorChatService {
     try {
       // Serialize AWSJSON fields as JSON strings for GraphQL
       const input: Record<string, any> = { sessionId, content };
+      // Include userId so the backend can resolve the correct S3 user directory
+      const userId = useUserStore.getState().username;
+      if (userId) {
+        input.userId = userId;
+      }
       if (attachments && attachments.length > 0) {
         input.attachments = JSON.stringify(attachments);
       }
@@ -253,13 +284,25 @@ class SkillEditorChatService {
       console.log('[SkillEditorChat] Message response received:', { success: response.success });
       
       if (response.success && response.data) {
-        return response.data as ChatMessageResponse;
+        return deserialiseResponse(response.data as ChatMessageResponse);
+      }
+      
+      // Re-throw timeout errors so the caller can handle them gracefully
+      const errMsg = typeof response.error === 'object' && response.error?.message
+        ? response.error.message
+        : String(response.error || '');
+      if (/timed?\s*out/i.test(errMsg)) {
+        throw new Error(errMsg);
       }
       
       console.error('[SkillEditorChat] Failed to send message:', response.error);
       return null;
     } catch (error) {
       const errorMessage = error instanceof Error ? `${error.name}: ${error.message}` : JSON.stringify(error);
+      // Re-throw timeout errors for the caller to show a friendly message
+      if (/timed?\s*out/i.test(errorMessage)) {
+        throw error;
+      }
       console.error('[SkillEditorChat] Error sending message:', errorMessage, error);
       return null;
     }
@@ -282,6 +325,11 @@ class SkillEditorChatService {
     try {
       // Serialize AWSJSON fields as JSON strings for GraphQL
       const input: Record<string, any> = { sessionId, content };
+      // Include userId so the backend can resolve the correct S3 user directory
+      const userId = useUserStore.getState().username;
+      if (userId) {
+        input.userId = userId;
+      }
       if (canvasContext) {
         input.canvasContext = JSON.stringify(canvasContext);
       }
@@ -303,13 +351,25 @@ class SkillEditorChatService {
       console.log('[SkillEditorChat] Clarification response received:', { success: response.success });
       
       if (response.success && response.data) {
-        return response.data as ChatMessageResponse;
+        return deserialiseResponse(response.data as ChatMessageResponse);
+      }
+      
+      // Re-throw timeout errors so the caller can handle them gracefully
+      const errMsg = typeof response.error === 'object' && response.error?.message
+        ? response.error.message
+        : String(response.error || '');
+      if (/timed?\s*out/i.test(errMsg)) {
+        throw new Error(errMsg);
       }
       
       console.error('[SkillEditorChat] Failed to send clarification:', response.error);
       return null;
     } catch (error) {
       const errorMessage = error instanceof Error ? `${error.name}: ${error.message}` : JSON.stringify(error);
+      // Re-throw timeout errors for the caller to show a friendly message
+      if (/timed?\s*out/i.test(errorMessage)) {
+        throw error;
+      }
       console.error('[SkillEditorChat] Error sending clarification:', errorMessage, error);
       return null;
     }
