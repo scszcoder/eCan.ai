@@ -484,21 +484,124 @@ export class IPCAPI {
     );
     }
 
-    // Avatar API methods
+    // Avatar API methods (web: GraphQL → queryAvatarResources / addAvatarResources / removeAvatarResources)
     public async getSystemAvatars<T>(username: string): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'avatar.get_system_avatars' }, { username });
+        const response = await apiRouter.execute<any>(
+          {
+            method: 'avatar.get_system_avatars',
+            graphql: {
+              query: GRAPHQL_QUERIES.QUERY_AVATAR_RESOURCES,
+              resultPath: 'queryAvatars'
+            }
+          },
+          { input: { owner: 'public' } }
+        );
+        return this._transformAvatarResponse<T>(response, 'system');
     }
 
     public async getUploadedAvatars<T>(username: string): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'avatar.get_uploaded_avatars' }, { username });
+        const response = await apiRouter.execute<any>(
+          {
+            method: 'avatar.get_uploaded_avatars',
+            graphql: {
+              query: GRAPHQL_QUERIES.QUERY_AVATAR_RESOURCES,
+              resultPath: 'queryAvatars'
+            }
+          },
+          { input: { owner: username } }
+        );
+        return this._transformAvatarResponse<T>(response, 'uploaded');
     }
 
     public async uploadAvatar<T>(username: string, fileData: string, filename: string): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'avatar.upload_avatar' }, { username, fileData, filename });
+        const response = await apiRouter.execute<any>(
+          {
+            method: 'avatar.upload_avatar',
+            graphql: {
+              mutation: GRAPHQL_MUTATIONS.ADD_AVATAR_RESOURCES,
+              resultPath: 'addAvatars'
+            }
+          },
+          {
+            input: [{
+              id: `avatar_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+              name: filename,
+              resource_type: 'uploaded',
+              image_path: filename
+            }]
+          }
+        );
+        // After creating the DB record, upload the actual file to S3 via presigned URL
+        if (response.success && response.data) {
+            const results = typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
+            const created = Array.isArray(results) ? results[0] : results;
+            if (created?.image_upload_url) {
+                try {
+                    // Decode base64 to binary and upload via presigned URL
+                    const binaryData = Uint8Array.from(atob(fileData), c => c.charCodeAt(0));
+                    const ext = filename.split('.').pop()?.toLowerCase() || 'png';
+                    const mimeTypes: Record<string, string> = {
+                        png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+                        gif: 'image/gif', webp: 'image/webp', webm: 'video/webm',
+                        mp4: 'video/mp4', mov: 'video/quicktime'
+                    };
+                    await fetch(created.image_upload_url, {
+                        method: 'PUT',
+                        body: binaryData,
+                        headers: { 'Content-Type': mimeTypes[ext] || 'application/octet-stream' }
+                    });
+                    console.log('[IPCAPI] Avatar file uploaded to S3 via presigned URL');
+                } catch (uploadErr) {
+                    console.error('[IPCAPI] Failed to upload avatar file to S3:', uploadErr);
+                }
+            }
+            return { success: true, data: created as T };
+        }
+        return response as APIResponse<T>;
     }
 
     public async deleteUploadedAvatar<T>(username: string, avatarId: string): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'avatar.delete_uploaded_avatar' }, { username, avatarId });
+        return apiRouter.execute(
+          {
+            method: 'avatar.delete_uploaded_avatar',
+            graphql: {
+              mutation: GRAPHQL_MUTATIONS.REMOVE_AVATAR_RESOURCES,
+              resultPath: 'removeAvatars'
+            }
+          },
+          { input: [avatarId] }
+        );
+    }
+
+    /**
+     * Transform raw DB avatar records to frontend AvatarData format.
+     * Handles AWSJSON (may be string) and maps DB fields → AvatarData.
+     * Uses presigned_image_url / presigned_video_url generated server-side.
+     */
+    private _transformAvatarResponse<T>(response: APIResponse<any>, type: 'system' | 'uploaded'): APIResponse<T> {
+        if (!response.success) return response as APIResponse<T>;
+        let rows = response.data;
+        if (typeof rows === 'string') {
+            try { rows = JSON.parse(rows); } catch { return { success: true, data: [] as any }; }
+        }
+        if (!Array.isArray(rows)) return { success: true, data: [] as any };
+        const avatars = rows.map((r: any) => {
+            // Use presigned URLs from lambda (private bucket); fall back to cloud_*_url
+            const imageUrl = r.presigned_image_url || r.cloud_image_url || '';
+            const videoUrl = r.presigned_video_url || r.cloud_video_url || '';
+            return {
+                type: r.is_public ? 'system' : type,
+                id: r.id,
+                name: r.name || undefined,
+                hash: r.image_hash || undefined,
+                imageUrl,
+                videoUrl: videoUrl || undefined,
+                thumbnailUrl: imageUrl || undefined,
+                imageExists: !!imageUrl,
+                videoExists: !!videoUrl,
+            };
+        });
+        return { success: true, data: avatars as T };
     }
 
     /**

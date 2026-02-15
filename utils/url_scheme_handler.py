@@ -191,12 +191,12 @@ class URLSchemeRegistrar:
             
             # First try with HKCU (Current User) - doesn't require admin
             try:
-                with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, "Software\Classes\ecan", 0, 
+                with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, r"Software\Classes\ecan", 0, 
                                      winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY) as key:
                     winreg.SetValue(key, "", winreg.REG_SZ, f"URL:{app_name} Protocol")
                     winreg.SetValueEx(key, "URL Protocol", 0, winreg.REG_SZ, "")
                     
-                    with winreg.CreateKeyEx(key, "shell\open\command", 0, 
+                    with winreg.CreateKeyEx(key, r"shell\open\command", 0, 
                                          winreg.KEY_WRITE | winreg.KEY_WOW64_64KEY) as cmd_key:
                         winreg.SetValue(cmd_key, "", winreg.REG_SZ, f'"{app_path}" "%1"')
                     
