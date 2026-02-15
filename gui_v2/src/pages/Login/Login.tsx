@@ -194,9 +194,10 @@ const Login: React.FC = () => {
 			setLoginProgress('authenticating');
 
 			// Add timeout for login request
+			// Backend timeout is 150s, so frontend should wait at least 180s
 			const loginPromise = api.login(values.username, values.password, values.role, i18n.language);
 			const timeoutPromise = new Promise<never>((_, reject) => {
-				setTimeout(() => reject(new Error('Login timeout after 30 seconds')), 30000);
+				setTimeout(() => reject(new Error('Login timeout after 180 seconds')), 180000);
 			});
 
 			const response: APIResponse<any> = await Promise.race([loginPromise, timeoutPromise]);
