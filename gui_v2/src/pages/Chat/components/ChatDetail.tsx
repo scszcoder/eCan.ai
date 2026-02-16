@@ -430,8 +430,15 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
     }, [chatId, chatTitle]);
 
     const { enhancedMessages, roleConfig } = useMemo(() => {
+        // Semi UI align="leftRight" places role "user" on the RIGHT and all other roles on the LEFT.
+        // We want: current user messages on LEFT, agent messages on RIGHT.
+        // Strategy: map current-user messages to a custom role key ("self") so they go LEFT,
+        // and map agent messages to role "user" so Semi places them on the RIGHT.
         const baseConfig: RoleConfig = {
-            user: { ...defaultRoleConfig.user },
+            // "user" role in Semi UI = RIGHT side → we assign agent/assistant messages to this
+            user: { ...defaultRoleConfig.agent },
+            // "self" role = LEFT side → holds current user's avatar/name
+            self: { ...defaultRoleConfig.user },
             assistant: { ...defaultRoleConfig.assistant },
             system: { ...defaultRoleConfig.system },
             agent: { ...defaultRoleConfig.agent }
@@ -440,23 +447,40 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
         if (myTwinAgent?.card) {
             const { name } = myTwinAgent.card;
             const avatarUrl = myTwinAgent.avatar?.imageUrl;
-            baseConfig.user = {
-                ...baseConfig.user,
-                name: name || baseConfig.user.name,
-                avatar: avatarUrl || baseConfig.user.avatar
+            baseConfig.self = {
+                ...baseConfig.self,
+                name: name || baseConfig.self.name,
+                avatar: avatarUrl || baseConfig.self.avatar
             };
         }
         const members = currentChat?.members || [];
 
         const enhanced = pageMessages.map(message => {
-            if (message?.role === 'agent' && message?.senderId) {
+            // Agent or assistant messages → assign role "user" so Semi puts them on the RIGHT
+            // The chatter lambda sends agent replies with role "assistant", so we handle both
+            if ((message?.role === 'agent' || message?.role === 'assistant') && message?.senderId !== currentUserId) {
                 const member = members.find(m => m.userId === message.senderId);
-                const agentInfo = getAgentById?.(message.senderId);
-                const roleKey = `agent_${message.senderId}`;
-                baseConfig[roleKey] = {
+                const agentInfo = message?.senderId ? getAgentById?.(message.senderId) : null;
+                baseConfig.user = {
                     ...baseConfig.agent,
                     name: member?.agentName || member?.name || agentInfo?.card?.name || message.senderName || baseConfig.agent.name,
                     avatar: member?.avatar || agentInfo?.avatar?.imageUrl || baseConfig.agent.avatar,
+                };
+                return {
+                    ...message,
+                    role: 'user'
+                };
+            }
+
+            // Other users' messages → LEFT side (non-"user" role)
+            if (message?.role === 'user' && message?.senderId && message.senderId !== currentUserId) {
+                const member = members.find(m => m.userId === message.senderId);
+                const agentInfo = getAgentById?.(message.senderId);
+                const roleKey = `user_${message.senderId}`;
+                baseConfig[roleKey] = {
+                    ...baseConfig.self,
+                    name: member?.agentName || member?.name || agentInfo?.card?.name || message.senderName || baseConfig.self.name,
+                    avatar: member?.avatar || agentInfo?.avatar?.imageUrl || baseConfig.self.avatar,
                 };
                 return {
                     ...message,
@@ -464,18 +488,11 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                 };
             }
 
-            if (message?.role === 'user' && message?.senderId && message.senderId !== currentUserId) {
-                const member = members.find(m => m.userId === message.senderId);
-                const agentInfo = getAgentById?.(message.senderId);
-                const roleKey = `user_${message.senderId}`;
-                baseConfig[roleKey] = {
-                    ...baseConfig.user,
-                    name: member?.agentName || member?.name || agentInfo?.card?.name || message.senderName || baseConfig.user.name,
-                    avatar: member?.avatar || agentInfo?.avatar?.imageUrl || baseConfig.user.avatar,
-                };
+            // Current user's own messages → use "self" role (LEFT side)
+            if (message?.role === 'user') {
                 return {
                     ...message,
-                    role: roleKey
+                    role: 'self'
                 };
             }
 
@@ -491,6 +508,7 @@ const ChatDetail: React.FC<ChatDetailProps> = ({ chatId: rawChatId, chats = [], 
                 }
             }
 
+            // Fallback: any remaining messages stay left-aligned
             return message;
         });
 
