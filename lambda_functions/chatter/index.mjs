@@ -335,23 +335,23 @@ function createLLM(provider, model, temperature) {
   switch (provider.toLowerCase()) {
     case "openai":
       return new ChatOpenAI({
-        modelName: model,
+        model: model,
         temperature: temperature,
       });
     case "anthropic":
       return new ChatAnthropic({
-        modelName: model,
+        model: model,
         temperature: temperature,
       });
     case "google":
       return new ChatGoogleGenerativeAI({
-        modelName: model,
+        model: model,
         temperature: temperature,
       });
     default:
       console.log(`[chatter] Unknown provider ${provider}, defaulting to OpenAI`);
       return new ChatOpenAI({
-        modelName: "gpt-4o",
+        model: "gpt-4o",
         temperature: temperature,
       });
   }
