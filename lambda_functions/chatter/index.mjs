@@ -108,33 +108,113 @@ async function appSyncRequest(payload, operationName) {
 }
 
 /**
- * Get agent system prompt from Agent_Prompts table
- * Key: owner_id (modified username), agent_id
+ * Get agent system prompt from Agent_Prompts table.
+ * Queries all prompts for the owner, filters by prompt_name containing "chat"
+ * (case-insensitive), and picks the last matching row.
+ * Falls back to any available prompt if none match "chat".
  */
 async function getAgentPrompt(ownerId, agentId) {
   console.log(`[chatter] Getting prompt for owner=${ownerId}, agent=${agentId}`);
   
   try {
-    const result = await dynamodb.send(new GetItemCommand({
+    // Query ALL prompts for this owner (sort key begins_with "any~")
+    const result = await dynamodb.send(new QueryCommand({
       TableName: AGENT_PROMPTS_TABLE,
-      Key: {
-        owner_id: { S: ownerId },
-        agent_id: { S: agentId }
-      }
+      KeyConditionExpression: "owner_id = :ownerId",
+      ExpressionAttributeValues: {
+        ":ownerId": { S: ownerId },
+      },
     }));
     
-    if (result.Item) {
-      const item = unmarshall(result.Item);
-      console.log(`[chatter] Found prompt: ${item.system_prompt?.substring(0, 100)}...`);
-      return item.system_prompt || null;
+    const items = (result.Items || []).map(item => unmarshall(item));
+    console.log(`[chatter] Found ${items.length} prompt(s) for owner=${ownerId}`);
+    
+    if (items.length === 0) {
+      console.log(`[chatter] No prompts found for this owner`);
+      return null;
     }
     
-    console.log(`[chatter] No prompt found for this agent`);
-    return null;
+    // Filter by prompt_name containing "chat" (case-insensitive)
+    const chatPrompts = items.filter(item => {
+      const name = (item.prompt_name || "").toLowerCase();
+      return name.includes("chat");
+    });
+    
+    console.log(`[chatter] ${chatPrompts.length} prompt(s) matched "chat" filter out of ${items.length}`);
+    
+    // Pick the last matching "chat" prompt; fall back to last prompt overall
+    const chosen = chatPrompts.length > 0
+      ? chatPrompts[chatPrompts.length - 1]
+      : items[items.length - 1];
+    
+    console.log(`[chatter] Selected prompt: prompt_name="${chosen.prompt_name}", prompt_id="${chosen.prompt_id}"`);
+    
+    // Extract the system prompt text
+    const promptText = extractPromptText(chosen);
+    if (promptText) {
+      console.log(`[chatter] Extracted prompt text (${promptText.length} chars): ${promptText.substring(0, 100)}...`);
+    }
+    return promptText;
   } catch (err) {
     console.error(`[chatter] Error getting prompt:`, err);
     return null;
   }
+}
+
+/**
+ * Extract usable system-prompt text from a DynamoDB prompt item.
+ * Handles both legacy `system_prompt` field and the structured
+ * sections-based `prompt` JSON format used by the prompt editor.
+ */
+function extractPromptText(item) {
+  // 1. Legacy: direct system_prompt field
+  if (item.system_prompt) {
+    return item.system_prompt;
+  }
+  
+  // 2. Structured: parse the `prompt` JSON with sections
+  let promptData = item.prompt;
+  if (typeof promptData === "string") {
+    try { promptData = JSON.parse(promptData); } catch { return null; }
+  }
+  if (!promptData || typeof promptData !== "object") return null;
+  
+  const parts = [];
+  
+  // Title / topic
+  if (promptData.title) parts.push(`# ${promptData.title}`);
+  if (promptData.topic) parts.push(promptData.topic);
+  
+  // Sections → text
+  const sectionOrder = ["background", "goals", "guidelines", "rules", "instructions", "variables", "examples", "custom"];
+  const sectionLabels = {
+    background: "Background",
+    goals: "Goals",
+    guidelines: "Guidelines",
+    rules: "Rules",
+    instructions: "Instructions",
+    variables: "Variables",
+    examples: "Examples",
+    custom: null, // uses customLabel
+  };
+  
+  for (const sec of (promptData.sections || [])) {
+    const secType = (sec.type || "").toLowerCase();
+    const label = secType === "custom" ? (sec.customLabel || "Custom") : (sectionLabels[secType] || secType);
+    const items = Array.isArray(sec.items) ? sec.items.filter(Boolean) : [];
+    if (items.length === 0) continue;
+    parts.push(`\n## ${label}\n${items.map(i => `- ${i}`).join("\n")}`);
+  }
+  
+  // User sections
+  for (const sec of (promptData.userSections || [])) {
+    const label = sec.customLabel || sec.type || "User Section";
+    const items = Array.isArray(sec.items) ? sec.items.filter(Boolean) : [];
+    if (items.length === 0) continue;
+    parts.push(`\n## ${label}\n${items.map(i => `- ${i}`).join("\n")}`);
+  }
+  
+  return parts.length > 0 ? parts.join("\n") : null;
 }
 
 /**
