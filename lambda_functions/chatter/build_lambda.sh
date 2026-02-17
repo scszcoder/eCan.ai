@@ -41,9 +41,9 @@ fi
 # Create deployment package
 echo "[3/4] Creating deployment package..."
 if [ -d "node_modules" ]; then
-  zip -r lambda.zip *.mjs *.js node_modules/
+  zip -r lambda.zip *.mjs *.js tools/ node_modules/
 else
-  zip lambda.zip *.mjs *.js
+  zip -r lambda.zip *.mjs *.js tools/
 fi
 
 echo "Created lambda.zip ($(du -h lambda.zip | cut -f1))"
