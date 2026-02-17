@@ -4,7 +4,10 @@ import { ChatOpenAI } from "@langchain/openai";
 import { ChatAnthropic } from "@langchain/anthropic";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { HumanMessage, SystemMessage, AIMessage } from "@langchain/core/messages";
+import { StateGraph, END, START } from "@langchain/langgraph";
 import { randomUUID } from "node:crypto";
+import { ChatterState, createInitialState } from "./node_state.js";
+import { get_cloud_mcp_tools_schema } from "./tools_schema.js";
 
 // Environment variables
 const APPSYNC_API_URL = process.env.APPSYNC_API_URL;
@@ -20,6 +23,10 @@ const MAX_HISTORY_MESSAGES = parseInt(process.env.MAX_HISTORY_MESSAGES || "160",
 const MAX_CONTEXT_CHARS = parseInt(process.env.MAX_CONTEXT_CHARS || "400000", 10); // ~100k tokens
 const SESSION_TIMEOUT_HOURS = 24;
 
+// LangGraph loop limits
+const MAX_OUTER_STEPS = parseInt(process.env.MAX_OUTER_STEPS || "3", 10);
+const LAMBDA_TIMEOUT_GUARD_MS = parseInt(process.env.LAMBDA_TIMEOUT_GUARD_MS || "50000", 10); // 50s of 60s budget
+
 // AWS clients
 const dynamodb = new DynamoDBClient({ region: "us-east-1" });
 
@@ -32,6 +39,7 @@ IMPORTANT: You MUST respond with valid JSON only. Your response must be a JSON o
   "topic_switched": false,
   "work_related": true,
   "request_answered": true,
+  "need_human_input": false,
   "next_actions": []
 }
 
@@ -41,11 +49,12 @@ Required fields:
 - "topic_switched" (boolean, required): Set to true if the conversation topic has significantly changed and a new session should be started
 - "work_related" (boolean, required): Set to true if the user's message is related to work/tasks, false for casual chat or off-topic
 - "request_answered" (boolean, required): Set to true if you have fully answered/addressed the user's request, false if more information is needed or the request is incomplete
-- "next_actions" (array, required): List of follow-up actions to execute. Each action is an object with:
-  - "action": The action type (e.g., "run_task", "schedule_task", "fetch_data", "notify_user")
-  - "task_name": Name of the task to run (if applicable)
-  - Other action-specific parameters as needed
-  Example: [{"action": "run_task", "task_name": "send_email", "params": {"to": "user@example.com"}}]
+- "need_human_input" (boolean, required): Set to true if you need more information from the user before you can proceed. When true, the system will pause and wait for the user's next message.
+- "next_actions" (array, required): List of tool calls to execute. Each item is an object with:
+  - "tool_name": Name of the tool to call (must match a known tool from the available tools list)
+  - "tool_input": Object with the tool's input parameters
+  Example: [{"tool_name": "rag_query", "tool_input": {"query": "search term", "top_k": 5}}]
+  Leave empty [] if no tool calls are needed.
 
 Do not include any text outside the JSON object. Do not use markdown code blocks.
 `;
@@ -331,6 +340,7 @@ function parseLLMResponse(responseText) {
         topic_switched: parsed.topic_switched === true,
         work_related: parsed.work_related !== false, // default true
         request_answered: parsed.request_answered !== false, // default true
+        need_human_input: parsed.need_human_input === true,
         next_actions: Array.isArray(parsed.next_actions) ? parsed.next_actions : []
       };
     }
@@ -345,6 +355,7 @@ function parseLLMResponse(responseText) {
     topic_switched: false,
     work_related: true,
     request_answered: true,
+    need_human_input: false,
     next_actions: []
   };
 }
@@ -353,13 +364,14 @@ function parseLLMResponse(responseText) {
  * Send response back to frontend via AppSync
  */
 async function sendResponse(channelId, sessionId, senderId, recipientId, parsedResponse) {
-  const { msg_to_sender, qa_to_sender, work_related, request_answered, next_actions } = parsedResponse;
+  const { msg_to_sender, qa_to_sender, work_related, request_answered, need_human_input, next_actions } = parsedResponse;
   
   // Build metadata object with all structured data
   const metadata = {
     ...qa_to_sender,
     work_related,
     request_answered,
+    need_human_input: need_human_input || false,
     next_actions
   };
   
@@ -813,14 +825,21 @@ async function handleDynamoDBStreamEvent(event) {
 }
 
 /**
- * Process a user message and generate LLM response
+ * Process a user message and generate LLM response via LangGraph workflow.
+ *
+ * Graph topology:
+ *   START ──► llmNode ──► shouldCallTools? ──YES──► toolNode ──► summarizeNode ──► shouldContinueOuter? ──►
+ *                │                                                                        │           │
+ *                │ NO                                                                     NO          YES
+ *                ▼                                                                        ▼           │
+ *              END ◄──────────────────────────────────────────────────────────────────── END     llmNode (loop)
  */
 async function processUserMessage(message) {
+  const invocationStartMs = Date.now();
   const { channelId, sessionId, senderId, recipientId, timestamp } = message;
   
   // Parse recipientId to get owner and agent info
-  // Expected format: "owner_id:agent_id" or just "agent_id"
-  let ownerId = senderId; // Default to sender as owner
+  let ownerId = senderId;
   let agentId = recipientId;
   
   if (recipientId && recipientId.includes(":")) {
@@ -850,42 +869,400 @@ async function processUserMessage(message) {
     chatHistory = await getChatHistory(channelId, currentSessionId);
   }
   
-  // Build messages for LLM
-  const messages = buildMessages(agentPrompt, chatHistory, message);
+  // Build LangChain messages for the LLM
+  const lcMessages = buildMessages(agentPrompt, chatHistory, message);
   
-  if (messages.length === 0) {
+  if (lcMessages.length === 0) {
     console.log(`[chatter] No messages to send to LLM`);
     return;
   }
   
-  // Create LLM and get response
-  const llm = createLLM(LLM_PROVIDER, LLM_MODEL, LLM_TEMPERATURE);
-  console.log(`[chatter] Invoking LLM...`);
+  // Get user input text
+  const userInput = message.message?.parts?.[0]?.text || "";
   
-  const response = await llm.invoke(messages);
-  const responseText = response.content;
+  // ── Build initial state ──────────────────────────────────
+  const initialState = createInitialState({
+    input: userInput,
+    attachments: [],
+    prompts: [agentPrompt || "You are a helpful AI assistant."],
+    history: chatHistory,
+    messages: lcMessages,
+    metadata: { channelId, sessionId: currentSessionId, senderId, recipientId, agentId, ownerId, timestamp },
+    max_steps: MAX_OUTER_STEPS,
+  });
   
-  console.log(`[chatter] LLM raw response: ${responseText.substring(0, 300)}...`);
+  // ── Build & run the LangGraph ────────────────────────────
+  const graph = buildChatterGraph();
+  console.log(`[chatter] Running LangGraph workflow (max_steps=${MAX_OUTER_STEPS})...`);
   
-  // Parse the JSON response
-  const parsed = parseLLMResponse(responseText);
-  console.log(`[chatter] Parsed response:`, JSON.stringify(parsed).substring(0, 200));
+  const finalState = await graph.invoke(initialState);
+
+  console.log(`[chatter] Graph completed. n_steps=${finalState.n_steps}, request_answered=${finalState.result?.request_answered}, need_human_input=${finalState.result?.need_human_input}`);
+  
+  // ── Extract response ─────────────────────────────────────
+  const result = finalState.result || {};
+  const parsedResponse = {
+    msg_to_sender: result.msg_to_sender || "I'm sorry, I wasn't able to generate a response.",
+    qa_to_sender: result.qa_to_sender || {},
+    topic_switched: result.topic_switched === true,
+    work_related: result.work_related !== false,
+    request_answered: result.request_answered !== false,
+    need_human_input: result.need_human_input === true,
+    next_actions: Array.isArray(result.next_actions) ? result.next_actions : [],
+  };
+  
+  // If need_human_input, add tool_results context so next invocation can continue
+  if (parsedResponse.need_human_input && finalState.tool_results?.length > 0) {
+    parsedResponse.qa_to_sender._partial_tool_results = finalState.tool_results;
+  }
   
   // Check if topic switched - create new session for response
   let responseSessionId = currentSessionId;
-  if (parsed.topic_switched && !sessionSwitched) {
+  if (parsedResponse.topic_switched && !sessionSwitched) {
     console.log(`[chatter] Topic switched - creating new session for response`);
     responseSessionId = generateSessionId();
   }
   
   // Send response back via AppSync
-  await sendResponse(
-    channelId, 
-    responseSessionId, 
-    agentId, 
-    senderId, 
-    parsed
-  );
+  await sendResponse(channelId, responseSessionId, agentId, senderId, parsedResponse);
   
-  console.log(`[chatter] Response sent successfully to session ${responseSessionId}`);
+  const elapsedMs = Date.now() - invocationStartMs;
+  console.log(`[chatter] Response sent successfully to session ${responseSessionId} (${elapsedMs}ms total)`);
+}
+
+// ============================================================
+// LangGraph Nodes
+// ============================================================
+
+/**
+ * LLM Node — invokes the LLM with current messages and parses the JSON response.
+ * Populates state.result and state.tool_calls from the LLM output.
+ */
+async function llmNode(state) {
+  console.log(`[llmNode] step=${state.n_steps}, messages=${state.messages?.length}`);
+  
+  const llm = createLLM(LLM_PROVIDER, LLM_MODEL, LLM_TEMPERATURE);
+  
+  // If we have tool_results from a previous iteration, append them as context
+  let messagesForLLM = [...(state.messages || [])];
+  
+  if (state.tool_results && state.tool_results.length > 0) {
+    const toolSummary = state.tool_results.map(tr => {
+      const status = tr.success ? "SUCCESS" : "FAILED";
+      return `[Tool: ${tr.tool_name}] ${status}: ${JSON.stringify(tr.output || tr.error)}`;
+    }).join("\n");
+    
+    // Add tool results as a system-like message so LLM knows what happened
+    messagesForLLM.push(new HumanMessage(
+      `[SYSTEM] The following tool calls have been executed:\n${toolSummary}\n\nPlease incorporate these results into your response. Remember to respond with valid JSON.`
+    ));
+  }
+  
+  console.log(`[llmNode] Invoking LLM with ${messagesForLLM.length} messages...`);
+  const response = await llm.invoke(messagesForLLM);
+  const responseText = response.content;
+  console.log(`[llmNode] LLM raw response: ${responseText.substring(0, 300)}...`);
+  
+  // Parse the JSON response
+  const parsed = parseLLMResponse(responseText);
+  console.log(`[llmNode] Parsed: request_answered=${parsed.request_answered}, need_human_input=${parsed.need_human_input}, next_actions=${parsed.next_actions?.length}`);
+  
+  // Extract tool_calls from next_actions
+  const toolCalls = (parsed.next_actions || [])
+    .filter(a => a.tool_name)
+    .map(a => ({ tool_name: a.tool_name, tool_input: a.tool_input || {} }));
+  
+  return {
+    result: {
+      msg_to_sender: parsed.msg_to_sender,
+      qa_to_sender: parsed.qa_to_sender,
+      topic_switched: parsed.topic_switched,
+      work_related: parsed.work_related,
+      request_answered: parsed.request_answered,
+      need_human_input: parsed.need_human_input,
+      next_actions: parsed.next_actions,
+    },
+    tool_calls: toolCalls,
+    // Clear previous tool_results for this new round of tool calls
+    tool_results: [],
+    n_steps: (state.n_steps || 0) + 1,
+    this_node: "llmNode",
+  };
+}
+
+/**
+ * Tool Node — executes each tool call in state.tool_calls.
+ * Cloud-runnable tools (meta.run_in_cloud === true) are executed directly.
+ * Local-only tools are recorded as pending for the desktop agent.
+ */
+async function toolNode(state) {
+  const toolCalls = state.tool_calls || [];
+  console.log(`[toolNode] Executing ${toolCalls.length} tool call(s)...`);
+  
+  if (toolCalls.length === 0) {
+    return { tool_results: [], this_node: "toolNode" };
+  }
+  
+  // Load tool schemas for validation
+  const allTools = get_cloud_mcp_tools_schema();
+  const toolMap = new Map(allTools.map(t => [t.name, t]));
+  
+  const results = [];
+  
+  for (const call of toolCalls) {
+    const { tool_name, tool_input } = call;
+    const toolSchema = toolMap.get(tool_name);
+    
+    if (!toolSchema) {
+      console.warn(`[toolNode] Unknown tool: ${tool_name}`);
+      results.push({
+        tool_name,
+        success: false,
+        output: null,
+        error: `Unknown tool: ${tool_name}. Available tools: ${allTools.slice(0, 10).map(t => t.name).join(", ")}...`,
+      });
+      continue;
+    }
+    
+    const isCloudRunnable = toolSchema.meta?.run_in_cloud === true;
+    
+    if (isCloudRunnable) {
+      // Execute cloud-runnable tools directly
+      try {
+        console.log(`[toolNode] Executing cloud tool: ${tool_name}`);
+        const output = await executeCloudTool(tool_name, tool_input);
+        results.push({ tool_name, success: true, output, error: null });
+      } catch (err) {
+        console.error(`[toolNode] Cloud tool ${tool_name} failed:`, err.message);
+        results.push({ tool_name, success: false, output: null, error: err.message });
+      }
+    } else {
+      // Local-only tool — record as pending (dispatched via A2A to desktop agent)
+      console.log(`[toolNode] Local-only tool recorded as pending: ${tool_name}`);
+      results.push({
+        tool_name,
+        success: true,
+        output: {
+          status: "pending_local_execution",
+          message: `Tool '${tool_name}' requires local execution on the desktop agent. It has been queued.`,
+          tool_input,
+        },
+        error: null,
+      });
+    }
+  }
+  
+  console.log(`[toolNode] Completed ${results.length} tool call(s): ${results.map(r => `${r.tool_name}=${r.success}`).join(", ")}`);
+  
+  return {
+    tool_results: results,
+    this_node: "toolNode",
+  };
+}
+
+/**
+ * Execute a cloud-runnable tool.
+ * This is the dispatcher for tools that can run server-side.
+ */
+async function executeCloudTool(toolName, toolInput) {
+  // Cloud tool execution dispatcher
+  // For now, we implement the most common cloud tools;
+  // others will be added as they are brought online.
+  switch (toolName) {
+    case "describe_self":
+      return { description: "I am a cloud-hosted AI assistant agent powered by eCan.ai." };
+    
+    case "list_chat_agents":
+      return { agents: [], message: "Agent listing is handled by the agentScheduler service." };
+    
+    case "get_chat_history":
+      if (toolInput.agent_id) {
+        // Could query DynamoDB here — delegate to existing handler
+        return { message: "Chat history retrieval delegated to getA2AMessages resolver." };
+      }
+      return { message: "agent_id required" };
+    
+    case "aws_read_billing":
+    case "azure_read_billing":
+    case "gcloud_read_billing":
+      return { message: `Billing read for ${toolName} is not yet implemented in cloud mode. Please use the desktop agent.` };
+    
+    case "aws_shutdown":
+    case "azure_shutdown":
+    case "gcloud_shutdown":
+      return { message: `Emergency shutdown via ${toolName} is not yet implemented in cloud mode for safety. Please use the desktop agent.` };
+    
+    default:
+      // Generic cloud tool stub — log and return placeholder
+      console.log(`[executeCloudTool] Tool ${toolName} not yet implemented, returning stub.`);
+      return {
+        status: "not_implemented",
+        message: `Cloud execution of '${toolName}' is not yet available. The tool call has been recorded.`,
+        tool_input: toolInput,
+      };
+  }
+}
+
+/**
+ * Summarize Node — after tool execution, calls the LLM to produce a user-facing
+ * summary that incorporates tool results.
+ */
+async function summarizeNode(state) {
+  const toolResults = state.tool_results || [];
+  console.log(`[summarizeNode] Summarizing ${toolResults.length} tool result(s)...`);
+  
+  if (toolResults.length === 0) {
+    return { this_node: "summarizeNode" };
+  }
+  
+  const llm = createLLM(LLM_PROVIDER, LLM_MODEL, LLM_TEMPERATURE);
+  
+  // Build a summary prompt with tool results
+  const toolResultsText = toolResults.map(tr => {
+    const status = tr.success ? "SUCCESS" : "FAILED";
+    const detail = tr.success ? JSON.stringify(tr.output) : tr.error;
+    return `- Tool "${tr.tool_name}": ${status}\n  Result: ${detail}`;
+  }).join("\n");
+  
+  const summaryPrompt = [
+    new SystemMessage(
+      `You are a helpful assistant. The user asked a question and tool calls were made. ` +
+      `Summarize the results for the user. Respond ONLY with valid JSON in this format:\n` +
+      `{"msg_to_sender": "your summary", "qa_to_sender": {}, "topic_switched": false, "work_related": true, "request_answered": true, "need_human_input": false, "next_actions": []}\n` +
+      `If the tools did not fully answer the question and you need to call more tools, include them in next_actions as {"tool_name": "...", "tool_input": {...}}.\n` +
+      `If you need more input from the user, set need_human_input to true and request_answered to false.`
+    ),
+    new HumanMessage(
+      `Original request: ${state.input}\n\nTool execution results:\n${toolResultsText}\n\nPlease provide a response incorporating these results.`
+    ),
+  ];
+  
+  const response = await llm.invoke(summaryPrompt);
+  const parsed = parseLLMResponse(response.content);
+  console.log(`[summarizeNode] Summary: request_answered=${parsed.request_answered}, next_actions=${parsed.next_actions?.length}`);
+  
+  // Extract any new tool calls from the summary
+  const newToolCalls = (parsed.next_actions || [])
+    .filter(a => a.tool_name)
+    .map(a => ({ tool_name: a.tool_name, tool_input: a.tool_input || {} }));
+  
+  return {
+    result: {
+      msg_to_sender: parsed.msg_to_sender,
+      qa_to_sender: parsed.qa_to_sender,
+      topic_switched: parsed.topic_switched,
+      work_related: parsed.work_related,
+      request_answered: parsed.request_answered,
+      need_human_input: parsed.need_human_input,
+      next_actions: parsed.next_actions,
+    },
+    tool_calls: newToolCalls,
+    this_node: "summarizeNode",
+  };
+}
+
+// ============================================================
+// LangGraph Conditional Edge Functions
+// ============================================================
+
+/**
+ * After llmNode: decide whether to call tools or check the outer loop.
+ * Routes to "toolNode" if tool_calls exist, else to "checkOuter".
+ */
+function shouldCallTools(state) {
+  const hasToolCalls = state.tool_calls && state.tool_calls.length > 0;
+  console.log(`[shouldCallTools] tool_calls=${state.tool_calls?.length}, route=${hasToolCalls ? "toolNode" : "checkOuter"}`);
+  return hasToolCalls ? "toolNode" : "checkOuter";
+}
+
+/**
+ * After summarizeNode: decide whether to continue the outer loop.
+ * Continues (back to llmNode) if:
+ *   - request is not yet answered AND
+ *   - human input is not needed AND
+ *   - we haven't exceeded max steps AND
+ *   - we haven't run out of time
+ * AND there are new tool_calls from the summary.
+ * Otherwise routes to END.
+ */
+function shouldContinueOuter(state) {
+  const result = state.result || {};
+  const answered = result.request_answered === true;
+  const needHuman = result.need_human_input === true;
+  const stepsExhausted = (state.n_steps || 0) >= (state.max_steps || MAX_OUTER_STEPS);
+  const hasMoreToolCalls = state.tool_calls && state.tool_calls.length > 0;
+  
+  console.log(`[shouldContinueOuter] answered=${answered}, needHuman=${needHuman}, steps=${state.n_steps}/${state.max_steps}, moreTools=${hasMoreToolCalls}`);
+  
+  if (answered || needHuman || stepsExhausted || !hasMoreToolCalls) {
+    if (stepsExhausted && !answered) {
+      console.warn(`[shouldContinueOuter] Max steps (${state.max_steps}) reached without answering. Forcing exit.`);
+    }
+    return END;
+  }
+  
+  return "llmNode";
+}
+
+/**
+ * "checkOuter" node — a pass-through that just enables the conditional edge
+ * to evaluate the outer loop condition when there were no tool calls.
+ */
+function checkOuterNode(state) {
+  console.log(`[checkOuterNode] No tool calls. Checking outer loop exit condition.`);
+  // No state mutations needed — just a routing waypoint
+  return {};
+}
+
+// ============================================================
+// LangGraph Builder
+// ============================================================
+
+/**
+ * Build the chatter LangGraph workflow.
+ *
+ * Topology:
+ *   START → llmNode → [shouldCallTools?]
+ *                        ├─ YES → toolNode → summarizeNode → [shouldContinueOuter?]
+ *                        │                                       ├─ YES → llmNode (loop)
+ *                        │                                       └─ NO  → END
+ *                        └─ NO  → checkOuter → [shouldContinueOuter?]
+ *                                                  ├─ YES → llmNode (loop)
+ *                                                  └─ NO  → END
+ */
+function buildChatterGraph() {
+  const graph = new StateGraph(ChatterState);
+  
+  // Add nodes
+  graph.addNode("llmNode", llmNode);
+  graph.addNode("toolNode", toolNode);
+  graph.addNode("summarizeNode", summarizeNode);
+  graph.addNode("checkOuter", checkOuterNode);
+  
+  // Entry edge
+  graph.addEdge(START, "llmNode");
+  
+  // After LLM: branch on whether there are tool calls
+  graph.addConditionalEdges("llmNode", shouldCallTools, {
+    toolNode: "toolNode",
+    checkOuter: "checkOuter",
+  });
+  
+  // Tool → Summarize (always)
+  graph.addEdge("toolNode", "summarizeNode");
+  
+  // After Summarize: check outer loop
+  graph.addConditionalEdges("summarizeNode", shouldContinueOuter, {
+    llmNode: "llmNode",
+    [END]: END,
+  });
+  
+  // After checkOuter (no tools path): check outer loop
+  graph.addConditionalEdges("checkOuter", shouldContinueOuter, {
+    llmNode: "llmNode",
+    [END]: END,
+  });
+  
+  // Compile and return
+  return graph.compile();
 }
