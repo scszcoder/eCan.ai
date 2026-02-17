@@ -8,6 +8,7 @@ import { StateGraph, END, START } from "@langchain/langgraph";
 import { randomUUID } from "node:crypto";
 import { ChatterState, createInitialState } from "./node_state.js";
 import { get_cloud_mcp_tools_schema } from "./tools_schema.js";
+import { dispatch as dispatchTool, hasHandler } from "./tools/index.js";
 
 // Environment variables
 const APPSYNC_API_URL = process.env.APPSYNC_API_URL;
@@ -1072,27 +1073,33 @@ async function llmNode(state) {
 
 /**
  * Tool Node — executes each tool call in state.tool_calls.
- * Cloud-runnable tools (meta.run_in_cloud === true) are executed directly.
- * Local-only tools are recorded as pending for the desktop agent.
+ *
+ * For each call:
+ *   1. Validates the tool_name against the schema registry.
+ *   2. If the tool is cloud-runnable AND has a registered handler in tools/,
+ *      dispatches to the handler via `dispatchTool()`.
+ *   3. Otherwise records it as pending for the desktop agent.
+ *
+ * Results are written to state.tool_results as an object keyed by tool_name.
  */
 async function toolNode(state) {
   const toolCalls = state.tool_calls || [];
   console.log(`[toolNode] Executing ${toolCalls.length} tool call(s)...`);
-  
+
   if (toolCalls.length === 0) {
     return { tool_results: [], this_node: "toolNode" };
   }
-  
+
   // Load tool schemas for validation
   const allTools = get_cloud_mcp_tools_schema();
   const toolMap = new Map(allTools.map(t => [t.name, t]));
-  
+
   const results = [];
-  
+
   for (const call of toolCalls) {
     const { tool_name, tool_input } = call;
     const toolSchema = toolMap.get(tool_name);
-    
+
     if (!toolSchema) {
       console.warn(`[toolNode] Unknown tool: ${tool_name}`);
       results.push({
@@ -1103,20 +1110,22 @@ async function toolNode(state) {
       });
       continue;
     }
-    
+
     const isCloudRunnable = toolSchema.meta?.run_in_cloud === true;
-    
-    if (isCloudRunnable) {
-      // Execute cloud-runnable tools directly
+
+    if (isCloudRunnable && hasHandler(tool_name)) {
+      // Dispatch to the registered tool handler
       try {
-        console.log(`[toolNode] Executing cloud tool: ${tool_name}`);
-        const output = await executeCloudTool(tool_name, tool_input);
+        console.log(`[toolNode] Dispatching cloud tool: ${tool_name}`);
+        // Unwrap nested "input" wrapper if present (schema uses { input: { ... } })
+        const unwrapped = tool_input?.input ?? tool_input;
+        const output = await dispatchTool(tool_name, unwrapped);
         results.push({ tool_name, success: true, output, error: null });
       } catch (err) {
         console.error(`[toolNode] Cloud tool ${tool_name} failed:`, err.message);
         results.push({ tool_name, success: false, output: null, error: err.message });
       }
-    } else {
+    } else if (!isCloudRunnable) {
       // Local-only tool — record as pending (dispatched via A2A to desktop agent)
       console.log(`[toolNode] Local-only tool recorded as pending: ${tool_name}`);
       results.push({
@@ -1129,58 +1138,24 @@ async function toolNode(state) {
         },
         error: null,
       });
+    } else {
+      // Cloud tool without a handler yet
+      console.log(`[toolNode] No handler for cloud tool: ${tool_name}`);
+      results.push({
+        tool_name,
+        success: false,
+        output: null,
+        error: `Cloud tool '${tool_name}' does not have a handler registered yet.`,
+      });
     }
   }
-  
+
   console.log(`[toolNode] Completed ${results.length} tool call(s): ${results.map(r => `${r.tool_name}=${r.success}`).join(", ")}`);
-  
+
   return {
     tool_results: results,
     this_node: "toolNode",
   };
-}
-
-/**
- * Execute a cloud-runnable tool.
- * This is the dispatcher for tools that can run server-side.
- */
-async function executeCloudTool(toolName, toolInput) {
-  // Cloud tool execution dispatcher
-  // For now, we implement the most common cloud tools;
-  // others will be added as they are brought online.
-  switch (toolName) {
-    case "describe_self":
-      return { description: "I am a cloud-hosted AI assistant agent powered by eCan.ai." };
-    
-    case "list_chat_agents":
-      return { agents: [], message: "Agent listing is handled by the agentScheduler service." };
-    
-    case "get_chat_history":
-      if (toolInput.agent_id) {
-        // Could query DynamoDB here — delegate to existing handler
-        return { message: "Chat history retrieval delegated to getA2AMessages resolver." };
-      }
-      return { message: "agent_id required" };
-    
-    case "aws_read_billing":
-    case "azure_read_billing":
-    case "gcloud_read_billing":
-      return { message: `Billing read for ${toolName} is not yet implemented in cloud mode. Please use the desktop agent.` };
-    
-    case "aws_shutdown":
-    case "azure_shutdown":
-    case "gcloud_shutdown":
-      return { message: `Emergency shutdown via ${toolName} is not yet implemented in cloud mode for safety. Please use the desktop agent.` };
-    
-    default:
-      // Generic cloud tool stub — log and return placeholder
-      console.log(`[executeCloudTool] Tool ${toolName} not yet implemented, returning stub.`);
-      return {
-        status: "not_implemented",
-        message: `Cloud execution of '${toolName}' is not yet available. The tool call has been recorded.`,
-        tool_input: toolInput,
-      };
-  }
 }
 
 /**
