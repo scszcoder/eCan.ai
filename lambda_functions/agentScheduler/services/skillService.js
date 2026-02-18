@@ -352,5 +352,66 @@ module.exports = {
   getSkillTools,
   addKnowledgeToSkill,
   removeKnowledgeFromSkill,
-  getSkillKnowledges
+  getSkillKnowledges,
+  getPublicSkills,
+  subscribeToSkill,
+  unsubscribeFromSkill,
+  getSubscribedSkillIds,
 };
+
+/**
+ * Get all public skills (public=true or owner='public')
+ */
+async function getPublicSkills() {
+  const res = await execute(
+    "SELECT * FROM agent_skills WHERE `public` = TRUE OR owner = 'public'",
+    []
+  );
+  return rowsToObjects(res);
+}
+
+/**
+ * Subscribe: link an agent to a skill via agent_skill_rels
+ */
+async function subscribeToSkill(agentId, skillId) {
+  const id = genId("asr");
+  try {
+    await execute(
+      "INSERT INTO agent_skill_rels (id, agent_id, skill_id) VALUES (:id, :agent_id, :skill_id)",
+      [toDbParam("id", id), toDbParam("agent_id", agentId), toDbParam("skill_id", skillId)]
+    );
+  } catch (err) {
+    // Duplicate key = already subscribed, that's fine
+    if (err.message && err.message.includes("Duplicate")) {
+      return { success: true, id: skillId };
+    }
+    throw err;
+  }
+  return { success: true, id: skillId };
+}
+
+/**
+ * Unsubscribe: remove agent-skill link
+ */
+async function unsubscribeFromSkill(agentId, skillId) {
+  await execute(
+    "DELETE FROM agent_skill_rels WHERE agent_id = :agent_id AND skill_id = :skill_id",
+    [toDbParam("agent_id", agentId), toDbParam("skill_id", skillId)]
+  );
+  return { success: true, id: skillId };
+}
+
+/**
+ * Get skill IDs that an agent is subscribed to
+ */
+async function getSubscribedSkillIds(agentIds) {
+  if (!agentIds || agentIds.length === 0) return [];
+  // Build IN clause dynamically
+  const placeholders = agentIds.map((_, i) => `:aid${i}`);
+  const params = agentIds.map((aid, i) => toDbParam(`aid${i}`, aid));
+  const res = await execute(
+    `SELECT DISTINCT skill_id FROM agent_skill_rels WHERE agent_id IN (${placeholders.join(",")})`,
+    params
+  );
+  return rowsToObjects(res).map(r => r.skill_id);
+}

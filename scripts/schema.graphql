@@ -152,14 +152,19 @@ type AgentSkill @aws_api_key @aws_cognito_user_pools {
 }
 
 type AgentTool @aws_api_key @aws_cognito_user_pools {
+  annotations: AWSJSON
   capabilities: AWSJSON
   config: AWSJSON
   dependencies: AWSJSON
   description: String
+  icons: AWSJSON
   id: ID!
+  inputSchema: AWSJSON
   level: Int
   limitations: AWSJSON
+  meta: AWSJSON
   name: String!
+  outputSchema: AWSJSON
   owner: String!
   path: String
   price: Float
@@ -168,6 +173,7 @@ type AgentTool @aws_api_key @aws_cognito_user_pools {
   rentable: Boolean
   settings: AWSJSON
   status: String
+  title: String
   tool_type: String
   version: String
 }
@@ -389,9 +395,11 @@ type Mutation {
   startLongLLMTask(task_input: AWSJSON!): AWSJSON! @aws_cognito_user_pools
   startSoap(input: StartSoapInput!): StartSoapResponse!
   stepRunSkill(input: RunControlInput!): RunControlResult @aws_api_key @aws_cognito_user_pools
+  subscribeToSkill(skillId: ID!, owner: String): SkillMutationResult! @aws_api_key @aws_cognito_user_pools
   stepSim: RunControlResult @aws_api_key @aws_cognito_user_pools
   stopSoap(soap_id: ID!): Boolean! @aws_api_key @aws_cognito_user_pools
   testLanggraph2Flowgram: RunControlResult @aws_api_key @aws_cognito_user_pools
+  unsubscribeFromSkill(skillId: ID!, owner: String): SkillMutationResult! @aws_api_key @aws_cognito_user_pools
   updateAccts(input: [Account]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
   updateAgentKnowledges(input: [KnowledgeUpdateInput!]!): [KnowledgeMutationResult!]! @aws_api_key @aws_cognito_user_pools
   updateAgentSkills(input: [SkillUpdateInput!]!): [SkillMutationResult!]! @aws_api_key @aws_cognito_user_pools
@@ -561,6 +569,8 @@ type Query {
   getOrgs: [Org!]! @aws_api_key @aws_cognito_user_pools
   getProducts(input: ProductQueryInput): [Product!]! @aws_api_key @aws_cognito_user_pools
   getPrompts(owner: String): [Prompt!]! @aws_api_key @aws_cognito_user_pools
+  getPublicSkills(owner: String): [AgentSkill!]! @aws_api_key @aws_cognito_user_pools
+  getSubscribedSkillIds(owner: String): [ID!]! @aws_api_key @aws_cognito_user_pools
   getScene(id: ID!): Scene @aws_api_key @aws_cognito_user_pools
   getSceneRequestStatus(request_id: ID!): ReqSceneResponse @aws_api_key @aws_cognito_user_pools
   getSceneTemplates(emotion: String!, style: SceneStyle): [SceneTemplate!]! @aws_api_key @aws_cognito_user_pools
@@ -1951,14 +1961,19 @@ input TestInput {
 }
 
 input ToolInput {
+  annotations: AWSJSON
   capabilities: AWSJSON
   config: AWSJSON
   dependencies: AWSJSON
   description: String
+  icons: AWSJSON
   id: ID
+  inputSchema: AWSJSON
   level: Int
   limitations: AWSJSON
+  meta: AWSJSON
   name: String!
+  outputSchema: AWSJSON
   path: String
   price: Float
   price_model: String
@@ -1966,6 +1981,7 @@ input ToolInput {
   rentable: Boolean
   settings: AWSJSON
   status: String
+  title: String
   tool_type: String
   version: String
 }
@@ -1977,14 +1993,19 @@ input ToolQueryInput {
 }
 
 input ToolUpdateInput {
+  annotations: AWSJSON
   capabilities: AWSJSON
   config: AWSJSON
   dependencies: AWSJSON
   description: String
+  icons: AWSJSON
   id: ID!
+  inputSchema: AWSJSON
   level: Int
   limitations: AWSJSON
+  meta: AWSJSON
   name: String
+  outputSchema: AWSJSON
   path: String
   price: Float
   price_model: String
@@ -1992,6 +2013,7 @@ input ToolUpdateInput {
   rentable: Boolean
   settings: AWSJSON
   status: String
+  title: String
   tool_type: String
   version: String
 }

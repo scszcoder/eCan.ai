@@ -4135,6 +4135,42 @@ async function processEvent(event, context, callback, test_stub) {
               returnData = updated;
             }
             break;
+          case "subscribeToSkill":
+            {
+              try {
+                const skillId = event.arguments.skillId;
+                console.log(`[agentScheduler] subscribeToSkill: skillId='${skillId}', owner='${owner}'`);
+                const agents = await agentService.getAgentsByOwners(owner, ownerEmail, ownerSub);
+                if (!agents || agents.length === 0) {
+                  returnData = { id: skillId, success: false, error: "No agent found for user" };
+                } else {
+                  const agentId = agents[0].id;
+                  returnData = await skillService.subscribeToSkill(agentId, skillId);
+                }
+              } catch (err) {
+                console.error(`[agentScheduler] subscribeToSkill error:`, err.message);
+                returnData = { id: event.arguments.skillId, success: false, error: err.message || String(err) };
+              }
+            }
+            break;
+          case "unsubscribeFromSkill":
+            {
+              try {
+                const skillId = event.arguments.skillId;
+                console.log(`[agentScheduler] unsubscribeFromSkill: skillId='${skillId}', owner='${owner}'`);
+                const agents = await agentService.getAgentsByOwners(owner, ownerEmail, ownerSub);
+                if (!agents || agents.length === 0) {
+                  returnData = { id: skillId, success: false, error: "No agent found for user" };
+                } else {
+                  const agentId = agents[0].id;
+                  returnData = await skillService.unsubscribeFromSkill(agentId, skillId);
+                }
+              } catch (err) {
+                console.error(`[agentScheduler] unsubscribeFromSkill error:`, err.message);
+                returnData = { id: event.arguments.skillId, success: false, error: err.message || String(err) };
+              }
+            }
+            break;
           case "addAgentTools":
             {
               const toolsInput = Array.isArray(event.arguments.input) ? event.arguments.input : [event.arguments.input];
@@ -5391,6 +5427,22 @@ async function processEvent(event, context, callback, test_stub) {
                 returnData = skills;
               }
               break;
+          case "getPublicSkills":
+              {
+                console.log(`[agentScheduler] getPublicSkills`);
+                const publicSkills = await skillService.getPublicSkills();
+                returnData = publicSkills;
+              }
+              break;
+          case "getSubscribedSkillIds":
+              {
+                console.log(`[agentScheduler] getSubscribedSkillIds for owner='${owner}'`);
+                const agents = await agentService.getAgentsByOwners(owner, ownerEmail, ownerSub);
+                const agentIds = agents.map(a => a.id);
+                const skillIds = await skillService.getSubscribedSkillIds(agentIds);
+                returnData = skillIds;
+              }
+              break;
           case "getAgentTasks":
             {
               // Query tasks by both email and Cognito sub to handle legacy and new data
@@ -6116,7 +6168,9 @@ ${contextText}`;
         settings: null
       };
     } else {
-      returnData = { error: "ACCOUNT INSUFFICIENT" };
+      // Return a type-safe response that conforms to all GraphQL return types.
+      // For mutations that expect SkillMutationResult!, include success: false.
+      returnData = { success: false, error: "ACCOUNT INSUFFICIENT" };
     }
   }
 

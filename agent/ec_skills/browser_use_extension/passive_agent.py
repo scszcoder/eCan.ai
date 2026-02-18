@@ -308,6 +308,39 @@ class PassiveAgent:
             action_name = next(iter(action_dict.keys()))
             params = action_dict.get(action_name) or {}
 
+            # ============================================================
+            # Handle MCP tool actions (sent via run_local passive command)
+            # ============================================================
+            if action_name == "mcp_tool":
+                try:
+                    mcp_tool_name = params.get("tool", "")
+                    mcp_tool_input = params.get("tool_input", {})
+                    logger.info(f"[PassiveAgent] 🔧 Executing MCP tool locally: {mcp_tool_name} with input: {mcp_tool_input}")
+                    
+                    from agent.mcp.local_client import mcp_call_tool
+                    import asyncio
+                    mcp_result = await mcp_call_tool(mcp_tool_name, mcp_tool_input)
+                    
+                    logger.info(f"[PassiveAgent] ✅ MCP tool result: {mcp_result}")
+                    r = ActionResult(
+                        extracted_content=str(mcp_result) if mcp_result else "",
+                        error=None,
+                    )
+                    results.append(r)
+                    # Snapshot intended focus (unchanged by MCP tool)
+                    if self.browser_session.agent_focus_target_id:
+                        intended_focus_target_id = self.browser_session.agent_focus_target_id
+                    continue
+                except Exception as e:
+                    msg = f"action[{i}] 'mcp_tool' ({params.get('tool', '?')}) failed: {type(e).__name__}: {e}"
+                    logger.error(f"[PassiveAgent] {msg}", exc_info=True)
+                    r = ActionResult(error=msg)
+                    results.append(r)
+                    errors.append(msg)
+                    if stop_on_error:
+                        break
+                    continue
+
             # Normalize switch action: cloud agent may send full 32-char target_id
             # but browser_use's SwitchActionModel expects max 4-char tab_id suffix.
             # Truncate to last 4 chars so validation passes.
