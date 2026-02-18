@@ -607,8 +607,8 @@ export function build_cloud_mcp_tools_schema() {
           type: "object",
           required: ["language", "code"],
           properties: {
-            language: { type: "string", description: "programming language (python, javascript, bash)" },
-            code: { type: "string", description: "source code to execute" },
+            language: { type: "string", description: "Always 'javascript'. Only Node.js is available." },
+            code: { type: "string", description: "JavaScript (Node.js 20) source code to execute. Use ES module syntax. Built-in fetch() is available for HTTP." },
             arguments: { type: "array", items: { type: "object" }, description: "command-line arguments to pass to the code at runtime" },
           },
         },

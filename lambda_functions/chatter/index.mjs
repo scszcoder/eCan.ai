@@ -62,6 +62,15 @@ You MUST respond with a SINGLE valid JSON object. NEVER respond with plain text.
 2. When calling tools, set "request_answered": false because the tool hasn't run yet.
 3. Do NOT ask the user for information that a tool can provide.
 4. Do NOT output plain text. Always output JSON.
+5. **Code Generation Fallback**: If the user asks for something that no existing tool can directly solve (e.g. calculations, data transformations, web scraping, API calls, file processing, or any programmatic task), write JavaScript code and use the "run_code" tool to execute it. Example:
+   {"tool_name": "run_code", "tool_input": {"input": {"language": "javascript", "code": "const r = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd'); const d = await r.json(); console.log(JSON.stringify(d));"}}}
+   - **ONLY JavaScript (Node.js 20)** is available. Do NOT generate Python or bash code — those runtimes do not exist.
+   - Use ES module syntax. Top-level await is supported (the file runs as .mjs).
+   - Built-in fetch() is available for all HTTP requests. Use it for any API calls.
+   - ONLY Node.js built-in modules are available (fs, path, crypto, http, https, url, etc). No npm packages.
+   - Always console.log() the result so it can be captured in stdout.
+   - The code runs in /tmp/sandbox with a 15-second timeout and 512KB output buffer.
+   - Think of run_code as your universal problem-solving tool — if you can write JS code for it, you can solve it.
 
 ### Example — user asks to list skills:
 {"msg_to_sender": "Let me retrieve your skills list.", "qa_to_sender": {}, "topic_switched": false, "work_related": true, "request_answered": false, "need_human_input": false, "next_actions": [{"tool_name": "list_skills", "tool_input": {"input": {"owner_id": "user123"}}}]}
@@ -1190,6 +1199,12 @@ async function toolNode(state) {
         console.log(`[toolNode] Dispatching cloud tool: ${tool_name}`);
         // Unwrap nested "input" wrapper if present (schema uses { input: { ... } })
         const unwrapped = tool_input?.input ?? tool_input;
+        // Auto-inject owner_id from session metadata so the LLM doesn't need to guess it
+        const ownerId = state.metadata?.ownerId;
+        if (ownerId && typeof unwrapped === "object") {
+          unwrapped.owner_id = ownerId;
+        }
+        console.log(`[toolNode] Tool input for ${tool_name}:`, JSON.stringify(unwrapped));
         const output = await dispatchTool(tool_name, unwrapped);
         results.push({ tool_name, success: true, output, error: null });
       } catch (err) {
@@ -1254,9 +1269,14 @@ async function summarizeNode(state) {
     new SystemMessage(
       `You are a helpful assistant. The user asked a question and tool calls were made. ` +
       `Summarize the results for the user. Respond ONLY with valid JSON in this format:\n` +
-      `{"msg_to_sender": "your summary", "qa_to_sender": {}, "topic_switched": false, "work_related": true, "request_answered": true, "need_human_input": false, "next_actions": []}\n` +
-      `If the tools did not fully answer the question and you need to call more tools, include them in next_actions as {"tool_name": "...", "tool_input": {...}}.\n` +
-      `If you need more input from the user, set need_human_input to true and request_answered to false.`
+      `{"msg_to_sender": "your summary", "qa_to_sender": {}, "topic_switched": false, "work_related": true, "request_answered": true, "need_human_input": false, "next_actions": []}\n\n` +
+      `CRITICAL RULES:\n` +
+      `- "msg_to_sender" is the ONLY text the user will ever see. You MUST include ALL relevant data from the tool results directly in msg_to_sender as human-readable text.\n` +
+      `- For list results (skills, agents, tasks, etc.), format each item on its own line with a number, name, and description.\n` +
+      `- Do NOT put any useful data in "qa_to_sender". It is for follow-up Q&A pairs only, not for tool result data.\n` +
+      `- If the tool returned a list with many items, show all of them (do not truncate). Use markdown formatting for readability.\n` +
+      `- If the tools did not fully answer the question and you need to call more tools, include them in next_actions as {"tool_name": "...", "tool_input": {...}}.\n` +
+      `- If you need more input from the user, set need_human_input to true and request_answered to false.`
     ),
     new HumanMessage(
       `Original request: ${state.input}\n\nTool execution results:\n${toolResultsText}\n\nPlease provide a response incorporating these results.`
