@@ -315,17 +315,26 @@ class PassiveAgent:
                 try:
                     mcp_tool_name = params.get("tool", "")
                     mcp_tool_input = params.get("tool_input", {})
-                    logger.info(f"[PassiveAgent] 🔧 Executing MCP tool locally: {mcp_tool_name} with input: {mcp_tool_input}")
+                    logger.info(f"[PassiveAgent] 🔧 MCP tool action received: tool={mcp_tool_name}")
+                    logger.info(f"[PassiveAgent] 🔧 MCP tool input: {mcp_tool_input}")
+                    logger.info(f"[PassiveAgent] 🔧 Full mcp_tool params: {params}")
                     
+                    logger.info(f"[PassiveAgent] 🔧 Importing mcp_call_tool from agent.mcp.local_client...")
                     from agent.mcp.local_client import mcp_call_tool
                     import asyncio
-                    mcp_result = await mcp_call_tool(mcp_tool_name, mcp_tool_input)
+                    logger.info(f"[PassiveAgent] 🔧 Import successful, calling mcp_call_tool({mcp_tool_name}, ...)...")
                     
-                    logger.info(f"[PassiveAgent] ✅ MCP tool result: {mcp_result}")
+                    _t0 = time.perf_counter()
+                    mcp_result = await mcp_call_tool(mcp_tool_name, mcp_tool_input)
+                    _elapsed = time.perf_counter() - _t0
+                    
+                    logger.info(f"[PassiveAgent] ✅ MCP tool completed in {_elapsed:.2f}s")
+                    logger.info(f"[PassiveAgent] ✅ MCP tool result type={type(mcp_result).__name__}, value={str(mcp_result)[:500]}")
                     r = ActionResult(
                         extracted_content=str(mcp_result) if mcp_result else "",
                         error=None,
                     )
+                    logger.info(f"[PassiveAgent] ✅ ActionResult created: extracted_content length={len(r.extracted_content) if r.extracted_content else 0}")
                     results.append(r)
                     # Snapshot intended focus (unchanged by MCP tool)
                     if self.browser_session.agent_focus_target_id:

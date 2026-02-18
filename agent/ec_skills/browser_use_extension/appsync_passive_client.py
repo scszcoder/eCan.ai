@@ -413,7 +413,7 @@ class AppSyncPassiveClient:
                     cmd_raw = envelope.get("command")
                     cmd_obj = json.loads(cmd_raw) if isinstance(cmd_raw, str) else cmd_raw
                     cmd = PassiveBrowserCommand.model_validate(cmd_obj)
-                    logger.info(f"[AppSyncPassiveClient] Received command: run_id={cmd.run_id}, step_id={cmd.step_id}")
+                    logger.info(f"[AppSyncPassiveClient] Received command: type={cmd.type}, run_id={cmd.run_id}, step_id={cmd.step_id}, actions_count={len(cmd.actions) if cmd.actions else 0}")
                 except Exception as e:
                     logger.error(f"[AppSyncPassiveClient] Failed to parse command: {e}")
                     return

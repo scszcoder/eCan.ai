@@ -2808,20 +2808,43 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     stop_on_error=True,
                 )
                 
+                logger.info(
+                    f"[RUN_LOCAL] PassiveBrowserCommand built: "
+                    f"type={cmd.type}, run_id={run_id}, step_id={step_id}, "
+                    f"node_id={node_name}, acct_site_id={acct_site_id}, "
+                    f"agent_id={agent_id}, skill_id={skill_id}, "
+                    f"actions={mcp_action}"
+                )
+                logger.info(
+                    f"[RUN_LOCAL] Transport info: type={type(transport).__name__}, "
+                    f"client_id={getattr(transport, 'client_id', 'N/A')}, "
+                    f"url={getattr(transport, 'appsync_url', 'N/A')[:60] if hasattr(transport, 'appsync_url') else 'N/A'}"
+                )
+                
                 timeout_s = float(config_metadata.get('timeout', 180) or 180)
                 
                 async def _run_local_mcp():
+                    import time as _time
+                    _t0 = _time.time()
                     # Prepare to receive result before publishing command
+                    logger.info(f"[RUN_LOCAL] Calling prepare_for_result(run_id={run_id}, step_id={step_id})...")
                     await transport.prepare_for_result(run_id=run_id, step_id=step_id)
+                    logger.info(f"[RUN_LOCAL] prepare_for_result done, elapsed={_time.time()-_t0:.2f}s")
                     # Publish command to local machine
+                    logger.info(f"[RUN_LOCAL] Publishing command to local machine via transport...")
                     await transport.publish_command(cmd)
-                    log_msg = f"[RUN_LOCAL] ⏳ Waiting for local machine response (stepId={step_id}, timeout={timeout_s}s)..."
+                    _pub_elapsed = _time.time() - _t0
+                    log_msg = f"[RUN_LOCAL] ⏳ Command published ({_pub_elapsed:.2f}s). Waiting for local response (stepId={step_id}, timeout={timeout_s}s)..."
                     logger.info(log_msg)
                     send_skill_editor_log("log", log_msg)
                     # Wait for result
                     result = await transport.wait_for_result(
                         run_id=run_id, step_id=step_id, timeout_s=timeout_s
                     )
+                    _total_elapsed = _time.time() - _t0
+                    logger.info(f"[RUN_LOCAL] wait_for_result returned after {_total_elapsed:.2f}s, result type={type(result).__name__}, result is None={result is None}")
+                    if result:
+                        logger.info(f"[RUN_LOCAL] Result keys: {list(result.keys()) if isinstance(result, dict) else dir(result)[:10]}")
                     return result
                 
                 passive_result = run_async_in_sync(_run_local_mcp())
@@ -2829,19 +2852,27 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 # Extract tool result from passive response
                 tool_result = {}
                 if passive_result:
+                    logger.info(f"[RUN_LOCAL] Parsing passive_result: type={type(passive_result).__name__}")
                     if hasattr(passive_result, 'action_results'):
                         action_results = passive_result.action_results
+                        logger.info(f"[RUN_LOCAL] action_results (attr): count={len(action_results) if action_results else 0}, values={action_results}")
                         if action_results and len(action_results) > 0:
                             tool_result = action_results[0]
                     elif isinstance(passive_result, dict):
-                        tool_result = passive_result.get('action_results', [{}])[0] if passive_result.get('action_results') else passive_result
+                        action_results = passive_result.get('action_results', [])
+                        logger.info(f"[RUN_LOCAL] action_results (dict): count={len(action_results) if action_results else 0}, values={action_results}")
+                        tool_result = action_results[0] if action_results else passive_result
                     
                     # Check if there were errors
                     errors = getattr(passive_result, 'errors', None) or (passive_result.get('errors') if isinstance(passive_result, dict) else None)
                     if errors:
-                        log_msg = f"[RUN_LOCAL] Local execution had errors: {errors}"
+                        log_msg = f"[RUN_LOCAL] ⚠️ Local execution had errors: {errors}"
                         logger.warning(log_msg)
                         send_skill_editor_log("warning", log_msg)
+                else:
+                    log_msg = "[RUN_LOCAL] ⚠️ passive_result is None/empty — local machine may not have responded"
+                    logger.warning(log_msg)
+                    send_skill_editor_log("warning", log_msg)
                 
                 log_msg = f"[RUN_LOCAL] ✅ Local MCP tool result: {tool_result}"
                 logger.info(log_msg)

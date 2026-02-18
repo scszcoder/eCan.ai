@@ -65,7 +65,8 @@ class PassiveCommandService:
         def on_command(cmd: PassiveBrowserCommand) -> None:
             """Handle incoming command by routing to task."""
             try:
-                logger.info(f"[PassiveCommandService] Received command: run_id={cmd.run_id}, step_id={cmd.step_id}")
+                action_names = [next(iter(a.keys()), "?") for a in (cmd.actions or []) if isinstance(a, dict)]
+                logger.info(f"[PassiveCommandService] Received command: type={cmd.type}, run_id={cmd.run_id}, step_id={cmd.step_id}, actions={action_names}")
                 success = self._route_command(cmd)
                 if not success:
                     logger.warning(f"[PassiveCommandService] Failed to route command: {cmd.run_id}/{cmd.step_id}")
