@@ -1443,9 +1443,10 @@ export class IPCAPI {
     );
     }
 
-    public async runSkill<T>(username: string, skill: T): Promise<APIResponse<void>> {
+    public async runSkill<T>(username: string, skill: T, meta_data?: any): Promise<APIResponse<void>> {
         // skill must be JSON-stringified for AWSJSON type in GraphQL schema
         const skillJson = typeof skill === 'string' ? skill : JSON.stringify(skill);
+        const metaJson = meta_data == null ? '{}' : (typeof meta_data === 'string' ? meta_data : JSON.stringify(meta_data));
         return apiRouter.execute(
       {
         method: 'run_skill',
@@ -1454,7 +1455,7 @@ export class IPCAPI {
           resultPath: 'runSkill'
         }
       },
-      { input: { username, skill: skillJson } }
+      { username, skill: skillJson, meta_data: metaJson }
     );
     }
 
@@ -1468,7 +1469,7 @@ export class IPCAPI {
           resultPath: 'cancelRunSkill'
         }
       },
-      { input: { username, skill: skillJson } }
+      { username, skill: skillJson }
     );
     }
 
@@ -1482,7 +1483,7 @@ export class IPCAPI {
           resultPath: 'pauseRunSkill'
         }
       },
-      { input: { username, skill: skillJson } }
+      { username, skill: skillJson }
     );
     }
 
@@ -1496,7 +1497,7 @@ export class IPCAPI {
           resultPath: 'resumeRunSkill'
         }
       },
-      { input: { username, skill: skillJson } }
+      { username, skill: skillJson }
     );
     }
 
@@ -1510,7 +1511,7 @@ export class IPCAPI {
           resultPath: 'stepRunSkill'
         }
       },
-      { input: { username, skill: skillJson } }
+      { username, skill: skillJson }
     );
     }
 
@@ -1541,6 +1542,8 @@ export class IPCAPI {
     }
 
     public async requestSkillState<T>(username: string, skill: T): Promise<APIResponse<void>> {
+        // skill must be JSON-stringified for AWSJSON type in GraphQL schema
+        const skillJson = typeof skill === 'string' ? skill : JSON.stringify(skill);
         return apiRouter.execute(
       {
         method: 'request_skill_state',
@@ -1549,11 +1552,13 @@ export class IPCAPI {
           resultPath: 'requestSkillState'
         }
       },
-      {username, skill}
+      {username, skill: skillJson}
     );
     }
 
     public async injectSkillState<T>(username: string, skill: T): Promise<APIResponse<void>> {
+        // skill must be JSON-stringified for AWSJSON type in GraphQL schema
+        const skillJson = typeof skill === 'string' ? skill : JSON.stringify(skill);
         return apiRouter.execute(
       {
         method: 'inject_skill_state',
@@ -1562,11 +1567,13 @@ export class IPCAPI {
           resultPath: 'injectSkillState'
         }
       },
-      {username, skill}
+      {username, skill: skillJson}
     );
     }
 
     public async loadSkillSchemas<T>(username: string, skill: T): Promise<APIResponse<void>> {
+        // skill must be JSON-stringified for AWSJSON type in GraphQL schema
+        const skillJson = typeof skill === 'string' ? skill : JSON.stringify(skill);
         return apiRouter.execute(
       {
         method: 'load_skill_schemas',
@@ -1575,7 +1582,7 @@ export class IPCAPI {
           resultPath: 'loadSkillSchemas'
         }
       },
-      {username, skill}
+      {username, skill: skillJson}
     );
     }
 
