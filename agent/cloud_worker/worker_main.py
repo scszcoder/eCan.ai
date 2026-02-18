@@ -1235,6 +1235,7 @@ async def _run_skill_dev_mode(
     # Create a ManagedTask for the dev run
     dev_task = ManagedTask(
         id=run_state.run_id,
+        context_id=run_state.run_id,  # Required by a2a-sdk Task
         run_id=run_state.run_id,
         name=f"dev:run task for skill {run_state.skill_name}",
         description="Cloud worker development run",
