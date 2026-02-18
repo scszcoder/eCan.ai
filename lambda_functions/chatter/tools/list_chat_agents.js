@@ -1,21 +1,25 @@
 /**
  * Tool handler: list_chat_agents
  * List available agents for chat communication.
+ * Data source: Aurora (RDS Data API) — table: agents
  */
-import { DynamoDBClient, ScanCommand } from "@aws-sdk/client-dynamodb";
-import { unmarshall } from "@aws-sdk/util-dynamodb";
+import { execute, strParam, rowsToObjects } from "./rdsClient.js";
 
-const dynamodb = new DynamoDBClient({ region: "us-east-1" });
-const AGENTS_TABLE = process.env.AGENTS_TABLE || "Agents";
+export async function list_chat_agents(toolInput) {
+  const { owner_id } = toolInput || {};
 
-export async function list_chat_agents(_toolInput) {
-  const resp = await dynamodb.send(new ScanCommand({
-    TableName: AGENTS_TABLE,
-    ProjectionExpression: "agent_id, agent_name, #s, agent_type",
-    ExpressionAttributeNames: { "#s": "status" },
-    Limit: 100,
-  }));
+  let sql = "SELECT id, name, status, description FROM agents WHERE deleted_at IS NULL";
+  const params = [];
 
-  const agents = (resp.Items || []).map(item => unmarshall(item));
+  if (owner_id) {
+    sql += " AND owner = :owner";
+    params.push(strParam("owner", owner_id));
+  }
+
+  sql += " ORDER BY name ASC LIMIT 100";
+
+  const result = await execute(sql, params);
+  const agents = rowsToObjects(result);
+
   return { agents, count: agents.length };
 }
