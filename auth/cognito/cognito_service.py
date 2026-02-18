@@ -17,6 +17,8 @@ class CognitoService:
     def __init__(self):
         self.cognito_client = None
         self.jwks = None
+        # Preload JWKS to avoid blocking during login
+        self._preload_jwks()
 
     def _get_cognito_client(self):
         if not self.cognito_client:
@@ -44,17 +46,55 @@ class CognitoService:
 
         return self.cognito_client
 
-    def _get_jwks(self):
-        # In a production environment, this should be cached.
+    def _preload_jwks(self):
+        """
+        Preload JWKS during initialization to avoid blocking during login.
+        This is called in __init__ to fetch JWKS early, reducing login latency.
+        """
+        import time
+        start_time = time.time()
         url = f"https://cognito-idp.{AuthConfig.COGNITO.REGION}.amazonaws.com/{AuthConfig.COGNITO.USER_POOL_ID}/.well-known/jwks.json"
+        
         try:
-            # Increase timeout for China -> AWS (60 seconds)
-            response = requests.get(url, timeout=60)
+            logger.info(f"[CognitoService] Preloading JWKS from: {url}")
+            # Increase timeout for China -> AWS (90 seconds)
+            response = requests.get(url, timeout=90)
             response.raise_for_status()
-            return response.json()['keys']
+            self.jwks = response.json()['keys']
+            elapsed = time.time() - start_time
+            logger.info(f"[CognitoService] ✅ JWKS preloaded successfully in {elapsed:.2f}s ({len(self.jwks)} keys)")
         except requests.exceptions.RequestException as e:
-            # In a real app, you'd want to log this error.
-            logger.error(f"Error fetching JWKS: {e}")
+            elapsed = time.time() - start_time
+            logger.error(f"[CognitoService] ❌ Failed to preload JWKS after {elapsed:.2f}s: {e}")
+            logger.warning(f"[CognitoService] Token verification will retry JWKS fetch during login")
+            self.jwks = None
+
+    def _get_jwks(self):
+        """
+        Get JWKS (JSON Web Key Set) for token verification.
+        This should normally be preloaded during __init__, but will fetch on-demand if needed.
+        """
+        # If already cached, return immediately
+        if self.jwks:
+            return self.jwks
+            
+        # Otherwise, fetch now (fallback for preload failure)
+        import time
+        start_time = time.time()
+        url = f"https://cognito-idp.{AuthConfig.COGNITO.REGION}.amazonaws.com/{AuthConfig.COGNITO.USER_POOL_ID}/.well-known/jwks.json"
+        
+        try:
+            logger.warning(f"[CognitoService] JWKS not cached, fetching on-demand from: {url}")
+            # Increase timeout for China -> AWS (90 seconds)
+            response = requests.get(url, timeout=90)
+            response.raise_for_status()
+            self.jwks = response.json()['keys']
+            elapsed = time.time() - start_time
+            logger.info(f"[CognitoService] ✅ JWKS fetched on-demand in {elapsed:.2f}s ({len(self.jwks)} keys)")
+            return self.jwks
+        except requests.exceptions.RequestException as e:
+            elapsed = time.time() - start_time
+            logger.error(f"[CognitoService] ❌ Failed to fetch JWKS after {elapsed:.2f}s: {e}")
             return None
 
     def verify_token(self, token: str, token_use: str = 'access'):
