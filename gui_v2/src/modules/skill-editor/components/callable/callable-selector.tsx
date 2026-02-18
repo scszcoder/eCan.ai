@@ -94,7 +94,10 @@ export const CallableSelector: React.FC<CallableSelectorProps> = ({
     if (selectedFunction) {
       setSelectedValue(selectedValue);
       if (onChange) {
-        onChange(selectedFunction);
+        // Deep-clone to ensure each node gets its own independent copy
+        // preventing shared object references between multiple nodes
+        const cloned = JSON.parse(JSON.stringify(selectedFunction));
+        onChange(cloned);
       }
     }
   };

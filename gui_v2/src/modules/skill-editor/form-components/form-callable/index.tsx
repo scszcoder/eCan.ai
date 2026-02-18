@@ -42,8 +42,10 @@ export function FormCallable() {
               value={field.value}
               onChange={(func) => {
                 try { console.log('[Callable] onChange selected:', func); } catch {}
-                field.onChange(func);
-                try { console.log('[Callable] data.callable updated with:', func); } catch {}
+                // Deep-clone to ensure each node gets independent data
+                const isolated = JSON.parse(JSON.stringify(func));
+                field.onChange(isolated);
+                try { console.log('[Callable] data.callable updated with:', isolated); } catch {}
               }}
               onAdd={() => {
                 if (readonly) return;

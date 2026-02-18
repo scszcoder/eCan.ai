@@ -3,12 +3,13 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { FormRenderProps, FormMeta, ValidateTrigger } from '@flowgram.ai/free-layout-editor';
+import { FormRenderProps, FormMeta, ValidateTrigger, Field } from '@flowgram.ai/free-layout-editor';
 import { createInferInputsPlugin, DisplayOutputs } from '@flowgram.ai/form-materials';
+import { Checkbox } from '@douyinfe/semi-ui';
 
 import { FlowNodeJSON } from '../../typings';
 import { defaultFormMeta } from '../default-form-meta';
-import { FormHeader, FormContent, FormInputs } from '../../form-components';
+import { FormHeader, FormContent, FormInputs, FormItem } from '../../form-components';
 import { FormCallable } from '../../form-components/form-callable';
 
 export const renderForm = (_props: FormRenderProps<FlowNodeJSON>) => {
@@ -20,6 +21,19 @@ export const renderForm = (_props: FormRenderProps<FlowNodeJSON>) => {
         <div className="mcp-node-form">
           {/* 1) Tool selector */}
           <FormCallable />
+          {/* Run Local checkbox */}
+          <FormItem name="run_local" type="boolean" vertical>
+            <Field<boolean> name="data.run_local">
+              {({ field }) => (
+                <Checkbox
+                  checked={!!field.value}
+                  onChange={(e) => field.onChange(e.target.checked as boolean)}
+                >
+                  Run Local (execute on local machine via passive command)
+                </Checkbox>
+              )}
+            </Field>
+          </FormItem>
           {/* 2) Dynamic tool inputs */}
           <div style={{ height: 1, background: '#e8e8e8', margin: '12px 0', width: '100%' }} />
           <div style={{ fontWeight: 600, marginBottom: 8 }}>Tool Inputs</div>
@@ -40,13 +54,23 @@ export const formMeta: FormMeta<FlowNodeJSON> = {
   render: renderForm,
   validateTrigger: ValidateTrigger.onChange,
   validate: defaultFormMeta.validate,
+  // Deep-clone node data on init/submit to prevent shared references between nodes
+  formatOnInit: (value, ctx) => {
+    try {
+      return JSON.parse(JSON.stringify(value));
+    } catch {
+      return value;
+    }
+  },
+  formatOnSubmit: defaultFormMeta.formatOnSubmit,
   effect: {
     ...defaultFormMeta.effect,
     // When tool selection changes, project its params schema into data.inputs
     'data.callable': [({ form, formValues }: any) => {
       try { console.log('[MCP] MCP effect data.callable triggered with:', (formValues as any)?.data?.callable); } catch {}
       try {
-        const callable = (formValues as any)?.data?.callable;
+        // Deep-clone to ensure this node's callable is independent
+        const callable = JSON.parse(JSON.stringify((formValues as any)?.data?.callable || {}));
         const paramsSchema = callable?.params || { type: 'object', properties: {} };
         const rootProps = paramsSchema?.properties || {};
         const rootReq: string[] = Array.isArray(paramsSchema?.required) ? paramsSchema.required : [];
