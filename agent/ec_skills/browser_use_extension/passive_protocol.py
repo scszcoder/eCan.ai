@@ -14,7 +14,7 @@ class PassiveBrowserCommand(BaseModel):
     """
 
     schema_version: int = Field(default=1)
-    type: Literal["browser_use_passive_step"] = Field(default="browser_use_passive_step")
+    type: Literal["browser_use_passive_step", "skill_passive_step"] = Field(default="browser_use_passive_step")
 
     # Correlation
     run_id: str

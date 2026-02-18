@@ -2757,6 +2757,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     pass
                 
                 cmd = PassiveBrowserCommand(
+                    type="skill_passive_step",
                     run_id=run_id,
                     step_id=step_id,
                     acct_site_id=acct_site_id,
