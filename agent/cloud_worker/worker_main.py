@@ -1278,7 +1278,7 @@ async def _run_skill_dev_mode(
     
     try:
         # Get the compiled graph from the skill
-        compiled_graph = skill.get_work_flow()
+        compiled_graph = skill.get_runnable()
         if not compiled_graph:
             raise RuntimeError("Skill has no compiled workflow")
         
