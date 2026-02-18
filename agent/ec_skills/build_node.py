@@ -2716,10 +2716,38 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 try:
                     from agent.cloud_worker.worker_main import get_global_passive_transport
                     transport = get_global_passive_transport()
-                except ImportError:
-                    pass
+                    logger.info(f"[RUN_LOCAL] get_global_passive_transport returned: {type(transport).__name__ if transport else 'None'}")
+                except ImportError as _ie:
+                    logger.warning(f"[RUN_LOCAL] ImportError getting passive transport (not running in cloud worker?): {_ie}")
                 except Exception as _tex:
                     logger.warning(f"[RUN_LOCAL] Error getting global transport: {_tex}")
+                
+                # Fallback: create transport from env vars if global transport not set
+                # (same env vars that skill_editor_lambda sets on the ECS container)
+                if not transport:
+                    try:
+                        import os as _os
+                        _appsync_url = _os.environ.get("EC_APPSYNC_HTTP_ENDPOINT") or _os.environ.get("APPSYNC_API_URL", "")
+                        _appsync_key = _os.environ.get("EC_APPSYNC_TOKEN") or _os.environ.get("APPSYNC_API_KEY", "")
+                        _client_id = _os.environ.get("EC_BROWSER_PASSIVE_CLIENT_ID", "")
+                        if _appsync_url and _appsync_key and _client_id:
+                            from agent.ec_skills.browser_use_extension.cloud_agent import CloudWorkerPassiveTransport
+                            transport = CloudWorkerPassiveTransport(
+                                appsync_url=_appsync_url,
+                                appsync_api_key=_appsync_key,
+                                client_id=_client_id,
+                            )
+                            logger.info(f"[RUN_LOCAL] Created fallback transport from env vars: client_id={_client_id}")
+                            # Also register globally for future calls
+                            try:
+                                from agent.cloud_worker.worker_main import set_global_passive_transport
+                                set_global_passive_transport(transport)
+                            except Exception:
+                                pass
+                        else:
+                            logger.warning(f"[RUN_LOCAL] Cannot create fallback transport: url={bool(_appsync_url)}, key={bool(_appsync_key)}, client={bool(_client_id)}")
+                    except Exception as _ftex:
+                        logger.warning(f"[RUN_LOCAL] Fallback transport creation failed: {_ftex}")
                 
                 if not transport:
                     raise RuntimeError(
