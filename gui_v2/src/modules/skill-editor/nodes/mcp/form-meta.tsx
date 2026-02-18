@@ -11,6 +11,7 @@ import { FlowNodeJSON } from '../../typings';
 import { defaultFormMeta } from '../default-form-meta';
 import { FormHeader, FormContent, FormInputs, FormItem } from '../../form-components';
 import { FormCallable } from '../../form-components/form-callable';
+import { RunCodeEditor } from './components/run-code-editor';
 
 export const renderForm = (_props: FormRenderProps<FlowNodeJSON>) => {
 
@@ -34,6 +35,8 @@ export const renderForm = (_props: FormRenderProps<FlowNodeJSON>) => {
               )}
             </Field>
           </FormItem>
+          {/* Run Code settings (language + source editor) — only visible when run_code tool is selected */}
+          <RunCodeEditor />
           {/* 2) Dynamic tool inputs */}
           <div style={{ height: 1, background: '#e8e8e8', margin: '12px 0', width: '100%' }} />
           <div style={{ fontWeight: 600, marginBottom: 8 }}>Tool Inputs</div>
@@ -122,6 +125,14 @@ export const formMeta: FormMeta<FlowNodeJSON> = {
           }
         } catch {}
 
+        // When run_code is selected, hide 'language' and 'code' from dynamic inputs
+        // (they are handled by the RunCodeEditor component instead)
+        const isRunCode = (callable?.name || '') === 'run_code';
+        if (isRunCode) {
+          delete properties['language'];
+          delete properties['code'];
+        }
+
         // Guard required keys to only those present in properties
         const required = rawRequired.filter((k) => k in properties);
         // Update inputs schema used by FormInputs
@@ -140,8 +151,39 @@ export const formMeta: FormMeta<FlowNodeJSON> = {
             currentInputsValues[k] = { type: 'constant', content: '' } as any;
           }
         });
+        // For run_code, seed inputsValues from the dedicated editor fields if present
+        if (isRunCode) {
+          const lang = (formValues as any)?.data?.run_code_language;
+          const src = (formValues as any)?.data?.run_code_source;
+          if (lang) currentInputsValues['language'] = { type: 'constant', content: lang } as any;
+          if (src) currentInputsValues['code'] = { type: 'constant', content: src } as any;
+        }
         form.setFieldValue('data.inputsValues', currentInputsValues);
         try { console.log('[MCP] Prefilled inputsValues(required):', currentInputsValues); } catch {}
+      } catch {}
+    }],
+
+    // Sync RunCodeEditor language → inputsValues.language
+    'data.run_code_language': [({ form, formValues }: any) => {
+      try {
+        const callable = (formValues as any)?.data?.callable;
+        if (callable?.name !== 'run_code') return;
+        const lang = (formValues as any)?.data?.run_code_language || 'python';
+        const iv = { ...((formValues as any)?.data?.inputsValues || {}) };
+        iv['language'] = { type: 'constant', content: lang };
+        form.setFieldValue('data.inputsValues', iv);
+      } catch {}
+    }],
+
+    // Sync RunCodeEditor source → inputsValues.code
+    'data.run_code_source': [({ form, formValues }: any) => {
+      try {
+        const callable = (formValues as any)?.data?.callable;
+        if (callable?.name !== 'run_code') return;
+        const src = (formValues as any)?.data?.run_code_source || '';
+        const iv = { ...((formValues as any)?.data?.inputsValues || {}) };
+        iv['code'] = { type: 'constant', content: src };
+        form.setFieldValue('data.inputsValues', iv);
       } catch {}
     }],
   } as any,
