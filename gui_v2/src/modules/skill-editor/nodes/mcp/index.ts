@@ -26,6 +26,8 @@ export const MCPNodeRegistry: FlowNodeRegistry = {
       data: {
         title: `MCP_${++index}`,
         run_local: false,
+        run_code_language: 'python',
+        run_code_source: '',
         callable: {
           id: 'llm-auto-select',
           name: 'llm auto select',
