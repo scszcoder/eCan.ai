@@ -37,7 +37,7 @@ from .models import ManagedTask, PriorityType
 from .scheduler import find_tasks_ready_to_run
 from .message_sender import ChatMessageSender, MessageType
 from .dev_runner import DevRunner
-from .executor import TaskExecutor
+from .executor import TaskExecutor, _create_message
 from .timer_service import get_timer_service, TimerService
 
 if TYPE_CHECKING:
@@ -1314,6 +1314,30 @@ class TaskRunner(Generic[Context]):
         """
         try:
             from .executor import execute_task_hybrid
+
+            def _is_retryable_error_text(error_text: str) -> bool:
+                et = (error_text or "").lower()
+                return any(
+                    k in et
+                    for k in (
+                        "error code: 503",
+                        " error code: 503",
+                        "503",
+                        "service unavailable",
+                        "rate limit",
+                        "429",
+                        "timeout",
+                        "api connection",
+                        "apiconnectionerror",
+                        "temporarily unavailable",
+                        "internalservererror",
+                    )
+                )
+
+            def _extract_error_text(resp: Any) -> str:
+                if isinstance(resp, dict):
+                    return str(resp.get("Error") or resp.get("error") or resp.get("message") or "")
+                return str(resp or "")
             
             # Determine if async execution should be used
             # Can be disabled per-task or globally via env var
@@ -1329,11 +1353,27 @@ class TaskRunner(Generic[Context]):
                     final_state = self._prepare_dev_state(task, msg, dev_init_state)
                 else:
                     final_state = prep_skills_run(task.skill, self.agent, task.id, msg, None)
-                
+
                 task.metadata["state"] = final_state
-                
-                # Use hybrid execution with fallback
-                response = execute_task_hybrid(task, final_state, use_async=use_async)
+
+                max_retries = int(task.metadata.get("retry_max", 2) or 2)
+                retry_base_delay = float(task.metadata.get("retry_delay", 1.0) or 1.0)
+                retry_backoff = float(task.metadata.get("retry_backoff", 2.0) or 2.0)
+
+                response = None
+                for attempt in range(max_retries + 1):
+                    response = execute_task_hybrid(task, final_state, use_async=use_async)
+                    if isinstance(response, dict) and response.get("success") is False:
+                        err_text = _extract_error_text(response)
+                        if attempt < max_retries and _is_retryable_error_text(err_text):
+                            delay = retry_base_delay * (retry_backoff ** attempt)
+                            logger.warning(
+                                f"[EXECUTOR] Retryable failure (attempt {attempt + 1}/{max_retries + 1}), retrying in {delay:.1f}s: {err_text}"
+                            )
+                            time.sleep(delay)
+                            continue
+                    break
+
                 return response, True
             else:
                 # Resume run
@@ -1350,22 +1390,39 @@ class TaskRunner(Generic[Context]):
                 if resume_tag:
                     resume_context = {"skip_bp_once": [resume_tag]}
 
-                # Use hybrid execution with fallback
-                if cp:
-                    response = execute_task_hybrid(
-                        task,
-                        resume_cmd,
-                        use_async=use_async,
-                        checkpoint=cp,
-                        context=resume_context,
-                    )
-                else:
-                    response = execute_task_hybrid(
-                        task,
-                        resume_cmd,
-                        use_async=use_async,
-                        context=resume_context,
-                    )
+                max_retries = int(task.metadata.get("retry_max", 2) or 2)
+                retry_base_delay = float(task.metadata.get("retry_delay", 1.0) or 1.0)
+                retry_backoff = float(task.metadata.get("retry_backoff", 2.0) or 2.0)
+
+                response = None
+                for attempt in range(max_retries + 1):
+                    if cp:
+                        response = execute_task_hybrid(
+                            task,
+                            resume_cmd,
+                            use_async=use_async,
+                            checkpoint=cp,
+                            context=resume_context,
+                        )
+                    else:
+                        response = execute_task_hybrid(
+                            task,
+                            resume_cmd,
+                            use_async=use_async,
+                            context=resume_context,
+                        )
+
+                    if isinstance(response, dict) and response.get("success") is False:
+                        err_text = _extract_error_text(response)
+                        if attempt < max_retries and _is_retryable_error_text(err_text):
+                            delay = retry_base_delay * (retry_backoff ** attempt)
+                            logger.warning(
+                                f"[EXECUTOR] Retryable failure (attempt {attempt + 1}/{max_retries + 1}), retrying in {delay:.1f}s: {err_text}"
+                            )
+                            time.sleep(delay)
+                            continue
+                    break
+
                 return response, False
                 
         except Exception as e:
@@ -1389,7 +1446,7 @@ class TaskRunner(Generic[Context]):
             final_state = self._deep_merge(final_state, dev_init_state)
         
         return final_state or task.metadata.get("state", {})
-
+    
     def _log_task_node_timings(self, task: "ManagedTask", waiter_task_id: Optional[str], response: Any) -> None:
         try:
             cp = None
@@ -1445,6 +1502,26 @@ class TaskRunner(Generic[Context]):
         """Handle skill execution completion."""
         try:
             response, was_initial = future.result()
+
+            if isinstance(response, dict) and response.get("success") is False:
+                err_text = str(response.get("Error") or response.get("error") or response)
+                logger.error(f"[COMPLETE] Skill failed for waiter={waiter_task_id}: {err_text}")
+                try:
+                    task.status.state = TaskState.failed
+                    task.status.message = _create_message("agent", err_text)
+                except Exception:
+                    pass
+
+                if trigger_type == "schedule":
+                    from datetime import datetime
+                    task.last_run_datetime = datetime.now()
+                    task.already_run_flag = True
+                    logger.warning(f"[SCHEDULE] Task '{task.name}' failed, updated last_run_datetime")
+                    self.agent.a2a_server.task_manager.set_exception(task.id, RuntimeError(err_text))
+                elif trigger_type in ("a2a_queue", "chat_queue") and waiter_task_id:
+                    self.agent.a2a_server.task_manager.resolve_waiter(waiter_task_id, response)
+                return
+
             logger.info(f"[COMPLETE] Skill completed for waiter={waiter_task_id}")
 
             self._log_task_node_timings(task, waiter_task_id, response)
@@ -1476,6 +1553,13 @@ class TaskRunner(Generic[Context]):
                 if trigger_type == "dev":
                     self._dev_exit_requested = True
             
+            # Update scheduling state for scheduled tasks (only on successful completion)
+            if trigger_type == "schedule" and not task_interrupted:
+                from datetime import datetime
+                task.last_run_datetime = datetime.now()
+                task.already_run_flag = True
+                logger.info(f"[SCHEDULE] Task '{task.name}' completed, updated last_run_datetime")
+            
             # Resolve waiter
             if trigger_type == "schedule":
                 if response:
@@ -1488,6 +1572,14 @@ class TaskRunner(Generic[Context]):
         except Exception as e:
             logger.error(f"[COMPLETE] Callback error: {e}")
             logger.error(traceback.format_exc())
+            
+            # IMPORTANT: Set already_run_flag even on failure to prevent infinite retries
+            # The task will be retried in the next schedule cycle (e.g., tomorrow for daily tasks)
+            if trigger_type == "schedule":
+                from datetime import datetime
+                task.last_run_datetime = datetime.now()
+                task.already_run_flag = True
+                logger.warning(f"[SCHEDULE] Task '{task.name}' failed but marked as run to prevent infinite retries")
     
     # ==================== Deprecated Methods ====================
     

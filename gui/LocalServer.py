@@ -416,6 +416,10 @@ class RequestHandlers:
                 "data": {response_field_name: result_data}
             }, status_code=200)
             
+        except asyncio.CancelledError:
+            # Expected during server shutdown - don't log as error
+            logger.debug(f"[GraphQL] Request cancelled during shutdown: {method}")
+            raise  # Re-raise to properly propagate cancellation
         except Exception as e:
             logger.error(f"[GraphQL] ❌ Error handling request: {e}")
             import traceback
@@ -1041,7 +1045,7 @@ class ServerManager:
                     use_colors=False,     # Disable color output
                     # Timeout configuration
                     timeout_keep_alive=5,        # Keep-alive timeout (seconds)
-                    timeout_graceful_shutdown=3, # Graceful shutdown timeout
+                    timeout_graceful_shutdown=1, # Graceful shutdown timeout (reduced for faster logout)
                     # Concurrency limits
                     limit_concurrency=100,       # Max concurrent connections (desktop app)
                     limit_max_requests=None,     # No request limit (long-running)

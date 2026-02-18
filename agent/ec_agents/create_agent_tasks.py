@@ -85,7 +85,9 @@ def _get_or_create_task(
             return existing_task
 
         # 3. Create New Task
-        # Default schedule if not provided
+        # Default schedule configuration
+        # Note: For schedule triggers, caller must provide schedule_kwargs with proper repeat_type
+        # UI-created tasks will have correct defaults set by frontend
         default_schedule = {
             "repeat_type": RepeatType.NONE,
             "repeat_number": 1,
@@ -95,6 +97,7 @@ def _get_or_create_task(
             "time_out": 120
         }
         
+        # Override with custom schedule_kwargs if provided
         if schedule_kwargs:
             default_schedule.update(schedule_kwargs)
             
@@ -166,8 +169,7 @@ def create_ec_customer_support_chat_task(mainwin):
         skill_matcher="ecbot rpa customer support internal chatter",
         task_name="chat:ECBot RPA Customer Support Internal Chatter Task",
         description="chat with human user about anything related to customer support work.",
-        trigger="message",
-        schedule_kwargs={"repeat_type": RepeatType.BY_DAYS}
+        trigger="message"
     )
 
 def create_ec_customer_support_work_task(mainwin):
@@ -187,8 +189,7 @@ def create_ec_marketing_chat_task(mainwin):
         skill_matcher="ecbot rpa marketing chatter",
         task_name="chat:eCan.ai Marketing Chatter Task",
         description="chat with human user about anything related to e-commerce marketing work.",
-        trigger="message",
-        schedule_kwargs={"repeat_type": RepeatType.BY_DAYS}
+        trigger="message"
     )
 
 def create_ec_marketing_work_task(mainwin):
@@ -263,7 +264,6 @@ def create_ec_rpa_operator_work_task(mainwin):
         trigger="schedule"
     )
 
-
 def create_ec_rpa_supervisor_chat_task(mainwin):
     return _get_or_create_task(
         mainwin,
@@ -305,8 +305,7 @@ def create_ec_sales_chat_task(mainwin):
         skill_matcher="ecbot rpa sales internal chatter",
         task_name="chat:eCan.ai Sales Chatter Task",
         description="chat with human user about anything related to e-commerce sales work.",
-        trigger="message",
-        schedule_kwargs={"repeat_type": RepeatType.BY_DAYS}
+        trigger="message"
     )
 
 def create_ec_sales_work_task(mainwin):
@@ -326,8 +325,7 @@ def create_ec_self_tester_chat_task(mainwin):
         skill_matcher="self_test_chatter",
         task_name="chat:eCan.ai Self Test Chatter Task",
         description="chat with human user about anything related to eCan.ai self test work.",
-        trigger="message",
-        schedule_kwargs={"repeat_type": RepeatType.BY_DAYS}
+        trigger="message"
     )
 
 def create_ec_self_tester_work_task(mainwin):
