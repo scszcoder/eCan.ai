@@ -2111,9 +2111,14 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
     use_llm_auto_select = False
     
     # Run local flag: if True, send passive command to local side instead of calling MCP tool directly
+    # The GUI stores the actual setting in data.run_local (top-level run_local may be stale/False)
     run_local = False
     try:
         run_local_val = config_metadata.get('run_local')
+        if run_local_val is None or run_local_val is False:
+            # Check data.run_local (GUI stores actual config here)
+            data_section = config_metadata.get('data') or {}
+            run_local_val = data_section.get('run_local') if data_section.get('run_local') is not None else run_local_val
         if run_local_val is None:
             # Also check inputsValues.run_local.content
             run_local_val = ((config_metadata.get('inputsValues') or {}).get('run_local') or {}).get('content')
@@ -2152,7 +2157,9 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                      or (config_metadata.get('inputs') or {}).get('toolName'))
         
         # Also check callable.id or callable.name for "llm-auto-select"
-        callable_info = config_metadata.get('callable') or {}
+        # Prefer data.callable (actual tool config) over top-level callable (may be placeholder)
+        data_section = config_metadata.get('data') or {}
+        callable_info = data_section.get('callable') or config_metadata.get('callable') or {}
         callable_id = callable_info.get('id', '') if isinstance(callable_info, dict) else ''
         callable_name = callable_info.get('name', '') if isinstance(callable_info, dict) else ''
 
@@ -2162,10 +2169,14 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         callable_name = ''
 
     # Check if "llm auto select" mode is enabled
-    if (not tool_name 
+    # Only use auto-select when tool_name is NOT a specific tool
+    _tool_is_specific = (tool_name and tool_name not in ('llm-auto-select', 'llm auto select'))
+    if not _tool_is_specific and (
+        not tool_name 
         or tool_name in ('llm-auto-select', 'llm auto select')
         or callable_id in ('llm-auto-select',)
-        or callable_name in ('llm auto select',)):
+        or callable_name in ('llm auto select',)
+    ):
         use_llm_auto_select = True
         log_msg = f"[MCP] Node '{node_name}' using LLM auto-select mode - tool will be determined at runtime from state['result']['llm_result']"
         logger.info(log_msg)
