@@ -110,14 +110,19 @@ type AgentSkill {
 }
 
 type AgentTool {
+  annotations: AWSJSON
   capabilities: AWSJSON
   config: AWSJSON
   dependencies: AWSJSON
   description: String
+  icons: AWSJSON
   id: ID!
+  inputSchema: AWSJSON
   level: Int
   limitations: AWSJSON
+  meta: AWSJSON
   name: String!
+  outputSchema: AWSJSON
   owner: String!
   path: String
   price: Float
@@ -126,6 +131,7 @@ type AgentTool {
   rentable: Boolean
   settings: AWSJSON
   status: String
+  title: String
   tool_type: String
   version: String
 }
@@ -1279,14 +1285,19 @@ input KnowledgeUpdateInput {
 }
 
 input ToolInput {
+  annotations: AWSJSON
   capabilities: AWSJSON
   config: AWSJSON
   dependencies: AWSJSON
   description: String
+  icons: AWSJSON
   id: ID
+  inputSchema: AWSJSON
   level: Int
   limitations: AWSJSON
+  meta: AWSJSON
   name: String!
+  outputSchema: AWSJSON
   path: String
   price: Float
   price_model: String
@@ -1294,6 +1305,7 @@ input ToolInput {
   rentable: Boolean
   settings: AWSJSON
   status: String
+  title: String
   tool_type: String
   version: String
 }
@@ -1314,14 +1326,19 @@ input ToolQueryInput {
 }
 
 input ToolUpdateInput {
+  annotations: AWSJSON
   capabilities: AWSJSON
   config: AWSJSON
   dependencies: AWSJSON
   description: String
+  icons: AWSJSON
   id: ID!
+  inputSchema: AWSJSON
   level: Int
   limitations: AWSJSON
+  meta: AWSJSON
   name: String
+  outputSchema: AWSJSON
   path: String
   price: Float
   price_model: String
@@ -1329,6 +1346,7 @@ input ToolUpdateInput {
   rentable: Boolean
   settings: AWSJSON
   status: String
+  title: String
   tool_type: String
   version: String
 }

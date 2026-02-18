@@ -305,9 +305,19 @@ const MiniBadge = styled.div<{ $variant: 'free' | 'paid' }>`
     line-height: 1;
 `;
 
+/** Safely coerce tags to string[] – handles JSON strings, arrays, and nullish values */
+const safeTags = (tags: unknown): string[] => {
+    if (Array.isArray(tags)) return tags;
+    if (typeof tags === 'string') {
+        try { const parsed = JSON.parse(tags); if (Array.isArray(parsed)) return parsed; } catch { /* ignore */ }
+        return tags ? [tags] : [];
+    }
+    return [];
+};
+
 // Infer category from skill name, description, and tags
 const inferCategory = (skill: Skill): string => {
-    const searchText = `${skill.name} ${skill.description || ''} ${(skill.tags || []).join(' ')}`.toLowerCase();
+    const searchText = `${skill.name} ${skill.description || ''} ${safeTags(skill.tags).join(' ')}`.toLowerCase();
     
     // Pattern matching for different categories
     if (/automat|workflow|process|batch|schedule/i.test(searchText)) return 'automation';
@@ -395,6 +405,7 @@ interface SkillListProps {
     selectedSkillId?: string;
     viewMode: 'list' | 'grid';
     username: string;
+    subscribedSkillIds?: string[];
 }
 
 const SkillList: React.FC<SkillListProps> = ({
@@ -405,6 +416,7 @@ const SkillList: React.FC<SkillListProps> = ({
     selectedSkillId,
     viewMode,
     username,
+    subscribedSkillIds,
 }) => {
     const { t } = useTranslation();
     const [filters, setFilters] = useState<SkillFilterOptions>({
@@ -527,6 +539,7 @@ const SkillList: React.FC<SkillListProps> = ({
         const isSelected = selectedSkillId !== undefined && selectedSkillId === skillIdStr;
         const levelValue = typeof skill.level === 'string' ? parseInt(skill.level, 10) : (skill.level || 0);
         const paid = isPaidSkill(skill);
+        const isSubscribedSkill = subscribedSkillIds?.includes(skillIdStr);
 
         const CardComp: any = opts.grid ? GridSkillItem : SkillItem;
 
@@ -560,6 +573,9 @@ const SkillList: React.FC<SkillListProps> = ({
                                         <Tag color="blue">{t(`pages.skills.categories.${displayCategory}`, displayCategory)}</Tag>
                                     );
                                 })()}
+                                {isSubscribedSkill && (
+                                    <Tag color="green">{t('pages.skills.subscribed', 'Subscribed')}</Tag>
+                                )}
                             </Space>
                         </SkillMeta>
                     </Space>

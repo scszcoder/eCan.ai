@@ -2110,6 +2110,22 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
     tool_name = None
     use_llm_auto_select = False
     
+    # Run local flag: if True, send passive command to local side instead of calling MCP tool directly
+    run_local = False
+    try:
+        run_local_val = config_metadata.get('run_local')
+        if run_local_val is None:
+            # Also check inputsValues.run_local.content
+            run_local_val = ((config_metadata.get('inputsValues') or {}).get('run_local') or {}).get('content')
+        run_local = str(run_local_val).lower() in ('true', '1', 'yes', 'on') if run_local_val is not None else False
+    except Exception:
+        run_local = False
+    
+    if run_local:
+        log_msg = f"[MCP] Node '{node_name}' has run_local=True - will use passive command to execute on local machine"
+        logger.info(log_msg)
+        send_skill_editor_log("info", log_msg)
+    
     # Async mode configuration for fire-and-forget pattern
     async_mode = False
     async_timeout = 60.0
@@ -2671,6 +2687,142 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 logger.error(err_msg)
                 send_skill_editor_log("error", err_msg)
                 # Fall through to sync mode on error
+        
+        # ============================================================
+        # Run Local Mode: Send passive command to local machine
+        # ============================================================
+        if run_local:
+            try:
+                import uuid as _uuid
+                from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
+                
+                log_msg = f"[RUN_LOCAL] Sending passive MCP tool command to local machine: tool={_actual_tool_name}"
+                logger.info(log_msg)
+                send_skill_editor_log("log", log_msg)
+                
+                # Get the passive transport (same as browser_use cloud agent pattern)
+                transport = None
+                try:
+                    from agent.cloud_worker.worker_main import get_global_passive_transport
+                    transport = get_global_passive_transport()
+                except ImportError:
+                    pass
+                except Exception as _tex:
+                    logger.warning(f"[RUN_LOCAL] Error getting global transport: {_tex}")
+                
+                if not transport:
+                    raise RuntimeError(
+                        "[RUN_LOCAL] No passive transport available. "
+                        "run_local requires running from cloud worker with passive transport configured."
+                    )
+                
+                # Get run_id from state (same pattern as browser_use cloud agent)
+                run_id = None
+                try:
+                    if isinstance(state, dict):
+                        run_id = state.get("browser_use_run_id")
+                        if not run_id:
+                            attrs = state.get("attributes", {})
+                            run_id = attrs.get("chat_id") or attrs.get("run_id") or attrs.get("thread_id")
+                except Exception:
+                    pass
+                if not isinstance(run_id, str) or not run_id.strip():
+                    run_id = _uuid.uuid4().hex
+                
+                step_id = f"mcp_{_actual_tool_name}_{_uuid.uuid4().hex[:8]}"
+                
+                # Build the passive command with mcp_tool schema
+                from agent.ec_skills.browser_use_extension.passive_protocol import PassiveBrowserCommand
+                
+                mcp_action = {
+                    "mcp_tool": {
+                        "command": "mcp_tool",
+                        "tool": _actual_tool_name,
+                        "tool_input": _actual_tool_input if isinstance(_actual_tool_input, dict) else {}
+                    }
+                }
+                
+                # Get IDs from state attributes
+                acct_site_id = None
+                agent_id = None
+                skill_id = None
+                try:
+                    attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
+                    acct_site_id = attrs.get("acct_site_id")
+                    agent_id = attrs.get("agent_id")
+                    skill_id = attrs.get("skill_id") or skill_name
+                    if not acct_site_id and transport and hasattr(transport, 'client_id'):
+                        acct_site_id = transport.client_id
+                except Exception:
+                    pass
+                
+                cmd = PassiveBrowserCommand(
+                    run_id=run_id,
+                    step_id=step_id,
+                    acct_site_id=acct_site_id,
+                    agent_id=agent_id,
+                    skill_id=skill_id,
+                    node_id=node_name,
+                    actions=[mcp_action],
+                    include_screenshot=False,
+                    stop_on_error=True,
+                )
+                
+                timeout_s = float(config_metadata.get('timeout', 180) or 180)
+                
+                async def _run_local_mcp():
+                    # Prepare to receive result before publishing command
+                    await transport.prepare_for_result(run_id=run_id, step_id=step_id)
+                    # Publish command to local machine
+                    await transport.publish_command(cmd)
+                    log_msg = f"[RUN_LOCAL] ⏳ Waiting for local machine response (stepId={step_id}, timeout={timeout_s}s)..."
+                    logger.info(log_msg)
+                    send_skill_editor_log("log", log_msg)
+                    # Wait for result
+                    result = await transport.wait_for_result(
+                        run_id=run_id, step_id=step_id, timeout_s=timeout_s
+                    )
+                    return result
+                
+                passive_result = run_async_in_sync(_run_local_mcp())
+                
+                # Extract tool result from passive response
+                tool_result = {}
+                if passive_result:
+                    if hasattr(passive_result, 'action_results'):
+                        action_results = passive_result.action_results
+                        if action_results and len(action_results) > 0:
+                            tool_result = action_results[0]
+                    elif isinstance(passive_result, dict):
+                        tool_result = passive_result.get('action_results', [{}])[0] if passive_result.get('action_results') else passive_result
+                    
+                    # Check if there were errors
+                    errors = getattr(passive_result, 'errors', None) or (passive_result.get('errors') if isinstance(passive_result, dict) else None)
+                    if errors:
+                        log_msg = f"[RUN_LOCAL] Local execution had errors: {errors}"
+                        logger.warning(log_msg)
+                        send_skill_editor_log("warning", log_msg)
+                
+                log_msg = f"[RUN_LOCAL] ✅ Local MCP tool result: {tool_result}"
+                logger.info(log_msg)
+                send_skill_editor_log("log", log_msg)
+                
+                state["tool_result"] = tool_result
+                state["n_steps"] += 1
+                
+                tool_call_summary = ActionMessage(
+                    content=f"action: run_local mcp call to {_actual_tool_name}; result: {tool_result}"
+                )
+                add_to_history(state, tool_call_summary)
+                
+                return state
+                
+            except Exception as e:
+                err_msg = get_traceback(e, f"ErrorRunLocalMCPTool({_actual_tool_name})")
+                logger.error(err_msg)
+                send_skill_editor_log("error", err_msg)
+                state['error'] = err_msg
+                return state
         
         # ============================================================
         # Sync Mode: Standard blocking tool call

@@ -364,7 +364,55 @@ export class IPCAPI {
     }
 
     public async getPublicSkills<T>(username: string): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'get_public_skills' }, { username });
+        return apiRouter.execute(
+      {
+        method: 'get_public_skills',
+        graphql: {
+          query: GRAPHQL_QUERIES.GET_PUBLIC_SKILLS,
+          resultPath: 'getPublicSkills'
+        }
+      },
+      { owner: username }
+    );
+    }
+
+    public async getSubscribedSkillIds<T>(username: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+      {
+        method: 'get_subscribed_skill_ids',
+        graphql: {
+          query: GRAPHQL_QUERIES.GET_SUBSCRIBED_SKILL_IDS,
+          resultPath: 'getSubscribedSkillIds'
+        }
+      },
+      { owner: username }
+    );
+    }
+
+    public async subscribeToSkill<T>(username: string, skillId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+      {
+        method: 'subscribe_to_skill',
+        graphql: {
+          query: GRAPHQL_QUERIES.SUBSCRIBE_TO_SKILL,
+          resultPath: 'subscribeToSkill'
+        }
+      },
+      { skillId, owner: username }
+    );
+    }
+
+    public async unsubscribeFromSkill<T>(username: string, skillId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+      {
+        method: 'unsubscribe_from_skill',
+        graphql: {
+          query: GRAPHQL_QUERIES.UNSUBSCRIBE_FROM_SKILL,
+          resultPath: 'unsubscribeFromSkill'
+        }
+      },
+      { skillId, owner: username }
+    );
     }
 
     public async getAgentTasks<T>(username: string, agent_task_ids: string[]): Promise<APIResponse<T>> {
