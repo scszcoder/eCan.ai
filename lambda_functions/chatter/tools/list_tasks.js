@@ -2,7 +2,7 @@
  * Tool handler: list_tasks
  * List all tasks and their statuses, enriched with live Fargate task state.
  *
- * 1. Queries DynamoDB Tasks table for the owner's tasks.
+ * 1. Queries Aurora agent_tasks table for the owner's tasks.
  * 2. For any task with an ecs_task_arn, calls ECS DescribeTasks to get live status.
  * 3. Optionally queries EventBridge Scheduler to check schedule state.
  */
@@ -15,15 +15,12 @@ import {
   SchedulerClient,
   ListSchedulesCommand,
 } from "@aws-sdk/client-scheduler";
-import { DynamoDBClient, QueryCommand } from "@aws-sdk/client-dynamodb";
-import { unmarshall } from "@aws-sdk/util-dynamodb";
+import { execute, strParam, rowsToObjects } from "./rdsClient.js";
 
 const ecs       = new ECSClient({ region: "us-east-1" });
 const scheduler = new SchedulerClient({ region: "us-east-1" });
-const dynamodb  = new DynamoDBClient({ region: "us-east-1" });
 
 const ECS_CLUSTER = process.env.ECS_CLUSTER || "";
-const TASKS_TABLE = process.env.TASKS_TABLE || "Tasks";
 
 export async function list_tasks(toolInput) {
   const { owner_id, agent_id, status_filter } = toolInput;
@@ -31,19 +28,19 @@ export async function list_tasks(toolInput) {
     throw new Error("owner_id is required");
   }
 
-  // 1. Query DynamoDB for tasks belonging to this owner
-  const queryParams = {
-    TableName: TASKS_TABLE,
-    KeyConditionExpression: "owner_id = :oid",
-    ExpressionAttributeValues: { ":oid": { S: owner_id } },
-  };
+  // 1. Query Aurora for tasks belonging to this owner
+  let sql = "SELECT * FROM agent_tasks WHERE owner = :owner";
+  const params = [strParam("owner", owner_id)];
+
   if (agent_id) {
-    queryParams.FilterExpression = "agent_id = :aid";
-    queryParams.ExpressionAttributeValues[":aid"] = { S: agent_id };
+    sql += " AND id IN (SELECT task_id FROM agent_task_rels WHERE agent_id = :aid)";
+    params.push(strParam("aid", agent_id));
   }
 
-  const resp = await dynamodb.send(new QueryCommand(queryParams));
-  let tasks = (resp.Items || []).map(item => unmarshall(item));
+  sql += " ORDER BY updated_at DESC";
+
+  const result = await execute(sql, params);
+  let tasks = rowsToObjects(result);
 
   // 2. Enrich tasks that have an ecs_task_arn with live ECS status
   const arns = tasks

@@ -1,12 +1,9 @@
 /**
  * Tool handler: list_skills
  * List all available skills and their statuses.
+ * Data source: Aurora (RDS Data API) — table: agent_skills
  */
-import { DynamoDBClient, QueryCommand } from "@aws-sdk/client-dynamodb";
-import { unmarshall } from "@aws-sdk/util-dynamodb";
-
-const dynamodb = new DynamoDBClient({ region: "us-east-1" });
-const SKILLS_TABLE = process.env.SKILLS_TABLE || "Skills";
+import { execute, strParam, rowsToObjects } from "./rdsClient.js";
 
 export async function list_skills(toolInput) {
   const { owner_id, category, status_filter } = toolInput;
@@ -14,20 +11,18 @@ export async function list_skills(toolInput) {
     throw new Error("owner_id is required");
   }
 
-  const resp = await dynamodb.send(new QueryCommand({
-    TableName: SKILLS_TABLE,
-    KeyConditionExpression: "owner_id = :oid",
-    ExpressionAttributeValues: { ":oid": { S: owner_id } },
-  }));
-
-  let skills = (resp.Items || []).map(item => unmarshall(item));
+  let sql = "SELECT * FROM agent_skills WHERE owner = :owner";
+  const params = [strParam("owner", owner_id)];
 
   if (category) {
-    skills = skills.filter(s => s.category === category);
+    sql += " AND JSON_CONTAINS(tags, :cat, '$')";
+    params.push(strParam("cat", JSON.stringify(category)));
   }
-  if (status_filter && status_filter !== "all") {
-    skills = skills.filter(s => s.status === status_filter);
-  }
+
+  sql += " ORDER BY updated_at DESC";
+
+  const result = await execute(sql, params);
+  const skills = rowsToObjects(result);
 
   return { skills, count: skills.length };
 }

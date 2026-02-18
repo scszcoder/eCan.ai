@@ -1,12 +1,9 @@
 /**
  * Tool handler: list_agents
  * List all available agents and their statuses.
+ * Data source: Aurora (RDS Data API) — table: agents
  */
-import { DynamoDBClient, QueryCommand } from "@aws-sdk/client-dynamodb";
-import { unmarshall } from "@aws-sdk/util-dynamodb";
-
-const dynamodb = new DynamoDBClient({ region: "us-east-1" });
-const AGENTS_TABLE = process.env.AGENTS_TABLE || "Agents";
+import { execute, strParam, rowsToObjects } from "./rdsClient.js";
 
 export async function list_agents(toolInput) {
   const { owner_id, status_filter } = toolInput;
@@ -14,17 +11,18 @@ export async function list_agents(toolInput) {
     throw new Error("owner_id is required");
   }
 
-  const resp = await dynamodb.send(new QueryCommand({
-    TableName: AGENTS_TABLE,
-    KeyConditionExpression: "owner_id = :oid",
-    ExpressionAttributeValues: { ":oid": { S: owner_id } },
-  }));
-
-  let agents = (resp.Items || []).map(item => unmarshall(item));
+  let sql = "SELECT * FROM agents WHERE owner = :owner AND deleted_at IS NULL";
+  const params = [strParam("owner", owner_id)];
 
   if (status_filter && status_filter !== "all") {
-    agents = agents.filter(a => a.status === status_filter);
+    sql += " AND status = :status";
+    params.push(strParam("status", status_filter));
   }
+
+  sql += " ORDER BY updated_at DESC";
+
+  const result = await execute(sql, params);
+  const agents = rowsToObjects(result);
 
   return { agents, count: agents.length };
 }

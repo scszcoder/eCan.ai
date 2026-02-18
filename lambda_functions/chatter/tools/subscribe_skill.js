@@ -1,31 +1,31 @@
 /**
  * Tool handler: subscribe_skill
- * Subscribe an agent to a skill so it can use it.
+ * Subscribe an agent to a skill (create agent_skill_rels record).
+ * Data source: Aurora (RDS Data API) — table: agent_skill_rels
  */
-import { DynamoDBClient, PutItemCommand } from "@aws-sdk/client-dynamodb";
-import { marshall } from "@aws-sdk/util-dynamodb";
-
-const dynamodb = new DynamoDBClient({ region: "us-east-1" });
-const SUBSCRIPTIONS_TABLE = process.env.SUBSCRIPTIONS_TABLE || "Agent_Skill_Subscriptions";
+import { execute, strParam } from "./rdsClient.js";
+import { randomUUID } from "node:crypto";
 
 export async function subscribe_skill(toolInput) {
-  const { agent_id, skill_id, role } = toolInput;
+  const { agent_id, skill_id, proficiency_level } = toolInput;
   if (!agent_id || !skill_id) {
     throw new Error("agent_id and skill_id are required");
   }
 
-  const now = new Date().toISOString();
-  const item = {
-    agent_id,
-    skill_id,
-    role: role || "executor",
-    subscribed_at: now,
-  };
+  const relId = `asr_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
+  const now = new Date().toISOString().slice(0, 23);
 
-  await dynamodb.send(new PutItemCommand({
-    TableName: SUBSCRIPTIONS_TABLE,
-    Item: marshall(item),
-  }));
+  const sql = `INSERT INTO agent_skill_rels (id, agent_id, skill_id, proficiency_level, status, created_at, updated_at)
+               VALUES (:id, :agent_id, :skill_id, :level, 'active', :now, :now)
+               ON DUPLICATE KEY UPDATE status = 'active', updated_at = :now`;
 
-  return { agent_id, skill_id, role: item.role, status: "subscribed", subscribed_at: now };
+  await execute(sql, [
+    strParam("id", relId),
+    strParam("agent_id", agent_id),
+    strParam("skill_id", skill_id),
+    strParam("level", proficiency_level || "beginner"),
+    strParam("now", now),
+  ]);
+
+  return { agent_id, skill_id, status: "subscribed", subscribed_at: now };
 }

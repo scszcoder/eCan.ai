@@ -1,6 +1,7 @@
 /**
  * Tool handler: schedule_task
  * Schedule a task to run at a specific time or interval, or run it immediately.
+ * Data source: Aurora (RDS Data API) — table: agent_tasks
  *
  * A "task" is a Fargate instance launch.
  *
@@ -9,12 +10,6 @@
  *   - ISO datetime          → one-time via EventBridge Scheduler at()
  *   - cron expression       → recurring via EventBridge Scheduler cron()
  *   - rate expression       → recurring via EventBridge Scheduler rate()
- *
- * Required env vars (shared with skill_editor_lambda / agentScheduler):
- *   ECS_CLUSTER, ECS_TASK_DEFINITION, ECS_SUBNETS (comma-separated),
- *   ECS_SECURITY_GROUPS (comma-separated, optional),
- *   SCHEDULER_ROLE_ARN  — IAM role that EventBridge Scheduler assumes
- *                         to call ecs:RunTask (not needed for "now" mode).
  */
 import { ECSClient, RunTaskCommand } from "@aws-sdk/client-ecs";
 import {
@@ -22,12 +17,10 @@ import {
   CreateScheduleCommand,
   UpdateScheduleCommand,
 } from "@aws-sdk/client-scheduler";
-import { DynamoDBClient, PutItemCommand } from "@aws-sdk/client-dynamodb";
-import { marshall } from "@aws-sdk/util-dynamodb";
+import { execute, strParam } from "./rdsClient.js";
 
 const ecsClient = new ECSClient({ region: "us-east-1" });
 const scheduler = new SchedulerClient({ region: "us-east-1" });
-const dynamodb  = new DynamoDBClient({ region: "us-east-1" });
 
 const ECS_CLUSTER          = process.env.ECS_CLUSTER          || "";
 const ECS_TASK_DEFINITION  = process.env.ECS_TASK_DEFINITION  || "";
@@ -35,7 +28,6 @@ const ECS_SUBNETS          = (process.env.ECS_SUBNETS          || "").split(",")
 const ECS_SECURITY_GROUPS  = (process.env.ECS_SECURITY_GROUPS  || "").split(",").filter(Boolean);
 const ECS_CONTAINER_NAME   = process.env.ECS_CONTAINER_NAME   || "ecan-cloud-worker";
 const SCHEDULER_ROLE_ARN   = process.env.SCHEDULER_ROLE_ARN   || "";
-const TASKS_TABLE          = process.env.TASKS_TABLE           || "Tasks";
 const AWS_ACCOUNT_ID       = process.env.AWS_ACCOUNT_ID        || "667118410653";
 
 /** Check if the schedule means "run right now". */
@@ -121,19 +113,16 @@ export async function schedule_task(toolInput) {
       throw new Error(`Failed to start Fargate task: ${reason}`);
     }
 
-    // Persist to DynamoDB
-    await dynamodb.send(new PutItemCommand({
-      TableName: TASKS_TABLE,
-      Item: marshall({
-        task_id,
-        ecs_task_arn: ecsTaskArn,
-        schedule_expression: "now",
-        status: "running",
-        parameters: parameters || {},
-        created_at: now,
-        updated_at: now,
-      }, { removeUndefinedValues: true }),
-    }));
+    // Persist to Aurora
+    await execute(
+      `UPDATE agent_tasks SET status = :status, metadata = JSON_SET(COALESCE(metadata,'{}'), '$.ecs_task_arn', :arn), updated_at = :now WHERE id = :id`,
+      [
+        strParam("status", "running"),
+        strParam("arn", ecsTaskArn),
+        strParam("now", now),
+        strParam("id", task_id),
+      ]
+    );
 
     return {
       task_id,
@@ -200,21 +189,24 @@ export async function schedule_task(toolInput) {
     }
   }
 
-  // Persist schedule metadata in DynamoDB
-  await dynamodb.send(new PutItemCommand({
-    TableName: TASKS_TABLE,
-    Item: marshall({
-      task_id,
-      schedule_name: scheduleName,
-      schedule_expression: scheduleExpression,
-      timezone: tz,
-      repeat: isOneTime ? false : (repeat !== false),
-      parameters: parameters || {},
-      status: "scheduled",
-      created_at: now,
-      updated_at: now,
-    }, { removeUndefinedValues: true }),
-  }));
+  // Persist schedule metadata in Aurora
+  const meta = JSON.stringify({
+    schedule_name: scheduleName,
+    schedule_expression: scheduleExpression,
+    timezone: tz,
+    repeat: isOneTime ? false : (repeat !== false),
+    parameters: parameters || {},
+  });
+  await execute(
+    `UPDATE agent_tasks SET status = :status, schedule = :sched, metadata = :meta, updated_at = :now WHERE id = :id`,
+    [
+      strParam("status", "scheduled"),
+      strParam("sched", scheduleExpression),
+      strParam("meta", meta),
+      strParam("now", now),
+      strParam("id", task_id),
+    ]
+  );
 
   return {
     task_id,

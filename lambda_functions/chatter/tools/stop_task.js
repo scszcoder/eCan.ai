@@ -1,8 +1,9 @@
 /**
  * Tool handler: stop_task
  * Stop a running task (Fargate instance) and optionally delete its EventBridge schedule.
+ * Data source: Aurora (RDS Data API) — table: agent_tasks
  *
- * Looks up the task in DynamoDB to find:
+ * Looks up the task in Aurora to find:
  *   - ecs_task_arn   → calls ECS StopTask to kill the running container
  *   - schedule_name  → calls EventBridge Scheduler DeleteSchedule to remove recurring trigger
  *
@@ -13,19 +14,12 @@ import {
   SchedulerClient,
   DeleteScheduleCommand,
 } from "@aws-sdk/client-scheduler";
-import {
-  DynamoDBClient,
-  GetItemCommand,
-  UpdateItemCommand,
-} from "@aws-sdk/client-dynamodb";
-import { unmarshall } from "@aws-sdk/util-dynamodb";
+import { execute, strParam, rowsToObjects } from "./rdsClient.js";
 
 const ecs       = new ECSClient({ region: "us-east-1" });
 const scheduler = new SchedulerClient({ region: "us-east-1" });
-const dynamodb  = new DynamoDBClient({ region: "us-east-1" });
 
 const ECS_CLUSTER = process.env.ECS_CLUSTER || "";
-const TASKS_TABLE = process.env.TASKS_TABLE || "Tasks";
 
 export async function stop_task(toolInput) {
   const { task_id } = toolInput;
@@ -33,17 +27,22 @@ export async function stop_task(toolInput) {
     throw new Error("task_id is required");
   }
 
-  // 1. Look up task record in DynamoDB
-  const getResp = await dynamodb.send(new GetItemCommand({
-    TableName: TASKS_TABLE,
-    Key: { task_id: { S: task_id } },
-  }));
-  const taskRecord = getResp.Item ? unmarshall(getResp.Item) : null;
+  // 1. Look up task record in Aurora
+  const res = await execute(
+    "SELECT id, name, status, metadata FROM agent_tasks WHERE id = :id",
+    [strParam("id", task_id)]
+  );
+  const rows = rowsToObjects(res);
+  const taskRecord = rows.length > 0 ? rows[0] : null;
+
+  // Parse metadata JSON to get ecs_task_arn and schedule_name
+  let meta = {};
+  try { meta = taskRecord?.metadata ? JSON.parse(taskRecord.metadata) : {}; } catch (_) {}
 
   const results = { task_id, actions: [] };
 
   // 2. Stop the running Fargate task if we have an ARN
-  const ecsTaskArn = taskRecord?.ecs_task_arn;
+  const ecsTaskArn = meta.ecs_task_arn;
   if (ecsTaskArn && ECS_CLUSTER) {
     try {
       await ecs.send(new StopTaskCommand({
@@ -53,13 +52,12 @@ export async function stop_task(toolInput) {
       }));
       results.actions.push({ action: "ecs_stop_task", status: "success", ecs_task_arn: ecsTaskArn });
     } catch (err) {
-      // Task may already be stopped — treat InvalidParameterException as non-fatal
       results.actions.push({ action: "ecs_stop_task", status: "failed", error: err.message });
     }
   }
 
   // 3. Delete the EventBridge schedule if one exists
-  const scheduleName = taskRecord?.schedule_name || `ecan-task-${task_id}`;
+  const scheduleName = meta.schedule_name || `ecan-task-${task_id}`;
   try {
     await scheduler.send(new DeleteScheduleCommand({
       Name: scheduleName,
@@ -70,20 +68,17 @@ export async function stop_task(toolInput) {
     if (err.name !== "ResourceNotFoundException") {
       results.actions.push({ action: "delete_schedule", status: "failed", error: err.message });
     }
-    // ResourceNotFoundException is fine — no schedule to delete
   }
 
-  // 4. Update DynamoDB status
-  await dynamodb.send(new UpdateItemCommand({
-    TableName: TASKS_TABLE,
-    Key: { task_id: { S: task_id } },
-    UpdateExpression: "SET #status = :status, updated_at = :now",
-    ExpressionAttributeNames: { "#status": "status" },
-    ExpressionAttributeValues: {
-      ":status": { S: "stopped" },
-      ":now": { S: new Date().toISOString() },
-    },
-  }));
+  // 4. Update Aurora status
+  await execute(
+    "UPDATE agent_tasks SET status = :status, updated_at = :now WHERE id = :id",
+    [
+      strParam("status", "stopped"),
+      strParam("now", new Date().toISOString().slice(0, 23)),
+      strParam("id", task_id),
+    ]
+  );
 
   results.status = "stopped";
   return results;

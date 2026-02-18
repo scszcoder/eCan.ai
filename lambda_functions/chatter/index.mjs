@@ -33,29 +33,38 @@ const dynamodb = new DynamoDBClient({ region: "us-east-1" });
 
 // Standard system prompt wrapper for JSON response format
 const JSON_RESPONSE_WRAPPER = `
-IMPORTANT: You MUST respond with valid JSON only. Your response must be a JSON object with the following structure:
+## CRITICAL: JSON-ONLY Response Format
+
+You MUST respond with a SINGLE valid JSON object. NEVER respond with plain text. Every response, without exception, must be valid JSON.
+
+### Response Schema:
 {
-  "msg_to_sender": "Your text response message to the user goes here",
-  "qa_to_sender": { "any": "structured data", "for": "the frontend" },
+  "msg_to_sender": "<string> Your text message to the user",
+  "qa_to_sender": {},
   "topic_switched": false,
   "work_related": true,
-  "request_answered": true,
-  "need_human_input": false,
+  "request_answered": <boolean>,
+  "need_human_input": <boolean>,
   "next_actions": []
 }
 
-Required fields:
-- "msg_to_sender" (string, required): The text message to send back to the user
-- "qa_to_sender" (object, optional): Any structured data, questions, or UI hints for the frontend
-- "topic_switched" (boolean, required): Set to true if the conversation topic has significantly changed and a new session should be started
-- "work_related" (boolean, required): Set to true if the user's message is related to work/tasks, false for casual chat or off-topic
-- "request_answered" (boolean, required): Set to true if you have fully answered/addressed the user's request, false if more information is needed or the request is incomplete
-- "need_human_input" (boolean, required): Set to true if you need more information from the user before you can proceed. When true, the system will pause and wait for the user's next message.
-- "next_actions" (array, required): List of tool calls to execute. Each item is an object with:
-  - "tool_name": Name of the tool to call (must match a known tool from the available tools list)
-  - "tool_input": Object with the tool's input parameters
-  Example: [{"tool_name": "rag_query", "tool_input": {"query": "search term", "top_k": 5}}]
-  Leave empty [] if no tool calls are needed.
+### Field Rules:
+- "msg_to_sender" (string, REQUIRED): The text response shown to the user. If you are about to call a tool, briefly tell the user what you're doing (e.g. "Let me look that up for you.").
+- "qa_to_sender" (object): Any structured data for the frontend.
+- "topic_switched" (boolean): true if conversation topic changed significantly.
+- "work_related" (boolean): true if message relates to work/tasks.
+- "request_answered" (boolean): Set to FALSE if you are calling a tool in next_actions — the tool hasn't executed yet, so the request is NOT answered. Set to TRUE only when you have the final answer.
+- "need_human_input" (boolean): true only if you need clarification from the user AND no tool can help.
+- "next_actions" (array): Tool calls to execute. Each item: {"tool_name": "<name>", "tool_input": {"input": {<params>}}}.
+
+### IMPORTANT Rules:
+1. NEVER say you will do something without putting the tool call in next_actions. If a tool exists for the task, CALL IT.
+2. When calling tools, set "request_answered": false because the tool hasn't run yet.
+3. Do NOT ask the user for information that a tool can provide.
+4. Do NOT output plain text. Always output JSON.
+
+### Example — user asks to list skills:
+{"msg_to_sender": "Let me retrieve your skills list.", "qa_to_sender": {}, "topic_switched": false, "work_related": true, "request_answered": false, "need_human_input": false, "next_actions": [{"tool_name": "list_skills", "tool_input": {"input": {"owner_id": "user123"}}}]}
 
 Do not include any text outside the JSON object. Do not use markdown code blocks.
 `;
@@ -222,15 +231,16 @@ function extractPromptText(item) {
  * Get chat history for a channel/session with context length limiting
  */
 async function getChatHistory(channelId, sessionId, maxMessages = MAX_HISTORY_MESSAGES, maxChars = MAX_CONTEXT_CHARS) {
-  console.log(`[chatter] Getting chat history for channel=${channelId}, session=${sessionId}`);
+  console.log(`[chatter] Getting chat history for channel=${channelId}`);
   
   try {
+    // Query ALL messages for this channel (sessionId is unique per message,
+    // so we must query by channelId alone to get the full conversation)
     const result = await dynamodb.send(new QueryCommand({
       TableName: A2A_MESSAGES_TABLE,
-      KeyConditionExpression: "channelId = :channelId AND sessionId = :sessionId",
+      KeyConditionExpression: "channelId = :channelId",
       ExpressionAttributeValues: {
-        ":channelId": { S: channelId },
-        ":sessionId": { S: sessionId }
+        ":channelId": { S: channelId }
       },
       ScanIndexForward: false, // newest first for limiting
       Limit: maxMessages * 2 // fetch extra to allow for filtering
@@ -338,6 +348,7 @@ function createLLM(provider, model, temperature) {
       return new ChatOpenAI({
         model: model,
         temperature: temperature,
+        modelKwargs: { response_format: { type: "json_object" } },
       });
     case "anthropic":
       return new ChatAnthropic({
@@ -364,10 +375,35 @@ function createLLM(provider, model, temperature) {
 function buildMessages(agentPrompt, chatHistory, currentMessage) {
   const messages = [];
   
-  // Build combined system prompt with JSON response wrapper
+  // Build available tools summary for the LLM
+  const allTools = get_cloud_mcp_tools_schema();
+  const toolsSummary = allTools.map(t => {
+    const inputProps = t.inputSchema?.properties?.input?.properties || t.inputSchema?.properties || {};
+    const requiredFields = t.inputSchema?.properties?.input?.required || [];
+    const params = Object.entries(inputProps).map(([k, v]) => {
+      const req = requiredFields.includes(k) ? " (required)" : "";
+      return `      - ${k}: ${v.description || v.type || "any"}${req}`;
+    }).join("\n");
+    // Strip XML tags from description for cleaner display
+    const desc = (t.description || "").replace(/<[^>]+>/g, "").trim();
+    return `  - ${t.name}: ${desc}${params ? "\n    Parameters:\n" + params : ""}`;
+  }).join("\n");
+
+  const toolsBlock = `
+## Available Tools
+You have access to the following tools. When a user's request can be fulfilled by calling a tool, you MUST include it in "next_actions". Do NOT ask the user for clarification if a tool can answer their question directly.
+
+${toolsSummary}
+
+When calling a tool, use this format in next_actions:
+  {"tool_name": "<name>", "tool_input": {"input": {<parameters>}}}
+`;
+
+  // Build combined system prompt with tools + JSON response wrapper
   const systemPrompt = [
     agentPrompt || "You are a helpful AI assistant.",
-    JSON_RESPONSE_WRAPPER
+    toolsBlock,
+    JSON_RESPONSE_WRAPPER,
   ].join("\n\n");
   
   messages.push(new SystemMessage(systemPrompt));
@@ -429,13 +465,15 @@ function parseLLMResponse(responseText) {
     console.warn(`[chatter] Failed to parse LLM response as JSON:`, err.message);
   }
   
-  // Fallback: treat entire response as message
+  // Fallback: treat entire response as message but mark request_answered as false
+  // so the graph has a chance to retry via the outer loop
+  console.warn(`[chatter] LLM returned plain text instead of JSON — marking request_answered=false`);
   return {
     msg_to_sender: responseText,
     qa_to_sender: {},
     topic_switched: false,
     work_related: true,
-    request_answered: true,
+    request_answered: false,
     need_human_input: false,
     next_actions: []
   };
@@ -466,15 +504,48 @@ async function sendResponse(channelId, sessionId, senderId, recipientId, parsedR
     });
   }
   
+  const agentSenderId = senderId || "chatter-agent";
+  const messageObj = {
+    role: "assistant",
+    parts: parts
+  };
+
+  // ── Persist agent response to DynamoDB so it survives logout/login ──
+  // sessionId is the sort key in A2A_Messages, so each message needs a unique one
+  const agentSessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const timestamp = new Date().toISOString();
+
+  const messageItem = {
+    id: messageId,
+    channelId,
+    sessionId: agentSessionId,
+    senderId: agentSenderId,
+    recipientId: recipientId || null,
+    timestamp,
+    message: messageObj,
+    metadata: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
+    historyLength: 0,
+  };
+
+  try {
+    await dynamodb.send(new PutItemCommand({
+      TableName: A2A_MESSAGES_TABLE,
+      Item: marshall(messageItem, { removeUndefinedValues: true })
+    }));
+    console.log(`[chatter] Agent response saved to DynamoDB: ${messageId}`);
+  } catch (err) {
+    console.error(`[chatter] Failed to save agent response to DynamoDB:`, err);
+    // Continue to publish via AppSync even if DynamoDB save fails
+  }
+
+  // ── Publish via AppSync subscription so frontend gets real-time update ──
   const input = {
     channelId,
     sessionId,
-    senderId: senderId || "chatter-agent",
+    senderId: agentSenderId,
     recipientId: recipientId,
-    message: {
-      role: "assistant",
-      parts: parts
-    }
+    message: messageObj
   };
   
   return appSyncRequest({ query: SEND_A2A_MESSAGE, variables: { input } }, "sendA2AMessage");
@@ -1249,13 +1320,14 @@ function shouldContinueOuter(state) {
   
   console.log(`[shouldContinueOuter] answered=${answered}, needHuman=${needHuman}, steps=${state.n_steps}/${state.max_steps}, moreTools=${hasMoreToolCalls}`);
   
-  if (answered || needHuman || stepsExhausted || !hasMoreToolCalls) {
+  if (answered || needHuman || stepsExhausted) {
     if (stepsExhausted && !answered) {
       console.warn(`[shouldContinueOuter] Max steps (${state.max_steps}) reached without answering. Forcing exit.`);
     }
     return END;
   }
   
+  // Continue if there are more tool calls, or if request is not answered (retry)
   return "llmNode";
 }
 

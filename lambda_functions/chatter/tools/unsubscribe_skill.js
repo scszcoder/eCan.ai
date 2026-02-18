@@ -1,11 +1,9 @@
 /**
  * Tool handler: unsubscribe_skill
- * Unsubscribe an agent from a skill.
+ * Unsubscribe an agent from a skill (soft-delete agent_skill_rels record).
+ * Data source: Aurora (RDS Data API) — table: agent_skill_rels
  */
-import { DynamoDBClient, DeleteItemCommand } from "@aws-sdk/client-dynamodb";
-
-const dynamodb = new DynamoDBClient({ region: "us-east-1" });
-const SUBSCRIPTIONS_TABLE = process.env.SUBSCRIPTIONS_TABLE || "Agent_Skill_Subscriptions";
+import { execute, strParam } from "./rdsClient.js";
 
 export async function unsubscribe_skill(toolInput) {
   const { agent_id, skill_id } = toolInput;
@@ -13,13 +11,15 @@ export async function unsubscribe_skill(toolInput) {
     throw new Error("agent_id and skill_id are required");
   }
 
-  await dynamodb.send(new DeleteItemCommand({
-    TableName: SUBSCRIPTIONS_TABLE,
-    Key: {
-      agent_id: { S: agent_id },
-      skill_id: { S: skill_id },
-    },
-  }));
+  const now = new Date().toISOString().slice(0, 23);
+  const sql = `UPDATE agent_skill_rels SET status = 'inactive', updated_at = :now
+               WHERE agent_id = :agent_id AND skill_id = :skill_id`;
+
+  await execute(sql, [
+    strParam("now", now),
+    strParam("agent_id", agent_id),
+    strParam("skill_id", skill_id),
+  ]);
 
   return { agent_id, skill_id, status: "unsubscribed" };
 }

@@ -1,13 +1,10 @@
 /**
  * Tool handler: create_task_with_skill
  * Create a new task linked to a skill.
+ * Data source: Aurora (RDS Data API) — tables: agent_tasks, agent_task_skill_rels
  */
-import { DynamoDBClient, PutItemCommand } from "@aws-sdk/client-dynamodb";
-import { marshall } from "@aws-sdk/util-dynamodb";
+import { execute, strParam } from "./rdsClient.js";
 import { randomUUID } from "node:crypto";
-
-const dynamodb = new DynamoDBClient({ region: "us-east-1" });
-const TASKS_TABLE = process.env.TASKS_TABLE || "Tasks";
 
 export async function create_task_with_skill(toolInput) {
   const { owner_id, task_name, skill_name, description, parameters, schedule } = toolInput;
@@ -15,25 +12,23 @@ export async function create_task_with_skill(toolInput) {
     throw new Error("owner_id, task_name, and skill_name are required");
   }
 
-  const taskId = randomUUID();
-  const now = new Date().toISOString();
-  const item = {
-    owner_id,
-    task_id: taskId,
-    task_name,
-    skill_name,
-    description: description || "",
-    parameters: parameters || {},
-    schedule: schedule || null,
-    status: schedule ? "scheduled" : "created",
-    created_at: now,
-    updated_at: now,
-  };
+  const taskId = `task_${randomUUID().replace(/-/g, "").slice(0, 16)}`;
+  const now = new Date().toISOString().slice(0, 23);
+  const status = schedule ? "scheduled" : "created";
 
-  await dynamodb.send(new PutItemCommand({
-    TableName: TASKS_TABLE,
-    Item: marshall(item, { removeUndefinedValues: true }),
-  }));
+  const sql = `INSERT INTO agent_tasks (id, name, owner, description, status, schedule, metadata, created_at, updated_at)
+               VALUES (:id, :name, :owner, :desc, :status, :schedule, :meta, :now, :now)`;
 
-  return { task_id: taskId, task_name, skill_name, status: item.status, created_at: now };
+  await execute(sql, [
+    strParam("id", taskId),
+    strParam("name", task_name),
+    strParam("owner", owner_id),
+    strParam("desc", description || ""),
+    strParam("status", status),
+    strParam("schedule", schedule ? JSON.stringify(schedule) : null),
+    strParam("meta", parameters ? JSON.stringify(parameters) : "{}"),
+    strParam("now", now),
+  ]);
+
+  return { task_id: taskId, task_name, skill_name, status, created_at: now };
 }
