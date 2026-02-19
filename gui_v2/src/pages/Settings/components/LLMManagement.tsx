@@ -1034,9 +1034,15 @@ const LLMManagement = React.forwardRef<
                           apiKey: ollamaApiKey,
                           onSuccess: async () => {
                             setOllamaHost(tempOllamaHost);
-                            await fetchOllamaModels(tempOllamaHost);
                             setEditingOllamaHost(false);
                             message.success(t("pages.settings.ollama_config_saved"));
+                            
+                            // Try to fetch models, but don't fail if service is unavailable
+                            try {
+                              await fetchOllamaModels(tempOllamaHost);
+                            } catch (error: any) {
+                              message.warning(t("pages.settings.ollama_service_unavailable") || "Ollama service is not available. Configuration saved, but models could not be fetched.");
+                            }
                           },
                           onError: (error) => message.error(error)
                         });
@@ -1676,7 +1682,7 @@ const LLMManagement = React.forwardRef<
   ];
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", paddingTop: 16 }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <Table
         columns={columns}
         dataSource={providers}
@@ -1684,7 +1690,6 @@ const LLMManagement = React.forwardRef<
         loading={loading}
         pagination={false}
         size="small"
-        sticky={true}
         scroll={{ y: 'calc(100vh - 280px)', x: undefined }}
       />
     </div>

@@ -754,12 +754,12 @@ const RetrievalTab: React.FC = () => {
               alignItems: 'center',
               justifyContent: 'center',
               height: '100%',
-              color: token.colorTextTertiary,
-              gap: 12
+              color: token.colorTextQuaternary,
+              gap: 8
             }}>
-              <div style={{ fontSize: 48, opacity: 0.3 }}>💬</div>
-              <div style={{ fontSize: 15, fontWeight: 600 }}>{t('pages.knowledge.retrieval.startConversation')}</div>
-              <div style={{ fontSize: 13 }}>{t('pages.knowledge.retrieval.startConversationDesc')}</div>
+              <div style={{ fontSize: 36, opacity: 0.15, marginBottom: 4 }}>💬</div>
+              <div style={{ fontSize: 13, fontWeight: 500, opacity: 0.6 }}>{t('pages.knowledge.retrieval.startConversation')}</div>
+              <div style={{ fontSize: 12, opacity: 0.45 }}>{t('pages.knowledge.retrieval.startConversationDesc')}</div>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
