@@ -66,20 +66,12 @@ def get_subprocess_creation_flags() -> Tuple[int, Optional[Any]]:
     creation_flags = 0
     startupinfo = None
     
-    # Always create new process group for better process management
-    if hasattr(subprocess, 'CREATE_NEW_PROCESS_GROUP'):
-        creation_flags |= subprocess.CREATE_NEW_PROCESS_GROUP
-    
-    # DETACHED_PROCESS - process not attached to parent console
-    # This is the traditional flag, but not sufficient in frozen environment
-    DETACHED_PROCESS = 0x00000008
-    creation_flags |= DETACHED_PROCESS
-    
-    # In frozen environment, add additional flags to completely hide window
-    # NOTE: For consistency with development runs, we now apply these flags
-    # whenever available on Windows, not only when IS_FROZEN is True.
     # CREATE_NO_WINDOW - prevents console window creation (Windows 10+)
-    # This is the most effective flag for preventing window popup
+    # This is the most effective flag for preventing window popup while
+    # still allowing stdout/stderr pipes to work correctly.
+    # NOTE: DETACHED_PROCESS (0x08) was previously used here but it
+    # breaks stdout/stderr pipe capture for console programs like
+    # powershell.exe (they exit immediately with rc=0 and 0 bytes).
     if hasattr(subprocess, 'CREATE_NO_WINDOW'):
         creation_flags |= subprocess.CREATE_NO_WINDOW
     

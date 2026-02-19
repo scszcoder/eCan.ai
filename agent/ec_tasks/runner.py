@@ -1219,11 +1219,12 @@ class TaskRunner(Generic[Context]):
                 if elapsed > DEV_EVENT_TIMEOUT_SEC:
                     from gui.ipc.api import IPCAPI
                     ipc = IPCAPI.get_instance()
-                    msg = f"[DEV] Timeout after {DEV_EVENT_TIMEOUT_SEC}s"
+                    msg = f"[DEV] Timeout after {DEV_EVENT_TIMEOUT_SEC}s waiting for resume event"
                     logger.error(msg)
                     ipc.send_skill_editor_log("error", msg)
                     task.status.state = TaskState.failed
                     state['last_response'] = {"success": False, "error": "TimeoutWaitingForEvent"}
+                    state['pending_since'] = None  # Clear so timeout only fires once
                     self._dev_exit_requested = True
             else:
                 if elapsed > RUN_EVENT_TIMEOUT_SEC:
@@ -1503,7 +1504,13 @@ class TaskRunner(Generic[Context]):
         try:
             response, was_initial = future.result()
 
-            if isinstance(response, dict) and response.get("success") is False:
+            # Distinguish real failures from interrupts: an interrupt returns
+            # success=False but carries __interrupt__ in the step dict and has
+            # no Error/error key.  Let interrupts fall through to the handler
+            # below so the loop stays alive waiting for resume events.
+            _step_data = response.get("step") if isinstance(response, dict) else None
+            _is_interrupt = isinstance(_step_data, dict) and "__interrupt__" in _step_data
+            if isinstance(response, dict) and response.get("success") is False and not _is_interrupt:
                 err_text = str(response.get("Error") or response.get("error") or response)
                 logger.error(f"[COMPLETE] Skill failed for waiter={waiter_task_id}: {err_text}")
                 try:

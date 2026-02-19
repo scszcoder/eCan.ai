@@ -1,6 +1,7 @@
 import re
 import os
 import json
+import time
 import string
 import importlib.util
 import httpx
@@ -3880,16 +3881,81 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     else:
                         logger.warning(f"[BrowserAutomation] No step_key available for duplicate detection, proceeding anyway")
 
-                    browser_session = await _get_or_create_browser_session(mainwin)
-                    if not browser_session:
-                        return {"error": "browser-use passive mode: failed to acquire browser session"}
+                    # ── skill_passive_step fast-path ──────────────────────────
+                    # If the incoming command is a skill_passive_step (MCP tool
+                    # call from cloud), bypass the entire browser automation
+                    # setup and execute MCP tools directly.
+                    passive_cmd = None
+                    if isinstance(state, dict):
+                        passive_cmd = state.get("attributes", {}).get("passive_command")
+                    _cmd_type = passive_cmd.get("type", "") if isinstance(passive_cmd, dict) else ""
 
-                    if not _is_session_started(browser_session):
-                        # Python 3.14 requires asyncio.wait_for/timeout to run inside a Task
-                        import asyncio
-                        task = asyncio.create_task(browser_session.start())
-                        await task
+                    if _cmd_type == "skill_passive_step":
+                        logger.info(f"[PassiveMode] skill_passive_step — bypassing browser setup, executing MCP tools directly")
+                        _mcp_t0 = time.perf_counter()
+                        actions = passive_cmd.get("actions", []) if isinstance(passive_cmd, dict) else []
+                        stop_on_error = bool(passive_cmd.get("stop_on_error", True)) if isinstance(passive_cmd, dict) else True
 
+                        from agent.mcp.local_client import mcp_call_tool as _mcp_call_tool
+                        mcp_results = []
+                        mcp_errors = []
+                        for idx, act in enumerate(actions):
+                            if not isinstance(act, dict):
+                                continue
+                            params = act.get("mcp_tool", act)  # support both {"mcp_tool": {...}} and flat dict
+                            tool_name = params.get("tool", "")
+                            tool_input = params.get("tool_input", {})
+                            try:
+                                logger.info(f"[PassiveMode] MCP tool[{idx}]: {tool_name} input={tool_input}")
+                                mcp_res = await _mcp_call_tool(tool_name, tool_input)
+                                logger.info(f"[PassiveMode] MCP tool[{idx}] result: {mcp_res}")
+                                mcp_results.append({"extracted_content": str(mcp_res) if mcp_res else ""})
+                            except Exception as mcp_err:
+                                err_msg = f"mcp_tool[{idx}] '{tool_name}' failed: {type(mcp_err).__name__}: {mcp_err}"
+                                logger.error(f"[PassiveMode] {err_msg}", exc_info=True)
+                                mcp_results.append({"error": err_msg})
+                                mcp_errors.append(err_msg)
+                                if stop_on_error:
+                                    break
+
+                        payload = {
+                            "ok": not bool(mcp_errors),
+                            "elapsed_ms": int((time.perf_counter() - _mcp_t0) * 1000),
+                            "actions": actions,
+                            "action_results": mcp_results,
+                            "errors": mcp_errors,
+                            "browser": {},
+                        }
+                        # Publish result back to cloud
+                        if passive_cmd and mainwin:
+                            try:
+                                from agent.ec_skills.browser_use_extension.passive_utils import publish_step_result
+                                from agent.ec_skills.browser_use_extension.passive_protocol import PassiveBrowserStepResult
+                                run_id = passive_cmd.get("run_id", "")
+                                step_id = passive_cmd.get("step_id", "")
+                                if run_id and step_id:
+                                    result = PassiveBrowserStepResult(
+                                        run_id=run_id, step_id=step_id,
+                                        ok=not bool(mcp_errors),
+                                        elapsed_ms=payload.get("elapsed_ms", 0),
+                                        actions=actions,
+                                        action_results=mcp_results,
+                                        errors=mcp_errors,
+                                        browser={},
+                                    )
+                                    http_endpoint = mainwin.getWanApiEndpoint()
+                                    auth_token = mainwin.get_auth_token()
+                                    client_id = mainwin.getAcctSiteID()
+                                    logger.info(f"[PassiveMode] publish_step_result: client_id={client_id}, run_id={run_id}, step_id={step_id}")
+                                    await publish_step_result(result, http_endpoint, auth_token, client_id)
+                                    logger.info(f"[PassiveMode] Published MCP step result to cloud")
+                                    send_skill_editor_log("log", f"[PassiveMode] Published MCP step result to cloud")
+                            except Exception as pub_err:
+                                logger.error(f"[PassiveMode] Failed to publish MCP step result: {pub_err}")
+                                send_skill_editor_log("warning", f"[PassiveMode] Failed to publish MCP result: {pub_err}")
+                        return {"passive": True, **payload}
+
+                    # ── browser_use_passive_step — normal browser automation ──
                     # Extract actions from multiple possible state paths (modular for future event types)
                     def _extract_actions_from_state(st: dict, nd_name: str) -> list:
                         """
@@ -3929,10 +3995,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         # 4. Check attributes.passive_command.actions
                         try:
                             attrs = st.get("attributes", {})
-                            passive_cmd = attrs.get("passive_command")
-                            if isinstance(passive_cmd, dict) and isinstance(passive_cmd.get("actions"), list):
+                            pc = attrs.get("passive_command")
+                            if isinstance(pc, dict) and isinstance(pc.get("actions"), list):
                                 logger.debug("[PassiveMode] Found actions in attributes.passive_command.actions")
-                                return passive_cmd.get("actions")
+                                return pc.get("actions")
                         except Exception:
                             pass
                         
@@ -3951,6 +4017,15 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     logger.info(f"[PassiveMode] Extracted {len(actions)} actions from state")
                     if not isinstance(actions, list):
                         return {"error": "browser-use passive mode enabled but actions is not a list"}
+
+                    browser_session = await _get_or_create_browser_session(mainwin)
+                    if not browser_session:
+                        return {"error": "browser-use passive mode: failed to acquire browser session"}
+
+                    if not _is_session_started(browser_session):
+                        import asyncio
+                        task = asyncio.create_task(browser_session.start())
+                        await task
 
                     # Reuse PassiveAgent across loop iterations (keyed by browser_session id)
                     global _cached_passive_agents
