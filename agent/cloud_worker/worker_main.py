@@ -347,10 +347,12 @@ class PassiveStepResultListener:
             result_raw = envelope.get("result")
             dom_tree_raw = envelope.get("dom_tree")
             
-            # Parse AWSJSON fields
+            # Parse AWSJSON fields (may be double-encoded by VTL escaping)
             if isinstance(result_raw, str):
                 try:
                     result = json.loads(result_raw)
+                    if isinstance(result, str):  # double-encoded
+                        result = json.loads(result)
                 except json.JSONDecodeError:
                     result = {"raw": result_raw}
             else:
@@ -1505,6 +1507,8 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
                         result_raw = envelope.get("result")
                         if isinstance(result_raw, str):
                             result_dict = json.loads(result_raw)
+                            if isinstance(result_dict, str):  # double-encoded AWSJSON
+                                result_dict = json.loads(result_dict)
                         else:
                             result_dict = result_raw or {}
                         
@@ -1515,6 +1519,8 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
                         if dom_tree_raw:
                             try:
                                 dom_tree_data = json.loads(dom_tree_raw) if isinstance(dom_tree_raw, str) else dom_tree_raw
+                                if isinstance(dom_tree_data, str):  # double-encoded AWSJSON
+                                    dom_tree_data = json.loads(dom_tree_data)
                                 # Ignore empty dict — treat as no dom_tree
                                 if isinstance(dom_tree_data, dict) and not dom_tree_data:
                                     dom_tree_data = None

@@ -411,7 +411,13 @@ class AppSyncPassiveClient:
 
                 try:
                     cmd_raw = envelope.get("command")
-                    cmd_obj = json.loads(cmd_raw) if isinstance(cmd_raw, str) else cmd_raw
+                    # Handle AWSJSON: may be dict, JSON string, or double-encoded string
+                    if isinstance(cmd_raw, str):
+                        cmd_obj = json.loads(cmd_raw)
+                        if isinstance(cmd_obj, str):  # double-encoded by VTL + AWSJSON
+                            cmd_obj = json.loads(cmd_obj)
+                    else:
+                        cmd_obj = cmd_raw
                     cmd = PassiveBrowserCommand.model_validate(cmd_obj)
                     logger.info(f"[AppSyncPassiveClient] Received command: type={cmd.type}, run_id={cmd.run_id}, step_id={cmd.step_id}, actions_count={len(cmd.actions) if cmd.actions else 0}")
                 except Exception as e:
