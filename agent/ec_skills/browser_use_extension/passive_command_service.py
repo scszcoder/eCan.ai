@@ -129,13 +129,42 @@ def make_passive_command_service_from_mainwin(
     
     http_endpoint = mainwin.getWanApiEndpoint()
     ws_endpoint = mainwin.getWSApiEndpoint()
-    
+
+    # Ensure WS subscription targets the same AppSync API as the HTTP endpoint.
+    # Some client configs may have stale ws_api_endpoint/ws_api_host values
+    # (pointing at a different AppSync API), which makes the subscription
+    # receive events with unexpected shapes / null AWSJSON.
+    derived_ws_endpoint = _derive_realtime_endpoint(http_endpoint)
     if not ws_endpoint:
-        ws_endpoint = _derive_realtime_endpoint(http_endpoint)
-    
+        ws_endpoint = derived_ws_endpoint
+    else:
+        try:
+            http_host = _derive_api_host(http_endpoint, "")
+            ws_host = _derive_api_host("", ws_endpoint)
+            # If the AppSync API host differs, override WS endpoint.
+            if http_host and ws_host and http_host != ws_host:
+                logger.warning(
+                    "[PassiveCommandService] ws_api_endpoint host mismatch; overriding to match wan_api_endpoint "
+                    f"(http_host={http_host}, ws_host={ws_host}, ws_endpoint={ws_endpoint})"
+                )
+                ws_endpoint = derived_ws_endpoint
+        except Exception:
+            ws_endpoint = derived_ws_endpoint
+
     api_host = mainwin.getWSApiHost()
+    derived_api_host = _derive_api_host(http_endpoint, ws_endpoint)
     if not api_host:
-        api_host = _derive_api_host(http_endpoint, ws_endpoint)
+        api_host = derived_api_host
+    else:
+        try:
+            if derived_api_host and api_host.strip() and api_host.strip() != derived_api_host:
+                logger.warning(
+                    "[PassiveCommandService] ws_api_host mismatch; overriding to match wan_api_endpoint "
+                    f"(api_host={api_host}, derived_api_host={derived_api_host})"
+                )
+                api_host = derived_api_host
+        except Exception:
+            api_host = derived_api_host
     
     auth_token = mainwin.get_auth_token()
     client_id = mainwin.getAcctSiteID()
