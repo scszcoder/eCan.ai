@@ -19,7 +19,7 @@ const {
 
 const REGION = process.env.AWS_REGION || "us-east-1";
 const BUCKET = process.env.SKILL_BUCKET || "ecan-skills";
-const PUBLIC_TOOLS_KEY = "public/mcp_tools/mcp_tools_schema.json";
+const PUBLIC_TOOLS_KEY = "public/mcp_tools/cloud_mcp_tools_schema.json";
 const DEFAULT_VERSION = "1.0";
 
 const s3 = new S3Client({ region: REGION });
@@ -146,6 +146,7 @@ function parseLevel(level) {
 
 /**
  * Normalize tool data to standard format
+ * Preserves all original fields from the schema while adding standard metadata.
  */
 function normalizeTool(raw, { source, readOnly, owner }) {
   if (!raw || typeof raw !== "object") {
@@ -155,13 +156,14 @@ function normalizeTool(raw, { source, readOnly, owner }) {
   const tool = {
     id: raw.id || raw.name || "",
     name: raw.name || "",
+    title: raw.title || null,
     description: raw.description || "",
     owner: owner || raw.owner || "",
     tool_type: raw.tool_type || raw.type || "mcp",
     version: raw.version || DEFAULT_VERSION,
     path: raw.path || "",
     level: parseLevel(raw.level),
-    config: raw.config || raw.inputSchema || {},
+    config: raw.config || {},
     capabilities: raw.capabilities || [],
     limitations: raw.limitations || [],
     dependencies: raw.dependencies || [],
@@ -172,13 +174,14 @@ function normalizeTool(raw, { source, readOnly, owner }) {
     status: raw.status || "active",
     settings: raw.settings || {},
     source: source,
-    readOnly: Boolean(readOnly)
+    readOnly: Boolean(readOnly),
+    // Preserve original tool schema fields
+    inputSchema: raw.inputSchema || null,
+    outputSchema: raw.outputSchema || null,
+    icons: raw.icons || null,
+    annotations: raw.annotations || null,
+    meta: raw.meta || {}
   };
-  
-  // For MCP tools, include the input schema
-  if (raw.inputSchema) {
-    tool.inputSchema = raw.inputSchema;
-  }
   
   return tool;
 }

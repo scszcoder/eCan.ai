@@ -364,7 +364,55 @@ export class IPCAPI {
     }
 
     public async getPublicSkills<T>(username: string): Promise<APIResponse<T>> {
-        return apiRouter.execute({ method: 'get_public_skills' }, { username });
+        return apiRouter.execute(
+      {
+        method: 'get_public_skills',
+        graphql: {
+          query: GRAPHQL_QUERIES.GET_PUBLIC_SKILLS,
+          resultPath: 'getPublicSkills'
+        }
+      },
+      { owner: username }
+    );
+    }
+
+    public async getSubscribedSkillIds<T>(username: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+      {
+        method: 'get_subscribed_skill_ids',
+        graphql: {
+          query: GRAPHQL_QUERIES.GET_SUBSCRIBED_SKILL_IDS,
+          resultPath: 'getSubscribedSkillIds'
+        }
+      },
+      { owner: username }
+    );
+    }
+
+    public async subscribeToSkill<T>(username: string, skillId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+      {
+        method: 'subscribe_to_skill',
+        graphql: {
+          query: GRAPHQL_QUERIES.SUBSCRIBE_TO_SKILL,
+          resultPath: 'subscribeToSkill'
+        }
+      },
+      { skillId, owner: username }
+    );
+    }
+
+    public async unsubscribeFromSkill<T>(username: string, skillId: string): Promise<APIResponse<T>> {
+        return apiRouter.execute(
+      {
+        method: 'unsubscribe_from_skill',
+        graphql: {
+          query: GRAPHQL_QUERIES.UNSUBSCRIBE_FROM_SKILL,
+          resultPath: 'unsubscribeFromSkill'
+        }
+      },
+      { skillId, owner: username }
+    );
     }
 
     public async getAgentTasks<T>(username: string, agent_task_ids: string[]): Promise<APIResponse<T>> {
@@ -750,7 +798,7 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'set_default_llm' }, params);
     }
 
-    public async updateLLMProvider<T>(name: string, apiKey: string, azureEndpoint?: string, awsAccessKeyId?: string, awsSecretAccessKey?: string): Promise<APIResponse<T>> {
+    public async updateLLMProvider<T>(name: string, apiKey: string, azureEndpoint?: string, awsAccessKeyId?: string, awsSecretAccessKey?: string, baseUrl?: string): Promise<APIResponse<T>> {
         // Try to persist via DynamoDB settings (needed in web/cloud mode where
         // 'update_llm_provider' has no GraphQL resolver and goes nowhere)
         await this._ensureSettingsLoaded();
@@ -770,6 +818,7 @@ export class IPCAPI {
                     if (azureEndpoint) p.azure_endpoint = azureEndpoint;
                     if (awsAccessKeyId) p.aws_access_key_id = awsAccessKeyId;
                     if (awsSecretAccessKey) p.aws_secret_access_key = awsSecretAccessKey;
+                    if (baseUrl) p.base_url = baseUrl;
                     found = true;
                     break;
                 }
@@ -953,7 +1002,7 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'set_default_embedding' }, params);
     }
 
-    public async updateEmbeddingProvider<T>(name: string, apiKey: string, azureEndpoint?: string): Promise<APIResponse<T>> {
+    public async updateEmbeddingProvider<T>(name: string, apiKey: string, azureEndpoint?: string, baseUrl?: string): Promise<APIResponse<T>> {
         // Persist embedding provider API key to DynamoDB
         await this._ensureSettingsLoaded();
         if (this._settingsData && this._settingsUsername) {
@@ -968,6 +1017,7 @@ export class IPCAPI {
                     p.api_key = apiKey;
                     p.api_key_configured = !!apiKey && apiKey.length > 0;
                     if (azureEndpoint) p.azure_endpoint = azureEndpoint;
+                    if (baseUrl) p.base_url = baseUrl;
                     found = true;
                     break;
                 }
@@ -1082,7 +1132,7 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'set_default_rerank' }, params);
     }
 
-    public async updateRerankProvider<T>(name: string, apiKey: string, azureEndpoint?: string): Promise<APIResponse<T>> {
+    public async updateRerankProvider<T>(name: string, apiKey: string, azureEndpoint?: string, baseUrl?: string): Promise<APIResponse<T>> {
         await this._ensureSettingsLoaded();
         if (this._settingsData && this._settingsUsername) {
             const rerankProviders = this._settingsData.rerank_providers
@@ -1096,6 +1146,7 @@ export class IPCAPI {
                     p.api_key = apiKey;
                     p.api_key_configured = !!apiKey && apiKey.length > 0;
                     if (azureEndpoint) p.azure_endpoint = azureEndpoint;
+                    if (baseUrl) p.base_url = baseUrl;
                     found = true;
                     break;
                 }
@@ -1395,9 +1446,10 @@ export class IPCAPI {
     );
     }
 
-    public async runSkill<T>(username: string, skill: T): Promise<APIResponse<void>> {
+    public async runSkill<T>(username: string, skill: T, meta_data?: any): Promise<APIResponse<void>> {
         // skill must be JSON-stringified for AWSJSON type in GraphQL schema
         const skillJson = typeof skill === 'string' ? skill : JSON.stringify(skill);
+        const metaJson = meta_data == null ? '{}' : (typeof meta_data === 'string' ? meta_data : JSON.stringify(meta_data));
         return apiRouter.execute(
       {
         method: 'run_skill',
@@ -1406,7 +1458,7 @@ export class IPCAPI {
           resultPath: 'runSkill'
         }
       },
-      { input: { username, skill: skillJson } }
+      { username, skill: skillJson, meta_data: metaJson }
     );
     }
 
@@ -1420,7 +1472,7 @@ export class IPCAPI {
           resultPath: 'cancelRunSkill'
         }
       },
-      { input: { username, skill: skillJson } }
+      { username, skill: skillJson }
     );
     }
 
@@ -1434,7 +1486,7 @@ export class IPCAPI {
           resultPath: 'pauseRunSkill'
         }
       },
-      { input: { username, skill: skillJson } }
+      { username, skill: skillJson }
     );
     }
 
@@ -1448,7 +1500,7 @@ export class IPCAPI {
           resultPath: 'resumeRunSkill'
         }
       },
-      { input: { username, skill: skillJson } }
+      { username, skill: skillJson }
     );
     }
 
@@ -1462,7 +1514,7 @@ export class IPCAPI {
           resultPath: 'stepRunSkill'
         }
       },
-      { input: { username, skill: skillJson } }
+      { username, skill: skillJson }
     );
     }
 
@@ -1493,6 +1545,8 @@ export class IPCAPI {
     }
 
     public async requestSkillState<T>(username: string, skill: T): Promise<APIResponse<void>> {
+        // skill must be JSON-stringified for AWSJSON type in GraphQL schema
+        const skillJson = typeof skill === 'string' ? skill : JSON.stringify(skill);
         return apiRouter.execute(
       {
         method: 'request_skill_state',
@@ -1501,11 +1555,13 @@ export class IPCAPI {
           resultPath: 'requestSkillState'
         }
       },
-      {username, skill}
+      {username, skill: skillJson}
     );
     }
 
     public async injectSkillState<T>(username: string, skill: T): Promise<APIResponse<void>> {
+        // skill must be JSON-stringified for AWSJSON type in GraphQL schema
+        const skillJson = typeof skill === 'string' ? skill : JSON.stringify(skill);
         return apiRouter.execute(
       {
         method: 'inject_skill_state',
@@ -1514,11 +1570,13 @@ export class IPCAPI {
           resultPath: 'injectSkillState'
         }
       },
-      {username, skill}
+      {username, skill: skillJson}
     );
     }
 
     public async loadSkillSchemas<T>(username: string, skill: T): Promise<APIResponse<void>> {
+        // skill must be JSON-stringified for AWSJSON type in GraphQL schema
+        const skillJson = typeof skill === 'string' ? skill : JSON.stringify(skill);
         return apiRouter.execute(
       {
         method: 'load_skill_schemas',
@@ -1527,7 +1585,7 @@ export class IPCAPI {
           resultPath: 'loadSkillSchemas'
         }
       },
-      {username, skill}
+      {username, skill: skillJson}
     );
     }
 

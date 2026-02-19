@@ -165,14 +165,15 @@ class AppSyncPassivePubSubTransport:
         self._intentionally_closed = False
 
     async def publish_command(self, cmd: PassiveBrowserCommand) -> None:
-        # AWSJSON scalar expects a JSON string, not a nested object
-        command_json_str = json.dumps(cmd.model_dump())
-        
+        # AppSync AWSJSON scalar expects a JSON-encoded string in variables.
+        command_json_str = json.dumps(cmd.model_dump(), ensure_ascii=False)
+
         payload = {
             "runId": cmd.run_id,
             "clientId": self._config.client_id,
             "stepId": cmd.step_id,
-            "command": command_json_str,  # JSON string for AWSJSON type
+            # AWSJSON type - JSON-encoded string
+            "command": command_json_str,
         }
         
         # Log the IDs being used for debugging
@@ -321,7 +322,12 @@ class AppSyncPassivePubSubTransport:
                 try:
                     result_raw = envelope.get("result")
                     result_obj = json.loads(result_raw) if isinstance(result_raw, str) else result_raw
-                    
+                    # AWSJSON can arrive multiply-encoded; unwrap until we get a dict
+                    for _ in range(5):
+                        if not isinstance(result_obj, str):
+                            break
+                        result_obj = json.loads(result_obj)
+
                     # Log raw result structure for debugging
                     _transport_log(f"[PassiveTransport] 📋 Raw result keys: {list(result_obj.keys()) if isinstance(result_obj, dict) else type(result_obj)}")
                     
@@ -332,6 +338,11 @@ class AppSyncPassivePubSubTransport:
                     dom_tree_raw = envelope.get("dom_tree")
                     if dom_tree_raw:
                         dom_tree_parsed = json.loads(dom_tree_raw) if isinstance(dom_tree_raw, str) else dom_tree_raw
+                        # AWSJSON can arrive multiply-encoded; unwrap until we get a dict
+                        for _ in range(5):
+                            if not isinstance(dom_tree_parsed, str):
+                                break
+                            dom_tree_parsed = json.loads(dom_tree_parsed)
                         result_obj["dom_tree"] = dom_tree_parsed
                         _transport_log(f"[PassiveTransport] 🌳 dom_tree injected: type={type(dom_tree_parsed).__name__}, keys={list(dom_tree_parsed.keys()) if isinstance(dom_tree_parsed, dict) else 'N/A'}")
                     else:

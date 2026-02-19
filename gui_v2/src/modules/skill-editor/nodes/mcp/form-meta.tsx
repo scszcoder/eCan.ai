@@ -3,13 +3,15 @@
  * SPDX-License-Identifier: MIT
  */
 
-import { FormRenderProps, FormMeta, ValidateTrigger } from '@flowgram.ai/free-layout-editor';
+import { FormRenderProps, FormMeta, ValidateTrigger, Field } from '@flowgram.ai/free-layout-editor';
 import { createInferInputsPlugin, DisplayOutputs } from '@flowgram.ai/form-materials';
+import { Checkbox } from '@douyinfe/semi-ui';
 
 import { FlowNodeJSON } from '../../typings';
 import { defaultFormMeta } from '../default-form-meta';
-import { FormHeader, FormContent, FormInputs } from '../../form-components';
+import { FormHeader, FormContent, FormInputs, FormItem } from '../../form-components';
 import { FormCallable } from '../../form-components/form-callable';
+import { RunCodeEditor } from './components/run-code-editor';
 
 export const renderForm = (_props: FormRenderProps<FlowNodeJSON>) => {
 
@@ -20,6 +22,21 @@ export const renderForm = (_props: FormRenderProps<FlowNodeJSON>) => {
         <div className="mcp-node-form">
           {/* 1) Tool selector */}
           <FormCallable />
+          {/* Run Local checkbox */}
+          <FormItem name="run_local" type="boolean" vertical>
+            <Field<boolean> name="data.run_local">
+              {({ field }) => (
+                <Checkbox
+                  checked={!!field.value}
+                  onChange={(e) => field.onChange(e.target.checked as boolean)}
+                >
+                  Run Local (execute on local machine via passive command)
+                </Checkbox>
+              )}
+            </Field>
+          </FormItem>
+          {/* Run Code settings (language + source editor) — only visible when run_code tool is selected */}
+          <RunCodeEditor />
           {/* 2) Dynamic tool inputs */}
           <div style={{ height: 1, background: '#e8e8e8', margin: '12px 0', width: '100%' }} />
           <div style={{ fontWeight: 600, marginBottom: 8 }}>Tool Inputs</div>
@@ -40,13 +57,23 @@ export const formMeta: FormMeta<FlowNodeJSON> = {
   render: renderForm,
   validateTrigger: ValidateTrigger.onChange,
   validate: defaultFormMeta.validate,
+  // Deep-clone node data on init/submit to prevent shared references between nodes
+  formatOnInit: (value, ctx) => {
+    try {
+      return JSON.parse(JSON.stringify(value));
+    } catch {
+      return value;
+    }
+  },
+  formatOnSubmit: defaultFormMeta.formatOnSubmit,
   effect: {
     ...defaultFormMeta.effect,
     // When tool selection changes, project its params schema into data.inputs
     'data.callable': [({ form, formValues }: any) => {
       try { console.log('[MCP] MCP effect data.callable triggered with:', (formValues as any)?.data?.callable); } catch {}
       try {
-        const callable = (formValues as any)?.data?.callable;
+        // Deep-clone to ensure this node's callable is independent
+        const callable = JSON.parse(JSON.stringify((formValues as any)?.data?.callable || {}));
         const paramsSchema = callable?.params || { type: 'object', properties: {} };
         const rootProps = paramsSchema?.properties || {};
         const rootReq: string[] = Array.isArray(paramsSchema?.required) ? paramsSchema.required : [];
@@ -98,6 +125,14 @@ export const formMeta: FormMeta<FlowNodeJSON> = {
           }
         } catch {}
 
+        // When run_code is selected, hide 'language' and 'code' from dynamic inputs
+        // (they are handled by the RunCodeEditor component instead)
+        const isRunCode = (callable?.name || '') === 'run_code';
+        if (isRunCode) {
+          delete properties['language'];
+          delete properties['code'];
+        }
+
         // Guard required keys to only those present in properties
         const required = rawRequired.filter((k) => k in properties);
         // Update inputs schema used by FormInputs
@@ -116,8 +151,39 @@ export const formMeta: FormMeta<FlowNodeJSON> = {
             currentInputsValues[k] = { type: 'constant', content: '' } as any;
           }
         });
+        // For run_code, seed inputsValues from the dedicated editor fields if present
+        if (isRunCode) {
+          const lang = (formValues as any)?.data?.run_code_language;
+          const src = (formValues as any)?.data?.run_code_source;
+          if (lang) currentInputsValues['language'] = { type: 'constant', content: lang } as any;
+          if (src) currentInputsValues['code'] = { type: 'constant', content: src } as any;
+        }
         form.setFieldValue('data.inputsValues', currentInputsValues);
         try { console.log('[MCP] Prefilled inputsValues(required):', currentInputsValues); } catch {}
+      } catch {}
+    }],
+
+    // Sync RunCodeEditor language → inputsValues.language
+    'data.run_code_language': [({ form, formValues }: any) => {
+      try {
+        const callable = (formValues as any)?.data?.callable;
+        if (callable?.name !== 'run_code') return;
+        const lang = (formValues as any)?.data?.run_code_language || 'python';
+        const iv = { ...((formValues as any)?.data?.inputsValues || {}) };
+        iv['language'] = { type: 'constant', content: lang };
+        form.setFieldValue('data.inputsValues', iv);
+      } catch {}
+    }],
+
+    // Sync RunCodeEditor source → inputsValues.code
+    'data.run_code_source': [({ form, formValues }: any) => {
+      try {
+        const callable = (formValues as any)?.data?.callable;
+        if (callable?.name !== 'run_code') return;
+        const src = (formValues as any)?.data?.run_code_source || '';
+        const iv = { ...((formValues as any)?.data?.inputsValues || {}) };
+        iv['code'] = { type: 'constant', content: src };
+        form.setFieldValue('data.inputsValues', iv);
       } catch {}
     }],
   } as any,

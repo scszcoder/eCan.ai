@@ -57,7 +57,14 @@ def setup_dev_skill(mainwin, skill):
         logger.debug(f"[setup_dev_skill] All main task names: {[task.name for task in mainwin.agent_tasks]}")
         dev_run_task = next((task for task in mainwin.agent_tasks if "run task for skill under development" in task.name.lower()), None)
         logger.debug(f"[setup_dev_skill] Dev run task: {dev_run_task}")
-        tester_agent = next((ag for ag in mainwin.agents if "test" in ag.card.name.lower()), None)
+        agents_list = getattr(mainwin, 'agents', None) or []
+        logger.info(f"[setup_dev_skill] Available agents: {len(agents_list)} -> {[getattr(getattr(ag, 'card', None), 'name', '?') for ag in agents_list]}")
+        tester_agent = next((ag for ag in agents_list if "test" in ag.card.name.lower()), None)
+        if tester_agent is None and agents_list:
+            tester_agent = agents_list[0]
+            logger.info(f"[setup_dev_skill] No 'test' agent found, falling back to first agent: {tester_agent.card.name}")
+        if tester_agent is None:
+            logger.warning("[setup_dev_skill] No agents available at all in mainwin.agents!")
         logger.debug("tester_agent: ", type(skill), tester_agent)
         
         # Parse skill if it's a JSON string
@@ -98,6 +105,19 @@ def setup_dev_skill(mainwin, skill):
             except Exception as ce:
                 raise RuntimeError("Dev run task not found and auto-creation failed.") from ce
 
+        # Ensure the dev task is also in the tester agent's own task list
+        # (launch_dev_run_task searches self.tasks, not mainwin.agent_tasks)
+        if tester_agent and dev_run_task:
+            agent_has_task = any(
+                "run task for skill under development" in t.name.lower()
+                for t in (tester_agent.tasks or [])
+            )
+            if not agent_has_task:
+                if not hasattr(tester_agent, 'tasks') or tester_agent.tasks is None:
+                    tester_agent.tasks = []
+                tester_agent.tasks.append(dev_run_task)
+                logger.info(f"[setup_dev_skill] Added dev_run_task to agent '{tester_agent.card.name}' tasks list")
+
         # Set the workflow on the task
         dev_run_task.skill.set_work_flow(skill_under_dev)
 
@@ -119,6 +139,9 @@ def setup_dev_skill(mainwin, skill):
 def find_tester_agent(mainwin):
     try:
         tester_agent = next((ag for ag in mainwin.agents if "test" in ag.card.name.lower()), None)
+        if tester_agent is None and mainwin.agents:
+            tester_agent = mainwin.agents[0]
+            logger.info(f"[find_tester_agent] No 'test' agent found, falling back to first agent: {tester_agent.card.name}")
     except Exception as e:
         # Get the traceback information
         err_msg = get_traceback(e, "ErrorFindTesterAgent")

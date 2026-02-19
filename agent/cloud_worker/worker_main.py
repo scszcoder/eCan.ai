@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import json
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -9,6 +10,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
+
+# Fix double-import: when run via `python -m agent.cloud_worker.worker_main`,
+# __name__ is '__main__' but other modules import us as 'agent.cloud_worker.worker_main'.
+# Without this, they get a separate module instance with its own globals (e.g. _global_passive_transport).
+if __name__ == '__main__':
+    sys.modules.setdefault('agent.cloud_worker.worker_main', sys.modules[__name__])
 
 from utils.logger_helper import logger_helper as logger
 
@@ -340,10 +347,12 @@ class PassiveStepResultListener:
             result_raw = envelope.get("result")
             dom_tree_raw = envelope.get("dom_tree")
             
-            # Parse AWSJSON fields
+            # Parse AWSJSON fields (may be double-encoded by VTL escaping)
             if isinstance(result_raw, str):
                 try:
                     result = json.loads(result_raw)
+                    if isinstance(result, str):  # double-encoded
+                        result = json.loads(result)
                 except json.JSONDecodeError:
                     result = {"raw": result_raw}
             else:
@@ -1235,6 +1244,7 @@ async def _run_skill_dev_mode(
     # Create a ManagedTask for the dev run
     dev_task = ManagedTask(
         id=run_state.run_id,
+        context_id=run_state.run_id,  # Required by a2a-sdk Task
         run_id=run_state.run_id,
         name=f"dev:run task for skill {run_state.skill_name}",
         description="Cloud worker development run",
@@ -1277,7 +1287,7 @@ async def _run_skill_dev_mode(
     
     try:
         # Get the compiled graph from the skill
-        compiled_graph = skill.get_work_flow()
+        compiled_graph = skill.get_runnable()
         if not compiled_graph:
             raise RuntimeError("Skill has no compiled workflow")
         
@@ -1286,7 +1296,21 @@ async def _run_skill_dev_mode(
         
         # Stream through the graph, checking for control signals at each step
         current_node = None
-        async for event in compiled_graph.astream(state_dict, stream_mode="updates"):
+        graph_config = {
+            "configurable": {"thread_id": run_state.run_id},
+            "recursion_limit": 200,
+        }
+        # Runtime context required by node_wrapper (ec_skill.py) for runtime.context
+        graph_context = {
+            "id": run_state.run_id,
+            "topic": "",
+            "summary": "",
+            "msg_thread_id": "",
+            "tot_context": {},
+            "app_context": {},
+            "this_node": {"name": ""},
+        }
+        async for event in compiled_graph.astream(state_dict, config=graph_config, context=graph_context, stream_mode="updates"):
             # Check for cancellation
             if run_state.cancel_requested:
                 logger.info(f"[cloud_worker] Cancellation requested at node {current_node}")
@@ -1483,6 +1507,8 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
                         result_raw = envelope.get("result")
                         if isinstance(result_raw, str):
                             result_dict = json.loads(result_raw)
+                            if isinstance(result_dict, str):  # double-encoded AWSJSON
+                                result_dict = json.loads(result_dict)
                         else:
                             result_dict = result_raw or {}
                         
@@ -1493,6 +1519,8 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
                         if dom_tree_raw:
                             try:
                                 dom_tree_data = json.loads(dom_tree_raw) if isinstance(dom_tree_raw, str) else dom_tree_raw
+                                if isinstance(dom_tree_data, str):  # double-encoded AWSJSON
+                                    dom_tree_data = json.loads(dom_tree_data)
                                 # Ignore empty dict — treat as no dom_tree
                                 if isinstance(dom_tree_data, dict) and not dom_tree_data:
                                     dom_tree_data = None

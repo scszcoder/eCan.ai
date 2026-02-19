@@ -408,7 +408,7 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
         </Dropdown>
         
         <Button
-          type="primary"
+          type="default"
           icon={<MessageOutlined />}
           size="middle"
           className="agent-chat-btn"
@@ -421,14 +421,30 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
             flex: 1,
             borderRadius: '8px',
             height: '36px',
-            fontWeight: 500,
+            fontWeight: 400,
             background: id === myTwinAgentId 
-              ? 'rgba(255, 255, 255, 0.1)' 
-              : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-            border: 'none',
-            boxShadow: id === myTwinAgentId 
-              ? 'none' 
-              : '0 2px 8px rgba(59, 130, 246, 0.3)'
+              ? 'rgba(255, 255, 255, 0.05)' 
+              : 'rgba(59, 130, 246, 0.08)',
+            border: id === myTwinAgentId 
+              ? '1px solid rgba(255, 255, 255, 0.1)' 
+              : '1px solid rgba(59, 130, 246, 0.2)',
+            color: id === myTwinAgentId 
+              ? 'rgba(255, 255, 255, 0.4)' 
+              : 'rgba(59, 130, 246, 0.9)',
+            boxShadow: 'none',
+            transition: 'all 0.2s ease'
+          }}
+          onMouseEnter={(e) => {
+            if (id !== myTwinAgentId) {
+              e.currentTarget.style.background = 'rgba(59, 130, 246, 0.12)';
+              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.3)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (id !== myTwinAgentId) {
+              e.currentTarget.style.background = 'rgba(59, 130, 246, 0.08)';
+              e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.2)';
+            }
           }}
         >
           {t('pages.agents.startChat') || 'Start Chat'}

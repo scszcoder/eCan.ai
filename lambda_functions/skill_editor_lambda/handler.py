@@ -1138,7 +1138,8 @@ def _handle_run_skill(event: Dict[str, Any]) -> Dict[str, Any]:
     skill_name = skill.get("skill_name") or "unnamed_skill"
     skill_run_mode = skill.get("skill_run_mode") or "cloud"
     # Dev mode enables breakpoint/step support in cloud worker
-    dev_mode = input_data.get("dev_mode", False) or skill.get("dev_mode", False)
+    # Check input_data, skill, and meta_data (frontend sends dev_mode in meta_data)
+    dev_mode = input_data.get("dev_mode", False) or skill.get("dev_mode", False) or meta_data.get("dev_mode", False)
     
     logger.info(f"[runSkill] username={username}, skill_id={skill_id}, skill_name={skill_name}, mode={skill_run_mode}, dev_mode={dev_mode}")
     logger.info(f"[runSkill] meta_data: run_in_cloud={meta_run_in_cloud}, client_id={meta_client_id}, run_id={meta_run_id}")

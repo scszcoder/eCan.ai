@@ -27,6 +27,7 @@ const Skills: React.FC = () => {
     // 直接管理选中Status
     const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
     const [publicSkills, setPublicSkills] = useState<Skill[]>([]);
+    const [subscribedSkillIds, setSubscribedSkillIds] = useState<string[]>([]);
 
     const [viewMode, setViewMode] = useState<'list' | 'grid'>(() => {
         try {
@@ -64,11 +65,25 @@ const Skills: React.FC = () => {
 
         (async () => {
             try {
-                const resp = await get_ipc_api().getPublicSkills<{ skills?: Skill[] }>(username);
-                if (!resp.success) return;
-                const rows = (resp.data as any)?.skills;
-                const next = Array.isArray(rows) ? rows : [];
-                if (!cancelled) setPublicSkills(next);
+                const api = get_ipc_api();
+                const [pubResp, subResp] = await Promise.all([
+                    api.getPublicSkills<Skill[]>(username),
+                    api.getSubscribedSkillIds<string[]>(username),
+                ]);
+
+                if (!cancelled) {
+                    // Public skills: response data is the array directly from GraphQL resultPath
+                    const pubData = pubResp.data;
+                    const pubRows = Array.isArray(pubData)
+                        ? pubData
+                        : Array.isArray((pubData as any)?.skills) ? (pubData as any).skills : [];
+                    setPublicSkills(pubRows);
+
+                    // Subscribed skill IDs
+                    const subData = subResp.data;
+                    const subIds = Array.isArray(subData) ? subData : [];
+                    setSubscribedSkillIds(subIds);
+                }
             } catch (e) {
                 // ignore - store is optional
             }
@@ -178,6 +193,28 @@ const Skills: React.FC = () => {
         handleRefresh();
     };
 
+    const handleSubscribe = async (skillId: string) => {
+        if (!username) return;
+        const api = get_ipc_api();
+        const resp = await api.subscribeToSkill(username, skillId);
+        if (!resp.success) throw new Error((resp.error as any)?.message || 'Subscribe failed');
+        // Also check the mutation result's success field
+        const result = resp.data as any;
+        if (result && result.success === false) throw new Error(result.error || 'Subscribe failed');
+        setSubscribedSkillIds(prev => [...prev, skillId]);
+    };
+
+    const handleUnsubscribe = async (skillId: string) => {
+        if (!username) return;
+        const api = get_ipc_api();
+        const resp = await api.unsubscribeFromSkill(username, skillId);
+        if (!resp.success) throw new Error((resp.error as any)?.message || 'Unsubscribe failed');
+        // Also check the mutation result's success field
+        const result = resp.data as any;
+        if (result && result.success === false) throw new Error(result.error || 'Unsubscribe failed');
+        setSubscribedSkillIds(prev => prev.filter(id => id !== skillId));
+    };
+
     return (
         <DetailLayout
             listTitle={listTitle}
@@ -196,6 +233,7 @@ const Skills: React.FC = () => {
                     selectedSkillId={selectedSkill ? String(selectedSkill.id) : undefined}
                     viewMode={viewMode}
                     username={username || ''}
+                    subscribedSkillIds={subscribedSkillIds}
                 />
             }
             detailsContent={
@@ -207,6 +245,9 @@ const Skills: React.FC = () => {
                         onSave={handleSkillSave}
                         onCancel={handleSkillCancel}
                         onDelete={handleSkillDelete}
+                        subscribedSkillIds={subscribedSkillIds}
+                        onSubscribe={handleSubscribe}
+                        onUnsubscribe={handleUnsubscribe}
                     />
                 ) : undefined
             }

@@ -37,6 +37,7 @@ const StyledRefreshButton = styled(Button)`
 const Tools: React.FC = () => {
   const { t } = useTranslation();
   const [selectedTool, setSelectedTool] = useState<Tool | null>(null);
+  const [isAddingNew, setIsAddingNew] = useState(false);
   const username = useUserStore((state) => state.username);
   const { tools, loading, fetchTools, forceRefresh } = useToolStore();
   const hasFetchedRef = React.useRef(false);
@@ -87,6 +88,27 @@ const Tools: React.FC = () => {
     }
   }, [username, forceRefresh]);
 
+  const handleAddTool = useCallback(() => {
+    setSelectedTool(null);
+    setIsAddingNew(true);
+  }, []);
+
+  const handleCancelAdd = useCallback(() => {
+    setIsAddingNew(false);
+    if (tools.length > 0) {
+      setSelectedTool(tools[0]);
+    }
+  }, [tools]);
+
+  const handleToolSaved = useCallback(() => {
+    setIsAddingNew(false);
+  }, []);
+
+  const handleSelectTool = useCallback((tool: Tool) => {
+    setIsAddingNew(false);
+    setSelectedTool(tool);
+  }, []);
+
   const listTitle = (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
       <span style={{ fontSize: '16px', fontWeight: 600, lineHeight: '24px' }}>{t('pages.tools.title')}</span>
@@ -110,16 +132,23 @@ const Tools: React.FC = () => {
           <ToolsList
             tools={tools}
             selectedTool={selectedTool}
-            onSelect={setSelectedTool}
+            onSelect={handleSelectTool}
             loading={loading}
           />
         </Spin>
       }
       detailsContent={
         <>
-          {loading ? <Spin /> : <ToolDetail tool={selectedTool} />}
+          {loading ? <Spin /> : (
+            <ToolDetail
+              tool={selectedTool}
+              isAddingNew={isAddingNew}
+              onSaved={handleToolSaved}
+              onCancelAdd={handleCancelAdd}
+            />
+          )}
           <ActionButtons
-            onAdd={() => {}}
+            onAdd={handleAddTool}
             onEdit={() => {}}
             onDelete={() => {}}
             onRefresh={handleRefresh}

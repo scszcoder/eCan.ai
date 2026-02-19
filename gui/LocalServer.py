@@ -396,7 +396,6 @@ class RequestHandlers:
             _BLOCKING_METHODS = {'login', 'google_login'}
 
             if method in _BLOCKING_METHODS:
-                import asyncio
                 loop = asyncio.get_event_loop()
                 result_data = await loop.run_in_executor(
                     None,

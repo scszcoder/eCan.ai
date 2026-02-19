@@ -1,6 +1,7 @@
 import re
 import os
 import json
+import time
 import string
 import importlib.util
 import httpx
@@ -31,6 +32,16 @@ from langchain_core.messages.base import BaseMessage, BaseMessageChunk
 
 
 # ==================== Module-level Constants ====================
+
+# When a node has useThinking disabled, we still need a well-defined instruction
+# to prevent providers/models that default to verbose reasoning from emitting it.
+# This is appended to the system message via browser-use's `extend_system_message`.
+THINKING_SUPPRESSION_INSTRUCTION = """
+Answer concisely.
+
+- Do not reveal hidden reasoning or chain-of-thought.
+- If you need to think, do it silently and only provide the final answer.
+"""
 
 
 # ==================== Helper Functions ====================
@@ -2110,6 +2121,27 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
     tool_name = None
     use_llm_auto_select = False
     
+    # Run local flag: if True, send passive command to local side instead of calling MCP tool directly
+    # The GUI stores the actual setting in data.run_local (top-level run_local may be stale/False)
+    run_local = False
+    try:
+        run_local_val = config_metadata.get('run_local')
+        if run_local_val is None or run_local_val is False:
+            # Check data.run_local (GUI stores actual config here)
+            data_section = config_metadata.get('data') or {}
+            run_local_val = data_section.get('run_local') if data_section.get('run_local') is not None else run_local_val
+        if run_local_val is None:
+            # Also check inputsValues.run_local.content
+            run_local_val = ((config_metadata.get('inputsValues') or {}).get('run_local') or {}).get('content')
+        run_local = str(run_local_val).lower() in ('true', '1', 'yes', 'on') if run_local_val is not None else False
+    except Exception:
+        run_local = False
+    
+    if run_local:
+        log_msg = f"[MCP] Node '{node_name}' has run_local=True - will use passive command to execute on local machine"
+        logger.info(log_msg)
+        send_skill_editor_log("info", log_msg)
+    
     # Async mode configuration for fire-and-forget pattern
     async_mode = False
     async_timeout = 60.0
@@ -2136,7 +2168,9 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                      or (config_metadata.get('inputs') or {}).get('toolName'))
         
         # Also check callable.id or callable.name for "llm-auto-select"
-        callable_info = config_metadata.get('callable') or {}
+        # Prefer data.callable (actual tool config) over top-level callable (may be placeholder)
+        data_section = config_metadata.get('data') or {}
+        callable_info = data_section.get('callable') or config_metadata.get('callable') or {}
         callable_id = callable_info.get('id', '') if isinstance(callable_info, dict) else ''
         callable_name = callable_info.get('name', '') if isinstance(callable_info, dict) else ''
 
@@ -2146,10 +2180,14 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
         callable_name = ''
 
     # Check if "llm auto select" mode is enabled
-    if (not tool_name 
+    # Only use auto-select when tool_name is NOT a specific tool
+    _tool_is_specific = (tool_name and tool_name not in ('llm-auto-select', 'llm auto select'))
+    if not _tool_is_specific and (
+        not tool_name 
         or tool_name in ('llm-auto-select', 'llm auto select')
         or callable_id in ('llm-auto-select',)
-        or callable_name in ('llm auto select',)):
+        or callable_name in ('llm auto select',)
+    ):
         use_llm_auto_select = True
         log_msg = f"[MCP] Node '{node_name}' using LLM auto-select mode - tool will be determined at runtime from state['result']['llm_result']"
         logger.info(log_msg)
@@ -2302,6 +2340,19 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             if key in cfg:
                 return cfg.get(key)
 
+            # 1b) nested tool_input / input objects (common for tool nodes)
+            tool_input = cfg.get('tool_input')
+            if isinstance(tool_input, dict):
+                if key in tool_input:
+                    return tool_input.get(key)
+                nested_input = tool_input.get('input')
+                if isinstance(nested_input, dict) and key in nested_input:
+                    return nested_input.get(key)
+
+            nested_cfg_input = cfg.get('input')
+            if isinstance(nested_cfg_input, dict) and key in nested_cfg_input:
+                return nested_cfg_input.get(key)
+
             # 2) inputsValues.<key>.content
             inputs_values = cfg.get('inputsValues')
             if isinstance(inputs_values, dict) and key in inputs_values:
@@ -2309,6 +2360,14 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 if isinstance(v, dict) and 'content' in v:
                     return v.get('content')
                 return v
+
+            # 2b) inputsValues.input.content.<key>
+            if isinstance(inputs_values, dict) and isinstance(inputs_values.get('input'), dict):
+                v = inputs_values.get('input')
+                if isinstance(v, dict) and 'content' in v:
+                    content = v.get('content')
+                    if isinstance(content, dict) and key in content:
+                        return content.get(key)
 
             # 3) inputs.<key>
             inputs = cfg.get('inputs')
@@ -2426,9 +2485,169 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             return inp
 
     def mcp_tool_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
+        def _safe_inc_steps(st: dict) -> None:
+            if not isinstance(st, dict):
+                return
+            cur = st.get('n_steps', 0)
+            try:
+                cur_int = int(cur) if cur is not None else 0
+            except Exception:
+                cur_int = 0
+            st['n_steps'] = cur_int + 1
+
         # Determine actual tool name and input at runtime
         actual_tool_name = tool_name
-        actual_tool_input = state.get('tool_input', {})
+        # Tool input can be stored either at state.tool_input (legacy) or
+        # nested under state.tool_input[node_name] (per-node).
+        actual_tool_input: dict[str, Any] = {}
+        try:
+            ti = state.get('tool_input', {}) if isinstance(state, dict) else {}
+            if isinstance(ti, dict) and isinstance(ti.get(node_name), dict):
+                actual_tool_input = ti.get(node_name) or {}
+            elif isinstance(ti, dict):
+                actual_tool_input = ti
+        except Exception:
+            actual_tool_input = {}
+
+        def _normalize_run_code_tool_input(inp: Any) -> dict[str, Any]:
+            if not isinstance(inp, dict):
+                inp = {}
+
+            # Some call sites may wrap tool_input one level deeper.
+            if not isinstance(inp.get('input'), dict) and isinstance(inp.get('tool_input'), dict):
+                wrapped = inp.get('tool_input')
+                if isinstance(wrapped, dict):
+                    inp = wrapped
+
+            # Prefer nested input schema: {"input": {...}}
+            if isinstance(inp.get('input'), dict):
+                normalized: dict[str, Any] = {**inp}
+                normalized_input: dict[str, Any] = {**(normalized.get('input') or {})}
+            else:
+                normalized = {}
+                normalized_input = {}
+
+            # Promote common flat keys into input
+            for k in ('code', 'args', 'timeout', 'allowed_imports', 'language'):
+                if k in inp and k not in normalized_input:
+                    normalized_input[k] = inp.get(k)
+
+            # Also accept node-editor naming when passed at runtime
+            if 'run_code_source' in inp and 'code' not in normalized_input:
+                normalized_input['code'] = inp.get('run_code_source')
+            if 'run_code_language' in inp and 'language' not in normalized_input:
+                normalized_input['language'] = inp.get('run_code_language')
+
+            # Backfill from node config if missing
+            for k in ('code', 'args', 'timeout', 'allowed_imports', 'language'):
+                if normalized_input.get(k) is not None:
+                    continue
+                try:
+                    v = _gather_config_value(config_metadata, k)
+                    if v is not None:
+                        normalized_input[k] = v
+                except Exception:
+                    pass
+
+            # Node editor stores run_code fields as run_code_source/run_code_language
+            # (often either at config_metadata.<key> or config_metadata.data.<key>).
+            if not normalized_input.get('code'):
+                try:
+                    v = (
+                        _gather_config_value(config_metadata, 'run_code_source')
+                        or (config_metadata.get('run_code_source') if isinstance(config_metadata, dict) else None)
+                        or ((config_metadata.get('data') or {}).get('run_code_source') if isinstance(config_metadata, dict) else None)
+                    )
+                    if isinstance(v, str) and v.strip():
+                        normalized_input['code'] = v
+                except Exception:
+                    pass
+
+            if not normalized_input.get('language'):
+                try:
+                    v = (
+                        _gather_config_value(config_metadata, 'run_code_language')
+                        or (config_metadata.get('run_code_language') if isinstance(config_metadata, dict) else None)
+                        or ((config_metadata.get('data') or {}).get('run_code_language') if isinstance(config_metadata, dict) else None)
+                    )
+                    if isinstance(v, str) and v.strip():
+                        normalized_input['language'] = v
+                except Exception:
+                    pass
+
+            # Backfill from state metadata/attributes when config isn't populated
+            if not normalized_input.get('code'):
+                try:
+                    if isinstance(state, dict):
+                        attrs = state.get('attributes')
+                        meta = state.get('metadata')
+                        for container in (attrs, meta):
+                            if isinstance(container, dict):
+                                v = container.get('code') or container.get('source_code') or container.get('script')
+                                if isinstance(v, str) and v.strip():
+                                    normalized_input['code'] = v
+                                    break
+                except Exception:
+                    pass
+
+            # Best-effort: alternate code keys
+            if not normalized_input.get('code'):
+                for alt in ('source_code', 'source', 'script', 'run_code_source'):
+                    v = inp.get(alt)
+                    if isinstance(v, str) and v.strip():
+                        normalized_input['code'] = v
+                        break
+
+            # Coerce args: allow empty string in UI, but MCP run_code expects an object
+            args_val = normalized_input.get('args')
+            if isinstance(args_val, str):
+                if not args_val.strip():
+                    normalized_input['args'] = {}
+                else:
+                    try:
+                        parsed_args = json.loads(args_val)
+                        normalized_input['args'] = parsed_args if isinstance(parsed_args, dict) else {"_raw": args_val}
+                    except Exception:
+                        normalized_input['args'] = {"_raw": args_val}
+            elif args_val is None:
+                normalized_input['args'] = {}
+            elif not isinstance(args_val, dict):
+                normalized_input['args'] = {}
+
+            # Coerce timeout to int when possible
+            timeout_val = normalized_input.get('timeout')
+            if isinstance(timeout_val, str):
+                try:
+                    normalized_input['timeout'] = int(float(timeout_val.strip()))
+                except Exception:
+                    pass
+
+            # Coerce allowed_imports to list[str]
+            allowed_imports_val = normalized_input.get('allowed_imports')
+            if allowed_imports_val is None:
+                normalized_input['allowed_imports'] = []
+            elif isinstance(allowed_imports_val, str):
+                s = allowed_imports_val.strip()
+                if not s:
+                    normalized_input['allowed_imports'] = []
+                else:
+                    try:
+                        parsed = json.loads(s)
+                        if isinstance(parsed, list):
+                            normalized_input['allowed_imports'] = [str(x) for x in parsed]
+                        else:
+                            normalized_input['allowed_imports'] = [s]
+                    except Exception:
+                        normalized_input['allowed_imports'] = [s]
+            elif isinstance(allowed_imports_val, list):
+                normalized_input['allowed_imports'] = [str(x) for x in allowed_imports_val]
+            else:
+                normalized_input['allowed_imports'] = []
+
+            # Always return nested form.
+            # MCP server `run_code` will ignore unknown keys like language, but
+            # our passive protocol expects language+code for consistent tooling.
+            return {'input': normalized_input}
         
         # --- LLM Auto-Select Mode ---
         if use_llm_auto_select:
@@ -2566,7 +2785,19 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             if _root:
                 actual_tool_input = _coerce_all_inputs(actual_tool_input, _root)
             
-            state['tool_input'] = actual_tool_input
+            # Preserve both legacy (dict with 'input') and per-node tool_input maps.
+            try:
+                existing_ti = state.get('tool_input') if isinstance(state, dict) else None
+                if isinstance(existing_ti, dict) and node_name in existing_ti and isinstance(existing_ti.get(node_name), dict):
+                    existing_ti[node_name] = actual_tool_input
+                    state['tool_input'] = existing_ti
+                elif isinstance(existing_ti, dict) and ('input' not in existing_ti):
+                    existing_ti[node_name] = actual_tool_input
+                    state['tool_input'] = existing_ti
+                else:
+                    state['tool_input'] = actual_tool_input
+            except Exception:
+                state['tool_input'] = actual_tool_input
 
             log_msg = f"tool_input backfilled for {actual_tool_name}: {state['tool_input']}"
             logger.debug(log_msg)
@@ -2644,7 +2875,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     
                     # Store initial result and correlation_id
                     state["tool_result"] = tool_result
-                    state["n_steps"] += 1
+                    _safe_inc_steps(state)
                     
                     # Track pending operation in state
                     pending_ops = state.setdefault("_pending_async_operations", [])
@@ -2673,6 +2904,212 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 # Fall through to sync mode on error
         
         # ============================================================
+        # Run Local Mode: Send passive command to local machine
+        # ============================================================
+        if run_local:
+            try:
+                import uuid as _uuid
+                from agent.ec_skills.llm_utils.llm_utils import run_async_in_sync
+                
+                log_msg = f"[RUN_LOCAL] Sending passive MCP tool command to local machine: tool={_actual_tool_name}"
+                logger.info(log_msg)
+                send_skill_editor_log("log", log_msg)
+                
+                # Get the passive transport (same as browser_use cloud agent pattern)
+                transport = None
+                try:
+                    from agent.cloud_worker.worker_main import get_global_passive_transport
+                    transport = get_global_passive_transport()
+                    logger.info(f"[RUN_LOCAL] get_global_passive_transport returned: {type(transport).__name__ if transport else 'None'}")
+                except ImportError as _ie:
+                    logger.warning(f"[RUN_LOCAL] ImportError getting passive transport (not running in cloud worker?): {_ie}")
+                except Exception as _tex:
+                    logger.warning(f"[RUN_LOCAL] Error getting global transport: {_tex}")
+                
+                # Fallback: create transport from env vars if global transport not set
+                # (same env vars that skill_editor_lambda sets on the ECS container)
+                if not transport:
+                    try:
+                        import os as _os
+                        _appsync_url = _os.environ.get("EC_APPSYNC_HTTP_ENDPOINT") or _os.environ.get("APPSYNC_API_URL", "")
+                        _appsync_key = _os.environ.get("APPSYNC_API_KEY") or _os.environ.get("EC_APPSYNC_TOKEN", "")
+                        _client_id = _os.environ.get("EC_BROWSER_PASSIVE_CLIENT_ID", "")
+                        if _appsync_url and _appsync_key and _client_id:
+                            from agent.ec_skills.browser_use_extension.cloud_agent import CloudWorkerPassiveTransport
+                            transport = CloudWorkerPassiveTransport(
+                                appsync_url=_appsync_url,
+                                appsync_api_key=_appsync_key,
+                                client_id=_client_id,
+                            )
+                            logger.info(f"[RUN_LOCAL] Created fallback transport from env vars: client_id={_client_id}")
+                            # Also register globally for future calls
+                            try:
+                                from agent.cloud_worker.worker_main import set_global_passive_transport
+                                set_global_passive_transport(transport)
+                            except Exception:
+                                pass
+                        else:
+                            logger.warning(f"[RUN_LOCAL] Cannot create fallback transport: url={bool(_appsync_url)}, key={bool(_appsync_key)}, client={bool(_client_id)}")
+                    except Exception as _ftex:
+                        logger.warning(f"[RUN_LOCAL] Fallback transport creation failed: {_ftex}")
+                
+                if not transport:
+                    raise RuntimeError(
+                        "[RUN_LOCAL] No passive transport available. "
+                        "run_local requires running from cloud worker with passive transport configured."
+                    )
+                
+                # Get run_id from state (same pattern as browser_use cloud agent)
+                run_id = None
+                try:
+                    if isinstance(state, dict):
+                        run_id = state.get("browser_use_run_id")
+                        if not run_id:
+                            attrs = state.get("attributes", {})
+                            run_id = attrs.get("chat_id") or attrs.get("run_id") or attrs.get("thread_id")
+                        if not run_id:
+                            meta = state.get("metadata", {})
+                            run_id = meta.get("run_id") if isinstance(meta, dict) else None
+                except Exception:
+                    pass
+                if not isinstance(run_id, str) or not run_id.strip():
+                    run_id = _uuid.uuid4().hex
+                logger.debug(f"[RUN_LOCAL] resolved run_id={run_id}")
+                
+                step_id = f"mcp_{_actual_tool_name}_{_uuid.uuid4().hex[:8]}"
+                
+                # Build the passive command with mcp_tool schema
+                from agent.ec_skills.browser_use_extension.passive_protocol import PassiveBrowserCommand
+
+                tool_input_for_passive: dict[str, Any] = _actual_tool_input if isinstance(_actual_tool_input, dict) else {}
+                if _actual_tool_name == 'run_code':
+                    tool_input_for_passive = _normalize_run_code_tool_input(tool_input_for_passive)
+                    if not (tool_input_for_passive.get('input') or {}).get('code'):
+                        logger.warning(f"[RUN_LOCAL] run_code tool_input missing code after normalization; tool_input={tool_input_for_passive}")
+
+                mcp_action = {
+                    'mcp_tool': {
+                        'command': 'mcp_tool',
+                        'tool': _actual_tool_name,
+                        'tool_input': tool_input_for_passive,
+                    }
+                }
+                
+                # Get IDs from state attributes
+                acct_site_id = None
+                agent_id = None
+                skill_id = None
+                try:
+                    attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
+                    acct_site_id = attrs.get("acct_site_id")
+                    agent_id = attrs.get("agent_id")
+                    skill_id = attrs.get("skill_id") or skill_name
+                    if not acct_site_id and transport and hasattr(transport, 'client_id'):
+                        acct_site_id = transport.client_id
+                except Exception:
+                    pass
+                
+                cmd = PassiveBrowserCommand(
+                    type="skill_passive_step",
+                    run_id=run_id,
+                    step_id=step_id,
+                    acct_site_id=acct_site_id,
+                    agent_id=agent_id,
+                    skill_id=skill_id,
+                    node_id=node_name,
+                    actions=[mcp_action],
+                    include_screenshot=False,
+                    stop_on_error=True,
+                )
+                
+                logger.info(
+                    f"[RUN_LOCAL] PassiveBrowserCommand built: "
+                    f"type={cmd.type}, run_id={run_id}, step_id={step_id}, "
+                    f"node_id={node_name}, acct_site_id={acct_site_id}, "
+                    f"agent_id={agent_id}, skill_id={skill_id}, "
+                    f"actions={mcp_action}"
+                )
+                logger.info(
+                    f"[RUN_LOCAL] Transport info: type={type(transport).__name__}, "
+                    f"client_id={getattr(transport, 'client_id', 'N/A')}, "
+                    f"url={getattr(transport, 'appsync_url', 'N/A')[:60] if hasattr(transport, 'appsync_url') else 'N/A'}"
+                )
+                
+                timeout_s = float(config_metadata.get('timeout', 180) or 180)
+                
+                async def _run_local_mcp():
+                    import time as _time
+                    _t0 = _time.time()
+                    # Prepare to receive result before publishing command
+                    logger.info(f"[RUN_LOCAL] Calling prepare_for_result(run_id={run_id}, step_id={step_id})...")
+                    await transport.prepare_for_result(run_id=run_id, step_id=step_id)
+                    logger.info(f"[RUN_LOCAL] prepare_for_result done, elapsed={_time.time()-_t0:.2f}s")
+                    # Publish command to local machine
+                    logger.info(f"[RUN_LOCAL] Publishing command to local machine via transport...")
+                    await transport.publish_command(cmd)
+                    _pub_elapsed = _time.time() - _t0
+                    log_msg = f"[RUN_LOCAL] ⏳ Command published ({_pub_elapsed:.2f}s). Waiting for local response (stepId={step_id}, timeout={timeout_s}s)..."
+                    logger.info(log_msg)
+                    send_skill_editor_log("log", log_msg)
+                    # Wait for result
+                    result = await transport.wait_for_result(
+                        run_id=run_id, step_id=step_id, timeout_s=timeout_s
+                    )
+                    _total_elapsed = _time.time() - _t0
+                    logger.info(f"[RUN_LOCAL] wait_for_result returned after {_total_elapsed:.2f}s, result type={type(result).__name__}, result is None={result is None}")
+                    if result:
+                        logger.info(f"[RUN_LOCAL] Result keys: {list(result.keys()) if isinstance(result, dict) else dir(result)[:10]}")
+                    return result
+                
+                passive_result = run_async_in_sync(_run_local_mcp())
+                
+                # Extract tool result from passive response
+                tool_result = {}
+                if passive_result:
+                    logger.info(f"[RUN_LOCAL] Parsing passive_result: type={type(passive_result).__name__}")
+                    if hasattr(passive_result, 'action_results'):
+                        action_results = passive_result.action_results
+                        logger.info(f"[RUN_LOCAL] action_results (attr): count={len(action_results) if action_results else 0}, values={action_results}")
+                        if action_results and len(action_results) > 0:
+                            tool_result = action_results[0]
+                    elif isinstance(passive_result, dict):
+                        action_results = passive_result.get('action_results', [])
+                        logger.info(f"[RUN_LOCAL] action_results (dict): count={len(action_results) if action_results else 0}, values={action_results}")
+                        tool_result = action_results[0] if action_results else passive_result
+                    
+                    # Check if there were errors
+                    errors = getattr(passive_result, 'errors', None) or (passive_result.get('errors') if isinstance(passive_result, dict) else None)
+                    if errors:
+                        log_msg = f"[RUN_LOCAL] ⚠️ Local execution had errors: {errors}"
+                        logger.warning(log_msg)
+                        send_skill_editor_log("warning", log_msg)
+                else:
+                    log_msg = "[RUN_LOCAL] ⚠️ passive_result is None/empty — local machine may not have responded"
+                    logger.warning(log_msg)
+                    send_skill_editor_log("warning", log_msg)
+                
+                log_msg = f"[RUN_LOCAL] ✅ Local MCP tool result: {tool_result}"
+                logger.info(log_msg)
+                send_skill_editor_log("log", log_msg)
+                
+                state["tool_result"] = tool_result
+                _safe_inc_steps(state)
+                
+                tool_call_summary = ActionMessage(
+                    content=f"action: run_local mcp call to {_actual_tool_name}; result: {tool_result}"
+                )
+                add_to_history(state, tool_call_summary)
+                
+                return state
+                
+            except Exception as e:
+                err_msg = get_traceback(e, f"ErrorRunLocalMCPTool({_actual_tool_name})")
+                logger.error(err_msg)
+                send_skill_editor_log("error", err_msg)
+                state['error'] = err_msg
+                return state
+        
+        # ============================================================
         # Sync Mode: Standard blocking tool call
         # ============================================================
         try:
@@ -2686,7 +3123,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
 
             # Add the result to the state (result is a dict, not a list)
             state["tool_result"] = tool_result
-            state["n_steps"] += 1
+            _safe_inc_steps(state)
 
             tool_call_summary = ActionMessage(content=f"action: mcp call to {_actual_tool_name}; result: {tool_result}")
             add_to_history(state, tool_call_summary)
@@ -3444,16 +3881,81 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     else:
                         logger.warning(f"[BrowserAutomation] No step_key available for duplicate detection, proceeding anyway")
 
-                    browser_session = await _get_or_create_browser_session(mainwin)
-                    if not browser_session:
-                        return {"error": "browser-use passive mode: failed to acquire browser session"}
+                    # ── skill_passive_step fast-path ──────────────────────────
+                    # If the incoming command is a skill_passive_step (MCP tool
+                    # call from cloud), bypass the entire browser automation
+                    # setup and execute MCP tools directly.
+                    passive_cmd = None
+                    if isinstance(state, dict):
+                        passive_cmd = state.get("attributes", {}).get("passive_command")
+                    _cmd_type = passive_cmd.get("type", "") if isinstance(passive_cmd, dict) else ""
 
-                    if not _is_session_started(browser_session):
-                        # Python 3.14 requires asyncio.wait_for/timeout to run inside a Task
-                        import asyncio
-                        task = asyncio.create_task(browser_session.start())
-                        await task
+                    if _cmd_type == "skill_passive_step":
+                        logger.info(f"[PassiveMode] skill_passive_step — bypassing browser setup, executing MCP tools directly")
+                        _mcp_t0 = time.perf_counter()
+                        actions = passive_cmd.get("actions", []) if isinstance(passive_cmd, dict) else []
+                        stop_on_error = bool(passive_cmd.get("stop_on_error", True)) if isinstance(passive_cmd, dict) else True
 
+                        from agent.mcp.local_client import mcp_call_tool as _mcp_call_tool
+                        mcp_results = []
+                        mcp_errors = []
+                        for idx, act in enumerate(actions):
+                            if not isinstance(act, dict):
+                                continue
+                            params = act.get("mcp_tool", act)  # support both {"mcp_tool": {...}} and flat dict
+                            tool_name = params.get("tool", "")
+                            tool_input = params.get("tool_input", {})
+                            try:
+                                logger.info(f"[PassiveMode] MCP tool[{idx}]: {tool_name} input={tool_input}")
+                                mcp_res = await _mcp_call_tool(tool_name, tool_input)
+                                logger.info(f"[PassiveMode] MCP tool[{idx}] result: {mcp_res}")
+                                mcp_results.append({"extracted_content": str(mcp_res) if mcp_res else ""})
+                            except Exception as mcp_err:
+                                err_msg = f"mcp_tool[{idx}] '{tool_name}' failed: {type(mcp_err).__name__}: {mcp_err}"
+                                logger.error(f"[PassiveMode] {err_msg}", exc_info=True)
+                                mcp_results.append({"error": err_msg})
+                                mcp_errors.append(err_msg)
+                                if stop_on_error:
+                                    break
+
+                        payload = {
+                            "ok": not bool(mcp_errors),
+                            "elapsed_ms": int((time.perf_counter() - _mcp_t0) * 1000),
+                            "actions": actions,
+                            "action_results": mcp_results,
+                            "errors": mcp_errors,
+                            "browser": {},
+                        }
+                        # Publish result back to cloud
+                        if passive_cmd and mainwin:
+                            try:
+                                from agent.ec_skills.browser_use_extension.passive_utils import publish_step_result
+                                from agent.ec_skills.browser_use_extension.passive_protocol import PassiveBrowserStepResult
+                                run_id = passive_cmd.get("run_id", "")
+                                step_id = passive_cmd.get("step_id", "")
+                                if run_id and step_id:
+                                    result = PassiveBrowserStepResult(
+                                        run_id=run_id, step_id=step_id,
+                                        ok=not bool(mcp_errors),
+                                        elapsed_ms=payload.get("elapsed_ms", 0),
+                                        actions=actions,
+                                        action_results=mcp_results,
+                                        errors=mcp_errors,
+                                        browser={},
+                                    )
+                                    http_endpoint = mainwin.getWanApiEndpoint()
+                                    auth_token = mainwin.get_auth_token()
+                                    client_id = mainwin.getAcctSiteID()
+                                    logger.info(f"[PassiveMode] publish_step_result: client_id={client_id}, run_id={run_id}, step_id={step_id}")
+                                    await publish_step_result(result, http_endpoint, auth_token, client_id)
+                                    logger.info(f"[PassiveMode] Published MCP step result to cloud")
+                                    send_skill_editor_log("log", f"[PassiveMode] Published MCP step result to cloud")
+                            except Exception as pub_err:
+                                logger.error(f"[PassiveMode] Failed to publish MCP step result: {pub_err}")
+                                send_skill_editor_log("warning", f"[PassiveMode] Failed to publish MCP result: {pub_err}")
+                        return {"passive": True, **payload}
+
+                    # ── browser_use_passive_step — normal browser automation ──
                     # Extract actions from multiple possible state paths (modular for future event types)
                     def _extract_actions_from_state(st: dict, nd_name: str) -> list:
                         """
@@ -3493,10 +3995,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                         # 4. Check attributes.passive_command.actions
                         try:
                             attrs = st.get("attributes", {})
-                            passive_cmd = attrs.get("passive_command")
-                            if isinstance(passive_cmd, dict) and isinstance(passive_cmd.get("actions"), list):
+                            pc = attrs.get("passive_command")
+                            if isinstance(pc, dict) and isinstance(pc.get("actions"), list):
                                 logger.debug("[PassiveMode] Found actions in attributes.passive_command.actions")
-                                return passive_cmd.get("actions")
+                                return pc.get("actions")
                         except Exception:
                             pass
                         
@@ -3515,6 +4017,15 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     logger.info(f"[PassiveMode] Extracted {len(actions)} actions from state")
                     if not isinstance(actions, list):
                         return {"error": "browser-use passive mode enabled but actions is not a list"}
+
+                    browser_session = await _get_or_create_browser_session(mainwin)
+                    if not browser_session:
+                        return {"error": "browser-use passive mode: failed to acquire browser session"}
+
+                    if not _is_session_started(browser_session):
+                        import asyncio
+                        task = asyncio.create_task(browser_session.start())
+                        await task
 
                     # Reuse PassiveAgent across loop iterations (keyed by browser_session id)
                     global _cached_passive_agents
@@ -3724,10 +4235,21 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     # Get run_id from state - MUST match the run_id used by PassiveStepResultListener
                     # The listener is created with the session/chat_id as run_id, so we must use that
                     run_id = None
+                    browser_use_run_id_explicit = None
+                    state_dev_mode = False
                     try:
                         if isinstance(state, dict):
                             # First priority: explicit browser_use_run_id
-                            run_id = state.get("browser_use_run_id")
+                            browser_use_run_id_explicit = state.get("browser_use_run_id")
+                            run_id = browser_use_run_id_explicit
+                            # Detect dev mode if present in state
+                            md = state.get("metadata")
+                            attrs = state.get("attributes")
+                            state_dev_mode = bool(
+                                state.get("dev_mode")
+                                or (md.get("dev_mode") if isinstance(md, dict) else False)
+                                or (attrs.get("dev_mode") if isinstance(attrs, dict) else False)
+                            )
                             if not run_id:
                                 attrs = state.get("attributes", {})
                                 # Second priority: chat_id (session ID) - this matches PassiveStepResultListener
@@ -3736,8 +4258,25 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 # Third priority: other run_id fields
                                 attrs = state.get("attributes", {})
                                 run_id = attrs.get("run_id") or attrs.get("thread_id")
+                            if not run_id:
+                                # Fourth priority: metadata.run_id (used by some runners)
+                                md = state.get("metadata", {})
+                                if isinstance(md, dict):
+                                    run_id = md.get("run_id") or md.get("passive_run_id")
                     except Exception:
                         run_id = None
+
+                    # Skill Editor / dev mode: local passive subscriber defaults to 0123456789
+                    # unless EC_BROWSER_PASSIVE_RUN_ID is explicitly set.
+                    try:
+                        from config.app_settings import app_settings
+                        dev_mode = bool(state_dev_mode or getattr(app_settings, "is_dev_mode", False))
+                    except Exception:
+                        dev_mode = bool(state_dev_mode)
+
+                    if dev_mode and not browser_use_run_id_explicit:
+                        dev_run_id = (os.environ.get("EC_BROWSER_PASSIVE_RUN_ID") or "").strip()
+                        run_id = dev_run_id or "0123456789"
                     
                     if not isinstance(run_id, str) or not run_id.strip():
                         run_id = uuid.uuid4().hex
@@ -4264,7 +4803,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             if wait_for_done and info.get("error"):
                 interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": f"Automation pending: {action}"})
 
-            state["n_steps"] += 1
+            try:
+                state["n_steps"] = int(state.get("n_steps", 0) or 0) + 1
+            except Exception:
+                state["n_steps"] = 1
             # Truncate info for history to avoid huge screenshot_base64 in logs
             from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
             info_for_history = truncate_screenshot_for_logging(info)
