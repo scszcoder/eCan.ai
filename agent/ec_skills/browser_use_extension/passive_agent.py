@@ -235,7 +235,13 @@ class PassiveAgent:
 
         This does NOT call LLM.
         """
-        await self.start()
+        # Skip browser session init if ALL actions are mcp_tool (no browser needed)
+        _all_mcp = actions and all(
+            isinstance(a, dict) and len(a) == 1 and "mcp_tool" in a
+            for a in actions
+        )
+        if not _all_mcp:
+            await self.start()
 
         t0 = time.perf_counter()
 
