@@ -1287,8 +1287,21 @@ async def _run_skill_dev_mode(
         
         # Stream through the graph, checking for control signals at each step
         current_node = None
-        graph_config = {"configurable": {"thread_id": run_state.run_id}}
-        async for event in compiled_graph.astream(state_dict, config=graph_config, stream_mode="updates"):
+        graph_config = {
+            "configurable": {"thread_id": run_state.run_id},
+            "recursion_limit": 200,
+        }
+        # Runtime context required by node_wrapper (ec_skill.py) for runtime.context
+        graph_context = {
+            "id": run_state.run_id,
+            "topic": "",
+            "summary": "",
+            "msg_thread_id": "",
+            "tot_context": {},
+            "app_context": {},
+            "this_node": {"name": ""},
+        }
+        async for event in compiled_graph.astream(state_dict, config=graph_config, context=graph_context, stream_mode="updates"):
             # Check for cancellation
             if run_state.cancel_requested:
                 logger.info(f"[cloud_worker] Cancellation requested at node {current_node}")
