@@ -326,7 +326,20 @@ class AppSyncPassiveClient:
                 pass
 
     async def start(self) -> None:
-        logger.info(f"[AppSyncPassiveClient] Starting subscription for run_id={self._config.run_id}, client_id={self._config.client_id}")
+        auth_headers = _build_auth_headers(self._config.auth_token)
+        auth_type = "NONE"
+        if "x-api-key" in auth_headers:
+            auth_type = "API_KEY"
+        elif "Authorization" in auth_headers:
+            auth_type = "AUTHORIZATION"
+
+        logger.info(
+            "[AppSyncPassiveClient] Starting subscription "
+            f"run_id={self._config.run_id}, client_id={self._config.client_id}, "
+            f"auth_type={auth_type}, token_len={len((self._config.auth_token or '').strip())}, "
+            f"http_endpoint={self._config.http_endpoint}, ws_endpoint={self._config.ws_endpoint}, "
+            f"api_host={self._config.api_host}"
+        )
         # Fix C: Clean up any stale WebSocket from a previous run
         self._close_existing_ws()
         with self._lock:
