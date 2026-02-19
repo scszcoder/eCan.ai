@@ -53,7 +53,7 @@ export const GeneralTabContent: React.FC<GeneralTabContentProps> = ({
           type="line"
           size="small"
           className="general-settings-tabs"
-          destroyInactiveTabPane={false}
+          destroyOnHidden={false}
           tabBarExtraContent={(
             <div style={{ display: 'flex', gap: 8, marginRight: 8 }}>
               <Button 

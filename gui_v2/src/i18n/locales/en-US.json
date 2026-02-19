@@ -992,6 +992,8 @@
       "browser_use_config": "Browser Use Configuration",
       "browser_use_config_tooltip": "JSON configuration for browser use (e.g., headless mode, security settings)",
       "wan_api_endpoint_tooltip": "WAN API endpoint address for external access",
+      "ollama_service_unavailable": "Ollama service is not available. Configuration saved, but models could not be fetched.",
+      "ryoais_service_unavailable": "RyoAIS service is not available. Configuration saved, but models could not be fetched.",
       "ryoais": {
         "tab_title": "RYOAIS Discovery",
         "scan_button": "Scan Devices",
