@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Select, Button, Divider, message, Modal, Space, Tooltip, Checkbox } from 'antd';
+import { Select, Button, Divider, message, Modal, Tooltip, Checkbox } from 'antd';
+import { useTranslation } from 'react-i18next';
 import { 
   AmazonOutlined, 
-  ShoppingCartOutlined, 
   SaveOutlined, 
   EyeOutlined,
   PlusOutlined,
@@ -11,7 +11,7 @@ import {
   CaretRightOutlined
 } from '@ant-design/icons';
 import styled from '@emotion/styled';
-import { useLabelConfigStore, LabelConfig, ConfigSource } from '../../stores/labelConfigStore';
+import { useLabelConfigStore, LabelConfig } from '../../stores/labelConfigStore';
 import LabelPreview from './LabelPreview';
 import ConfigPanel from './ConfigPanel';
 
@@ -128,6 +128,7 @@ const EbayIcon = () => (
 );
 
 const ShippingLabel: React.FC = () => {
+  const { t } = useTranslation();
   const {
     systemConfigs,
     userConfigs,
@@ -162,20 +163,21 @@ const ShippingLabel: React.FC = () => {
     }
   }, [selectedConfig, isCustomMode, customConfig]);
 
-  const handleSelectChange = useCallback((value: string) => {
-    if (value === 'custom') {
+  const handleSelectChange = useCallback((value: unknown) => {
+    const stringValue = String(value);
+    if (stringValue === 'custom') {
       enterCustomMode();
       return;
     }
 
     // Find config in system or user configs
-    const systemConfig = systemConfigs.find(c => c.id === value);
+    const systemConfig = systemConfigs.find(c => c.id === stringValue);
     if (systemConfig) {
       selectConfig(systemConfig, 'system');
       return;
     }
 
-    const userConfig = userConfigs.find(c => c.id === value);
+    const userConfig = userConfigs.find(c => c.id === stringValue);
     if (userConfig) {
       selectConfig(userConfig, 'user');
     }
@@ -187,12 +189,12 @@ const ShippingLabel: React.FC = () => {
 
   const handlePreview = useCallback(() => {
     setPreviewConfig({ ...customConfig });
-    message.success('Preview updated');
+    message.success(t('pages.shippingLabel.previewUpdated'));
   }, [customConfig]);
 
   const handleSave = useCallback(async () => {
     if (!customConfig.name || !customConfig.name.trim()) {
-      message.error('Please enter a configuration name');
+      message.error(t('pages.shippingLabel.enterNameError'));
       return;
     }
 
@@ -200,16 +202,16 @@ const ShippingLabel: React.FC = () => {
     const exists = await checkNameExists(customConfig.name);
     if (exists) {
       Modal.confirm({
-        title: 'Name Already Exists',
-        content: `A configuration named "${customConfig.name}" already exists. Do you want to overwrite it?`,
-        okText: 'Overwrite',
-        cancelText: 'Cancel',
+        title: t('pages.shippingLabel.nameExists'),
+        content: t('pages.shippingLabel.nameExistsContent', { name: customConfig.name }),
+        okText: t('pages.shippingLabel.overwrite'),
+        cancelText: t('common.cancel'),
         onOk: async () => {
           const result = await saveCustomConfig(true);
           if (result.success) {
-            message.success('Configuration saved successfully');
+            message.success(t('pages.shippingLabel.saveSuccess'));
           } else {
-            message.error(result.error || 'Failed to save configuration');
+            message.error(result.error || t('pages.shippingLabel.saveFailed'));
           }
         },
       });
@@ -218,25 +220,25 @@ const ShippingLabel: React.FC = () => {
 
     const result = await saveCustomConfig();
     if (result.success) {
-      message.success('Configuration saved successfully');
+      message.success(t('pages.shippingLabel.saveSuccess'));
     } else {
-      message.error(result.error || 'Failed to save configuration');
+      message.error(result.error || t('pages.shippingLabel.saveFailed'));
     }
   }, [customConfig, checkNameExists, saveCustomConfig]);
 
   const handleDelete = useCallback(async (id: string, name: string) => {
     Modal.confirm({
-      title: 'Delete Configuration',
-      content: `Are you sure you want to delete "${name}"?`,
-      okText: 'Delete',
+      title: t('pages.shippingLabel.deleteTitle'),
+      content: t('pages.shippingLabel.deleteContent', { name }),
+      okText: t('common.delete'),
       okButtonProps: { danger: true },
-      cancelText: 'Cancel',
+      cancelText: t('common.cancel'),
       onOk: async () => {
         const result = await deleteUserConfig(id);
         if (result.success) {
-          message.success('Configuration deleted');
+          message.success(t('pages.shippingLabel.deleteSuccess'));
         } else {
-          message.error(result.error || 'Failed to delete configuration');
+          message.error(result.error || t('pages.shippingLabel.deleteFailed'));
         }
       },
     });
@@ -263,7 +265,7 @@ const ShippingLabel: React.FC = () => {
   const handleSetDefault = useCallback(() => {
     if (selectedConfig && !isCustomMode) {
       setDefaultConfig(selectedConfig.id);
-      message.success(`"${selectedConfig.name}" set as default`);
+      message.success(t('pages.shippingLabel.setDefaultSuccess', { name: selectedConfig.name }));
     }
   }, [selectedConfig, isCustomMode, setDefaultConfig]);
 
@@ -299,7 +301,7 @@ const ShippingLabel: React.FC = () => {
             )}
             <span style={{ fontWeight: c.id === defaultConfigId ? 700 : 400 }}>{c.name}</span>
           </div>
-          <Tooltip title="Delete">
+          <Tooltip title={t('pages.shippingLabel.deleteTooltip')}>
             <DeleteOutlined 
               style={{ color: '#ef4444', fontSize: 12 }}
               onClick={(e) => {
@@ -324,7 +326,7 @@ const ShippingLabel: React.FC = () => {
       label: (
         <span style={{ color: '#3b82f6' }}>
           <PlusOutlined style={{ marginRight: 8 }} />
-          Custom Configuration
+          {t('pages.shippingLabel.customConfiguration')}
         </span>
       ),
     },
@@ -334,12 +336,12 @@ const ShippingLabel: React.FC = () => {
     <PageContainer>
       <TitleRow>
         <div style={{ display: 'flex', alignItems: 'center' }}>
-          <Title>Shipping Label Configuration</Title>
+          <Title>{t('pages.shippingLabel.title')}</Title>
           {displayConfig && !isCustomMode && (
             <ConfigName>— {displayConfig.name}</ConfigName>
           )}
           {isCustomMode && (
-            <ConfigName style={{ color: '#3b82f6' }}>— Creating Custom Configuration</ConfigName>
+            <ConfigName style={{ color: '#3b82f6' }}>— {t('pages.shippingLabel.creatingCustom')}</ConfigName>
           )}
         </div>
       </TitleRow>
@@ -349,12 +351,12 @@ const ShippingLabel: React.FC = () => {
           value={currentValue}
           onChange={handleSelectChange}
           loading={loading}
-          placeholder="Select a label configuration"
+          placeholder={t('pages.shippingLabel.selectPlaceholder')}
           options={selectOptions}
           optionFilterProp="label"
           showSearch
         />
-        <Tooltip title="Refresh configurations">
+        <Tooltip title={t('pages.shippingLabel.refreshTooltip')}>
           <RefreshButton
             icon={<ReloadOutlined spin={loading} />}
             onClick={() => forceRefresh()}
@@ -368,7 +370,7 @@ const ShippingLabel: React.FC = () => {
             disabled={isDefault}
             style={{ color: '#f8fafc', marginLeft: 8 }}
           >
-            <span style={{ color: '#f8fafc' }}>Default</span>
+            <span style={{ color: '#f8fafc' }}>{t('pages.shippingLabel.defaultCheckbox')}</span>
           </Checkbox>
         )}
       </SelectRow>
@@ -387,14 +389,14 @@ const ShippingLabel: React.FC = () => {
                   icon={<EyeOutlined />}
                   onClick={handlePreview}
                 >
-                  Preview
+                  {t('pages.shippingLabel.preview')}
                 </Button>
                 <Button 
                   type="primary" 
                   icon={<SaveOutlined />}
                   onClick={handleSave}
                 >
-                  Save Configuration
+                  {t('pages.shippingLabel.saveConfiguration')}
                 </Button>
               </>
             ) : selectedConfig && selectedSource !== 'custom' ? (
@@ -404,14 +406,14 @@ const ShippingLabel: React.FC = () => {
                   onClick={handleAmazonSearch}
                 >
                   <AmazonOutlined style={{ fontSize: 18 }} />
-                  Buy on Amazon
+                  {t('pages.shippingLabel.buyOnAmazon')}
                 </ShopButton>
                 <ShopButton 
                   type="default"
                   onClick={handleEbaySearch}
                 >
                   <EbayIcon />
-                  Buy on eBay
+                  {t('pages.shippingLabel.buyOnEbay')}
                 </ShopButton>
               </>
             ) : null}
