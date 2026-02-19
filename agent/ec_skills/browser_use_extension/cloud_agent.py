@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -102,7 +103,83 @@ class CloudWorkerPassiveTransport(AsyncQueuePassivePubSubTransport):
         self.appsync_url = appsync_url
         self.appsync_api_key = appsync_api_key
         self.client_id = client_id
-    
+        # Thread-safe result delivery (avoids asyncio.Queue event-loop binding issues
+        # when wait_for_result runs in a different loop via run_async_in_sync)
+        self._step_results: dict[tuple[str, str], PassiveBrowserStepResult] = {}
+        self._step_events: dict[tuple[str, str], threading.Event] = {}
+        self._step_lock = threading.Lock()
+
+    # ------------------------------------------------------------------
+    # Override deliver / prepare / wait to use threading primitives
+    # instead of asyncio.Queue.  The Queue approach fails because
+    # run_async_in_sync() creates a *new* event loop, but the Queue
+    # was created on the worker-main loop → "bound to a different
+    # event loop" RuntimeError.
+    # ------------------------------------------------------------------
+
+    def deliver_result(self, result: PassiveBrowserStepResult) -> None:
+        """Thread-safe result delivery that works across event loops."""
+        try:
+            from utils.logger_helper import logger_helper as _logger
+            _logger.debug(f"[L2C] 📥 deliver_result: run_id={result.run_id}, step_id={result.step_id}")
+            from agent.cloud_worker.cloud_logger import get_skill_editor_logger
+            se = get_skill_editor_logger()
+            if se:
+                n = len(result.action_results) if result.action_results else 0
+                se.log(f"[L2C] 📥 Received step result: stepId={result.step_id}, results={n}")
+        except Exception:
+            pass
+
+        key = (result.run_id, result.step_id)
+        with self._step_lock:
+            self._step_results[key] = result
+            evt = self._step_events.get(key)
+        if evt is not None:
+            evt.set()
+
+    async def prepare_for_result(self, *, run_id: str, step_id: str) -> None:
+        """Pre-register a threading.Event so early-arriving results are captured."""
+        key = (run_id, step_id)
+        with self._step_lock:
+            if key not in self._step_events:
+                self._step_events[key] = threading.Event()
+
+    async def wait_for_result(
+        self, *, run_id: str, step_id: str, timeout_s: float
+    ) -> PassiveBrowserStepResult:
+        """Wait for a result using threading.Event (event-loop agnostic)."""
+        key = (run_id, step_id)
+        with self._step_lock:
+            if key in self._step_results:
+                self._step_events.pop(key, None)
+                return self._step_results.pop(key)
+            evt = self._step_events.get(key)
+            if evt is None:
+                evt = threading.Event()
+                self._step_events[key] = evt
+
+        # Wait on the event in an executor thread so we don't block the loop
+        loop = asyncio.get_running_loop()
+        got_it = await loop.run_in_executor(
+            None, evt.wait, max(1.0, float(timeout_s))
+        )
+
+        with self._step_lock:
+            self._step_events.pop(key, None)
+            result = self._step_results.pop(key, None)
+
+        if result is not None:
+            return result
+        if not got_it:
+            raise TimeoutError(
+                f"Timed out waiting for passive step result "
+                f"run_id={run_id} step_id={step_id}"
+            )
+        raise RuntimeError(
+            f"Event was signalled but no result found for "
+            f"run_id={run_id} step_id={step_id}"
+        )
+
     async def publish_command(self, cmd: PassiveBrowserCommand) -> None:
         """Publish command to local client via AppSync mutation."""
         
