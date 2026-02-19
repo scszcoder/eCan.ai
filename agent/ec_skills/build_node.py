@@ -2763,10 +2763,14 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         if not run_id:
                             attrs = state.get("attributes", {})
                             run_id = attrs.get("chat_id") or attrs.get("run_id") or attrs.get("thread_id")
+                        if not run_id:
+                            meta = state.get("metadata", {})
+                            run_id = meta.get("run_id") if isinstance(meta, dict) else None
                 except Exception:
                     pass
                 if not isinstance(run_id, str) or not run_id.strip():
                     run_id = _uuid.uuid4().hex
+                logger.debug(f"[RUN_LOCAL] resolved run_id={run_id}")
                 
                 step_id = f"mcp_{_actual_tool_name}_{_uuid.uuid4().hex[:8]}"
                 
