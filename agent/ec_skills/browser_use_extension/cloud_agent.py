@@ -118,7 +118,7 @@ class CloudWorkerPassiveTransport(AsyncQueuePassivePubSubTransport):
         
         command_dict = cmd.model_dump()
         # AWSJSON scalar expects a JSON string, not a nested object
-        command_json_str = json_module.dumps(command_dict)
+        command_json_str = json.dumps(command_dict)
         
         payload = {
             "runId": cmd.run_id,
@@ -137,7 +137,7 @@ class CloudWorkerPassiveTransport(AsyncQueuePassivePubSubTransport):
             if se_logger:
                 # Summarize actions for logging
                 actions_summary = cmd.actions[:3] if cmd.actions else []  # First 3 actions
-                actions_str = json_module.dumps(actions_summary, default=str)[:300]
+                actions_str = json.dumps(actions_summary, default=str)[:300]
                 se_logger.log(
                     f"[C2L] 📤 publishPassiveCommand: clientId={self.client_id}, runId={cmd.run_id}, stepId={cmd.step_id}, actions={actions_str}"
                 )
