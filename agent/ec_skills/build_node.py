@@ -3961,10 +3961,21 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     # Get run_id from state - MUST match the run_id used by PassiveStepResultListener
                     # The listener is created with the session/chat_id as run_id, so we must use that
                     run_id = None
+                    browser_use_run_id_explicit = None
+                    state_dev_mode = False
                     try:
                         if isinstance(state, dict):
                             # First priority: explicit browser_use_run_id
-                            run_id = state.get("browser_use_run_id")
+                            browser_use_run_id_explicit = state.get("browser_use_run_id")
+                            run_id = browser_use_run_id_explicit
+                            # Detect dev mode if present in state
+                            md = state.get("metadata")
+                            attrs = state.get("attributes")
+                            state_dev_mode = bool(
+                                state.get("dev_mode")
+                                or (md.get("dev_mode") if isinstance(md, dict) else False)
+                                or (attrs.get("dev_mode") if isinstance(attrs, dict) else False)
+                            )
                             if not run_id:
                                 attrs = state.get("attributes", {})
                                 # Second priority: chat_id (session ID) - this matches PassiveStepResultListener
@@ -3973,8 +3984,25 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                                 # Third priority: other run_id fields
                                 attrs = state.get("attributes", {})
                                 run_id = attrs.get("run_id") or attrs.get("thread_id")
+                            if not run_id:
+                                # Fourth priority: metadata.run_id (used by some runners)
+                                md = state.get("metadata", {})
+                                if isinstance(md, dict):
+                                    run_id = md.get("run_id") or md.get("passive_run_id")
                     except Exception:
                         run_id = None
+
+                    # Skill Editor / dev mode: local passive subscriber defaults to 0123456789
+                    # unless EC_BROWSER_PASSIVE_RUN_ID is explicitly set.
+                    try:
+                        from config.app_settings import app_settings
+                        dev_mode = bool(state_dev_mode or getattr(app_settings, "is_dev_mode", False))
+                    except Exception:
+                        dev_mode = bool(state_dev_mode)
+
+                    if dev_mode and not browser_use_run_id_explicit:
+                        dev_run_id = (os.environ.get("EC_BROWSER_PASSIVE_RUN_ID") or "").strip()
+                        run_id = dev_run_id or "0123456789"
                     
                     if not isinstance(run_id, str) or not run_id.strip():
                         run_id = uuid.uuid4().hex
