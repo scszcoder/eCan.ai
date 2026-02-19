@@ -2339,6 +2339,19 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             if key in cfg:
                 return cfg.get(key)
 
+            # 1b) nested tool_input / input objects (common for tool nodes)
+            tool_input = cfg.get('tool_input')
+            if isinstance(tool_input, dict):
+                if key in tool_input:
+                    return tool_input.get(key)
+                nested_input = tool_input.get('input')
+                if isinstance(nested_input, dict) and key in nested_input:
+                    return nested_input.get(key)
+
+            nested_cfg_input = cfg.get('input')
+            if isinstance(nested_cfg_input, dict) and key in nested_cfg_input:
+                return nested_cfg_input.get(key)
+
             # 2) inputsValues.<key>.content
             inputs_values = cfg.get('inputsValues')
             if isinstance(inputs_values, dict) and key in inputs_values:
@@ -2346,6 +2359,14 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 if isinstance(v, dict) and 'content' in v:
                     return v.get('content')
                 return v
+
+            # 2b) inputsValues.input.content.<key>
+            if isinstance(inputs_values, dict) and isinstance(inputs_values.get('input'), dict):
+                v = inputs_values.get('input')
+                if isinstance(v, dict) and 'content' in v:
+                    content = v.get('content')
+                    if isinstance(content, dict) and key in content:
+                        return content.get(key)
 
             # 3) inputs.<key>
             inputs = cfg.get('inputs')
@@ -2463,9 +2484,169 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             return inp
 
     def mcp_tool_callable(state: dict, runtime=None, store=None, **kwargs) -> dict:
+        def _safe_inc_steps(st: dict) -> None:
+            if not isinstance(st, dict):
+                return
+            cur = st.get('n_steps', 0)
+            try:
+                cur_int = int(cur) if cur is not None else 0
+            except Exception:
+                cur_int = 0
+            st['n_steps'] = cur_int + 1
+
         # Determine actual tool name and input at runtime
         actual_tool_name = tool_name
-        actual_tool_input = state.get('tool_input', {})
+        # Tool input can be stored either at state.tool_input (legacy) or
+        # nested under state.tool_input[node_name] (per-node).
+        actual_tool_input: dict[str, Any] = {}
+        try:
+            ti = state.get('tool_input', {}) if isinstance(state, dict) else {}
+            if isinstance(ti, dict) and isinstance(ti.get(node_name), dict):
+                actual_tool_input = ti.get(node_name) or {}
+            elif isinstance(ti, dict):
+                actual_tool_input = ti
+        except Exception:
+            actual_tool_input = {}
+
+        def _normalize_run_code_tool_input(inp: Any) -> dict[str, Any]:
+            if not isinstance(inp, dict):
+                inp = {}
+
+            # Some call sites may wrap tool_input one level deeper.
+            if not isinstance(inp.get('input'), dict) and isinstance(inp.get('tool_input'), dict):
+                wrapped = inp.get('tool_input')
+                if isinstance(wrapped, dict):
+                    inp = wrapped
+
+            # Prefer nested input schema: {"input": {...}}
+            if isinstance(inp.get('input'), dict):
+                normalized: dict[str, Any] = {**inp}
+                normalized_input: dict[str, Any] = {**(normalized.get('input') or {})}
+            else:
+                normalized = {}
+                normalized_input = {}
+
+            # Promote common flat keys into input
+            for k in ('code', 'args', 'timeout', 'allowed_imports', 'language'):
+                if k in inp and k not in normalized_input:
+                    normalized_input[k] = inp.get(k)
+
+            # Also accept node-editor naming when passed at runtime
+            if 'run_code_source' in inp and 'code' not in normalized_input:
+                normalized_input['code'] = inp.get('run_code_source')
+            if 'run_code_language' in inp and 'language' not in normalized_input:
+                normalized_input['language'] = inp.get('run_code_language')
+
+            # Backfill from node config if missing
+            for k in ('code', 'args', 'timeout', 'allowed_imports', 'language'):
+                if normalized_input.get(k) is not None:
+                    continue
+                try:
+                    v = _gather_config_value(config_metadata, k)
+                    if v is not None:
+                        normalized_input[k] = v
+                except Exception:
+                    pass
+
+            # Node editor stores run_code fields as run_code_source/run_code_language
+            # (often either at config_metadata.<key> or config_metadata.data.<key>).
+            if not normalized_input.get('code'):
+                try:
+                    v = (
+                        _gather_config_value(config_metadata, 'run_code_source')
+                        or (config_metadata.get('run_code_source') if isinstance(config_metadata, dict) else None)
+                        or ((config_metadata.get('data') or {}).get('run_code_source') if isinstance(config_metadata, dict) else None)
+                    )
+                    if isinstance(v, str) and v.strip():
+                        normalized_input['code'] = v
+                except Exception:
+                    pass
+
+            if not normalized_input.get('language'):
+                try:
+                    v = (
+                        _gather_config_value(config_metadata, 'run_code_language')
+                        or (config_metadata.get('run_code_language') if isinstance(config_metadata, dict) else None)
+                        or ((config_metadata.get('data') or {}).get('run_code_language') if isinstance(config_metadata, dict) else None)
+                    )
+                    if isinstance(v, str) and v.strip():
+                        normalized_input['language'] = v
+                except Exception:
+                    pass
+
+            # Backfill from state metadata/attributes when config isn't populated
+            if not normalized_input.get('code'):
+                try:
+                    if isinstance(state, dict):
+                        attrs = state.get('attributes')
+                        meta = state.get('metadata')
+                        for container in (attrs, meta):
+                            if isinstance(container, dict):
+                                v = container.get('code') or container.get('source_code') or container.get('script')
+                                if isinstance(v, str) and v.strip():
+                                    normalized_input['code'] = v
+                                    break
+                except Exception:
+                    pass
+
+            # Best-effort: alternate code keys
+            if not normalized_input.get('code'):
+                for alt in ('source_code', 'source', 'script', 'run_code_source'):
+                    v = inp.get(alt)
+                    if isinstance(v, str) and v.strip():
+                        normalized_input['code'] = v
+                        break
+
+            # Coerce args: allow empty string in UI, but MCP run_code expects an object
+            args_val = normalized_input.get('args')
+            if isinstance(args_val, str):
+                if not args_val.strip():
+                    normalized_input['args'] = {}
+                else:
+                    try:
+                        parsed_args = json.loads(args_val)
+                        normalized_input['args'] = parsed_args if isinstance(parsed_args, dict) else {"_raw": args_val}
+                    except Exception:
+                        normalized_input['args'] = {"_raw": args_val}
+            elif args_val is None:
+                normalized_input['args'] = {}
+            elif not isinstance(args_val, dict):
+                normalized_input['args'] = {}
+
+            # Coerce timeout to int when possible
+            timeout_val = normalized_input.get('timeout')
+            if isinstance(timeout_val, str):
+                try:
+                    normalized_input['timeout'] = int(float(timeout_val.strip()))
+                except Exception:
+                    pass
+
+            # Coerce allowed_imports to list[str]
+            allowed_imports_val = normalized_input.get('allowed_imports')
+            if allowed_imports_val is None:
+                normalized_input['allowed_imports'] = []
+            elif isinstance(allowed_imports_val, str):
+                s = allowed_imports_val.strip()
+                if not s:
+                    normalized_input['allowed_imports'] = []
+                else:
+                    try:
+                        parsed = json.loads(s)
+                        if isinstance(parsed, list):
+                            normalized_input['allowed_imports'] = [str(x) for x in parsed]
+                        else:
+                            normalized_input['allowed_imports'] = [s]
+                    except Exception:
+                        normalized_input['allowed_imports'] = [s]
+            elif isinstance(allowed_imports_val, list):
+                normalized_input['allowed_imports'] = [str(x) for x in allowed_imports_val]
+            else:
+                normalized_input['allowed_imports'] = []
+
+            # Always return nested form.
+            # MCP server `run_code` will ignore unknown keys like language, but
+            # our passive protocol expects language+code for consistent tooling.
+            return {'input': normalized_input}
         
         # --- LLM Auto-Select Mode ---
         if use_llm_auto_select:
@@ -2603,7 +2784,19 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
             if _root:
                 actual_tool_input = _coerce_all_inputs(actual_tool_input, _root)
             
-            state['tool_input'] = actual_tool_input
+            # Preserve both legacy (dict with 'input') and per-node tool_input maps.
+            try:
+                existing_ti = state.get('tool_input') if isinstance(state, dict) else None
+                if isinstance(existing_ti, dict) and node_name in existing_ti and isinstance(existing_ti.get(node_name), dict):
+                    existing_ti[node_name] = actual_tool_input
+                    state['tool_input'] = existing_ti
+                elif isinstance(existing_ti, dict) and ('input' not in existing_ti):
+                    existing_ti[node_name] = actual_tool_input
+                    state['tool_input'] = existing_ti
+                else:
+                    state['tool_input'] = actual_tool_input
+            except Exception:
+                state['tool_input'] = actual_tool_input
 
             log_msg = f"tool_input backfilled for {actual_tool_name}: {state['tool_input']}"
             logger.debug(log_msg)
@@ -2681,7 +2874,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     
                     # Store initial result and correlation_id
                     state["tool_result"] = tool_result
-                    state["n_steps"] += 1
+                    _safe_inc_steps(state)
                     
                     # Track pending operation in state
                     pending_ops = state.setdefault("_pending_async_operations", [])
@@ -2786,12 +2979,18 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 
                 # Build the passive command with mcp_tool schema
                 from agent.ec_skills.browser_use_extension.passive_protocol import PassiveBrowserCommand
-                
+
+                tool_input_for_passive: dict[str, Any] = _actual_tool_input if isinstance(_actual_tool_input, dict) else {}
+                if _actual_tool_name == 'run_code':
+                    tool_input_for_passive = _normalize_run_code_tool_input(tool_input_for_passive)
+                    if not (tool_input_for_passive.get('input') or {}).get('code'):
+                        logger.warning(f"[RUN_LOCAL] run_code tool_input missing code after normalization; tool_input={tool_input_for_passive}")
+
                 mcp_action = {
-                    "mcp_tool": {
-                        "command": "mcp_tool",
-                        "tool": _actual_tool_name,
-                        "tool_input": _actual_tool_input if isinstance(_actual_tool_input, dict) else {}
+                    'mcp_tool': {
+                        'command': 'mcp_tool',
+                        'tool': _actual_tool_name,
+                        'tool_input': tool_input_for_passive,
                     }
                 }
                 
@@ -2893,7 +3092,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                 send_skill_editor_log("log", log_msg)
                 
                 state["tool_result"] = tool_result
-                state["n_steps"] += 1
+                _safe_inc_steps(state)
                 
                 tool_call_summary = ActionMessage(
                     content=f"action: run_local mcp call to {_actual_tool_name}; result: {tool_result}"
@@ -2923,7 +3122,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
 
             # Add the result to the state (result is a dict, not a list)
             state["tool_result"] = tool_result
-            state["n_steps"] += 1
+            _safe_inc_steps(state)
 
             tool_call_summary = ActionMessage(content=f"action: mcp call to {_actual_tool_name}; result: {tool_result}")
             add_to_history(state, tool_call_summary)
@@ -4529,7 +4728,10 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
             if wait_for_done and info.get("error"):
                 interrupt({"i_tag": node_name, "paused_at": node_name, "prompt_to_human": f"Automation pending: {action}"})
 
-            state["n_steps"] += 1
+            try:
+                state["n_steps"] = int(state.get("n_steps", 0) or 0) + 1
+            except Exception:
+                state["n_steps"] = 1
             # Truncate info for history to avoid huge screenshot_base64 in logs
             from agent.ec_skills.browser_use_extension.passive_utils import truncate_screenshot_for_logging
             info_for_history = truncate_screenshot_for_logging(info)
