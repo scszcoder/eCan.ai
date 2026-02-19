@@ -97,6 +97,28 @@ def _on_command_subscription() -> str:
     """
 
 
+def _decode_awsjson(value: Any, *, max_depth: int = 5) -> Any:
+    """Decode AppSync AWSJSON values which are sometimes double-serialized.
+
+    In practice `command` may arrive as:
+    - dict (already decoded)
+    - JSON string
+    - JSON string that itself contains a JSON string
+    """
+    cur = value
+    for _ in range(max(1, int(max_depth))):
+        if not isinstance(cur, str):
+            return cur
+        s = cur.strip()
+        if not s:
+            return cur
+        try:
+            cur = json.loads(s)
+        except Exception:
+            return cur
+    return cur
+
+
 _INTERACTIVE_TAGS = {
     "a",
     "button",
@@ -326,7 +348,20 @@ class AppSyncPassiveClient:
                 pass
 
     async def start(self) -> None:
-        logger.info(f"[AppSyncPassiveClient] Starting subscription for run_id={self._config.run_id}, client_id={self._config.client_id}")
+        auth_headers = _build_auth_headers(self._config.auth_token)
+        auth_type = "NONE"
+        if "x-api-key" in auth_headers:
+            auth_type = "API_KEY"
+        elif "Authorization" in auth_headers:
+            auth_type = "AUTHORIZATION"
+
+        logger.info(
+            "[AppSyncPassiveClient] Starting subscription "
+            f"run_id={self._config.run_id}, client_id={self._config.client_id}, "
+            f"auth_type={auth_type}, token_len={len((self._config.auth_token or '').strip())}, "
+            f"http_endpoint={self._config.http_endpoint}, ws_endpoint={self._config.ws_endpoint}, "
+            f"api_host={self._config.api_host}"
+        )
         # Fix C: Clean up any stale WebSocket from a previous run
         self._close_existing_ws()
         with self._lock:
@@ -412,8 +447,13 @@ class AppSyncPassiveClient:
                 try:
                     cmd_raw = envelope.get("command")
                     cmd_obj = json.loads(cmd_raw) if isinstance(cmd_raw, str) else cmd_raw
+                    # AWSJSON can arrive multiply-encoded (string-within-string); unwrap until we get a dict
+                    for _ in range(5):
+                        if not isinstance(cmd_obj, str):
+                            break
+                        cmd_obj = json.loads(cmd_obj)
                     cmd = PassiveBrowserCommand.model_validate(cmd_obj)
-                    logger.info(f"[AppSyncPassiveClient] Received command: run_id={cmd.run_id}, step_id={cmd.step_id}")
+                    logger.info(f"[AppSyncPassiveClient] Received command: type={cmd.type}, run_id={cmd.run_id}, step_id={cmd.step_id}, actions_count={len(cmd.actions) if cmd.actions else 0}")
                 except Exception as e:
                     logger.error(f"[AppSyncPassiveClient] Failed to parse command: {e}")
                     return

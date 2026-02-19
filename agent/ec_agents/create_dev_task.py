@@ -9,6 +9,17 @@ def create_skill_dev_task(mainwin):
     dev_skill = next((sk for sk in agent_skills if sk.name == "test skill under development"), None)
     run_task = next((task for task in agent_tasks if task.name == "dev:run task for skill under development"), None)
     print("dev task dev_skill: ", dev_skill)
+
+    # Auto-create a minimal dev skill if one doesn't exist yet
+    if dev_skill is None:
+        from agent.ec_skill import EC_Skill
+        dev_skill = EC_Skill(
+            name="test skill under development",
+            description="test run on a skill under development.",
+            source="code",
+        )
+        agent_skills.append(dev_skill)
+        print("dev task dev_skill auto-created: ", dev_skill)
     if not run_task:
         task_schedule = TaskSchedule(
             repeat_type=RepeatType.BY_DAYS,

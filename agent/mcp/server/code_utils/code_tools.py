@@ -293,17 +293,37 @@ def execute_code_safe(
 
 # ==================== Tool Implementation ====================
 
+# Map language values to shell types for non-Python execution
+_LANGUAGE_TO_SHELL = {
+    "power_shell": "powershell",
+    "powershell": "powershell",
+    "pwsh": "pwsh",
+    "bash": "bash",
+    "zsh": "zsh",
+    "sh": "sh",
+    "cmd": "cmd",
+    "javascript": "node",
+    "node": "node",
+}
+
+
 def run_code(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Execute Python code and return the results.
+    Execute code and return the results.
+    
+    Supports multiple languages:
+      - python (default): sandboxed Python execution
+      - power_shell / powershell / bash / zsh / sh / cmd: shell script execution
     
     Args:
         mainwin: Main window instance (unused but required for MCP pattern)
         config: Configuration dict with:
-            - code: str (required) - Python code to execute
-            - args: dict (optional) - Input arguments accessible in code as 'args' dict and as variables
-            - timeout: float (optional) - Timeout in seconds (default: 30)
-            - allowed_imports: list (optional) - Additional modules to allow
+            - language: str (optional) - Language/shell to use. Default: "python"
+            - code: str (required) - Code to execute
+            - args: dict/str (optional) - For python: input arguments dict.
+                                           For shell: command-line arguments string.
+            - timeout: float (optional) - Timeout in seconds (default: 30 for python, 60 for shell)
+            - allowed_imports: list (optional) - Additional modules to allow (python only)
             
     Returns:
         Dict with execution results:
@@ -318,10 +338,13 @@ def run_code(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         }
     """
     try:
+        language = config.get("language", "python").lower().strip()
         code = config.get("code", "")
         input_args = config.get("args", {})
-        timeout = config.get("timeout", 30.0)
+        timeout = config.get("timeout", None)  # default depends on language
         allowed_imports = config.get("allowed_imports", [])
+        
+        logger.info(f"[run_code] ENTRY: language={language}, code_len={len(code) if code else 0}, shell_type={_LANGUAGE_TO_SHELL.get(language, 'N/A')}")
         
         if not code:
             return {
@@ -345,11 +368,47 @@ def run_code(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
                 "timestamp": int(time.time() * 1000)
             }
         
-        # Log code execution attempt
         code_preview = code[:100] + "..." if len(code) > 100 else code
-        logger.info(f"[run_code] Executing code: {code_preview}")
+
+        # ── Shell languages ──────────────────────────────────────
+        shell_type = _LANGUAGE_TO_SHELL.get(language)
+        if shell_type:
+            timeout = timeout if timeout is not None else 60.0
+            # If args is a string, prepend it to the script as arguments
+            script = code
+            if isinstance(input_args, str) and input_args:
+                script = f"{input_args}\n{code}"
+            logger.info(f"[run_code] Executing {language} ({shell_type}) script: {code_preview}")
+            exec_result = execute_shell_script(
+                script=script,
+                shell=shell_type,
+                timeout_seconds=timeout,
+            )
+            exec_result["timestamp"] = int(time.time() * 1000)
+            exec_result["language"] = language
+            if exec_result["success"]:
+                logger.info(f"[run_code] {language} execution successful in {exec_result['execution_time_ms']}ms")
+            else:
+                logger.warning(f"[run_code] {language} execution failed: {exec_result.get('stderr', '')}")
+            return exec_result
+
+        # ── Python (default) ─────────────────────────────────────
+        if language != "python":
+            return {
+                "success": False,
+                "error": f"Unsupported language: '{language}'. Supported: python, power_shell, powershell, bash, zsh, sh, cmd",
+                "stdout": "",
+                "stderr": "",
+                "return_value": None,
+                "execution_time_ms": 0,
+                "timestamp": int(time.time() * 1000)
+            }
+
+        timeout = timeout if timeout is not None else 30.0
+        if not isinstance(input_args, dict):
+            input_args = {}
+        logger.info(f"[run_code] Executing python code: {code_preview}")
         
-        # Execute the code
         exec_result = execute_code_safe(
             code=code,
             timeout_seconds=timeout,
@@ -361,11 +420,9 @@ def run_code(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
         return_value = exec_result.return_value
         if return_value is not None:
             try:
-                # Try to convert to JSON-serializable format
                 import json
                 json.dumps(return_value)
             except (TypeError, ValueError):
-                # If not serializable, convert to string representation
                 return_value = repr(return_value)
         
         result = {
@@ -375,6 +432,7 @@ def run_code(mainwin, config: Dict[str, Any]) -> Dict[str, Any]:
             "return_value": return_value,
             "error": exec_result.error,
             "execution_time_ms": exec_result.execution_time_ms,
+            "language": "python",
             "timestamp": int(time.time() * 1000)
         }
         
@@ -407,11 +465,13 @@ def add_run_code_tool_schema(tool_schemas: List[types.Tool]) -> None:
         name="run_code",
         description=(
             "<category>Code</category><sub-category>Execution</sub-category>"
-            "Execute Python code in a sandboxed environment. The code runs with access to "
-            "common safe modules (os, json, math, re, datetime, collections, itertools, functools, "
-            "random, string, uuid, hashlib, base64). Input arguments are accessible via 'args' dict "
-            "or as individual variables. Returns stdout, stderr, return value, and execution time. "
-            "Use 'result' variable to return a value."
+            "Execute code in a controlled environment. Supports multiple languages: "
+            "python (sandboxed, default), power_shell, bash, zsh, sh, cmd. "
+            "For Python: code runs with access to common safe modules (os, json, math, re, "
+            "datetime, collections, itertools, functools, random, string, uuid, hashlib, base64). "
+            "Input arguments are accessible via 'args' dict or as individual variables. "
+            "Use 'result' variable to return a value. "
+            "For shell languages: executes the code as a shell script with the specified shell."
         ),
         inputSchema={
             "type": "object",
@@ -421,22 +481,26 @@ def add_run_code_tool_schema(tool_schemas: List[types.Tool]) -> None:
                     "type": "object",
                     "required": ["code"],
                     "properties": {
+                        "language": {
+                            "type": "string",
+                            "enum": ["python", "power_shell", "powershell", "bash", "zsh", "sh", "cmd", "javascript", "node"],
+                            "description": "Language/shell to execute. Default: 'python'."
+                        },
                         "code": {
                             "type": "string",
-                            "description": "Python code to execute. Use 'result' variable to return a value."
+                            "description": "Code to execute. For python: use 'result' variable to return a value. For shell: a shell script."
                         },
                         "args": {
-                            "type": "object",
-                            "description": "Input arguments accessible in code as 'args' dict and as individual variables."
+                            "description": "For python: dict of input arguments accessible as 'args' dict and as individual variables. For shell: a string prepended to the script."
                         },
                         "timeout": {
                             "type": "number",
-                            "description": "Maximum execution time in seconds. Default: 30."
+                            "description": "Maximum execution time in seconds. Default: 30 for python, 60 for shell."
                         },
                         "allowed_imports": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "Additional module names to allow importing."
+                            "description": "Additional module names to allow importing (python only)."
                         }
                     }
                 }
@@ -452,7 +516,9 @@ async def async_run_code(mainwin, args: Dict[str, Any]) -> List[TextContent]:
     """Async wrapper for run_code tool."""
     try:
         input_config = args.get('input', {})
+        logger.info(f"[async_run_code] input_config keys={list(input_config.keys())}, language={input_config.get('language','?')}")
         result = run_code(mainwin, input_config)
+        logger.info(f"[async_run_code] result: success={result.get('success')}, stdout_len={len(result.get('stdout',''))}, stderr_len={len(result.get('stderr',''))}, rc={result.get('return_code','?')}")
         
         # Build response message
         if result.get("success"):
@@ -521,8 +587,7 @@ def get_shell_command(shell: str) -> List[str]:
     shell = shell.lower()
     
     if shell == "powershell":
-        # Use pwsh (PowerShell Core) if available, fallback to powershell
-        return ["powershell", "-NoProfile", "-NonInteractive", "-Command"]
+        return ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command"]
     elif shell == "pwsh":
         return ["pwsh", "-NoProfile", "-NonInteractive", "-Command"]
     elif shell == "bash":
@@ -533,6 +598,8 @@ def get_shell_command(shell: str) -> List[str]:
         return ["sh", "-c"]
     elif shell == "cmd":
         return ["cmd", "/c"]
+    elif shell == "node":
+        return ["node", "-e"]
     else:
         # Default based on OS
         os_info = get_os_info()
@@ -597,20 +664,25 @@ def execute_shell_script(
         
         # Execute the script
         if shell.lower() in ("powershell", "pwsh"):
-            # For PowerShell, we can pass the script directly
-            full_cmd = shell_cmd + [script]
+            # Wrap in a script block with Out-String so object output is
+            # captured as text (PowerShell objects don't emit text in
+            # non-interactive subprocess mode without explicit conversion).
+            wrapped = f"& {{ {script} }} | Out-String -Width 4096"
+            # shell_cmd already ends with "-Command"; append the wrapped script
+            full_cmd = shell_cmd + [wrapped]
         else:
-            # For bash/zsh/sh, pass script as argument
             full_cmd = shell_cmd + [script]
         
+        logger.info(f"[execute_shell_script] full_cmd={full_cmd}")
         process = subprocess.run(
             full_cmd,
             capture_output=True,
             text=True,
             timeout=timeout_seconds,
             cwd=cwd,
-            env=env
+            env=env,
         )
+        logger.info(f"[execute_shell_script] rc={process.returncode}, stdout_len={len(process.stdout)}, stderr_len={len(process.stderr)}")
         
         result["stdout"] = process.stdout
         result["stderr"] = process.stderr

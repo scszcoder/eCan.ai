@@ -235,7 +235,13 @@ class PassiveAgent:
 
         This does NOT call LLM.
         """
-        await self.start()
+        # Skip browser session init if ALL actions are mcp_tool (no browser needed)
+        _all_mcp = actions and all(
+            isinstance(a, dict) and len(a) == 1 and "mcp_tool" in a
+            for a in actions
+        )
+        if not _all_mcp:
+            await self.start()
 
         t0 = time.perf_counter()
 
@@ -307,6 +313,48 @@ class PassiveAgent:
 
             action_name = next(iter(action_dict.keys()))
             params = action_dict.get(action_name) or {}
+
+            # ============================================================
+            # Handle MCP tool actions (sent via run_local passive command)
+            # ============================================================
+            if action_name == "mcp_tool":
+                try:
+                    mcp_tool_name = params.get("tool", "")
+                    mcp_tool_input = params.get("tool_input", {})
+                    logger.info(f"[PassiveAgent] 🔧 MCP tool action received: tool={mcp_tool_name}")
+                    logger.info(f"[PassiveAgent] 🔧 MCP tool input: {mcp_tool_input}")
+                    logger.info(f"[PassiveAgent] 🔧 Full mcp_tool params: {params}")
+                    
+                    logger.info(f"[PassiveAgent] 🔧 Importing mcp_call_tool from agent.mcp.local_client...")
+                    from agent.mcp.local_client import mcp_call_tool
+                    import asyncio
+                    logger.info(f"[PassiveAgent] 🔧 Import successful, calling mcp_call_tool({mcp_tool_name}, ...)...")
+                    
+                    _t0 = time.perf_counter()
+                    mcp_result = await mcp_call_tool(mcp_tool_name, mcp_tool_input)
+                    _elapsed = time.perf_counter() - _t0
+                    
+                    logger.info(f"[PassiveAgent] ✅ MCP tool completed in {_elapsed:.2f}s")
+                    logger.info(f"[PassiveAgent] ✅ MCP tool result type={type(mcp_result).__name__}, value={str(mcp_result)[:500]}")
+                    r = ActionResult(
+                        extracted_content=str(mcp_result) if mcp_result else "",
+                        error=None,
+                    )
+                    logger.info(f"[PassiveAgent] ✅ ActionResult created: extracted_content length={len(r.extracted_content) if r.extracted_content else 0}")
+                    results.append(r)
+                    # Snapshot intended focus (unchanged by MCP tool)
+                    if self.browser_session.agent_focus_target_id:
+                        intended_focus_target_id = self.browser_session.agent_focus_target_id
+                    continue
+                except Exception as e:
+                    msg = f"action[{i}] 'mcp_tool' ({params.get('tool', '?')}) failed: {type(e).__name__}: {e}"
+                    logger.error(f"[PassiveAgent] {msg}", exc_info=True)
+                    r = ActionResult(error=msg)
+                    results.append(r)
+                    errors.append(msg)
+                    if stop_on_error:
+                        break
+                    continue
 
             # Normalize switch action: cloud agent may send full 32-char target_id
             # but browser_use's SwitchActionModel expects max 4-char tab_id suffix.

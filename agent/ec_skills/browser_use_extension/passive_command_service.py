@@ -65,7 +65,8 @@ class PassiveCommandService:
         def on_command(cmd: PassiveBrowserCommand) -> None:
             """Handle incoming command by routing to task."""
             try:
-                logger.info(f"[PassiveCommandService] Received command: run_id={cmd.run_id}, step_id={cmd.step_id}")
+                action_names = [next(iter(a.keys()), "?") for a in (cmd.actions or []) if isinstance(a, dict)]
+                logger.info(f"[PassiveCommandService] Received command: type={cmd.type}, run_id={cmd.run_id}, step_id={cmd.step_id}, actions={action_names}")
                 success = self._route_command(cmd)
                 if not success:
                     logger.warning(f"[PassiveCommandService] Failed to route command: {cmd.run_id}/{cmd.step_id}")
@@ -128,13 +129,42 @@ def make_passive_command_service_from_mainwin(
     
     http_endpoint = mainwin.getWanApiEndpoint()
     ws_endpoint = mainwin.getWSApiEndpoint()
-    
+
+    # Ensure WS subscription targets the same AppSync API as the HTTP endpoint.
+    # Some client configs may have stale ws_api_endpoint/ws_api_host values
+    # (pointing at a different AppSync API), which makes the subscription
+    # receive events with unexpected shapes / null AWSJSON.
+    derived_ws_endpoint = _derive_realtime_endpoint(http_endpoint)
     if not ws_endpoint:
-        ws_endpoint = _derive_realtime_endpoint(http_endpoint)
-    
+        ws_endpoint = derived_ws_endpoint
+    else:
+        try:
+            http_host = _derive_api_host(http_endpoint, "")
+            ws_host = _derive_api_host("", ws_endpoint)
+            # If the AppSync API host differs, override WS endpoint.
+            if http_host and ws_host and http_host != ws_host:
+                logger.warning(
+                    "[PassiveCommandService] ws_api_endpoint host mismatch; overriding to match wan_api_endpoint "
+                    f"(http_host={http_host}, ws_host={ws_host}, ws_endpoint={ws_endpoint})"
+                )
+                ws_endpoint = derived_ws_endpoint
+        except Exception:
+            ws_endpoint = derived_ws_endpoint
+
     api_host = mainwin.getWSApiHost()
+    derived_api_host = _derive_api_host(http_endpoint, ws_endpoint)
     if not api_host:
-        api_host = _derive_api_host(http_endpoint, ws_endpoint)
+        api_host = derived_api_host
+    else:
+        try:
+            if derived_api_host and api_host.strip() and api_host.strip() != derived_api_host:
+                logger.warning(
+                    "[PassiveCommandService] ws_api_host mismatch; overriding to match wan_api_endpoint "
+                    f"(api_host={api_host}, derived_api_host={derived_api_host})"
+                )
+                api_host = derived_api_host
+        except Exception:
+            api_host = derived_api_host
     
     auth_token = mainwin.get_auth_token()
     client_id = mainwin.getAcctSiteID()
@@ -146,6 +176,19 @@ def make_passive_command_service_from_mainwin(
     if not run_id or run_id == "*":
         run_id = "0123456789"
         logger.warning(f"[PassiveCommandService] EC_BROWSER_PASSIVE_RUN_ID not set or '*', defaulting to '{run_id}'")
+
+    # Helpful diagnostics (avoid logging secrets)
+    _tok = (auth_token or "").strip()
+    _auth_type = "NONE"
+    if _tok.lower().startswith("bearer ") or _tok.count(".") >= 2:
+        _auth_type = "AUTHORIZATION"
+    elif _tok:
+        _auth_type = "API_KEY"
+    logger.info(
+        "[PassiveCommandService] AppSync config "
+        f"run_id={run_id}, client_id={client_id}, auth_type={_auth_type}, token_len={len(_tok)}, "
+        f"http_endpoint={http_endpoint}, ws_endpoint={ws_endpoint}, api_host={api_host}"
+    )
     
     config = AppSyncPassiveClientConfig(
         http_endpoint=http_endpoint,

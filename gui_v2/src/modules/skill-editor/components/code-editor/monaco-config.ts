@@ -79,13 +79,9 @@ if (import.meta.env.DEV && typeof window !== 'undefined') {
 if (typeof window !== 'undefined' && import.meta.env.PROD) {
   (window as any).MonacoEnvironment = {
     getWorkerUrl: function (_moduleId: string, _label: string) {
-      const isFileProtocol = window.location.protocol === 'file:';
-      
-      if (isFileProtocol) {
-        return './monaco-editor/vs/base/worker/workerMain.js';
-      } else {
-        return '/monaco-editor/vs/base/worker/workerMain.js';
-      }
+      // Always use relative path so it resolves correctly under any base path
+      // (e.g., /app/gui-v2/monaco-editor/... instead of /monaco-editor/...)
+      return './monaco-editor/vs/base/worker/workerMain.js';
     }
   };
 }

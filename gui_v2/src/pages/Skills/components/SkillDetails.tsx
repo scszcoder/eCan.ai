@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { Typography, Space, Button, Progress, Tooltip, Tag, Form, Input, Row, Col, Checkbox, Select, Tabs, App, Modal } from 'antd';
+import { Typography, Space, Button, Progress, Tooltip, Tag, Form, Input, Row, Col, Checkbox, Select, Tabs, App } from 'antd';
 import { useEffectOnActive } from 'keepalive-for-react';
 import type { TabsProps } from 'antd';
 import {
@@ -52,6 +52,9 @@ interface SkillDetailsProps {
     onSave?: () => void;
     onCancel?: () => void;
     onDelete?: () => void;
+    subscribedSkillIds?: string[];
+    onSubscribe?: (skillId: string) => Promise<void>;
+    onUnsubscribe?: (skillId: string) => Promise<void>;
 }
 
 /**
@@ -152,7 +155,7 @@ const fromJsonString = (value: string): any => {
     }
 };
 
-const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRefresh, onSave, onCancel, onDelete }) => {
+const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRefresh, onSave, onCancel, onDelete, subscribedSkillIds, onSubscribe, onUnsubscribe }) => {
     const { t } = useTranslation();
     const navigate = useNavigate();
     const { message } = App.useApp();  // Use App context for message
@@ -176,8 +179,8 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
 
     const [form] = Form.useForm<ExtendedSkill>();
     const [editMode, setEditMode] = React.useState(isNew);
-    const [publishOpen, setPublishOpen] = React.useState(false);
-    const [publishForm] = Form.useForm<{ price_model?: string; trial_days?: number }>();
+    const [publishLoading, setPublishLoading] = React.useState(false);
+    const [subscribeLoading, setSubscribeLoading] = React.useState(false);
 
     const ownerValue = String(((skill as any)?.owner ?? '')).trim();
     const usernameValue = String((username ?? '')).trim();
@@ -185,76 +188,54 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
     const isOwnedByPath = !ownerValue && isResourceMySkillsPath((skill as any)?.path);
     const isOwnedByUser = !!skill && !isNew && (isOwnedByOwner || isOwnedByPath);
     const canPublish = isOwnedByUser && !isCodeSkill;
-    const currentExtraData = (skill as any)?.extra_data as Record<string, any> | undefined;
-    const currentTrialDays = currentExtraData?.trial_days;
     const isPublished = !!skill && !isNew && !!(skill as any)?.public;
+    const isSubscribed = !!skill && !!subscribedSkillIds?.includes(String(skill.id));
 
-    const handleOpenPublish = () => {
-        if (!canPublish) return;
-        const s = skill as any;
-        const sTrialDays = s?.extra_data?.trial_days;
-        const parsedTrialDays = typeof sTrialDays === 'number' ? sTrialDays : (sTrialDays !== undefined ? Number(sTrialDays) : undefined);
-
-        publishForm.setFieldsValue({
-            price_model: s?.price_model,
-            trial_days: Number.isFinite(parsedTrialDays) ? parsedTrialDays : undefined,
-        });
-
-        setPublishOpen(true);
-    };
-
-    const handlePublishSave = async () => {
-        if (!skill || !username) return;
+    const handleTogglePublish = async () => {
+        if (!skill || !username || !canPublish) return;
+        setPublishLoading(true);
         try {
-            const values = await publishForm.validateFields();
-            const existingExtra = ((skill as any)?.extra_data && typeof (skill as any).extra_data === 'object')
-                ? { ...(skill as any).extra_data }
-                : {};
-
-            const nextExtra = {
-                ...existingExtra,
-                trial_days: values.trial_days,
-            };
-
+            const newPublicValue = !isPublished;
             const payload: Partial<Skill> = {
-                ...(skill as any),
-                owner: username,
-                price_model: values.price_model,
-                public: true,
-                rentable: true,
-                extra_data: nextExtra,
-            };
+                id: skill.id,
+                public: newPublicValue,
+                rentable: newPublicValue,
+            } as any;
 
             const api = get_ipc_api();
             const resp = await api.saveAgentSkill(username, payload as any);
             if (!resp.success) {
-                message.error(resp.error?.message || 'Publish failed');
+                message.error(resp.error?.message || 'Failed to update publish status');
                 return;
             }
 
-            try {
-                const returned = (resp.data as any) || {};
-                const merged: any = { ...payload };
-                const returnedData = returned.data;
-                if (returnedData && typeof returnedData === 'object') {
-                    merged.price_model = returnedData.price_model ?? merged.price_model;
-                    merged.public = returnedData.public ?? merged.public;
-                    merged.rentable = returnedData.rentable ?? merged.rentable;
-                    merged.extra_data = returnedData.extra_data ?? merged.extra_data;
-                }
-                updateItem(String((skill as any).id), merged as any);
-            } catch (e) {
-                // ignore store update errors
-            }
-
-            message.success(t('pages.skills.publishSaved', 'Publish settings saved'));
-            setPublishOpen(false);
+            updateItem(String(skill.id), { ...skill, public: newPublicValue, rentable: newPublicValue } as any);
+            message.success(newPublicValue ? 'Published to Store' : 'Removed from Store');
             if (onSave) onSave();
             else onRefresh();
         } catch (e) {
-            if (e instanceof Error) {
-                message.error(e.message);
+            if (e instanceof Error) message.error(e.message);
+        } finally {
+            setPublishLoading(false);
+        }
+    };
+
+    const handleToggleSubscribe = async () => {
+        if (!skill || !username) return;
+        setSubscribeLoading(true);
+        try {
+            const skillId = String(skill.id);
+            if (isSubscribed) {
+                await onUnsubscribe?.(skillId);
+                message.success('Unsubscribed');
+            } else {
+                await onSubscribe?.(skillId);
+                message.success('Subscribed');
             }
+        } catch (e) {
+            if (e instanceof Error) message.error(e.message);
+        } finally {
+            setSubscribeLoading(false);
         }
     };
 
@@ -977,12 +958,6 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                             <Text style={{ color: 'rgba(255, 255, 255, 0.85)' }}>
                                 {t('pages.skills.publishStatus', 'Status')}: {isPublished ? t('pages.skills.published', 'Published') : t('pages.skills.notPublished', 'Not published')}
                             </Text>
-                            <Text style={{ color: 'rgba(255, 255, 255, 0.85)' }}>
-                                {t('pages.skills.priceModel', 'Price Model')}: {(skill as any)?.price_model || '-'}
-                            </Text>
-                            <Text style={{ color: 'rgba(255, 255, 255, 0.85)' }}>
-                                {t('pages.skills.freeTrialDays', 'Free Trial Days')}: {currentTrialDays !== undefined && currentTrialDays !== null && String(currentTrialDays) !== '' ? String(currentTrialDays) : '0'}
-                            </Text>
                         </Space>
                     </StyledCard>
                 )}
@@ -1058,29 +1033,18 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                     {t('pages.skills.readOnly', 'Read-only')}
                                 </Button>
                             </Tooltip>
-                        ) : (
+                        ) : isOwnedByUser ? (
                             <>
                                 {canPublish && (
                                     <Button
                                         icon={<UploadOutlined />}
-                                        onClick={handleOpenPublish}
+                                        onClick={handleTogglePublish}
+                                        loading={publishLoading}
                                         size="large"
-                                        style={buttonStyle}
+                                        style={isPublished ? { ...buttonStyle, borderColor: '#52c41a', color: '#52c41a' } : buttonStyle}
                                     >
-                                        {t('pages.skills.publish', 'Publish')}
+                                        {isPublished ? t('pages.skills.removeFromStore', 'Remove from Store') : t('pages.skills.publishToStore', 'Publish to Store')}
                                     </Button>
-                                )}
-                                {canPublish && (
-                                    <Tooltip title={t('pages.skills.readOnly', 'Read-only')}>
-                                        <Button
-                                            icon={<LockOutlined />}
-                                            disabled
-                                            size="large"
-                                            style={buttonStyle}
-                                        >
-                                            {t('pages.skills.readOnly', 'Read-only')}
-                                        </Button>
-                                    </Tooltip>
                                 )}
                                 <Button
                                     icon={<EditOutlined />}
@@ -1100,44 +1064,33 @@ const SkillDetails: React.FC<SkillDetailsProps> = ({ skill, isNew = false, onRef
                                     {t('common.delete', 'Delete')}
                                 </Button>
                             </>
+                        ) : (
+                            /* Non-owned public skill: read-only + subscribe/unsubscribe */
+                            <>
+                                <Button
+                                    type={isSubscribed ? 'default' : 'primary'}
+                                    onClick={handleToggleSubscribe}
+                                    loading={subscribeLoading}
+                                    size="large"
+                                    style={isSubscribed ? { ...buttonStyle, borderColor: '#faad14', color: '#faad14' } : primaryButtonStyle}
+                                >
+                                    {isSubscribed ? t('pages.skills.unsubscribe', 'Unsubscribe') : t('pages.skills.subscribe', 'Subscribe')}
+                                </Button>
+                                <Tooltip title={t('pages.skills.readOnlyPublic', 'This is a public skill. You can subscribe but not edit.')}>
+                                    <Button
+                                        icon={<LockOutlined />}
+                                        disabled
+                                        size="large"
+                                        style={buttonStyle}
+                                    >
+                                        {t('pages.skills.readOnly', 'Read-only')}
+                                    </Button>
+                                </Tooltip>
+                            </>
                         )}
                     </>
                 )}
             </div>
-
-            <Modal
-                open={publishOpen}
-                title={t('pages.skills.publishSettings', 'Publish Settings')}
-                onCancel={() => setPublishOpen(false)}
-                onOk={handlePublishSave}
-                okText={t('common.save', 'Save')}
-                cancelText={t('common.cancel', 'Cancel')}
-                destroyOnHidden
-            >
-                <Form
-                    form={publishForm}
-                    layout="vertical"
-                    initialValues={{
-                        price_model: '',
-                        trial_days: undefined,
-                    }}
-                >
-                    <Form.Item
-                        label={t('pages.skills.priceModel', 'Price Model')}
-                        name="price_model"
-                        rules={[{ required: true, message: t('pages.skills.priceModelRequired', 'Please enter price model') }]}
-                    >
-                        <Input placeholder={t('pages.skills.priceModelPlaceholder', 'e.g., $0.02 per use')} />
-                    </Form.Item>
-                    <Form.Item
-                        label={t('pages.skills.freeTrialDays', 'Free Trial Days')}
-                        name="trial_days"
-                        rules={[{ type: 'number', min: 0, transform: (v) => (v === '' || v === undefined || v === null ? undefined : Number(v)) }]}
-                    >
-                        <Input type="number" min={0} placeholder="0" />
-                    </Form.Item>
-                </Form>
-            </Modal>
         </div>
     );
 };

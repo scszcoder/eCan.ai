@@ -36,7 +36,7 @@ export const GRAPHQL_QUERIES = {
         agents { id name owner description status rank supervisor_id avatar_resource_id title capabilities extra_data personalities url vehicle_id version created_at updated_at org_id org_ids skills tasks }
         tasks { id name description status priority owner org_id source task_type trigger_type metadata result schedule }
         skills { id name owner description level path public rentable source tags version }
-        tools { id name owner description level tool_type status path public rentable version }
+        tools { id name title owner description level tool_type status path public rentable version config settings capabilities limitations dependencies inputSchema outputSchema icons annotations meta }
         knowledges { id name owner description knowledge_type level status tags path version }
         prompts { id owner prompt version created_at updated_at }
         orgs { id name description parent_id org_type level sort_order status settings }
@@ -87,6 +87,21 @@ export const GRAPHQL_QUERIES = {
         id name description status priority owner org_id source task_type
         trigger_type objectives schedule metadata result error_message progress
       }
+    }
+  `,
+
+  // ==================== Skills Store ====================
+  GET_PUBLIC_SKILLS: `
+    query GetPublicSkills($owner: String) {
+      getPublicSkills(owner: $owner) {
+        id name owner description level path public rentable source tags version
+      }
+    }
+  `,
+
+  GET_SUBSCRIBED_SKILL_IDS: `
+    query GetSubscribedSkillIds($owner: String) {
+      getSubscribedSkillIds(owner: $owner)
     }
   `,
 
@@ -372,6 +387,18 @@ export const GRAPHQL_MUTATIONS = {
   REMOVE_AGENT_SKILLS: `
     mutation RemoveAgentSkills($input: [ID!]!) {
       removeAgentSkills(input: $input) { id success error }
+    }
+  `,
+
+  SUBSCRIBE_TO_SKILL: `
+    mutation SubscribeToSkill($skillId: ID!, $owner: String) {
+      subscribeToSkill(skillId: $skillId, owner: $owner) { id success error }
+    }
+  `,
+
+  UNSUBSCRIBE_FROM_SKILL: `
+    mutation UnsubscribeFromSkill($skillId: ID!, $owner: String) {
+      unsubscribeFromSkill(skillId: $skillId, owner: $owner) { id success error }
     }
   `,
 

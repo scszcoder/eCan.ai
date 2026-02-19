@@ -25,6 +25,9 @@ export const MCPNodeRegistry: FlowNodeRegistry = {
       type: 'mcp',
       data: {
         title: `MCP_${++index}`,
+        run_local: false,
+        run_code_language: 'python',
+        run_code_source: '',
         callable: {
           id: 'llm-auto-select',
           name: 'llm auto select',
@@ -39,7 +42,7 @@ export const MCPNodeRegistry: FlowNodeRegistry = {
           type: 'object',
           properties: {} as Record<string, { type: string; description: string }>,
         },
-        outputs: DEFAULT_NODE_OUTPUTS,
+        outputs: JSON.parse(JSON.stringify(DEFAULT_NODE_OUTPUTS)),
       },
     };
   },
