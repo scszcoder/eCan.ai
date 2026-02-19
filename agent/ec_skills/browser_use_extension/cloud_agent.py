@@ -189,19 +189,22 @@ class CloudWorkerPassiveTransport(AsyncQueuePassivePubSubTransport):
             runId
             clientId
             stepId
+                        command
+                        timestamp
           }
         }
         """
         
         command_dict = cmd.model_dump()
-        # AWSJSON scalar expects a JSON string, not a nested object
-        command_json_str = json.dumps(command_dict)
+        # AppSync AWSJSON scalar expects a JSON-encoded string in variables.
+        command_json_str = json.dumps(command_dict, ensure_ascii=False)
         
         payload = {
             "runId": cmd.run_id,
             "clientId": self.client_id,
             "stepId": cmd.step_id,
-            "command": command_json_str,  # JSON string for AWSJSON type
+            # AWSJSON type - JSON-encoded string
+            "command": command_json_str,
         }
         
         # Log the IDs being used for debugging

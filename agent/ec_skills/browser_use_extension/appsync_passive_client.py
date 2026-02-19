@@ -97,6 +97,28 @@ def _on_command_subscription() -> str:
     """
 
 
+def _decode_awsjson(value: Any, *, max_depth: int = 5) -> Any:
+    """Decode AppSync AWSJSON values which are sometimes double-serialized.
+
+    In practice `command` may arrive as:
+    - dict (already decoded)
+    - JSON string
+    - JSON string that itself contains a JSON string
+    """
+    cur = value
+    for _ in range(max(1, int(max_depth))):
+        if not isinstance(cur, str):
+            return cur
+        s = cur.strip()
+        if not s:
+            return cur
+        try:
+            cur = json.loads(s)
+        except Exception:
+            return cur
+    return cur
+
+
 _INTERACTIVE_TAGS = {
     "a",
     "button",
@@ -424,13 +446,8 @@ class AppSyncPassiveClient:
 
                 try:
                     cmd_raw = envelope.get("command")
-                    # Handle AWSJSON: may be dict, JSON string, or double-encoded string
-                    if isinstance(cmd_raw, str):
-                        cmd_obj = json.loads(cmd_raw)
-                        if isinstance(cmd_obj, str):  # double-encoded by VTL + AWSJSON
-                            cmd_obj = json.loads(cmd_obj)
-                    else:
-                        cmd_obj = cmd_raw
+                    # Handle AWSJSON: may be dict, JSON string, or double/triple-encoded string
+                    cmd_obj = _decode_awsjson(cmd_raw)
                     cmd = PassiveBrowserCommand.model_validate(cmd_obj)
                     logger.info(f"[AppSyncPassiveClient] Received command: type={cmd.type}, run_id={cmd.run_id}, step_id={cmd.step_id}, actions_count={len(cmd.actions) if cmd.actions else 0}")
                 except Exception as e:
