@@ -2728,7 +2728,7 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     try:
                         import os as _os
                         _appsync_url = _os.environ.get("EC_APPSYNC_HTTP_ENDPOINT") or _os.environ.get("APPSYNC_API_URL", "")
-                        _appsync_key = _os.environ.get("EC_APPSYNC_TOKEN") or _os.environ.get("APPSYNC_API_KEY", "")
+                        _appsync_key = _os.environ.get("APPSYNC_API_KEY") or _os.environ.get("EC_APPSYNC_TOKEN", "")
                         _client_id = _os.environ.get("EC_BROWSER_PASSIVE_CLIENT_ID", "")
                         if _appsync_url and _appsync_key and _client_id:
                             from agent.ec_skills.browser_use_extension.cloud_agent import CloudWorkerPassiveTransport
