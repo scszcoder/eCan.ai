@@ -1019,6 +1019,8 @@
       "browser_use_config": "浏览器使用配置",
       "browser_use_config_tooltip": "浏览器使用的JSON配置（如：headless模式、安全设置等）",
       "wan_api_endpoint_tooltip": "用于外部访问的广域网API端点地址",
+      "ollama_service_unavailable": "Ollama 服务不可用。配置已保存，但无法获取模型列表。",
+      "ryoais_service_unavailable": "RyoAIS 服务不可用。配置已保存，但无法获取模型列表。",
       "ryoais": {
         "tab_title": "RYOAIS 设备发现",
         "scan_button": "扫描设备",
