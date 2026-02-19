@@ -1487,7 +1487,7 @@ const RerankManagement = React.forwardRef<
   ];
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", paddingTop: 16 }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
       <Table
         columns={columns}
         dataSource={providers}
@@ -1495,7 +1495,6 @@ const RerankManagement = React.forwardRef<
         loading={loading}
         pagination={false}
         size="small"
-        sticky={true}
         scroll={{ y: 'calc(100vh - 280px)', x: undefined }}
       />
     </div>

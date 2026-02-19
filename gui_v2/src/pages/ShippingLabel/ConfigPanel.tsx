@@ -1,5 +1,6 @@
 import React from 'react';
 import { Form, InputNumber, Select, Input, Divider } from 'antd';
+import { useTranslation } from 'react-i18next';
 import styled from '@emotion/styled';
 import { LabelConfig } from './types';
 
@@ -44,11 +45,13 @@ interface ConfigPanelProps {
 }
 
 const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, isEditable, onChange }) => {
+  const { t } = useTranslation();
+  
   if (!config) {
     return (
       <PanelContainer>
         <div style={{ color: '#94a3b8', textAlign: 'center', paddingTop: 40 }}>
-          Select a configuration to view details
+          {t('pages.shippingLabel.configPanel.selectConfig')}
         </div>
       </PanelContainer>
     );
@@ -70,12 +73,12 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, isEditable, onChange 
       <StyledForm layout="vertical" size="small">
         {isEditable && (
           <>
-            <SectionTitle>Configuration Info</SectionTitle>
-            <Form.Item label="Name">
+            <SectionTitle>{t('pages.shippingLabel.configPanel.configInfo')}</SectionTitle>
+            <Form.Item label={t('pages.shippingLabel.configPanel.name')}>
               <Input
                 value={config.name}
                 onChange={(e) => handleChange('name', e.target.value)}
-                placeholder="Enter configuration name"
+                placeholder={t('pages.shippingLabel.configPanel.namePlaceholder')}
                 {...inputProps}
               />
             </Form.Item>
@@ -83,23 +86,23 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, isEditable, onChange 
           </>
         )}
 
-        <SectionTitle>Unit</SectionTitle>
-        <Form.Item label="Measurement Unit">
+        <SectionTitle>{t('pages.shippingLabel.configPanel.unit')}</SectionTitle>
+        <Form.Item label={t('pages.shippingLabel.configPanel.measurementUnit')}>
           <Select
             value={config.unit}
             onChange={(value) => handleChange('unit', value)}
             {...inputProps}
             options={[
-              { value: 'in', label: 'Inches (in)' },
-              { value: 'mm', label: 'Millimeters (mm)' },
+              { value: 'in', label: t('pages.shippingLabel.configPanel.inches') },
+              { value: 'mm', label: t('pages.shippingLabel.configPanel.millimeters') },
             ]}
           />
         </Form.Item>
 
         <Divider style={{ margin: '16px 0', borderColor: '#334155' }} />
 
-        <SectionTitle>Sheet Dimensions</SectionTitle>
-        <Form.Item label="Sheet Width">
+        <SectionTitle>{t('pages.shippingLabel.configPanel.sheetDimensions')}</SectionTitle>
+        <Form.Item label={t('pages.shippingLabel.configPanel.sheetWidth')}>
           <InputNumber
             value={config.sheet_width}
             onChange={(value) => handleChange('sheet_width', value)}
@@ -110,7 +113,7 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, isEditable, onChange 
             {...inputProps}
           />
         </Form.Item>
-        <Form.Item label="Sheet Height">
+        <Form.Item label={t('pages.shippingLabel.configPanel.sheetHeight')}>
           <InputNumber
             value={config.sheet_height}
             onChange={(value) => handleChange('sheet_height', value)}
@@ -124,8 +127,8 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, isEditable, onChange 
 
         <Divider style={{ margin: '16px 0', borderColor: '#334155' }} />
 
-        <SectionTitle>Label Dimensions</SectionTitle>
-        <Form.Item label="Label Width">
+        <SectionTitle>{t('pages.shippingLabel.configPanel.labelDimensions')}</SectionTitle>
+        <Form.Item label={t('pages.shippingLabel.configPanel.labelWidth')}>
           <InputNumber
             value={config.label_width}
             onChange={(value) => handleChange('label_width', value)}
@@ -136,7 +139,7 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, isEditable, onChange 
             {...inputProps}
           />
         </Form.Item>
-        <Form.Item label="Label Height">
+        <Form.Item label={t('pages.shippingLabel.configPanel.labelHeight')}>
           <InputNumber
             value={config.label_height}
             onChange={(value) => handleChange('label_height', value)}
@@ -150,8 +153,8 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, isEditable, onChange 
 
         <Divider style={{ margin: '16px 0', borderColor: '#334155' }} />
 
-        <SectionTitle>Margins</SectionTitle>
-        <Form.Item label="Top Margin">
+        <SectionTitle>{t('pages.shippingLabel.configPanel.margins')}</SectionTitle>
+        <Form.Item label={t('pages.shippingLabel.configPanel.topMargin')}>
           <InputNumber
             value={config.top_margin}
             onChange={(value) => handleChange('top_margin', value)}
@@ -162,7 +165,7 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, isEditable, onChange 
             {...inputProps}
           />
         </Form.Item>
-        <Form.Item label="Left Margin">
+        <Form.Item label={t('pages.shippingLabel.configPanel.leftMargin')}>
           <InputNumber
             value={config.left_margin}
             onChange={(value) => handleChange('left_margin', value)}
@@ -176,8 +179,8 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, isEditable, onChange 
 
         <Divider style={{ margin: '16px 0', borderColor: '#334155' }} />
 
-        <SectionTitle>Layout</SectionTitle>
-        <Form.Item label="Rows">
+        <SectionTitle>{t('pages.shippingLabel.configPanel.layout')}</SectionTitle>
+        <Form.Item label={t('pages.shippingLabel.configPanel.rows')}>
           <InputNumber
             value={config.rows}
             onChange={(value) => handleChange('rows', value)}
@@ -188,7 +191,7 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, isEditable, onChange 
             {...inputProps}
           />
         </Form.Item>
-        <Form.Item label="Columns">
+        <Form.Item label={t('pages.shippingLabel.configPanel.columns')}>
           <InputNumber
             value={config.cols}
             onChange={(value) => handleChange('cols', value)}
@@ -202,8 +205,8 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, isEditable, onChange 
 
         <Divider style={{ margin: '16px 0', borderColor: '#334155' }} />
 
-        <SectionTitle>Pitch (Gap Between Labels)</SectionTitle>
-        <Form.Item label="Row Pitch">
+        <SectionTitle>{t('pages.shippingLabel.configPanel.pitch')}</SectionTitle>
+        <Form.Item label={t('pages.shippingLabel.configPanel.rowPitch')}>
           <InputNumber
             value={config.row_pitch}
             onChange={(value) => handleChange('row_pitch', value)}
@@ -214,7 +217,7 @@ const ConfigPanel: React.FC<ConfigPanelProps> = ({ config, isEditable, onChange 
             {...inputProps}
           />
         </Form.Item>
-        <Form.Item label="Column Pitch">
+        <Form.Item label={t('pages.shippingLabel.configPanel.columnPitch')}>
           <InputNumber
             value={config.col_pitch}
             onChange={(value) => handleChange('col_pitch', value)}
