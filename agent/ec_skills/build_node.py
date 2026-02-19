@@ -32,6 +32,16 @@ from langchain_core.messages.base import BaseMessage, BaseMessageChunk
 
 # ==================== Module-level Constants ====================
 
+# When a node has useThinking disabled, we still need a well-defined instruction
+# to prevent providers/models that default to verbose reasoning from emitting it.
+# This is appended to the system message via browser-use's `extend_system_message`.
+THINKING_SUPPRESSION_INSTRUCTION = """
+Answer concisely.
+
+- Do not reveal hidden reasoning or chain-of-thought.
+- If you need to think, do it silently and only provide the final answer.
+"""
+
 
 # ==================== Helper Functions ====================
 def resolve_timeout(
