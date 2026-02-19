@@ -147,6 +147,19 @@ def make_passive_command_service_from_mainwin(
     if not run_id or run_id == "*":
         run_id = "0123456789"
         logger.warning(f"[PassiveCommandService] EC_BROWSER_PASSIVE_RUN_ID not set or '*', defaulting to '{run_id}'")
+
+    # Helpful diagnostics (avoid logging secrets)
+    _tok = (auth_token or "").strip()
+    _auth_type = "NONE"
+    if _tok.lower().startswith("bearer ") or _tok.count(".") >= 2:
+        _auth_type = "AUTHORIZATION"
+    elif _tok:
+        _auth_type = "API_KEY"
+    logger.info(
+        "[PassiveCommandService] AppSync config "
+        f"run_id={run_id}, client_id={client_id}, auth_type={_auth_type}, token_len={len(_tok)}, "
+        f"http_endpoint={http_endpoint}, ws_endpoint={ws_endpoint}, api_host={api_host}"
+    )
     
     config = AppSyncPassiveClientConfig(
         http_endpoint=http_endpoint,
