@@ -750,7 +750,7 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'set_default_llm' }, params);
     }
 
-    public async updateLLMProvider<T>(name: string, apiKey: string, azureEndpoint?: string, awsAccessKeyId?: string, awsSecretAccessKey?: string): Promise<APIResponse<T>> {
+    public async updateLLMProvider<T>(name: string, apiKey: string, azureEndpoint?: string, awsAccessKeyId?: string, awsSecretAccessKey?: string, baseUrl?: string): Promise<APIResponse<T>> {
         // Try to persist via DynamoDB settings (needed in web/cloud mode where
         // 'update_llm_provider' has no GraphQL resolver and goes nowhere)
         await this._ensureSettingsLoaded();
@@ -770,6 +770,7 @@ export class IPCAPI {
                     if (azureEndpoint) p.azure_endpoint = azureEndpoint;
                     if (awsAccessKeyId) p.aws_access_key_id = awsAccessKeyId;
                     if (awsSecretAccessKey) p.aws_secret_access_key = awsSecretAccessKey;
+                    if (baseUrl) p.base_url = baseUrl;
                     found = true;
                     break;
                 }
@@ -953,7 +954,7 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'set_default_embedding' }, params);
     }
 
-    public async updateEmbeddingProvider<T>(name: string, apiKey: string, azureEndpoint?: string): Promise<APIResponse<T>> {
+    public async updateEmbeddingProvider<T>(name: string, apiKey: string, azureEndpoint?: string, baseUrl?: string): Promise<APIResponse<T>> {
         // Persist embedding provider API key to DynamoDB
         await this._ensureSettingsLoaded();
         if (this._settingsData && this._settingsUsername) {
@@ -968,6 +969,7 @@ export class IPCAPI {
                     p.api_key = apiKey;
                     p.api_key_configured = !!apiKey && apiKey.length > 0;
                     if (azureEndpoint) p.azure_endpoint = azureEndpoint;
+                    if (baseUrl) p.base_url = baseUrl;
                     found = true;
                     break;
                 }
@@ -1082,7 +1084,7 @@ export class IPCAPI {
         return apiRouter.execute({ method: 'set_default_rerank' }, params);
     }
 
-    public async updateRerankProvider<T>(name: string, apiKey: string, azureEndpoint?: string): Promise<APIResponse<T>> {
+    public async updateRerankProvider<T>(name: string, apiKey: string, azureEndpoint?: string, baseUrl?: string): Promise<APIResponse<T>> {
         await this._ensureSettingsLoaded();
         if (this._settingsData && this._settingsUsername) {
             const rerankProviders = this._settingsData.rerank_providers
@@ -1096,6 +1098,7 @@ export class IPCAPI {
                     p.api_key = apiKey;
                     p.api_key_configured = !!apiKey && apiKey.length > 0;
                     if (azureEndpoint) p.azure_endpoint = azureEndpoint;
+                    if (baseUrl) p.base_url = baseUrl;
                     found = true;
                     break;
                 }

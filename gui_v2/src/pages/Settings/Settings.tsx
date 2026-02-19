@@ -10,7 +10,7 @@ import { useUserStore } from '../../stores/userStore';
 import { get_ipc_api } from '@/services/ipc_api';
 
 import type { Settings } from './types';
-import { LLMManagement, EmbeddingManagement, RerankManagement, RyoaisManagement, BrowserUseSettings } from './components';
+import { LLMManagement, EmbeddingManagement, RerankManagement, RyoaisManagement, BrowserUseSettings, GeneralTabContent } from './components';
 
 // Suppress Ant Design useForm warning (form is properly connected in Tab children)
 const originalError = console.error;
@@ -84,10 +84,12 @@ const SettingsContent = styled.div`
     
     .ant-tabs-content {
       height: 100%;
+      overflow: hidden;
       
       .ant-tabs-tabpane {
         height: 100%;
-        overflow: hidden;
+        overflow-y: auto;
+        overflow-x: hidden;
         padding: 0;
       }
       
@@ -95,6 +97,10 @@ const SettingsContent = styled.div`
         display: flex;
         flex-direction: column;
       }
+    }
+    
+    .ant-tabs-nav-wrap {
+      flex-shrink: 0;
     }
   }
 `;
@@ -692,6 +698,76 @@ const Settings: React.FC = () => {
           .ant-table-body:hover::-webkit-scrollbar-thumb {
             background: ${token.colorBorder};
           }
+          /* Unified table header styles - match General Settings tabs */
+          .ant-table-wrapper {
+            padding-top: 0 !important;
+            margin-top: 0 !important;
+          }
+          .ant-table {
+            border-collapse: collapse !important;
+            margin-top: 0 !important;
+            border-spacing: 0 !important;
+          }
+          .ant-table-container {
+            border-top: none !important;
+            margin-top: 0 !important;
+          }
+          .ant-table-header {
+            margin-bottom: 0 !important;
+            padding-bottom: 0 !important;
+          }
+          .ant-table-thead {
+            background: ${token.colorBgContainer} !important;
+          }
+          .ant-table-thead > tr {
+            background: ${token.colorBgContainer} !important;
+            height: auto !important;
+            border: none !important;
+          }
+          .ant-table-thead > tr > th {
+            background: ${token.colorBgContainer} !important;
+            color: ${token.colorText} !important;
+            font-weight: 500 !important;
+            border: none !important;
+            border-bottom: 1px solid ${token.colorBorderSecondary} !important;
+            padding: 12px 16px !important;
+            line-height: 1.5 !important;
+            vertical-align: middle !important;
+            height: auto !important;
+          }
+          .ant-table-thead > tr > th::before {
+            display: none !important;
+          }
+          .ant-table-thead > tr > th::after {
+            display: none !important;
+          }
+          .ant-table-tbody {
+            border-top: none !important;
+          }
+          .ant-table-tbody > tr:first-child > td {
+            border-top: none !important;
+            padding-top: 12px !important;
+          }
+          .ant-table-tbody > tr > td {
+            border-top: none !important;
+          }
+          /* Remove all gaps */
+          .ant-table table {
+            border-spacing: 0 !important;
+            border-collapse: collapse !important;
+          }
+          /* Fix sticky header gap */
+          .ant-table-sticky-holder {
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+          }
+          .ant-table-sticky-scroll {
+            display: none !important;
+          }
+          /* Remove padding from table parent containers */
+          .ant-tabs-tabpane > div > div[style*="paddingTop"] {
+            padding-top: 0 !important;
+          }
         `}</style>
         <Tabs
           activeKey={activeTab}
@@ -707,762 +783,22 @@ const Settings: React.FC = () => {
                 </span>
               ),
               children: (
-                <>
-                  <div style={{ 
-                    display: 'flex', 
-                    justifyContent: 'flex-end', 
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '12px 24px',
-                    flexShrink: 0,
-                    borderBottom: `1px solid ${token.colorBorderSecondary}`,
-                  }}>
-                    <Button 
-                      type="default" 
-                      icon={<SaveOutlined />} 
-                      onClick={() => form.submit()} 
-                      loading={loading}
-                    >
-                      {t('common.save')}
-                    </Button>
-                    <Tooltip title={t('common.reload')}>
-                      <StyledRefreshButton
-                        shape="circle"
-                        icon={<ReloadOutlined />}
-                        onClick={handleReload}
-                        loading={loading}
-                      />
-                    </Tooltip>
-                  </div>
-                  <div style={{ 
-                    flex: 1, 
-                    overflowY: 'auto', 
-                    padding: '20px 24px',
-                  }}>
-                    <Form
-                      key={formKey}
-                      form={form}
-                      layout="vertical"
-                      onFinish={handleSave}
-                      preserve={true}
-                      initialValues={settingsData || initialSettings}
-                    >
-          {/* Base模式Settings */}
-          <StyledCard
-            title={t('pages.settings.basic_mode_settings')}
-            size="small"
-            style={{ marginBottom: '8px' }}
-            styles={{ body: { padding: '12px 16px 8px 16px' } }}
-          >
-            <Row gutter={[16, 4]}>
-              <Col span={12}>
-                <StyledFormItem
-                  name="debug_mode"
-                  label={t('pages.settings.debug_mode')}
-                  valuePropName="checked"
-                  style={{ marginBottom: '8px' }}
+                <Form
+                  key={formKey}
+                  form={form}
+                  layout="vertical"
+                  onFinish={handleSave}
+                  preserve={true}
+                  initialValues={settingsData || initialSettings}
                 >
-                  <Switch size="small" />
-                </StyledFormItem>
-              </Col>
-              <Col span={12}>
-                <StyledFormItem
-                  name="schedule_mode"
-                  label={t('pages.settings.schedule_mode')}
-                  style={{ marginBottom: '8px' }}
-                >
-                  <Select size="small">
-                    <Select.Option value="auto">Auto</Select.Option>
-                    <Select.Option value="manual">Manual</Select.Option>
-                    <Select.Option value="test">Test</Select.Option>
-                  </Select>
-                </StyledFormItem>
-              </Col>
-            </Row>
-                </StyledCard>
-
-          {/* 硬件Settings */}
-          <StyledCard
-            title={t('pages.settings.hardware_settings')}
-            size="small"
-            style={{ marginBottom: '8px' }}
-            styles={{ body: { padding: '12px 16px 8px 16px' } }}
-          >
-            <Row gutter={[16, 4]}>
-              <Col span={8}>
-                <StyledFormItem
-                  name="default_wifi"
-                  label={t('pages.settings.default_wifi')}
-                  style={{ marginBottom: '8px' }}
-                >
-                  <Input size="small" placeholder="Enter default WiFi" />
-                </StyledFormItem>
-              </Col>
-              <Col span={8}>
-                <StyledFormItem
-                  name="default_printer"
-                  label={t('pages.settings.default_printer')}
-                  style={{ marginBottom: '8px' }}
-                >
-                  <Input size="small" placeholder="Enter default printer" />
-                </StyledFormItem>
-              </Col>
-              <Col span={8}>
-                <StyledFormItem
-                  name="display_resolution"
-                  label={t('pages.settings.display_resolution')}
-                  style={{ marginBottom: '8px' }}
-                >
-                  <Select size="small">
-                    <Select.Option value="D1920X1080">1920x1080</Select.Option>
-                    <Select.Option value="D2560X1440">2560x1440</Select.Option>
-                    <Select.Option value="D3840X2160">3840x2160</Select.Option>
-                  </Select>
-                </StyledFormItem>
-              </Col>
-            </Row>
-                </StyledCard>
-
-          {/* 引擎和端口Settings */}
-          <StyledCard
-            title={t('pages.settings.engine_port_settings')}
-            size="small"
-            style={{ marginBottom: '8px' }}
-            styles={{ body: { padding: '12px 16px 8px 16px' } }}
-          >
-            <Row gutter={[16, 4]}>
-              <Col span={8}>
-                <StyledFormItem
-                  name="network_api_engine"
-                  label={t('pages.settings.network_api_engine')}
-                  style={{ marginBottom: '8px' }}
-                  tooltip={t('pages.settings.network_api_engine_tooltip')}
-                >
-                  <Select 
-                    size="small"
-                    onChange={handleNetworkApiEngineChange}
-                  >
-                    <Select.Option value="lan">LAN</Select.Option>
-                    <Select.Option value="wan">WAN</Select.Option>
-                  </Select>
-                </StyledFormItem>
-              </Col>
-              <Col span={8}>
-                <StyledFormItem
-                  name="schedule_engine"
-                  label={t('pages.settings.schedule_engine')}
-                  style={{ marginBottom: '8px' }}
-                >
-                  <Select size="small">
-                    <Select.Option value="lan">LAN</Select.Option>
-                    <Select.Option value="wan">WAN</Select.Option>
-                  </Select>
-                </StyledFormItem>
-              </Col>
-              <Col span={8}>
-                <StyledFormItem
-                  name="local_server_port"
-                  label={t('pages.settings.local_server_port')}
-                  style={{ marginBottom: '8px' }}
-                >
-                  <Input size="small" placeholder="Enter local server port" />
-                </StyledFormItem>
-              </Col>
-            </Row>
-                </StyledCard>
-
-          {/* API Configuration Settings - Group related endpoint+key pairs */}
-          <StyledCard
-            title={t('pages.settings.api_configuration')}
-            size="small"
-            style={{ marginBottom: '8px' }}
-            styles={{ body: { padding: '12px 16px 8px 16px' } }}
-          >
-            {/* OCR API Configuration */}
-            <Divider orientation="left" style={{ margin: '8px 0 12px 0', fontSize: '13px', fontWeight: 600 }}>
-              {t('pages.settings.ocr_api_config')}
-            </Divider>
-            <Row gutter={[16, 4]}>
-              <Col span={18}>
-                <StyledFormItem
-                  name="ocr_api_endpoint"
-                  label={t('pages.settings.ocr_api_endpoint')}
-                  style={{ marginBottom: '8px' }}
-                  tooltip={t('pages.settings.ocr_api_endpoint_tooltip')}
-                >
-                  <Input 
-                    size="small" 
-                    placeholder={form.getFieldValue('network_api_engine') === 'lan' 
-                      ? 'http://52.204.81.197:8848/graphql/reqScreenTxtRead' 
-                      : 'Enter WAN OCR endpoint'
-                    }
-                    suffix={
-                      <Tooltip title={t('pages.settings.open_in_browser')}>
-                        <Button 
-                          type="text" 
-                          size="small" 
-                          icon={<GlobalOutlined />}
-                          onClick={() => handleOpenUrl('ocr_api_endpoint')}
-                          style={{ 
-                            cursor: 'pointer',
-                            color: 'rgba(203, 213, 225, 0.7)',
-                            fontSize: '14px',
-                            transition: 'color 0.2s'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)'}
-                          onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(203, 213, 225, 0.7)'}
-                        />
-                      </Tooltip>
-                    }
+                  <GeneralTabContent
+                    form={form}
+                    loading={loading}
+                    handleReload={handleReload}
+                    handleNetworkApiEngineChange={handleNetworkApiEngineChange}
+                    handleOpenUrl={handleOpenUrl}
                   />
-                </StyledFormItem>
-              </Col>
-              <Col span={6}>
-                <StyledFormItem
-                  name="ocr_api_key"
-                  label={t('pages.settings.ocr_api_key')}
-                  style={{ marginBottom: '8px' }}
-                  tooltip={t('pages.settings.ocr_api_key_tooltip')}
-                >
-                  <Input.Password 
-                    size="small" 
-                    placeholder={form.getFieldValue('network_api_engine') === 'lan' ? 'xxxxxxxxxxxxxx' : 'Enter API key'}
-                  />
-                </StyledFormItem>
-              </Col>
-            </Row>
-
-            {/* WAN API Configuration */}
-            <Divider orientation="left" style={{ margin: '16px 0 12px 0', fontSize: '13px', fontWeight: 600 }}>
-              {t('pages.settings.wan_api_config')}
-            </Divider>
-            <Row gutter={[16, 4]}>
-              <Col span={18}>
-                <StyledFormItem
-                  name="wan_api_endpoint"
-                  label={t('pages.settings.wan_api_endpoint')}
-                  style={{ marginBottom: '8px' }}
-                >
-                  <Input 
-                    size="small" 
-                    placeholder="Enter WAN API endpoint"
-                    suffix={
-                      <Tooltip title={t('pages.settings.open_in_browser')}>
-                        <Button 
-                          type="text" 
-                          size="small" 
-                          icon={<GlobalOutlined />}
-                          onClick={() => handleOpenUrl('wan_api_endpoint')}
-                          style={{ 
-                            cursor: 'pointer',
-                            color: 'rgba(203, 213, 225, 0.7)',
-                            fontSize: '14px',
-                            transition: 'color 0.2s'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)'}
-                          onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(203, 213, 225, 0.7)'}
-                        />
-                      </Tooltip>
-                    }
-                  />
-                </StyledFormItem>
-              </Col>
-              <Col span={6}>
-                <StyledFormItem
-                  name="wan_api_key"
-                  label={t('pages.settings.wan_api_key')}
-                  style={{ marginBottom: '8px' }}
-                >
-                  <Input.Password size="small" placeholder="Enter WAN API key" />
-                </StyledFormItem>
-              </Col>
-              <Col span={12}>
-                <StyledFormItem
-                  name="ws_api_endpoint"
-                  label={t('pages.settings.ws_api_endpoint')}
-                  style={{ marginBottom: '8px' }}
-                >
-                  <Input 
-                    size="small" 
-                    placeholder="Enter WebSocket API endpoint"
-                    suffix={
-                      <Tooltip title={t('pages.settings.open_in_browser')}>
-                        <Button 
-                          type="text" 
-                          size="small" 
-                          icon={<GlobalOutlined />}
-                          onClick={() => handleOpenUrl('ws_api_endpoint')}
-                          style={{ 
-                            cursor: 'pointer',
-                            color: 'rgba(203, 213, 225, 0.7)',
-                            fontSize: '14px',
-                            transition: 'color 0.2s'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)'}
-                          onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(203, 213, 225, 0.7)'}
-                        />
-                      </Tooltip>
-                    }
-                  />
-                </StyledFormItem>
-              </Col>
-              <Col span={12}>
-                <StyledFormItem
-                  name="ws_api_host"
-                  label={t('pages.settings.ws_api_host')}
-                  style={{ marginBottom: '8px' }}
-                >
-                  <Input size="small" placeholder="Enter WebSocket API host" />
-                </StyledFormItem>
-              </Col>
-            </Row>
-
-            {/* LAN API Configuration */}
-            <Divider orientation="left" style={{ margin: '16px 0 12px 0', fontSize: '13px', fontWeight: 600 }}>
-              {t('pages.settings.lan_api_config')}
-            </Divider>
-            <Row gutter={[16, 4]}>
-              <Col span={24}>
-                <StyledFormItem
-                  name="lan_api_endpoint"
-                  label={t('pages.settings.lan_api_endpoint')}
-                  style={{ marginBottom: '8px' }}
-                  tooltip={t('pages.settings.lan_api_endpoint_tooltip')}
-                >
-                  <Input 
-                    size="small" 
-                    placeholder="Enter LAN API endpoint"
-                    suffix={
-                      <Tooltip title={t('pages.settings.open_in_browser')}>
-                        <Button 
-                          type="text" 
-                          size="small" 
-                          icon={<GlobalOutlined />}
-                          onClick={() => handleOpenUrl('lan_api_endpoint')}
-                          style={{ 
-                            cursor: 'pointer',
-                            color: 'rgba(203, 213, 225, 0.7)',
-                            fontSize: '14px',
-                            transition: 'color 0.2s'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)'}
-                          onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(203, 213, 225, 0.7)'}
-                        />
-                      </Tooltip>
-                    }
-                  />
-                </StyledFormItem>
-              </Col>
-              <Col span={24}>
-                <StyledFormItem
-                  name="ecan_cloud_searcher_url"
-                  label={t('pages.settings.ecan_cloud_searcher_url')}
-                  style={{ marginBottom: '8px' }}
-                >
-                  <Input 
-                    size="small" 
-                    placeholder="Enter eCan Cloud Searcher URL"
-                    suffix={
-                      <Tooltip title={t('pages.settings.open_in_browser')}>
-                        <Button 
-                          type="text" 
-                          size="small" 
-                          icon={<GlobalOutlined />}
-                          onClick={() => handleOpenUrl('ecan_cloud_searcher_url')}
-                          style={{ 
-                            cursor: 'pointer',
-                            color: 'rgba(203, 213, 225, 0.7)',
-                            fontSize: '14px',
-                            transition: 'color 0.2s'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)'}
-                          onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(203, 213, 225, 0.7)'}
-                        />
-                      </Tooltip>
-                    }
-                  />
-                </StyledFormItem>
-              </Col>
-            </Row>
-                </StyledCard>
-
-          {/* PathSettings */}
-          <StyledCard
-            title={t('pages.settings.path_settings')}
-            size="small"
-            style={{ marginBottom: '8px' }}
-            styles={{ body: { padding: '12px 16px 8px 16px' } }}
-          >
-            <Row gutter={[16, 4]}>
-              <Col span={12}>
-                <StyledFormItem
-                  name="default_webdriver_path"
-                  label={t('pages.settings.default_webdriver_path')}
-                  style={{ marginBottom: '6px' }}
-                >
-                  <Input 
-                    size="small" 
-                    placeholder="Enter webdriver path"
-                    suffix={
-                      <Tooltip title={t('pages.settings.open_folder')}>
-                        <FolderOpenOutlined 
-                          onClick={() => handleOpenPath('default_webdriver_path')}
-                          style={{ 
-                            cursor: 'pointer',
-                            color: 'rgba(203, 213, 225, 0.7)',
-                            fontSize: '14px',
-                            transition: 'color 0.2s'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)'}
-                          onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(203, 213, 225, 0.7)'}
-                        />
-                      </Tooltip>
-                    }
-                  />
-                </StyledFormItem>
-              </Col>
-              <Col span={12}>
-                <StyledFormItem
-                  name="build_dom_tree_script_path"
-                  label={t('pages.settings.build_dom_tree_script_path')}
-                  style={{ marginBottom: '6px' }}
-                >
-                  <Input 
-                    size="small" 
-                    placeholder="Enter DOM tree script path"
-                    suffix={
-                      <Tooltip title={t('pages.settings.open_folder')}>
-                        <FolderOpenOutlined 
-                          onClick={() => handleOpenPath('build_dom_tree_script_path')}
-                          style={{ 
-                            cursor: 'pointer',
-                            color: 'rgba(203, 213, 225, 0.7)',
-                            fontSize: '14px',
-                            transition: 'color 0.2s'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)'}
-                          onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(203, 213, 225, 0.7)'}
-                        />
-                      </Tooltip>
-                    }
-                  />
-                </StyledFormItem>
-              </Col>
-              <Col span={12}>
-                <StyledFormItem
-                  name="browser_use_file_system_path"
-                  label={t('pages.settings.browser_use_file_system_path')}
-                  style={{ marginBottom: '6px' }}
-                >
-                  <Input 
-                    size="small" 
-                    placeholder="Enter browser file system path"
-                    suffix={
-                      <Tooltip title={t('pages.settings.open_folder')}>
-                        <FolderOpenOutlined 
-                          onClick={() => handleOpenPath('browser_use_file_system_path')}
-                          style={{ 
-                            cursor: 'pointer',
-                            color: 'rgba(203, 213, 225, 0.7)',
-                            fontSize: '14px',
-                            transition: 'color 0.2s'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)'}
-                          onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(203, 213, 225, 0.7)'}
-                        />
-                      </Tooltip>
-                    }
-                  />
-                </StyledFormItem>
-              </Col>
-              <Col span={12}>
-                <StyledFormItem
-                  name="new_orders_dir"
-                  label={t('pages.settings.new_orders_dir')}
-                  style={{ marginBottom: '6px' }}
-                >
-                  <Input 
-                    size="small" 
-                    placeholder="Enter new orders directory"
-                    suffix={
-                      <Tooltip title={t('pages.settings.open_folder')}>
-                        <FolderOpenOutlined 
-                          onClick={() => handleOpenPath('new_orders_dir')}
-                          style={{ 
-                            cursor: 'pointer',
-                            color: 'rgba(203, 213, 225, 0.7)',
-                            fontSize: '14px',
-                            transition: 'color 0.2s'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)'}
-                          onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(203, 213, 225, 0.7)'}
-                        />
-                      </Tooltip>
-                    }
-                  />
-                </StyledFormItem>
-              </Col>
-              <Col span={12}>
-                <StyledFormItem
-                  name="new_orders_path"
-                  label={t('pages.settings.new_orders_path')}
-                  style={{ marginBottom: '6px' }}
-                >
-                  <Input 
-                    size="small" 
-                    placeholder="Enter new orders path"
-                    suffix={
-                      <Tooltip title={t('pages.settings.open_folder')}>
-                        <FolderOpenOutlined 
-                          onClick={() => handleOpenPath('new_orders_path')}
-                          style={{ 
-                            cursor: 'pointer',
-                            color: 'rgba(203, 213, 225, 0.7)',
-                            fontSize: '14px',
-                            transition: 'color 0.2s'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)'}
-                          onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(203, 213, 225, 0.7)'}
-                        />
-                      </Tooltip>
-                    }
-                  />
-                </StyledFormItem>
-              </Col>
-              <Col span={12}>
-                <StyledFormItem
-                  name="new_bots_file_path"
-                  label={t('pages.settings.new_bots_file_path')}
-                  style={{ marginBottom: '6px' }}
-                >
-                  <Input 
-                    size="small" 
-                    placeholder="Enter new bots file path"
-                    suffix={
-                      <Tooltip title={t('pages.settings.open_folder')}>
-                        <FolderOpenOutlined 
-                          onClick={() => handleOpenPath('new_bots_file_path')}
-                          style={{ 
-                            cursor: 'pointer',
-                            color: 'rgba(203, 213, 225, 0.7)',
-                            fontSize: '14px',
-                            transition: 'color 0.2s'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)'}
-                          onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(203, 213, 225, 0.7)'}
-                        />
-                      </Tooltip>
-                    }
-                  />
-                </StyledFormItem>
-              </Col>
-            </Row>
-                </StyledCard>
-
-          {/* Database Settings - Group host+port pairs */}
-          <StyledCard
-            title={t('pages.settings.database_settings')}
-            size="small"
-            style={{ marginBottom: '8px' }}
-            styles={{ body: { padding: '12px 16px 8px 16px' } }}
-          >
-            {/* User Database Configuration */}
-            <Divider orientation="left" style={{ margin: '8px 0 12px 0', fontSize: '13px', fontWeight: 600 }}>
-              {t('pages.settings.user_database_config')}
-            </Divider>
-            <Row gutter={[16, 4]}>
-              <Col span={18}>
-                <StyledFormItem
-                  name="local_user_db_host"
-                  label={t('pages.settings.local_user_db_host')}
-                  style={{ marginBottom: '8px' }}
-                >
-                  <Input size="small" placeholder="Enter user DB host (e.g., localhost)" />
-                </StyledFormItem>
-              </Col>
-              <Col span={6}>
-                <StyledFormItem
-                  name="local_user_db_port"
-                  label={t('pages.settings.local_user_db_port')}
-                  style={{ marginBottom: '8px' }}
-                >
-                  <Input size="small" placeholder="Port" />
-                </StyledFormItem>
-              </Col>
-            </Row>
-
-            {/* Agent Database Configuration */}
-            <Divider orientation="left" style={{ margin: '16px 0 12px 0', fontSize: '13px', fontWeight: 600 }}>
-              {t('pages.settings.agent_database_config')}
-            </Divider>
-            <Row gutter={[16, 4]}>
-              <Col span={18}>
-                <StyledFormItem
-                  name="local_agent_db_host"
-                  label={t('pages.settings.local_agent_db_host')}
-                  style={{ marginBottom: '8px' }}
-                >
-                  <Input size="small" placeholder="Enter agent DB host (e.g., localhost)" />
-                </StyledFormItem>
-              </Col>
-              <Col span={6}>
-                <StyledFormItem
-                  name="local_agent_db_port"
-                  label={t('pages.settings.local_agent_db_port')}
-                  style={{ marginBottom: '8px' }}
-                >
-                  <Input size="small" placeholder="Port" />
-                </StyledFormItem>
-              </Col>
-            </Row>
-
-                </StyledCard>
-
-          {/* 文件跟踪和其他Settings */}
-          <StyledCard
-            title={t('pages.settings.file_tracking_other_settings')}
-            size="small"
-            style={{ marginBottom: '8px' }}
-            styles={{ body: { padding: '12px 16px 8px 16px' } }}
-          >
-            <Row gutter={[16, 4]}>
-              <Col span={12}>
-                <StyledFormItem
-                  name="last_bots_file"
-                  label={t('pages.settings.last_bots_file')}
-                  style={{ marginBottom: '8px' }}
-                >
-                  <Input size="small" placeholder="Enter last bots file" />
-                </StyledFormItem>
-              </Col>
-              <Col span={12}>
-                <StyledFormItem
-                  name="last_order_file"
-                  label={t('pages.settings.last_order_file')}
-                  style={{ marginBottom: '8px' }}
-                >
-                  <Input size="small" placeholder="Enter last order file" />
-                </StyledFormItem>
-              </Col>
-              <Col span={12}>
-                <StyledFormItem
-                  name="gui_flowgram_schema"
-                  label={t('pages.settings.gui_flowgram_schema')}
-                  style={{ marginBottom: '8px' }}
-                >
-                  <Input 
-                    size="small" 
-                    placeholder="Enter GUI flowgram schema"
-                    suffix={
-                      <Tooltip title={t('pages.settings.open_folder')}>
-                        <FolderOpenOutlined 
-                          onClick={() => handleOpenPath('gui_flowgram_schema')}
-                          style={{ 
-                            cursor: 'pointer',
-                            color: 'rgba(203, 213, 225, 0.7)',
-                            fontSize: '14px',
-                            transition: 'color 0.2s'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.color = 'rgba(255, 255, 255, 0.9)'}
-                          onMouseLeave={(e) => e.currentTarget.style.color = 'rgba(203, 213, 225, 0.7)'}
-                        />
-                      </Tooltip>
-                    }
-                  />
-                </StyledFormItem>
-              </Col>
-              <Col span={12}>
-                <StyledFormItem
-                  name="default_llm"
-                  label={t('pages.settings.default_llm')}
-                  style={{ marginBottom: '8px' }}
-                >
-                  <Input size="small" placeholder="Default LLM (managed by LLM Management below)" disabled />
-                </StyledFormItem>
-              </Col>
-            </Row>
-                </StyledCard>
-
-          {/* Advanced Settings Section */}
-          <Row gutter={16}>
-            <Col span={24}>
-              <h3 style={{ marginTop: '20px', marginBottom: '16px', borderBottom: '1px solid #d9d9d9', paddingBottom: '8px' }}>
-                {t('pages.settings.advanced_settings')}
-              </h3>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <StyledFormItem
-                name="local_agent_ports"
-                label={t('pages.settings.local_agent_ports')}
-                tooltip="Comma-separated port numbers (e.g., 3600,3800)"
-              >
-                <Input
-                  placeholder="Enter ports (e.g., 3600,3800)"
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    const ports = value.split(',').map(p => parseInt(p.trim())).filter(p => !isNaN(p));
-                    form.setFieldValue('local_agent_ports', ports);
-                  }}
-                />
-              </StyledFormItem>
-            </Col>
-            <Col span={12}>
-              <StyledFormItem
-                name="last_bots_file_time"
-                label={t('pages.settings.last_bots_file_time')}
-              >
-                <Input type="number" placeholder="Last bots file timestamp" />
-              </StyledFormItem>
-            </Col>
-          </Row>
-
-          <Row gutter={16}>
-            <Col span={12}>
-              <StyledFormItem
-                name="last_order_file_time"
-                label={t('pages.settings.last_order_file_time')}
-              >
-                <Input type="number" placeholder="Last order file timestamp" />
-              </StyledFormItem>
-            </Col>
-            <Col span={12}>
-              <StyledFormItem
-                name="mids_forced_to_run"
-                label={t('pages.settings.mids_forced_to_run')}
-                tooltip="JSON array format (e.g., [1,2,3])"
-              >
-                <Input.TextArea
-                  placeholder='Enter JSON array (e.g., [1,2,3])'
-                  rows={2}
-                  onChange={(e) => {
-                    try {
-                      const value = e.target.value.trim();
-                      if (value) {
-                        const parsed = JSON.parse(value);
-                        if (Array.isArray(parsed)) {
-                          form.setFieldValue('mids_forced_to_run', parsed);
-                        }
-                      } else {
-                        form.setFieldValue('mids_forced_to_run', []);
-                      }
-                    } catch (error) {
-                      // Invalid JSON, keep current value
-                    }
-                  }}
-                />
-              </StyledFormItem>
-            </Col>
-          </Row>
-
-          <StyledFormItem>
-            {/* Save button moved to top header */}
-          </StyledFormItem>
-                    </Form>
-                  </div>
-                </>
+                </Form>
               ),
             },
             {
