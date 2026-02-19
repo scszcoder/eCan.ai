@@ -1287,7 +1287,8 @@ async def _run_skill_dev_mode(
         
         # Stream through the graph, checking for control signals at each step
         current_node = None
-        async for event in compiled_graph.astream(state_dict, stream_mode="updates"):
+        graph_config = {"configurable": {"thread_id": run_state.run_id}}
+        async for event in compiled_graph.astream(state_dict, config=graph_config, stream_mode="updates"):
             # Check for cancellation
             if run_state.cancel_requested:
                 logger.info(f"[cloud_worker] Cancellation requested at node {current_node}")
