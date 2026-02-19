@@ -321,6 +321,8 @@ class AppSyncPassivePubSubTransport:
                 try:
                     result_raw = envelope.get("result")
                     result_obj = json.loads(result_raw) if isinstance(result_raw, str) else result_raw
+                    if isinstance(result_obj, str):  # double-encoded AWSJSON
+                        result_obj = json.loads(result_obj)
                     
                     # Log raw result structure for debugging
                     _transport_log(f"[PassiveTransport] 📋 Raw result keys: {list(result_obj.keys()) if isinstance(result_obj, dict) else type(result_obj)}")
@@ -332,6 +334,8 @@ class AppSyncPassivePubSubTransport:
                     dom_tree_raw = envelope.get("dom_tree")
                     if dom_tree_raw:
                         dom_tree_parsed = json.loads(dom_tree_raw) if isinstance(dom_tree_raw, str) else dom_tree_raw
+                        if isinstance(dom_tree_parsed, str):  # double-encoded AWSJSON
+                            dom_tree_parsed = json.loads(dom_tree_parsed)
                         result_obj["dom_tree"] = dom_tree_parsed
                         _transport_log(f"[PassiveTransport] 🌳 dom_tree injected: type={type(dom_tree_parsed).__name__}, keys={list(dom_tree_parsed.keys()) if isinstance(dom_tree_parsed, dict) else 'N/A'}")
                     else:
