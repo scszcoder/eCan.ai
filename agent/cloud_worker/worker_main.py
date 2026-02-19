@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import json
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -9,6 +10,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
+
+# Fix double-import: when run via `python -m agent.cloud_worker.worker_main`,
+# __name__ is '__main__' but other modules import us as 'agent.cloud_worker.worker_main'.
+# Without this, they get a separate module instance with its own globals (e.g. _global_passive_transport).
+if __name__ == '__main__':
+    sys.modules.setdefault('agent.cloud_worker.worker_main', sys.modules[__name__])
 
 from utils.logger_helper import logger_helper as logger
 
