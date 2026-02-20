@@ -1180,6 +1180,7 @@
     },
     "skills": {
       "title": "Skills List",
+      "fetchError": "Failed to fetch skills",
       "addSkill": "Add Skill",
       "category": "Category",
       "deleteSkill": "Delete Skill",
