@@ -346,7 +346,9 @@ export class IPCAPI {
           resultPath: 'getAllMine.agents'
         }
       },
-      { owner: username, userId: username, agent_id }
+      // IMPORTANT: GRAPHQL_QUERIES.GET_ALL_MINE only declares $owner and $userId.
+      // Do not pass extra variables like agent_id, otherwise AppSync will reject the request.
+      { owner: username, userId: username }
     );
     }
 
@@ -359,7 +361,9 @@ export class IPCAPI {
           resultPath: 'getAllMine.skills'
         }
       },
-      { owner: username, userId: username, skill_ids }
+      // IMPORTANT: GRAPHQL_QUERIES.GET_ALL_MINE only declares $owner and $userId.
+      // Do not pass extra variables like skill_ids, otherwise AppSync will reject the request.
+      { owner: username, userId: username }
     );
     }
 
@@ -424,7 +428,9 @@ export class IPCAPI {
           resultPath: 'getAgentTasks'
         }
       },
-      { owner: username, userId: username, task_ids: agent_task_ids }
+      // IMPORTANT: GRAPHQL_QUERIES.GET_AGENT_TASKS declares no variables.
+      // Passing extra variables (owner/userId/task_ids) can cause AppSync validation errors.
+      {}
     );
     }
 
@@ -528,7 +534,9 @@ export class IPCAPI {
           resultPath: 'getAllMine.tools'
         }
       },
-      { owner: username, userId: username, tool_ids }
+      // IMPORTANT: GRAPHQL_QUERIES.GET_ALL_MINE only declares $owner and $userId.
+      // Do not pass extra variables like tool_ids, otherwise AppSync will reject the request.
+      { owner: username, userId: username }
     );
     }
 
