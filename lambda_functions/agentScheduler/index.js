@@ -806,6 +806,125 @@ async function listAllObjects(bucket, prefix) {
   return keys;
 }
 
+// ==================== RAG Registry (metadata sidecar) ====================
+function ragRegistryKey(userDir) {
+  // Global per-user registry: docKey -> metadata (pid/categories/version/fid/...)
+  return `${userDir}/doc_registry.json`;
+}
+
+async function loadRagRegistry(userDir) {
+  const key = ragRegistryKey(userDir);
+  try {
+    const res = await s3.send(new GetObjectCommand({ Bucket: RAG_BUCKET, Key: key }));
+    const raw = await streamToString(res.Body);
+    if (!raw) return { version: 1, updatedAt: new Date().toISOString(), docs: {} };
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && parsed.docs && typeof parsed.docs === 'object') {
+      return parsed;
+    }
+  } catch (_e) {
+    // ignore missing
+  }
+  return { version: 1, updatedAt: new Date().toISOString(), docs: {} };
+}
+
+async function saveRagRegistry(userDir, registry) {
+  const key = ragRegistryKey(userDir);
+  const payload = registry && typeof registry === 'object' ? registry : { version: 1, docs: {} };
+  payload.version = payload.version || 1;
+  payload.updatedAt = new Date().toISOString();
+  payload.docs = payload.docs && typeof payload.docs === 'object' ? payload.docs : {};
+  await s3.send(new PutObjectCommand({
+    Bucket: RAG_BUCKET,
+    Key: key,
+    Body: JSON.stringify(payload, null, 2),
+    ContentType: 'application/json',
+  }));
+  return payload;
+}
+
+function _safeParseAwsJson(value) {
+  let v = value;
+  for (let i = 0; i < 3; i += 1) {
+    if (typeof v !== 'string') return v;
+    try {
+      v = JSON.parse(v);
+    } catch {
+      return v;
+    }
+  }
+  return v;
+}
+
+function _normalizeCategories(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map(String).map(s => s.trim()).filter(Boolean);
+  if (typeof value === 'string') {
+    // accept comma/pipe/semicolon separated
+    return value.split(/[;,|]/g).map(s => s.trim()).filter(Boolean);
+  }
+  return [String(value)];
+}
+
+async function _loadChunksIndex({ userDir, pid }) {
+  // Backward compatible:
+  // 1) Prefer per-pid index if it exists.
+  // 2) Fallback to global index at pid="global".
+  const candidates = [];
+  if (pid) candidates.push(`${userDir}/${pid}/index/chunks.json`);
+  candidates.push(`${userDir}/global/index/chunks.json`);
+  candidates.push(`${userDir}/default/index/chunks.json`);
+
+  for (const key of candidates) {
+    try {
+      const res = await s3.send(new GetObjectCommand({ Bucket: RAG_BUCKET, Key: key }));
+      const raw = await streamToString(res.Body);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return { key, chunks: parsed };
+      }
+    } catch (_e) {
+      // try next
+    }
+  }
+  return { key: null, chunks: [] };
+}
+
+function _filterChunksByMeta(chunks, { pidFilter, categoriesFilter }) {
+  let out = chunks;
+  if (pidFilter) {
+    out = out.filter(c => {
+      const md = c.metadata || {};
+      const pid = md.pid || md.product_id || md.productId;
+      return String(pid || '').toLowerCase() === String(pidFilter).toLowerCase();
+    });
+  }
+  if (categoriesFilter && categoriesFilter.length > 0) {
+    const want = new Set(categoriesFilter.map(s => String(s).toLowerCase()));
+    out = out.filter(c => {
+      const md = c.metadata || {};
+      const cats = _normalizeCategories(md.categories || md.category || md.cats);
+      if (!cats.length) return false;
+      return cats.some(cat => want.has(String(cat).toLowerCase()));
+    });
+  }
+  return out;
+}
+
+function _keywordScoreChunks(chunks, query) {
+  const queryLower = (query || '').toLowerCase();
+  const queryWords = queryLower.split(/\s+/).filter(w => w.length > 2);
+  return chunks.map(c => {
+    const text = String(c.text || c.content || '').toLowerCase();
+    let score = 0;
+    for (const w of queryWords) {
+      if (text.includes(w)) score += 1;
+    }
+    return { ...c, score };
+  });
+}
+
 async function ensureUserSkillFolders(bucket, userPrefix) {
   const prefixes = ["settings", "prompts", "skills", "contexts", "logs", "my_labels", "my_products", "my_warehouses"];
   await ensurePrefixExists(bucket, userPrefix);
@@ -4457,6 +4576,48 @@ async function processEvent(event, context, callback, test_stub) {
     switch (event.info.parentTypeName) {
       case "Mutation":
         switch (event.info.fieldName) {
+          case "reqRAGStore":
+            {
+              // Web-app schema: input RAGIN { pid, fid, file, format, version, options, categories }
+              // Legacy schema: type instead of categories.
+              const itemsRaw = event.arguments?.input || [];
+              const items = Array.isArray(itemsRaw) ? itemsRaw : [itemsRaw].filter(Boolean);
+              const userDir = ownerSub || normalizeEmailForPath(ownerEmail || owner);
+              const registry = await loadRagRegistry(userDir);
+              const updatedDocKeys = [];
+
+              for (const item of items) {
+                const pid = item?.pid || "default";
+                const fileName = item?.file || "";
+                const safeFileName = String(fileName).replace(/[^a-zA-Z0-9._-]/g, "_");
+                const docKey = `${userDir}/${pid}/docs/${safeFileName}`;
+                const categories = _normalizeCategories(item?.categories ?? item?.type);
+                const options = _safeParseAwsJson(item?.options);
+
+                registry.docs[docKey] = {
+                  docKey,
+                  pid,
+                  fid: item?.fid ?? null,
+                  file: safeFileName,
+                  format: item?.format ?? null,
+                  version: item?.version ?? null,
+                  categories,
+                  options: options ?? null,
+                  updatedAt: new Date().toISOString(),
+                };
+                updatedDocKeys.push(docKey);
+              }
+
+              await saveRagRegistry(userDir, registry);
+
+              // Return AWSJSON (stringified) for compatibility.
+              returnData = JSON.stringify({
+                success: true,
+                count: updatedDocKeys.length,
+                docKeys: updatedDocKeys,
+              });
+            }
+            break;
           case "addAgentTasks":
             {
               console.log(`[agentScheduler] addAgentTasks: using owner='${owner}' from identity`);
@@ -5964,6 +6125,110 @@ async function processEvent(event, context, callback, test_stub) {
         util.log("DEBUG", "processing query....", api_caller, "processEvent", logFlag);
 
         switch (event.info.fieldName) {
+          case "queryRAGs":
+            {
+              // Schema: queryRAGs(qs: AWSJSON!): AWSJSON!
+              // Expect qs to include at least: { query: string } and optionally { pid, categories, topK, mode }
+              let qs = event.arguments?.qs;
+              qs = _safeParseAwsJson(qs);
+              if (typeof qs !== 'object' || qs === null) qs = {};
+
+              const query = qs.query || qs.q || "";
+              const pidFilter = qs.pid || qs.product_id || qs.productId || null;
+              const categoriesFilter = _normalizeCategories(qs.categories || qs.category || qs.cats);
+              const topK = Number(qs.topK || qs.k || 5) || 5;
+              const mode = qs.mode || "hybrid";
+
+              const userDir = ownerSub || normalizeEmailForPath(ownerEmail || owner);
+              // Load chunks from index (prefer pid index, else global)
+              const { chunks } = await _loadChunksIndex({ userDir, pid: pidFilter });
+
+              // Attach registry metadata if present
+              const registry = await loadRagRegistry(userDir);
+              const withMeta = (chunks || []).map((c) => {
+                const md = (c && typeof c === 'object' ? (c.metadata || {}) : {});
+                const src = c?.source || md?.source_id || md?.source || "";
+                // Try to reconstruct docKey from pid + file name
+                const file = String(md.file || md.fileName || src || '').split('/').pop();
+                const pidFromMeta = md.pid || md.product_id || md.productId;
+                const pidEffective = pidFromMeta || pidFilter || null;
+                const docKey = (pidEffective && file) ? `${userDir}/${pidEffective}/docs/${file}` : null;
+                const reg = docKey && registry.docs ? registry.docs[docKey] : null;
+                const mergedMeta = {
+                  ...md,
+                  ...(reg ? {
+                    pid: reg.pid,
+                    fid: reg.fid,
+                    version: reg.version,
+                    format: reg.format,
+                    categories: reg.categories,
+                    options: reg.options,
+                    docKey: reg.docKey,
+                  } : {}),
+                };
+                return { ...c, metadata: mergedMeta };
+              });
+
+              const filtered = _filterChunksByMeta(withMeta, { pidFilter, categoriesFilter });
+              const scored = _keywordScoreChunks(filtered, query)
+                .filter(c => (c.score || 0) > 0)
+                .sort((a, b) => (b.score || 0) - (a.score || 0))
+                .slice(0, topK);
+
+              // Optional LLM synthesis (same behavior as ragQuery)
+              let answer = "";
+              const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
+              if (scored.length > 0 && OPENAI_KEY) {
+                try {
+                  const contextText = scored.map((c, i) => {
+                    const src = c.source || c.metadata?.docKey || c.metadata?.file || "unknown";
+                    const txt = c.text || c.content || "";
+                    return `[Source ${i + 1}: ${src}]\n${txt}`;
+                  }).join("\n\n---\n\n");
+
+                  const sysPrompt = `You are a helpful assistant that answers questions based on the provided document excerpts.\nUse ONLY the information from the provided excerpts to answer. If the excerpts don't contain enough information, say so honestly.\nCite sources when possible using [Source N] notation. Be concise but thorough.`;
+                  const userPrompt = `Based on the following document excerpts, answer this question:\n\nQuestion: ${query}\n\nDocument Excerpts:\n${contextText}`;
+
+                  const oaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      "Authorization": `Bearer ${OPENAI_KEY}`,
+                    },
+                    body: JSON.stringify({
+                      model: "gpt-4o-mini",
+                      messages: [
+                        { role: "system", content: sysPrompt },
+                        { role: "user", content: userPrompt },
+                      ],
+                      max_tokens: 1024,
+                      temperature: 0.3,
+                    }),
+                  });
+                  if (oaiRes.ok) {
+                    const oaiData = await oaiRes.json();
+                    answer = oaiData.choices?.[0]?.message?.content || "";
+                  }
+                } catch (_e) {
+                  // ignore
+                }
+              } else if (scored.length === 0) {
+                answer = "No relevant documents found for your query.";
+              }
+
+              returnData = JSON.stringify({
+                answer,
+                chunks: scored.map(c => ({
+                  text: c.text || c.content || "",
+                  score: c.score || 0,
+                  source: c.source || c.metadata?.docKey || "",
+                  metadata: c.metadata || null,
+                })),
+                query,
+                mode,
+              });
+            }
+            break;
           case "queryCloudTaskRunId":
             {
               const input = event.arguments?.input || {};

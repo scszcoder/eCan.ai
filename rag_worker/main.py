@@ -52,6 +52,34 @@ EMBEDDING_DIM = int(os.environ.get("RAG_EMBEDDING_DIM", "1536"))
 s3 = boto3.client("s3")
 
 
+def _registry_key() -> str:
+    # Global per-user registry written by AppSync/Lambda
+    return f"{RAG_USER_DIR}/doc_registry.json"
+
+
+def load_doc_registry() -> dict:
+    if not RAG_USER_DIR:
+        return {"docs": {}}
+    reg = s3_get_json(RAG_BUCKET, _registry_key())
+    if not reg or not isinstance(reg, dict):
+        return {"docs": {}}
+    docs = reg.get("docs")
+    if not isinstance(docs, dict):
+        reg["docs"] = {}
+    return reg
+
+
+def _safe_categories(value) -> list[str]:
+    if not value:
+        return []
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x).strip()]
+    if isinstance(value, str):
+        parts = [p.strip() for p in value.replace("|", ",").replace(";", ",").split(",")]
+        return [p for p in parts if p]
+    return [str(value).strip()]
+
+
 # ── S3 helpers ──────────────────────────────────────────────────────────
 def s3_download_dir(bucket: str, prefix: str, local_dir: str) -> list[str]:
     """Download all objects under prefix to local_dir. Returns list of local paths."""
@@ -223,6 +251,8 @@ def export_chunks_json(working_dir: str, output_path: str):
     """Read LightRAG text_chunks KV store and export as JSON array."""
     chunks_file = os.path.join(working_dir, "kv_store_text_chunks.json")
     chunks = []
+    registry = load_doc_registry()
+    reg_docs = registry.get("docs", {}) if isinstance(registry, dict) else {}
     logger.info(f"export_chunks_json: looking for {chunks_file}")
     if os.path.exists(chunks_file):
         logger.info(f"  Found KV store, size={os.path.getsize(chunks_file) / 1024:.1f} KB")
@@ -238,6 +268,37 @@ def export_chunks_json(working_dir: str, output_path: str):
                 metadata = {k: v for k, v in chunk_data.items() if k not in ("content", "text")}
             elif isinstance(chunk_data, str):
                 text = chunk_data
+            # Attach registry metadata if we can identify the originating docKey.
+            # For per-pid indexing, docs are downloaded from: s3://.../{RAG_USER_DIR}/{RAG_PID}/docs/<file>
+            # LightRAG usually uses source_id similar to the file name/path.
+            file_name = ""
+            if source:
+                file_name = str(source).split("/")[-1]
+            elif isinstance(metadata, dict) and metadata.get("source_id"):
+                file_name = str(metadata.get("source_id")).split("/")[-1]
+
+            doc_key = ""
+            if file_name:
+                doc_key = f"{RAG_USER_DIR}/{RAG_PID}/docs/{file_name}"
+
+            reg = reg_docs.get(doc_key) if doc_key and isinstance(reg_docs, dict) else None
+            if isinstance(reg, dict):
+                # Normalize/merge into chunk metadata
+                metadata = {
+                    **metadata,
+                    "pid": reg.get("pid") or RAG_PID,
+                    "fid": reg.get("fid"),
+                    "version": reg.get("version"),
+                    "format": reg.get("format"),
+                    "categories": _safe_categories(reg.get("categories")),
+                    "options": reg.get("options"),
+                    "docKey": reg.get("docKey") or doc_key,
+                }
+            else:
+                # At minimum, carry pid
+                if isinstance(metadata, dict) and "pid" not in metadata:
+                    metadata["pid"] = RAG_PID
+
             chunks.append({
                 "id": chunk_id,
                 "text": text,
