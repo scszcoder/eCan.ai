@@ -213,6 +213,13 @@ export interface UseInitializationProgressReturn {
 }
 
 /**
+ * Force cleanup the singleton progress manager (e.g., on token expiry / forced logout)
+ */
+export function forceCleanupInitializationProgress(): void {
+  InitializationProgressManager.getInstance().forceCleanup();
+}
+
+/**
  * Hook to monitor MainWindow initialization progress using singleton manager
  * Note: pollInterval is now managed globally by the singleton
  */
