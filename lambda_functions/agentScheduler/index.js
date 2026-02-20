@@ -51,6 +51,37 @@ const { S3Client, GetObjectCommand, PutObjectCommand, HeadObjectCommand, ListObj
 const { ECSClient, RunTaskCommand } = require("@aws-sdk/client-ecs");
 const ecsClient = new ECSClient({ region: "us-east-1" });
 
+// EventBridge Scheduler is optional at runtime (must exist in Lambda layer/package)
+let _schedulerClient = null;
+function isSchedulerSdkAvailable() {
+  try {
+    require.resolve("@aws-sdk/client-scheduler");
+    return true;
+  } catch {
+    return false;
+  }
+}
+function getSchedulerClient() {
+  if (_schedulerClient) return _schedulerClient;
+  let SchedulerClient;
+  try {
+    ({ SchedulerClient } = require("@aws-sdk/client-scheduler"));
+  } catch (e) {
+    throw new Error("EventBridge Scheduler client is not available (missing @aws-sdk/client-scheduler)");
+  }
+  _schedulerClient = new SchedulerClient({ region: "us-east-1" });
+  return _schedulerClient;
+}
+
+function getSchedulerCommands() {
+  try {
+    // Lazily require commands to avoid hard failure for unrelated resolvers.
+    return require("@aws-sdk/client-scheduler");
+  } catch (e) {
+    throw new Error("EventBridge Scheduler commands are not available (missing @aws-sdk/client-scheduler)");
+  }
+}
+
 // Initialize the SQS client
 const sqsClient = new SQSClient({ region: 'us-east-1' }); // Set your AWS region
 
@@ -168,6 +199,301 @@ const RAG_ECS_CLUSTER = process.env.RAG_ECS_CLUSTER || process.env.ECS_CLUSTER |
 const RAG_ECS_TASK_DEF = process.env.RAG_ECS_TASK_DEF || "";
 const RAG_ECS_SUBNETS = (process.env.RAG_ECS_SUBNETS || process.env.ECS_SUBNETS || "").split(",").filter(Boolean);
 const RAG_ECS_SECURITY_GROUPS = (process.env.RAG_ECS_SECURITY_GROUPS || process.env.ECS_SECURITY_GROUPS || "").split(",").filter(Boolean);
+
+// Scheduled task (cloud worker) configuration
+const ECS_CLUSTER = process.env.ECS_CLUSTER || "";
+const ECS_TASK_DEFINITION = process.env.ECS_TASK_DEFINITION || process.env.ECS_TASK_DEF || "";
+const ECS_SUBNETS = (process.env.ECS_SUBNETS || "").split(",").filter(Boolean);
+const ECS_SECURITY_GROUPS = (process.env.ECS_SECURITY_GROUPS || "").split(",").filter(Boolean);
+const ECS_CONTAINER_NAME = process.env.ECS_CONTAINER_NAME || "ecan-cloud-worker";
+const SCHEDULER_ROLE_ARN = process.env.SCHEDULER_ROLE_ARN || "";
+const AWS_ACCOUNT_ID = process.env.AWS_ACCOUNT_ID || "";
+const DEFAULT_SCHEDULE_TZ = process.env.DEFAULT_SCHEDULE_TZ || "UTC";
+const SCHEDULER_GROUP = process.env.SCHEDULER_GROUP || "default";
+
+function _decodeAwsJson(value, maxDepth = 4) {
+  let current = value;
+  for (let i = 0; i < maxDepth; i += 1) {
+    if (typeof current !== "string") return current;
+    const trimmed = current.trim();
+    if (!trimmed) return current;
+    try {
+      current = JSON.parse(trimmed);
+    } catch {
+      return current;
+    }
+  }
+  return current;
+}
+
+function _isRunNowSchedule(scheduleStr) {
+  const s = (scheduleStr || "").trim().toLowerCase();
+  return s === "now" || s === "immediate" || s === "immediately" || s === "run_now";
+}
+
+function _toScheduleExpressionFromString(scheduleStr) {
+  const schedule = (scheduleStr || "").trim();
+  if (!schedule) return null;
+  if (schedule.startsWith("cron(") || schedule.startsWith("at(") || schedule.startsWith("rate(")) {
+    return schedule;
+  }
+  if (/^\d{4}-\d{2}-\d{2}T/.test(schedule)) {
+    return `at(${schedule.replace(/Z$/, "")})`;
+  }
+  const fields = schedule.split(/\s+/);
+  const expr = fields.length === 5 ? `${schedule} *` : schedule;
+  return `cron(${expr})`;
+}
+
+function _parseLegacyDateTime(value) {
+  if (!value || typeof value !== "string") return null;
+  const v = value.trim();
+  if (!v) return null;
+  if (v.includes("T")) {
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  // Supports: "YYYY-MM-DD HH:MM:SS:fff" or "YYYY-MM-DD HH:MM:SS:ffffff"
+  const m = v.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2}):(\d{1,6})$/);
+  if (m) {
+    const datePart = m[1];
+    const timePart = m[2];
+    const frac = (m[3] || "").padEnd(6, "0").slice(0, 6);
+    const iso = `${datePart}T${timePart}.${frac}Z`;
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function _formatRate(n, unitPlural) {
+  const count = Math.max(1, Number(n) || 1);
+  const base = unitPlural.endsWith("s") ? unitPlural.slice(0, -1) : unitPlural;
+  const unit = count === 1 ? base : unitPlural;
+  return `rate(${count} ${unit})`;
+}
+
+function _buildScheduleFromTaskScheduleObj(scheduleObj) {
+  const repeatTypeRaw = (scheduleObj?.repeat_type ?? scheduleObj?.repeatType ?? "").toString().trim().toLowerCase();
+  const repeatNumber = Number(scheduleObj?.repeat_number ?? scheduleObj?.repeatNumber ?? 1) || 1;
+  const startDate = _parseLegacyDateTime(scheduleObj?.start_date_time ?? scheduleObj?.startDateTime);
+  const endDate = _parseLegacyDateTime(scheduleObj?.end_date_time ?? scheduleObj?.endDateTime);
+
+  if (!repeatTypeRaw || repeatTypeRaw === "none") {
+    return { scheduleExpression: null, startDate, endDate, timezone: DEFAULT_SCHEDULE_TZ };
+  }
+
+  if (repeatTypeRaw === "by seconds") {
+    if (repeatNumber % 60 === 0) {
+      return { scheduleExpression: _formatRate(repeatNumber / 60, "minutes"), startDate, endDate, timezone: DEFAULT_SCHEDULE_TZ };
+    }
+    throw new Error(`Unsupported repeat_type 'by seconds' (repeat_number=${repeatNumber}); EventBridge Scheduler minimum resolution is 1 minute`);
+  }
+  if (repeatTypeRaw === "by minutes") {
+    return { scheduleExpression: _formatRate(repeatNumber, "minutes"), startDate, endDate, timezone: DEFAULT_SCHEDULE_TZ };
+  }
+  if (repeatTypeRaw === "by hours") {
+    return { scheduleExpression: _formatRate(repeatNumber, "hours"), startDate, endDate, timezone: DEFAULT_SCHEDULE_TZ };
+  }
+  if (repeatTypeRaw === "by days") {
+    return { scheduleExpression: _formatRate(repeatNumber, "days"), startDate, endDate, timezone: DEFAULT_SCHEDULE_TZ };
+  }
+  if (repeatTypeRaw === "by weeks") {
+    return { scheduleExpression: _formatRate(repeatNumber * 7, "days"), startDate, endDate, timezone: DEFAULT_SCHEDULE_TZ };
+  }
+
+  // Month/year schedules: map to cron using the start datetime as the anchor.
+  if (repeatTypeRaw === "by months" || repeatTypeRaw === "by years") {
+    if (!startDate) {
+      throw new Error(`Missing/invalid start_date_time for repeat_type '${repeatTypeRaw}'`);
+    }
+    const minute = startDate.getUTCMinutes();
+    const hour = startDate.getUTCHours();
+    const dayOfMonth = startDate.getUTCDate();
+    const month = startDate.getUTCMonth() + 1;
+    const year = startDate.getUTCFullYear();
+
+    if (repeatTypeRaw === "by months") {
+      const monthField = `${month}/${Math.max(1, repeatNumber)}`;
+      return {
+        scheduleExpression: `cron(${minute} ${hour} ${dayOfMonth} ${monthField} ? *)`,
+        startDate,
+        endDate,
+        timezone: DEFAULT_SCHEDULE_TZ
+      };
+    }
+
+    const yearField = `${year}/${Math.max(1, repeatNumber)}`;
+    return {
+      scheduleExpression: `cron(${minute} ${hour} ${dayOfMonth} ${month} ? ${yearField})`,
+      startDate,
+      endDate,
+      timezone: DEFAULT_SCHEDULE_TZ
+    };
+  }
+
+  throw new Error(`Unsupported repeat_type: ${repeatTypeRaw}`);
+}
+
+function _getClusterArn() {
+  if (!ECS_CLUSTER) return "";
+  if (ECS_CLUSTER.startsWith("arn:")) return ECS_CLUSTER;
+  if (!AWS_ACCOUNT_ID) return "";
+  return `arn:aws:ecs:us-east-1:${AWS_ACCOUNT_ID}:cluster/${ECS_CLUSTER}`;
+}
+
+function _buildContainerEnvForScheduledTask(taskId, ownerValue, extraParams) {
+  const env = [
+    { Name: "ECAN_TASK_ID", Value: String(taskId) },
+    { Name: "ECAN_WORKER_MODE", Value: "scheduled" },
+  ];
+  if (ownerValue) {
+    env.push({ Name: "ECAN_TASK_OWNER", Value: String(ownerValue) });
+  }
+  if (extraParams && Object.keys(extraParams).length > 0) {
+    env.push({ Name: "ECAN_TASK_PARAMS", Value: JSON.stringify(extraParams) });
+  }
+  return env;
+}
+
+async function upsertEcsSchedule({ taskId, scheduleExpression, timezone, startDate, endDate, ownerValue, parameters }) {
+  if (!scheduleExpression) return;
+  if (!SCHEDULER_ROLE_ARN) throw new Error("SCHEDULER_ROLE_ARN env var must be set for EventBridge Scheduler");
+  if (!ECS_CLUSTER || !ECS_TASK_DEFINITION) throw new Error("ECS_CLUSTER and ECS_TASK_DEFINITION env vars must be set for scheduled tasks");
+
+  const { CreateScheduleCommand, UpdateScheduleCommand } = getSchedulerCommands();
+  const scheduler = getSchedulerClient();
+  const scheduleName = `ecan-task-${taskId}`;
+  const clusterArn = _getClusterArn();
+  if (!clusterArn) {
+    throw new Error("Unable to compute ECS cluster ARN (set ECS_CLUSTER to an ARN or provide AWS_ACCOUNT_ID)");
+  }
+
+  const ebNetworkConfig = {
+    awsvpcConfiguration: {
+      Subnets: ECS_SUBNETS,
+      AssignPublicIp: "ENABLED",
+    },
+  };
+  if (ECS_SECURITY_GROUPS.length > 0) {
+    ebNetworkConfig.awsvpcConfiguration.SecurityGroups = ECS_SECURITY_GROUPS;
+  }
+
+  const envVars = _buildContainerEnvForScheduledTask(taskId, ownerValue, parameters);
+
+  const scheduleInput = {
+    Name: scheduleName,
+    GroupName: SCHEDULER_GROUP,
+    ScheduleExpression: scheduleExpression,
+    ScheduleExpressionTimezone: timezone || DEFAULT_SCHEDULE_TZ,
+    FlexibleTimeWindow: { Mode: "OFF" },
+    Target: {
+      Arn: clusterArn,
+      RoleArn: SCHEDULER_ROLE_ARN,
+      EcsParameters: {
+        TaskDefinitionArn: ECS_TASK_DEFINITION,
+        TaskCount: 1,
+        LaunchType: "FARGATE",
+        NetworkConfiguration: ebNetworkConfig,
+        Overrides: {
+          ContainerOverrides: [{
+            Name: ECS_CONTAINER_NAME,
+            Environment: envVars,
+          }],
+        },
+      },
+    },
+    State: "ENABLED",
+  };
+  if (startDate) scheduleInput.StartDate = startDate;
+  if (endDate) scheduleInput.EndDate = endDate;
+
+  try {
+    await scheduler.send(new CreateScheduleCommand(scheduleInput));
+  } catch (err) {
+    if (err && (err.name === "ConflictException" || err.Code === "ConflictException")) {
+      await scheduler.send(new UpdateScheduleCommand(scheduleInput));
+    } else {
+      throw err;
+    }
+  }
+}
+
+async function deleteEcsSchedule(taskId) {
+  if (!isSchedulerSdkAvailable()) {
+    // Best-effort cleanup only; don't fail mutations if Scheduler isn't packaged.
+    return;
+  }
+  const { DeleteScheduleCommand } = getSchedulerCommands();
+  const scheduler = getSchedulerClient();
+  const scheduleName = `ecan-task-${taskId}`;
+  try {
+    await scheduler.send(new DeleteScheduleCommand({ Name: scheduleName, GroupName: SCHEDULER_GROUP }));
+  } catch (err) {
+    if (err && (err.name === "ResourceNotFoundException" || err.Code === "ResourceNotFoundException")) {
+      return;
+    }
+    throw err;
+  }
+}
+
+async function syncTaskSchedule({ taskId, ownerValue, triggerType, scheduleValue, metadataValue }) {
+  const trigger = (triggerType || "").toString().trim().toLowerCase();
+  const decoded = _decodeAwsJson(scheduleValue);
+  const scheduleDecoded = _decodeAwsJson(decoded);
+
+  if (trigger !== "schedule" || scheduleDecoded == null || scheduleDecoded === "") {
+    // Not a scheduled task: best-effort delete any existing schedule.
+    await deleteEcsSchedule(taskId);
+    return;
+  }
+
+  // Allow schedule as TaskSchedule object, or as a string expression (cron/rate/at).
+  if (typeof scheduleDecoded === "string") {
+    if (_isRunNowSchedule(scheduleDecoded)) {
+      // "run now" is handled elsewhere; do not create a recurring schedule.
+      await deleteEcsSchedule(taskId);
+      return;
+    }
+    const expr = _toScheduleExpressionFromString(scheduleDecoded);
+    if (!expr) {
+      await deleteEcsSchedule(taskId);
+      return;
+    }
+    await upsertEcsSchedule({
+      taskId,
+      scheduleExpression: expr,
+      timezone: DEFAULT_SCHEDULE_TZ,
+      startDate: null,
+      endDate: null,
+      ownerValue,
+      parameters: (typeof metadataValue === "object" && metadataValue) ? metadataValue : undefined,
+    });
+    return;
+  }
+
+  if (typeof scheduleDecoded === "object") {
+    const { scheduleExpression, startDate, endDate, timezone } = _buildScheduleFromTaskScheduleObj(scheduleDecoded);
+    if (!scheduleExpression) {
+      await deleteEcsSchedule(taskId);
+      return;
+    }
+    await upsertEcsSchedule({
+      taskId,
+      scheduleExpression,
+      timezone,
+      startDate,
+      endDate,
+      ownerValue,
+      parameters: (typeof metadataValue === "object" && metadataValue) ? metadataValue : undefined,
+    });
+    return;
+  }
+
+  // Unknown schedule type; treat as unscheduled.
+  await deleteEcsSchedule(taskId);
+}
 
 
 const MAXBOTINTS = 5;
@@ -4045,7 +4371,27 @@ async function processEvent(event, context, callback, test_stub) {
                 try {
                   console.log(`[agentScheduler] addAgentTasks: adding task with owner='${owner}', task.name='${task.name}'`);
                   const res = await taskService.addTask({ ...task, owner });
-                  created.push({ id: res?.id || task?.id, success: res?.success !== false, error: res?.error });
+                  const tid = res?.id || task?.id;
+                  let scheduleErr = null;
+                  if (res?.success !== false && tid) {
+                    try {
+                      await syncTaskSchedule({
+                        taskId: tid,
+                        ownerValue: ownerEmail || owner,
+                        triggerType: task?.trigger_type,
+                        scheduleValue: task?.schedule,
+                        metadataValue: task?.metadata,
+                      });
+                    } catch (e) {
+                      scheduleErr = e;
+                      console.error("[agentScheduler] addAgentTasks schedule sync error:", e);
+                    }
+                  }
+                  created.push({
+                    id: tid,
+                    success: (res?.success !== false) && !scheduleErr,
+                    error: res?.error || (scheduleErr ? (scheduleErr.message || String(scheduleErr)) : null)
+                  });
                 } catch (err) {
                   created.push({ id: task?.id, success: false, error: err?.message || String(err) });
                 }
@@ -4085,7 +4431,29 @@ async function processEvent(event, context, callback, test_stub) {
                   delete fields.id;
                   // We already validated ownership; pass null owner to avoid mismatches across email/sub formats.
                   const res = await taskService.updateTask(tid, null, fields);
-                  updated.push({ id: tid, success: res?.success !== false, error: res?.error });
+
+                  let scheduleErr = null;
+                  if (res?.success !== false) {
+                    const effective = { ...current, ...fields };
+                    try {
+                      await syncTaskSchedule({
+                        taskId: tid,
+                        ownerValue: ownerEmail || owner,
+                        triggerType: effective?.trigger_type,
+                        scheduleValue: ("schedule" in fields) ? fields.schedule : effective?.schedule,
+                        metadataValue: ("metadata" in fields) ? fields.metadata : effective?.metadata,
+                      });
+                    } catch (e) {
+                      scheduleErr = e;
+                      console.error("[agentScheduler] updateAgentTasks schedule sync error:", e);
+                    }
+                  }
+
+                  updated.push({
+                    id: tid,
+                    success: (res?.success !== false) && !scheduleErr,
+                    error: res?.error || (scheduleErr ? (scheduleErr.message || String(scheduleErr)) : null)
+                  });
                 } catch (err) {
                   updated.push({ id: tid, success: false, error: err?.message || String(err) });
                 }
@@ -4120,8 +4488,20 @@ async function processEvent(event, context, callback, test_stub) {
                     continue;
                   }
 
+                  let scheduleErr = null;
+                  try {
+                    await deleteEcsSchedule(tid);
+                  } catch (e) {
+                    scheduleErr = e;
+                    console.error("[agentScheduler] removeAgentTasks schedule delete error:", e);
+                  }
+
                   const res = await taskService.deleteTask(tid, null);
-                  deleted.push({ id: tid, success: res?.success !== false, error: res?.error });
+                  deleted.push({
+                    id: tid,
+                    success: (res?.success !== false) && !scheduleErr,
+                    error: res?.error || (scheduleErr ? (scheduleErr.message || String(scheduleErr)) : null)
+                  });
                 } catch (err) {
                   deleted.push({ id: tid, success: false, error: err?.message || String(err) });
                 }
