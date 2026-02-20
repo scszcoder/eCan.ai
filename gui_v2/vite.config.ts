@@ -118,7 +118,15 @@ export default defineConfig(({ mode }) => {
       'graphology',
       'sigma',
       '@sigma/node-border',
-      '@sigma/edge-curve'
+      '@sigma/edge-curve',
+      // emotion - used in Tasks and other pages, must be pre-bundled to avoid 504
+      '@emotion/react',
+      '@emotion/styled',
+      // i18n
+      'react-i18next',
+      'i18next',
+      // date
+      'dayjs'
     ],
     exclude: [],
     // Force re-optimize after dependency changes to avoid stale optimized deps
