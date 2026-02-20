@@ -343,7 +343,10 @@ class LocalWebSocketClient {
     const eventPayload = message.payload || {};
     
     // Merge top-level fields into payload for backward compatibility
+    // Exclude structural fields that are not part of the payload
+    const { type: _type, eventType: _eventType, sessionId: _sessionId, payload: _payload, ...topLevelFields } = message;
     const mergedPayload = {
+      ...topLevelFields,
       ...eventPayload,
       ...(message.messageId && { messageId: message.messageId }),
       ...(message.chunk && { chunk: message.chunk }),
