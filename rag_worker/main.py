@@ -106,6 +106,43 @@ def s3_download_dir(bucket: str, prefix: str, local_dir: str) -> list[str]:
     return downloaded
 
 
+def s3_download_all_product_docs(bucket: str, user_dir: str, local_dir: str) -> list[str]:
+    """Download all docs under s3://{bucket}/{user_dir}/*/docs/ into local_dir/{pid}/..."""
+    if not user_dir:
+        raise ValueError("user_dir is required")
+    prefix = f"{user_dir}/"
+    logger.info(f"s3_download_all_product_docs: listing s3://{bucket}/{prefix} (filtering */docs/*)")
+
+    downloaded: list[str] = []
+    paginator = s3.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            if key.endswith("/"):
+                continue
+            # Expect: <user_dir>/<pid>/docs/<relpath>
+            rel = key[len(prefix):]
+            parts = rel.split("/", 2)
+            if len(parts) < 3:
+                continue
+            pid, maybe_docs, rest = parts[0], parts[1], parts[2]
+            if maybe_docs != "docs":
+                continue
+            local_path = os.path.join(local_dir, pid, rest)
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            size_mb = obj.get("Size", 0) / (1024 * 1024)
+            logger.info(f"Downloading s3://{bucket}/{key} ({size_mb:.2f} MB) → {local_path}")
+            try:
+                s3.download_file(bucket, key, local_path)
+                downloaded.append(local_path)
+            except Exception as e:
+                logger.error(f"Failed to download s3://{bucket}/{key}: {e}")
+                raise
+
+    logger.info(f"s3_download_all_product_docs: downloaded {len(downloaded)} files")
+    return downloaded
+
+
 def s3_upload_dir(local_dir: str, bucket: str, prefix: str) -> int:
     """Upload all files in local_dir to S3 under prefix. Returns count."""
     logger.info(f"s3_upload_dir: uploading {local_dir} → s3://{bucket}/{prefix}/")
@@ -269,17 +306,27 @@ def export_chunks_json(working_dir: str, output_path: str):
             elif isinstance(chunk_data, str):
                 text = chunk_data
             # Attach registry metadata if we can identify the originating docKey.
-            # For per-pid indexing, docs are downloaded from: s3://.../{RAG_USER_DIR}/{RAG_PID}/docs/<file>
-            # LightRAG usually uses source_id similar to the file name/path.
+            # For per-pid indexing, docs are downloaded from:
+            #   s3://.../{RAG_USER_DIR}/{RAG_PID}/docs/<file>
+            # For global indexing, docs are downloaded into local docs/<pid>/<file> and should appear
+            # in source_id as '<pid>/<file>' (best-effort).
             file_name = ""
+            pid_from_source = ""
             if source:
-                file_name = str(source).split("/")[-1]
+                src_parts = str(source).split("/")
+                file_name = src_parts[-1]
+                if RAG_PID == "global" and len(src_parts) >= 2:
+                    pid_from_source = src_parts[-2]
             elif isinstance(metadata, dict) and metadata.get("source_id"):
-                file_name = str(metadata.get("source_id")).split("/")[-1]
+                src_parts = str(metadata.get("source_id")).split("/")
+                file_name = src_parts[-1]
+                if RAG_PID == "global" and len(src_parts) >= 2:
+                    pid_from_source = src_parts[-2]
 
             doc_key = ""
             if file_name:
-                doc_key = f"{RAG_USER_DIR}/{RAG_PID}/docs/{file_name}"
+                effective_pid = pid_from_source or RAG_PID
+                doc_key = f"{RAG_USER_DIR}/{effective_pid}/docs/{file_name}"
 
             reg = reg_docs.get(doc_key) if doc_key and isinstance(reg_docs, dict) else None
             if isinstance(reg, dict):
@@ -297,7 +344,7 @@ def export_chunks_json(working_dir: str, output_path: str):
             else:
                 # At minimum, carry pid
                 if isinstance(metadata, dict) and "pid" not in metadata:
-                    metadata["pid"] = RAG_PID
+                    metadata["pid"] = pid_from_source or RAG_PID
 
             chunks.append({
                 "id": chunk_id,
@@ -328,7 +375,6 @@ async def run_index():
         update_status("error", "OPENAI_API_KEY not set", progress=0)
         return
 
-    docs_prefix = f"{RAG_USER_DIR}/{RAG_PID}/docs/"
     index_prefix = f"{RAG_USER_DIR}/{RAG_PID}/index"
 
     with tempfile.TemporaryDirectory(prefix="rag_work_") as tmpdir:
@@ -341,7 +387,11 @@ async def run_index():
 
         # 1. Download docs from S3
         update_status("indexing", "Downloading documents from S3", progress=5)
-        downloaded = s3_download_dir(RAG_BUCKET, docs_prefix, docs_dir)
+        if RAG_PID == "global":
+            downloaded = s3_download_all_product_docs(RAG_BUCKET, RAG_USER_DIR, docs_dir)
+        else:
+            docs_prefix = f"{RAG_USER_DIR}/{RAG_PID}/docs/"
+            downloaded = s3_download_dir(RAG_BUCKET, docs_prefix, docs_dir)
         if not downloaded:
             update_status("error", "No documents found to index", progress=0)
             return
