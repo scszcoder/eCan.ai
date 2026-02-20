@@ -348,6 +348,17 @@ export class APIRouter {
       return Channel.IPC;
     }
 
+    // Default behavior: use IPC on desktop (Qt/WebChannel), GraphQL on web.
+    // This keeps desktop builds working even when VITE_IPC_MODE is not set.
+    try {
+      const platform = detectPlatform();
+      if (platform === 'desktop') {
+        return Channel.IPC;
+      }
+    } catch {
+      // ignore and fall through
+    }
+
     // 否则默认使用 GraphQL/AppSync
     return Channel.GRAPHQL;
   }

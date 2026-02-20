@@ -49,7 +49,7 @@ const Skills: React.FC = () => {
             await fetchItems(username);
         } catch (error) {
             logger.error('[Skills] Error fetching skills:', error);
-            message.error(t('pages.skills.fetchError') || 'Failed to fetch skills');
+            message.error(t('pages.skills.fetchError', { defaultValue: 'Failed to fetch skills' }));
         }
     }, [username, fetchItems, t]);
 
@@ -101,7 +101,7 @@ const Skills: React.FC = () => {
             await forceRefresh(username);
         } catch (error) {
             logger.error('[Skills] Error refreshing skills:', error);
-            message.error(t('pages.skills.fetchError') || 'Failed to refresh skills');
+            message.error(t('pages.skills.fetchError', { defaultValue: 'Failed to refresh skills' }));
         }
     }, [username, forceRefresh, t]);
 

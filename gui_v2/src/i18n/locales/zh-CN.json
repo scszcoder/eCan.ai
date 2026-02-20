@@ -1207,6 +1207,7 @@
     },
     "skills": {
       "title": "技能列表",
+      "fetchError": "获取技能失败",
       "addSkill": "添加技能",
       "category": "分类",
       "deleteSkill": "删除技能",
