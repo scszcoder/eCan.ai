@@ -288,16 +288,21 @@ class LocalWebSocketClient {
       const message = JSON.parse(data);
       const messageType = message.type;
       
-      // Detailed logging for observability
-      console.log('[LocalWS] 📥 Received message:', {
-        type: messageType,
-        sessionId: message.sessionId,
-        messageId: message.messageId,
-        chunkIndex: message.chunkIndex,
-        hasChunk: !!message.chunk,
-        chunkLength: message.chunk?.length,
-        timestamp: new Date().toISOString()
-      });
+      // Filter out routine/noisy events from logging
+      const routineEvents = ['skill_editor_log', 'push_account_info', 'update_skill_run_stat'];
+      const shouldLog = !routineEvents.includes(messageType);
+      
+      if (shouldLog) {
+        console.log('[LocalWS] 📥 Received message:', {
+          type: messageType,
+          sessionId: message.sessionId,
+          messageId: message.messageId,
+          chunkIndex: message.chunkIndex,
+          hasChunk: !!message.chunk,
+          chunkLength: message.chunk?.length,
+          timestamp: new Date().toISOString()
+        });
+      }
       
       // Dispatch to registered handlers
       const handlers = this.messageHandlers.get(messageType);
@@ -315,7 +320,9 @@ class LocalWebSocketClient {
       eventBus.emit(`localws:${messageType}`, message);
       
       // Map to IPC-style events for compatibility with existing handlers
-      console.log('[LocalWS] 🔄 Mapping to IPC events:', messageType);
+      if (shouldLog) {
+        console.log('[LocalWS] 🔄 Mapping to IPC events:', messageType);
+      }
       this.mapToIpcEvents(message);
       
     } catch (error) {

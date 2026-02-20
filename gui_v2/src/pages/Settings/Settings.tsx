@@ -604,7 +604,8 @@ const Settings: React.FC = () => {
     if (username) {
       loadSettings();
     }
-  }, [username, loadSettings]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [username]);
 
   // 使用 useEffectOnActive 在ComponentActive时RestoreScrollPosition
   useEffectOnActive(

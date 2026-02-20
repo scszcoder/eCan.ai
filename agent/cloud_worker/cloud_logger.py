@@ -224,15 +224,29 @@ class SkillEditorLogger:
             else:
                 logger.warning(f"[CloudLogger] Log queue is None, cannot send: {message[:50]}...")
         else:
-            # Desktop mode: send via IPC
+            # Desktop mode: send via IPC/WebSocket
+            # Only send if there are active WebSocket connections (Skill Editor is open)
             ipc = _get_ipc()
             if ipc:
+                # Check if there are active WebSocket connections
                 try:
-                    ipc.send_skill_editor_log(level, message)
+                    from gui.LocalServer import app_ws_manager
+                    if len(app_ws_manager._all_connections) > 0:
+                        # Only send logs if someone is listening
+                        try:
+                            ipc.send_skill_editor_log(level, message)
+                        except Exception as e:
+                            logger.error(f"[SkillEditor] Failed to send log via IPC: {e}")
+                            logger.debug(f"[SkillEditor] Failed message: {message[:200]}")
+                    else:
+                        # No active connections - skip sending to save performance
+                        logger.trace(f"[SkillEditor] Skipping log push (no active connections): {message[:50]}...")
+                except ImportError as e:
+                    # Can't check connections - log warning and skip
+                    logger.warning(f"[SkillEditor] Cannot check WebSocket connections: {e}")
+                    logger.debug(f"[SkillEditor] Skipped log: {message[:100]}...")
                 except Exception as e:
-                    # Log error instead of silently failing
-                    logger.error(f"[SkillEditor] Failed to send log via IPC: {e}")
-                    logger.debug(f"[SkillEditor] Failed message: {message[:200]}")
+                    logger.error(f"[SkillEditor] Unexpected error checking connections: {e}")
         
         # Also log to standard logger for debugging
         log_fn = getattr(logger, level if level in ("debug", "info", "warning", "error") else "info")
