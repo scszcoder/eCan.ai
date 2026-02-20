@@ -44,7 +44,11 @@ export class UnifiedEventHandler {
   handle(event: StandardizedEvent): void {
     const { type, source } = event;
     
-    logger.debug(`[UnifiedEventHandler] Processing event: ${type} from ${source}`);
+    // Only log non-routine events to reduce noise
+    const routineEvents = ['skill_editor_log', 'update_skill_run_stat'];
+    if (!routineEvents.includes(type)) {
+      logger.debug(`[UnifiedEventHandler] Processing event: ${type} from ${source}`);
+    }
 
     // Route to specific handler based on event type
     switch (type) {
@@ -105,6 +109,12 @@ export class UnifiedEventHandler {
       // Organization/Agent Updates
       case 'update_org_agents':
         this.handleOrgAgentsUpdate(event);
+        break;
+      
+      // Account Info (routine event, no action needed)
+      case 'push_account_info':
+        logger.debug('[UnifiedEventHandler] push_account_info event received and handled (routine heartbeat)');
+        // This is a routine heartbeat/info event from backend, no further action needed
         break;
       
       default:

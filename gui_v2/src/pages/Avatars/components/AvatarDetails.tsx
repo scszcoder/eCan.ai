@@ -6,6 +6,7 @@ import {
   ShareAltOutlined,
   CalendarOutlined,
 } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 import styled from '@emotion/styled';
 import type { AvatarItem } from '../types';
 
@@ -122,12 +123,13 @@ interface AvatarDetailsProps {
 }
 
 const AvatarDetails: React.FC<AvatarDetailsProps> = ({ avatar }) => {
+  const { t } = useTranslation();
   const imageUrl = avatar.presigned_image_url || avatar.cloud_image_url || '';
   const videoUrl = avatar.presigned_video_url || avatar.cloud_video_url || '';
   const hasVideo = !!videoUrl;
 
   const handleSubscribe = () => {
-    message.success(`Subscribed to "${avatar.name || avatar.id}"!`);
+    message.success(t('avatar.subscribed_success', { name: avatar.name || avatar.id }));
   };
 
   return (
@@ -146,16 +148,16 @@ const AvatarDetails: React.FC<AvatarDetailsProps> = ({ avatar }) => {
         <HeroOverlay>
           <div>
             <Title level={4} style={{ color: '#fff', margin: 0 }}>
-              {avatar.name || 'Untitled Avatar'}
+              {avatar.name || t('avatar.untitled')}
             </Title>
             <Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>
-              by {avatar.artist || avatar.owner || 'Unknown'}
+              {t('avatar.by')} {avatar.artist || avatar.owner || t('avatar.unknown')}
             </Text>
           </div>
           <div style={{ textAlign: 'right' }}>
             <Rate disabled allowHalf value={avatar.rating ?? 0} style={{ fontSize: 14 }} />
             <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11, marginTop: 2 }}>
-              {avatar.subscribers ?? 0} subscribers
+              {avatar.subscribers ?? 0} {t('avatar.subscribers')}
             </div>
           </div>
         </HeroOverlay>
@@ -164,31 +166,31 @@ const AvatarDetails: React.FC<AvatarDetailsProps> = ({ avatar }) => {
       {/* Action buttons */}
       <ActionBar>
         <Button type="primary" size="large" onClick={handleSubscribe} style={{ minWidth: 140 }}>
-          {avatar.price ? `Subscribe · $${avatar.price.toFixed(2)}` : 'Subscribe · Free'}
+          {avatar.price ? t('avatar.subscribe_price', { price: avatar.price.toFixed(2) }) : t('avatar.subscribe_free')}
         </Button>
-        <Button icon={<HeartOutlined />} size="large">Favorite</Button>
-        <Button icon={<ShareAltOutlined />} size="large">Share</Button>
+        <Button icon={<HeartOutlined />} size="large">{t('avatar.favorite')}</Button>
+        <Button icon={<ShareAltOutlined />} size="large">{t('avatar.share')}</Button>
       </ActionBar>
 
       {/* Stats */}
       <Section>
-        <SectionTitle>Statistics</SectionTitle>
+        <SectionTitle>{t('avatar.statistics')}</SectionTitle>
         <StatGrid>
           <StatCard>
             <StatValue>{avatar.subscribers ?? avatar.usage_count ?? 0}</StatValue>
-            <StatLabel>Subscribers</StatLabel>
+            <StatLabel>{t('avatar.subscribers')}</StatLabel>
           </StatCard>
           <StatCard>
             <StatValue>{avatar.rating?.toFixed(1) ?? '—'}</StatValue>
-            <StatLabel>Rating</StatLabel>
+            <StatLabel>{t('avatar.rating')}</StatLabel>
           </StatCard>
           <StatCard>
-            <StatValue>{avatar.price ? `$${avatar.price.toFixed(2)}` : 'Free'}</StatValue>
-            <StatLabel>Price</StatLabel>
+            <StatValue>{avatar.price ? `$${avatar.price.toFixed(2)}` : t('avatar.free')}</StatValue>
+            <StatLabel>{t('avatar.price')}</StatLabel>
           </StatCard>
           <StatCard>
             <StatValue>{avatar.resource_type || '—'}</StatValue>
-            <StatLabel>Type</StatLabel>
+            <StatLabel>{t('avatar.type')}</StatLabel>
           </StatCard>
         </StatGrid>
       </Section>
@@ -196,7 +198,7 @@ const AvatarDetails: React.FC<AvatarDetailsProps> = ({ avatar }) => {
       {/* Description */}
       {avatar.description && (
         <Section>
-          <SectionTitle>Description</SectionTitle>
+          <SectionTitle>{t('avatar.description')}</SectionTitle>
           <Paragraph style={{ color: 'var(--text-secondary, rgba(148,163,184,0.8))', fontSize: 13 }}>
             {avatar.description}
           </Paragraph>
@@ -206,7 +208,7 @@ const AvatarDetails: React.FC<AvatarDetailsProps> = ({ avatar }) => {
       {/* Tags */}
       {avatar.tags && avatar.tags.length > 0 && (
         <Section>
-          <SectionTitle>Tags</SectionTitle>
+          <SectionTitle>{t('avatar.tags')}</SectionTitle>
           <TagsRow>
             {avatar.tags.map((tag) => (
               <Tag key={tag} color="blue">{tag}</Tag>
@@ -217,18 +219,18 @@ const AvatarDetails: React.FC<AvatarDetailsProps> = ({ avatar }) => {
 
       {/* Details table */}
       <Section>
-        <SectionTitle>Details</SectionTitle>
+        <SectionTitle>{t('avatar.details')}</SectionTitle>
         <DescBox>
           <Descriptions column={1} size="small" bordered={false} colon={false}>
-            <Descriptions.Item label="ID">{avatar.id}</Descriptions.Item>
-            <Descriptions.Item label="Creator / Artist">{avatar.artist || avatar.owner || '—'}</Descriptions.Item>
-            <Descriptions.Item label="Style">{avatar.style || '—'}</Descriptions.Item>
-            <Descriptions.Item label="Type">{avatar.resource_type || '—'}</Descriptions.Item>
-            <Descriptions.Item label="Visibility">
-              {avatar.is_public ? <Tag color="green">Public</Tag> : <Tag>Private</Tag>}
+            <Descriptions.Item label={t('avatar.id')}>{avatar.id}</Descriptions.Item>
+            <Descriptions.Item label={t('avatar.creator_artist')}>{avatar.artist || avatar.owner || '—'}</Descriptions.Item>
+            <Descriptions.Item label={t('avatar.style')}>{avatar.style || '—'}</Descriptions.Item>
+            <Descriptions.Item label={t('avatar.type')}>{avatar.resource_type || '—'}</Descriptions.Item>
+            <Descriptions.Item label={t('avatar.visibility')}>
+              {avatar.is_public ? <Tag color="green">{t('avatar.public')}</Tag> : <Tag>{t('avatar.private')}</Tag>}
             </Descriptions.Item>
             {avatar.created_at && (
-              <Descriptions.Item label="Created">
+              <Descriptions.Item label={t('avatar.created')}>
                 <Space size={4}>
                   <CalendarOutlined />
                   {new Date(avatar.created_at).toLocaleDateString()}
@@ -236,7 +238,7 @@ const AvatarDetails: React.FC<AvatarDetailsProps> = ({ avatar }) => {
               </Descriptions.Item>
             )}
             {avatar.image_hash && (
-              <Descriptions.Item label="Image Hash">
+              <Descriptions.Item label={t('avatar.image_hash')}>
                 <Text copyable style={{ fontSize: 12 }}>{avatar.image_hash}</Text>
               </Descriptions.Item>
             )}
