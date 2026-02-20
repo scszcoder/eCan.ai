@@ -141,7 +141,7 @@ export class IPCAPI {
      */
     public async executeRequest<T>(method: string, params?: unknown, timeout?: number): Promise<APIResponse<T>> {
         const startTs = Date.now();
-        console.log('[IPCAPI] executeRequest:start', method, { params, timeout });
+        // Removed verbose logging - errors and important events are still logged
         try {
             // All requests now go directly through IPC (Web Bridge deprecated)
             await this.ensureInitialized();

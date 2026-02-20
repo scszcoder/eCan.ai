@@ -831,9 +831,10 @@ const RerankManagement = React.forwardRef<
   // Initialize loading - wait for settings to load before loading providers
   useEffect(() => {
     if (username && settingsLoaded) {
+      console.log('🔄 [RerankManagement] Conditions met, loading providers...');
       loadProviders();
     }
-  }, [username, settingsLoaded]);
+  }, [username, settingsLoaded, loadProviders]);
 
   // If user is not logged in
   if (!username) {
@@ -853,12 +854,13 @@ const RerankManagement = React.forwardRef<
       dataIndex: "display_name",
       key: "display_name",
       width: 150,
+      ellipsis: true,
     },
     {
       title: t("pages.settings.status"),
       dataIndex: "api_key_configured",
       key: "status",
-      width: 100,
+      width: 120,
       render: (isConfigured: boolean) => (
         <span style={{ color: isConfigured ? "#52c41a" : "#ff4d4f" }}>
           {isConfigured
@@ -871,7 +873,8 @@ const RerankManagement = React.forwardRef<
       title: t("pages.settings.api_key"),
       dataIndex: "api_key",
       key: "api_key",
-      width: 350,
+      minWidth: 200,
+      ellipsis: true,
       render: (_: any, record: LLMProvider) => {
         const isEditing = editingProvider === record.name;
 
@@ -1164,7 +1167,8 @@ const RerankManagement = React.forwardRef<
     {
       title: t("pages.settings.rerank_model"),
       key: "model",
-      width: 250,
+      width: 220,
+      ellipsis: true,
       render: (_: any, record: LLMProvider) => {
         // Check if this is Ollama provider
         if (isOllamaProvider(record)) {
@@ -1316,7 +1320,7 @@ const RerankManagement = React.forwardRef<
       title: t("pages.settings.default"),
       dataIndex: "name",
       key: "default",
-      width: 80,
+      width: 90,
       render: (name: string, record: LLMProvider) => {
         // Compare using provider identifier (canonical), not display name
         const providerIdentifier = record.provider;
@@ -1340,7 +1344,8 @@ const RerankManagement = React.forwardRef<
     {
       title: t("pages.settings.actions"),
       key: "actions",
-      width: "15%",
+      width: 140,
+      fixed: 'right' as const,
       render: (_: any, record: LLMProvider) => {
         // Ollama specific actions
         if (isOllamaProvider(record)) {
@@ -1495,7 +1500,8 @@ const RerankManagement = React.forwardRef<
         loading={loading}
         pagination={false}
         size="small"
-        scroll={{ y: 'calc(100vh - 280px)', x: undefined }}
+        scroll={{ y: 'calc(100vh - 280px)', x: 'max-content' }}
+        style={{ minWidth: '100%' }}
       />
     </div>
   );

@@ -132,27 +132,27 @@ def gui_a2a_send_chat(mainwin, req):
 
     runner_method = twin_agent.runner.sync_task_wait_in_line
     if asyncio.iscoroutinefunction(runner_method):
-        logger.debug("[chat_utils] Runner method is a coroutine, running with asyncio.run()")
-
-        def run_async():
+        logger.debug("[chat_utils] Runner method is a coroutine")
+        
+        # Check if we're in a thread with an event loop
+        try:
+            loop = asyncio.get_running_loop()
+            # We're in an async context - use nest_asyncio
+            import nest_asyncio
+            nest_asyncio.apply()
+            logger.debug("[chat_utils] Using current event loop with nest_asyncio")
+            result = loop.run_until_complete(runner_method("human_chat", req))
+        except RuntimeError:
+            # No running loop - we're likely in a thread pool worker
+            # Create a fresh event loop for this thread
+            logger.debug("[chat_utils] Creating new event loop for thread pool")
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                return loop.run_until_complete(runner_method("human_chat", req))
+                result = loop.run_until_complete(runner_method("human_chat", req))
             finally:
+                # Clean up the loop
                 loop.close()
-
-        # Run the coroutine in a separate thread
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(run_async)
-            result = future.result()
-
-        # loop = asyncio.get_event_loop()
-        # # asyncio.set_event_loop(loop)
-        # # 在独立的后台线程中，可以安全使用 asyncio.run()
-        # # result = await runner_method(params["message"])
-        # result = loop.run_until_complete(runner_method(params["message"]))
     else:
         logger.debug("[chat_utils] Runner method is synchronous, calling directly.")
         result = runner_method("human_chat", req)

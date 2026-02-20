@@ -609,7 +609,13 @@ class GeneralSettings:
 
     def update_data(self, data: dict):
         """Batch update settings data"""
-        self._data.update(data)
+        # Filter out fields that should not be saved to settings.json
+        # These fields are handled separately by their respective managers
+        filtered_data = {
+            k: v for k, v in data.items() 
+            if k not in ['settings', 'llm_providers', 'embedding_providers', 'rerank_providers', 'username', 'token']
+        }
+        self._data.update(filtered_data)
 
     # ==================== Mode Check Methods ====================
     
