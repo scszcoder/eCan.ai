@@ -353,22 +353,28 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     text: basePriorityConfig.emoji ? `${basePriorityConfig.emoji} ${priorityText}` : priorityText,
   };
 
-  // GetTrigger方式 - 使用国际化文本
-  const trigger = task.trigger || 'manual';
-  const baseTriggerConfig = TRIGGER_CONFIG[trigger as keyof typeof TRIGGER_CONFIG];
+  // GetTrigger方式 - 使用国际化文本 (supports multiple triggers)
+  const rawTrigger = task.trigger;
+  const triggerList: string[] = Array.isArray(rawTrigger)
+    ? rawTrigger
+    : (typeof rawTrigger === 'string' && rawTrigger
+        ? rawTrigger.split(',').map(s => s.trim()).filter(Boolean)
+        : ['manual']);
 
-  // If找不到Configuration，使用DefaultConfiguration
-  const finalTriggerConfig = baseTriggerConfig || {
-    icon: <ThunderboltOutlined />,
-    defaultText: trigger,
-    color: '#8c8c8c',
-    style: { background: '#fafafa', borderColor: '#d9d9d9', color: '#8c8c8c' }
-  };
-
-  const triggerConfig = {
-    ...finalTriggerConfig,
-    text: t(`pages.tasks.trigger.${trigger}`, finalTriggerConfig.defaultText),
-  };
+  const triggerConfigs = triggerList.map((trig) => {
+    const baseConfig = TRIGGER_CONFIG[trig as keyof typeof TRIGGER_CONFIG];
+    const finalConfig = baseConfig || {
+      icon: <ThunderboltOutlined />,
+      defaultText: trig,
+      color: '#8c8c8c',
+      style: { background: '#fafafa', borderColor: '#d9d9d9', color: '#8c8c8c' }
+    };
+    return {
+      ...finalConfig,
+      key: trig,
+      text: t(`pages.tasks.trigger.${trig}`, finalConfig.defaultText),
+    };
+  });
 
   // Format最后RunTime
   const lastRunTime = task.last_run_datetime
@@ -436,17 +442,20 @@ export const TaskCard: React.FC<TaskCardProps> = ({
 
       {/* 统计Information */}
       <TaskStats>
-        <Tag
-          icon={triggerConfig.icon}
-          style={{
-            ...triggerConfig.style,
-            borderRadius: 4,
-            fontWeight: 500,
-            margin: 0,
-          }}
-        >
-          {triggerConfig.text}
-        </Tag>
+        {triggerConfigs.map((tc) => (
+          <Tag
+            key={tc.key}
+            icon={tc.icon}
+            style={{
+              ...tc.style,
+              borderRadius: 4,
+              fontWeight: 500,
+              margin: 0,
+            }}
+          >
+            {tc.text}
+          </Tag>
+        ))}
         <StatItem>
           <ClockCircleOutlined />
           <span>{lastRunTime}</span>

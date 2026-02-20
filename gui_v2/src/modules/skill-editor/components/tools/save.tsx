@@ -4,6 +4,7 @@ import { useClientContext } from '@flowgram.ai/free-layout-editor';
 import { Tooltip, IconButton, Toast, Modal, Input } from '@douyinfe/semi-ui';
 import { IconSaveColored, IconSaveAsColored } from './colored-icons';
 import { useUserStore } from '../../../../stores/userStore';
+import { useSkillStore } from '../../../../stores/domain/skillStore';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { SkillInfo } from '../../typings/skill-info';
 import '../../../../services/ipc/file-api'; // Import file API extensions
@@ -91,7 +92,7 @@ const DEFAULT_DATA_MAPPING = {
   developing: { mappings: [], options: { strict: false, apply_order: 'top_down' } },
   released: { mappings: [], options: { strict: true, apply_order: 'top_down' } },
   node_transfers: {},
-  event_routing: {},
+  event_data_mapping: {},
 };
 
 function deriveDataMappingPath(skillFilePath: string | null, skillName?: string): string {
@@ -116,7 +117,6 @@ function buildDataMappingFromState(skillInfo: SkillInfo, diagram: any) {
   const skillMapping = (skillInfo as any)?.config?.skill_mapping || {
     developing: DEFAULT_DATA_MAPPING.developing,
     released: DEFAULT_DATA_MAPPING.released,
-    event_routing: {},
   };
 
   const node_transfers: Record<string, any> = {};
@@ -138,7 +138,7 @@ function buildDataMappingFromState(skillInfo: SkillInfo, diagram: any) {
     developing: skillMapping.developing || DEFAULT_DATA_MAPPING.developing,
     released: skillMapping.released || DEFAULT_DATA_MAPPING.released,
     node_transfers,
-    event_routing: skillMapping.event_routing || {},
+    event_data_mapping: skillMapping.event_data_mapping || skillMapping.event_routing || {},
   };
 }
 
@@ -401,6 +401,82 @@ export async function saveFile(
   }
 }
 
+
+/**
+ * After disk save, sync skill to local DB + cloud DB and update the Skills page store.
+ * Uses saveAgentSkill IPC (upsert) which handles both create and update,
+ * plus cloud sync automatically.
+ */
+async function syncSkillToDBAndStore(
+  skillInfo: any,
+  filePath: string,
+  username: string | null | undefined,
+) {
+  try {
+    const api = IPCAPI.getInstance();
+    const owner = username || '';
+
+    // Build the payload that save_agent_skill IPC handler expects
+    const skillPayload: Record<string, any> = {
+      id: skillInfo.skillId || skillInfo.id,
+      name: skillInfo.skillName || skillInfo.name || 'Unnamed Skill',
+      skillName: skillInfo.skillName,
+      description: skillInfo.description || '',
+      version: skillInfo.version || '1.0.0',
+      path: filePath || skillInfo.path || '',
+      level: skillInfo.level || 'entry',
+      config: skillInfo.config || {},
+      diagram: skillInfo.workFlow || {},
+      tags: skillInfo.tags || [],
+      source: 'ui',
+      run_in_cloud: skillInfo.run_in_cloud ?? false,
+      hybrid_cloud_mode: skillInfo.hybrid_cloud_mode ?? false,
+      local_helper_skill_id: skillInfo.local_helper_skill_id ?? null,
+      local_helper_machine: skillInfo.local_helper_machine ?? null,
+    };
+
+    console.log('[SKILL_IO][DB_SYNC] Syncing skill to DB:', skillPayload.name, 'id:', skillPayload.id);
+
+    const resp = await api.saveAgentSkill(owner, skillPayload);
+
+    if (resp && resp.success) {
+      console.log('[SKILL_IO][DB_SYNC] Skill saved to DB + cloud sync triggered');
+
+      // Update the Skills page store so the list reflects changes immediately
+      const store = useSkillStore.getState();
+      const skillId = String((resp as any).data?.skill_id || skillPayload.id);
+      const storeItem = {
+        id: skillId,
+        name: skillPayload.name,
+        owner,
+        description: skillPayload.description,
+        version: skillPayload.version,
+        path: skillPayload.path,
+        level: skillPayload.level,
+        config: skillPayload.config,
+        diagram: skillPayload.diagram,
+        tags: skillPayload.tags,
+        source: 'ui' as const,
+        status: 'active',
+      };
+
+      const existing = store.items.find((s) => String(s.id) === skillId);
+      if (existing) {
+        store.updateItem(skillId, storeItem);
+        console.log('[SKILL_IO][DB_SYNC] Updated existing skill in store:', skillId);
+      } else {
+        store.addItem(storeItem as any);
+        console.log('[SKILL_IO][DB_SYNC] Added new skill to store:', skillId);
+      }
+    } else {
+      console.warn('[SKILL_IO][DB_SYNC] saveAgentSkill failed:', resp?.error);
+    }
+  } catch (e) {
+    // Non-fatal: disk save already succeeded
+    console.warn('[SKILL_IO][DB_SYNC] Error syncing skill to DB (non-fatal):', e);
+  }
+}
+
 export const Save = ({ disabled }: SaveProps) => {
   const { document } = useClientContext();
   const skillInfo = useSkillInfoStore((state) => state.skillInfo);
@@ -535,6 +611,9 @@ export const Save = ({ disabled }: SaveProps) => {
 
         console.log('[SKILL_IO][SAVE_DONE]');
         try { Toast.success({ content: 'Skill saved.' }); } catch {}
+
+        // Sync to local DB + cloud DB and update Skills page store
+        await syncSkillToDBAndStore(finalSkillInfo, finalPath, username);
 
         // 6. Save bundle (web mode batch already handled)
         if (detectPlatform() !== 'web') {
@@ -843,6 +922,9 @@ export const SaveAs = ({ disabled }: SaveProps) => {
 
       console.log('[SKILL_IO][SAVEAS_DONE]', { finalDiagramPath, newSkillName });
       Toast.success({ content: `Skill saved as "${newSkillName}"` });
+
+      // Sync to local DB + cloud DB and update Skills page store
+      await syncSkillToDBAndStore(finalSkillInfo, finalDiagramPath, username);
       
     } catch (error) {
       console.error('Failed to save as:', error);

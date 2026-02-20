@@ -465,7 +465,7 @@ def handle_run_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]])
         if not thread_pool:
             return create_error_response(request, 'RUN_TASK_ERROR', 'Thread pool executor not available')
 
-        future = thread_pool.submit(runner.launch_unified_run, task_obj, task_obj.trigger or 'message')
+        future = thread_pool.submit(runner.launch_unified_run, task_obj, task_obj.trigger or ['message'])
         if hasattr(agent, 'active_tasks') and hasattr(agent, 'task_lock') and getattr(task_obj, 'run_id', None):
             with agent.task_lock:
                 agent.active_tasks[task_obj.run_id] = future
@@ -953,6 +953,364 @@ def handle_delete_agent_task(request: IPCRequest, params: Optional[Dict[str, Any
             'DELETE_TASK_ERROR',
             f"Error during delete task: {str(e)}"
         )
+
+
+# ============================================================================
+# Cloud Task Run ID Query
+# ============================================================================
+
+
+@IPCHandlerRegistry.handler('query_cloud_task_run_id')
+def handle_query_cloud_task_run_id(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Query the cloud task's runID for hybrid cloud execution.
+
+    The runID is needed so the local helper task can subscribe to
+    onPassiveCommand with matching clientID + runID.
+
+    Args:
+        request: IPC request object
+        params: Must contain 'task_id' and optionally 'meta_data'
+
+    Returns:
+        JSON response with {id, runID, runner, status, success, error, timestamp}
+    """
+    try:
+        task_id = (params or {}).get('task_id')
+        meta_data = (params or {}).get('meta_data', {})
+
+        if not task_id:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: task_id')
+
+        logger.info(f"[task_handler] query_cloud_task_run_id: task_id={task_id}")
+
+        # Try to find the runID from the in-memory task first
+        from gui.ipc.context_bridge import get_handler_context
+        ctx = get_handler_context(request, params)
+        if ctx:
+            agent_tasks = ctx.get_agent_tasks() or []
+            for t in agent_tasks:
+                if getattr(t, 'id', None) == task_id:
+                    run_id = getattr(t, 'run_id', None)
+                    if run_id:
+                        logger.info(f"[task_handler] Found runID from memory: {run_id}")
+                        return create_success_response(request, {
+                            'id': task_id,
+                            'runID': run_id,
+                            'runner': getattr(t, 'owner', ''),
+                            'status': json.dumps({'state': _serialize_task_status(getattr(t, 'status', 'pending'))}),
+                            'success': True,
+                            'error': None,
+                        })
+
+        # Fallback: check local DB task metadata/config for run_id
+        task_service = _get_agent_task_service(request, params)
+        if task_service:
+            result = task_service.query_tasks(id=task_id)
+            if result.get('success') and result.get('data'):
+                task_data = result['data'][0] if result['data'] else {}
+                settings = task_data.get('settings', task_data.get('metadata', {}))
+                if isinstance(settings, str):
+                    try:
+                        settings = json.loads(settings)
+                    except Exception:
+                        settings = {}
+                run_id = (settings or {}).get('run_id') or (settings or {}).get('runID')
+                if run_id:
+                    logger.info(f"[task_handler] Found runID from DB: {run_id}")
+                    return create_success_response(request, {
+                        'id': task_id,
+                        'runID': run_id,
+                        'runner': task_data.get('owner', ''),
+                        'status': json.dumps({'state': task_data.get('status', 'pending')}),
+                        'success': True,
+                        'error': None,
+                    })
+
+        logger.warning(f"[task_handler] No runID found for task: {task_id}")
+        return create_success_response(request, {
+            'id': task_id,
+            'runID': None,
+            'runner': None,
+            'status': json.dumps({'state': 'not_found'}),
+            'success': False,
+            'error': 'Task runID not found',
+        })
+
+    except Exception as e:
+        logger.error(f"[task_handler] query_cloud_task_run_id error: {e} {traceback.format_exc()}")
+        return create_error_response(request, 'QUERY_RUN_ID_ERROR', str(e))
+
+
+# ============================================================================
+# Hybrid Cloud Task Helper
+# ============================================================================
+
+
+@IPCHandlerRegistry.handler('setup_local_helper_task')
+def handle_setup_local_helper_task(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Set up a local helper task for hybrid cloud execution: create a local
+    helper task in SQLite with the same task ID as the cloud task, and start
+    the onPassiveCommand WebSocket subscription with matching clientID + runID.
+    
+    NOTE: In normal operation, the agent scheduler in runner.py handles this
+    automatically. This IPC handler is for manual/diagnostic triggering.
+
+    Args:
+        request: IPC request object
+        params: Must contain:
+            - cloud_task_id: The cloud task ID (local helper uses same ID)
+            - skill_id: The local helper skill ID
+            - run_id: The cloud task's runID (from queryCloudTaskRunId)
+            - username: Owner
+
+    Returns:
+        JSON response with helper task info
+    """
+    try:
+        if not params:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing parameters')
+
+        cloud_task_id = params.get('cloud_task_id')
+        skill_id = params.get('skill_id')
+        run_id = params.get('run_id')
+        username = resolve_username(request, params)
+
+        if not cloud_task_id:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing cloud_task_id')
+        if not skill_id:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing skill_id (local helper skill)')
+        if not run_id:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing run_id')
+        if not username:
+            return create_error_response(request, 'INVALID_PARAMS', 'Missing username')
+
+        logger.info(f"[HybridTask] Setting up hybrid cloud task: cloud_task_id={cloud_task_id}, "
+                     f"skill_id={skill_id}, run_id={run_id}, user={username}")
+
+        # Step 1: Create or update local helper task in SQLite with same ID as cloud task
+        task_service = _get_agent_task_service(request, params)
+        if not task_service:
+            return create_error_response(request, 'SERVICE_ERROR', 'Database service not available')
+
+        helper_task_data = {
+            'id': cloud_task_id,  # Same ID as cloud task
+            'name': f"hybrid_helper_{cloud_task_id[:8]}",
+            'owner': username,
+            'description': f"Local helper task for hybrid cloud execution (skill: {skill_id})",
+            'source': 'hybrid_cloud',
+            'status': 'pending',
+            'task_type': 'hybrid_helper',
+            'trigger': 'hybrid_cloud',
+            'settings': {
+                'run_id': run_id,
+                'cloud_task_id': cloud_task_id,
+                'local_helper_skill_id': skill_id,
+                'is_helper_task': True,
+            },
+        }
+
+        # Check if task already exists
+        existing = task_service.query_tasks(id=cloud_task_id)
+        if existing.get('success') and existing.get('data'):
+            logger.info(f"[HybridTask] Updating existing local helper task: {cloud_task_id}")
+            task_service.update_task(cloud_task_id, helper_task_data)
+        else:
+            logger.info(f"[HybridTask] Creating new local helper task: {cloud_task_id}")
+            task_service.add_task(helper_task_data)
+
+        # Step 2: Get client_id (acctSiteID) for the subscription
+        from gui.ipc.context_bridge import get_handler_context
+        ctx = get_handler_context(request, params)
+        client_id = None
+        if ctx and ctx.main_window:
+            client_id = getattr(ctx.main_window, 'getAcctSiteID', lambda: None)()
+        if not client_id:
+            client_id = f"client-{cloud_task_id[:10]}"
+
+        logger.info(f"[HybridTask] client_id={client_id}, run_id={run_id}")
+
+        # Step 3: Start the local helper skill as a ManagedTask and subscribe to onPassiveCommand
+        helper_result = _start_hybrid_helper_task(ctx, cloud_task_id, skill_id, run_id, client_id)
+
+        if not helper_result.get('success'):
+            logger.error(f"[HybridTask] Failed to start helper: {helper_result.get('error')}")
+            return create_error_response(request, 'HYBRID_TASK_ERROR', helper_result.get('error', 'Unknown error'))
+
+        # Step 4: Subscribe to onPassiveCommand for this run
+        _start_passive_command_subscription(ctx, client_id, run_id)
+
+        return create_success_response(request, {
+            'message': 'Hybrid cloud task set up successfully',
+            'cloud_task_id': cloud_task_id,
+            'run_id': run_id,
+            'client_id': client_id,
+            'helper_skill_id': skill_id,
+            'helper_task_started': helper_result.get('success', False),
+        })
+
+    except Exception as e:
+        logger.error(f"[HybridTask] Error: {e} {traceback.format_exc()}")
+        return create_error_response(request, 'HYBRID_TASK_ERROR', str(e))
+
+
+def _start_hybrid_helper_task(ctx, task_id: str, skill_id: str, run_id: str, client_id: str) -> Dict[str, Any]:
+    """Start a local helper skill as a ManagedTask for hybrid cloud execution.
+
+    Args:
+        ctx: Handler context
+        task_id: Task ID (same as cloud task)
+        skill_id: Local helper skill ID
+        run_id: Cloud task's runID
+        client_id: Client ID for passive command subscription
+
+    Returns:
+        dict with success, error
+    """
+    import uuid
+
+    try:
+        if not ctx or not ctx.main_window:
+            return {"success": False, "error": "No main window available"}
+
+        main_window = ctx.main_window
+        agents = getattr(main_window, 'agents', [])
+        if not agents:
+            return {"success": False, "error": "No agents available"}
+
+        agent = agents[0]
+
+        # Find the skill
+        skills = getattr(agent, 'skills', []) or getattr(main_window, 'agent_skills', []) or []
+        target_skill = None
+        for skill in skills:
+            if getattr(skill, 'id', '') == skill_id or getattr(skill, 'name', '') == skill_id:
+                target_skill = skill
+                break
+
+        if not target_skill:
+            available = [f"{getattr(s, 'id', '?')}:{getattr(s, 'name', '?')}" for s in skills[:10]]
+            return {"success": False, "error": f"Skill '{skill_id}' not found. Available: {available}"}
+
+        skill_name = getattr(target_skill, 'name', skill_id)
+
+        # Create ManagedTask
+        from agent.ec_tasks import ManagedTask
+
+        task_state = {
+            "is_helper_skill": True,
+            "parent_cloud_task_id": task_id,
+            "client_id": client_id,
+            "run_id": run_id,
+        }
+        new_task = ManagedTask(
+            id=task_id,
+            context_id=task_id,
+            run_id=run_id,
+            name=f"{skill_name}_helper_{task_id[:8]}",
+            description=f"Hybrid cloud helper for task {task_id}",
+            skill=target_skill,
+            trigger="hybrid_cloud",
+            cloud_based=True,
+            metadata={"state": task_state},
+            state=task_state,
+            sessionId="",
+        )
+
+        # Add to agent tasks
+        if not hasattr(agent, 'tasks') or agent.tasks is None:
+            agent.tasks = []
+        agent.tasks.append(new_task)
+
+        # Start via runner
+        runner = getattr(agent, 'runner', None)
+        if runner:
+            from concurrent.futures import ThreadPoolExecutor
+            thread_pool = getattr(agent, 'thread_pool_executor', None)
+            if not thread_pool:
+                thread_pool = ThreadPoolExecutor(max_workers=4)
+                agent.thread_pool_executor = thread_pool
+
+            future = thread_pool.submit(runner.launch_unified_run, new_task, "hybrid_cloud")
+
+            if hasattr(agent, 'active_tasks') and hasattr(agent, 'task_lock'):
+                with agent.task_lock:
+                    agent.active_tasks[run_id] = future
+
+            logger.info(f"[HybridTask] Helper task submitted: id={task_id}, run_id={run_id}, skill={skill_name}")
+        else:
+            logger.warning(f"[HybridTask] No runner, task created but not started")
+
+        return {"success": True}
+
+    except Exception as e:
+        logger.error(f"[HybridTask] _start_hybrid_helper_task error: {e} {traceback.format_exc()}")
+        return {"success": False, "error": str(e)}
+
+
+def _start_passive_command_subscription(ctx, client_id: str, run_id: str) -> None:
+    """Start onPassiveCommand WebSocket subscription for hybrid cloud execution.
+
+    Args:
+        ctx: Handler context with main_window
+        client_id: Client ID for the subscription
+        run_id: Run ID for the subscription
+    """
+    try:
+        if not ctx or not ctx.main_window:
+            logger.warning("[HybridTask] No main_window, cannot start passive subscription")
+            return
+
+        main_window = ctx.main_window
+        token = main_window.get_auth_token()
+        if not token:
+            logger.warning("[HybridTask] No auth token, skipping passive subscription")
+            return
+
+        from agent.ec_skills.browser_use_extension.passive_command_service import PassiveCommandService
+        from agent.ec_skills.browser_use_extension.appsync_passive_client import (
+            AppSyncPassiveClientConfig,
+            _derive_realtime_endpoint,
+            _derive_api_host,
+        )
+
+        http_endpoint = main_window.getWanApiEndpoint()
+        ws_endpoint = main_window.getWSApiEndpoint() or _derive_realtime_endpoint(http_endpoint)
+        api_host = main_window.getWSApiHost() or _derive_api_host(http_endpoint, ws_endpoint)
+
+        config = AppSyncPassiveClientConfig(
+            http_endpoint=http_endpoint,
+            ws_endpoint=ws_endpoint,
+            api_host=api_host,
+            auth_token=token,
+            run_id=run_id,
+            client_id=client_id,
+        )
+
+        service = PassiveCommandService(
+            config=config,
+            route_command=main_window._route_passive_command_to_task,
+        )
+
+        import asyncio
+
+        async def _start():
+            await service.start()
+
+        # Run in the main_window's event loop if available, else create one
+        loop = getattr(main_window, '_async_loop', None)
+        if loop and loop.is_running():
+            asyncio.run_coroutine_threadsafe(_start(), loop)
+        else:
+            import threading
+            def _run():
+                asyncio.run(_start())
+            t = threading.Thread(target=_run, daemon=True)
+            t.start()
+
+        logger.info(f"[HybridTask] Passive command subscription started: client_id={client_id}, run_id={run_id}")
+
+    except Exception as e:
+        logger.error(f"[HybridTask] Failed to start passive subscription: {e} {traceback.format_exc()}")
 
 
 # ============================================================================

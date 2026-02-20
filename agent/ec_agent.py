@@ -410,28 +410,37 @@ class EC_Agent(Agent):
 		thread_pool_executor = self.mainwin.threadPoolExecutor
 		logger.info(f"[AGENT_START] Agent {self.card.name} has {len(self.tasks)} tasks to start")
 		for task in self.tasks:
-			# new_thread = self.new_thread(task.id)
 			qid = id(task.queue) if hasattr(task, 'queue') and task.queue is not None else None
-			logger.info(f"[AGENT_START] {self.card.name} Starting task {task.name} with trigger {task.trigger}, has_queue={hasattr(task, 'queue') and task.queue is not None}")
+			logger.info(f"[AGENT_START] {self.card.name} Starting task {task.name} with triggers {task.trigger}, has_queue={hasattr(task, 'queue') and task.queue is not None}")
 			logger.info(f"[AGENT_START] Task details: task_id={getattr(task,'id',None)}, run_id={getattr(task,'run_id',None)}, queue_id={qid}")
 
-			target_func = None
-			if task.trigger == "schedule":
-				logger.info(f"[AGENT_START] scheduled task name: {task.name}")
-				target_func = self.runner.launch_scheduled_run
-			elif task.trigger == "message":
-				logger.info(f"[AGENT_START] message task name: {task.name}")
-				target_func = self.runner.launch_reacted_run
-			elif task.trigger == "interaction":
-				logger.info(f"[AGENT_START] interaction task name: {task.name}")
-				target_func = self.runner.launch_interacted_run
-			else:
-				logger.warning(f"[AGENT_START] WARNING: UNRECOGNIZED task trigger type for task {task.name}")
+			# task.trigger is now a list (e.g. ["schedule"], ["schedule", "message"])
+			# Map legacy trigger names to the unified trigger types used by launch_unified_run
+			TRIGGER_MAP = {
+				"schedule": "schedule",
+				"message": "a2a_queue",
+				"interaction": "chat_queue",
+			}
+			unified_triggers = []
+			for t in task.trigger:
+				mapped = TRIGGER_MAP.get(t)
+				if mapped:
+					unified_triggers.append(mapped)
+				else:
+					logger.warning(f"[AGENT_START] Unrecognized trigger '{t}' on task {task.name}, passing through")
+					unified_triggers.append(t)
+
+			if not unified_triggers:
+				logger.warning(f"[AGENT_START] WARNING: Task {task.name} has no triggers, skipping")
 				continue
+
+			logger.info(f"[AGENT_START] {task.name}: triggers={task.trigger} → unified={unified_triggers}")
 
 			# Submit the task and register it using its run_id
 			if hasattr(task, 'run_id') and task.run_id:
-				future = thread_pool_executor.submit(target_func, task)
+				future = thread_pool_executor.submit(
+					self.runner.launch_unified_run, task, unified_triggers
+				)
 				with self.task_lock:
 					self.active_tasks[task.run_id] = future
 				future.add_done_callback(lambda f, run_id=task.run_id: self._task_done_callback(run_id, f))

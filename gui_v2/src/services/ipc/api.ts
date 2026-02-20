@@ -1410,6 +1410,24 @@ export class IPCAPI {
     );
     }
 
+    public async queryCloudTaskRunId(taskId: string, hostName?: string, metaData: Record<string, any> = {}): Promise<APIResponse<{ id: string; runID: string; runner: string; status: string; success: boolean; error: string; timestamp: string }>> {
+        const toAwsJson = (value: any) => {
+          if (value === undefined) return undefined;
+          if (value === null) return null;
+          return typeof value === 'string' ? value : JSON.stringify(value);
+        };
+        return apiRouter.execute(
+      {
+        method: 'query_cloud_task_run_id',
+        graphql: {
+          query: GRAPHQL_QUERIES.QUERY_CLOUD_TASK_RUN_ID,
+          resultPath: 'queryCloudTaskRunId'
+        }
+      },
+      { input: { task_id: taskId, host_name: hostName || null, meta_data: toAwsJson(metaData) } }
+    );
+    }
+
     public async saveAgentSkill<T>(username: string, skill_info: T): Promise<APIResponse<void>> {
         // GraphQL mutation expects input: [SkillUpdateInput!]!
         // Note: owner is NOT in SkillUpdateInput schema - backend gets it from identity claims

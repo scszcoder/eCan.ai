@@ -250,7 +250,7 @@ def find_tasks_ready_to_run(tasks: List["ManagedTask"]) -> Optional["ManagedTask
             continue
         if task.schedule.repeat_type == RepeatType.NONE:
             continue
-        if task.trigger != "schedule":
+        if "schedule" not in task.trigger:
             continue
         
         last_runtime, next_runtime = get_runtime_bounds(task.schedule)

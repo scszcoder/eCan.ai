@@ -2,9 +2,18 @@
  * Pend Event Node form
  */
 import { Field, FormMeta, FormRenderProps, FlowNodeJSON } from '@flowgram.ai/free-layout-editor';
-import { Divider, Select, InputNumber, Radio, Button, Input } from '@douyinfe/semi-ui';
+import { Divider, Select, InputNumber, Radio, Button, Input, Typography } from '@douyinfe/semi-ui';
 import { FormHeader, FormContent, FormItem } from '../../form-components';
 import { defaultFormMeta } from '../default-form-meta';
+import { IPCAPI } from '../../../../services/ipc/api';
+
+const DOC_PATH = 'gui_v2/src/modules/skill-editor/doc/mapping-dsl.md';
+const openDocFile = () => {
+  IPCAPI.getInstance().executeRequest('open_file', { path: DOC_PATH }).catch(() => {
+    // Fallback: log the path so user can find it
+    console.log('[PendEvent] Doc path:', DOC_PATH);
+  });
+};
 
 const EVENT_TYPES = [
   'human_chat', 'a2a', 'webhook', 'websocket', 'mqtt', 'sse', 'timer', 'system', 'other'
@@ -156,6 +165,71 @@ export const PendEventFormRender = ({}: FormRenderProps<FlowNodeJSON>) => {
                 <Radio value="all">All</Radio>
               </Radio.Group>
             )}
+          </Field>
+        </FormItem>
+        <Divider />
+        <FormItem name="Routing Match Fields" type="array" vertical>
+          <Typography.Text type="tertiary" size="small" style={{ display: 'block', marginBottom: 8 }}>
+            Match fields for routing events to the correct task. Event Field is a dot-path
+            in the normalized event envelope (type, source, tag, data.*, context.*).
+            Task Field is a dot-path in the task (state.*, skill.*, id, name).
+            Task Field can be blank if auto-filled at runtime (e.g. task id).{' '}
+            <Typography.Text
+              link={{ onClick: openDocFile }}
+              size="small"
+              style={{ cursor: 'pointer' }}
+            >
+              View Specification
+            </Typography.Text>
+          </Typography.Text>
+          <Field<any> name="inputsValues.matchFields">
+            {({ field }) => {
+              const raw = Array.isArray(field.value?.content) ? (field.value.content as any[]) : [];
+              const arr = raw.map((item: any) => ({
+                event_path: String(item?.event_path ?? ''),
+                task_path: String(item?.task_path ?? ''),
+              }));
+              const setArr = (next: any[]) => field.onChange({ type: 'constant', content: next });
+              const addRow = () => setArr([...arr, { event_path: '', task_path: '' }]);
+              const removeRow = (idx: number) => {
+                const next = [...arr];
+                next.splice(idx, 1);
+                setArr(next);
+              };
+              const updateRow = (idx: number, key: 'event_path' | 'task_path', val: string) => {
+                const next = [...arr];
+                next[idx] = { ...next[idx], [key]: val };
+                setArr(next);
+              };
+              return (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {arr.map((item, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <Input
+                        value={item.event_path}
+                        placeholder="Event Field (e.g. data.order_id)"
+                        onChange={(val) => updateRow(i, 'event_path', String(val))}
+                        style={{ flex: 1 }}
+                        size="small"
+                      />
+                      <Input
+                        value={item.task_path}
+                        placeholder="Task Field (e.g. state.order_id)"
+                        onChange={(val) => updateRow(i, 'task_path', String(val))}
+                        style={{ flex: 1 }}
+                        size="small"
+                      />
+                      <Button type="danger" theme="borderless" size="small" onClick={() => removeRow(i)}>
+                        Del
+                      </Button>
+                    </div>
+                  ))}
+                  <div>
+                    <Button size="small" onClick={addRow}>Add Match Field</Button>
+                  </div>
+                </div>
+              );
+            }}
           </Field>
         </FormItem>
       </FormContent>

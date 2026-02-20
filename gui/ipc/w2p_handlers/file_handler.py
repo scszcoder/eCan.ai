@@ -1185,6 +1185,49 @@ def handle_skills_copy_to(request: IPCRequest, params: Optional[Dict[str, Any]])
         return create_error_response(request, 'COPY_ERROR', str(e))
 
 
+@IPCHandlerRegistry.handler('open_file')
+def handle_open_file(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Open a file in the OS default application.
+    
+    Args:
+        request: IPC request object
+        params: Parameters containing 'path' - file path to open
+        
+    Returns:
+        IPCResponse: Response indicating success or failure
+    """
+    try:
+        ok, data, err = validate_params(params, ['path'])
+        if not ok:
+            return create_error_response(request, 'INVALID_PARAMS', err or 'Path is required')
+        
+        path = data['path']
+        path = os.path.expanduser(path)
+        path = os.path.abspath(path)
+        
+        if not os.path.exists(path):
+            logger.warning(f"[OPEN_FILE] Path does not exist: {path}")
+            return create_error_response(request, 'PATH_NOT_FOUND', f'Path does not exist: {path}')
+        
+        logger.info(f"[OPEN_FILE] Opening file: {path}")
+        
+        if sys.platform == 'darwin':
+            subprocess.run(['open', path], check=True)
+        elif sys.platform == 'win32':
+            os.startfile(path)
+        else:
+            subprocess.run(['xdg-open', path], check=True)
+        
+        return create_success_response(request, {'success': True, 'path': path})
+        
+    except subprocess.CalledProcessError as e:
+        logger.error(f"[OPEN_FILE] Failed to open file: {e}")
+        return create_error_response(request, 'OPEN_FILE_ERROR', f'Failed to open file: {str(e)}')
+    except Exception as e:
+        logger.error(f"[OPEN_FILE] Error: {e}")
+        return create_error_response(request, 'OPEN_FILE_ERROR', str(e))
+
+
 @IPCHandlerRegistry.handler('open_folder')
 def handle_open_folder(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
     """Open folder in system file explorer.

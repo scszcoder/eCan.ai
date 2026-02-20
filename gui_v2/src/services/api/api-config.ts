@@ -90,6 +90,14 @@ export const GRAPHQL_QUERIES = {
     }
   `,
 
+  QUERY_CLOUD_TASK_RUN_ID: `
+    query QueryCloudTaskRunId($input: TaskRunQueryInput!) {
+      queryCloudTaskRunId(input: $input) {
+        id runID runner status success error timestamp
+      }
+    }
+  `,
+
   // ==================== Skills Store ====================
   GET_PUBLIC_SKILLS: `
     query GetPublicSkills($owner: String) {

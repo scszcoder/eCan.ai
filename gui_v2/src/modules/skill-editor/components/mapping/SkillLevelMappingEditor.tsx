@@ -1,21 +1,13 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import MappingEditor, { type MappingConfig } from './MappingEditor';
-import { Collapse, Typography, Input, Button, Space } from '@douyinfe/semi-ui';
-import { IconPlus, IconDelete } from '@douyinfe/semi-icons';
+import { Collapse, Typography, TextArea, Button, Toast } from '@douyinfe/semi-ui';
 
 const { Title, Text } = Typography;
-
-export interface EventRoutingRule {
-  task_selector: string;
-  queue?: string;
-}
 
 export interface SkillLevelMappingConfig {
   developing: MappingConfig;
   released: MappingConfig;
-  event_routing?: {
-    [eventType: string]: EventRoutingRule;
-  };
+  event_data_mapping?: Record<string, any>;
 }
 
 export function SkillLevelMappingEditor(props: {
@@ -25,8 +17,13 @@ export function SkillLevelMappingEditor(props: {
   const config = props.value || {
     developing: { mappings: [], options: { strict: false, apply_order: 'top_down' } },
     released: { mappings: [], options: { strict: true, apply_order: 'top_down' } },
-    event_routing: {}
+    event_data_mapping: {},
   };
+
+  const [edmText, setEdmText] = useState(() =>
+    JSON.stringify(config.event_data_mapping || {}, null, 2)
+  );
+  const [edmError, setEdmError] = useState<string | null>(null);
 
   const handleDevelopingChange = useCallback((dev: MappingConfig) => {
     props.onChange?.({ ...config, developing: dev });
@@ -36,26 +33,26 @@ export function SkillLevelMappingEditor(props: {
     props.onChange?.({ ...config, released: rel });
   }, [config, props.onChange]);
 
-  const handleEventRoutingChange = useCallback((eventType: string, rule: EventRoutingRule | null) => {
-    const newRouting = { ...(config.event_routing || {}) };
-    if (rule === null) {
-      delete newRouting[eventType];
-    } else {
-      newRouting[eventType] = rule;
+  const handleEdmApply = useCallback(() => {
+    try {
+      const parsed = JSON.parse(edmText);
+      if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+        setEdmError('Must be a JSON object');
+        return;
+      }
+      setEdmError(null);
+      props.onChange?.({ ...config, event_data_mapping: parsed });
+      Toast.success('Event data mapping updated');
+    } catch (e: any) {
+      setEdmError(e.message || 'Invalid JSON');
     }
-    props.onChange?.({ ...config, event_routing: newRouting });
-  }, [config, props.onChange]);
-
-  const addEventRoute = useCallback(() => {
-    const newType = `custom_event_${Date.now()}`;
-    handleEventRoutingChange(newType, { task_selector: 'name_contains:', queue: 'custom_queue' });
-  }, [handleEventRoutingChange]);
+  }, [edmText, config, props.onChange]);
 
   return (
     <div style={{ padding: '8px 0' }}>
       <Title heading={6} style={{ marginBottom: 12 }}>Skill-Level Mapping Rules</Title>
       <Text type="tertiary" size="small" style={{ display: 'block', marginBottom: 16 }}>
-        These rules apply to the entire skill and control event-to-state mapping and event routing.
+        These rules apply to the entire skill and control event-to-state data mapping.
       </Text>
       
       <Collapse defaultActiveKey={['dev']} accordion={false}>
@@ -82,62 +79,40 @@ export function SkillLevelMappingEditor(props: {
             />
           </div>
         </Collapse.Panel>
-        
-        <Collapse.Panel header="Event Routing" itemKey="routing">
+
+        <Collapse.Panel header="Event Data Mapping (adapt_to_state)" itemKey="edm">
           <div style={{ padding: '8px 0' }}>
-            <Text type="tertiary" size="small" style={{ display: 'block', marginBottom: 12 }}>
-              Define which events should trigger this skill and how they're routed to task queues.
+            <Text type="tertiary" size="small" style={{ display: 'block', marginBottom: 8 }}>
+              Per-skill config that maps event payload fields into the resuming node's state
+              when a pending event arrives. Each key is an event type (e.g. "passive_command"),
+              and the value contains an <code>adapt_to_state</code> object mapping source fields
+              to target state paths.
             </Text>
-            
-            {Object.entries(config.event_routing || {}).map(([eventType, rule]) => (
-              <div key={eventType} style={{ 
-                marginBottom: 12, 
-                padding: 12, 
-                border: '1px solid #e0e0e0', 
-                borderRadius: 6,
-                background: '#fafafa'
-              }}>
-                <Space style={{ width: '100%', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <Text strong>{eventType}</Text>
-                  <Button 
-                    icon={<IconDelete />} 
-                    type="danger" 
-                    theme="borderless" 
-                    size="small"
-                    onClick={() => handleEventRoutingChange(eventType, null)}
-                  />
-                </Space>
-                <Space vertical style={{ width: '100%' }} spacing={8}>
-                  <div>
-                    <Text type="tertiary" size="small">Task Selector:</Text>
-                    <Input 
-                      value={rule.task_selector}
-                      placeholder="e.g., name_contains:chatter, id:task_123"
-                      size="small"
-                      onChange={(val) => handleEventRoutingChange(eventType, { ...rule, task_selector: val })}
-                    />
-                  </div>
-                  <div>
-                    <Text type="tertiary" size="small">Queue (optional):</Text>
-                    <Input 
-                      value={rule.queue || ''}
-                      placeholder="e.g., chat_queue, a2a_queue, custom_queue"
-                      size="small"
-                      onChange={(val) => handleEventRoutingChange(eventType, { ...rule, queue: val })}
-                    />
-                  </div>
-                </Space>
-              </div>
-            ))}
-            
-            <Button 
-              icon={<IconPlus />} 
-              onClick={addEventRoute}
-              size="small"
-              style={{ marginTop: 8 }}
-            >
-              Add Event Route
+            <TextArea
+              value={edmText}
+              onChange={(v) => { setEdmText(v); setEdmError(null); }}
+              autosize={{ minRows: 4, maxRows: 16 }}
+              placeholder='{ "passive_command": { "adapt_to_state": { "actions": "state.attributes.passive_command_actions" } } }'
+              style={{ fontFamily: 'monospace', fontSize: 12 }}
+            />
+            {edmError && (
+              <Text type="danger" size="small" style={{ display: 'block', marginTop: 4 }}>
+                {edmError}
+              </Text>
+            )}
+            <Button size="small" theme="solid" style={{ marginTop: 8 }} onClick={handleEdmApply}>
+              Apply
             </Button>
+          </div>
+        </Collapse.Panel>
+
+        <Collapse.Panel header="Event Routing (Info)" itemKey="routing">
+          <div style={{ padding: '8px 0' }}>
+            <Text type="tertiary" size="small" style={{ display: 'block', marginBottom: 8 }}>
+              Event-to-task routing is now managed at the agent level via <code>event_routing.json</code>,
+              not per-skill. When a task starts, the runner automatically detects pend_event nodes
+              in the skill and registers the required event routes globally.
+            </Text>
           </div>
         </Collapse.Panel>
       </Collapse>

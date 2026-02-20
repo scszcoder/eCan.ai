@@ -39,7 +39,7 @@ const DEFAULT_TASK = {
   description: '',
   cloud_based: false,
   priority: 'none',
-  trigger: 'schedule',
+  trigger: ['schedule'] as string[],
   skills: [] as string[],  // Support multiple skills
   schedule: {
     repeat_type: 'by days',  // Default to 'by days' for schedule trigger
@@ -138,7 +138,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   const [refreshingStatus, setRefreshingStatus] = React.useState(false);
   const [launching, setLaunching] = React.useState(false);
   const [latestStatus, setLatestStatus] = React.useState<string>('');
-  const [currentTrigger, setCurrentTrigger] = React.useState<string>('schedule');
+  const [currentTrigger, setCurrentTrigger] = React.useState<string[]>(['schedule']);
   // skills store and fetch-on-mount if needed
   const skills = useSkillStore((s) => s.items);
   const setSkills = useSkillStore((s) => s.setItems);
@@ -210,11 +210,11 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   }, [taskStatus]);
 
   // Watch trigger changes to update repeat_type options
-  const handleTriggerChange = React.useCallback((trigger: string) => {
-    setCurrentTrigger(trigger);
+  const handleTriggerChange = React.useCallback((triggers: string[]) => {
+    setCurrentTrigger(triggers);
     
-    // If switching to schedule trigger and repeat_type is 'none', auto-change to 'by days'
-    if (trigger === 'schedule') {
+    // If schedule is among selected triggers and repeat_type is 'none', auto-change to 'by days'
+    if (triggers.includes('schedule')) {
       const currentRepeatType = form.getFieldValue(['schedule', 'repeat_type']);
       if (currentRepeatType === 'none') {
         form.setFieldsValue({
@@ -265,8 +265,15 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       form.setFieldsValue(formValues);
       
       // Set current trigger for validation
-      const taskTrigger = (task as any).trigger || 'schedule';
+      // Backend stores trigger as a comma-separated string (e.g. "schedule,message")
+      const rawTrigger = (task as any).trigger;
+      const taskTrigger: string[] = Array.isArray(rawTrigger)
+        ? rawTrigger
+        : (typeof rawTrigger === 'string' && rawTrigger
+            ? rawTrigger.split(',').map((s: string) => s.trim()).filter(Boolean)
+            : ['schedule']);
       setCurrentTrigger(taskTrigger);
+      form.setFieldValue('trigger', taskTrigger);
     } else {
       form.resetFields();
       setEditMode(false);
@@ -329,7 +336,8 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       const values = await form.validateFields();
       
       // Additional validation: schedule trigger cannot have repeat_type 'none'
-      if ((values as any).trigger === 'schedule' && 
+      const triggerList: string[] = (values as any).trigger || [];
+      if (triggerList.includes('schedule') && 
           (values as any).schedule?.repeat_type === 'none') {
         message.error(t('pages.tasks.scheduleNoneError', 'Schedule tasks must have a repeat type (cannot be "none")'));
         return;
@@ -348,7 +356,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         cloud_based: !!(values as any).cloud_based,
         latest_version: (values as any).latest_version || '1.0.0',
         priority: (values as any).priority || 'medium',
-        trigger: (values as any).trigger || 'manual',
+        trigger: ((values as any).trigger || ['manual']).join(','),
         skills: skillNames,  // Pass skills array
         skill_ids: skillObjs.map((s: any) => s?.id).filter(Boolean),  // Pass skill IDs for backend
         schedule: {
@@ -656,9 +664,11 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                     <Select
                       id="task-trigger"
                       size="large"
+                      mode="multiple"
                       onChange={handleTriggerChange}
                       options={TRIGGER_OPTIONS.map(v => ({ value: v, label: t(`pages.tasks.trigger.${v}`, v) }))}
                       aria-label={t('pages.tasks.triggerLabel', 'Trigger')}
+                      placeholder={t('pages.tasks.triggerPlaceholder', 'Select trigger sources')}
                     />
                   </StyledFormItem>
                 </Col>
@@ -780,7 +790,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                                   {
                                     validator: (_, value) => {
                                       // Validate: schedule trigger cannot use 'none'
-                                      if (currentTrigger === 'schedule' && value === 'none') {
+                                      if (currentTrigger.includes('schedule') && value === 'none') {
                                         return Promise.reject(
                                           new Error(t('pages.tasks.scheduleNoneError', 'Schedule tasks cannot use "none" repeat type'))
                                         );
@@ -794,7 +804,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                                   id="task-repeat-type"
                                   size="large"
                                   options={REPEAT_OPTIONS
-                                    .filter(v => currentTrigger === 'schedule' ? v !== 'none' : true)
+                                    .filter(v => currentTrigger.includes('schedule') ? v !== 'none' : true)
                                     .map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v) }))}
                                   aria-label={t('pages.tasks.scheduleRepeatTypeLabel', 'Repeat Type')}
                                 />

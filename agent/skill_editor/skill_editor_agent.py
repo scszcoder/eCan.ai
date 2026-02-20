@@ -2300,7 +2300,7 @@ class SkillEditorAgent:
         "developing": {"mappings": [], "options": {"strict": False, "apply_order": "top_down"}},
         "released":   {"mappings": [], "options": {"strict": True,  "apply_order": "top_down"}},
         "node_transfers": {},
-        "event_routing": {},
+        "event_data_mapping": {},
     }
 
     def _write_skill_and_bundle_to_s3(self, skill_json: Dict[str, Any], bundle_json: Dict[str, Any], skill_dir_name: str) -> None:

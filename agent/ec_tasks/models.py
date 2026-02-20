@@ -221,7 +221,22 @@ class ManagedTask(Task):
     # State management
     state: dict = Field(default_factory=dict)
     resume_from: Optional[str] = None
-    trigger: Optional[str] = None
+    trigger: List[str] = Field(default_factory=list)
+    
+    @field_validator("trigger", mode="before")
+    @classmethod
+    def _normalize_trigger(cls, v):
+        """Accept str (single or comma-separated), list, or None and always store as List[str]."""
+        if v is None:
+            return []
+        if isinstance(v, str):
+            if not v:
+                return []
+            # Handle comma-separated strings like "schedule,message"
+            return [t.strip() for t in v.split(",") if t.strip()]
+        if isinstance(v, (list, tuple)):
+            return [t for t in v if isinstance(t, str) and t]
+        return []
     
     # Async task reference
     task: Optional[asyncio.Task] = None

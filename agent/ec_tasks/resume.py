@@ -212,6 +212,29 @@ def apply_adapt_to_state_mapping(
             logger.warning(f"[adapt_to_state] Failed to write {source_key} -> {normalized_path}: {e}")
 
 
+def _load_event_data_mapping(task: Any) -> Dict[str, Any]:
+    """Load per-skill event-data-to-state mapping config from skill.mapping_rules.
+    
+    This reads the top-level 'event_data_mapping' (or legacy 'event_routing') key
+    from the skill's data_mapping.json. These configs define how event payload fields
+    are projected into the resuming node's state (adapt_to_state).
+    
+    Note: This is NOT task routing — that is handled by the global event_routing.json.
+    """
+    try:
+        skill = getattr(task, "skill", None)
+        if not skill:
+            return {}
+        mr = getattr(skill, "mapping_rules", None)
+        if not isinstance(mr, dict):
+            return {}
+        # Prefer new key, fall back to legacy key
+        edm = mr.get("event_data_mapping") or mr.get("event_routing") or {}
+        return edm if isinstance(edm, dict) else {}
+    except Exception:
+        return {}
+
+
 def _to_string(v: Any) -> str:
     """Best-effort convert a value to a UTF-8-safe JSON/string representation."""
     if isinstance(v, str):
@@ -329,6 +352,25 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
         except Exception:
             pass
         event["data"] = {"raw": msg}
+
+    # Promote common routing fields into context for clean match paths
+    # (e.g. context.run_id instead of data.raw.run_id)
+    _PROMOTED_FIELDS = ("client_id", "task_id", "run_id", "timer_id")
+    ctx = event["context"]
+    for field in _PROMOTED_FIELDS:
+        if ctx.get(field):
+            continue  # already populated
+        # 1. Top-level of raw msg
+        val = msg.get(field) if isinstance(msg, dict) else getattr(msg, field, None)
+        # 2. Nested in msg.command (e.g. PassiveBrowserCommand)
+        if not val and isinstance(msg, dict):
+            cmd = msg.get("command")
+            if isinstance(cmd, dict):
+                val = cmd.get(field)
+            elif cmd is not None:
+                val = getattr(cmd, field, None)
+        if val:
+            ctx[field] = val
 
     logger.debug("normalized event:", event)
 
@@ -876,10 +918,9 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
                     
                     # Apply any adapt_to_state mapping from the task's data_mapping.json
                     try:
-                        task_mapping = load_mapping_for_task(task)
-                        event_routing = task_mapping.get("event_routing", {})
-                        passive_cmd_routing = event_routing.get("passive_command", {}) or event_routing.get("PassiveCommandEvent", {})
-                        adapt_config = passive_cmd_routing.get("adapt_to_state", {})
+                        edm = _load_event_data_mapping(task)
+                        passive_cmd_edm = edm.get("passive_command", {}) or edm.get("PassiveCommandEvent", {})
+                        adapt_config = passive_cmd_edm.get("adapt_to_state", {})
                         if adapt_config:
                             apply_adapt_to_state_mapping(state_patch, callback_result, adapt_config)
                             logger.debug(f"[build_general_resume_payload] Applied adapt_to_state mapping: {list(adapt_config.keys())}")
@@ -893,12 +934,11 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
                     
                     # Try to apply adapt_to_state mapping for any event type
                     try:
-                        task_mapping = load_mapping_for_task(task)
-                        event_routing = task_mapping.get("event_routing", {})
-                        # Check for routing config matching the callback result type
+                        edm = _load_event_data_mapping(task)
+                        # Check for event_data_mapping config matching the callback result type
                         result_type = callback_result.get("type", "")
-                        routing_config = event_routing.get(result_type, {})
-                        adapt_config = routing_config.get("adapt_to_state", {})
+                        type_edm = edm.get(result_type, {})
+                        adapt_config = type_edm.get("adapt_to_state", {})
                         if adapt_config:
                             apply_adapt_to_state_mapping(state_patch, callback_result, adapt_config)
                             logger.debug(f"[build_general_resume_payload] Applied adapt_to_state for {result_type}: {list(adapt_config.keys())}")

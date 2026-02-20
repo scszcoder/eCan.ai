@@ -72,7 +72,7 @@ class TaskSerializer:
             "metadata": safe_metadata,
             "state": safe_state,
             "resume_from": task.resume_from,
-            "trigger": task.trigger,
+            "trigger": ",".join(task.trigger) if isinstance(task.trigger, list) else (task.trigger or ""),
             "schedule": schedule_dict,
             "checkpoint_nodes": safe_checkpoint_nodes,
             "priority": task.priority.value if task.priority else None,
