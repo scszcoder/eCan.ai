@@ -4053,6 +4053,82 @@ async function processEvent(event, context, callback, test_stub) {
               returnData = created;
             }
             break;
+
+          case "updateAgentTasks":
+            {
+              console.log(`[agentScheduler] updateAgentTasks: using owner='${owner}' from identity`);
+              const tasksInput = Array.isArray(event.arguments?.input) ? event.arguments.input : [event.arguments?.input].filter(Boolean);
+              const updated = [];
+              for (const task of tasksInput) {
+                const tid = task?.id;
+                if (!tid) {
+                  updated.push({ id: null, success: false, error: "Missing task id" });
+                  continue;
+                }
+                try {
+                  const current = await taskService.getTaskById(tid);
+                  if (!current) {
+                    updated.push({ id: tid, success: false, error: "NOT_FOUND: Task not found" });
+                    continue;
+                  }
+
+                  // Authorization: allow owner match against any recognized identity variants.
+                  // requesterCandidates is computed earlier from email/sub/username variants.
+                  const currentOwner = current.owner;
+                  const ownerOk = !currentOwner || (typeof currentOwner === 'string' && requesterCandidates && requesterCandidates.has(currentOwner));
+                  if (!ownerOk && !isSuperUser) {
+                    updated.push({ id: tid, success: false, error: "FORBIDDEN: Not the owner" });
+                    continue;
+                  }
+
+                  const fields = { ...task };
+                  delete fields.id;
+                  // We already validated ownership; pass null owner to avoid mismatches across email/sub formats.
+                  const res = await taskService.updateTask(tid, null, fields);
+                  updated.push({ id: tid, success: res?.success !== false, error: res?.error });
+                } catch (err) {
+                  updated.push({ id: tid, success: false, error: err?.message || String(err) });
+                }
+              }
+              returnData = updated;
+            }
+            break;
+
+          case "removeAgentTasks":
+            {
+              console.log(`[agentScheduler] removeAgentTasks: using owner='${owner}' from identity`);
+              const idsInputRaw = event.arguments?.input;
+              const idsInput = Array.isArray(idsInputRaw) ? idsInputRaw : [idsInputRaw].filter(Boolean);
+              const deleted = [];
+              for (const idVal of idsInput) {
+                const tid = typeof idVal === 'string' ? idVal : String(idVal || '');
+                if (!tid) {
+                  deleted.push({ id: null, success: false, error: "Missing task id" });
+                  continue;
+                }
+                try {
+                  const current = await taskService.getTaskById(tid);
+                  if (!current) {
+                    deleted.push({ id: tid, success: false, error: "NOT_FOUND: Task not found" });
+                    continue;
+                  }
+
+                  const currentOwner = current.owner;
+                  const ownerOk = !currentOwner || (typeof currentOwner === 'string' && requesterCandidates && requesterCandidates.has(currentOwner));
+                  if (!ownerOk && !isSuperUser) {
+                    deleted.push({ id: tid, success: false, error: "FORBIDDEN: Not the owner" });
+                    continue;
+                  }
+
+                  const res = await taskService.deleteTask(tid, null);
+                  deleted.push({ id: tid, success: res?.success !== false, error: res?.error });
+                } catch (err) {
+                  deleted.push({ id: tid, success: false, error: err?.message || String(err) });
+                }
+              }
+              returnData = deleted;
+            }
+            break;
           // NOTE: getAllMine is a Query (not Mutation) - handler is in the Query switch block below
           case "addAgentSkills":
             {
