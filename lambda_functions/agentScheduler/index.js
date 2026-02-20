@@ -32,6 +32,7 @@ const orgService = require("./services/orgService");
 const avatarService = require("./services/avatarService");
 const promptService = require("./services/promptService");
 const settingsService = require("./services/settingsService");
+const cloudTaskRunService = require("./services/cloudTaskRunService");
 
 // const axios = require('axios');
 
@@ -50,6 +51,37 @@ const { SQSClient, SendMessageCommand, ReceiveMessageCommand, DeleteMessageComma
 const { S3Client, GetObjectCommand, PutObjectCommand, HeadObjectCommand, ListObjectsV2Command, CopyObjectCommand } = require("@aws-sdk/client-s3");
 const { ECSClient, RunTaskCommand } = require("@aws-sdk/client-ecs");
 const ecsClient = new ECSClient({ region: "us-east-1" });
+
+// EventBridge Scheduler is optional at runtime (must exist in Lambda layer/package)
+let _schedulerClient = null;
+function isSchedulerSdkAvailable() {
+  try {
+    require.resolve("@aws-sdk/client-scheduler");
+    return true;
+  } catch {
+    return false;
+  }
+}
+function getSchedulerClient() {
+  if (_schedulerClient) return _schedulerClient;
+  let SchedulerClient;
+  try {
+    ({ SchedulerClient } = require("@aws-sdk/client-scheduler"));
+  } catch (e) {
+    throw new Error("EventBridge Scheduler client is not available (missing @aws-sdk/client-scheduler)");
+  }
+  _schedulerClient = new SchedulerClient({ region: "us-east-1" });
+  return _schedulerClient;
+}
+
+function getSchedulerCommands() {
+  try {
+    // Lazily require commands to avoid hard failure for unrelated resolvers.
+    return require("@aws-sdk/client-scheduler");
+  } catch (e) {
+    throw new Error("EventBridge Scheduler commands are not available (missing @aws-sdk/client-scheduler)");
+  }
+}
 
 // Initialize the SQS client
 const sqsClient = new SQSClient({ region: 'us-east-1' }); // Set your AWS region
@@ -168,6 +200,395 @@ const RAG_ECS_CLUSTER = process.env.RAG_ECS_CLUSTER || process.env.ECS_CLUSTER |
 const RAG_ECS_TASK_DEF = process.env.RAG_ECS_TASK_DEF || "";
 const RAG_ECS_SUBNETS = (process.env.RAG_ECS_SUBNETS || process.env.ECS_SUBNETS || "").split(",").filter(Boolean);
 const RAG_ECS_SECURITY_GROUPS = (process.env.RAG_ECS_SECURITY_GROUPS || process.env.ECS_SECURITY_GROUPS || "").split(",").filter(Boolean);
+
+// Scheduled task (cloud worker) configuration
+const ECS_CLUSTER = process.env.ECS_CLUSTER || "";
+const ECS_TASK_DEFINITION = process.env.ECS_TASK_DEFINITION || process.env.ECS_TASK_DEF || "";
+const ECS_SUBNETS = (process.env.ECS_SUBNETS || "").split(",").filter(Boolean);
+const ECS_SECURITY_GROUPS = (process.env.ECS_SECURITY_GROUPS || "").split(",").filter(Boolean);
+const ECS_CONTAINER_NAME = process.env.ECS_CONTAINER_NAME || "ecan-cloud-worker";
+const SCHEDULER_ROLE_ARN = process.env.SCHEDULER_ROLE_ARN || "";
+const AWS_ACCOUNT_ID = process.env.AWS_ACCOUNT_ID || "";
+const DEFAULT_SCHEDULE_TZ = process.env.DEFAULT_SCHEDULE_TZ || "UTC";
+const SCHEDULER_GROUP = process.env.SCHEDULER_GROUP || "default";
+const SCHEDULE_TARGET_MODE = (process.env.SCHEDULE_TARGET_MODE || "ecs").toLowerCase(); // "ecs" | "lambda"
+const SCHEDULE_TARGET_LAMBDA_ARN = process.env.SCHEDULE_TARGET_LAMBDA_ARN || "";
+
+function _decodeAwsJson(value, maxDepth = 4) {
+  let current = value;
+  for (let i = 0; i < maxDepth; i += 1) {
+    if (typeof current !== "string") return current;
+    const trimmed = current.trim();
+    if (!trimmed) return current;
+    try {
+      current = JSON.parse(trimmed);
+    } catch {
+      return current;
+    }
+  }
+  return current;
+}
+
+function _isRunNowSchedule(scheduleStr) {
+  const s = (scheduleStr || "").trim().toLowerCase();
+  return s === "now" || s === "immediate" || s === "immediately" || s === "run_now";
+}
+
+function _toScheduleExpressionFromString(scheduleStr) {
+  const schedule = (scheduleStr || "").trim();
+  if (!schedule) return null;
+  if (schedule.startsWith("cron(") || schedule.startsWith("at(") || schedule.startsWith("rate(")) {
+    return schedule;
+  }
+  if (/^\d{4}-\d{2}-\d{2}T/.test(schedule)) {
+    return `at(${schedule.replace(/Z$/, "")})`;
+  }
+  const fields = schedule.split(/\s+/);
+  const expr = fields.length === 5 ? `${schedule} *` : schedule;
+  return `cron(${expr})`;
+}
+
+function _parseLegacyDateTime(value) {
+  if (!value || typeof value !== "string") return null;
+  const v = value.trim();
+  if (!v) return null;
+  if (v.includes("T")) {
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  // Supports: "YYYY-MM-DD HH:MM:SS:fff" or "YYYY-MM-DD HH:MM:SS:ffffff"
+  const m = v.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2}):(\d{1,6})$/);
+  if (m) {
+    const datePart = m[1];
+    const timePart = m[2];
+    const frac = (m[3] || "").padEnd(6, "0").slice(0, 6);
+    const iso = `${datePart}T${timePart}.${frac}Z`;
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function _formatRate(n, unitPlural) {
+  const count = Math.max(1, Number(n) || 1);
+  const base = unitPlural.endsWith("s") ? unitPlural.slice(0, -1) : unitPlural;
+  const unit = count === 1 ? base : unitPlural;
+  return `rate(${count} ${unit})`;
+}
+
+function _buildScheduleFromTaskScheduleObj(scheduleObj) {
+  const repeatTypeRaw = (scheduleObj?.repeat_type ?? scheduleObj?.repeatType ?? "").toString().trim().toLowerCase();
+  const repeatNumber = Number(scheduleObj?.repeat_number ?? scheduleObj?.repeatNumber ?? 1) || 1;
+  const startDate = _parseLegacyDateTime(scheduleObj?.start_date_time ?? scheduleObj?.startDateTime);
+  const endDate = _parseLegacyDateTime(scheduleObj?.end_date_time ?? scheduleObj?.endDateTime);
+
+  if (!repeatTypeRaw || repeatTypeRaw === "none") {
+    return { scheduleExpression: null, startDate, endDate, timezone: DEFAULT_SCHEDULE_TZ };
+  }
+
+  if (repeatTypeRaw === "by seconds") {
+    if (repeatNumber % 60 === 0) {
+      return { scheduleExpression: _formatRate(repeatNumber / 60, "minutes"), startDate, endDate, timezone: DEFAULT_SCHEDULE_TZ };
+    }
+    throw new Error(`Unsupported repeat_type 'by seconds' (repeat_number=${repeatNumber}); EventBridge Scheduler minimum resolution is 1 minute`);
+  }
+  if (repeatTypeRaw === "by minutes") {
+    return { scheduleExpression: _formatRate(repeatNumber, "minutes"), startDate, endDate, timezone: DEFAULT_SCHEDULE_TZ };
+  }
+  if (repeatTypeRaw === "by hours") {
+    return { scheduleExpression: _formatRate(repeatNumber, "hours"), startDate, endDate, timezone: DEFAULT_SCHEDULE_TZ };
+  }
+  if (repeatTypeRaw === "by days") {
+    return { scheduleExpression: _formatRate(repeatNumber, "days"), startDate, endDate, timezone: DEFAULT_SCHEDULE_TZ };
+  }
+  if (repeatTypeRaw === "by weeks") {
+    return { scheduleExpression: _formatRate(repeatNumber * 7, "days"), startDate, endDate, timezone: DEFAULT_SCHEDULE_TZ };
+  }
+
+  // Month/year schedules: map to cron using the start datetime as the anchor.
+  if (repeatTypeRaw === "by months" || repeatTypeRaw === "by years") {
+    if (!startDate) {
+      throw new Error(`Missing/invalid start_date_time for repeat_type '${repeatTypeRaw}'`);
+    }
+    const minute = startDate.getUTCMinutes();
+    const hour = startDate.getUTCHours();
+    const dayOfMonth = startDate.getUTCDate();
+    const month = startDate.getUTCMonth() + 1;
+    const year = startDate.getUTCFullYear();
+
+    if (repeatTypeRaw === "by months") {
+      const monthField = `${month}/${Math.max(1, repeatNumber)}`;
+      return {
+        scheduleExpression: `cron(${minute} ${hour} ${dayOfMonth} ${monthField} ? *)`,
+        startDate,
+        endDate,
+        timezone: DEFAULT_SCHEDULE_TZ
+      };
+    }
+
+    const yearField = `${year}/${Math.max(1, repeatNumber)}`;
+    return {
+      scheduleExpression: `cron(${minute} ${hour} ${dayOfMonth} ${month} ? ${yearField})`,
+      startDate,
+      endDate,
+      timezone: DEFAULT_SCHEDULE_TZ
+    };
+  }
+
+  throw new Error(`Unsupported repeat_type: ${repeatTypeRaw}`);
+}
+
+function _getClusterArn() {
+  if (!ECS_CLUSTER) return "";
+  if (ECS_CLUSTER.startsWith("arn:")) return ECS_CLUSTER;
+  if (!AWS_ACCOUNT_ID) return "";
+  return `arn:aws:ecs:us-east-1:${AWS_ACCOUNT_ID}:cluster/${ECS_CLUSTER}`;
+}
+
+function _buildContainerEnvForScheduledTask(taskId, ownerValue, extraParams) {
+  const env = [
+    { Name: "ECAN_TASK_ID", Value: String(taskId) },
+    { Name: "ECAN_WORKER_MODE", Value: "scheduled" },
+  ];
+  if (ownerValue) {
+    env.push({ Name: "ECAN_TASK_OWNER", Value: String(ownerValue) });
+  }
+  if (extraParams && Object.keys(extraParams).length > 0) {
+    env.push({ Name: "ECAN_TASK_PARAMS", Value: JSON.stringify(extraParams) });
+  }
+  return env;
+}
+
+async function upsertEcsSchedule({ taskId, scheduleExpression, timezone, startDate, endDate, ownerValue, parameters }) {
+  if (!scheduleExpression) return;
+  if (!SCHEDULER_ROLE_ARN) throw new Error("SCHEDULER_ROLE_ARN env var must be set for EventBridge Scheduler");
+  if (!ECS_CLUSTER || !ECS_TASK_DEFINITION) throw new Error("ECS_CLUSTER and ECS_TASK_DEFINITION env vars must be set for scheduled tasks");
+
+  const { CreateScheduleCommand, UpdateScheduleCommand } = getSchedulerCommands();
+  const scheduler = getSchedulerClient();
+  const scheduleName = `ecan-task-${taskId}`;
+  const clusterArn = _getClusterArn();
+  if (!clusterArn) {
+    throw new Error("Unable to compute ECS cluster ARN (set ECS_CLUSTER to an ARN or provide AWS_ACCOUNT_ID)");
+  }
+
+  const ebNetworkConfig = {
+    awsvpcConfiguration: {
+      Subnets: ECS_SUBNETS,
+      AssignPublicIp: "ENABLED",
+    },
+  };
+  if (ECS_SECURITY_GROUPS.length > 0) {
+    ebNetworkConfig.awsvpcConfiguration.SecurityGroups = ECS_SECURITY_GROUPS;
+  }
+
+  const envVars = _buildContainerEnvForScheduledTask(taskId, ownerValue, parameters);
+
+  const scheduleInput = {
+    Name: scheduleName,
+    GroupName: SCHEDULER_GROUP,
+    ScheduleExpression: scheduleExpression,
+    ScheduleExpressionTimezone: timezone || DEFAULT_SCHEDULE_TZ,
+    FlexibleTimeWindow: { Mode: "OFF" },
+    Target: null,
+    State: "ENABLED",
+  };
+  if (startDate) scheduleInput.StartDate = startDate;
+  if (endDate) scheduleInput.EndDate = endDate;
+
+  // If configured, schedule invokes Lambda which launches ECS (allows recording the run_id).
+  if (SCHEDULE_TARGET_MODE === "lambda" && SCHEDULE_TARGET_LAMBDA_ARN) {
+    scheduleInput.Target = {
+      Arn: SCHEDULE_TARGET_LAMBDA_ARN,
+      RoleArn: SCHEDULER_ROLE_ARN,
+      Input: JSON.stringify({
+        action: "launch_cloud_task",
+        owner_id: normalizeEmailForPath(ownerValue || ""),
+        task_id: String(taskId),
+        schedule: scheduleExpression,
+        meta_data: parameters || {},
+      }),
+    };
+  } else {
+    // Default: direct ECS RunTask via Scheduler.
+    scheduleInput.Target = {
+      Arn: clusterArn,
+      RoleArn: SCHEDULER_ROLE_ARN,
+      EcsParameters: {
+        TaskDefinitionArn: ECS_TASK_DEFINITION,
+        TaskCount: 1,
+        LaunchType: "FARGATE",
+        NetworkConfiguration: ebNetworkConfig,
+        Overrides: {
+          ContainerOverrides: [{
+            Name: ECS_CONTAINER_NAME,
+            Environment: envVars,
+          }],
+        },
+      },
+    };
+  }
+
+  try {
+    await scheduler.send(new CreateScheduleCommand(scheduleInput));
+  } catch (err) {
+    if (err && (err.name === "ConflictException" || err.Code === "ConflictException")) {
+      await scheduler.send(new UpdateScheduleCommand(scheduleInput));
+    } else {
+      throw err;
+    }
+  }
+}
+
+async function deleteEcsSchedule(taskId) {
+  if (!isSchedulerSdkAvailable()) {
+    // Best-effort cleanup only; don't fail mutations if Scheduler isn't packaged.
+    return;
+  }
+  const { DeleteScheduleCommand } = getSchedulerCommands();
+  const scheduler = getSchedulerClient();
+  const scheduleName = `ecan-task-${taskId}`;
+  try {
+    await scheduler.send(new DeleteScheduleCommand({ Name: scheduleName, GroupName: SCHEDULER_GROUP }));
+  } catch (err) {
+    if (err && (err.name === "ResourceNotFoundException" || err.Code === "ResourceNotFoundException")) {
+      return;
+    }
+    throw err;
+  }
+}
+
+async function syncTaskSchedule({ taskId, ownerValue, triggerType, scheduleValue, metadataValue }) {
+  const trigger = (triggerType || "").toString().trim().toLowerCase();
+  const decoded = _decodeAwsJson(scheduleValue);
+  const scheduleDecoded = _decodeAwsJson(decoded);
+
+  if (trigger !== "schedule" || scheduleDecoded == null || scheduleDecoded === "") {
+    // Not a scheduled task: best-effort delete any existing schedule.
+    await deleteEcsSchedule(taskId);
+    return;
+  }
+
+  // Allow schedule as TaskSchedule object, or as a string expression (cron/rate/at).
+  if (typeof scheduleDecoded === "string") {
+    if (_isRunNowSchedule(scheduleDecoded)) {
+      // "run now" is handled elsewhere; do not create a recurring schedule.
+      await deleteEcsSchedule(taskId);
+      return;
+    }
+    const expr = _toScheduleExpressionFromString(scheduleDecoded);
+    if (!expr) {
+      await deleteEcsSchedule(taskId);
+      return;
+    }
+    await upsertEcsSchedule({
+      taskId,
+      scheduleExpression: expr,
+      timezone: DEFAULT_SCHEDULE_TZ,
+      startDate: null,
+      endDate: null,
+      ownerValue,
+      parameters: (typeof metadataValue === "object" && metadataValue) ? metadataValue : undefined,
+    });
+    return;
+  }
+
+  if (typeof scheduleDecoded === "object") {
+    const { scheduleExpression, startDate, endDate, timezone } = _buildScheduleFromTaskScheduleObj(scheduleDecoded);
+    if (!scheduleExpression) {
+      await deleteEcsSchedule(taskId);
+      return;
+    }
+    await upsertEcsSchedule({
+      taskId,
+      scheduleExpression,
+      timezone,
+      startDate,
+      endDate,
+      ownerValue,
+      parameters: (typeof metadataValue === "object" && metadataValue) ? metadataValue : undefined,
+    });
+    return;
+  }
+
+  // Unknown schedule type; treat as unscheduled.
+  await deleteEcsSchedule(taskId);
+}
+
+async function launchCloudTaskAndRecord(payload) {
+  const taskId = payload?.task_id || payload?.taskId;
+  const ownerId = payload?.owner_id || payload?.ownerId;
+  const schedule = payload?.schedule || payload?.schedule_expression || "";
+  const meta = payload?.meta_data || payload?.metaData;
+
+  if (!taskId || !ownerId) {
+    throw new Error("launch_cloud_task requires owner_id and task_id");
+  }
+  if (!ECS_CLUSTER || !ECS_TASK_DEFINITION) {
+    throw new Error("ECS_CLUSTER and ECS_TASK_DEFINITION env vars must be set for scheduled launches");
+  }
+
+  const networkConfig = {
+    awsvpcConfiguration: {
+      subnets: ECS_SUBNETS,
+      assignPublicIp: "ENABLED",
+    },
+  };
+  if (ECS_SECURITY_GROUPS.length > 0) {
+    networkConfig.awsvpcConfiguration.securityGroups = ECS_SECURITY_GROUPS;
+  }
+
+  const containerEnv = [
+    { name: "ECAN_TASK_ID", value: String(taskId) },
+    { name: "ECAN_WORKER_MODE", value: "scheduled" },
+    { name: "ECAN_TASK_OWNER", value: String(ownerId) },
+    ...(meta ? [{ name: "ECAN_TASK_PARAMS", value: (typeof meta === "string" ? meta : JSON.stringify(meta)) }] : []),
+  ];
+
+  const resp = await ecsClient.send(new RunTaskCommand({
+    cluster: ECS_CLUSTER,
+    taskDefinition: ECS_TASK_DEFINITION,
+    launchType: "FARGATE",
+    networkConfiguration: networkConfig,
+    overrides: {
+      containerOverrides: [{
+        name: ECS_CONTAINER_NAME,
+        environment: containerEnv,
+      }],
+    },
+    tags: [
+      { key: "task_id", value: String(taskId) },
+      { key: "owner_id", value: String(ownerId) },
+      { key: "mode", value: "scheduled" },
+    ],
+  }));
+
+  const tasks = resp.tasks || [];
+  const taskArn = tasks.length > 0 ? tasks[0].taskArn : null;
+  if (!taskArn) {
+    const failures = resp.failures || [];
+    const reason = failures.length > 0 ? failures[0].reason : "Unknown";
+    throw new Error(`Failed to start Fargate task: ${reason}`);
+  }
+
+  await cloudTaskRunService.upsertTaskRun({
+    owner_id: String(ownerId),
+    task_id: String(taskId),
+    run_id: String(taskArn),
+    schedule: schedule,
+    meta_data: meta,
+  });
+
+  return {
+    task_id: String(taskId),
+    owner_id: String(ownerId),
+    run_id: String(taskArn),
+    schedule,
+    success: true,
+    timestamp: new Date().toISOString(),
+  };
+}
 
 
 const MAXBOTINTS = 5;
@@ -383,6 +804,125 @@ async function listAllObjects(bucket, prefix) {
     continuationToken = res.IsTruncated ? res.NextContinuationToken : undefined;
   } while (continuationToken);
   return keys;
+}
+
+// ==================== RAG Registry (metadata sidecar) ====================
+function ragRegistryKey(userDir) {
+  // Global per-user registry: docKey -> metadata (pid/categories/version/fid/...)
+  return `${userDir}/doc_registry.json`;
+}
+
+async function loadRagRegistry(userDir) {
+  const key = ragRegistryKey(userDir);
+  try {
+    const res = await s3.send(new GetObjectCommand({ Bucket: RAG_BUCKET, Key: key }));
+    const raw = await streamToString(res.Body);
+    if (!raw) return { version: 1, updatedAt: new Date().toISOString(), docs: {} };
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && parsed.docs && typeof parsed.docs === 'object') {
+      return parsed;
+    }
+  } catch (_e) {
+    // ignore missing
+  }
+  return { version: 1, updatedAt: new Date().toISOString(), docs: {} };
+}
+
+async function saveRagRegistry(userDir, registry) {
+  const key = ragRegistryKey(userDir);
+  const payload = registry && typeof registry === 'object' ? registry : { version: 1, docs: {} };
+  payload.version = payload.version || 1;
+  payload.updatedAt = new Date().toISOString();
+  payload.docs = payload.docs && typeof payload.docs === 'object' ? payload.docs : {};
+  await s3.send(new PutObjectCommand({
+    Bucket: RAG_BUCKET,
+    Key: key,
+    Body: JSON.stringify(payload, null, 2),
+    ContentType: 'application/json',
+  }));
+  return payload;
+}
+
+function _safeParseAwsJson(value) {
+  let v = value;
+  for (let i = 0; i < 3; i += 1) {
+    if (typeof v !== 'string') return v;
+    try {
+      v = JSON.parse(v);
+    } catch {
+      return v;
+    }
+  }
+  return v;
+}
+
+function _normalizeCategories(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map(String).map(s => s.trim()).filter(Boolean);
+  if (typeof value === 'string') {
+    // accept comma/pipe/semicolon separated
+    return value.split(/[;,|]/g).map(s => s.trim()).filter(Boolean);
+  }
+  return [String(value)];
+}
+
+async function _loadChunksIndex({ userDir, pid }) {
+  // Backward compatible:
+  // 1) Prefer per-pid index if it exists.
+  // 2) Fallback to global index at pid="global".
+  const candidates = [];
+  if (pid) candidates.push(`${userDir}/${pid}/index/chunks.json`);
+  candidates.push(`${userDir}/global/index/chunks.json`);
+  candidates.push(`${userDir}/default/index/chunks.json`);
+
+  for (const key of candidates) {
+    try {
+      const res = await s3.send(new GetObjectCommand({ Bucket: RAG_BUCKET, Key: key }));
+      const raw = await streamToString(res.Body);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return { key, chunks: parsed };
+      }
+    } catch (_e) {
+      // try next
+    }
+  }
+  return { key: null, chunks: [] };
+}
+
+function _filterChunksByMeta(chunks, { pidFilter, categoriesFilter }) {
+  let out = chunks;
+  if (pidFilter) {
+    out = out.filter(c => {
+      const md = c.metadata || {};
+      const pid = md.pid || md.product_id || md.productId;
+      return String(pid || '').toLowerCase() === String(pidFilter).toLowerCase();
+    });
+  }
+  if (categoriesFilter && categoriesFilter.length > 0) {
+    const want = new Set(categoriesFilter.map(s => String(s).toLowerCase()));
+    out = out.filter(c => {
+      const md = c.metadata || {};
+      const cats = _normalizeCategories(md.categories || md.category || md.cats);
+      if (!cats.length) return false;
+      return cats.some(cat => want.has(String(cat).toLowerCase()));
+    });
+  }
+  return out;
+}
+
+function _keywordScoreChunks(chunks, query) {
+  const queryLower = (query || '').toLowerCase();
+  const queryWords = queryLower.split(/\s+/).filter(w => w.length > 2);
+  return chunks.map(c => {
+    const text = String(c.text || c.content || '').toLowerCase();
+    let score = 0;
+    for (const w of queryWords) {
+      if (text.includes(w)) score += 1;
+    }
+    return { ...c, score };
+  });
 }
 
 async function ensureUserSkillFolders(bucket, userPrefix) {
@@ -4036,6 +4576,48 @@ async function processEvent(event, context, callback, test_stub) {
     switch (event.info.parentTypeName) {
       case "Mutation":
         switch (event.info.fieldName) {
+          case "reqRAGStore":
+            {
+              // Web-app schema: input RAGIN { pid, fid, file, format, version, options, categories }
+              // Legacy schema: type instead of categories.
+              const itemsRaw = event.arguments?.input || [];
+              const items = Array.isArray(itemsRaw) ? itemsRaw : [itemsRaw].filter(Boolean);
+              const userDir = ownerSub || normalizeEmailForPath(ownerEmail || owner);
+              const registry = await loadRagRegistry(userDir);
+              const updatedDocKeys = [];
+
+              for (const item of items) {
+                const pid = item?.pid || "default";
+                const fileName = item?.file || "";
+                const safeFileName = String(fileName).replace(/[^a-zA-Z0-9._-]/g, "_");
+                const docKey = `${userDir}/${pid}/docs/${safeFileName}`;
+                const categories = _normalizeCategories(item?.categories ?? item?.type);
+                const options = _safeParseAwsJson(item?.options);
+
+                registry.docs[docKey] = {
+                  docKey,
+                  pid,
+                  fid: item?.fid ?? null,
+                  file: safeFileName,
+                  format: item?.format ?? null,
+                  version: item?.version ?? null,
+                  categories,
+                  options: options ?? null,
+                  updatedAt: new Date().toISOString(),
+                };
+                updatedDocKeys.push(docKey);
+              }
+
+              await saveRagRegistry(userDir, registry);
+
+              // Return AWSJSON (stringified) for compatibility.
+              returnData = JSON.stringify({
+                success: true,
+                count: updatedDocKeys.length,
+                docKeys: updatedDocKeys,
+              });
+            }
+            break;
           case "addAgentTasks":
             {
               console.log(`[agentScheduler] addAgentTasks: using owner='${owner}' from identity`);
@@ -4045,12 +4627,142 @@ async function processEvent(event, context, callback, test_stub) {
                 try {
                   console.log(`[agentScheduler] addAgentTasks: adding task with owner='${owner}', task.name='${task.name}'`);
                   const res = await taskService.addTask({ ...task, owner });
-                  created.push({ id: res?.id || task?.id, success: res?.success !== false, error: res?.error });
+                  const tid = res?.id || task?.id;
+                  let scheduleErr = null;
+                  if (res?.success !== false && tid) {
+                    try {
+                      await syncTaskSchedule({
+                        taskId: tid,
+                        ownerValue: ownerEmail || owner,
+                        triggerType: task?.trigger_type,
+                        scheduleValue: task?.schedule,
+                        metadataValue: task?.metadata,
+                      });
+                    } catch (e) {
+                      scheduleErr = e;
+                      console.error("[agentScheduler] addAgentTasks schedule sync error:", e);
+                    }
+                  }
+                  created.push({
+                    id: tid,
+                    success: (res?.success !== false) && !scheduleErr,
+                    error: res?.error || (scheduleErr ? (scheduleErr.message || String(scheduleErr)) : null)
+                  });
                 } catch (err) {
                   created.push({ id: task?.id, success: false, error: err?.message || String(err) });
                 }
               }
               returnData = created;
+            }
+            break;
+
+          case "updateAgentTasks":
+            {
+              console.log(`[agentScheduler] updateAgentTasks: using owner='${owner}' from identity`);
+              const tasksInput = Array.isArray(event.arguments?.input) ? event.arguments.input : [event.arguments?.input].filter(Boolean);
+              const updated = [];
+              for (const task of tasksInput) {
+                const tid = task?.id;
+                if (!tid) {
+                  updated.push({ id: null, success: false, error: "Missing task id" });
+                  continue;
+                }
+                try {
+                  const current = await taskService.getTaskById(tid);
+                  if (!current) {
+                    updated.push({ id: tid, success: false, error: "NOT_FOUND: Task not found" });
+                    continue;
+                  }
+
+                  // Authorization: allow owner match against any recognized identity variants.
+                  // requesterCandidates is computed earlier from email/sub/username variants.
+                  const currentOwner = current.owner;
+                  const ownerOk = !currentOwner || (typeof currentOwner === 'string' && requesterCandidates && requesterCandidates.has(currentOwner));
+                  if (!ownerOk && !isSuperUser) {
+                    updated.push({ id: tid, success: false, error: "FORBIDDEN: Not the owner" });
+                    continue;
+                  }
+
+                  const fields = { ...task };
+                  delete fields.id;
+                  // We already validated ownership; pass null owner to avoid mismatches across email/sub formats.
+                  const res = await taskService.updateTask(tid, null, fields);
+
+                  let scheduleErr = null;
+                  if (res?.success !== false) {
+                    const effective = { ...current, ...fields };
+                    try {
+                      await syncTaskSchedule({
+                        taskId: tid,
+                        ownerValue: ownerEmail || owner,
+                        triggerType: effective?.trigger_type,
+                        scheduleValue: ("schedule" in fields) ? fields.schedule : effective?.schedule,
+                        metadataValue: ("metadata" in fields) ? fields.metadata : effective?.metadata,
+                      });
+                    } catch (e) {
+                      scheduleErr = e;
+                      console.error("[agentScheduler] updateAgentTasks schedule sync error:", e);
+                    }
+                  }
+
+                  updated.push({
+                    id: tid,
+                    success: (res?.success !== false) && !scheduleErr,
+                    error: res?.error || (scheduleErr ? (scheduleErr.message || String(scheduleErr)) : null)
+                  });
+                } catch (err) {
+                  updated.push({ id: tid, success: false, error: err?.message || String(err) });
+                }
+              }
+              returnData = updated;
+            }
+            break;
+
+          case "removeAgentTasks":
+            {
+              console.log(`[agentScheduler] removeAgentTasks: using owner='${owner}' from identity`);
+              const idsInputRaw = event.arguments?.input;
+              const idsInput = Array.isArray(idsInputRaw) ? idsInputRaw : [idsInputRaw].filter(Boolean);
+              const deleted = [];
+              for (const idVal of idsInput) {
+                const tid = typeof idVal === 'string' ? idVal : String(idVal || '');
+                if (!tid) {
+                  deleted.push({ id: null, success: false, error: "Missing task id" });
+                  continue;
+                }
+                try {
+                  const current = await taskService.getTaskById(tid);
+                  if (!current) {
+                    deleted.push({ id: tid, success: false, error: "NOT_FOUND: Task not found" });
+                    continue;
+                  }
+
+                  const currentOwner = current.owner;
+                  const ownerOk = !currentOwner || (typeof currentOwner === 'string' && requesterCandidates && requesterCandidates.has(currentOwner));
+                  if (!ownerOk && !isSuperUser) {
+                    deleted.push({ id: tid, success: false, error: "FORBIDDEN: Not the owner" });
+                    continue;
+                  }
+
+                  let scheduleErr = null;
+                  try {
+                    await deleteEcsSchedule(tid);
+                  } catch (e) {
+                    scheduleErr = e;
+                    console.error("[agentScheduler] removeAgentTasks schedule delete error:", e);
+                  }
+
+                  const res = await taskService.deleteTask(tid, null);
+                  deleted.push({
+                    id: tid,
+                    success: (res?.success !== false) && !scheduleErr,
+                    error: res?.error || (scheduleErr ? (scheduleErr.message || String(scheduleErr)) : null)
+                  });
+                } catch (err) {
+                  deleted.push({ id: tid, success: false, error: err?.message || String(err) });
+                }
+              }
+              returnData = deleted;
             }
             break;
           // NOTE: getAllMine is a Query (not Mutation) - handler is in the Query switch block below
@@ -5413,6 +6125,154 @@ async function processEvent(event, context, callback, test_stub) {
         util.log("DEBUG", "processing query....", api_caller, "processEvent", logFlag);
 
         switch (event.info.fieldName) {
+          case "queryRAGs":
+            {
+              // Schema: queryRAGs(qs: AWSJSON!): AWSJSON!
+              // Expect qs to include at least: { query: string } and optionally { pid, categories, topK, mode }
+              let qs = event.arguments?.qs;
+              qs = _safeParseAwsJson(qs);
+              if (typeof qs !== 'object' || qs === null) qs = {};
+
+              const query = qs.query || qs.q || "";
+              const pidFilter = qs.pid || qs.product_id || qs.productId || null;
+              const categoriesFilter = _normalizeCategories(qs.categories || qs.category || qs.cats);
+              const topK = Number(qs.topK || qs.k || 5) || 5;
+              const mode = qs.mode || "hybrid";
+
+              const userDir = ownerSub || normalizeEmailForPath(ownerEmail || owner);
+              // Load chunks from index (prefer pid index, else global)
+              const { chunks } = await _loadChunksIndex({ userDir, pid: pidFilter });
+
+              // Attach registry metadata if present
+              const registry = await loadRagRegistry(userDir);
+              const withMeta = (chunks || []).map((c) => {
+                const md = (c && typeof c === 'object' ? (c.metadata || {}) : {});
+                const src = c?.source || md?.source_id || md?.source || "";
+                // Try to reconstruct docKey from pid + file name
+                const file = String(md.file || md.fileName || src || '').split('/').pop();
+                const pidFromMeta = md.pid || md.product_id || md.productId;
+                const pidEffective = pidFromMeta || pidFilter || null;
+                const docKey = (pidEffective && file) ? `${userDir}/${pidEffective}/docs/${file}` : null;
+                const reg = docKey && registry.docs ? registry.docs[docKey] : null;
+                const mergedMeta = {
+                  ...md,
+                  ...(reg ? {
+                    pid: reg.pid,
+                    fid: reg.fid,
+                    version: reg.version,
+                    format: reg.format,
+                    categories: reg.categories,
+                    options: reg.options,
+                    docKey: reg.docKey,
+                  } : {}),
+                };
+                return { ...c, metadata: mergedMeta };
+              });
+
+              const filtered = _filterChunksByMeta(withMeta, { pidFilter, categoriesFilter });
+              const scored = _keywordScoreChunks(filtered, query)
+                .filter(c => (c.score || 0) > 0)
+                .sort((a, b) => (b.score || 0) - (a.score || 0))
+                .slice(0, topK);
+
+              // Optional LLM synthesis (same behavior as ragQuery)
+              let answer = "";
+              const OPENAI_KEY = process.env.OPENAI_API_KEY || "";
+              if (scored.length > 0 && OPENAI_KEY) {
+                try {
+                  const contextText = scored.map((c, i) => {
+                    const src = c.source || c.metadata?.docKey || c.metadata?.file || "unknown";
+                    const txt = c.text || c.content || "";
+                    return `[Source ${i + 1}: ${src}]\n${txt}`;
+                  }).join("\n\n---\n\n");
+
+                  const sysPrompt = `You are a helpful assistant that answers questions based on the provided document excerpts.\nUse ONLY the information from the provided excerpts to answer. If the excerpts don't contain enough information, say so honestly.\nCite sources when possible using [Source N] notation. Be concise but thorough.`;
+                  const userPrompt = `Based on the following document excerpts, answer this question:\n\nQuestion: ${query}\n\nDocument Excerpts:\n${contextText}`;
+
+                  const oaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      "Authorization": `Bearer ${OPENAI_KEY}`,
+                    },
+                    body: JSON.stringify({
+                      model: "gpt-4o-mini",
+                      messages: [
+                        { role: "system", content: sysPrompt },
+                        { role: "user", content: userPrompt },
+                      ],
+                      max_tokens: 1024,
+                      temperature: 0.3,
+                    }),
+                  });
+                  if (oaiRes.ok) {
+                    const oaiData = await oaiRes.json();
+                    answer = oaiData.choices?.[0]?.message?.content || "";
+                  }
+                } catch (_e) {
+                  // ignore
+                }
+              } else if (scored.length === 0) {
+                answer = "No relevant documents found for your query.";
+              }
+
+              returnData = JSON.stringify({
+                answer,
+                chunks: scored.map(c => ({
+                  text: c.text || c.content || "",
+                  score: c.score || 0,
+                  source: c.source || c.metadata?.docKey || "",
+                  metadata: c.metadata || null,
+                })),
+                query,
+                mode,
+              });
+            }
+            break;
+          case "queryCloudTaskRunId":
+            {
+              const input = event.arguments?.input || {};
+              const ownerId = normalizeEmailForPath(ownerEmail || owner || "");
+              const taskId = input.task_id || input.taskId;
+              const hostName = input.host_name || input.hostName;
+
+              let record = null;
+              if (taskId) {
+                record = await cloudTaskRunService.getTaskRun({ owner_id: ownerId, task_id: String(taskId) });
+              } else if (hostName) {
+                record = await cloudTaskRunService.findTaskRunByHostName({ owner_id: ownerId, host_name: String(hostName) });
+              }
+
+              if (!record) {
+                returnData = {
+                  success: false,
+                  error: "NOT_FOUND: No run id recorded",
+                  id: taskId || null,
+                  runID: null,
+                  runner: hostName || null,
+                  status: input.meta_data || {},
+                  timestamp: new Date().toISOString(),
+                };
+                break;
+              }
+
+              returnData = {
+                success: true,
+                error: null,
+                id: record.task_id || taskId || null,
+                runID: record.run_id || null,
+                runner: record.host_name || hostName || null,
+                status: {
+                  owner_id: record.owner_id,
+                  task_id: record.task_id,
+                  run_id: record.run_id,
+                  schedule: record.schedule,
+                  meta_data: record.meta_data || null,
+                },
+                timestamp: record.updated_at || new Date().toISOString(),
+              };
+            }
+            break;
           case "getAgents":
             {
               const agents = await agentService.getAgentsByOwner(owner);
@@ -5995,28 +6855,12 @@ async function processEvent(event, context, callback, test_stub) {
               const mode = input.mode || "hybrid";
               const topK = input.topK || 5;
               const userDir = ownerSub || normalizeEmailForPath(ownerEmail || owner);
-              // Read the index results cache from S3 (populated by Fargate worker)
-              const indexKey = `${userDir}/${pid}/index/chunks.json`;
-              let chunks = [];
-              try {
-                const res = await s3.send(new GetObjectCommand({ Bucket: RAG_BUCKET, Key: indexKey }));
-                const raw = await streamToString(res.Body);
-                if (raw) chunks = JSON.parse(raw);
-              } catch (e) {
-                console.log(`[agentScheduler] ragQuery: no index found at ${indexKey}`);
-              }
-              // Keyword search to retrieve relevant chunks
-              const queryLower = query.toLowerCase();
-              const scored = chunks.map(c => {
-                const text = (c.text || c.content || "").toLowerCase();
-                let score = 0;
-                const queryWords = queryLower.split(/\s+/).filter(w => w.length > 2);
-                for (const w of queryWords) {
-                  if (text.includes(w)) score += 1;
-                }
-                return { ...c, score };
-              }).filter(c => c.score > 0)
-                .sort((a, b) => b.score - a.score)
+              // Read chunks from S3. Prefer per-pid index, fallback to global.
+              const { chunks } = await _loadChunksIndex({ userDir, pid });
+              const filtered = _filterChunksByMeta(chunks || [], { pidFilter: pid, categoriesFilter: [] });
+              const scored = _keywordScoreChunks(filtered, query)
+                .filter(c => (c.score || 0) > 0)
+                .sort((a, b) => (b.score || 0) - (a.score || 0))
                 .slice(0, topK);
 
               // ── Call OpenAI to synthesize an answer from retrieved chunks ──
@@ -6205,6 +7049,38 @@ exports.handler = async (event, context, callback) => {
   var entranceInfo;
   var lamb_result  = {reqId:context.awsRequestId, error: false, cause: ""};
   console.log("event: " + JSON.stringify(event));
+
+  // Non-AppSync invocations (e.g., EventBridge Scheduler target)
+  // Expect payload like: { action: "launch_cloud_task", owner_id, task_id, schedule, meta_data }
+  try {
+    let rawEvent = event;
+    if (typeof rawEvent === "string") {
+      try { rawEvent = JSON.parse(rawEvent); } catch { /* ignore */ }
+    }
+    const action = rawEvent?.action || rawEvent?.detail?.action;
+    if (action === "launch_cloud_task") {
+      const payload = rawEvent?.detail || rawEvent;
+      const result = await launchCloudTaskAndRecord(payload);
+      return {
+        statusCode: 200,
+        body: result,
+      };
+    }
+  } catch (e) {
+    console.error("[agentScheduler] Non-AppSync invocation failed:", e);
+    return {
+      statusCode: 500,
+      body: { success: false, error: e.message || String(e) },
+    };
+  }
+
+  // Guard: if this isn't an AppSync resolver event, bail early.
+  if (!event || !event.info || !event.arguments) {
+    return {
+      statusCode: 400,
+      body: { success: false, error: "Unsupported invocation (missing AppSync fields)" },
+    };
+  }
   
   // there are two ways this can be called? 1) with cognito authorization 2) self-generated api key authorization
   if (event.identity && ('claims' in event.identity) && ('sourceIp' in event.identity)) {
