@@ -32,7 +32,7 @@ const DEFAULT_DATA_MAPPING = {
   developing: { mappings: [], options: { strict: false, apply_order: 'top_down' } },
   released: { mappings: [], options: { strict: true, apply_order: 'top_down' } },
   node_transfers: {},
-  event_routing: {},
+  event_data_mapping: {},
 };
 
 const DEFAULT_DATA_MAPPING_JSON = JSON.stringify(DEFAULT_DATA_MAPPING, null, 2);
@@ -68,14 +68,15 @@ function applyDataMappingToSkillInfo(skillInfo: SkillInfo, dataMapping: any) {
 
   const developing = dataMapping.developing || DEFAULT_DATA_MAPPING.developing;
   const released = dataMapping.released || DEFAULT_DATA_MAPPING.released;
-  const eventRouting = dataMapping.event_routing || {};
+
+  const eventDataMapping = dataMapping.event_data_mapping || dataMapping.event_routing || {};
 
   skillInfo.config = {
     ...(skillInfo.config || {}),
     skill_mapping: {
       developing,
       released,
-      event_routing: eventRouting,
+      event_data_mapping: eventDataMapping,
     },
   } as any;
 

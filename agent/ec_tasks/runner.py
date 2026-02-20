@@ -122,6 +122,9 @@ class TaskRunner(Generic[Context]):
         self.save_dir = os.path.join(agent.mainwin.my_ecb_data_homepath, "task_saves")
         os.makedirs(self.save_dir, exist_ok=True)
         
+        # Global event routing config (agent-level, not per-skill)
+        self._global_event_routing: Dict[str, dict] = self._load_global_event_routing()
+        
         # Stop event for shutdown
         self._stop_event = threading.Event()
         
@@ -560,6 +563,184 @@ class TaskRunner(Generic[Context]):
     
     # ==================== Event Routing ====================
     
+    def _load_global_event_routing(self) -> Dict[str, dict]:
+        """Load global event routing config from agent_files/event_routing.json.
+        
+        Falls back to the bundled default file if no user-level override exists.
+        Returns the 'event_routing' dict from the JSON file.
+        """
+        # 1. User-level override: <data_home>/event_routing.json
+        user_path = os.path.join(self.agent.mainwin.my_ecb_data_homepath, "event_routing.json")
+        # 2. Bundled default: agent/agent_files/event_routing.json
+        default_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "agent_files", "event_routing.json")
+        
+        for path in (user_path, default_path):
+            try:
+                if os.path.isfile(path):
+                    with open(path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    routing = data.get("event_routing", {})
+                    if isinstance(routing, dict) and routing:
+                        logger.info(f"[EventRouting] Loaded global event routing from {path} ({len(routing)} rules)")
+                        return routing
+            except Exception as e:
+                logger.warning(f"[EventRouting] Failed to load {path}: {e}")
+        
+        logger.warning("[EventRouting] No global event_routing.json found, using empty routing")
+        return {}
+    
+    def _save_global_event_routing(self, routing: Dict[str, dict]) -> bool:
+        """Save global event routing config to user data directory."""
+        user_path = os.path.join(self.agent.mainwin.my_ecb_data_homepath, "event_routing.json")
+        try:
+            data = {"event_routing": routing}
+            os.makedirs(os.path.dirname(user_path), exist_ok=True)
+            with open(user_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+            self._global_event_routing = routing
+            logger.info(f"[EventRouting] Saved global event routing to {user_path}")
+            return True
+        except Exception as e:
+            logger.error(f"[EventRouting] Failed to save event routing: {e}")
+            return False
+    
+    def reload_event_routing(self) -> None:
+        """Reload global event routing config from disk."""
+        self._global_event_routing = self._load_global_event_routing()
+    
+    def _extract_event_types_from_skill(self, skill) -> List[Dict[str, Any]]:
+        """Extract all event types and their match_fields from a skill's pend_event nodes.
+        
+        Inspects the skill's diagram (flowgram) for pend_event_node type nodes
+        and collects their eventType, pendingSources, and matchFields configuration.
+        
+        Returns:
+            List of dicts, each with:
+              - event_type (str): The event type string
+              - match_fields (list): Array of {event_path, task_path} from the node config
+        """
+        results: List[Dict[str, Any]] = []
+        try:
+            diagram = getattr(skill, "diagram", None)
+            if not isinstance(diagram, dict):
+                return results
+            
+            # Get nodes from workFlow or top-level
+            wf = diagram.get("workFlow") or diagram
+            nodes = wf.get("nodes") or diagram.get("nodes") or []
+            
+            for node in nodes:
+                if not isinstance(node, dict):
+                    continue
+                ntype = node.get("type") or ""
+                if ntype != "pend_event_node":
+                    continue
+                
+                node_data = node.get("data") or node
+                inputs = node_data.get("inputsValues") or {}
+                
+                # Extract match_fields from the node (shared across all event types in this node)
+                mf_raw = (inputs.get("matchFields") or {}).get("content") or []
+                match_fields = []
+                if isinstance(mf_raw, list):
+                    for mf in mf_raw:
+                        if isinstance(mf, dict):
+                            ep = (mf.get("event_path") or "").strip()
+                            tp = (mf.get("task_path") or "").strip()
+                            if ep:  # event_path is required; task_path can be blank
+                                match_fields.append({"event_path": ep, "task_path": tp})
+                
+                # Main event type
+                main_et = (inputs.get("eventType") or {}).get("content")
+                if isinstance(main_et, str) and main_et.strip():
+                    results.append({"event_type": main_et.strip(), "match_fields": match_fields})
+                
+                # Additional pending sources
+                pending_raw = (inputs.get("pendingSources") or {}).get("content") or []
+                if isinstance(pending_raw, list):
+                    for src in pending_raw:
+                        if isinstance(src, str) and src.strip():
+                            results.append({"event_type": src.strip(), "match_fields": match_fields})
+                        elif isinstance(src, dict):
+                            st = (src.get("type") or "").strip()
+                            if st:
+                                results.append({"event_type": st, "match_fields": match_fields})
+        except Exception as e:
+            logger.debug(f"[EventRouting] Error extracting event types from skill: {e}")
+        
+        # Deduplicate by event_type while preserving order (keep first occurrence)
+        seen = set()
+        unique = []
+        for entry in results:
+            et = entry["event_type"]
+            if et not in seen:
+                seen.add(et)
+                unique.append(entry)
+        return unique
+    
+    def _amend_event_routing_for_task(self, task: ManagedTask) -> None:
+        """Amend global event routing with entries for a task's pending event nodes.
+        
+        Called at task launch time. Inspects the task's skill for pend_event nodes,
+        extracts the event types and match_fields they expect, and adds routing
+        entries to the global config.
+        
+        If the node has match_fields configured, uses match_fields-based routing.
+        Otherwise falls back to routing_key: command.run_id for dynamic matching.
+        
+        Skips event types that already have a routing rule in the global config.
+        """
+        skill = getattr(task, "skill", None)
+        if not skill:
+            return
+        
+        try:
+            event_entries = self._extract_event_types_from_skill(skill)
+            if not event_entries:
+                return
+            
+            amended = False
+            for entry in event_entries:
+                et = entry["event_type"]
+                node_match_fields = entry.get("match_fields") or []
+                
+                if et in self._global_event_routing:
+                    logger.debug(f"[EventRouting] Event type '{et}' already has a routing rule, skipping")
+                    continue
+                
+                rule: Dict[str, Any] = {
+                    "task_selector": f"id:{task.id}",
+                    "queue": "",
+                    "_auto_added_by_task": task.id,
+                    "_auto_added_by_skill": getattr(skill, "name", ""),
+                }
+                
+                if node_match_fields:
+                    # Use match_fields from the node config for declarative matching
+                    rule["match_fields"] = node_match_fields
+                    rule["match_mode"] = "all"
+                    logger.info(
+                        f"[EventRouting] Added match_fields routing rule: event '{et}' -> "
+                        f"task '{task.name}' ({len(node_match_fields)} fields)"
+                    )
+                else:
+                    # Fallback: match by run_id
+                    rule["routing_key"] = "command.run_id"
+                    logger.info(
+                        f"[EventRouting] Added routing_key rule: event '{et}' -> task '{task.name}' (id={task.id})"
+                    )
+                
+                self._global_event_routing[et] = rule
+                amended = True
+            
+            if amended:
+                logger.info(
+                    f"[EventRouting] Amended global routing with {len(event_entries)} event types "
+                    f"from skill '{getattr(skill, 'name', '')}' for task '{task.name}'"
+                )
+        except Exception as e:
+            logger.warning(f"[EventRouting] Failed to amend routing for task '{task.name}': {e}")
+    
     def _extract_nested_value(self, data: Any, key_path: str) -> Any:
         """
         Extract a value from nested dict/object using dot notation.
@@ -583,12 +764,153 @@ class TaskRunner(Generic[Context]):
         except Exception:
             return None
 
-    def _resolve_event_routing(self, event_type: str, request: Any, source: str = "") -> Optional[Tuple[ManagedTask, dict]]:
+    def _extract_task_value(self, task: ManagedTask, key_path: str) -> Any:
+        """Extract a value from a ManagedTask using dot notation.
+        
+        Supports paths like:
+          - "id", "name", "run_id"           → direct task fields
+          - "state.account_id"               → task.state dict
+          - "state.cloud_run_id"             → task.state dict
+          - "skill.id", "skill.name"         → task.skill fields
         """
-        Use skill mapping DSL to route events to tasks.
+        try:
+            parts = key_path.split(".")
+            first = parts[0]
+            
+            # Resolve the root object
+            if first == "state":
+                current = task.state or {}
+                parts = parts[1:]
+            elif first == "skill":
+                current = getattr(task, "skill", None)
+                if current is None:
+                    return None
+                parts = parts[1:]
+            else:
+                current = task
+            
+            # Walk the remaining path
+            for part in parts:
+                if isinstance(current, dict):
+                    current = current.get(part)
+                elif hasattr(current, part):
+                    current = getattr(current, part)
+                elif hasattr(current, "model_dump"):
+                    current = current.model_dump().get(part)
+                else:
+                    return None
+                if current is None:
+                    return None
+            return current
+        except Exception:
+            return None
+    
+    @staticmethod
+    def _apply_match_transform(value: Any, transform: str) -> Any:
+        """Apply a transform to a value before comparison.
+        
+        Supported transforms:
+          - "lowercase" / "lower"   → str.lower()
+          - "uppercase" / "upper"   → str.upper()
+          - "strip"                 → str.strip()
+          - "to_string" / "str"     → str()
+          - "to_int" / "int"        → int()
+          - "prefix:X"              → remove prefix X from string
+          - "suffix:X"              → remove suffix X from string
+        """
+        if value is None or not transform:
+            return value
+        try:
+            t = transform.strip().lower()
+            sv = str(value) if not isinstance(value, str) else value
+            
+            if t in ("lowercase", "lower"):
+                return sv.lower()
+            elif t in ("uppercase", "upper"):
+                return sv.upper()
+            elif t == "strip":
+                return sv.strip()
+            elif t in ("to_string", "str"):
+                return str(value)
+            elif t in ("to_int", "int"):
+                return int(value)
+            elif t.startswith("prefix:"):
+                prefix = transform.split(":", 1)[1]
+                return sv[len(prefix):] if sv.startswith(prefix) else sv
+            elif t.startswith("suffix:"):
+                suffix = transform.split(":", 1)[1]
+                return sv[:-len(suffix)] if sv.endswith(suffix) else sv
+            else:
+                return value
+        except Exception:
+            return value
+    
+    def _evaluate_match_fields(self, match_fields: list, match_mode: str,
+                               request: Any, task: ManagedTask) -> bool:
+        """Evaluate match_fields rules against a request and task.
         
         Args:
-            event_type: Type of event.
+            match_fields: List of {event_path, task_path, transform?} dicts.
+            match_mode: "all" (every pair must match) or "any" (at least one).
+            request: The incoming event/request object.
+            task: The candidate ManagedTask.
+            
+        Returns:
+            True if the task matches according to match_mode.
+        """
+        if not match_fields:
+            return False
+        
+        results = []
+        for mf in match_fields:
+            if not isinstance(mf, dict):
+                continue
+            event_path = mf.get("event_path") or ""
+            task_path = mf.get("task_path") or ""
+            transform = mf.get("transform") or ""
+            
+            if not event_path or not task_path:
+                continue
+            
+            event_val = self._extract_nested_value(request, event_path)
+            task_val = self._extract_task_value(task, task_path)
+            
+            # Apply transform to both sides
+            if transform:
+                event_val = self._apply_match_transform(event_val, transform)
+                task_val = self._apply_match_transform(task_val, transform)
+            
+            matched = (event_val is not None and task_val is not None
+                       and str(event_val) == str(task_val))
+            results.append(matched)
+            logger.debug(
+                f"[ROUTING] match_field: event.{event_path}={event_val} vs task.{task_path}={task_val} "
+                f"→ {'✅' if matched else '❌'}"
+            )
+        
+        if not results:
+            return False
+        
+        if match_mode == "any":
+            return any(results)
+        return all(results)  # default: "all"
+    
+    def _resolve_event_routing(self, event_type: str, request: Any, source: str = "") -> Optional[Tuple[ManagedTask, dict]]:
+        """
+        Route an event to a task using the global agent-level event routing config.
+        
+        The global config (event_routing.json) maps event types to routing rules.
+        Each rule supports three matching strategies (evaluated in order):
+        
+          1. match_fields: Array of {event_path, task_path, transform?} pairs.
+             Extracts values from the event and task, optionally transforms them,
+             and compares. match_mode ("all"|"any") controls AND/OR logic.
+          2. routing_key: Legacy shorthand — extracts a value from the request
+             and compares against well-known task fields (id, cloud_run_id, skill.id).
+          3. task_selector: Static match by task name or id (e.g. "name_contains:chatter").
+        
+        Args:
+            event_type: Type of event (e.g. "human_chat", "web_hook").
             request: The request object.
             source: Optional source identifier.
             
@@ -599,71 +921,80 @@ class TaskRunner(Generic[Context]):
             event = normalize_event(event_type, request, src=source)
             etype = event.get("type") or event_type
         except Exception:
+            event = None
             etype = event_type
         
-        logger.debug(f"normalized event: {etype}, {event}")
+        logger.debug(f"[ROUTING] normalized event: {etype}")
         
         try:
-            tasks_list = getattr(self.agent, "tasks", []) or []
-            logger.info(f"[ROUTING] Agent {self.agent.card.name} has {len(tasks_list)} tasks")
+            # Look up rule in global routing table
+            rule = self._global_event_routing.get(etype)
+            if not isinstance(rule, dict):
+                logger.debug(f"[ROUTING] No global routing rule for event type '{etype}'")
+                return None
             
-            for t in tasks_list:
-                if not t or not getattr(t, "skill", None):
-                    logger.debug(f"[ROUTING] Skipping task (no skill): {getattr(t, 'name', 'UNKNOWN')}")
-                    continue
-                
-                skill = t.skill
-                skill_name = getattr(skill, "name", "UNKNOWN")
-                logger.debug(f"[ROUTING] Checking task: {t.name}, skill: {skill_name}")
-                
-                rules = getattr(skill, "mapping_rules", None)
-                
-                if not isinstance(rules, dict):
-                    logger.debug(f"[ROUTING] No mapping_rules for skill: {skill_name}")
-                    continue
-                
-                # Get event_routing from rules
-                event_routing = rules.get("event_routing")
-                if not isinstance(event_routing, dict):
-                    run_mode = getattr(skill, "run_mode", None)
-                    logger.debug(f"[ROUTING] No top-level event_routing, checking run_mode: {run_mode}")
-                    if run_mode and isinstance(rules.get(run_mode), dict):
-                        event_routing = rules.get(run_mode, {}).get("event_routing")
-                
-                if not isinstance(event_routing, dict):
-                    logger.debug(f"[ROUTING] No event_routing found for skill: {skill_name}")
-                    continue
-                
-                logger.debug(f"[ROUTING] event_routing keys: {list(event_routing.keys())}")
-                
-                rule = event_routing.get(etype)
-                if not isinstance(rule, dict):
-                    logger.debug(f"[ROUTING] No rule for event type '{etype}' in skill: {skill_name}")
-                    continue
-                
-                # Check routing_key for dynamic matching (e.g., by run_id, node_id)
-                routing_key = rule.get("routing_key")
-                if routing_key:
+            tasks_list = getattr(self.agent, "tasks", []) or []
+            logger.info(f"[ROUTING] Routing event '{etype}' — {len(tasks_list)} tasks available")
+            
+            # 1. match_fields: declarative multi-field matching
+            # Uses normalized event envelope so event_path is consistent
+            # (e.g. "data.metadata.params.chatId", "context.senderId")
+            match_fields = rule.get("match_fields")
+            if isinstance(match_fields, list) and match_fields:
+                match_mode = rule.get("match_mode", "all")
+                # Prefer normalized event; fall back to raw request
+                event_data = event if isinstance(event, dict) else request
+                for t in tasks_list:
+                    if not t:
+                        continue
+                    if self._evaluate_match_fields(match_fields, match_mode, event_data, t):
+                        logger.info(f"[ROUTING] ✅ Matched task via match_fields: {t.name}, id={t.id}")
+                        return (t, rule)
+                logger.debug(f"[ROUTING] ❌ No task matched via match_fields for event '{etype}'")
+            
+            # 2. routing_key: legacy shorthand for dynamic matching
+            # Try normalized event first, then raw request for backward compat
+            routing_key = rule.get("routing_key")
+            if routing_key:
+                key_value = None
+                if isinstance(event, dict):
+                    key_value = self._extract_nested_value(event, routing_key)
+                if key_value is None:
                     key_value = self._extract_nested_value(request, routing_key)
-                    if key_value:
-                        logger.debug(f"[ROUTING] routing_key '{routing_key}' = '{key_value}'")
-                        # Match by run_id (task.id)
-                        if "run_id" in routing_key and str(t.id) == str(key_value):
-                            logger.info(f"[ROUTING] ✅ Matched task by run_id: {t.name}, id={t.id}")
-                            return (t, rule)
+                if key_value:
+                    logger.debug(f"[ROUTING] routing_key '{routing_key}' = '{key_value}'")
+                    for t in tasks_list:
+                        if not t:
+                            continue
+                        # Match by run_id (task.id or cloud_run_id)
+                        if "run_id" in routing_key:
+                            if str(t.id) == str(key_value):
+                                logger.info(f"[ROUTING] ✅ Matched task by run_id: {t.name}, id={t.id}")
+                                return (t, rule)
+                            cloud_run_id = (t.state or {}).get("cloud_run_id")
+                            if cloud_run_id and str(cloud_run_id) == str(key_value):
+                                logger.info(f"[ROUTING] ✅ Matched task by cloud_run_id: {t.name}")
+                                return (t, rule)
                         # Match by skill_id
-                        if "skill_id" in routing_key and str(getattr(skill, "id", "")) == str(key_value):
-                            logger.info(f"[ROUTING] ✅ Matched task by skill_id: {t.name}")
-                            return (t, rule)
-                
-                # Evaluate selector (fallback)
-                selector = rule.get("task_selector") or ""
-                logger.debug(f"[ROUTING] Evaluating selector '{selector}' for task: {t.name}, skill: {skill_name}")
-                if self._evaluate_selector(selector, t):
-                    logger.info(f"[ROUTING] ✅ Matched task: {t.name}, id={t.id}")
-                    return (t, rule)
-                else:
-                    logger.debug(f"[ROUTING] ❌ Selector '{selector}' did not match task: {t.name}")
+                        if "skill_id" in routing_key:
+                            skill = getattr(t, "skill", None)
+                            if skill and str(getattr(skill, "id", "")) == str(key_value):
+                                logger.info(f"[ROUTING] ✅ Matched task by skill_id: {t.name}")
+                                return (t, rule)
+            
+            # 3. Static matching via task_selector (fallback)
+            selector = rule.get("task_selector") or ""
+            if selector:
+                for t in tasks_list:
+                    if not t:
+                        continue
+                    if self._evaluate_selector(selector, t):
+                        logger.info(f"[ROUTING] ✅ Matched task via selector '{selector}': {t.name}, id={t.id}")
+                        return (t, rule)
+                logger.debug(f"[ROUTING] ❌ No task matched selector '{selector}' for event '{etype}'")
+            else:
+                if not match_fields and not routing_key:
+                    logger.debug(f"[ROUTING] No matching strategy in rule for event '{etype}'")
                     
         except Exception as e:
             logger.error(get_traceback(e, "ErrorResolveEventRouting"))
@@ -1054,7 +1385,7 @@ class TaskRunner(Generic[Context]):
     def launch_unified_run(
         self,
         task2run: Optional[ManagedTask] = None,
-        trigger_type: str = "queue",
+        trigger_type: "str | List[str]" = "queue",
         *,
         dev_init_state: Optional[dict] = None,
         dev_single_run: bool = False
@@ -1064,13 +1395,21 @@ class TaskRunner(Generic[Context]):
         
         Args:
             task2run: ManagedTask to execute.
-            trigger_type: "schedule" | "a2a_queue" | "chat_queue" | "dev"
+            trigger_type: str or list of str, e.g. "schedule", ["schedule", "message"]
+                          Supported values: "schedule", "a2a_queue", "chat_queue",
+                          "message", "interaction", "dev"
             dev_init_state: Initial state for dev runs.
             dev_single_run: If True, exit after one run.
         """
-        logger.info(f"[WORKER] launch_unified_run: trigger={trigger_type}, agent={self.agent.card.name}")
+        # Normalize trigger_type to a list
+        if isinstance(trigger_type, str):
+            triggers = [trigger_type]
+        else:
+            triggers = list(trigger_type)
         
-        if trigger_type == "dev":
+        logger.info(f"[WORKER] launch_unified_run: triggers={triggers}, agent={self.agent.card.name}")
+        
+        if "dev" in triggers:
             self._dev_exit_requested = False
         
         current_task = task2run
@@ -1094,7 +1433,7 @@ class TaskRunner(Generic[Context]):
             try:
                 # Get next work item
                 current_task, msg, message_taken = self._get_next_work_item(
-                    trigger_type, current_task, task2run, loop_count, is_twin_agent, dev_init_state
+                    triggers, current_task, task2run, loop_count, is_twin_agent, dev_init_state
                 )
                 
                 if current_task is None:
@@ -1102,7 +1441,7 @@ class TaskRunner(Generic[Context]):
                         break
                     continue
                 
-                if msg is None and trigger_type != "schedule":
+                if msg is None and "schedule" not in triggers:
                     if self._stop_event.wait(timeout=0.5):
                         break
                     continue
@@ -1116,14 +1455,17 @@ class TaskRunner(Generic[Context]):
                 if not self._validate_task_for_execution(current_task):
                     continue
                 
+                # Determine the effective trigger for this execution
+                effective_trigger = triggers[0] if len(triggers) == 1 else (msg or {}).get("__trigger_source__", triggers[0]) if isinstance(msg, dict) else triggers[0]
+                
                 # Submit execution
-                self._submit_task_execution(current_task, msg, trigger_type, dev_init_state)
+                self._submit_task_execution(current_task, msg, effective_trigger, dev_init_state)
                 
                 consecutive_errors = 0
                 
             except Exception as e:
                 consecutive_errors += 1
-                logger.error(get_traceback(e, f"ErrorUnifiedRun[{trigger_type}]"))
+                logger.error(get_traceback(e, f"ErrorUnifiedRun[{triggers}]"))
                 
                 if consecutive_errors >= max_errors:
                     logger.error(f"Too many errors ({max_errors}), stopping")
@@ -1141,7 +1483,7 @@ class TaskRunner(Generic[Context]):
                         pass
             
             # Dev single-run exit check
-            if trigger_type == "dev" and dev_single_run:
+            if "dev" in triggers and dev_single_run:
                 if getattr(self, "_dev_exit_requested", False):
                     break
             
@@ -1149,11 +1491,11 @@ class TaskRunner(Generic[Context]):
             if self._stop_event.wait(timeout=1.0):
                 break
         
-        logger.info(f"[WORKER] Exiting: trigger={trigger_type}")
+        logger.info(f"[WORKER] Exiting: triggers={triggers}")
     
     def _get_next_work_item(
         self,
-        trigger_type: str,
+        triggers: List[str],
         current_task: Optional[ManagedTask],
         task2run: Optional[ManagedTask],
         loop_count: int,
@@ -1161,36 +1503,55 @@ class TaskRunner(Generic[Context]):
         dev_init_state: Optional[dict]
     ) -> Tuple[Optional[ManagedTask], Any, bool]:
         """
-        Get the next work item based on trigger type.
+        Get the next work item by checking all trigger sources.
+        
+        For multi-trigger tasks (e.g. ["schedule", "message"]), each source
+        is checked in priority order per iteration:
+          1. Dev kickoff (if "dev" in triggers)
+          2. Schedule check (if "schedule" in triggers) — non-blocking
+          3. Queue poll (if any queue-based trigger) — short timeout
         
         Returns:
             Tuple of (task, message, message_taken_from_queue)
         """
-        if trigger_type == "schedule":
-            task = find_tasks_ready_to_run(self.agent.tasks)
-            return task, None, False
+        has_schedule = "schedule" in triggers
+        has_dev = "dev" in triggers
+        queue_triggers = [t for t in triggers if t in ("a2a_queue", "chat_queue", "message", "interaction")]
+        has_queue = bool(queue_triggers) or has_dev
         
-        if trigger_type in ("a2a_queue", "chat_queue", "message", "dev"):
-            if not current_task:
-                return None, None, False
+        # --- Dev mode: initial kickoff ---
+        if has_dev and current_task:
+            if current_task.id not in self._task_states:
+                self._task_states[current_task.id] = {'justStarted': True}
             
-            # Dev mode: initial kickoff
-            if trigger_type == "dev":
-                if current_task.id not in self._task_states:
-                    self._task_states[current_task.id] = {'justStarted': True}
-                
-                state = self._task_states[current_task.id]
-                if state.get('justStarted', True) and not state.get('dev_auto_started'):
-                    state['dev_auto_started'] = True
-                    return current_task, {"__dev_kickoff__": True}, False
-            
-            # Try to get from queue
+            state = self._task_states[current_task.id]
+            if state.get('justStarted', True) and not state.get('dev_auto_started'):
+                state['dev_auto_started'] = True
+                return current_task, {"__dev_kickoff__": True, "__trigger_source__": "dev"}, False
+        
+        # --- Schedule check (non-blocking) ---
+        if has_schedule:
+            sched_task = find_tasks_ready_to_run(self.agent.tasks)
+            if sched_task:
+                return sched_task, {"__trigger_source__": "schedule"}, False
+        
+        # --- Queue-based triggers ---
+        if has_queue and current_task:
             try:
-                timeout = 0.5 if trigger_type != "dev" else DEV_EVENT_POLL_INTERVAL_SEC
+                timeout = DEV_EVENT_POLL_INTERVAL_SEC if has_dev else 0.5
                 msg = current_task.queue.get(timeout=timeout)
                 
+                # Tag the message with trigger source
+                if isinstance(msg, dict):
+                    if "chat_queue" in triggers:
+                        msg["__trigger_source__"] = "chat_queue"
+                    elif "a2a_queue" in triggers:
+                        msg["__trigger_source__"] = "a2a_queue"
+                    else:
+                        msg["__trigger_source__"] = queue_triggers[0] if queue_triggers else "message"
+                
                 # Handle chat_queue task finding
-                if trigger_type == "chat_queue":
+                if "chat_queue" in triggers:
                     chatter = self.find_chatter_tasks()
                     if chatter:
                         current_task = chatter
@@ -1199,8 +1560,16 @@ class TaskRunner(Generic[Context]):
                 
             except Empty:
                 # Check timeout for pending tasks
-                self._check_pending_timeout(current_task, trigger_type)
+                primary_trigger = "dev" if has_dev else (queue_triggers[0] if queue_triggers else triggers[0])
+                self._check_pending_timeout(current_task, primary_trigger)
+                
+                # For schedule-only: already checked above, return None
+                # For multi-trigger with schedule: no queue msg, no schedule ready
                 return current_task, None, False
+        
+        # Schedule-only path: already checked above, nothing ready
+        if has_schedule:
+            return None, None, False
         
         return None, None, False
     
@@ -1237,15 +1606,24 @@ class TaskRunner(Generic[Context]):
             pass
     
     def _validate_task_for_execution(self, task: ManagedTask) -> bool:
-        """Validate a task is ready for execution."""
+        """Validate a task is ready for execution.
+        
+        A task's cloud run characteristics are determined by its associated skill.
+        A task without a skill cannot be scheduled or launched.
+        """
         logger.info(f"[VALIDATE] Task: {task.id}, name: {task.name}")
         
         if task.skill is None:
-            logger.error(f"[SKILL_MISSING] Task {task.id} has skill=None!")
-            return False
+            logger.error(f"[SKILL_MISSING] Task '{task.name}' (id={task.id}) has no skill attached — cannot determine execution mode. Skipping.")
+            raise ValueError(f"Task '{task.name}' has no skill attached and cannot be scheduled or launched.")
         
+        # Pure cloud tasks don't need a local runnable
+        if self._is_pure_cloud_task(task) or self._is_hybrid_cloud_task(task):
+            return True
+        
+        # Local tasks require a runnable
         if not hasattr(task.skill, 'runnable') or task.skill.runnable is None:
-            logger.error(f"[SKILL_MISSING] Skill has runnable=None!")
+            logger.error(f"[SKILL_MISSING] Task '{task.name}' skill has runnable=None!")
             return False
         
         return True
@@ -1267,8 +1645,27 @@ class TaskRunner(Generic[Context]):
         
         is_initial_run = self._task_states[task.id]['justStarted']
         
+        # Determine cloud execution mode
+        is_hybrid = self._is_hybrid_cloud_task(task)
+        is_pure_cloud = self._is_pure_cloud_task(task)
+        
+        # Pure cloud + schedule: cloud scheduler handles it, nothing to do locally
+        if is_pure_cloud and trigger_type == "schedule":
+            logger.info(f"[SUBMIT] Pure cloud task '{task.name}' with schedule trigger — cloud scheduler handles, skipping local execution")
+            return
+        
+        # Amend global event routing with entries from this task's skill
+        try:
+            self._amend_event_routing_for_task(task)
+        except Exception as e:
+            logger.warning(f"[SUBMIT] Failed to amend event routing for task={task.name}: {e}")
+        
         # Create execution function
         def _execute():
+            if is_hybrid:
+                return self._execute_hybrid_cloud_task(task, msg, trigger_type, is_initial_run, dev_init_state)
+            if is_pure_cloud:
+                return self._execute_pure_cloud_task(task, trigger_type)
             return self._execute_skill(task, msg, trigger_type, is_initial_run, dev_init_state)
         
         # Create callback
@@ -1281,8 +1678,370 @@ class TaskRunner(Generic[Context]):
         future = self._skill_executor.submit(_execute)
         future.add_done_callback(_on_complete)
         
-        logger.info(f"[SUBMIT] Skill execution submitted for task={task.name}")
+        task_mode = "hybrid" if is_hybrid else ("pure_cloud" if is_pure_cloud else "local")
+        logger.info(f"[SUBMIT] Skill execution submitted for task={task.name} (mode={task_mode})")
     
+    def _is_hybrid_cloud_task(self, task: ManagedTask) -> bool:
+        """Check if a task uses a hybrid cloud skill."""
+        skill = task.skill
+        if skill is None:
+            return False
+        run_in_cloud = getattr(skill, 'run_in_cloud', False)
+        hybrid_mode = getattr(skill, 'hybrid_cloud_mode', False)
+        return bool(run_in_cloud and hybrid_mode)
+    
+    def _is_pure_cloud_task(self, task: ManagedTask) -> bool:
+        """Check if a task is a pure cloud task (run_in_cloud but NOT hybrid)."""
+        skill = task.skill
+        if skill is None:
+            return False
+        run_in_cloud = getattr(skill, 'run_in_cloud', False)
+        hybrid_mode = getattr(skill, 'hybrid_cloud_mode', False)
+        return bool(run_in_cloud and not hybrid_mode)
+    
+    def _execute_pure_cloud_task(
+        self,
+        task: ManagedTask,
+        trigger_type: str,
+    ) -> Tuple[Optional[dict], bool]:
+        """
+        Execute a pure cloud task on-demand by calling runCloudTasks.
+        
+        For scheduled pure cloud tasks the cloud scheduler handles execution
+        directly — this method is only called for on-demand triggers
+        (message, interaction, etc.).
+        """
+        import requests
+
+        skill_name = getattr(task.skill, 'name', 'unknown') if task.skill else 'unknown'
+        logger.info(f"[PureCloud] Launching cloud task on-demand: task={task.name}, skill={skill_name}, trigger={trigger_type}")
+
+        try:
+            from app_context import AppContext
+            from config.app_settings import get_appsync_endpoint
+
+            login = AppContext.get_login()
+            if not login or not login.access_token:
+                logger.error("[PureCloud] Not authenticated — no access token")
+                return {"success": False, "error": "Not authenticated"}, True
+
+            token = login.access_token
+            endpoint = get_appsync_endpoint()
+        except Exception as e:
+            logger.error(f"[PureCloud] Failed to get auth credentials: {e}")
+            return {"success": False, "error": f"Auth error: {e}"}, True
+
+        try:
+            from agent.cloud_api.cloud_api import run_cloud_tasks
+
+            session = requests.Session()
+            result = run_cloud_tasks(session, token, [task.id], endpoint=endpoint)
+
+            if not result.get("success"):
+                error_msg = result.get("error", "runCloudTasks failed")
+                logger.error(f"[PureCloud] runCloudTasks failed: {error_msg}")
+                return {"success": False, "error": error_msg}, True
+
+            run_ids = result.get("run_ids", {})
+            cloud_run_id = run_ids.get(task.id) or next(iter(run_ids.values()), None)
+            logger.info(f"[PureCloud] Cloud task launched: run_id={cloud_run_id}")
+
+            # Start onTaskStatus subscription for this cloud run
+            if cloud_run_id:
+                try:
+                    self._start_task_status_subscription(task, cloud_run_id)
+                except Exception as e:
+                    logger.warning(f"[TaskStatus] Could not start subscription for pure cloud task={task.name}: {e}")
+
+            task.state["cloud_run_id"] = cloud_run_id
+            return {"success": True, "cloud_run_id": cloud_run_id}, True
+        except Exception as e:
+            logger.error(f"[PureCloud] Error calling runCloudTasks: {e}")
+            logger.error(traceback.format_exc())
+            return {"success": False, "error": f"runCloudTasks error: {e}"}, True
+    
+    def _execute_hybrid_cloud_task(
+        self,
+        task: ManagedTask,
+        msg: Any,
+        trigger_type: str,
+        is_initial_run: bool,
+        dev_init_state: Optional[dict]
+    ) -> Tuple[Optional[dict], bool]:
+        """
+        Execute a hybrid cloud task:
+        1. Poll queryCloudTaskRunId until the cloud task's runID is available
+        2. Start onPassiveCommand WebSocket subscription with matching runID/clientID
+        3. Execute the local helper skill (langgraph-based workflow)
+        
+        The cloud task and local helper are scheduled to run at the same time,
+        but the local side waits for the cloud task to start first.
+        """
+        import socket
+        import requests
+
+        skill = task.skill
+        skill_name = getattr(skill, 'name', 'unknown')
+        logger.info(f"[HybridCloud] Starting hybrid cloud execution for task={task.name}, skill={skill_name}")
+
+        # Get auth credentials
+        try:
+            from app_context import AppContext
+            from config.app_settings import get_appsync_endpoint
+
+            login = AppContext.get_login()
+            if not login or not login.access_token:
+                logger.error("[HybridCloud] Not authenticated - no access token")
+                return {"success": False, "error": "Not authenticated"}, True
+
+            token = login.access_token
+            endpoint = get_appsync_endpoint()
+            username = login.auth_manager.current_user if login.auth_manager else "unknown"
+            host_name = socket.gethostname()
+        except Exception as e:
+            logger.error(f"[HybridCloud] Failed to get auth credentials: {e}")
+            return {"success": False, "error": f"Auth error: {e}"}, True
+
+        # Step 1: Obtain cloud task's runID
+        # - Schedule trigger: cloud task is already running, poll for its runID
+        # - On-demand trigger (message/interaction): launch cloud task now via runCloudTasks, get runID directly
+        session = requests.Session()
+        cloud_run_id = None
+
+        if trigger_type == "schedule":
+            logger.info(f"[HybridCloud] Step 1: Polling for cloud runID (task_id={task.id}, host={host_name})")
+            try:
+                from agent.cloud_api.cloud_api import query_cloud_task_run_id_with_retry
+
+                run_id_result = query_cloud_task_run_id_with_retry(
+                    session, token, task.id, host_name,
+                    meta_data={"owner": username},
+                    endpoint=endpoint,
+                    max_wait_seconds=120,
+                    poll_interval=5,
+                )
+
+                if not run_id_result.get("success"):
+                    error_msg = run_id_result.get("error", "Failed to get cloud runID")
+                    logger.error(f"[HybridCloud] Failed to get cloud runID: {error_msg}")
+                    return {"success": False, "error": error_msg}, True
+
+                cloud_run_id = run_id_result["run_id"]
+                logger.info(f"[HybridCloud] Got cloud runID via polling: {cloud_run_id}")
+            except Exception as e:
+                logger.error(f"[HybridCloud] Error polling for cloud runID: {e}")
+                logger.error(traceback.format_exc())
+                return {"success": False, "error": f"RunID poll error: {e}"}, True
+        else:
+            # On-demand: launch cloud task and get runID from response
+            logger.info(f"[HybridCloud] Step 1: Launching cloud task via runCloudTasks (task_id={task.id}, trigger={trigger_type})")
+            try:
+                from agent.cloud_api.cloud_api import run_cloud_tasks
+
+                result = run_cloud_tasks(session, token, [task.id], endpoint=endpoint)
+
+                if not result.get("success"):
+                    error_msg = result.get("error", "runCloudTasks failed")
+                    logger.error(f"[HybridCloud] runCloudTasks failed: {error_msg}")
+                    return {"success": False, "error": error_msg}, True
+
+                run_ids = result.get("run_ids", {})
+                cloud_run_id = run_ids.get(task.id)
+                if not cloud_run_id:
+                    # Try first available run_id if task.id key doesn't match exactly
+                    cloud_run_id = next(iter(run_ids.values()), None)
+
+                if not cloud_run_id:
+                    logger.error(f"[HybridCloud] runCloudTasks returned no runID for task {task.id}")
+                    return {"success": False, "error": "No runID in runCloudTasks response"}, True
+
+                logger.info(f"[HybridCloud] Got cloud runID from runCloudTasks: {cloud_run_id}")
+            except Exception as e:
+                logger.error(f"[HybridCloud] Error calling runCloudTasks: {e}")
+                logger.error(traceback.format_exc())
+                return {"success": False, "error": f"runCloudTasks error: {e}"}, True
+
+        # Step 2a: Start onTaskStatus subscription for this cloud run
+        try:
+            self._start_task_status_subscription(task, cloud_run_id)
+        except Exception as e:
+            logger.warning(f"[TaskStatus] Could not start subscription for hybrid task={task.name}: {e}")
+
+        # Step 2b: Start passive command subscription
+        client_id = self._get_client_id()
+        logger.info(f"[HybridCloud] Step 2: Starting passive command subscription (run_id={cloud_run_id}, client_id={client_id})")
+        try:
+            self._start_hybrid_passive_subscription(token, endpoint, cloud_run_id, client_id)
+            logger.info(f"[HybridCloud] Passive subscription started successfully")
+        except Exception as e:
+            logger.warning(f"[HybridCloud] Failed to start passive subscription (continuing anyway): {e}")
+
+        # Step 3: Store cloud run_id on task for the helper skill to use
+        task.state["cloud_run_id"] = cloud_run_id
+        task.state["is_hybrid_cloud"] = True
+        task.state["client_id"] = client_id
+
+        # Step 4: Execute the local helper skill normally
+        logger.info(f"[HybridCloud] Step 3: Executing local helper skill: {skill_name}")
+        return self._execute_skill(task, msg, trigger_type, is_initial_run, dev_init_state)
+    
+    def _get_client_id(self) -> str:
+        """Get the client ID (acctSiteID) for passive command subscription."""
+        try:
+            mainwin = self.agent.mainwin
+            if hasattr(mainwin, 'getAcctSiteID'):
+                cid = mainwin.getAcctSiteID()
+                if cid:
+                    return cid
+        except Exception:
+            pass
+        import socket
+        return f"client-{socket.gethostname()}"
+    
+    def _start_hybrid_passive_subscription(self, token: str, endpoint: str, run_id: str, client_id: str) -> None:
+        """Start onPassiveCommand WebSocket subscription for hybrid cloud execution."""
+        try:
+            from agent.ec_skills.browser_use_extension.passive_command_service import PassiveCommandService
+            from agent.ec_skills.browser_use_extension.appsync_passive_client import (
+                AppSyncPassiveClientConfig,
+                _derive_realtime_endpoint,
+                _derive_api_host,
+            )
+
+            mainwin = self.agent.mainwin
+            http_endpoint = endpoint or mainwin.getWanApiEndpoint()
+            ws_endpoint = getattr(mainwin, 'getWSApiEndpoint', lambda: None)() or _derive_realtime_endpoint(http_endpoint)
+            api_host = getattr(mainwin, 'getWSApiHost', lambda: None)() or _derive_api_host(http_endpoint, ws_endpoint)
+
+            config = AppSyncPassiveClientConfig(
+                http_endpoint=http_endpoint,
+                ws_endpoint=ws_endpoint,
+                api_host=api_host,
+                auth_token=token,
+                run_id=run_id,
+                client_id=client_id,
+            )
+
+            route_fn = getattr(mainwin, '_route_passive_command_to_task', None)
+            if not route_fn:
+                logger.warning("[HybridCloud] No _route_passive_command_to_task on mainwin")
+                return
+
+            service = PassiveCommandService(config=config, route_command=route_fn)
+
+            import asyncio as _asyncio
+
+            async def _start():
+                await service.start()
+
+            loop = getattr(mainwin, '_async_loop', None)
+            if loop and loop.is_running():
+                _asyncio.run_coroutine_threadsafe(_start(), loop)
+            else:
+                def _run():
+                    _asyncio.run(_start())
+                t = threading.Thread(target=_run, daemon=True)
+                t.start()
+
+            logger.info(f"[HybridCloud] Passive subscription started: client_id={client_id}, run_id={run_id}")
+        except Exception as e:
+            logger.error(f"[HybridCloud] Failed to start passive subscription: {e}")
+            logger.error(traceback.format_exc())
+    
+    def _start_task_status_subscription(self, task: ManagedTask, run_id: str) -> None:
+        """Start onTaskStatus WebSocket subscription for a running task.
+        
+        Called after obtaining the runId for any task type (local, cloud, hybrid).
+        Uses the runId as the 'runner' parameter so the subscription receives
+        status updates specific to this task run.
+        """
+        try:
+            from app_context import AppContext
+            from agent.cloud_api.cloud_api import get_appsync_endpoint
+            from .appsync_pubsub import AppSyncApiKeyConfig, subscribe_task_status
+
+            login = AppContext.get_login()
+            if not login or not login.access_token:
+                logger.warning(f"[TaskStatus] Not authenticated, skipping onTaskStatus subscription for run_id={run_id}")
+                return
+
+            mainwin = self.agent.mainwin
+            endpoint = get_appsync_endpoint()
+            api_key = ""
+            if hasattr(mainwin, 'getWanApiKey'):
+                api_key = mainwin.getWanApiKey() or ""
+
+            if not endpoint:
+                logger.warning(f"[TaskStatus] No AppSync endpoint, skipping onTaskStatus subscription for run_id={run_id}")
+                return
+
+            config = AppSyncApiKeyConfig(
+                http_endpoint=endpoint,
+                api_key=api_key,
+                auth_token=login.access_token,
+            )
+
+            task_ref = task  # capture for callback closure
+
+            async def _on_envelope(envelope: dict):
+                self._on_task_status_envelope(task_ref, envelope)
+
+            async def _run_subscription():
+                await subscribe_task_status(
+                    config=config,
+                    runner=run_id,
+                    on_envelope=_on_envelope,
+                    max_retries=10,
+                )
+
+            import asyncio as _asyncio
+
+            loop = getattr(mainwin, '_async_loop', None)
+            if loop and loop.is_running():
+                _asyncio.run_coroutine_threadsafe(_run_subscription(), loop)
+            else:
+                def _run():
+                    _asyncio.run(_run_subscription())
+                t = threading.Thread(target=_run, daemon=True)
+                t.start()
+
+            logger.info(f"[TaskStatus] onTaskStatus subscription started: task={task.name}, run_id={run_id}")
+        except Exception as e:
+            logger.warning(f"[TaskStatus] Failed to start onTaskStatus subscription for run_id={run_id}: {e}")
+            logger.debug(traceback.format_exc())
+
+    def _on_task_status_envelope(self, task: ManagedTask, envelope: dict) -> None:
+        """Handle an onTaskStatus WebSocket message for a task run.
+        
+        Envelope fields: id, runID, runner, error, success, status, timestamp
+        """
+        try:
+            run_id = envelope.get("runID") or envelope.get("run_id") or ""
+            success = envelope.get("success")
+            error = envelope.get("error")
+            status = envelope.get("status")
+
+            logger.info(
+                f"[TaskStatus] Received status update: task={task.name}, "
+                f"run_id={run_id}, success={success}, status={status}, error={error}"
+            )
+
+            # Store latest cloud status on task state for visibility
+            task.state["last_cloud_status"] = {
+                "run_id": run_id,
+                "success": success,
+                "error": error,
+                "status": status,
+                "timestamp": envelope.get("timestamp"),
+            }
+
+            # If the cloud side reports failure, log it prominently
+            if success is False and error:
+                logger.error(f"[TaskStatus] Cloud-side failure for task={task.name}: {error}")
+
+        except Exception as e:
+            logger.warning(f"[TaskStatus] Error processing status envelope: {e}")
+
     def _extract_waiter_task_id(self, msg: Any) -> Optional[str]:
         """Extract waiter task ID from message."""
         try:
@@ -1315,6 +2074,12 @@ class TaskRunner(Generic[Context]):
         """
         try:
             from .executor import execute_task_hybrid
+
+            # Start onTaskStatus subscription for this task run
+            try:
+                self._start_task_status_subscription(task, task.run_id)
+            except Exception as e:
+                logger.warning(f"[TaskStatus] Could not start subscription for local task={task.name}: {e}")
 
             def _is_retryable_error_text(error_text: str) -> bool:
                 et = (error_text or "").lower()

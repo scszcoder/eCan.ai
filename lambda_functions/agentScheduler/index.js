@@ -6526,6 +6526,12 @@ async function processEvent(event, context, callback, test_stub) {
               returnData = await skillEditorService.getSkillRunStatus(event.arguments?.runId || "", event.arguments?.since || null);
             }
             break;
+          case "queryCloudTaskRunId":
+            {
+              const qInput = event.arguments?.input || {};
+              returnData = await skillEditorService.queryCloudTaskRunId(qInput.task_id || null, qInput.host_name || null, qInput.meta_data || "{}");
+            }
+            break;
           case "getSkillEditorEvents":
             {
               returnData = await skillEditorService.getSkillEditorEvents(event.arguments?.sessionId || "", event.arguments?.since || null);

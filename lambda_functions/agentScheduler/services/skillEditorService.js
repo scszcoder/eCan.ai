@@ -211,6 +211,119 @@ async function deleteSkillEditorChatSession(sessionId) {
   return true;
 }
 
+/**
+ * Query the cloud task run ID from DynamoDB.
+ * Looks up the AGENT_TASKS table by task_id to find the associated runID.
+ *
+ * @param {string|null} taskId - The task ID to look up
+ * @param {object} metaData - Additional metadata for the query (e.g. owner)
+ * @returns {TaskStatus} - { id, runID, runner, status, success, error, timestamp }
+ */
+async function queryCloudTaskRunId(taskId, hostName, metaData) {
+  const AWS = require("aws-sdk");
+  const dynamodb = new AWS.DynamoDB.DocumentClient();
+
+  try {
+    // Parse metaData if it's a string (AWSJSON comes as string)
+    let meta = metaData;
+    if (typeof meta === "string") {
+      try { meta = JSON.parse(meta); } catch (_) { meta = {}; }
+    }
+    meta = meta || {};
+
+    const owner = meta.owner || meta.username || null;
+    console.log(`[queryCloudTaskRunId] taskId=${taskId}, hostName=${hostName}, owner=${owner}`);
+
+    if (!taskId && !owner) {
+      return {
+        id: null,
+        runID: null,
+        runner: null,
+        status: JSON.stringify({ state: "error" }),
+        success: false,
+        error: "task_id or owner is required",
+        timestamp: nowIso()
+      };
+    }
+
+    // Try RDS lookup first (AGENT_TASKS table via the existing agentScheduler DB)
+    // The task's run_id is typically stored in the task's config or metadata
+    const rdsExecute = require("../db/rdsExecute");
+    const Secrets = process.env.SECRET_ARN || "";
+    const Cluster = process.env.CLUSTER_ARN || "";
+    const DB = process.env.DB_NAME || "ecandb";
+
+    let sqlStatement;
+    if (taskId) {
+      // Query by task mid (numeric ID) or by string ID in config
+      sqlStatement = `SELECT mid, owner, config, status FROM AGENT_TASKS WHERE mid = ${parseInt(taskId, 10) || 0} LIMIT 1`;
+    } else {
+      // Fallback: query latest task for owner
+      sqlStatement = `SELECT mid, owner, config, status FROM AGENT_TASKS WHERE owner = '${owner}' ORDER BY mid DESC LIMIT 1`;
+    }
+
+    const params = {
+      secretArn: Secrets,
+      resourceArn: Cluster,
+      sql: sqlStatement,
+      database: DB
+    };
+
+    const result = await rdsExecute(params);
+    const records = (result && result.records) || [];
+
+    if (records.length > 0) {
+      const row = records[0];
+      // RDS Data API returns arrays of field objects
+      const mid = row[0] && (row[0].longValue || row[0].stringValue || null);
+      const rowOwner = row[1] && (row[1].stringValue || null);
+      let config = row[2] && (row[2].stringValue || null);
+      const rowStatus = row[3] && (row[3].stringValue || "pending");
+
+      // Parse config to extract run_id
+      let runId = null;
+      if (config) {
+        try {
+          const configObj = typeof config === "string" ? JSON.parse(config) : config;
+          runId = configObj.run_id || configObj.runID || configObj.runId || null;
+        } catch (_) { /* ignore parse errors */ }
+      }
+
+      return {
+        id: String(mid),
+        runID: runId,
+        runner: rowOwner,
+        status: JSON.stringify({ state: rowStatus }),
+        success: true,
+        error: null,
+        timestamp: nowIso()
+      };
+    }
+
+    return {
+      id: taskId,
+      runID: null,
+      runner: null,
+      status: JSON.stringify({ state: "not_found" }),
+      success: false,
+      error: "Task not found",
+      timestamp: nowIso()
+    };
+
+  } catch (err) {
+    console.error("[queryCloudTaskRunId] Error:", err);
+    return {
+      id: taskId,
+      runID: null,
+      runner: null,
+      status: JSON.stringify({ state: "error" }),
+      success: false,
+      error: String(err.message || err),
+      timestamp: nowIso()
+    };
+  }
+}
+
 module.exports = {
   getNodeStateSchema,
   readSkillFile,
@@ -247,5 +360,6 @@ module.exports = {
   createSkillEditorChatSession,
   sendSkillEditorChatMessage,
   cancelSkillEditorChatGeneration,
-  deleteSkillEditorChatSession
+  deleteSkillEditorChatSession,
+  queryCloudTaskRunId
 };

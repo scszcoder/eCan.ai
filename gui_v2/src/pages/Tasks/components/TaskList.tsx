@@ -112,7 +112,13 @@ export const TaskList: React.FC<TaskListProps> = ({
 
     // Trigger方式Filter
     if (filters.trigger) {
-      result = result.filter(task => task.trigger === filters.trigger);
+      result = result.filter(task => {
+        const raw = task.trigger;
+        const triggers: string[] = Array.isArray(raw)
+          ? raw
+          : (typeof raw === 'string' && raw ? raw.split(',').map(s => s.trim()) : []);
+        return triggers.includes(filters.trigger!);
+      });
     }
 
     // Sort

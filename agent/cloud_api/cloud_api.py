@@ -7101,6 +7101,184 @@ def upload_skill_files_to_cloud(session, token, files: list, endpoint=None, time
         return {"success": False, "error": str(e)}
 
 
+def query_cloud_task_run_id(session, token, task_id: str, host_name: str = None, meta_data: dict = None, endpoint=None, timeout=30):
+    """
+    Query the cloud task's runID via queryCloudTaskRunId GraphQL query.
+    
+    Used by the local scheduler to obtain the cloud task's runID before
+    starting the local helper task for hybrid cloud execution.
+    
+    Args:
+        session: requests.Session object
+        token: Authentication token
+        task_id: Cloud task ID to look up
+        host_name: Hostname of the local client
+        meta_data: Optional metadata dict (e.g. owner)
+        endpoint: API endpoint URL (optional)
+        timeout: Request timeout in seconds
+    
+    Returns:
+        dict with {success, data: {id, runID, runner, status, error}}
+    """
+    meta_json = json.dumps(meta_data or {})
+
+    query_string = json.dumps({
+        "query": """query QueryCloudTaskRunId($input: TaskRunQueryInput!) {
+            queryCloudTaskRunId(input: $input) {
+                id runID runner status success error timestamp
+            }
+        }""",
+        "variables": {
+            "input": {
+                "task_id": task_id,
+                "host_name": host_name,
+                "meta_data": meta_json
+            }
+        }
+    })
+
+    logger.info(f"[CloudAPI] queryCloudTaskRunId: task_id={task_id}, host_name={host_name}")
+
+    jresp = appsync_http_request(query_string, session, token, endpoint, timeout=timeout)
+
+    if "errors" in jresp:
+        logger.error(f"[CloudAPI] queryCloudTaskRunId error: {jresp['errors']}")
+        return {"success": False, "errors": jresp["errors"]}
+
+    try:
+        result = jresp.get("data", {}).get("queryCloudTaskRunId")
+        if result and result.get("success"):
+            logger.info(f"[CloudAPI] queryCloudTaskRunId success: runID={result.get('runID')}")
+            return {"success": True, "data": result}
+        else:
+            error_msg = result.get("error", "Unknown") if result else "No data"
+            logger.warning(f"[CloudAPI] queryCloudTaskRunId: no runID yet - {error_msg}")
+            return {"success": False, "data": result, "error": error_msg}
+    except Exception as e:
+        logger.error(f"[CloudAPI] Failed to parse queryCloudTaskRunId response: {e}")
+        return {"success": False, "error": str(e)}
+
+
+def query_cloud_task_run_id_with_retry(session, token, task_id: str, host_name: str = None,
+                                        meta_data: dict = None, endpoint=None,
+                                        max_wait_seconds: int = 120, poll_interval: int = 5):
+    """
+    Poll queryCloudTaskRunId until the cloud task's runID is available.
+    
+    The cloud task and local helper task are scheduled to run at the same time,
+    but the local client waits for the cloud task to start first so the runID
+    is available.
+    
+    Args:
+        session: requests.Session object
+        token: Authentication token
+        task_id: Cloud task ID
+        host_name: Local client hostname
+        meta_data: Optional metadata
+        endpoint: API endpoint
+        max_wait_seconds: Maximum time to wait for runID
+        poll_interval: Seconds between polls
+    
+    Returns:
+        dict with {success, run_id, data} or {success: False, error}
+    """
+    import time as _time
+
+    elapsed = 0
+    last_error = None
+
+    while elapsed < max_wait_seconds:
+        result = query_cloud_task_run_id(session, token, task_id, host_name, meta_data, endpoint)
+
+        if result.get("success") and result.get("data", {}).get("runID"):
+            run_id = result["data"]["runID"]
+            logger.info(f"[CloudAPI] Got cloud runID after {elapsed}s: {run_id}")
+            return {"success": True, "run_id": run_id, "data": result["data"]}
+
+        last_error = result.get("error") or "runID not available yet"
+        logger.debug(f"[CloudAPI] Waiting for cloud runID... ({elapsed}/{max_wait_seconds}s) - {last_error}")
+        _time.sleep(poll_interval)
+        elapsed += poll_interval
+
+    logger.warning(f"[CloudAPI] Timed out waiting for cloud runID after {max_wait_seconds}s: {last_error}")
+    return {"success": False, "error": f"Timed out after {max_wait_seconds}s: {last_error}"}
+
+
+def run_cloud_tasks(session, token, task_ids: list, endpoint=None, timeout=60):
+    """
+    Launch cloud tasks via the runCloudTasks GraphQL mutation and return
+    a mapping of task_id → run_id.
+
+    Used for on-demand hybrid cloud execution (chat prompt / agent command)
+    where the cloud task is launched immediately and the runID is returned
+    in the response (no polling needed).
+
+    Args:
+        session: requests.Session object
+        token: Authentication token
+        task_ids: List of cloud task IDs to launch
+        endpoint: API endpoint URL (optional)
+        timeout: Request timeout in seconds
+
+    Returns:
+        dict with {success, run_ids: {task_id: run_id, ...}} or {success: False, error}
+    """
+    if not task_ids:
+        return {"success": False, "error": "No task IDs provided"}
+
+    query_string = json.dumps({
+        "query": """mutation RunCloudTasks($taskIDs: [String]!) {
+            runCloudTasks(taskIDs: $taskIDs)
+        }""",
+        "variables": {
+            "taskIDs": task_ids
+        }
+    })
+
+    logger.info(f"[CloudAPI] runCloudTasks: task_ids={task_ids}")
+
+    jresp = appsync_http_request(query_string, session, token, endpoint, timeout=timeout)
+
+    if "errors" in jresp:
+        logger.error(f"[CloudAPI] runCloudTasks error: {jresp['errors']}")
+        return {"success": False, "errors": jresp["errors"]}
+
+    try:
+        raw = jresp.get("data", {}).get("runCloudTasks")
+
+        # runCloudTasks returns AWSJSON — may be a JSON string
+        if isinstance(raw, str):
+            raw = json.loads(raw)
+
+        # Normalize various response shapes into {task_id: run_id}
+        mapping = {}
+        if isinstance(raw, dict) and "items" in raw:
+            raw = raw["items"]
+
+        if isinstance(raw, list):
+            for item in raw:
+                if not isinstance(item, dict):
+                    continue
+                tid = item.get("taskId") or item.get("taskID") or item.get("id") or item.get("task_id")
+                rid = item.get("runId") or item.get("runID") or item.get("run_id")
+                if tid and rid:
+                    mapping[str(tid)] = str(rid)
+        elif isinstance(raw, dict):
+            for k, v in raw.items():
+                if k and v:
+                    mapping[str(k)] = str(v)
+
+        if mapping:
+            logger.info(f"[CloudAPI] runCloudTasks success: {mapping}")
+            return {"success": True, "run_ids": mapping}
+
+        logger.warning(f"[CloudAPI] runCloudTasks: no run_id mapping in response: {raw}")
+        return {"success": False, "error": f"Unexpected response: {raw}"}
+    except Exception as e:
+        logger.error(f"[CloudAPI] Failed to parse runCloudTasks response: {e}")
+        return {"success": False, "error": str(e)}
+
+
 def run_skill_in_cloud(session, token, skill_json: str, username: str, meta_data: dict = None, endpoint=None, timeout=120):
     """
     Run a skill in the cloud via runSkill mutation.

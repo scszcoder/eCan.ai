@@ -17,7 +17,10 @@ import {
     CodeOutlined,
     EyeOutlined,
     CloudOutlined,
-    DollarCircleFilled
+    CloudFilled,
+    DollarCircleFilled,
+    StarFilled,
+    TeamOutlined
 } from '@ant-design/icons';
 
 import styled from '@emotion/styled';
@@ -272,16 +275,33 @@ const StatItem = styled.div`
     }
 `;
 
-const SkillProgress = styled.div`
+const SkillRatingRow = styled.div`
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+`;
 
-    @keyframes pulse {
-        0%, 100% {
-            opacity: 1;
-        }
-        50% {
-            opacity: 0.8;
-        }
+const StarRating = styled.span`
+    display: inline-flex;
+    gap: 2px;
+    .anticon {
+        font-size: 14px;
+        color: #faad14;
+    }
+`;
+
+const SubsLabel = styled.span`
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.45);
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    .anticon {
+        font-size: 13px;
     }
 `;
 
@@ -294,9 +314,9 @@ const MiniBadge = styled.div<{ $variant: 'free' | 'paid' }>`
     position: absolute;
     top: 4px;
     right: 4px;
-    font-size: 10px;
+    font-size: 7px;
     font-weight: 600;
-    padding: 2px 4px;
+    padding: 1px 3px;
     border-radius: 4px;
     color: ${props => props.$variant === 'free' ? 'rgba(255, 255, 255, 0.95)' : 'rgba(250, 204, 21, 0.95)'};
     background: ${props => props.$variant === 'free' ? 'rgba(239, 68, 68, 0.9)' : 'rgba(17, 24, 39, 0.65)'};
@@ -304,6 +324,71 @@ const MiniBadge = styled.div<{ $variant: 'free' | 'paid' }>`
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
     line-height: 1;
 `;
+
+const ExecBadge = styled.div`
+    position: absolute;
+    top: -3px;
+    left: -3px;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+    .anticon {
+        font-size: 15px;
+        filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+    }
+`;
+
+const HalfCloudIcon: React.FC<{ size?: number }> = ({ size = 15 }) => (
+    <svg width={size} height={size} viewBox="0 0 1024 1024" style={{ display: 'block' }}>
+        <defs>
+            <clipPath id="half-left">
+                <rect x="0" y="0" width="512" height="1024" />
+            </clipPath>
+            <clipPath id="half-right">
+                <rect x="512" y="0" width="512" height="1024" />
+            </clipPath>
+        </defs>
+        {/* Cloud path from Ant Design CloudFilled */}
+        <path
+            clipPath="url(#half-left)"
+            d="M811.4 418.7C765.6 297.9 648.9 212 512.2 212S258.8 297.8 213 418.6C127.3 441.1 64 519.1 64 612c0 110.5 89.5 200 200 200h496c110.5 0 200-89.5 200-200 0-92.8-63.3-170.7-148.6-193.3z"
+            fill="rgba(255,255,255,0.35)"
+        />
+        <path
+            clipPath="url(#half-right)"
+            d="M811.4 418.7C765.6 297.9 648.9 212 512.2 212S258.8 297.8 213 418.6C127.3 441.1 64 519.1 64 612c0 110.5 89.5 200 200 200h496c110.5 0 200-89.5 200-200 0-92.8-63.3-170.7-148.6-193.3z"
+            fill="#1890ff"
+        />
+    </svg>
+);
+
+const getExecMode = (skill: Skill): 'local' | 'cloud' | 'hybrid' => {
+    // 1. Check explicit exec_mode / execMode field first
+    const mode = ((skill as any).exec_mode || (skill as any).execMode || '').toLowerCase();
+    if (mode === 'cloud') return 'cloud';
+    if (mode === 'hybrid') return 'hybrid';
+    if (mode === 'local') return 'local';
+
+    // 2. Fall back to config stored in DB: config.run_in_cloud / config.hybrid_cloud_mode
+    const cfg = (skill as any).config;
+    if (cfg && typeof cfg === 'object') {
+        const runInCloud = cfg.run_in_cloud === true || cfg.run_in_cloud === 'true';
+        const hybridCloud = cfg.hybrid_cloud_mode === true || cfg.hybrid_cloud_mode === 'true';
+        if (runInCloud && hybridCloud) return 'hybrid';
+        if (runInCloud) return 'cloud';
+    }
+
+    // 3. Also check top-level run_in_cloud (in case backend flattens it)
+    if ((skill as any).run_in_cloud === true) {
+        if ((skill as any).hybrid_cloud_mode === true) return 'hybrid';
+        return 'cloud';
+    }
+
+    return 'local';
+};
 
 /** Safely coerce tags to string[] – handles JSON strings, arrays, and nullish values */
 const safeTags = (tags: unknown): string[] => {
@@ -537,7 +622,6 @@ const SkillList: React.FC<SkillListProps> = ({
         const statusConfig = getStatusConfig(skill.status);
         const skillIdStr = String(skill.id);
         const isSelected = selectedSkillId !== undefined && selectedSkillId === skillIdStr;
-        const levelValue = typeof skill.level === 'string' ? parseInt(skill.level, 10) : (skill.level || 0);
         const paid = isPaidSkill(skill);
         const isSubscribedSkill = subscribedSkillIds?.includes(skillIdStr);
 
@@ -552,6 +636,15 @@ const SkillList: React.FC<SkillListProps> = ({
                 <SkillHeader>
                     <Space align="start" style={{ flex: 1 }}>
                         <SkillIcon status={skill.status}>
+                            <ExecBadge title={`${getExecMode(skill)} execution`}>
+                                {getExecMode(skill) === 'cloud' ? (
+                                    <CloudFilled style={{ color: '#1890ff' }} />
+                                ) : getExecMode(skill) === 'hybrid' ? (
+                                    <HalfCloudIcon />
+                                ) : (
+                                    <CloudOutlined style={{ color: 'rgba(255,255,255,0.35)' }} />
+                                )}
+                            </ExecBadge>
                             {paid ? (
                                 <MiniBadge $variant="paid">
                                     <DollarCircleFilled />
@@ -581,38 +674,20 @@ const SkillList: React.FC<SkillListProps> = ({
                     </Space>
                 </SkillHeader>
 
-                <SkillProgress>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
-                        <span style={{ fontSize: '11px', color: 'rgba(255, 255, 255, 0.45)' }}>
-                            {t('pages.skills.proficiency', 'Proficiency')}
-                        </span>
-                        <span style={{ fontSize: '13px', color: '#1890ff', fontWeight: 700, fontFamily: 'monospace' }}>
-                            {isNaN(levelValue) ? 0 : levelValue}%
-                        </span>
-                    </div>
-                    <div
-                        style={{
-                            width: '100%',
-                            height: '8px',
-                            background: 'rgba(255, 255, 255, 0.08)',
-                            borderRadius: '4px',
-                            overflow: 'hidden',
-                            position: 'relative',
-                        }}
-                    >
-                        <div
-                            style={{
-                                width: `${isNaN(levelValue) ? 0 : levelValue}%`,
-                                height: '100%',
-                                background: 'linear-gradient(90deg, #1890ff 0%, #40a9ff 50%, #52c41a 100%)',
-                                borderRadius: '4px',
-                                transition: 'width 0.3s ease',
-                                boxShadow: skill.status === 'learning' ? '0 0 8px rgba(24, 144, 255, 0.6)' : 'none',
-                                animation: skill.status === 'learning' ? 'pulse 2s ease-in-out infinite' : 'none',
-                            }}
-                        />
-                    </div>
-                </SkillProgress>
+                <SkillRatingRow>
+                    <StarRating>
+                        {[1, 2, 3, 4, 5].map((star) => {
+                            const rating = (skill as any).rating ?? 0;
+                            return star <= rating
+                                ? <StarFilled key={star} />
+                                : <StarOutlined key={star} style={{ color: 'rgba(255,255,255,0.2)' }} />;
+                        })}
+                    </StarRating>
+                    <SubsLabel>
+                        <TeamOutlined />
+                        ({(skill as any).subscribers ?? 0}) subs
+                    </SubsLabel>
+                </SkillRatingRow>
 
                 {((skill as any).usageCount !== undefined || (skill as any).lastUsed) && (
                     <SkillStats>

@@ -26,10 +26,11 @@ IPCHandlerRegistry.add_to_whitelist('test_langgraph2flowgram')
 
 @IPCHandlerRegistry.handler('get_agent_skills')
 def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
-    """Get agent skills list from database
+    """Get agent skills list from local memory/DB AND cloud.
 
-    Reads agent skills from database to ensure all fields (including 'source') are available.
-    Falls back to memory if database is not available.
+    1. Reads local skills from memory (loaded from SQLite at startup).
+    2. Fetches cloud skills via AppSync queryAgentSkills.
+    3. Merges the two lists, deduplicating by skill ID (local wins on conflict).
 
     Args:
         request: IPC request object
@@ -53,15 +54,13 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
 
         logger.info(f"Getting agent skills for user: {username}")
 
-        # Get skills from memory (mainwin.agent_skills is the single source of truth)
-        # Skills are loaded from database during startup by build_agent_skills()
+        # ── Step 1: Get local skills from memory ──────────────────────
+        skills_dicts = []
         try:
             ctx = get_handler_context(request, params)
             memory_skills = ctx.get_agent_skills() or []
             logger.info(f"Found {len(memory_skills)} skills in memory (mainwin.agent_skills)")
 
-            # Convert skills to dictionary format
-            skills_dicts = []
             for i, sk in enumerate(memory_skills):
                 try:
                     sk_dict = sk.to_dict()
@@ -81,21 +80,58 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
                 except Exception as e:
                     logger.error(f"Failed to convert skill {i}: {e}")
 
-            logger.info(f"Returning {len(skills_dicts)} skills to frontend")
-
-            resultJS = {
-                'skills': skills_dicts,
-                'message': 'Get skills successful',
-            }
-            return create_success_response(request, resultJS)
-
         except Exception as e:
             logger.error(f"Failed to get agent skills from memory: {e}")
-            # Return empty list as fallback
-            return create_success_response(request, {
-                'skills': [],
-                'message': 'No agent skills available',
-            })
+
+        # ── Step 2: Fetch cloud skills via AppSync ────────────────────
+        cloud_skills_dicts = []
+        try:
+            cloud_skills_dicts = _fetch_cloud_skills(request, params)
+            logger.info(f"Fetched {len(cloud_skills_dicts)} skills from cloud")
+        except Exception as e:
+            logger.warning(f"Cloud skill fetch failed (non-fatal): {e}")
+
+        # ── Step 3: Merge local + cloud, local wins on conflict ─────────
+        # Build lookup sets for dedup: by id, askid, and normalized name
+        local_ids = set()
+        local_askids = set()
+        local_names_norm = set()
+        for sk in skills_dicts:
+            if sk.get('id'):
+                local_ids.add(str(sk['id']))
+            if sk.get('askid'):
+                local_askids.add(str(sk['askid']))
+            if sk.get('name'):
+                local_names_norm.add(sk['name'].strip().lower())
+
+        cloud_added = 0
+        for cloud_sk in cloud_skills_dicts:
+            cid = str(cloud_sk['id']) if cloud_sk.get('id') else None
+            c_askid = str(cloud_sk['askid']) if cloud_sk.get('askid') else None
+            cname = cloud_sk.get('name', '').strip().lower() if cloud_sk.get('name') else None
+            # Skip if already present locally (by id, askid, or normalized name)
+            if cid and cid in local_ids:
+                continue
+            if c_askid and c_askid in local_askids:
+                continue
+            if cid and cid in local_askids:
+                continue
+            if c_askid and c_askid in local_ids:
+                continue
+            if cname and cname in local_names_norm:
+                continue
+            cloud_sk['_source'] = 'cloud'
+            skills_dicts.append(cloud_sk)
+            cloud_added += 1
+
+        logger.info(f"Returning {len(skills_dicts)} skills to frontend "
+                     f"(local={len(skills_dicts) - cloud_added}, cloud={cloud_added})")
+
+        resultJS = {
+            'skills': skills_dicts,
+            'message': 'Get skills successful',
+        }
+        return create_success_response(request, resultJS)
 
     except Exception as e:
         logger.error(f"Error in get agent skills handler: {e} {traceback.format_exc()}")
@@ -104,6 +140,82 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
             'GET_AGENT_SKILLS_ERROR',
             f"Error during get agent skills: {str(e)}"
         )
+
+
+def _fetch_cloud_skills(request=None, params=None) -> list:
+    """Fetch skills from cloud AppSync API.
+
+    Returns a list of skill dicts in the local format.
+    Raises on failure so the caller can log and continue.
+    """
+    from agent.cloud_api.cloud_api import (
+        send_get_agent_skills_request_to_cloud,
+        get_appsync_endpoint,
+    )
+
+    # Get auth token
+    ctx = get_handler_context(request, params)
+    token = ctx.get_auth_token()
+    if not token:
+        logger.debug("[_fetch_cloud_skills] No auth token — skipping cloud fetch")
+        return []
+
+    endpoint = get_appsync_endpoint()
+    session = requests.Session()
+    jresp = send_get_agent_skills_request_to_cloud(session, token, endpoint)
+
+    if not isinstance(jresp, list):
+        # Error dict or unexpected format
+        logger.warning(f"[_fetch_cloud_skills] Unexpected response type: {type(jresp)}")
+        return []
+
+    # Convert cloud format to local dict format using schema registry,
+    # then patch back any fields that from_cloud accidentally drops
+    # (from_cloud skips fields listed in cloud_required_fields during auto-mapping).
+    result = []
+    try:
+        from agent.cloud_api.constants import DataType
+        from agent.cloud_api.schema_registry import get_schema_registry
+        schema = get_schema_registry().get_schema(DataType.SKILL)
+        for cloud_sk in jresp:
+            try:
+                local_sk = schema.from_cloud(cloud_sk)
+                # Patch: from_cloud skips fields in required_fields during auto-mapping,
+                # so re-copy them from the original cloud data if missing.
+                for key in ('name', 'id', 'askid', 'owner', 'description', 'version',
+                            'level', 'path', 'source', 'status', 'price', 'price_model',
+                            'public', 'rentable'):
+                    if key not in local_sk and key in cloud_sk:
+                        local_sk[key] = cloud_sk[key]
+                result.append(local_sk)
+            except Exception as e:
+                logger.debug(f"[_fetch_cloud_skills] Schema conversion failed for skill: {e}")
+                result.append(cloud_sk)
+    except Exception as e:
+        logger.warning(f"[_fetch_cloud_skills] Schema conversion unavailable ({e}), using raw cloud data")
+        result = jresp
+
+    # Normalize: ensure frontend-required fields are present
+    for sk in result:
+        # Ensure 'id' is set (prefer existing 'id', fall back to 'askid')
+        if not sk.get('id') and sk.get('askid'):
+            sk['id'] = str(sk['askid'])
+        # Ensure 'name' is present
+        if not sk.get('name'):
+            sk['name'] = sk.get('description', '') or f"Cloud Skill {sk.get('id', '?')}"
+        # Ensure 'version' has a default
+        if not sk.get('version'):
+            sk['version'] = '1.0'
+        logger.debug(f"[_fetch_cloud_skills] Normalized skill: id={sk.get('id')}, name={sk.get('name')}, "
+                      f"owner={sk.get('owner')}, keys={list(sk.keys())}")
+
+    if result:
+        sample = result[0]
+        logger.info(f"[_fetch_cloud_skills] Sample cloud skill keys: {list(sample.keys())}, "
+                    f"id={sample.get('id')}, askid={sample.get('askid')}, "
+                    f"name={sample.get('name')}, owner={sample.get('owner')}")
+
+    return result
 
 
 @IPCHandlerRegistry.handler('get_public_skills')

@@ -233,7 +233,7 @@ export const NewPage = ({ disabled }: NewPageProps) => {
           }
         },
         node_transfers: {},
-        event_routing: {}
+        event_data_mapping: {},
       };
 
       if (detectPlatform() === 'web') {

@@ -36,6 +36,7 @@ export const PendEventNodeRegistry: FlowNodeRegistry = {
           pendingSources: { type: 'constant', content: [] },
           timeoutSec: { type: 'constant', content: 0 },
           resumePolicy: { type: 'constant', content: 'first' },
+          matchFields: { type: 'constant', content: [] },
         },
         inputs: {
           type: 'object',
@@ -47,6 +48,7 @@ export const PendEventNodeRegistry: FlowNodeRegistry = {
             pendingSources: { type: 'array' },
             timeoutSec: { type: 'number' },
             resumePolicy: { type: 'string' },
+            matchFields: { type: 'array' },
           },
         },
         outputs: DEFAULT_NODE_OUTPUTS,
