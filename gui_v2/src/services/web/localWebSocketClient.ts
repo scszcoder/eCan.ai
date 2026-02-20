@@ -323,7 +323,7 @@ class LocalWebSocketClient {
       if (shouldLog) {
         console.log('[LocalWS] 🔄 Mapping to IPC events:', messageType);
       }
-      this.mapToIpcEvents(message);
+      this.mapToIpcEvents(message, shouldLog);
       
     } catch (error) {
       console.error('[LocalWS] Failed to parse message:', error, data);
@@ -334,7 +334,7 @@ class LocalWebSocketClient {
    * Map WebSocket messages to unified event handler
    * Now uses centralized event processing instead of duplicate switch-case logic
    */
-  private mapToIpcEvents(message: any): void {
+  private mapToIpcEvents(message: any, shouldLog = true): void {
     const { type, sessionId } = message;
     
     // Use same event types as AppSync subscriptions for compatibility
@@ -351,7 +351,9 @@ class LocalWebSocketClient {
       ...(message.fullContent && { fullContent: message.fullContent }),
     };
     
-    console.log(`[LocalWS] Processing event: ${eventType}`, { sessionId });
+    if (shouldLog) {
+      console.log(`[LocalWS] Processing event: ${eventType}`, { sessionId });
+    }
     
     // Handle special cases that don't go through unified handler
     if (eventType === 'push_ad') {
