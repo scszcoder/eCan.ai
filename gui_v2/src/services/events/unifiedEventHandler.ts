@@ -45,7 +45,7 @@ export class UnifiedEventHandler {
     const { type, source } = event;
     
     // Only log non-routine events to reduce noise
-    const routineEvents = ['skill_editor_log'];
+    const routineEvents = ['skill_editor_log', 'update_skill_run_stat'];
     if (!routineEvents.includes(type)) {
       logger.debug(`[UnifiedEventHandler] Processing event: ${type} from ${source}`);
     }

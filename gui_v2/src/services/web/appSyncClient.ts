@@ -95,10 +95,6 @@ export const appSyncRequest = async <T>(
   options?: AppSyncRequestOptions,
   method?: string
 ): Promise<T> => {
-  // Debug: log incoming parameters
-  console.log('[AppSyncClient] appSyncRequest called with method:', method);
-  console.log('[AppSyncClient] appSyncRequest variables:', JSON.stringify(variables, null, 2));
-  
   // Get GraphQL endpoint (AWS AppSync or local server)
   const endpoint = getGraphQLEndpoint();
   
