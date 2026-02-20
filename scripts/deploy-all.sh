@@ -151,6 +151,9 @@ deploy_frontend() {
     # Increase Node memory to handle large builds
     log_info "Building frontend..."
     export NODE_OPTIONS="--max-old-space-size=4096"
+    # Web deployment: set VITE_TARGET=web so vite.config.ts uses '/app/gui-v2/' as base
+    # Desktop/PyInstaller builds omit this (defaults to VITE_TARGET=desktop → './')
+    export VITE_TARGET="web"
     if command -v pnpm &> /dev/null; then
         pnpm run build
     elif [ -f "$HOME/.local/share/pnpm/pnpm" ]; then

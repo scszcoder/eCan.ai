@@ -27,37 +27,26 @@ interface RunningNodeState {
 export const useRunningNodeStore = create<RunningNodeState>((set) => ({
   runningNodeId: null,
   setRunningNodeId: (nodeId) => {
-    console.log(`[RunningNodeStore] setRunningNodeId called with: '${nodeId}'`);
     set({ runningNodeId: nodeId });
   },
   activeRunId: null,
   setActiveRunId: (runId) => {
-    console.log(`[RunningNodeStore] setActiveRunId called with: '${runId}'`);
     set({ activeRunId: runId });
   },
 
   devTasks: [],
   addDevTask: (task) => {
-    console.log(`[RunningNodeStore] addDevTask: runId=${task.runId}, arn=${task.ecsTaskArn}`);
     set((state) => ({
       devTasks: [...state.devTasks.filter((t) => t.runId !== task.runId), task],
     }));
   },
   removeDevTask: (runId) => {
-    console.log(`[RunningNodeStore] removeDevTask: runId=${runId}`);
     set((state) => ({
       devTasks: state.devTasks.filter((t) => t.runId !== runId),
     }));
   },
   clearDevTasks: () => {
-    console.log(`[RunningNodeStore] clearDevTasks`);
     set({ devTasks: [] });
   },
 }));
 
-// Subscribe to store changes for debugging
-if (typeof window !== 'undefined') {
-  useRunningNodeStore.subscribe((state) => {
-    console.log(`[RunningNodeStore] State changed to: runningNodeId='${state.runningNodeId}', devTasks=${state.devTasks.length}`);
-  });
-}

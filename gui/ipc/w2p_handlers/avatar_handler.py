@@ -598,6 +598,94 @@ class AvatarHandler:
                 "error": str(e)
             }
     
+    # ==================== Get All Avatars ====================
+    
+    def get_all(self, request: Dict) -> Dict:
+        """
+        Get all avatar resources (system + uploaded).
+        
+        Request:
+        {
+            "username": "user123"  // optional
+        }
+        
+        Response:
+        {
+            "success": true,
+            "data": [
+                {
+                    "id": "avatar_abc123",
+                    "name": "My Avatar",
+                    "owner": "user123",
+                    "resource_type": "uploaded",
+                    "description": "...",
+                    "cloud_image_url": "https://...",
+                    "cloud_video_url": "https://...",
+                    "cloud_image_key": "...",
+                    "cloud_video_key": "...",
+                    "is_public": true,
+                    "usage_count": 10,
+                    "image_hash": "abc123",
+                    "image_path": "/path/to/image.png",
+                    "video_path": "/path/to/video.mp4",
+                    "presigned_image_url": "https://...",
+                    "presigned_video_url": "https://..."
+                },
+                ...
+            ]
+        }
+        """
+        try:
+            username = request.get('username')
+            
+            # Get avatar service from context
+            avatar_service = None
+            ctx = get_handler_context(request, None)
+            if ctx:
+                ec_db_mgr = ctx.get_ec_db_mgr()
+                if ec_db_mgr:
+                    avatar_service = ec_db_mgr.avatar_service
+            
+            if not avatar_service:
+                return {
+                    "success": False,
+                    "error": "Avatar service not available"
+                }
+            
+            # Get all avatar resources from database
+            avatars = avatar_service.get_all_avatar_resources()
+            
+            # Convert paths to HTTP URLs using unified utility
+            from agent.avatar.avatar_url_utils import batch_convert_paths_to_urls
+            batch_convert_paths_to_urls(avatars, ['image_path', 'video_path'])
+            
+            # Add presigned URLs and convert datetime objects to strings
+            from datetime import datetime
+            for avatar in avatars:
+                # Use cloud URLs as presigned URLs for now
+                # In production, you might want to generate actual presigned URLs
+                if avatar.get('cloud_image_url'):
+                    avatar['presigned_image_url'] = avatar['cloud_image_url']
+                if avatar.get('cloud_video_url'):
+                    avatar['presigned_video_url'] = avatar['cloud_video_url']
+                
+                # Convert datetime objects to ISO format strings for JSON serialization
+                if avatar.get('created_at') and isinstance(avatar['created_at'], datetime):
+                    avatar['created_at'] = avatar['created_at'].isoformat()
+                if avatar.get('updated_at') and isinstance(avatar['updated_at'], datetime):
+                    avatar['updated_at'] = avatar['updated_at'].isoformat()
+            
+            return {
+                "success": True,
+                "data": avatars
+            }
+        except Exception as e:
+            logger.error(f"[AvatarHandler] get_all error: {e}", exc_info=True)
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
     # ==================== Generate Avatar Video ====================
     
     async def generate_avatar_video(self, request: Dict) -> Dict:
@@ -839,3 +927,19 @@ async def handle_generate_avatar_video(request: IPCRequest, params: Optional[dic
     except Exception as e:
         logger.error(f"[avatar_handler] Error in handle_generate_avatar_video: {e}", exc_info=True)
         return create_error_response(request, 'GENERATE_VIDEO_ERROR', str(e))
+
+
+@IPCHandlerRegistry.handler('avatar.get_all')
+def handle_get_all(request: IPCRequest, params: Optional[dict[str, Any]]) -> IPCResponse:
+    """Get all avatar resources."""
+    try:
+        username = params.get('username') if params else None
+        result = avatar_handler.get_all({'username': username})
+        
+        if result.get('success'):
+            return create_success_response(request, result.get('data'))
+        else:
+            return create_error_response(request, 'GET_ALL_AVATARS_ERROR', result.get('error', 'Unknown error'))
+    except Exception as e:
+        logger.error(f"[avatar_handler] Error in handle_get_all: {e}", exc_info=True)
+        return create_error_response(request, 'GET_ALL_AVATARS_ERROR', str(e))
