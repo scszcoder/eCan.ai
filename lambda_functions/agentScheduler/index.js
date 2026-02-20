@@ -6855,28 +6855,12 @@ async function processEvent(event, context, callback, test_stub) {
               const mode = input.mode || "hybrid";
               const topK = input.topK || 5;
               const userDir = ownerSub || normalizeEmailForPath(ownerEmail || owner);
-              // Read the index results cache from S3 (populated by Fargate worker)
-              const indexKey = `${userDir}/${pid}/index/chunks.json`;
-              let chunks = [];
-              try {
-                const res = await s3.send(new GetObjectCommand({ Bucket: RAG_BUCKET, Key: indexKey }));
-                const raw = await streamToString(res.Body);
-                if (raw) chunks = JSON.parse(raw);
-              } catch (e) {
-                console.log(`[agentScheduler] ragQuery: no index found at ${indexKey}`);
-              }
-              // Keyword search to retrieve relevant chunks
-              const queryLower = query.toLowerCase();
-              const scored = chunks.map(c => {
-                const text = (c.text || c.content || "").toLowerCase();
-                let score = 0;
-                const queryWords = queryLower.split(/\s+/).filter(w => w.length > 2);
-                for (const w of queryWords) {
-                  if (text.includes(w)) score += 1;
-                }
-                return { ...c, score };
-              }).filter(c => c.score > 0)
-                .sort((a, b) => b.score - a.score)
+              // Read chunks from S3. Prefer per-pid index, fallback to global.
+              const { chunks } = await _loadChunksIndex({ userDir, pid });
+              const filtered = _filterChunksByMeta(chunks || [], { pidFilter: pid, categoriesFilter: [] });
+              const scored = _keywordScoreChunks(filtered, query)
+                .filter(c => (c.score || 0) > 0)
+                .sort((a, b) => (b.score || 0) - (a.score || 0))
                 .slice(0, topK);
 
               // ── Call OpenAI to synthesize an answer from retrieved chunks ──
