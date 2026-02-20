@@ -32,6 +32,7 @@ const orgService = require("./services/orgService");
 const avatarService = require("./services/avatarService");
 const promptService = require("./services/promptService");
 const settingsService = require("./services/settingsService");
+const cloudTaskRunService = require("./services/cloudTaskRunService");
 
 // const axios = require('axios');
 
@@ -210,6 +211,8 @@ const SCHEDULER_ROLE_ARN = process.env.SCHEDULER_ROLE_ARN || "";
 const AWS_ACCOUNT_ID = process.env.AWS_ACCOUNT_ID || "";
 const DEFAULT_SCHEDULE_TZ = process.env.DEFAULT_SCHEDULE_TZ || "UTC";
 const SCHEDULER_GROUP = process.env.SCHEDULER_GROUP || "default";
+const SCHEDULE_TARGET_MODE = (process.env.SCHEDULE_TARGET_MODE || "ecs").toLowerCase(); // "ecs" | "lambda"
+const SCHEDULE_TARGET_LAMBDA_ARN = process.env.SCHEDULE_TARGET_LAMBDA_ARN || "";
 
 function _decodeAwsJson(value, maxDepth = 4) {
   let current = value;
@@ -388,7 +391,28 @@ async function upsertEcsSchedule({ taskId, scheduleExpression, timezone, startDa
     ScheduleExpression: scheduleExpression,
     ScheduleExpressionTimezone: timezone || DEFAULT_SCHEDULE_TZ,
     FlexibleTimeWindow: { Mode: "OFF" },
-    Target: {
+    Target: null,
+    State: "ENABLED",
+  };
+  if (startDate) scheduleInput.StartDate = startDate;
+  if (endDate) scheduleInput.EndDate = endDate;
+
+  // If configured, schedule invokes Lambda which launches ECS (allows recording the run_id).
+  if (SCHEDULE_TARGET_MODE === "lambda" && SCHEDULE_TARGET_LAMBDA_ARN) {
+    scheduleInput.Target = {
+      Arn: SCHEDULE_TARGET_LAMBDA_ARN,
+      RoleArn: SCHEDULER_ROLE_ARN,
+      Input: JSON.stringify({
+        action: "launch_cloud_task",
+        owner_id: normalizeEmailForPath(ownerValue || ""),
+        task_id: String(taskId),
+        schedule: scheduleExpression,
+        meta_data: parameters || {},
+      }),
+    };
+  } else {
+    // Default: direct ECS RunTask via Scheduler.
+    scheduleInput.Target = {
       Arn: clusterArn,
       RoleArn: SCHEDULER_ROLE_ARN,
       EcsParameters: {
@@ -403,11 +427,8 @@ async function upsertEcsSchedule({ taskId, scheduleExpression, timezone, startDa
           }],
         },
       },
-    },
-    State: "ENABLED",
-  };
-  if (startDate) scheduleInput.StartDate = startDate;
-  if (endDate) scheduleInput.EndDate = endDate;
+    };
+  }
 
   try {
     await scheduler.send(new CreateScheduleCommand(scheduleInput));
@@ -493,6 +514,80 @@ async function syncTaskSchedule({ taskId, ownerValue, triggerType, scheduleValue
 
   // Unknown schedule type; treat as unscheduled.
   await deleteEcsSchedule(taskId);
+}
+
+async function launchCloudTaskAndRecord(payload) {
+  const taskId = payload?.task_id || payload?.taskId;
+  const ownerId = payload?.owner_id || payload?.ownerId;
+  const schedule = payload?.schedule || payload?.schedule_expression || "";
+  const meta = payload?.meta_data || payload?.metaData;
+
+  if (!taskId || !ownerId) {
+    throw new Error("launch_cloud_task requires owner_id and task_id");
+  }
+  if (!ECS_CLUSTER || !ECS_TASK_DEFINITION) {
+    throw new Error("ECS_CLUSTER and ECS_TASK_DEFINITION env vars must be set for scheduled launches");
+  }
+
+  const networkConfig = {
+    awsvpcConfiguration: {
+      subnets: ECS_SUBNETS,
+      assignPublicIp: "ENABLED",
+    },
+  };
+  if (ECS_SECURITY_GROUPS.length > 0) {
+    networkConfig.awsvpcConfiguration.securityGroups = ECS_SECURITY_GROUPS;
+  }
+
+  const containerEnv = [
+    { name: "ECAN_TASK_ID", value: String(taskId) },
+    { name: "ECAN_WORKER_MODE", value: "scheduled" },
+    { name: "ECAN_TASK_OWNER", value: String(ownerId) },
+    ...(meta ? [{ name: "ECAN_TASK_PARAMS", value: (typeof meta === "string" ? meta : JSON.stringify(meta)) }] : []),
+  ];
+
+  const resp = await ecsClient.send(new RunTaskCommand({
+    cluster: ECS_CLUSTER,
+    taskDefinition: ECS_TASK_DEFINITION,
+    launchType: "FARGATE",
+    networkConfiguration: networkConfig,
+    overrides: {
+      containerOverrides: [{
+        name: ECS_CONTAINER_NAME,
+        environment: containerEnv,
+      }],
+    },
+    tags: [
+      { key: "task_id", value: String(taskId) },
+      { key: "owner_id", value: String(ownerId) },
+      { key: "mode", value: "scheduled" },
+    ],
+  }));
+
+  const tasks = resp.tasks || [];
+  const taskArn = tasks.length > 0 ? tasks[0].taskArn : null;
+  if (!taskArn) {
+    const failures = resp.failures || [];
+    const reason = failures.length > 0 ? failures[0].reason : "Unknown";
+    throw new Error(`Failed to start Fargate task: ${reason}`);
+  }
+
+  await cloudTaskRunService.upsertTaskRun({
+    owner_id: String(ownerId),
+    task_id: String(taskId),
+    run_id: String(taskArn),
+    schedule: schedule,
+    meta_data: meta,
+  });
+
+  return {
+    task_id: String(taskId),
+    owner_id: String(ownerId),
+    run_id: String(taskArn),
+    schedule,
+    success: true,
+    timestamp: new Date().toISOString(),
+  };
 }
 
 
@@ -5869,6 +5964,50 @@ async function processEvent(event, context, callback, test_stub) {
         util.log("DEBUG", "processing query....", api_caller, "processEvent", logFlag);
 
         switch (event.info.fieldName) {
+          case "queryCloudTaskRunId":
+            {
+              const input = event.arguments?.input || {};
+              const ownerId = normalizeEmailForPath(ownerEmail || owner || "");
+              const taskId = input.task_id || input.taskId;
+              const hostName = input.host_name || input.hostName;
+
+              let record = null;
+              if (taskId) {
+                record = await cloudTaskRunService.getTaskRun({ owner_id: ownerId, task_id: String(taskId) });
+              } else if (hostName) {
+                record = await cloudTaskRunService.findTaskRunByHostName({ owner_id: ownerId, host_name: String(hostName) });
+              }
+
+              if (!record) {
+                returnData = {
+                  success: false,
+                  error: "NOT_FOUND: No run id recorded",
+                  id: taskId || null,
+                  runID: null,
+                  runner: hostName || null,
+                  status: input.meta_data || {},
+                  timestamp: new Date().toISOString(),
+                };
+                break;
+              }
+
+              returnData = {
+                success: true,
+                error: null,
+                id: record.task_id || taskId || null,
+                runID: record.run_id || null,
+                runner: record.host_name || hostName || null,
+                status: {
+                  owner_id: record.owner_id,
+                  task_id: record.task_id,
+                  run_id: record.run_id,
+                  schedule: record.schedule,
+                  meta_data: record.meta_data || null,
+                },
+                timestamp: record.updated_at || new Date().toISOString(),
+              };
+            }
+            break;
           case "getAgents":
             {
               const agents = await agentService.getAgentsByOwner(owner);
@@ -6661,6 +6800,38 @@ exports.handler = async (event, context, callback) => {
   var entranceInfo;
   var lamb_result  = {reqId:context.awsRequestId, error: false, cause: ""};
   console.log("event: " + JSON.stringify(event));
+
+  // Non-AppSync invocations (e.g., EventBridge Scheduler target)
+  // Expect payload like: { action: "launch_cloud_task", owner_id, task_id, schedule, meta_data }
+  try {
+    let rawEvent = event;
+    if (typeof rawEvent === "string") {
+      try { rawEvent = JSON.parse(rawEvent); } catch { /* ignore */ }
+    }
+    const action = rawEvent?.action || rawEvent?.detail?.action;
+    if (action === "launch_cloud_task") {
+      const payload = rawEvent?.detail || rawEvent;
+      const result = await launchCloudTaskAndRecord(payload);
+      return {
+        statusCode: 200,
+        body: result,
+      };
+    }
+  } catch (e) {
+    console.error("[agentScheduler] Non-AppSync invocation failed:", e);
+    return {
+      statusCode: 500,
+      body: { success: false, error: e.message || String(e) },
+    };
+  }
+
+  // Guard: if this isn't an AppSync resolver event, bail early.
+  if (!event || !event.info || !event.arguments) {
+    return {
+      statusCode: 400,
+      body: { success: false, error: "Unsupported invocation (missing AppSync fields)" },
+    };
+  }
   
   // there are two ways this can be called? 1) with cognito authorization 2) self-generated api key authorization
   if (event.identity && ('claims' in event.identity) && ('sourceIp' in event.identity)) {
