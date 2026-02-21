@@ -470,34 +470,54 @@ export class UserStorageManager {
    */
   restoreUserState(): boolean {
     try {
+      // Web mode: AppSync requests may run under API key auth, so we must be
+      // able to reliably recover userInfo.username for S3 paths even after a
+      // hard refresh where localStorage was cleared.
+      if (isWebPlatform()) {
+        if (!webAuthSession.isAuthenticated()) {
+          logger.info('No valid webAuthSession found');
+          return false;
+        }
+
+        let userInfo = this.getUserInfo();
+
+        // localStorage may be cleared, but sessionStorage still holds userInfo.
+        if (!userInfo) {
+          const webUser = webAuthSession.getUserInfo();
+          if (webUser && webUser.username) {
+            logger.info('Rebuilding user info from webAuthSession for:', webUser.username);
+            const rebuilt: UserInfo = {
+              username: webUser.username,
+              role: 'Commander',
+              email: webUser.email,
+              name: webUser.name,
+              given_name: webUser.given_name,
+              family_name: webUser.family_name,
+              picture: webUser.picture,
+              email_verified: webUser.email_verified,
+            };
+            this.setUserInfo(rebuilt);
+            this.setAuthenticationState(true);
+            userInfo = rebuilt;
+          }
+        }
+
+        if (userInfo) {
+          useUserStore.getState().setUsername(userInfo.username);
+          logger.info('User state restored for:', userInfo.username);
+          return true;
+        }
+
+        return false;
+      }
+
+      // Desktop mode: rely on persisted localStorage session.
       if (!this.isAuthenticated() || !this.isSessionValid()) {
         logger.info('No valid user session found');
         return false;
       }
       
-      let userInfo = this.getUserInfo();
-      
-      // On web platform, localStorage may have been cleared but webAuthSession
-      // (sessionStorage) still has valid data. Rebuild localStorage from it.
-      if (!userInfo && isWebPlatform()) {
-        const webUser = webAuthSession.getUserInfo();
-        if (webUser && webUser.username) {
-          logger.info('Rebuilding user info from webAuthSession for:', webUser.username);
-          const rebuilt: UserInfo = {
-            username: webUser.username,
-            role: 'Commander',
-            email: webUser.email,
-            name: webUser.name,
-            given_name: webUser.given_name,
-            family_name: webUser.family_name,
-            picture: webUser.picture,
-            email_verified: webUser.email_verified,
-          };
-          this.setUserInfo(rebuilt);
-          this.setAuthenticationState(true);
-          userInfo = rebuilt;
-        }
-      }
+      const userInfo = this.getUserInfo();
       
       if (userInfo) {
         // Restore Zustand store

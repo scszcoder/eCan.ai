@@ -8,13 +8,23 @@ import { apiRouter } from '../api/api-router';
 import { GRAPHQL_QUERIES, GRAPHQL_MUTATIONS, Channel } from '../api/api-config';
 import { detectPlatform } from '../../config/platform';
 import { useUserStore } from '../../stores/userStore';
+import { userStorageManager } from '../storage/UserStorageManager';
+import { webAuthSession } from '../auth/webAuthSession';
 
 /**
  * Get current username from store for API calls
  * This is the sanitized username (e.g., "user_gmail_com")
  */
 function getCurrentUsername(): string | undefined {
-  return useUserStore.getState().username || undefined;
+  const fromStore = useUserStore.getState().username;
+  if (fromStore) return fromStore;
+
+  // After hard refresh, Zustand may be empty while sessionStorage still has userInfo.
+  const fromWebSession = webAuthSession.getUserInfo()?.username;
+  if (fromWebSession) return fromWebSession;
+
+  const fromStorage = userStorageManager.getUserInfo()?.username;
+  return fromStorage || undefined;
 }
 
 /**

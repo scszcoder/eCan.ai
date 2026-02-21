@@ -1,0 +1,2071 @@
+schema {
+  query: Query
+  mutation: Mutation
+  subscription: Subscription
+}
+
+type A2AFileReference @aws_api_key @aws_cognito_user_pools {
+  bytes: String
+  mimeType: String
+  name: String
+  uri: String
+}
+
+#      WAN A2A messaging
+type A2AMessage @aws_api_key @aws_cognito_user_pools {
+  acceptedOutputModes: [String!]
+  channelId: String!
+  historyLength: Int
+  id: ID!
+  message: A2AMessageBody!
+  metadata: AWSJSON
+  recipientId: String
+  senderId: String!
+  sessionId: String!
+  timestamp: AWSDateTime
+}
+
+type A2AMessageBody @aws_api_key @aws_cognito_user_pools {
+  metadata: AWSJSON
+  parts: [A2AMessagePart!]!
+  role: String!
+}
+
+type A2AMessageConnection @aws_api_key @aws_cognito_user_pools {
+  items: [A2AMessage!]!
+  nextToken: String
+}
+
+type A2AMessagePart @aws_api_key @aws_cognito_user_pools {
+  data: AWSJSON
+  file: A2AFileReference
+  metadata: AWSJSON
+  text: String
+  type: String!
+}
+
+type AccountNotification @aws_api_key {
+  created_at: AWSDateTime
+  cta_url: String
+  id: ID!
+  message: String
+  ntype: String!
+  owner: String!
+  payload: AWSJSON
+  title: String
+}
+
+type ActionResult {
+  data: AWSJSON
+  message: String
+  success: Boolean!
+}
+
+type Address {
+  city: String
+  country: String
+  line1: String
+  line2: String
+  postal_code: String
+  state: String
+}
+
+#      AppSync schema for agents, skills, tasks, vehicles, orgs, avatars
+type Agent @aws_api_key @aws_cognito_user_pools {
+  avatar_resource_id: ID
+  birthday: String
+  capabilities: AWSJSON
+  created_at: AWSDateTime
+  description: String
+  extra_data: AWSJSON
+  gender: String
+  id: ID!
+  name: String!
+  org_id: ID
+  org_ids: [ID]
+  owner: String!
+  personalities: AWSJSON
+  rank: String
+  skills: [ID]
+  status: String
+  supervisor_id: ID
+  tasks: [ID]
+  title: AWSJSON
+  updated_at: AWSDateTime
+  url: String
+  vehicle_id: ID
+  version: String
+}
+
+type AgentKnowledge @aws_api_key @aws_cognito_user_pools {
+  access_methods: AWSJSON
+  categories: AWSJSON
+  config: AWSJSON
+  content: String
+  description: String
+  id: ID!
+  knowledge_type: String
+  level: Int
+  limitations: AWSJSON
+  name: String!
+  owner: String!
+  path: String
+  price: Float
+  price_model: String
+  public: Boolean
+  rentable: Boolean
+  settings: AWSJSON
+  status: String
+  tags: AWSJSON
+  version: String
+}
+
+type AgentMutationResult @aws_api_key @aws_cognito_user_pools {
+  error: String
+  id: ID
+  success: Boolean!
+}
+
+#      Agent skills
+type AgentSkill @aws_api_key @aws_cognito_user_pools {
+  apps: AWSJSON
+  askid: Int
+  config: AWSJSON
+  description: String
+  diagram: AWSJSON
+  examples: AWSJSON
+  id: ID!
+  inputModes: AWSJSON
+  level: String
+  limitations: AWSJSON
+  name: String!
+  outputModes: AWSJSON
+  owner: String!
+  path: String
+  price: Int
+  price_model: String
+  public: Boolean
+  rentable: Boolean
+  source: String
+  tags: AWSJSON
+  version: String
+}
+
+type AgentTaskRelationsResult @aws_api_key @aws_cognito_user_pools {
+  error: String
+  status: String
+}
+
+type AgentTool @aws_api_key @aws_cognito_user_pools {
+  capabilities: AWSJSON
+  config: AWSJSON
+  dependencies: AWSJSON
+  description: String
+  id: ID!
+  level: Int
+  limitations: AWSJSON
+  name: String!
+  owner: String!
+  path: String
+  price: Float
+  price_model: String
+  public: Boolean
+  rentable: Boolean
+  settings: AWSJSON
+  status: String
+  tool_type: String
+  version: String
+}
+
+type AvatarMutationResult @aws_api_key @aws_cognito_user_pools {
+  error: String
+  id: ID
+  image_upload_url: String
+  success: Boolean!
+  video_upload_url: String
+}
+
+#      Avatars
+type AvatarResource @aws_api_key @aws_cognito_user_pools {
+  avatar_metadata: AWSJSON
+  cloud_image_key: String
+  cloud_image_url: String
+  cloud_synced: Boolean
+  cloud_video_key: String
+  cloud_video_url: String
+  description: String
+  id: ID!
+  image_hash: String
+  image_path: String
+  is_public: Boolean
+  last_used_at: AWSDateTime
+  name: String
+  owner: String
+  resource_type: String!
+  usage_count: Int
+  video_hash: String
+  video_path: String
+}
+
+type BotInfo {
+  bid: ID!
+  birthday: AWSDate
+  delDate: AWSDateTime!
+  habbits: String
+  interests: String
+  level: String
+  levelStart: AWSDate
+  location: String!
+  owner: String
+  role: String
+}
+
+type CheckResult @aws_api_key @aws_cognito_user_pools {
+  exists: Boolean!
+  name: String!
+}
+
+type Clickable @aws_api_key @aws_cognito_user_pools {
+  area: [Int]
+  function: String
+  level: Int
+  location: [Int]
+  number: String!
+  section: String
+  text: String!
+  type: String
+  unit: String!
+}
+
+type Dimensions @aws_api_key @aws_cognito_user_pools {
+  height_cm: Float
+  length_cm: Float
+  width_cm: Float
+}
+
+type EditorCacheResponse @aws_api_key @aws_cognito_user_pools {
+  cacheData: AWSJSON
+  recentFiles: [RecentFileInfo!]!
+}
+
+type EditorCacheSaveResult @aws_api_key @aws_cognito_user_pools {
+  newFilePath: String
+  renamed: Boolean
+}
+
+type GetAllMineResponse @aws_api_key @aws_cognito_user_pools {
+  accountInfo: AWSJSON
+  agents: [Agent!]!
+  avatars: [AvatarResource!]!
+  knowledges: [AgentKnowledge!]!
+  orgs: [Org!]!
+  prompts: [Prompt!]!
+  settings: AWSJSON
+  skills: [AgentSkill!]!
+  tasks: [Task!]!
+  tools: [AgentTool!]!
+  vehicles: [Vehicle!]!
+}
+
+type KnowledgeMutationResult @aws_api_key @aws_cognito_user_pools {
+  error: String
+  id: ID
+  success: Boolean!
+}
+
+type LabelFormat @aws_api_key @aws_cognito_user_pools {
+  carrier: String
+  created_at: AWSDateTime
+  dpi: Int
+  id: ID!
+  name: String!
+  service: String
+  settings: AWSJSON
+  size: String
+  status: String
+  template_url: AWSURL
+  updated_at: AWSDateTime
+}
+
+type LongLLMTaskResult @aws_api_key @aws_cognito_user_pools {
+  acctSiteID: String
+  agentID: String
+  id: ID
+  results: AWSJSON
+  status: String
+  taskID: String
+  timestamp: AWSDateTime!
+  workType: String
+}
+
+type Mutation {
+  RemoveLabelFormats(ids: [ID!]!): [MutationResult!]!
+  RemoveWareHouses(ids: [ID!]!): [MutationResult!]!
+  UpdateLabelFormats(input: [LabelFormatUpdateInput!]!): [LabelFormat!]!
+  UpdateWarehouses(input: [WarehouseUpdateInput!]!): [Warehouse!]!
+  addAccts(input: [Account]!): AWSJSON!
+  addAgentKnowledges(input: [KnowledgeInput!]!): [KnowledgeMutationResult!]!
+  addAgentSkills(input: [SkillInput!]!): [SkillMutationResult!]!
+  addAgentTaskRelations(input: [AgentTaskRelationsInput!]!): [AgentTaskRelationsResult!]!
+  addAgentTasks(input: [TaskInput!]!): [TaskMutationResult!]!
+  addAgentTools(input: [ToolInput!]!): [ToolMutationResult!]!
+  addAgents(input: [AgentInput!]!): [AgentMutationResult!]!
+  addAvatars(input: [AvatarInput!]!): [AvatarMutationResult!]!
+  addBots(input: [Bot]!): AWSJSON!
+  addLabelFormats(input: [LabelFormatInput!]!): [LabelFormat!]!
+  addMissions(input: [Mission]!, settings: AWSJSON!): AWSJSON!
+  addOrgs(input: [OrgInput!]!): [OrgMutationResult!]!
+  addProducts(input: [ProductInput!]!): [Product!]!
+  addPrompts(input: [PromptInput!]!): [PromptMutationResult!]!
+  addSkills(input: [Skill]!): AWSJSON!
+  addVehicles(input: [VehicleInput!]!): [VehicleMutationResult!]!
+  addWareHouses(input: [WarehouseInput!]!): [Warehouse!]!
+  cancelRunSkill(input: RunControlInput!): RunControlResult
+  cancelSkillEditorChatGeneration(sessionId: ID!): Boolean!
+  clearEditorCache(userId: ID!): Boolean!
+  clearSkillBreakpoints(node_name: String!, username: String!): ActionResult
+  copySkillTo(input: SkillCopyInput!): SkillCopyResult
+  createSkillEditorChatSession(input: SkillEditorChatSessionInput!): SkillEditorChatSession
+  deleteScene(id: ID!): Boolean!
+  deleteSkillEditorChatSession(sessionId: ID!): Boolean!
+  endLongLLMTask(input: [LongLLMTaskResultInput!]!): [LongLLMTaskResult!]! @aws_api_key @aws_cognito_user_pools
+  initReqScene(input: ReqSceneInput!): ReqSceneResponse! @aws_cognito_user_pools
+  injectSkillState(skill: AWSJSON!, username: String!): ActionResult
+  loadSkillSchemas(skill: AWSJSON!, username: String!): ActionResult
+  makeBusinessOrders(input: [Order]!): AWSJSON!
+  makeOrder(input: [Order]!): AWSJSON!
+  pauseRunSkill(input: RunControlInput!): RunControlResult
+  publishAccountNotification(input: AccountNotificationInput!): AccountNotification! @aws_api_key @aws_cognito_user_pools @aws_iam
+  publishPassiveCommand(input: PassiveBrowserCommandEnvelopeInput!): PassiveBrowserCommandEnvelope @aws_api_key @aws_cognito_user_pools @aws_iam
+  publishPassiveHello(input: PassiveBrowserHelloEnvelopeInput!): PassiveBrowserHelloEnvelope @aws_api_key @aws_cognito_user_pools @aws_iam
+  publishPassiveStepResult(input: PassiveBrowserStepResultEnvelopeInput!): PassiveBrowserStepResultEnvelope @aws_api_key @aws_cognito_user_pools @aws_iam
+  publishSceneResult(input: SceneResultInput!): SceneResult @aws_api_key @aws_cognito_user_pools @aws_iam
+  #    -------------------- Skill Editor Realtime Streaming --------------------
+  publishSkillEditorStreamEvent(input: SkillEditorStreamEventInput!): SkillEditorStreamEvent @aws_api_key @aws_cognito_user_pools @aws_iam
+  publishTaskStatus(input: TaskStatusInput!): TaskStatus @aws_api_key @aws_cognito_user_pools @aws_iam
+  readyReqScene(input: ReadyReqSceneInput!): ReqSceneResponse! @aws_cognito_user_pools
+  removeAccts(input: [RemoveOrder]!): AWSJSON!
+  removeAgentKnowledges(input: [ID!]!): [KnowledgeMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  removeAgentSkills(input: [ID!]!): [SkillMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  removeAgentTasks(input: [ID!]!): [TaskMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  removeAgentTools(input: [ID!]!): [ToolMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  removeAgents(input: [ID!]!): [AgentMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  removeAvatars(input: [ID!]!): [AvatarMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  removeBots(input: [RemoveOrder]!): AWSJSON!
+  removeBusinessOrders(input: [RemoveBusinessOrder]!): AWSJSON!
+  removeMissions(input: [RemoveOrder]!): AWSJSON!
+  removeOrgs(input: [ID!]!): [OrgMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  removeProducts(ids: [ID!]!): [MutationResult!]!
+  removePrompts(input: [ID!]!): [PromptMutationResult!]! @aws_api_key @aws_cognito_user_pools
+  removeSkills(input: [RemoveOrder]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  removeVehicles(input: [ID!]!): [VehicleMutationResult!]!
+  reportRunExtSkillStatus(input: [SkillRunStatus]): AWSJSON!
+  reportStatus(input: [MissionStatus]!): AWSJSON!
+  reqApiKey(input: CustomerInput): genKeyResponse! @aws_cognito_user_pools
+  reqPuzzleSolver(input: [PuzzleInput]!): Puzzle!
+  reqRAGStore(input: [RAGIN]!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  reqScene(input: ReqSceneInput!): ReqSceneResponse! @aws_api_key @aws_cognito_user_pools
+  reqTrain(input: [Skill]!): AWSJSON!
+  requestPuzzleSolve(input: [PuzzleInput]!): Puzzle!
+  requestRunExtSkill(input: [SkillRun]): AWSJSON!
+  requestSkillState(skill: AWSJSON!, username: String!): ActionResult
+  resumeRunSkill(input: RunControlInput!): RunControlResult
+  runCloudTasks(taskIDs: [String]!): AWSJSON!
+  runSkill(input: RunSkillInput!): RunControlResult
+  runTest(input: [TestInput]!): AWSJSON! @aws_api_key @aws_cognito_user_pools @aws_iam
+  saveEditorCache(input: EditorCacheInput!): EditorCacheSaveResult
+  scaffoldSkill(input: SkillScaffoldInput!): SkillScaffoldResult
+  sendA2AMessage(input: A2AMessageInput!): A2AMessage! @aws_api_key @aws_cognito_user_pools @aws_iam
+  sendCloudA2AMessage(input: A2AMessageInput!): A2AMessage!
+  sendPuzzleSolution(input: PuzzleSolutionInput): PuzzleSolution
+  sendSkillEditorChatMessage(input: SkillEditorChatMessageInput!): SkillEditorChatResponse
+  sendWanMessage(input: WanChatMessageInput): WanChatMessage
+  setSkillBreakpoints(node_name: String!, username: String!): ActionResult
+  setupSimStep(bundle: AWSJSON!): RunControlResult
+  simSseEvent: RunControlResult
+  simTimerEvent: RunControlResult
+  simWebhookEvent: RunControlResult
+  simWebsocketEvent: RunControlResult
+  startLongLLMTask(task_input: AWSJSON!): AWSJSON! @aws_cognito_user_pools
+  startSoap(input: StartSoapInput!): StartSoapResponse!
+  stepRunSkill(input: RunControlInput!): RunControlResult
+  stepSim: RunControlResult
+  stopSoap(soap_id: ID!): Boolean!
+  testLanggraph2Flowgram: RunControlResult
+  updateAccts(input: [Account]!): AWSJSON!
+  updateAgentKnowledges(input: [KnowledgeUpdateInput!]!): [KnowledgeMutationResult!]!
+  updateAgentSkills(input: [SkillUpdateInput!]!): [SkillMutationResult!]!
+  updateAgentTasks(input: [TaskUpdateInput!]!): [TaskMutationResult!]!
+  updateAgentTools(input: [ToolUpdateInput!]!): [ToolMutationResult!]!
+  updateAgents(input: [AgentUpdateInput!]!): [AgentMutationResult!]!
+  updateAvatars(input: [AvatarUpdateInput!]!): [AvatarMutationResult!]!
+  updateBots(input: [Bot]!): AWSJSON!
+  updateBusinessOrders(input: [Order]!): AWSJSON!
+  updateMissions(input: [Mission]!): AWSJSON!
+  updateMissionsExStatus(input: [MissionStatus]!): AWSJSON!
+  updateOrgs(input: [OrgUpdateInput!]!): [OrgMutationResult!]!
+  updateProducts(input: [ProductUpdateInput!]!): [Product!]!
+  updatePrompts(input: [PromptUpdateInput!]!): [PromptMutationResult!]!
+  updateScene(input: SceneInput!): Scene @aws_api_key @aws_cognito_user_pools
+  updateSettings(input: [AWSJSON]!): AWSJSON!
+  updateSkills(input: [Skill]!): AWSJSON!
+  updateStory(input: StoryUpdateInput!): Story!
+  updateVehicles(input: [VehicleUpdateInput!]!): [VehicleMutationResult!]!
+  #    Skill editor (web mode) support
+  writeSkillFile(input: [SkillFileInput!]): [SkillFileInfo]
+}
+
+type MutationResult @aws_api_key @aws_cognito_user_pools {
+  id: ID!
+  message: String
+  success: Boolean!
+}
+
+type NodeStateSchema @aws_api_key @aws_cognito_user_pools {
+  schema: AWSJSON!
+  schemaVersion: String!
+}
+
+#      Organizations
+type Org @aws_api_key @aws_cognito_user_pools {
+  description: String
+  id: ID!
+  level: Int
+  name: String!
+  org_type: String
+  parent_id: ID
+  settings: AWSJSON
+  sort_order: Int
+  status: String
+}
+
+type OrgMutationResult @aws_api_key @aws_cognito_user_pools {
+  error: String
+  id: ID
+  success: Boolean!
+}
+
+type OrgTree @aws_api_key @aws_cognito_user_pools {
+  agents: [Agent!]!
+  children: [OrgTree!]
+  description: String
+  id: ID!
+  level: Int
+  name: String!
+  org_type: String
+  parent_id: ID
+  settings: AWSJSON
+  sort_order: Int
+  status: String
+}
+
+type PassiveBrowserCommandEnvelope @aws_api_key @aws_cognito_user_pools {
+  clientId: ID!
+  command: AWSJSON!
+  id: ID
+  runId: ID!
+  stepId: ID!
+  timestamp: AWSDateTime
+}
+
+type PassiveBrowserHelloEnvelope @aws_api_key @aws_cognito_user_pools {
+  clientId: ID!
+  createdAt: AWSDateTime
+  hello: AWSJSON!
+  runId: ID!
+}
+
+type PassiveBrowserStepResultEnvelope @aws_api_key @aws_cognito_user_pools {
+  clientId: ID!
+  dom_tree: AWSJSON
+  id: ID
+  result: AWSJSON!
+  runId: ID!
+  stepId: ID!
+  timestamp: AWSDateTime
+}
+
+type Product @aws_api_key @aws_cognito_user_pools {
+  attributes: AWSJSON
+  barcode: String
+  created_at: AWSDateTime
+  description: String
+  dimensions_cm: Dimensions
+  id: ID!
+  name: String!
+  sku: String!
+  status: String
+  updated_at: AWSDateTime
+  weight_grams: Int
+}
+
+type Prompt @aws_api_key @aws_cognito_user_pools {
+  created_at: AWSDateTime
+  id: ID!
+  owner: String!
+  prompt: AWSJSON!
+  updated_at: AWSDateTime
+  version: String
+}
+
+type PromptMutationResult @aws_api_key @aws_cognito_user_pools {
+  error: String
+  id: ID
+  success: Boolean!
+}
+
+type Puzzle @aws_api_key @aws_cognito_user_pools {
+  id: ID!
+  module: String
+  options: AWSJSON
+  prize: Int
+  puzzle_class: String
+  puzzle_file: String
+  pzid: ID!
+  question: String
+  request_id: String
+  start_time: Int
+  time_limit: Int
+  timestamp: AWSDateTime!
+  url: String
+  url_key: String
+}
+
+type PuzzleSolution @aws_api_key @aws_cognito_user_pools {
+  id: ID!
+  request_id: String
+  solution: [AWSJSON]
+  solver_id: String
+  timestamp: AWSDateTime!
+}
+
+type Query {
+  checkSkillExists(name: String!): CheckResult!
+  genSchedules(settings: AWSJSON!): AWSJSON!
+  getA2AMessages(channelId: String!, limit: Int, nextToken: String): A2AMessageConnection! @aws_api_key @aws_cognito_user_pools
+  getAgentKnowledges: [AgentKnowledge!]!
+  getAgentSkills: [AgentSkill!]! @aws_api_key @aws_cognito_user_pools
+  getAgentTasks: [Task!]! @aws_api_key @aws_cognito_user_pools
+  getAgentTools: [AgentTool!]! @aws_api_key @aws_cognito_user_pools
+  getAgents: [Agent!]! @aws_api_key @aws_cognito_user_pools
+  getAllMine(owner: String, userId: String): GetAllMineResponse! @aws_api_key @aws_cognito_user_pools
+  getAvatars: [AvatarResource!]!
+  getBots(ids: [ID!]): AWSJSON!
+  getEditorCache(userId: ID!): EditorCacheResponse
+  getFB(fb_reqs: [FbReq]!): AWSJSON
+  getLabelFormats(input: LabelFormatQueryInput): [LabelFormat!]!
+  #    Skill editor (web mode) support
+  getNodeStateSchema: NodeStateSchema
+  getOrgAgentTree(root_id: ID, username: String): OrgTree @aws_api_key @aws_cognito_user_pools
+  getOrgTree(root_id: ID): OrgTree @aws_api_key @aws_cognito_user_pools
+  getOrgs: [Org!]!
+  getProducts(input: ProductQueryInput): [Product!]!
+  getPrompts(owner: String): [Prompt!]!
+  getScene(id: ID!): Scene
+  getSceneRequestStatus(request_id: ID!): ReqSceneResponse
+  getSceneTemplates(emotion: String!, style: SceneStyle): [SceneTemplate!]!
+  getSettings(ids: [ID!], username: String): AWSJSON!
+  getSkillEditorChatHistory(limit: Int, offset: Int, sessionId: ID!): [SkillEditorChatMessage!]!
+  getSkillEditorChatSessions(userId: ID!): [SkillEditorChatSession!]!
+  getSkillEditorEvents(sessionId: String!, since: AWSDateTime): [SkillEditorEvent!]!
+  getSkillRunStatus(runId: ID!, since: AWSDateTime): [SkillRunEvent!]!
+  getStory(id: ID!): Story
+  getVehicles: [Vehicle!]!
+  getWanMessage(ids: [ID!]): [WanChatMessage]!
+  getWarehouses(input: WarehouseQueryInput): [Warehouse!]!
+  listSkillFiles(limit: Int, nextToken: String, prefix: String, userId: String): [SkillFileInfo!]!
+  listStories(acctSiteID: String!, limit: Int, nextToken: String): StoryConnection
+  loadSkillEditorContexts(input: SkillEditorContextRequestInput!): SkillEditorContextResponse
+  openSkillFile(filePath: String!, skillName: String, userId: String): SkillFileContent
+  queryAgentKnowledges(input: KnowledgeQueryInput): [AgentKnowledge!]! @aws_api_key @aws_cognito_user_pools
+  queryAgentSkills(input: SkillQueryInput): [AgentSkill!]! @aws_api_key @aws_cognito_user_pools
+  queryAgentTasks(input: TaskQueryInput): [Task!]! @aws_api_key @aws_cognito_user_pools
+  queryAgentTools(input: ToolQueryInput): [AgentTool!]! @aws_api_key @aws_cognito_user_pools
+  queryAgents(input: AgentQueryInput): [Agent!]! @aws_api_key @aws_cognito_user_pools
+  queryApiKeys(input: QueryApiKeyInput): QueryApiKeysResponse! @aws_cognito_user_pools
+  queryAvatars(input: AvatarQueryInput): [AvatarResource!]! @aws_api_key @aws_cognito_user_pools
+  queryBots(qb: AWSJSON!): AWSJSON!
+  queryChats(msgs: [ChatReq]!): AWSJSON
+  queryCloudTaskRunId(input: TaskRunQueryInput): TaskStatus! @aws_api_key @aws_cognito_user_pools
+  queryExtBotSkillRun(qbsr: [SkillRunConfig!]): AWSJSON!
+  queryMissions(qm: [MissionIdentifiers!]): AWSJSON!
+  queryOrgs(input: OrgQueryInput): [Org!]! @aws_api_key @aws_cognito_user_pools
+  queryPrompts(input: PromptQueryInput): [Prompt!]! @aws_api_key @aws_cognito_user_pools
+  queryRAGs(qs: AWSJSON!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  queryScenes(input: SceneQueryInput!): SceneConnection!
+  querySkills(qs: AWSJSON!): AWSJSON! @aws_api_key @aws_cognito_user_pools
+  queryVehicles(input: VehicleQueryInput): [Vehicle!]! @aws_api_key @aws_cognito_user_pools
+  readSkillFile(filePath: String!, userId: String): [SkillFileContent]
+  regSteps(inSteps: [Step]!): AWSJSON!
+  reqAccountInfo(ops: [AcctOp!]): AWSJSON!
+  reqFileOp(fo: [FileOp!]): AWSJSON!
+  reqMachineLanAddr(mid: String): AWSJSON!
+  reqOrderInfo(ops: [OrderOp!]): AWSJSON!
+  reqScreenIconRead(inScrn: [ScreenImg]!): [ScreenInfo]
+  reqScreenTxtRead(inScrn: [ScreenImg]!): AWSJSON!
+}
+
+type QueryApiKeysResponse @aws_cognito_user_pools {
+  customerEmail: String
+  status: String
+}
+
+type RecentFileInfo @aws_api_key @aws_cognito_user_pools {
+  fileName: String!
+  filePath: String!
+  lastOpened: AWSDateTime
+  skillName: String
+}
+
+type ReqSceneResponse @aws_api_key @aws_cognito_user_pools {
+  estimated_time_ms: Int
+  message: String
+  ref_ul_links: [String!]
+  request_id: String
+  status: String
+}
+
+type RunControlResult @aws_api_key @aws_cognito_user_pools {
+  data: AWSJSON
+  message: String
+  runId: ID
+  status: String
+}
+
+#      Scene and story generation
+type Scene @aws_api_key @aws_cognito_user_pools {
+  acctSiteID: String!
+  actions: AWSJSON
+  agent_ids: [String!]!
+  captions: [String]
+  clip: String!
+  description: String
+  dialogs: AWSJSON
+  duration_ms: Int
+  id: ID!
+  images: [String!]!
+  label: String!
+  n_repeat: Int
+  priority: Int
+  scene_id: ID!
+  status: SceneStatus!
+  thumbnails: [String!]!
+  timestamp: AWSDateTime!
+  trigger_events: [String]
+  video: [String!]!
+}
+
+type SceneConnection @aws_api_key @aws_cognito_user_pools {
+  items: [Scene!]!
+  nextToken: String
+}
+
+type SceneResult @aws_api_key @aws_cognito_user_pools {
+  acctSiteID: String!
+  actions: AWSJSON
+  agent_ids: [String!]!
+  description: String
+  dialogs: AWSJSON
+  duration_ms: Int
+  emotion: String
+  error: String
+  id: ID!
+  mind_state: String
+  request_id: ID!
+  scene_id: ID!
+  status: SceneStatus!
+  thumbnail: String
+  timestamp: AWSDateTime!
+  video: [String!]!
+}
+
+type SceneTemplate @aws_api_key @aws_cognito_user_pools {
+  description: String
+  emotion: String!
+  id: ID!
+  label: String!
+  preview_url: String
+}
+
+type Schedule @aws_api_key @aws_cognito_user_pools {
+  bid: String
+  sid: String
+  start: AWSDateTime!
+  tasks: [ScheduleTask!]!
+}
+
+type ScheduleTask @aws_api_key @aws_cognito_user_pools {
+  action: String
+  duration: Int
+}
+
+type ScreenInfo @aws_api_key @aws_cognito_user_pools {
+  clickables: [Clickable]!
+  id: ID!
+}
+
+type SkillCopyResult @aws_api_key @aws_cognito_user_pools {
+  diagramPath: String
+  name: String
+  skillRoot: String
+}
+
+type SkillEditorChatMessage @aws_api_key @aws_cognito_user_pools {
+  attachments: AWSJSON
+  content: String!
+  id: ID!
+  metadata: AWSJSON
+  role: String!
+  timestamp: AWSDateTime
+}
+
+type SkillEditorChatResponse @aws_api_key @aws_cognito_user_pools {
+  clarification: AWSJSON
+  flowgram: AWSJSON
+  intent: String
+  message: SkillEditorChatMessage!
+  plan: AWSJSON
+  sessionId: ID!
+  sessionName: String
+  state: String
+  validation: AWSJSON
+}
+
+type SkillEditorChatSession @aws_api_key @aws_cognito_user_pools {
+  createdAt: AWSDateTime
+  flowgramId: String
+  id: ID!
+  name: String
+  updatedAt: AWSDateTime
+}
+
+type SkillEditorContextItem @aws_api_key @aws_cognito_user_pools {
+  context: AWSJSON
+  skillId: ID
+  skillName: String
+  updatedAt: AWSDateTime
+}
+
+type SkillEditorContextResponse @aws_api_key @aws_cognito_user_pools {
+  items: [SkillEditorContextItem!]!
+}
+
+type SkillEditorEvent @aws_api_key @aws_cognito_user_pools {
+  eventId: ID
+  payload: AWSJSON
+  sessionId: String
+  timestamp: AWSDateTime
+  type: String!
+}
+
+type SkillEditorStreamEvent @aws_api_key @aws_cognito_user_pools {
+  eventId: ID!
+  eventType: String!
+  flowgramId: ID
+  owner: String
+  payload: AWSJSON
+  sessionId: ID!
+  timestamp: AWSDateTime!
+}
+
+type SkillFileContent @aws_api_key @aws_cognito_user_pools {
+  content: String!
+  fileName: String!
+  filePath: String!
+  fileSize: Int
+  skillName: String
+}
+
+type SkillFileInfo @aws_api_key @aws_cognito_user_pools {
+  fileName: String!
+  filePath: String!
+  fileSize: Int
+  skillName: String
+  updatedAt: AWSDateTime
+}
+
+type SkillMutationResult @aws_api_key @aws_cognito_user_pools {
+  error: String
+  id: ID
+  success: Boolean!
+  upload_urls: AWSJSON
+}
+
+type SkillRunEvent @aws_api_key @aws_cognito_user_pools {
+  current_node: String
+  nodeState: AWSJSON
+  runId: ID
+  status: String
+  this_node: String
+  timestamp: AWSDateTime
+}
+
+type SkillScaffoldResult @aws_api_key @aws_cognito_user_pools {
+  diagramPath: String
+  name: String
+  skillRoot: String
+}
+
+type StartSoapResponse @aws_api_key @aws_cognito_user_pools {
+  message: String
+  soap_id: ID!
+  status: String!
+}
+
+type Status @aws_api_key @aws_cognito_user_pools {
+  result: String
+}
+
+type Story @aws_api_key @aws_cognito_user_pools {
+  acctSiteID: String!
+  agent_ids: [String!]!
+  created_at: AWSDateTime!
+  current_scene_index: Int
+  description: String
+  id: ID!
+  scenes: [Scene!]!
+  status: StoryStatus!
+  title: String!
+  updated_at: AWSDateTime!
+}
+
+type StoryConnection @aws_api_key @aws_cognito_user_pools {
+  items: [Story!]!
+  nextToken: String
+}
+
+type Subscription {
+  onA2AMessageReceived(channelId: String!): A2AMessage @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["sendA2AMessage"])
+  onAccountNotification(owner: String!): AccountNotification @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["publishAccountNotification"])
+  onAgentSceneEvent(acctSiteID: String!): Scene @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["updateScene"])
+  onLongLLMTaskComplete(acctSiteID: String!): LongLLMTaskResult @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["endLongLLMTask"])
+  onMessageReceived(chatID: String!): WanChatMessage @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["sendWanMessage"])
+  onPassiveCommand(clientId: ID!, runId: ID!): PassiveBrowserCommandEnvelope @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["publishPassiveCommand"])
+  onPassiveHello(clientId: ID!, runId: ID!): PassiveBrowserHelloEnvelope @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["publishPassiveHello"])
+  onPassiveStepResult(clientId: ID!, runId: ID!): PassiveBrowserStepResultEnvelope @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["publishPassiveStepResult"])
+  onPuzzleReceived: Puzzle @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["requestPuzzleSolve"])
+  onPuzzleResultReceived: PuzzleSolution @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["sendPuzzleSolution"])
+  onSceneComplete(acctSiteID: String!): SceneResult @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["publishSceneResult"])
+  onSkillEditorStreamEvent(owner: String!): SkillEditorStreamEvent @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["publishSkillEditorStreamEvent"])
+  onStoryUpdate(acctSiteID: String!): Story @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["updateStory"])
+  onTaskStatus(runner: String!): TaskStatus @aws_api_key @aws_cognito_user_pools @aws_iam @aws_subscribe(mutations : ["publishTaskStatus"])
+}
+
+#      Tasks
+type Task @aws_api_key @aws_cognito_user_pools {
+  action: String
+  description: String
+  duration: Int
+  error_message: String
+  id: ID!
+  metadata: AWSJSON
+  name: String!
+  objectives: AWSJSON
+  org_id: ID
+  owner: String!
+  priority: String
+  progress: Float
+  result: AWSJSON
+  schedule: AWSJSON
+  source: String
+  status: String
+  task_type: String
+  trigger_type: String
+}
+
+type TaskMutationResult @aws_api_key @aws_cognito_user_pools {
+  error: String
+  id: ID
+  success: Boolean!
+}
+
+type TaskStatus @aws_api_key @aws_cognito_user_pools {
+  error: String
+  id: ID
+  runID: ID
+  runner: String
+  status: AWSJSON
+  success: Boolean!
+  timestamp: AWSDateTime
+}
+
+type ToolMutationResult @aws_api_key @aws_cognito_user_pools {
+  error: String
+  id: ID
+  success: Boolean!
+}
+
+#      Vehicles
+type Vehicle @aws_api_key @aws_cognito_user_pools {
+  access_token: String
+  architecture: String
+  capabilities: AWSJSON
+  cpu_cores: Int
+  description: String
+  environment: String
+  extra_metadata: AWSJSON
+  gpu_info: AWSJSON
+  health_score: Float
+  hostname: String
+  id: ID!
+  ip_address: String
+  last_heartbeat: AWSDateTime
+  limitations: AWSJSON
+  location: String
+  max_concurrent_tasks: Int
+  memory_gb: Float
+  name: String!
+  owner: String!
+  platform: String
+  port: Int
+  security_level: String
+  settings: AWSJSON
+  ssl_enabled: Boolean
+  status: String
+  storage_gb: Float
+  timezone: String
+  uptime_seconds: Int
+  url: String
+  vehicle_type: String
+}
+
+type VehicleMutationResult @aws_api_key @aws_cognito_user_pools {
+  error: String
+  id: ID
+  success: Boolean!
+}
+
+type WanChatMessage @aws_api_key @aws_cognito_user_pools {
+  chatID: String
+  contents: String
+  id: ID
+  msg_type: String
+  parameters: String
+  receiver: String
+  sender: String
+  timestamp: String
+}
+
+type Warehouse @aws_api_key @aws_cognito_user_pools {
+  address: Address
+  code: String
+  contact_name: String
+  contact_phone: String
+  created_at: AWSDateTime
+  id: ID!
+  name: String!
+  notes: String
+  status: String
+  updated_at: AWSDateTime
+}
+
+type genKeyResponse @aws_cognito_user_pools {
+  apiKey: String
+  message: String
+}
+
+enum OutputFormat {
+  ANIMATED_PNG
+  GIF
+  MP4
+  WEBM
+}
+
+enum SceneStatus {
+  COMPLETED
+  FAILED
+  GENERATING
+  PENDING
+}
+
+enum SceneStyle {
+  ANIME
+  CARTOON
+  MINIMALIST
+  PIXEL_ART
+  REALISTIC
+}
+
+enum StoryStatus {
+  COMPLETED
+  DRAFT
+  GENERATING
+  PAUSED
+  PLAYING
+  READY
+}
+
+input A2AFileInput {
+  bytes: String
+  mimeType: String
+  name: String
+  uri: String
+}
+
+input A2AMessageBodyInput {
+  metadata: AWSJSON
+  parts: [A2AMessagePartInput!]!
+  role: String!
+}
+
+input A2AMessageInput {
+  acceptedOutputModes: [String!]
+  channelId: String!
+  historyLength: Int
+  message: A2AMessageBodyInput!
+  metadata: AWSJSON
+  recipientId: String
+  senderId: String!
+  sessionId: String!
+}
+
+input A2AMessagePartInput {
+  data: AWSJSON
+  file: A2AFileInput
+  metadata: AWSJSON
+  text: String
+  type: String!
+}
+
+input Account {
+  actid: ID!
+  addr: String
+  email: String
+  fund: Int
+  pay1_details: String
+  pay2_details: String
+  pay3_details: String
+  pay_method1: String
+  pay_method2: String
+  pay_method3: String
+  phone: String
+  sign_on_date: String
+  states: String
+  subs: String
+  user_name: String
+}
+
+input AccountNotificationInput {
+  cta_url: String
+  message: String
+  ntype: String!
+  owner: String!
+  payload: AWSJSON
+  title: String
+}
+
+input AcctOp {
+  actid: ID!
+  op: String!
+  options: String!
+}
+
+input AddressInput {
+  city: String
+  country: String
+  line1: String
+  line2: String
+  postal_code: String
+  state: String
+}
+
+input AgentInput {
+  avatar_resource_id: ID
+  birthday: String
+  capabilities: AWSJSON
+  description: String
+  extra_data: AWSJSON
+  gender: String
+  id: ID
+  name: String!
+  personalities: AWSJSON
+  rank: String
+  status: String
+  supervisor_id: ID
+  title: AWSJSON
+  url: String
+  vehicle_id: ID
+  version: String
+}
+
+input AgentQueryInput {
+  description: String
+  id: ID
+  name: String
+}
+
+input AgentTaskRelationsInput {
+  agid: String
+  owner: String
+  status: String
+  task_id: String
+}
+
+input AgentUpdateInput {
+  avatar_resource_id: ID
+  birthday: String
+  capabilities: AWSJSON
+  description: String
+  extra_data: AWSJSON
+  gender: String
+  id: ID!
+  name: String
+  personalities: AWSJSON
+  rank: String
+  status: String
+  supervisor_id: ID
+  title: AWSJSON
+  url: String
+  vehicle_id: ID
+  version: String
+}
+
+input AvatarInput {
+  avatar_metadata: AWSJSON
+  cloud_image_key: String
+  cloud_image_url: String
+  cloud_synced: Boolean
+  cloud_video_key: String
+  cloud_video_url: String
+  description: String
+  id: ID
+  image_hash: String
+  image_path: String
+  is_public: Boolean
+  last_used_at: AWSDateTime
+  name: String
+  owner: String
+  resource_type: String
+  usage_count: Int
+  video_hash: String
+  video_path: String
+}
+
+input AvatarQueryInput {
+  owner: String
+  resource_type: String
+}
+
+input AvatarUpdateInput {
+  avatar_metadata: AWSJSON
+  cloud_image_key: String
+  cloud_image_url: String
+  cloud_synced: Boolean
+  cloud_video_key: String
+  cloud_video_url: String
+  description: String
+  id: ID!
+  image_hash: String
+  image_path: String
+  is_public: Boolean
+  last_used_at: AWSDateTime
+  name: String
+  owner: String
+  resource_type: String
+  usage_count: Int
+  video_hash: String
+  video_path: String
+}
+
+input Bot {
+  bid: ID!
+  birthday: String
+  gender: String
+  interests: String
+  levels: String
+  location: String!
+  owner: String
+  roles: String
+  status: String
+  vehicle: String
+}
+
+input ChatReq {
+  background: String
+  goals: String
+  msg: String
+  msgID: String
+  options: String
+  products: String
+  timeStamp: AWSDateTime
+  user: String
+}
+
+input Client {
+  cid: ID!
+  city: String!
+  country: String!
+  email: AWSEmail
+  name: String!
+  phone: AWSPhone!
+  snid: String!
+  state: String!
+}
+
+input CustomerInput {
+  user: String
+}
+
+input CustomerMsg {
+  cusomter: String!
+  msg_body: String!
+  msg_dt: AWSDateTime!
+  msg_title: String!
+}
+
+input CustomerMsgs {
+  msgs: [CustomerMsg]!
+  site: String!
+}
+
+input DimensionsInput {
+  height_cm: Float
+  length_cm: Float
+  width_cm: Float
+}
+
+input EditorCacheInput {
+  cacheData: AWSJSON
+  recentFiles: [RecentFileInfoInput!]
+  timestamp: AWSDateTime
+  version: String
+}
+
+input FbReq {
+  customerMail: AWSEmail
+  customerPhone: String
+  instructions: String
+  number: Int
+  orderID: String
+  origin: String
+  payType: String
+  product: String
+  total: Int
+  transactionID: String
+}
+
+input FileOp {
+  names: String
+  op: String
+  options: String
+}
+
+input KnowledgeInput {
+  access_methods: AWSJSON
+  categories: AWSJSON
+  config: AWSJSON
+  content: String
+  description: String
+  id: ID
+  knowledge_type: String
+  level: Int
+  limitations: AWSJSON
+  name: String!
+  path: String
+  price: Float
+  price_model: String
+  public: Boolean
+  rentable: Boolean
+  settings: AWSJSON
+  status: String
+  tags: AWSJSON
+  version: String
+}
+
+input KnowledgeQueryInput {
+  description: String
+  id: ID
+  name: String
+}
+
+input KnowledgeUpdateInput {
+  access_methods: AWSJSON
+  categories: AWSJSON
+  config: AWSJSON
+  content: String
+  description: String
+  id: ID!
+  knowledge_type: String
+  level: Int
+  limitations: AWSJSON
+  name: String
+  path: String
+  price: Float
+  price_model: String
+  public: Boolean
+  rentable: Boolean
+  settings: AWSJSON
+  status: String
+  tags: AWSJSON
+  version: String
+}
+
+input LabelFormatInput {
+  carrier: String
+  dpi: Int
+  name: String!
+  service: String
+  settings: AWSJSON
+  size: String
+  status: String
+  template_url: AWSURL
+}
+
+input LabelFormatQueryInput {
+  carrier: String
+  id: ID
+  name: String
+  service: String
+  status: String
+}
+
+input LabelFormatUpdateInput {
+  carrier: String
+  dpi: Int
+  id: ID!
+  name: String
+  service: String
+  settings: AWSJSON
+  size: String
+  status: String
+  template_url: AWSURL
+}
+
+input LongLLMTaskResultInput {
+  acctSiteID: String
+  agentID: String
+  results: AWSJSON
+  status: String
+  taskID: String
+  workType: String
+}
+
+input Mission {
+  as_server: Int!
+  asin: String!
+  botid: ID!
+  brand: String!
+  config: String!
+  cuspas: String
+  mid: ID!
+  mtype: String!
+  owner: String
+  search_cat: String
+  search_kw: String
+  skills: String!
+  status: String!
+  store: String!
+  ticket: ID!
+  trepeat: ID!
+}
+
+input MissionIdentifiers {
+  botid: ID
+  byowneruser: Boolean
+  created_date_range: String
+  esd_range: String
+  mid: ID!
+  owner: String
+  phrase: String
+  pseudo_store: String
+  skills: String
+  status: String
+  ticket: ID
+  type: String
+}
+
+input MissionStatus {
+  bid: ID
+  endtime: Int
+  mid: ID!
+  starttime: Int
+  status: String
+  usage: String
+}
+
+input Order {
+  actid: ID!
+  beginDate: AWSDateTime
+  dealType: String
+  description: String
+  discount: Int
+  discountType: String
+  endDate: AWSDateTime
+  number: Int
+  oid: ID!
+  orderID: String
+  payMethod: String
+  products: [String]!
+  status: String
+  total: Int
+  transactions: String
+  unitPrice: Int
+  yek: String
+}
+
+input OrderOp {
+  oid: ID!
+  op: String
+  options: String
+}
+
+input OrgInput {
+  description: String
+  id: ID
+  name: String!
+  org_type: String
+  parent_id: ID
+  settings: AWSJSON
+  sort_order: Int
+  status: String
+}
+
+input OrgQueryInput {
+  name: String
+  org_type: String
+  status: String
+}
+
+input OrgUpdateInput {
+  description: String
+  id: ID!
+  level: Int
+  name: String
+  org_type: String
+  parent_id: ID
+  settings: AWSJSON
+  sort_order: Int
+  status: String
+}
+
+input PassiveBrowserCommandEnvelopeInput {
+  clientId: ID!
+  command: AWSJSON!
+  runId: ID!
+  stepId: ID!
+}
+
+input PassiveBrowserHelloEnvelopeInput {
+  clientId: ID!
+  hello: AWSJSON!
+  runId: ID!
+}
+
+input PassiveBrowserStepResultEnvelopeInput {
+  clientId: ID!
+  dom_tree: AWSJSON
+  result: AWSJSON!
+  runId: ID!
+  stepId: ID!
+}
+
+input ProductInput {
+  attributes: AWSJSON
+  barcode: String
+  description: String
+  dimensions_cm: DimensionsInput
+  name: String!
+  sku: String!
+  status: String
+  weight_grams: Int
+}
+
+input ProductQueryInput {
+  id: ID
+  name: String
+  sku: String
+  status: String
+}
+
+input ProductUpdateInput {
+  attributes: AWSJSON
+  barcode: String
+  description: String
+  dimensions_cm: DimensionsInput
+  id: ID!
+  name: String
+  sku: String
+  status: String
+  weight_grams: Int
+}
+
+input PromptInput {
+  id: ID
+  owner: String
+  prompt: AWSJSON!
+  version: String
+}
+
+input PromptQueryInput {
+  id: ID
+  owner: String
+  search: String
+  version: String
+}
+
+input PromptUpdateInput {
+  id: ID!
+  prompt: AWSJSON
+  version: String
+}
+
+input PuzzleInput {
+  module: String
+  options: AWSJSON
+  prize: Int
+  puzzle_class: String
+  puzzle_file: String
+  pzid: ID!
+  question: String
+  request_id: String
+  start_time: Int
+  time_limit: Int
+  url: String
+  url_key: String
+}
+
+input PuzzleSolutionConfirmationInput {
+  id: ID!
+  request_id: String
+  solver_id: String
+  success: Boolean
+}
+
+input PuzzleSolutionInput {
+  request_id: String
+  solution: [AWSJSON]
+  solver_id: String
+}
+
+input QueryApiKeyInput {
+  aws_api_key: String
+}
+
+input RAGIN {
+  categories: String!
+  fid: ID!
+  file: String!
+  format: String!
+  options: AWSJSON!
+  pid: ID!
+  version: String!
+}
+
+input ReadyReqSceneInput {
+  acctSiteID: String!
+  request_id: ID!
+  status: String
+}
+
+input RecentFileInfoInput {
+  fileName: String!
+  filePath: String!
+  lastOpened: AWSDateTime
+  skillName: String
+}
+
+input RemoveBusinessOrder {
+  oid: ID!
+  owner: String!
+  productTypes: [String]!
+  products: [String]!
+  reason: String!
+}
+
+input RemoveOrder {
+  oid: ID!
+  owner: String!
+  reason: String!
+}
+
+input ReqSceneInput {
+  acctSiteID: String!
+  agent_id: String!
+  context: AWSJSON
+  description: String
+  duration_hint_ms: Int
+  emotion: String
+  mind_state: String
+  output_format: OutputFormat
+  output_resolution: [Int]
+  refs: [AWSJSON!]
+  style: SceneStyle
+}
+
+input RunControlInput {
+  skill: AWSJSON
+  username: String
+}
+
+input RunSkillInput {
+  meta_data: AWSJSON
+  skill: AWSJSON!
+  username: String
+}
+
+input SceneInput {
+  acctSiteID: String!
+  actions: AWSJSON
+  agent_ids: [String!]!
+  captions: [String]
+  clip: String!
+  description: String
+  dialogs: AWSJSON
+  duration_ms: Int
+  images: [String!]!
+  label: String!
+  n_repeat: Int
+  priority: Int
+  scene_id: ID!
+  status: SceneStatus!
+  thumbnails: [String!]!
+  trigger_events: [String]
+  video: [String!]!
+}
+
+input SceneQueryInput {
+  acctSiteID: String!
+  agent_id: String
+  emotion: String
+  label: String
+  limit: Int
+  nextToken: String
+  status: SceneStatus
+}
+
+input SceneResultInput {
+  acctSiteID: String!
+  actions: AWSJSON
+  agent_ids: [String!]!
+  description: String
+  dialogs: AWSJSON
+  duration_ms: Int
+  emotion: String
+  error: String
+  mind_state: String
+  request_id: ID!
+  scene_id: ID!
+  status: SceneStatus!
+  thumbnail: String
+  video: [String!]!
+}
+
+input SchSettings {
+  ignoreInterest: Boolean
+}
+
+input ScreenImg {
+  app: String
+  bid: Int
+  csk: String
+  domain: String
+  factor: String
+  imageFile: String
+  lastMove: String
+  layout: String
+  mid: Int
+  options: String
+  os: String
+  page: String
+  psk: String
+  skill: String
+  theme: String
+}
+
+input Skill {
+  app: String
+  createdOn: AWSDate!
+  description: String!
+  main: String
+  name: String
+  owner: String
+  page: String
+  path: String
+  platform: String
+  price: Int!
+  price_model: String!
+  privacy: String
+  runtime: Int!
+  site: String
+  site_name: String
+  skid: ID!
+}
+
+input SkillBundleInput {
+  content: String!
+  filePath: String!
+}
+
+input SkillCopyInput {
+  bundleJson: AWSJSON
+  newName: String!
+  skillJson: AWSJSON
+  sourcePath: String!
+  targetDir: String
+}
+
+input SkillEditorChatMessageInput {
+  attachments: AWSJSON
+  canvasContext: AWSJSON
+  clarificationResponses: AWSJSON
+  content: String!
+  flowgramId: String
+  name: String
+  sessionId: ID
+  userId: ID
+}
+
+input SkillEditorChatSessionInput {
+  flowgramId: String
+  name: String
+  userId: ID
+}
+
+input SkillEditorContextRequestInput {
+  skillIds: [ID!]
+  skillNames: [String!]
+  userId: ID!
+}
+
+input SkillEditorStreamEventInput {
+  eventType: String!
+  flowgramId: ID
+  owner: String
+  payload: AWSJSON
+  sessionId: ID!
+}
+
+input SkillFileInput {
+  content: String!
+  filePath: String!
+  userId: String
+}
+
+input SkillInput {
+  apps: AWSJSON
+  askid: Int
+  config: AWSJSON
+  description: String
+  diagram: AWSJSON
+  examples: AWSJSON
+  id: ID
+  inputModes: AWSJSON
+  level: String
+  limitations: AWSJSON
+  name: String!
+  outputModes: AWSJSON
+  path: String
+  price: Int
+  price_model: String
+  public: Boolean
+  rentable: Boolean
+  source: String
+  tags: AWSJSON
+  version: String
+}
+
+input SkillQueryInput {
+  description: String
+  id: ID
+  name: String
+}
+
+input SkillRun {
+  in_data: String!
+  name: String
+  owner: String
+  requester_mid: ID!
+  skid: ID!
+  start: AWSDateTime
+  verbose: Boolean
+}
+
+input SkillRunConfig {
+  requester: String
+  run_id: ID!
+  runner_bid: ID!
+  runner_mid: ID!
+  skid: ID!
+}
+
+input SkillRunStatus {
+  end_time: AWSDateTime
+  requester: String
+  result_data: String!
+  run_id: ID!
+  runner_bid: ID!
+  runner_mid: ID!
+  skid: ID!
+  start_time: AWSDateTime
+  status: String
+}
+
+input SkillScaffoldInput {
+  bundleJson: AWSJSON
+  description: String
+  kind: String
+  mappingJson: AWSJSON
+  name: String!
+  skillJson: AWSJSON
+}
+
+input SkillUpdateInput {
+  apps: AWSJSON
+  askid: Int
+  config: AWSJSON
+  description: String
+  diagram: AWSJSON
+  examples: AWSJSON
+  id: ID!
+  inputModes: AWSJSON
+  level: String
+  limitations: AWSJSON
+  name: String
+  outputModes: AWSJSON
+  path: String
+  price: Int
+  price_model: String
+  public: Boolean
+  rentable: Boolean
+  source: String
+  tags: AWSJSON
+  version: String
+}
+
+input StartSoapInput {
+  acctSiteID: String!
+  agent_ids: [String!]!
+  mood: String
+  settings: AWSJSON
+  theme: String
+}
+
+input Step {
+  data: String
+  duration: String
+  end_time: String
+  type: String!
+}
+
+input StoryUpdateInput {
+  acctSiteID: String
+  agent_ids: [String!]
+  current_scene_index: Int
+  description: String
+  id: ID!
+  scenes: AWSJSON
+  status: StoryStatus
+  title: String
+}
+
+input TaskInput {
+  description: String
+  error_message: String
+  id: ID
+  metadata: AWSJSON
+  name: String!
+  objectives: AWSJSON
+  org_id: ID
+  priority: String
+  progress: Float
+  result: AWSJSON
+  schedule: AWSJSON
+  status: String
+  task_type: String
+  trigger_type: String
+}
+
+input TaskQueryInput {
+  description: String
+  id: ID
+  name: String
+}
+
+input TaskRunQueryInput {
+  host_name: String
+  meta_data: AWSJSON!
+  task_id: String
+}
+
+input TaskStatusInput {
+  error: String
+  runID: ID
+  runner: String
+  status: AWSJSON
+  success: Boolean!
+}
+
+input TaskUpdateInput {
+  description: String
+  error_message: String
+  id: ID!
+  metadata: AWSJSON
+  name: String
+  objectives: AWSJSON
+  org_id: ID
+  priority: String
+  progress: Float
+  result: AWSJSON
+  schedule: AWSJSON
+  status: String
+  task_type: String
+  trigger_type: String
+}
+
+input TestInput {
+  description: String
+  id: String!
+  input: AWSJSON
+  name: String!
+}
+
+input ToolInput {
+  capabilities: AWSJSON
+  config: AWSJSON
+  dependencies: AWSJSON
+  description: String
+  id: ID
+  level: Int
+  limitations: AWSJSON
+  name: String!
+  path: String
+  price: Float
+  price_model: String
+  public: Boolean
+  rentable: Boolean
+  settings: AWSJSON
+  status: String
+  tool_type: String
+  version: String
+}
+
+input ToolQueryInput {
+  description: String
+  id: ID
+  name: String
+}
+
+input ToolUpdateInput {
+  capabilities: AWSJSON
+  config: AWSJSON
+  dependencies: AWSJSON
+  description: String
+  id: ID!
+  level: Int
+  limitations: AWSJSON
+  name: String
+  path: String
+  price: Float
+  price_model: String
+  public: Boolean
+  rentable: Boolean
+  settings: AWSJSON
+  status: String
+  tool_type: String
+  version: String
+}
+
+input VehicleInput {
+  access_token: String
+  architecture: String
+  capabilities: AWSJSON
+  cpu_cores: Int
+  description: String
+  environment: String
+  extra_metadata: AWSJSON
+  gpu_info: AWSJSON
+  health_score: Float
+  hostname: String
+  id: ID
+  ip_address: String
+  limitations: AWSJSON
+  location: String
+  max_concurrent_tasks: Int
+  memory_gb: Float
+  name: String!
+  platform: String
+  port: Int
+  security_level: String
+  settings: AWSJSON
+  ssl_enabled: Boolean
+  status: String
+  storage_gb: Float
+  timezone: String
+  uptime_seconds: Int
+  url: String
+  vehicle_type: String
+}
+
+input VehicleQueryInput {
+  description: String
+  id: ID
+  name: String
+}
+
+input VehicleUpdateInput {
+  access_token: String
+  architecture: String
+  capabilities: AWSJSON
+  cpu_cores: Int
+  description: String
+  environment: String
+  extra_metadata: AWSJSON
+  gpu_info: AWSJSON
+  health_score: Float
+  hostname: String
+  id: ID!
+  ip_address: String
+  limitations: AWSJSON
+  location: String
+  max_concurrent_tasks: Int
+  memory_gb: Float
+  name: String
+  platform: String
+  port: Int
+  security_level: String
+  settings: AWSJSON
+  ssl_enabled: Boolean
+  status: String
+  storage_gb: Float
+  timezone: String
+  uptime_seconds: Int
+  url: String
+  vehicle_type: String
+}
+
+input WanChatMessageInput {
+  chatID: String
+  contents: String
+  msg_type: String
+  parameters: String
+  receiver: String
+  sender: String
+}
+
+input WarehouseInput {
+  address: AddressInput
+  code: String
+  contact_name: String
+  contact_phone: String
+  name: String!
+  notes: String
+  status: String
+}
+
+input WarehouseQueryInput {
+  code: String
+  id: ID
+  name: String
+  status: String
+}
+
+input WarehouseUpdateInput {
+  address: AddressInput
+  code: String
+  contact_name: String
+  contact_phone: String
+  id: ID!
+  name: String
+  notes: String
+  status: String
+}
