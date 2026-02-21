@@ -66,6 +66,21 @@ def _get_agent_task_service(request: Optional[Dict] = None, params: Optional[Dic
     return None
 
 
+def _safe_parse_json(value: Any, default: Any = None):
+    """Parse a value that may be a JSON string or already a dict/list."""
+    if value is None:
+        return default
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed
+        except (json.JSONDecodeError, ValueError):
+            return default
+    return default
+
+
 def _prepare_agent_task_data(agent_task_info: Dict[str, Any], username: str, agent_task_id: Optional[str] = None) -> Dict[str, Any]:
     """Prepare agent task data for database storage
 
@@ -78,7 +93,8 @@ def _prepare_agent_task_data(agent_task_info: Dict[str, Any], username: str, age
         Dict containing prepared agent task data
     """
     # Get metadata from frontend (could be 'metadata' or 'settings' key)
-    metadata = agent_task_info.get('metadata', agent_task_info.get('settings', {}))
+    # Frontend may send JSON strings via toAwsJson — parse them back
+    metadata = _safe_parse_json(agent_task_info.get('metadata', agent_task_info.get('settings')), {})
     if not isinstance(metadata, dict):
         metadata = {}
     
@@ -93,11 +109,11 @@ def _prepare_agent_task_data(agent_task_info: Dict[str, Any], username: str, age
         'priority': agent_task_info.get('priority', 'medium'),
         'status': agent_task_info.get('status', 'pending'),
         'task_type': agent_task_info.get('task_type', ''),
-        'objectives': agent_task_info.get('objectives', []),
-        'schedule': agent_task_info.get('schedule', {}),
-        'trigger': agent_task_info.get('trigger', 'manual'),
+        'objectives': _safe_parse_json(agent_task_info.get('objectives'), []),
+        'schedule': _safe_parse_json(agent_task_info.get('schedule'), {}),
+        'trigger': agent_task_info.get('trigger') or agent_task_info.get('trigger_type') or 'manual',
         'progress': agent_task_info.get('progress', 0.0),
-        'result': agent_task_info.get('result', {}),
+        'result': _safe_parse_json(agent_task_info.get('result'), {}),
         'error_message': agent_task_info.get('error_message', ''),
         'settings': metadata,
         'org_id': agent_task_info.get('org_id', None),
@@ -643,13 +659,21 @@ def handle_save_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]]
             logger.warning(f"Invalid parameters for save task: Missing username")
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: username (or owner/userId)')
 
-        # Validate task_info parameter
-        if not params or not params.get('task_info'):
+        # Validate task_info parameter (also accept 'input' from GraphQL mutations)
+        agent_task_info = None
+        if params:
+            agent_task_info = params.get('task_info') or params.get('input')
+        # GraphQL mutations send input as an array — unwrap single-element lists
+        if isinstance(agent_task_info, list):
+            if len(agent_task_info) == 1:
+                agent_task_info = agent_task_info[0]
+            elif len(agent_task_info) == 0:
+                agent_task_info = None
+        if not agent_task_info:
             logger.warning(f"Invalid parameters for save task: Missing task_info")
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: task_info')
 
-        agent_task_info = params['task_info']
-        agent_task_id = agent_task_info.get('id')
+        agent_task_id = agent_task_info.get('id') if isinstance(agent_task_info, dict) else None
         
 
         if not agent_task_id:
@@ -695,10 +719,16 @@ def handle_save_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]]
             actual_agent_task_id = result.get('id', agent_task_id)
             logger.info(f"Agent task saved successfully: {agent_task_data['name']} (ID: {actual_agent_task_id})")
 
-            # Step 1.5: Manage task-skill relationship
-            skill_id = agent_task_info.get('skill_id')
-            if skill_id or skill_id is None:  # Update relationship (including removing)
-                _manage_task_skill_relationship(actual_agent_task_id, skill_id)
+            # Step 1.5: Manage task-skill relationships (supports multiple skills)
+            skill_ids = agent_task_info.get('skill_ids', [])
+            if not skill_ids:
+                # Fallback to single skill_id
+                single_id = agent_task_info.get('skill_id')
+                skill_ids = [single_id] if single_id else []
+            # Clear existing and re-add
+            _manage_task_skill_relationship(actual_agent_task_id, skill_ids[0] if skill_ids else None)
+            for extra_id in skill_ids[1:]:
+                _manage_task_skill_relationship(actual_agent_task_id, extra_id)
 
             # Step 2: Update memory after database update succeeds
             _update_agent_task_in_memory(actual_agent_task_id, agent_task_data)
@@ -772,12 +802,19 @@ def handle_new_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]])
             logger.warning(f"Invalid parameters for create task: Missing username")
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: username (or owner/userId)')
 
-        # Validate task_info parameter
-        if not params or not params.get('task_info'):
+        # Validate task_info parameter (also accept 'input' from GraphQL mutations)
+        agent_task_info = None
+        if params:
+            agent_task_info = params.get('task_info') or params.get('input')
+        # GraphQL mutations send input as an array — unwrap single-element lists
+        if isinstance(agent_task_info, list):
+            if len(agent_task_info) == 1:
+                agent_task_info = agent_task_info[0]
+            elif len(agent_task_info) == 0:
+                agent_task_info = None
+        if not agent_task_info:
             logger.warning(f"Invalid parameters for create task: Missing task_info")
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: task_info')
-
-        agent_task_info = params['task_info']
 
         logger.info(f"Creating new agent task for user: {username}")
 
@@ -806,6 +843,16 @@ def handle_new_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]])
 
             logger.info(f"Agent task created successfully: {agent_task_data['name']} (ID: {agent_task_id})")
 
+            # Step 1.5: Manage task-skill relationships (supports multiple skills)
+            skill_ids = agent_task_info.get('skill_ids', [])
+            if not skill_ids:
+                single_id = agent_task_info.get('skill_id')
+                skill_ids = [single_id] if single_id else []
+            if skill_ids:
+                _manage_task_skill_relationship(agent_task_id, skill_ids[0])
+                for extra_id in skill_ids[1:]:
+                    _manage_task_skill_relationship(agent_task_id, extra_id)
+
             # Step 2: Update memory after database creation succeeds
             _update_agent_task_in_memory(agent_task_id, agent_task_data)
 
@@ -817,8 +864,9 @@ def handle_new_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]])
             _trigger_cloud_sync(task_data_with_id, Operation.ADD)
             
             # Sync Task-Skill relationships
-            if 'skills' in agent_task_data:
-                _sync_task_skill_relations(agent_task_id, agent_task_data.get('skills', []), Operation.ADD)
+            skills_for_sync = agent_task_info.get('skills', [])
+            if skills_for_sync:
+                _sync_task_skill_relations(agent_task_id, skills_for_sync, Operation.ADD)
 
             # Create clean response
             clean_agent_task_data = _create_clean_agent_task_response(agent_task_id, agent_task_data)
@@ -865,12 +913,20 @@ def handle_delete_agent_task(request: IPCRequest, params: Optional[Dict[str, Any
             logger.warning(f"Invalid parameters for delete task: Missing username")
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: username (or owner/userId)')
 
-        # Validate task_id parameter
-        if not params or not params.get('task_id'):
+        # Validate task_id parameter (also accept 'input' from GraphQL mutations)
+        agent_task_id = None
+        if params:
+            agent_task_id = params.get('task_id')
+            if not agent_task_id:
+                # GraphQL mutations send input as an array of IDs
+                input_val = params.get('input')
+                if isinstance(input_val, list) and len(input_val) == 1:
+                    agent_task_id = input_val[0]
+                elif isinstance(input_val, str):
+                    agent_task_id = input_val
+        if not agent_task_id:
             logger.warning(f"Invalid parameters for delete task: Missing task_id")
             return create_error_response(request, 'INVALID_PARAMS', 'Missing required parameter: task_id')
-
-        agent_task_id = params['task_id']
 
         # ⚠️ Prevent deleting code-generated tasks from database
         # First check if this is a code-generated task by checking memory

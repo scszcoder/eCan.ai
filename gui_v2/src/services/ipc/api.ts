@@ -346,9 +346,9 @@ export class IPCAPI {
           resultPath: 'getAllMine.agents'
         }
       },
-      // IMPORTANT: GRAPHQL_QUERIES.GET_ALL_MINE only declares $owner and $userId.
-      // Do not pass extra variables like agent_id, otherwise AppSync will reject the request.
-      { owner: username, userId: username }
+      // For local IPC: pass agent_id so backend can query specific agents with relations (skills/tasks)
+      // For GraphQL: GET_ALL_MINE only declares $owner and $userId, agent_id is ignored by AppSync
+      { username, agent_id }
     );
     }
 
@@ -428,9 +428,10 @@ export class IPCAPI {
           resultPath: 'getAgentTasks'
         }
       },
-      // IMPORTANT: GRAPHQL_QUERIES.GET_AGENT_TASKS declares no variables.
-      // Passing extra variables (owner/userId/task_ids) can cause AppSync validation errors.
-      {}
+      // Pass username so the local IPC handler can resolve the owner.
+      // The GraphQL query declares no variables, but AppSync ignores extra
+      // variables and the local server reads them from the request params.
+      { owner: username, userId: username }
     );
     }
 
@@ -1339,7 +1340,7 @@ export class IPCAPI {
           if (value === null) return null;
           return typeof value === 'string' ? value : JSON.stringify(value);
         };
-        const taskInput = {
+        const taskInput: Record<string, any> = {
           id: agent_task_info.id,
           name: agent_task_info.name,
           description: agent_task_info.description,
@@ -1353,6 +1354,9 @@ export class IPCAPI {
           metadata: toAwsJson(agent_task_info.metadata),
           result: toAwsJson(agent_task_info.result),
         };
+        // Pass skills/skill_ids for the local IPC handler (not part of GraphQL schema)
+        if (agent_task_info.skills) taskInput.skills = agent_task_info.skills;
+        if (agent_task_info.skill_ids) taskInput.skill_ids = agent_task_info.skill_ids;
         return apiRouter.execute(
       {
         method: 'save_agent_task',
@@ -1372,7 +1376,7 @@ export class IPCAPI {
           if (value === null) return null;
           return typeof value === 'string' ? value : JSON.stringify(value);
         };
-        const taskInput = {
+        const taskInput: Record<string, any> = {
           id: agent_task_info.id,
           name: agent_task_info.name,
           description: agent_task_info.description,
@@ -1385,6 +1389,9 @@ export class IPCAPI {
           schedule: toAwsJson(agent_task_info.schedule),
           metadata: toAwsJson(agent_task_info.metadata),
         };
+        // Pass skills/skill_ids for the local IPC handler (not part of GraphQL schema)
+        if (agent_task_info.skills) taskInput.skills = agent_task_info.skills;
+        if (agent_task_info.skill_ids) taskInput.skill_ids = agent_task_info.skill_ids;
         return apiRouter.execute(
       {
         method: 'new_agent_task',
@@ -1439,7 +1446,7 @@ export class IPCAPI {
           resultPath: 'updateAgentSkills'
         }
       },
-      { input: [skill_info] }
+      { username, skill_info, input: [skill_info] }
     );
     }
 
@@ -1454,7 +1461,7 @@ export class IPCAPI {
           resultPath: 'addAgentSkills'
         }
       },
-      { input: [skill_info] }
+      { username, skill_info, input: [skill_info] }
     );
     }
 
@@ -1468,7 +1475,7 @@ export class IPCAPI {
           resultPath: 'removeAgentSkills'
         }
       },
-      { input: [skill_id] }
+      { username, skill_id, input: [skill_id] }
     );
     }
 

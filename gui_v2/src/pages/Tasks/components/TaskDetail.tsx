@@ -42,7 +42,7 @@ const DEFAULT_TASK = {
   trigger: ['schedule'] as string[],
   skills: [] as string[],  // Support multiple skills
   schedule: {
-    repeat_type: 'by days',  // Default to 'by days' for schedule trigger
+    repeat_type: 'none',  // Default to 'none' (one-time run)
     repeat_number: 1,
     repeat_unit: 'by hours',
     start_date_time: dayjs(),
@@ -57,11 +57,7 @@ const TRIGGER_OPTIONS = [
   'schedule',
   'human chat',
   'agent message',
-  'chat_queue',
-  'a2a_queue',
   'manual',
-  'interaction',
-  'message',
 ];
 const REPEAT_OPTIONS = [
   'none',
@@ -213,18 +209,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
   const handleTriggerChange = React.useCallback((triggers: string[]) => {
     setCurrentTrigger(triggers);
     
-    // If schedule is among selected triggers and repeat_type is 'none', auto-change to 'by days'
-    if (triggers.includes('schedule')) {
-      const currentRepeatType = form.getFieldValue(['schedule', 'repeat_type']);
-      if (currentRepeatType === 'none') {
-        form.setFieldsValue({
-          schedule: {
-            ...form.getFieldValue('schedule'),
-            repeat_type: 'by days'
-          }
-        });
-      }
-    }
+    // 'none' repeat_type is valid for schedule triggers (one-time run)
   }, [form]);
 
   React.useEffect(() => {
@@ -335,14 +320,6 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
     try {
       const values = await form.validateFields();
       
-      // Additional validation: schedule trigger cannot have repeat_type 'none'
-      const triggerList: string[] = (values as any).trigger || [];
-      if (triggerList.includes('schedule') && 
-          (values as any).schedule?.repeat_type === 'none') {
-        message.error(t('pages.tasks.scheduleNoneError', 'Schedule tasks must have a repeat type (cannot be "none")'));
-        return;
-      }
-
       // Get skills array from form values and filter out empty values
       const skillNames = ((values as any).skills || []).filter((s: string) => s && s.trim());
       // Find skill objects by name (use simplified skills to avoid circular refs)
@@ -786,26 +763,12 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
                                 label={t('pages.tasks.scheduleRepeatTypeLabel', 'Repeat Type')} 
                                 name={["schedule", "repeat_type"]} 
                                 htmlFor="task-repeat-type"
-                                rules={[
-                                  {
-                                    validator: (_, value) => {
-                                      // Validate: schedule trigger cannot use 'none'
-                                      if (currentTrigger.includes('schedule') && value === 'none') {
-                                        return Promise.reject(
-                                          new Error(t('pages.tasks.scheduleNoneError', 'Schedule tasks cannot use "none" repeat type'))
-                                        );
-                                      }
-                                      return Promise.resolve();
-                                    }
-                                  }
-                                ]}
                               >
                                 <Select
                                   id="task-repeat-type"
                                   size="large"
                                   options={REPEAT_OPTIONS
-                                    .filter(v => currentTrigger.includes('schedule') ? v !== 'none' : true)
-                                    .map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v) }))}
+                                    .map(v => ({ value: v, label: t(`pages.tasks.repeatType.${v}`, v === 'none' ? 'None (One-time)' : v) }))}
                                   aria-label={t('pages.tasks.scheduleRepeatTypeLabel', 'Repeat Type')}
                                 />
                               </StyledFormItem>

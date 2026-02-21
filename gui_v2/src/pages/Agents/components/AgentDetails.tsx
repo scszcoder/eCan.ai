@@ -729,6 +729,8 @@ const AgentDetails: React.FC = () => {
   // 使用 ref 追踪初始化状态，避免 KeepAlive 恢复时重置
   const initializedRef = useRef(false);
   const [, forceUpdate] = useState({});
+  // Store pending form values to apply after Form component mounts
+  const pendingFormValuesRef = useRef<any>(null);
   // Initialize selectedOrgId 为 defaultOrgId（If存在）
   // Avatar Status
   const [avatarData, setAvatarData] = useState<AvatarData | undefined>();
@@ -878,7 +880,9 @@ const AgentDetails: React.FC = () => {
             extra_data: extraDataText
           };
           console.log('[AgentDetails] Setting form values:', { name: formValues.name, owner: formValues.owner, skills: formValues.skills, tasks: formValues.tasks });
-          form.setFieldsValue(formValues);
+          // Store values in ref - Form is not mounted yet (initializedRef is still false)
+          // They will be applied after mount via the pendingFormValues effect below
+          pendingFormValuesRef.current = formValues;
           
           // Settings Avatar Data - 保留完整的Data结构
           if (agent.avatar?.imageUrl) {
@@ -929,6 +933,17 @@ const AgentDetails: React.FC = () => {
     // 使用 ref 避免 message 和 t 作为依赖触发重复执行
     // 注意：不要添加 localVehicleId 等会变化的值到依赖，否则会覆盖用户输入
   }, [id, isNew, username]);
+
+  // Apply pending form values after Form component mounts
+  // This is needed because fetchAgentData sets form values before initializedRef becomes true,
+  // which means the Form component hasn't mounted yet and setFieldsValue is silently lost
+  useEffect(() => {
+    if (initializedRef.current && pendingFormValuesRef.current) {
+      console.log('[AgentDetails] Applying pending form values after mount:', { name: pendingFormValuesRef.current.name });
+      form.setFieldsValue(pendingFormValuesRef.current);
+      pendingFormValuesRef.current = null;
+    }
+  });
 
   // 不再使用 initialValues，改为在 useEffect 中逐个SettingsField，避免LoopReferenceWarning
 
@@ -1190,7 +1205,11 @@ const AgentDetails: React.FC = () => {
         supervisor_id: values.supervisor_id || null,
         vehicle_id: values.vehicle_id || null,
         avatar_resource_id: avatarData?.id || null,
+        skills: skillIds,
+        tasks: taskIds,
+        org_id: values.org_id || null,
       };
+      console.log('[AgentDetails] Save payload:', { id: payload.id, name: payload.name, skills: payload.skills, tasks: payload.tasks, org_id: payload.org_id });
       setLoading(true);
       const api = get_ipc_api();
       const res = isNew
