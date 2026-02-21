@@ -61,38 +61,18 @@ const Skills: React.FC = () => {
 
     useEffect(() => {
         if (!username) return;
-        let cancelled = false;
+        // Your deployed AppSync schema no longer exposes getPublicSkills/getSubscribedSkillIds.
+        // Derive what we can locally to avoid GraphQL FieldUndefined errors.
+        const u = String(username).trim().toLowerCase();
+        const derivedPublic = (skills || []).filter((s) => {
+            const isPublic = (s as any)?.public === true;
+            const owner = String((s as any)?.owner || '').trim().toLowerCase();
+            return isPublic && owner && owner !== u;
+        });
 
-        (async () => {
-            try {
-                const api = get_ipc_api();
-                const [pubResp, subResp] = await Promise.all([
-                    api.getPublicSkills<Skill[]>(username),
-                    api.getSubscribedSkillIds<string[]>(username),
-                ]);
-
-                if (!cancelled) {
-                    // Public skills: response data is the array directly from GraphQL resultPath
-                    const pubData = pubResp.data;
-                    const pubRows = Array.isArray(pubData)
-                        ? pubData
-                        : Array.isArray((pubData as any)?.skills) ? (pubData as any).skills : [];
-                    setPublicSkills(pubRows);
-
-                    // Subscribed skill IDs
-                    const subData = subResp.data;
-                    const subIds = Array.isArray(subData) ? subData : [];
-                    setSubscribedSkillIds(subIds);
-                }
-            } catch (e) {
-                // ignore - store is optional
-            }
-        })();
-
-        return () => {
-            cancelled = true;
-        };
-    }, [username]);
+        setPublicSkills(derivedPublic);
+        setSubscribedSkillIds([]);
+    }, [username, skills]);
 
     const handleRefresh = useCallback(async () => {
         if (!username) return;

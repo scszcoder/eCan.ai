@@ -22,6 +22,7 @@ const Settings = React.lazy(() => import('../pages/Settings/Settings'));
 const Console = React.lazy(() => import('../pages/Console/Console'));
 const KnowledgePorted = React.lazy(() => import('../pages/Knowledge/LightRAGPorted'));
 const Tests = React.lazy(() => import('../pages/Tests/Tests'));
+const ChatTest = React.lazy(() => import('../pages/ChatTest'));
 const OrgNavigator = React.lazy(() => import('../pages/Agents/OrgNavigator'));
 const AgentDetails = React.lazy(() => import('../pages/Agents/components/AgentDetails'));
 const Orgs = React.lazy(() => import('../pages/Orgs/Orgs'));
@@ -224,6 +225,11 @@ export const protectedRoutes: RouteConfig[] = [
             {
                 path: 'tests',
                 element: <LazyWrapper><Tests /></LazyWrapper>,
+                keepAlive: true,
+            },
+            {
+                path: 'chat-test',
+                element: <LazyWrapper><ChatTest /></LazyWrapper>,
                 keepAlive: true,
             },
             {

@@ -15,6 +15,7 @@ import {
     AlignLeftOutlined,
     ReadOutlined,
     ExperimentOutlined,
+    CustomerServiceOutlined,
     UserOutlined,
     IdcardOutlined,
     ApartmentOutlined,
@@ -138,6 +139,7 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 
         { key: '/console', icon: <AlignLeftOutlined />, label: t('menu.console') },
         { key: '/tests', icon: <ExperimentOutlined />, label: t('menu.tests') },
+        { key: '/chat-test', icon: <CustomerServiceOutlined />, label: t('menu.chat_test') },
     ], [t]);
 
     const userMenuItems = React.useMemo<MenuProps['items']>(() => [

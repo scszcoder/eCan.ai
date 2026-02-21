@@ -14,6 +14,11 @@ from agent.skill_editor.skill_editor_agent import SkillEditorAgent, _safe_user_d
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+# Cache detected S3 base prefixes per owner to avoid repeated list calls within
+# the same warm Lambda environment.
+_USER_BASE_PREFIX_CACHE: Dict[str, str] = {}
+_PUBLIC_SKILLS_PREFIX_CACHE: Optional[str] = None
+
 # =============================================================================
 # DEV MODE Constants for Skill Editor Testing
 # When dev_mode=True, use deterministic client_id and run_id for predictable
@@ -204,6 +209,18 @@ def _s3_list_objects(*, bucket: str, prefix: str, continuation: Optional[str] = 
     return objects, next_token
 
 
+def _s3_prefix_has_any(*, bucket: str, prefix: str) -> bool:
+    """Return True if there is at least one object under prefix."""
+    p = (prefix or "").strip()
+    if not p:
+        return False
+    try:
+        resp = _s3_client().list_objects_v2(Bucket=bucket, Prefix=p, MaxKeys=1)
+        return bool(resp.get("Contents"))
+    except Exception:
+        return False
+
+
 def _owner_from_event(event: Dict[str, Any]) -> str:
     """
     Extract owner (user identifier) from event.
@@ -365,9 +382,72 @@ def _ensure_context_dirs(env: _Env, owner: str, skill_name: str) -> None:
 
 
 def _user_base_prefix(env: _Env, owner: str) -> str:
-    prefix = _norm_prefix(env.s3_key_root)
+    """Return the effective base prefix for this owner.
+
+    Historically, this project has used multiple S3 layouts:
+    - With key root:   {S3_KEY_ROOT}/{userDir}/...
+    - Without key root:{userDir}/...
+
+    If S3_KEY_ROOT is set but the rooted layout is empty for this owner,
+    auto-fallback to the rootless layout so the Skill Editor can still find
+    previously-saved skills.
+    """
+    prefix_root = _norm_prefix(env.s3_key_root)
     user_dir = _safe_user_dir_name(owner)
-    return _s3_key(prefix, user_dir)
+
+    cache_key = f"{env.s3_bucket}:{prefix_root}:{user_dir}"
+    cached = _USER_BASE_PREFIX_CACHE.get(cache_key)
+    if cached:
+        return cached
+
+    base_no_root = _s3_key("", user_dir)
+    base_with_root = _s3_key(prefix_root, user_dir) if prefix_root else base_no_root
+
+    selected = base_no_root
+    if prefix_root and base_with_root != base_no_root:
+        rooted_has = _s3_prefix_has_any(bucket=env.s3_bucket, prefix=base_with_root.rstrip("/") + "/") or _s3_prefix_has_any(
+            bucket=env.s3_bucket, prefix=base_with_root
+        )
+        rootless_has = _s3_prefix_has_any(bucket=env.s3_bucket, prefix=base_no_root.rstrip("/") + "/") or _s3_prefix_has_any(
+            bucket=env.s3_bucket, prefix=base_no_root
+        )
+
+        if rooted_has:
+            selected = base_with_root
+        elif rootless_has:
+            selected = base_no_root
+        else:
+            # Default to rooted to preserve configured behavior.
+            selected = base_with_root
+
+    _USER_BASE_PREFIX_CACHE[cache_key] = selected
+    logger.info(
+        f"[s3_prefix] user_base_prefix={selected} root={prefix_root or '(none)'} owner={owner} user_dir={user_dir}"
+    )
+    return selected
+
+
+def _public_skills_prefix(env: _Env) -> str:
+    global _PUBLIC_SKILLS_PREFIX_CACHE
+    if _PUBLIC_SKILLS_PREFIX_CACHE:
+        return _PUBLIC_SKILLS_PREFIX_CACHE
+
+    prefix_root = _norm_prefix(env.s3_key_root)
+    rooted = f"{prefix_root}/public/skills/" if prefix_root else "public/skills/"
+    rootless = "public/skills/"
+
+    selected = rooted
+    if prefix_root and rooted != rootless:
+        if _s3_prefix_has_any(bucket=env.s3_bucket, prefix=rooted):
+            selected = rooted
+        elif _s3_prefix_has_any(bucket=env.s3_bucket, prefix=rootless):
+            selected = rootless
+        else:
+            selected = rooted
+
+    _PUBLIC_SKILLS_PREFIX_CACHE = selected
+    logger.info(f"[s3_prefix] public_skills_prefix={selected} root={prefix_root or '(none)'}")
+    return selected
 
 
 def _normalize_rel_path(path: str) -> str:
@@ -383,11 +463,25 @@ def _normalize_rel_path(path: str) -> str:
     return "/".join(parts)
 
 
+def _allowed_user_bases(env: _Env, owner: str) -> List[str]:
+    """Bases we accept for incoming filePath/prefix scope checks."""
+    user_dir = _safe_user_dir_name(owner)
+    prefix_root = _norm_prefix(env.s3_key_root)
+    base_no_root = _s3_key("", user_dir)
+    base_with_root = _s3_key(prefix_root, user_dir) if prefix_root else base_no_root
+    bases: List[str] = []
+    for b in (base_with_root, base_no_root):
+        if b and b not in bases:
+            bases.append(b)
+    return bases
+
+
 def _resolve_user_key(env: _Env, owner: str, file_path: str) -> str:
     if not file_path or not isinstance(file_path, str):
         raise RuntimeError("filePath is required")
 
     base = _user_base_prefix(env, owner)
+    allowed_bases = _allowed_user_bases(env, owner)
     if file_path.startswith("s3://"):
         without = file_path[len("s3://") :]
         bucket, _, key = without.partition("/")
@@ -397,12 +491,14 @@ def _resolve_user_key(env: _Env, owner: str, file_path: str) -> str:
     else:
         key = _normalize_rel_path(file_path)
 
-    if key.startswith(base + "/") or key == base:
+    # If caller already passed a fully-qualified key under an allowed base,
+    # accept it as-is.
+    if any(key.startswith(b + "/") or key == b for b in allowed_bases):
         resolved = key
     else:
         resolved = _s3_key(base, key)
 
-    if not resolved.startswith(base + "/") and resolved != base:
+    if not any(resolved.startswith(b + "/") or resolved == b for b in allowed_bases):
         raise RuntimeError("Invalid filePath scope")
 
     return resolved
@@ -410,18 +506,19 @@ def _resolve_user_key(env: _Env, owner: str, file_path: str) -> str:
 
 def _resolve_user_prefix(env: _Env, owner: str, prefix: Optional[str]) -> str:
     base = _user_base_prefix(env, owner)
+    allowed_bases = _allowed_user_bases(env, owner)
     if not prefix:
         # Search entire user folder to find skills at any nesting level
         # (skills may be at base/my_skills/ or base/C_/.../my_skills/ due to desktop saves)
         return base
 
     normalized = _normalize_rel_path(prefix)
-    if normalized.startswith(base + "/") or normalized == base:
+    if any(normalized.startswith(b + "/") or normalized == b for b in allowed_bases):
         resolved = normalized
     else:
         resolved = _s3_key(base, normalized)
 
-    if not resolved.startswith(base + "/") and resolved != base:
+    if not any(resolved.startswith(b + "/") or resolved == b for b in allowed_bases):
         raise RuntimeError("Invalid prefix scope")
 
     return resolved
@@ -522,11 +619,7 @@ def _handle_list_skill_files(event: Dict[str, Any]) -> List[Dict[str, Any]]:
     
     # If we haven't hit the limit yet, also list public skills
     if not args.get("prefix") and (not limit or len(items) < limit):
-        public_prefix = _norm_prefix(env.s3_key_root)
-        if public_prefix:
-            public_prefix = f"{public_prefix}/public/skills/"
-        else:
-            public_prefix = "public/skills/"
+        public_prefix = _public_skills_prefix(env)
         logger.info(f"[listSkillFiles] Listing public S3 prefix: {public_prefix}")
         remaining_limit = (limit - len(items)) if limit else None
         items = _list_skills_from_prefix(env.s3_bucket, public_prefix, remaining_limit, None, items)

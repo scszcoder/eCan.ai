@@ -1,6 +1,7 @@
 import { getSettings } from '../../stores/settingsStore';
 import { userStorageManager } from '../storage/UserStorageManager';
 import { detectPlatform } from '../../config/platform';
+import { webAuthSession } from '../auth/webAuthSession';
 
 interface GraphQLError {
   message: string;
@@ -12,11 +13,13 @@ interface GraphQLResponse<T> {
   errors?: GraphQLError[];
 }
 
-export type AppSyncAuthMode = 'auto' | 'bearer' | 'apiKey' | 'none';
+export type AppSyncAuthMode = 'auto' | 'bearer' | 'apiKey' | 'lambda' | 'none';
 
 export interface AppSyncRequestOptions {
   authMode?: AppSyncAuthMode;
   apiKey?: string;
+  /** Additional HTTP headers to send (merged after auth headers). */
+  headers?: Record<string, string>;
   /** GraphQL 操作名称 */
   operationName?: string;
   /** 自定义扩展字段 */
@@ -109,6 +112,19 @@ const ensureBearerPrefix = (token: string): string => {
   return t.toLowerCase().startsWith('bearer ') ? t : `Bearer ${t}`;
 };
 
+const isNotAuthorizedError = (err: unknown): boolean => {
+  const msg = err instanceof Error ? err.message : String(err ?? '');
+  return /not authorized/i.test(msg) || /unauthorized/i.test(msg);
+};
+
+const getUserPoolsJwt = (accessToken: string | null): string => {
+  // AppSync User Pools expects a raw JWT (no Bearer prefix).
+  // Prefer idToken when available.
+  const idToken = webAuthSession.getSession?.()?.idToken;
+  const raw = (idToken || accessToken || '').trim();
+  return stripBearerPrefix(raw);
+};
+
 export const appSyncRequest = async <T>(
   query: string,
   variables?: Record<string, any>,
@@ -127,47 +143,74 @@ export const appSyncRequest = async <T>(
     throw new Error('GraphQL endpoint missing. Configure VITE_APPSYNC_ENDPOINT or wan_api_endpoint in settings.');
   }
 
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json'
-  };
+  const baseHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
 
   // Determine if using local server or AWS AppSync
   const isLocalServer = endpoint.includes('localhost') || endpoint.startsWith('/graphql');
-  
-  // Authentication
+
+  // Authentication sources
   const accessToken = userStorageManager.getToken();
   const apiKey = getAppSyncApiKey(options?.apiKey);
   const authMode = options?.authMode ?? 'auto';
 
-  if (authMode === 'none') {
-    // No authentication
-  } else if (authMode === 'apiKey') {
-    if (!apiKey) {
-      throw new Error('Missing API key for AppSync request.');
+  // Skill editor queries are typically protected by Cognito User Pools;
+  // when we run with API key auth, AppSync will return Not Authorized.
+  const preferUserPools = !isLocalServer && typeof method === 'string' && method.startsWith('skill_editor.');
+
+  const buildHeaders = (mode: AppSyncAuthMode): Record<string, string> => {
+    const headers: Record<string, string> = { ...baseHeaders };
+
+    if (mode === 'none') {
+      return headers;
     }
-    headers['x-api-key'] = apiKey;
-  } else if (authMode === 'bearer') {
-    if (!accessToken) {
-      throw new Error('Missing access token for AppSync request.');
+
+    // AWS_LAMBDA authorizer mode: AppSync routes requests to the Lambda authorizer
+    // when the Authorization header is present but not a valid JWT.
+    if (mode === 'lambda') {
+      headers.Authorization = 'lambda-auth';
+      return headers;
     }
-    // Local server expects Bearer tokens; AppSync User Pools expects raw JWT.
-    headers.Authorization = isLocalServer ? ensureBearerPrefix(accessToken) : stripBearerPrefix(accessToken);
-  } else {
-    // Auto mode:
-    // - Local server: prefer Bearer token
-    // - AppSync (web): prefer API key (more reliable than guessing token type), fallback to raw JWT
+
+    if (mode === 'apiKey') {
+      if (!apiKey) throw new Error('Missing API key for AppSync request.');
+      headers['x-api-key'] = apiKey;
+      return headers;
+    }
+
+    if (mode === 'bearer') {
+      if (!accessToken) throw new Error('Missing access token for AppSync request.');
+      headers.Authorization = isLocalServer
+        ? ensureBearerPrefix(accessToken)
+        : getUserPoolsJwt(accessToken);
+      return headers;
+    }
+
+    // auto
     if (isLocalServer) {
-      if (accessToken) {
-        headers.Authorization = ensureBearerPrefix(accessToken);
-      }
-    } else {
-      if (apiKey) {
-        headers['x-api-key'] = apiKey;
-      } else if (accessToken) {
-        headers.Authorization = stripBearerPrefix(accessToken);
-      }
+      if (accessToken) headers.Authorization = ensureBearerPrefix(accessToken);
+      return headers;
     }
-  }
+
+    // AWS AppSync
+    const jwt = getUserPoolsJwt(accessToken);
+    // Default auth for this API is Cognito User Pools.
+    // Prefer JWT when available to avoid 401s from stale/invalid API keys.
+    if (jwt) {
+      headers.Authorization = jwt;
+      return headers;
+    }
+    if (apiKey) {
+      headers['x-api-key'] = apiKey;
+      return headers;
+    }
+    return headers;
+  };
+
+  const mergeExtraHeaders = (headers: Record<string, string>): Record<string, string> => {
+    const extra = options?.headers;
+    if (!extra) return headers;
+    return { ...headers, ...extra };
+  };
 
   const finalVariables: Record<string, any> = (variables && typeof variables === 'object') ? { ...variables } : {};
 
@@ -212,22 +255,98 @@ export const appSyncRequest = async <T>(
     body.extensions = extensions;
   }
 
+  const initialMode = authMode;
+  const initialHeaders = mergeExtraHeaders(buildHeaders(initialMode));
+
   const response = await fetch(endpoint, {
     method: 'POST',
-    headers,
+    headers: initialHeaders,
     body: JSON.stringify(body),
   });
 
-  const payload = (await response.json()) as GraphQLResponse<T>;
+  const tryReadJson = async () => {
+    try {
+      return (await response.json()) as GraphQLResponse<T>;
+    } catch {
+      return {} as GraphQLResponse<T>;
+    }
+  };
 
+  let payload = await tryReadJson();
+
+  // Retry on HTTP auth failures (AppSync can return 401/403 before a GraphQL payload is produced).
+  if (!response.ok && (response.status === 401 || response.status === 403) && !isLocalServer) {
+    const canTryJwt = !!getUserPoolsJwt(accessToken);
+    const canTryApiKey = !!apiKey;
+
+    const usedApiKey = !!initialHeaders['x-api-key'];
+    const usedAuth = !!initialHeaders.Authorization;
+
+    const retryOrder: AppSyncAuthMode[] = preferUserPools
+      ? ['bearer', 'apiKey']
+      : ['bearer', 'apiKey'];
+
+    for (const m of retryOrder) {
+      if (m === 'bearer' && (!canTryJwt || usedAuth)) continue;
+      if (m === 'apiKey' && (!canTryApiKey || usedApiKey)) continue;
+
+      const retryResp = await fetch(endpoint, {
+        method: 'POST',
+        headers: mergeExtraHeaders(buildHeaders(m)),
+        body: JSON.stringify(body),
+      });
+
+      if (!retryResp.ok && (retryResp.status === 401 || retryResp.status === 403)) {
+        continue;
+      }
+
+      try {
+        payload = (await retryResp.json()) as GraphQLResponse<T>;
+      } catch {
+        payload = {} as GraphQLResponse<T>;
+      }
+      break;
+    }
+  }
+
+  // One-time retry: swap auth modes on Not Authorized.
   if (payload.errors && payload.errors.length > 0) {
     const message = payload.errors[0]?.message || 'AppSync request failed';
-    throw new Error(message);
+
+    const canTryJwt = !isLocalServer && !!getUserPoolsJwt(accessToken);
+    const canTryApiKey = !isLocalServer && !!apiKey;
+
+    const usedApiKey = !!(buildHeaders(authMode)['x-api-key']);
+    const usedAuth = !!(buildHeaders(authMode).Authorization);
+
+    if (isNotAuthorizedError(new Error(message))) {
+      // Prefer retrying with JWT for skill_editor.* calls.
+      const retryOrder: AppSyncAuthMode[] = preferUserPools
+        ? ['bearer', 'apiKey']
+        : ['apiKey', 'bearer'];
+
+      for (const m of retryOrder) {
+        if (m === 'bearer' && (!canTryJwt || usedAuth)) continue;
+        if (m === 'apiKey' && (!canTryApiKey || usedApiKey)) continue;
+
+        const retryResp = await fetch(endpoint, {
+          method: 'POST',
+          headers: buildHeaders(m),
+          body: JSON.stringify(body),
+        });
+        const retryPayload = (await retryResp.json()) as GraphQLResponse<T>;
+        if (!retryPayload.errors || retryPayload.errors.length === 0) {
+          payload = retryPayload;
+          break;
+        }
+      }
+    }
+
+    if (payload.errors && payload.errors.length > 0) {
+      throw new Error(payload.errors[0]?.message || message);
+    }
   }
 
-  if (!payload.data) {
-    throw new Error('AppSync response missing data');
-  }
-
+  if (!payload.data) throw new Error('AppSync response missing data');
   return payload.data;
 };

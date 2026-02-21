@@ -360,6 +360,37 @@ export const GRAPHQL_MUTATIONS = {
     }
   `,
 
+  SEND_A2A_MESSAGE: `
+    mutation SendA2AMessage($input: A2AMessageInput!) {
+      sendA2AMessage(input: $input) {
+        id
+        channelId
+        sessionId
+        senderId
+        recipientId
+        timestamp
+        message {
+          role
+          parts {
+            type
+            text
+            metadata
+          }
+        }
+      }
+    }
+  `,
+
+  // ==================== API Key (Customer Support Chat Test) ====================
+  REQ_API_KEY: `
+    mutation ReqApiKey($input: CustomerInput) {
+      reqApiKey(input: $input) {
+        apiKey
+        message
+      }
+    }
+  `,
+
   // ==================== Agent Management ====================
   ADD_AGENTS: `
     mutation AddAgents($input: [AgentInput!]!) {

@@ -123,6 +123,46 @@ export const SheetsMenu: React.FC = () => {
     try {
       console.info('[SheetsMenu] Registering skill:', skillInfo.skillName);
       const ipc = IPCAPI.getInstance();
+
+      // Build config payload for cloud-related runtime behavior.
+      // AppSync `AWSJSON` expects a JSON string; backend will parse it.
+      const runInCloud = useSkillInfoStore.getState().runInCloud;
+      const hybridCloudMode = useSkillInfoStore.getState().hybridCloudMode;
+      const localHelperSkillId = useSkillInfoStore.getState().localHelperSkillId;
+      const localHelperMachine = useSkillInfoStore.getState().localHelperMachine;
+      const dataMappingJson = useSkillInfoStore.getState().dataMappingJson;
+
+      let skillMapping: any = undefined;
+      if (typeof dataMappingJson === 'string' && dataMappingJson.trim()) {
+        try {
+          skillMapping = JSON.parse(dataMappingJson);
+        } catch (e) {
+          console.warn('[SheetsMenu] Failed to parse dataMappingJson; skipping skill_mapping in config', e);
+        }
+      }
+
+      if (skillMapping === undefined) {
+        skillMapping = (skillInfo as any)?.config?.skill_mapping;
+      }
+
+      if (skillMapping === undefined) {
+        // Minimal default mapping structure (matches data_mapping.json defaults)
+        skillMapping = {
+          developing: { mappings: [], options: { strict: false, apply_order: 'top_down' } },
+          released: { mappings: [], options: { strict: true, apply_order: 'top_down' } },
+          event_routing: {},
+        };
+      }
+
+      const configObj: any = {
+        nodes: (skillInfo as any)?.config?.nodes || {},
+        run_in_cloud: !!runInCloud,
+        hybrid_cloud_mode: !!hybridCloudMode,
+        local_helper_machine: localHelperMachine ?? null,
+        local_helper_skill_id: localHelperSkillId ?? null,
+      };
+
+      configObj.skill_mapping = skillMapping;
       
       // Build SkillInput from current skillInfo
       const skillInput = {
@@ -133,6 +173,7 @@ export const SheetsMenu: React.FC = () => {
         level: 'basic',
         public: false,
         rentable: false,
+        config: JSON.stringify(configObj),
       };
 
       const resp = await ipc.newAgentSkill(username, skillInput);
