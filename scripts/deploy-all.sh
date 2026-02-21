@@ -150,7 +150,23 @@ deploy_frontend() {
     # Build frontend (use npx pnpm or direct path)
     # Increase Node memory to handle large builds
     log_info "Building frontend..."
-    export NODE_OPTIONS="--max-old-space-size=4096"
+
+    # Vite builds can be killed by the OOM killer (exit 137) on smaller hosts.
+    # Add extra swap (idempotent) and use a conservative Node heap cap.
+    if ! swapon --show | awk '{print $1}' | grep -q '^/swapfile2$'; then
+        if [ -f /swapfile2 ]; then
+            log_warn "Enabling existing /swapfile2 swap..."
+            sudo swapon /swapfile2 || true
+        else
+            log_warn "Creating extra swap /swapfile2 (8G) to reduce OOM kills during vite build..."
+            sudo fallocate -l 8G /swapfile2 || sudo dd if=/dev/zero of=/swapfile2 bs=1M count=8192
+            sudo chmod 600 /swapfile2
+            sudo mkswap /swapfile2
+            sudo swapon /swapfile2
+        fi
+    fi
+
+    export NODE_OPTIONS="--max-old-space-size=3072"
     if command -v pnpm &> /dev/null; then
         pnpm run build
     elif [ -f "$HOME/.local/share/pnpm/pnpm" ]; then
