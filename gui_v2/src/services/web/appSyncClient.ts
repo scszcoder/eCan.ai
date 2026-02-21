@@ -97,6 +97,18 @@ const getAppSyncApiKey = (overrideKey?: string): string => {
   return (fromSettings || (env as any).VITE_APPSYNC_API_KEY || '').trim();
 };
 
+const stripBearerPrefix = (token: string): string => {
+  const t = (token || '').trim();
+  if (!t) return t;
+  return t.toLowerCase().startsWith('bearer ') ? t.slice(7).trim() : t;
+};
+
+const ensureBearerPrefix = (token: string): string => {
+  const t = (token || '').trim();
+  if (!t) return t;
+  return t.toLowerCase().startsWith('bearer ') ? t : `Bearer ${t}`;
+};
+
 export const appSyncRequest = async <T>(
   query: string,
   variables?: Record<string, any>,
@@ -138,13 +150,22 @@ export const appSyncRequest = async <T>(
     if (!accessToken) {
       throw new Error('Missing access token for AppSync request.');
     }
-    headers.Authorization = `Bearer ${accessToken}`;
+    // Local server expects Bearer tokens; AppSync User Pools expects raw JWT.
+    headers.Authorization = isLocalServer ? ensureBearerPrefix(accessToken) : stripBearerPrefix(accessToken);
   } else {
-    // Auto mode: prefer token, fallback to API key
-    if (accessToken) {
-      headers.Authorization = `Bearer ${accessToken}`;
-    } else if (apiKey && !isLocalServer) {
-      headers['x-api-key'] = apiKey;
+    // Auto mode:
+    // - Local server: prefer Bearer token
+    // - AppSync (web): prefer API key (more reliable than guessing token type), fallback to raw JWT
+    if (isLocalServer) {
+      if (accessToken) {
+        headers.Authorization = ensureBearerPrefix(accessToken);
+      }
+    } else {
+      if (apiKey) {
+        headers['x-api-key'] = apiKey;
+      } else if (accessToken) {
+        headers.Authorization = stripBearerPrefix(accessToken);
+      }
     }
   }
 
