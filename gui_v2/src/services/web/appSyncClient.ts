@@ -1,6 +1,6 @@
 import { getSettings } from '../../stores/settingsStore';
 import { userStorageManager } from '../storage/UserStorageManager';
-import { isWebPlatform } from '../../config/platform';
+import { detectPlatform } from '../../config/platform';
 
 interface GraphQLError {
   message: string;
@@ -52,11 +52,19 @@ const isLocalhost = (): boolean => {
 const getGraphQLEndpoint = (): string => {
   const env = getEnv();
   const settings = getSettings();
+
+  const runtimePlatform = (() => {
+    try {
+      return detectPlatform();
+    } catch {
+      return 'web' as const;
+    }
+  })();
   
   // Desktop mode: use local server endpoint
   // Check both isWebPlatform() and isLocalhost() because platform detection
   // may incorrectly report 'web' when running desktop app via Vite dev server
-  if (!isWebPlatform() || isLocalhost()) {
+  if (runtimePlatform === 'desktop' || isLocalhost()) {
     // In dev mode, use same-origin path for Vite proxy
     try {
       if (typeof import.meta !== 'undefined' && (import.meta as any).env?.DEV) {
