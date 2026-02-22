@@ -389,22 +389,9 @@ class RequestHandlers:
             # 使用 IPCHandlerRegistry 统一处理
             from gui.ipc.registry import IPCHandlerRegistry
 
-            # Only run known blocking handlers in a thread executor to avoid freezing the event loop.
-            # The login handler calls Cognito which can block for 3-185s.
-            # Other handlers must run synchronously to preserve request ordering and timing
-            # (e.g., get_initialization_progress must not respond while login is still in progress).
-            _BLOCKING_METHODS = {'login', 'google_login'}
-
-            if method in _BLOCKING_METHODS:
-                loop = asyncio.get_event_loop()
-                result_data = await loop.run_in_executor(
-                    None,
-                    IPCHandlerRegistry.handle_graphql_request,
-                    method,
-                    request_params
-                )
-            else:
-                result_data = IPCHandlerRegistry.handle_graphql_request(method, request_params)
+            # IPCHandlerRegistry now automatically handles background handlers in thread pool
+            # to avoid blocking the event loop (e.g., login, skill_editor.chat.send_message)
+            result_data = await IPCHandlerRegistry.handle_graphql_request(method, request_params)
             
             # 使用 operation_name 作为响应的字段名（如果没有则使用 method）
             response_field_name = operation_name or method
