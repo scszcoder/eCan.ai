@@ -485,6 +485,19 @@ const renderTextContent = (raw: string) => {
 };
 
 export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, width }) => {
+  // Delay mounting the TextArea until after the CSS width transition (300ms) completes.
+  // Without this, autoSize measures the container at width=0 during the animation and
+  // produces NaN for the height CSS property.
+  const [showInput, setShowInput] = useState(!isCollapsed);
+  useEffect(() => {
+    if (isCollapsed) {
+      setShowInput(false);
+    } else {
+      const t = setTimeout(() => setShowInput(true), 320);
+      return () => clearTimeout(t);
+    }
+  }, [isCollapsed]);
+
   // Session management state
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -1504,7 +1517,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ isCollapsed, onToggle, wid
           )}
         </ChatThread>
 
-      {!isCollapsed && (
+      {showInput && (
         <InputContainer>
           <InputWrapper>
             <ActionButtons>
