@@ -289,7 +289,7 @@ class LocalWebSocketClient {
       const messageType = message.type;
       
       // Filter out routine/noisy events from logging
-      const routineEvents = ['skill_editor_log', 'push_account_info', 'update_skill_run_stat'];
+      const routineEvents = ['skill_editor_log', 'push_account_info', 'update_skill_run_stat', 'subscribed'];
       const shouldLog = !routineEvents.includes(messageType);
       
       if (shouldLog) {
