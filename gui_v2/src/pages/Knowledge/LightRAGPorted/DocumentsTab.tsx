@@ -478,10 +478,25 @@ const DocumentsTab: React.FC = () => {
         const res = response.data as any;
         appendLog(t('pages.knowledge.documents.ingestSuccess') + ': ' + JSON.stringify(res));
         setSelectedFiles([]);
-        // Reload documents after ingestion
-        setTimeout(() => {
-          loadDocuments();
-        }, 2000);
+        
+        // Automatically trigger scan after import (including duplicated files)
+        // This ensures files are scanned into the database even if they already exist
+        appendLog(t('pages.knowledge.documents.startingScan'));
+        const scanResponse = await get_ipc_api().lightragApi.scan();
+        if (scanResponse.success) {
+          appendLog(t('pages.knowledge.documents.scanStarted'));
+          // Reload documents after scan
+          setTimeout(async () => {
+            await loadDocuments();
+            startFailureDetectionPolling(statusCounts.FAILED);
+          }, 2000);
+        } else {
+          appendLog(t('pages.knowledge.documents.errorScanning') + (scanResponse.error?.message || 'Unknown error'));
+          // Still reload documents even if scan fails
+          setTimeout(() => {
+            loadDocuments();
+          }, 2000);
+        }
       } else {
         throw new Error(response.error?.message || 'Unknown error');
       }
@@ -515,15 +530,29 @@ const DocumentsTab: React.FC = () => {
       if (response.success && response.data) {
         const res = response.data as any;
         appendLog(t('pages.knowledge.documents.ingestSuccess') + ': ' + JSON.stringify(res));
+        setSelectedDirs([]);
+        
+        // Automatically trigger scan after import (including duplicated files)
+        // This ensures files are scanned into the database even if they already exist
+        appendLog(t('pages.knowledge.documents.startingScan'));
+        const scanResponse = await get_ipc_api().lightragApi.scan();
+        if (scanResponse.success) {
+          appendLog(t('pages.knowledge.documents.scanStarted'));
+          // Reload documents after scan
+          setTimeout(async () => {
+            await loadDocuments();
+            startFailureDetectionPolling(statusCounts.FAILED);
+          }, 2000);
+        } else {
+          appendLog(t('pages.knowledge.documents.errorScanning') + (scanResponse.error?.message || 'Unknown error'));
+          // Still reload documents even if scan fails
+          setTimeout(() => {
+            loadDocuments();
+          }, 2000);
+        }
       } else {
         throw new Error(response.error?.message || 'Unknown error');
       }
-      
-      setSelectedDirs([]);
-      // Reload documents after ingestion
-      setTimeout(() => {
-        loadDocuments();
-      }, 2000);
     } catch (e: any) {
       appendLog(t('pages.knowledge.documents.ingestError') + ': ' + (e?.message || String(e)));
     }
