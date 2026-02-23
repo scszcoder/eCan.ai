@@ -101,6 +101,16 @@ export const RERANKING_PROVIDERS: ProviderConfig[] = [
       { key: 'RERANK_BINDING_HOST', label: 'API Host', type: 'text', defaultValue: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/reranker', placeholder: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/reranker' },
       { key: 'RERANK_BINDING_API_KEY', label: 'API Key', type: 'password', placeholder: 'your_baidu_api_key', required: true }
     ]
+  },
+  {
+    id: 'ryoais',
+    name: 'RyoAIS',
+    description: 'RyoAIS local reranking service (OpenAI-compatible)',
+    fields: [
+      { key: 'RERANK_MODEL', label: 'Model', type: 'text', defaultValue: 'jina-reranker-v2-base-multilingual', placeholder: 'jina-reranker-v2-base-multilingual', required: true, tooltip: 'Generic model name (will be mapped to RyoAIS BGE model by proxy)' },
+      { key: 'RERANK_BINDING_HOST', label: 'API Host', type: 'text', defaultValue: 'http://192.168.1.43:8000/v1', placeholder: 'http://localhost:8000/v1' },
+      { key: 'RERANK_BINDING_API_KEY', label: 'API Key', type: 'password', placeholder: 'Optional' }
+    ]
   }
 ];
 
@@ -242,6 +252,17 @@ export const LLM_PROVIDERS: ProviderConfig[] = [
       { key: 'LLM_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'https://ark.cn-beijing.volces.com/api/v3' },
       { key: 'LLM_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', required: true }
     ]
+  },
+  {
+    id: 'ryoais',
+    name: 'RyoAIS',
+    description: 'RyoAIS local LLM service (OpenAI-compatible)',
+    fields: [
+      { key: 'LLM_MODEL', label: 'fields.model', type: 'text', defaultValue: 'qwen3-next-80b-a3b-instruct-GGUF/Qwen3-Next-80B-A3B-Instruct-Q6_K.gguf', placeholder: 'qwen3-next-80b-a3b-instruct-GGUF/Qwen3-Next-80B-A3B-Instruct-Q6_K.gguf', required: true },
+      { key: 'LLM_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'http://192.168.1.43:8000/v1', placeholder: 'http://localhost:8000/v1' },
+      { key: 'LLM_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', placeholder: 'fields.optional' },
+      { key: 'LLM_MAX_TOKENS', label: 'fields.maxTokens', type: 'number', defaultValue: '12000' }
+    ]
   }
 ];
 
@@ -345,6 +366,19 @@ export const EMBEDDING_PROVIDERS: ProviderConfig[] = [
       { key: 'EMBEDDING_DIM', label: 'fields.dimensions', type: 'number', defaultValue: '1024', tooltip: 'tooltips.embeddingDim' },
       { key: 'EMBEDDING_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'https://aip.baidubce.com' },
       { key: 'EMBEDDING_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', required: true }
+    ]
+  },
+  {
+    id: 'ryoais',
+    name: 'RyoAIS',
+    description: 'RyoAIS local embedding service (OpenAI-compatible)',
+    fields: [
+      { key: 'EMBEDDING_MODEL', label: 'fields.model', type: 'text', defaultValue: 'qwen3-embedding-8b-GGUF/Qwen3-Embedding-8B-Q6_K.gguf', placeholder: 'qwen3-embedding-8b-GGUF/Qwen3-Embedding-8B-Q6_K.gguf', required: true },
+      { key: 'EMBEDDING_DIM', label: 'fields.dimensions', type: 'number', defaultValue: '4096', tooltip: 'tooltips.embeddingDim' },
+      { key: 'EMBEDDING_BINDING_HOST', label: 'fields.apiHost', type: 'text', defaultValue: 'http://192.168.1.43:8000/v1', placeholder: 'http://localhost:8000/v1' },
+      { key: 'EMBEDDING_BINDING_API_KEY', label: 'fields.apiKey', type: 'password', placeholder: 'fields.optional' },
+      { key: 'EMBEDDING_SEND_DIM', label: 'fields.sendDimensions', type: 'boolean', defaultValue: 'true', tooltip: 'tooltips.embeddingSendDim' },
+      { key: 'EMBEDDING_TOKEN_LIMIT', label: 'fields.tokenLimit', type: 'number', defaultValue: '8192' }
     ]
   },
   {

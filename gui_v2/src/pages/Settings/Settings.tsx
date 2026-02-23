@@ -335,10 +335,10 @@ const Settings: React.FC = () => {
 
   // Handle default LLM change from LLMManagement component
   const handleDefaultLLMChange = useCallback(async (newDefaultLLM: string, newDefaultModel?: string) => {
-    console.log('🔔 [Settings] handleDefaultLLMChange called:', { newDefaultLLM, newDefaultModel });
+    console.log('� [Settings] handleDefaultLLMChange called:', { newDefaultLLM, newDefaultModel });
     
     if (!username) {
-      console.warn('⚠️ No username, skipping settings save');
+      console.log('❌ No username, skipping save');
       return;
     }
 
@@ -347,8 +347,9 @@ const Settings: React.FC = () => {
       console.log('🔄 [Settings] Previous settings:', { default_llm: prevSettings?.default_llm, default_llm_model: prevSettings?.default_llm_model });
       
       if (prevSettings) {
-        const updates: any = { default_llm: newDefaultLLM };
-        // Also update default_llm_model if provided
+        const updates: Partial<Settings> = {
+          default_llm: newDefaultLLM
+        };
         if (newDefaultModel !== undefined) {
           updates.default_llm_model = newDefaultModel;
         }
@@ -358,8 +359,12 @@ const Settings: React.FC = () => {
         const updatedSettings = { ...prevSettings, ...updates };
         console.log('✅ [Settings] New settings created:', { default_llm: updatedSettings.default_llm, default_llm_model: updatedSettings.default_llm_model });
         
+        // IMPORTANT: Remove nested 'settings' field and old token before saving
+        // The token in settingsData is from config file (old), not current session token
+        const { settings: _, token: __, username: ___, ...cleanSettings } = updatedSettings as any;
+        
         // Async save to backend (don't await to avoid blocking UI)
-        get_ipc_api().saveSettings({ username, ...updatedSettings })
+        get_ipc_api().saveSettings({ username, ...cleanSettings })
           .then(response => {
             if (response && response.success) {
               console.log('✅ Default LLM settings saved to backend:', { default_llm: newDefaultLLM, default_llm_model: newDefaultModel });
@@ -426,8 +431,12 @@ const Settings: React.FC = () => {
         const updatedSettings = { ...prevSettings, ...updates };
         console.log('✅ [Settings] New settings created:', { default_embedding: updatedSettings.default_embedding, default_embedding_model: updatedSettings.default_embedding_model });
         
+        // IMPORTANT: Remove nested 'settings' field and old token before saving
+        // The token in settingsData is from config file (old), not current session token
+        const { settings: _, token: __, username: ___, ...cleanSettings } = updatedSettings as any;
+        
         // Async save to backend (don't await to avoid blocking UI)
-        get_ipc_api().saveSettings({ username, ...updatedSettings })
+        get_ipc_api().saveSettings({ username, ...cleanSettings })
           .then(response => {
             if (response && response.success) {
               console.log('✅ Default Embedding settings saved to backend:', { default_embedding: newDefaultEmbedding, default_embedding_model: newDefaultModel });
@@ -470,8 +479,12 @@ const Settings: React.FC = () => {
         const updatedSettings = { ...prevSettings, ...updates };
         console.log('✅ [Settings] New settings created:', { default_rerank: updatedSettings.default_rerank, default_rerank_model: updatedSettings.default_rerank_model });
         
+        // IMPORTANT: Remove nested 'settings' field and old token before saving
+        // The token in settingsData is from config file (old), not current session token
+        const { settings: _, token: __, username: ___, ...cleanSettings } = updatedSettings as any;
+        
         // Async save to backend (don't await to avoid blocking UI)
-        get_ipc_api().saveSettings({ username, ...updatedSettings })
+        get_ipc_api().saveSettings({ username, ...cleanSettings })
           .then(response => {
             if (response && response.success) {
               console.log('✅ Default Rerank settings saved to backend:', { default_rerank: newDefaultRerank, default_rerank_model: newDefaultModel });
@@ -532,7 +545,11 @@ const Settings: React.FC = () => {
       setLoading(true);
       console.log('💾 Saving settings:', values);
       
-      const response = await get_ipc_api().saveSettings({ username, ...values });
+      // IMPORTANT: Remove nested 'settings' field and old token before saving
+      // The token in values is from config file (old), not current session token
+      const { settings: _, token: __, username: ___, ...cleanValues } = values as any;
+      
+      const response = await get_ipc_api().saveSettings({ username, ...cleanValues });
       if (response && response.success) {
         message.success('Settings saved successfully');
         console.log('✅ Settings saved successfully');

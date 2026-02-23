@@ -866,6 +866,8 @@
       "default_llm_set": "默认LLM设置成功",
       "default_embedding": "默认嵌入模型",
       "default_embedding_set": "默认嵌入模型设置成功",
+      "default_rerank": "默认重排序模型",
+      "default_rerank_set": "默认重排序模型设置成功",
       "hot_updated": "已热更新（无需重启）",
       "default_printer": "默认打印机",
       "default_webdriver_path": "默认WebDriver路径",
