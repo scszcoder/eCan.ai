@@ -21,6 +21,7 @@ import type { SceneClip } from '@/types/avatarScene';
 import { useAdStore } from '../../stores/adStore';
 import { useAccountStore } from '../../stores/accountStore';
 import { unifiedEventHandler, createStandardizedEvent } from '@/services/events/unifiedEventHandler';
+import { initWebSocketEventListeners } from '../web/wsEventListeners';
 
 // Process?TypeDefinition
 type Handler = (request: IPCRequest) => Promise<unknown>;
@@ -44,6 +45,10 @@ export class IPCHandlers {
     private handlers: HandlerMap = {};
 
     constructor() {
+        // Ensure eventBus listeners (ws:push_chat_message, etc.) are registered
+        // even in IPC mode where local WebSocket does not connect
+        initWebSocketEventListeners();
+
         this.registerHandler('update_org_agents', this.updateOrgAgents);
         this.registerHandler('notify_event', this.notifyEvent);
         this.registerHandler('update_agents_scenes', this.updateAgentsScenes);

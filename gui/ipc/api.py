@@ -116,7 +116,8 @@ class IPCAPI:
         channel_id: Optional[str] = None
     ) -> None:
         """
-        Send request - automatically routes via WebSocket or IPC based on environment
+        Send request - broadcasts via both IPC (Qt WebChannel) and WebSocket
+        to ensure the frontend receives the push regardless of connection mode.
 
         Args:
             method: Method name
@@ -126,25 +127,22 @@ class IPCAPI:
             callback: Callback function
             channel_id: Optional WebSocket channel ID for targeted broadcasting
         """
-        # Try WebSocket first if available
-        if _should_use_websocket():
-            ws_mgr = _get_ws_manager()
-            if ws_mgr:
-                # Merge params and data for WebSocket broadcast
-                payload = params or {}
-                if data is not None:
-                    payload = data if isinstance(data, dict) else {'data': data}
-                
-                ws_mgr.broadcast_sync(method, payload, channel_id=channel_id)
-                if callback:
-                    callback(APIResponse(success=True, data=True))
-                return
-        
-        # Fallback to IPC
+        # Always send via IPC (Qt WebChannel) — this is the primary path for desktop mode
         def ipc_response_callback(response: IPCResponse) -> None:
             self._convert_response(response, callback)
 
         self._ipc_wc_service.send_request(method, params, meta, ipc_response_callback)
+
+        # Also broadcast via WebSocket for any connected WS clients (HTTP+WS mode)
+        try:
+            ws_mgr = _get_ws_manager()
+            if ws_mgr:
+                payload = params or {}
+                if data is not None:
+                    payload = data if isinstance(data, dict) else {'data': data}
+                ws_mgr.broadcast_sync(method, payload, channel_id=channel_id)
+        except Exception:
+            pass
 
     def update_org_agents(
             self,

@@ -93,44 +93,77 @@ request['params'] = {
 # }
 
 def gui_a2a_send_chat(mainwin, req):
+    """Route a human chat message directly to the recipient agent.
+
+    Resolution order for recipient agent:
+      1. receiverId from request params  (set by frontend)
+      2. Non-sender member from chat DB  (fallback)
+      3. First agent with a runner       (last resort)
+    """
     logger.debug("[chat_utils] gui_a2a_send_chat:", type(req), req)
     agents = mainwin.agents
-    twin_agent: EC_Agent = next((ag for ag in agents if ag.card.name == "My Twin Agent"), None)
-    db_chat_service: DBChatService = mainwin.db_chat_service
-    
-    # Get chatId from request parameters
-    chat_id = req.get("params", {}).get("chatId")
+    params = req.get("params", {})
+    sender_id = params.get("senderId")
+    chat_id = params.get("chatId")
+
     if not chat_id:
         logger.error("[chat_utils] No chatId found in request parameters")
         return {"error": "No chatId provided"}
-    
-    logger.debug(f"[chat_utils] Getting chat data for chatId: {chat_id}")
-    # Get chat with members and messages
-    this_chat = db_chat_service.get_chat_by_id(chat_id, deep=True)
 
-    recipient_ids = []
-    if this_chat["success"]:
-        chat_data = this_chat["data"]
-        member_user_ids = [member["userId"] for member in chat_data.get("members", [])]
-        
-        # Filter out twin_agent from member_user_ids to get recipients
-        if member_user_ids:
-            recipient_ids = [uid for uid in member_user_ids if uid != twin_agent.card.id]
-    else:
-        logger.warning(f"[chat_utils] Chat not found: {this_chat['error']}")
-        # Try to get receiverId from request params as fallback
-        receiver_id = req.get("params", {}).get("receiverId")
-        if receiver_id:
-            logger.info(f"[chat_utils] Using receiverId from request params: {receiver_id}")
-            recipient_ids = [receiver_id]
-        else:
-            logger.warning("[chat_utils] No receiverId found in request params, continuing without recipients")
-            recipient_ids = []
+    # --- Resolve recipient agent ---
+    def _find_agent_by_id(agent_id: str):
+        return next(
+            (ag for ag in agents
+             if hasattr(ag, 'card') and ag.card and ag.card.id == agent_id),
+            None,
+        )
 
-    req["params"]["recipient_ids"] = recipient_ids
-    logger.debug("[chat_utils] twin:", twin_agent.card.name, "recipients:", recipient_ids)
+    recipient_agent: EC_Agent = None
+    recipient_id = params.get("receiverId")
 
-    runner_method = twin_agent.runner.sync_task_wait_in_line
+    # 1. Try receiverId from request params (frontend knows who the user is chatting with)
+    if recipient_id:
+        recipient_agent = _find_agent_by_id(recipient_id)
+
+    # 2. Fallback: look up chat members from DB, pick the non-sender member
+    if not recipient_agent:
+        db_chat_service: DBChatService = mainwin.db_chat_service
+        this_chat = db_chat_service.get_chat_by_id(chat_id, deep=False)
+        if this_chat.get("success"):
+            member_ids = [m["userId"] for m in this_chat["data"].get("members", [])]
+            for mid in member_ids:
+                if mid != sender_id:
+                    recipient_agent = _find_agent_by_id(mid)
+                    if recipient_agent:
+                        recipient_id = mid
+                        break
+
+    # 3. Last resort: first agent with a runner (skip twin if still around)
+    if not recipient_agent:
+        recipient_agent = next(
+            (ag for ag in agents
+             if hasattr(ag, 'runner') and ag.runner
+             and (not hasattr(ag, 'card') or not ag.card or ag.card.name != "My Twin Agent")),
+            None,
+        )
+        if not recipient_agent:
+            recipient_agent = next(
+                (ag for ag in agents if hasattr(ag, 'runner') and ag.runner), None
+            )
+
+    if not recipient_agent:
+        avail = [getattr(ag.card, 'name', 'N/A') for ag in agents if hasattr(ag, 'card') and ag.card]
+        logger.error(f"[chat_utils] No recipient agent found (receiverId={recipient_id}), available: {avail}")
+        return {"error": f"Recipient agent not found: {recipient_id}"}
+
+    logger.info(f"[chat_utils] Routing chat directly to recipient agent: "
+                f"{recipient_agent.card.name} (id={recipient_agent.card.id})")
+
+    # Attach recipient_ids for downstream consumers (pend_event node, etc.)
+    req["params"]["recipient_ids"] = [recipient_id] if recipient_id else []
+
+    # --- Dispatch to recipient agent's runner ---
+    runner_method = recipient_agent.runner.sync_task_wait_in_line
     if asyncio.iscoroutinefunction(runner_method):
         logger.debug("[chat_utils] Runner method is a coroutine, running with asyncio.run()")
 
@@ -142,17 +175,10 @@ def gui_a2a_send_chat(mainwin, req):
             finally:
                 loop.close()
 
-        # Run the coroutine in a separate thread
         import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor() as executor:
             future = executor.submit(run_async)
             result = future.result()
-
-        # loop = asyncio.get_event_loop()
-        # # asyncio.set_event_loop(loop)
-        # # 在独立的后台线程中，可以安全使用 asyncio.run()
-        # # result = await runner_method(params["message"])
-        # result = loop.run_until_complete(runner_method(params["message"]))
     else:
         logger.debug("[chat_utils] Runner method is synchronous, calling directly.")
         result = runner_method("human_chat", req)

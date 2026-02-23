@@ -114,28 +114,33 @@ class AppWebSocketManager:
         logger.info(f"[SkillEditorWS] Client disconnected. Total connections: {len(self._all_connections)}")
     
     async def broadcast(self, message: dict, channel_id: str = None):
-        """Broadcast a message to all connections or a specific channel."""
+        """Broadcast a message to all connections or a specific channel.
+        If channel_id is given but has no subscribers, falls back to all connections.
+        """
         message_str = json.dumps(message)
         msg_type = message.get('type', 'unknown')
         
-        if channel_id and channel_id in self._connections:
+        if channel_id and channel_id in self._connections and self._connections[channel_id]:
             targets = self._connections[channel_id]
+            logger.info(f"[AppWS] 📤 broadcast: {msg_type} → channel '{channel_id}' ({len(targets)} subscribers)")
         else:
             targets = self._all_connections
-        
-        logger.trace(f"[SkillEditorWS] 📤 Broadcasting {msg_type} to {len(targets)} clients (channel: {channel_id})")
+            logger.info(f"[AppWS] 📤 broadcast: {msg_type} → ALL ({len(targets)} clients), channel_id={channel_id}")
         
         disconnected = []
         for websocket in targets:
             try:
                 await websocket.send_text(message_str)
+                logger.info(f"[AppWS] ✉️  sent {msg_type} ({len(message_str)} bytes) to ws={id(websocket)}, state={websocket.client_state}")
             except Exception as e:
-                logger.warning(f"[SkillEditorWS] ❌ Failed to send message: {e}")
+                logger.warning(f"[AppWS] ❌ Failed to send {msg_type}: {e}")
                 disconnected.append(websocket)
         
         # Clean up disconnected clients
         for ws in disconnected:
             self.disconnect(ws, channel_id)
+        
+        logger.info(f"[AppWS] ✅ broadcast done: {msg_type}, sent to {len(targets) - len(disconnected)}/{len(targets)} clients")
 
     
     # ==================== Ad Banner Events ====================
@@ -175,7 +180,7 @@ class AppWebSocketManager:
                     self.broadcast(message, channel_id),
                     self._event_loop
                 )
-                logger.trace(f"[AppWS] 📤 Broadcast scheduled: {event_type}")
+                logger.info(f"[AppWS] 📤 Broadcast scheduled: {event_type}, channel={channel_id}, clients={len(self._all_connections)}")
             except Exception as e:
                 logger.warning(f"[AppWS] ❌ Failed to schedule broadcast for event {event_type}: {e}")
         else:

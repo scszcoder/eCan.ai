@@ -605,6 +605,39 @@ def handle_get_agent_tasks(request: IPCRequest, params: Optional[Dict[str, Any]]
                     # Skip this task instead of crashing the entire request
                     continue
 
+            # Attach skill relationships to DB tasks before merging
+            # Get skill service once for all lookups
+            skill_service = None
+            if ctx:
+                ec_db_mgr = ctx.get_ec_db_mgr()
+                if ec_db_mgr:
+                    skill_service = ec_db_mgr.get_skill_service()
+            
+            for db_task in db_tasks:
+                db_task_id = db_task.get('id')
+                if db_task_id and not db_task.get('skill') and not db_task.get('skills'):
+                    try:
+                        skill_rels = agent_task_service.get_task_skills(db_task_id, role='primary') if agent_task_service else {}
+                        if skill_rels.get('success') and skill_rels.get('data'):
+                            skill_names = []
+                            for rel in skill_rels['data']:
+                                sid = rel.get('skill_id')
+                                if sid:
+                                    if skill_service:
+                                        sk = skill_service.get_skill_by_id(sid)
+                                        if sk.get('success') and sk.get('data'):
+                                            skill_names.append(sk['data'].get('name', sid))
+                                        else:
+                                            skill_names.append(sid)
+                                    else:
+                                        skill_names.append(sid)
+                            if skill_names:
+                                db_task['skill'] = skill_names[0]
+                                db_task['skills'] = skill_names
+                                logger.debug(f"[get_agent_tasks] Attached skills {skill_names} to DB task {db_task_id}")
+                    except Exception as e:
+                        logger.warning(f"[get_agent_tasks] Failed to attach skills to task {db_task_id}: {e}")
+
             # Merge: Add database tasks that are not already in memory (avoid duplicates)
             memory_task_ids = {t.get('id') for t in agent_tasks_dicts if t.get('id')}
             for db_task in db_tasks:

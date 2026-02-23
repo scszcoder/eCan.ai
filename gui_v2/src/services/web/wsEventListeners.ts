@@ -31,6 +31,8 @@ export function initWebSocketEventListeners(): void {
     const chatStore = useChatStore.getState();
     if (data.chatId && data.message) {
       chatStore.addMessage(data.chatId, data.message);
+      // Also notify MessageManager so the Chat page renders the new message
+      eventBus.emit('chat:newMessage', { chatId: data.chatId, message: data.message });
     }
   });
 

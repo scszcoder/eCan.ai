@@ -415,11 +415,19 @@ class EC_Agent(Agent):
 			logger.info(f"[AGENT_START] Task details: task_id={getattr(task,'id',None)}, run_id={getattr(task,'run_id',None)}, queue_id={qid}")
 
 			# task.trigger is now a list (e.g. ["schedule"], ["schedule", "message"])
-			# Map legacy trigger names to the unified trigger types used by launch_unified_run
+			# Map trigger names to the 3 unified types: schedule, message, auto
+			# Legacy names are mapped for backward compatibility
 			TRIGGER_MAP = {
 				"schedule": "schedule",
-				"message": "a2a_queue",
-				"interaction": "chat_queue",
+				"message": "message",
+				"auto": "auto",
+				# Legacy backward-compat aliases
+				"interaction": "message",
+				"human chat": "message",
+				"agent message": "message",
+				"a2a_queue": "message",
+				"chat_queue": "message",
+				"manual": "auto",
 			}
 			unified_triggers = []
 			for t in task.trigger:

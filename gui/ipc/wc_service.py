@@ -1,4 +1,4 @@
-from PySide6.QtCore import QObject, Slot, Signal, QRunnable, QThreadPool
+from PySide6.QtCore import QObject, Slot, Signal, QRunnable, QThreadPool, QThread, Qt
 from utils.logger_helper import logger_helper as logger
 import json
 from typing import Optional, Dict, Any, Callable
@@ -68,6 +68,7 @@ class IPCWCService(QObject):
     
     # Define signals
     python_to_web = Signal(str)  # Signal to send messages to Web
+    _emit_to_web = Signal(str)   # Internal signal to marshal emit to main thread
 
     def __init__(self):
         super().__init__()
@@ -76,6 +77,9 @@ class IPCWCService(QObject):
         self._request_callbacks: Dict[str, Callable[[IPCResponse], None]] = {}
         self.threadpool = QThreadPool()
         logger.info(f"[IPCWCService] QThreadPool max thread count: {self.threadpool.maxThreadCount()}")
+        # Connect internal signal to main-thread slot so background threads
+        # can safely emit python_to_web via queued connection
+        self._emit_to_web.connect(self._do_emit_to_web, Qt.QueuedConnection)
 
     @Slot(str, result=str)
     def web_to_python(self, message: str) -> str:
@@ -211,6 +215,14 @@ class IPCWCService(QObject):
         logger.error(f"[IPCWCService] Background task for request {request_id} failed: {error_response.get('error', {}).get('message', '') }")
         self.python_to_web.emit(json.dumps(error_response))
 
+    @Slot(str)
+    def _do_emit_to_web(self, request_json: str):
+        """Slot that runs in main thread — safely emits python_to_web signal.
+        Called via _emit_to_web signal from background threads."""
+        is_main = QThread.currentThread() == self.thread()
+        logger.info(f"[IPCWCService] _do_emit_to_web: len={len(request_json)}, is_main_thread={is_main}")
+        self.python_to_web.emit(request_json)
+
     def _handle_response(self, response: IPCResponse) -> None:
         """Handle response
 
@@ -255,10 +267,16 @@ class IPCWCService(QObject):
                 self._request_callbacks[request['id']] = callback
                 logger.trace(f"[IPCWCService] Callback registered for request: {request['id']}")
 
-            # Send request
-            self.python_to_web.emit(json.dumps(request))
-            request_str = json.dumps(request)
-            truncated_request = request_str[:800] + "..." if len(request_str) > 500 else request_str
+            # Send request — marshal to main thread if called from background thread
+            request_json = json.dumps(request)
+            is_main = QThread.currentThread() == self.thread()
+            logger.info(f"[IPCWCService] Emitting python_to_web signal: method={method}, len={len(request_json)}, main_thread={is_main}")
+            if is_main:
+                self.python_to_web.emit(request_json)
+            else:
+                # Emit via internal signal which Qt delivers to main thread
+                self._emit_to_web.emit(request_json)
+            truncated_request = request_json[:800] + "..." if len(request_json) > 500 else request_json
             logger.trace(f"[IPCWCService] Request sent: {truncated_request}")
         except Exception as e:
             logger.error(f"Error sending request: {e}")

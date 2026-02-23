@@ -364,7 +364,13 @@ def _v2_convert_loops(wf: dict) -> dict:
                 continue
             if any(b.get('id') == tv and b.get('type') in ('block-start','block-end') for b in (loop_node.get('blocks') or [])):
                 continue
-            new_edges.append({'sourceNodeID': su, 'targetNodeID': tv})
+            edge_copy = {'sourceNodeID': su, 'targetNodeID': tv}
+            # Preserve sourcePortID for condition edges (critical for routing)
+            if ie.get('sourcePortID'):
+                edge_copy['sourcePortID'] = ie['sourcePortID']
+            if ie.get('targetPortID'):
+                edge_copy['targetPortID'] = ie['targetPortID']
+            new_edges.append(edge_copy)
 
     # Process each loop
     loop_ids = [n.get('id') for n in nodes if n.get('type') == 'loop']
@@ -393,6 +399,19 @@ def _v2_convert_loops(wf: dict) -> dict:
 
         # inject update code node
         update_id = f"update_{lid}_condition"
+
+        # Parse loop expression to find keys referenced under state['result']
+        # so we can seed them with sensible defaults (False) to prevent KeyError
+        # on the first iteration.
+        _seed_lines = ""
+        _loop_expr = str((lnode.get('data') or {}).get('loopWhileExpr') or '').strip()
+        if _loop_expr:
+            import re as _re
+            # Match patterns like state["result"]["key"] or state['result']['key']
+            _result_keys = _re.findall(r'''(?:state\s*\[\s*["']result["']\s*\]\s*\[\s*["'])(\w+)(?:["']\s*\])''', _loop_expr)
+            for _rk in _result_keys:
+                _seed_lines += f"        if '{_rk}' not in result:\n            result['{_rk}'] = False\n"
+
         update_node = {
             'id': update_id,
             'type': 'code',
@@ -400,16 +419,15 @@ def _v2_convert_loops(wf: dict) -> dict:
                 'title': update_id,
                 'script': {
                     'language': 'python',
-                    'content': """
+                    'content': f"""
 def main(state, *, runtime, store):
     # initialize or update loop condition variables here
-    # TODO: implement per loop type (loopWhile/loopFor)
-    # Ensure result dictionary exists and seed counter for downstream condition expressions
+    # Ensure result dictionary exists and seed counter + condition keys
     if isinstance(state, dict):
-        result = state.setdefault('result', {})
+        result = state.setdefault('result', {{}})
         if 'counter' not in result:
             result['counter'] = 0
-    return state
+{_seed_lines}    return state
 """
                 }
             }

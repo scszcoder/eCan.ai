@@ -2703,30 +2703,30 @@ class MainWindow:
             # Define agent configurations based on role
             agent_configs = []
             
-            # Basic Agent (always needed)
-            agent_configs.append({
-                'name': 'My Twin',
-                'builder': set_up_my_twin_agent
-            })
+            # Basic Agent — twin agent removed, chat routes directly to recipient agent
+            # agent_configs.append({
+            #     'name': 'My Twin',
+            #     'builder': set_up_my_twin_agent
+            # })
             
             # Add other agents based on role
-            if "Platoon" in self.machine_role:
-                agent_configs.extend([
-                    {'name': 'Helper', 'builder': set_up_ec_helper_agent},
-                    {'name': 'RPA Operator', 'builder': set_up_ec_rpa_operator_agent},
-                    {'name': 'Tester', 'builder': set_up_ec_tester_agent}
-                ])
-            else:
-                agent_configs.append({
-                    'name': 'Helper',
-                    'builder': set_up_ec_helper_agent
-                })
-                
-                if "ONLY" not in self.machine_role:
-                    agent_configs.extend([
-                        {'name': 'Procurement', 'builder': set_up_ec_procurement_agent},
-                        {'name': 'Tester', 'builder': set_up_ec_tester_agent}
-                    ])
+            # if "Platoon" in self.machine_role:
+            #     agent_configs.extend([
+            #         {'name': 'Helper', 'builder': set_up_ec_helper_agent},
+            #         {'name': 'RPA Operator', 'builder': set_up_ec_rpa_operator_agent},
+            #         {'name': 'Tester', 'builder': set_up_ec_tester_agent}
+            #     ])
+            # else:
+            #     agent_configs.append({
+            #         'name': 'Helper',
+            #         'builder': set_up_ec_helper_agent
+            #     })
+            #
+            #     if "ONLY" not in self.machine_role:
+            #         agent_configs.extend([
+            #             {'name': 'Procurement', 'builder': set_up_ec_procurement_agent},
+            #             {'name': 'Tester', 'builder': set_up_ec_tester_agent}
+            #         ])
             
             logger.info(f"[MainWindow] ðŸ“‹ Building {len(agent_configs)} code-built agents in parallel")
             

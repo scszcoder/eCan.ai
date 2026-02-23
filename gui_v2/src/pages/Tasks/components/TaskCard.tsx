@@ -121,7 +121,7 @@ const PRIORITY_CONFIG = {
   },
 };
 
-// Trigger方式Configuration - 使用更丰富的颜色
+// Trigger方式Configuration - 3 unified trigger types: schedule, message, auto
 const TRIGGER_CONFIG = {
   schedule: {
     icon: <CalendarOutlined />,
@@ -129,47 +129,54 @@ const TRIGGER_CONFIG = {
     color: '#722ed1',
     style: { background: '#f9f0ff', borderColor: '#d3adf7', color: '#722ed1' }
   },
+  message: {
+    icon: <MessageOutlined />,
+    defaultText: 'Message',
+    color: '#1890ff',
+    style: { background: '#e6f7ff', borderColor: '#91d5ff', color: '#1890ff' }
+  },
+  auto: {
+    icon: <ThunderboltOutlined />,
+    defaultText: 'Auto',
+    color: '#52c41a',
+    style: { background: '#f6ffed', borderColor: '#b7eb8f', color: '#52c41a' }
+  },
+  // Legacy backward-compat aliases (existing tasks may still have these values)
   'human chat': {
     icon: <MessageOutlined />,
-    defaultText: '聊天',
-    color: '#13c2c2',
-    style: { background: '#e6fffb', borderColor: '#87e8de', color: '#13c2c2' }
+    defaultText: 'Message',
+    color: '#1890ff',
+    style: { background: '#e6f7ff', borderColor: '#91d5ff', color: '#1890ff' }
   },
   'agent message': {
-    icon: <RobotOutlined />,
+    icon: <MessageOutlined />,
+    defaultText: 'Message',
+    color: '#1890ff',
+    style: { background: '#e6f7ff', borderColor: '#91d5ff', color: '#1890ff' }
+  },
+  interaction: {
+    icon: <MessageOutlined />,
     defaultText: 'Message',
     color: '#1890ff',
     style: { background: '#e6f7ff', borderColor: '#91d5ff', color: '#1890ff' }
   },
   chat_queue: {
     icon: <MessageOutlined />,
-    defaultText: '聊天队列',
-    color: '#13c2c2',
-    style: { background: '#e6fffb', borderColor: '#87e8de', color: '#13c2c2' }
+    defaultText: 'Message',
+    color: '#1890ff',
+    style: { background: '#e6f7ff', borderColor: '#91d5ff', color: '#1890ff' }
   },
   a2a_queue: {
-    icon: <RobotOutlined />,
-    defaultText: 'Message队列',
+    icon: <MessageOutlined />,
+    defaultText: 'Message',
     color: '#1890ff',
     style: { background: '#e6f7ff', borderColor: '#91d5ff', color: '#1890ff' }
   },
   manual: {
     icon: <ThunderboltOutlined />,
-    defaultText: '手动',
-    color: '#fa8c16',
-    style: { background: '#fff7e6', borderColor: '#ffd591', color: '#fa8c16' }
-  },
-  interaction: {
-    icon: <MessageOutlined />,
-    defaultText: '交互',
+    defaultText: 'Auto',
     color: '#52c41a',
     style: { background: '#f6ffed', borderColor: '#b7eb8f', color: '#52c41a' }
-  },
-  message: {
-    icon: <MessageOutlined />,
-    defaultText: 'Message',
-    color: '#1890ff',
-    style: { background: '#e6f7ff', borderColor: '#91d5ff', color: '#1890ff' }
   },
 };
 
@@ -359,7 +366,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     ? rawTrigger
     : (typeof rawTrigger === 'string' && rawTrigger
         ? rawTrigger.split(',').map(s => s.trim()).filter(Boolean)
-        : ['manual']);
+        : ['auto']);
 
   const triggerConfigs = triggerList.map((trig) => {
     const baseConfig = TRIGGER_CONFIG[trig as keyof typeof TRIGGER_CONFIG];

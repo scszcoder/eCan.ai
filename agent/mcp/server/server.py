@@ -116,11 +116,13 @@ from agent.mcp.server.scrapers.gmail.gmail_read import (
 )
 from agent.mcp.server.Privacy.privacy_reserve import privacy_reserve
 from agent.ec_skills.rag.local_rag_mcp import ragify, rag_query, wait_for_rag_completion, ragify_async
-from agent.mcp.server.self_utils.self_tools import (
-    async_describe_self,
-    async_start_task_using_skill,
-    async_stop_task_using_skill,
-    async_schedule_task,
+from agent.mcp.server.self_utils.self_tools import async_describe_self
+from agent.ec_tasks.task_mcp_tools import (
+    async_launch_agent_task,
+    async_create_agent_task_with_skill,
+    async_schedule_agent_task,
+    async_delete_agent_task,
+    async_stop_agent_task,
 )
 from agent.mcp.server.code_utils.code_tools import (
     async_run_code,
@@ -2895,9 +2897,12 @@ tool_function_mapping = {
         "ragify_async": ragify_async,
         # Self-introspection tools
         "describe_self": async_describe_self,
-        "start_task_using_skill": async_start_task_using_skill,
-        "stop_task_using_skill": async_stop_task_using_skill,
-        "schedule_task": async_schedule_task,
+        # Task management tools
+        "launch_agent_task": async_launch_agent_task,
+        "create_agent_task_with_skill": async_create_agent_task_with_skill,
+        "schedule_agent_task": async_schedule_agent_task,
+        "delete_agent_task": async_delete_agent_task,
+        "stop_agent_task": async_stop_agent_task,
         # Code execution tools
         "run_code": async_run_code,
         "run_shell_script": async_run_shell_script,

@@ -48,17 +48,18 @@ async def build_agent_skills_parallel(mainwin):
     # Group skills by priority and dependencies
     # Batch 1: Core skills (fast creation)
     core_skills = [
-        ("my_twin_chatter", create_my_twin_chatter_skill),
-        ("self_test", create_self_test_skill),
-        ("self_test_chatter", create_self_test_chatter_skill),
-        ("test_dev", create_test_dev_skill)
+        # ("my_twin_chatter", create_my_twin_chatter_skill),  # Removed: twin agent eliminated, chat routes directly to recipient
+        # ("self_test", create_self_test_skill),
+        # ("self_test_chatter", create_self_test_chatter_skill),
+        # ("test_dev", create_test_dev_skill)
     ]
 
     # Batch 2: RPA skills (medium complexity)
-    rpa_skills = [
-        ("rpa_helper", create_rpa_helper_skill),
-        ("rpa_helper_chatter", create_rpa_helper_chatter_skill),
-    ]
+    # rpa_skills = [
+    #     ("rpa_helper", create_rpa_helper_skill),
+    #     ("rpa_helper_chatter", create_rpa_helper_chatter_skill),
+    # ]
+    rpa_skills = []
 
     # Batch 3: Advanced skills - auto-scan resource/my_skills directory
     # This automatically discovers all skill folders in resource/my_skills/
