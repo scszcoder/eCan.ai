@@ -1,25 +1,28 @@
 {
   "data_type": "agent_skill",
   "version": "1.0.0",
-  "description": "Agent-Skill relationship field mapping",
-  "last_updated": "2025-10-14",
+  "description": "Agent-Skill relationship field mapping (matches AgentSkillRelInput)",
+  "last_updated": "2026-02-23",
   
-  "field_mapping": {},
-  
-  "cloud_required_fields": {
-    "agid": "",
-    "skid": "",
-    "owner": "",
-    "status": "active"
+  "field_mapping": {
+    "agid": "agent_id",
+    "skid": "skill_id"
   },
   
-  "json_serialize_fields": [
-    "langgraph"
+  "cloud_required_fields": {
+    "agent_id": "",
+    "skill_id": ""
+  },
+  
+  "json_serialize_fields": [],
+  
+  "aws_datetime_fields": [
+    "last_used"
   ],
   
   "notes": [
-    "✨ This is for AgentSkillRelation (relationship table), not AgentSkill (entity)",
-    "Only contains relationship metadata: agid, skid, owner, status, langgraph, proficiency",
-    "Do NOT include entity fields like name, description, flowgram, path, price"
+    "Matches AppSync AgentSkillRelInput: agent_id!, skill_id!, proficiency_level, experience_points, certification_level, usage_count, success_rate, last_used, status, is_favorite, priority",
+    "field_mapping renames legacy local fields (agid->agent_id, skid->skill_id) to match cloud schema",
+    "Update input: AgentSkillRelUpdateInput requires id!"
   ]
 }

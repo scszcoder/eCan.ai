@@ -786,9 +786,11 @@ def handle_save_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]]
             # Sync Task entity
             _trigger_cloud_sync(task_data_with_id, Operation.UPDATE)
             
-            # Sync Task-Skill relationships (if changed)
-            if 'skills' in agent_task_data:
-                _sync_task_skill_relations(actual_agent_task_id, agent_task_data.get('skills', []), Operation.UPDATE)
+            # Sync Task-Skill relationships (use skill_ids extracted earlier from agent_task_info).
+            # Always use ADD — cloud resolver handles upsert. UPDATE requires the cloud-side
+            # auto-generated relation row 'id' which the local client doesn't have.
+            if skill_ids:
+                _sync_task_skill_relations(actual_agent_task_id, skill_ids, Operation.ADD)
 
             # Create clean response
             clean_agent_task_data = _create_clean_agent_task_response(actual_agent_task_id, agent_task_data)

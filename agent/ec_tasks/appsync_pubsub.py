@@ -110,15 +110,15 @@ def _graphql_on_task_status() -> str:
 
 def _graphql_run_cloud_tasks_direct() -> str:
     return """
-    mutation RunCloudTasks($taskIds: [ID!]!) {
-      runCloudTasks(taskIds: $taskIds)
+    mutation RunCloudTasks($input: [CloudTaskInput]!) {
+      runCloudTasks(input: $input)
     }
     """
 
 
 def _graphql_run_cloud_tasks_input() -> str:
     return """
-    mutation RunCloudTasks($input: RunCloudTasksInput!) {
+    mutation RunCloudTasks($input: [CloudTaskInput]!) {
       runCloudTasks(input: $input)
     }
     """
@@ -234,20 +234,34 @@ async def run_cloud_tasks(
     *,
     config: AppSyncApiKeyConfig,
     task_ids: list[str],
+    agent_id: str = None,
+    task_name: str = None,
+    options: dict = None,
 ) -> Dict[str, str]:
     """Run tasks in cloud and return mapping task_id -> run_id.
 
-    Note: The backend's exact GraphQL shape may differ (direct args vs input object).
-    This helper tries common shapes and attempts to parse AWSJSON responses.
+    Schema:
+        input CloudTaskInput { agent_id: String, task_id: String, task_name: String, options: AWSJSON! }
+        runCloudTasks(input: [CloudTaskInput]!): AWSJSON!
     """
     if not task_ids:
         return {}
 
+    # Build CloudTaskInput list
+    cloud_task_inputs = []
+    for tid in task_ids:
+        entry: dict = {"task_id": tid, "options": json.dumps(options or {})}
+        if agent_id:
+            entry["agent_id"] = agent_id
+        if task_name:
+            entry["task_name"] = task_name
+        cloud_task_inputs.append(entry)
+
     last_exc: Optional[Exception] = None
 
     for query, variables in (
-        (_graphql_run_cloud_tasks_direct(), {"taskIds": task_ids}),
-        (_graphql_run_cloud_tasks_input(), {"input": {"taskIds": task_ids}}),
+        (_graphql_run_cloud_tasks_direct(), {"input": cloud_task_inputs}),
+        (_graphql_run_cloud_tasks_input(), {"input": cloud_task_inputs}),
     ):
         try:
             resp = await _post_graphql(config.http_endpoint, api_key=config.api_key, query=query, variables=variables)

@@ -440,17 +440,28 @@ def handle_save_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRe
                     # Sync Agent entity
                     _trigger_cloud_sync(agent_data, sync_operation)
                     
+                    # Relationship syncs always use ADD (cloud resolver handles upsert).
+                    # UPDATE requires the cloud-side auto-generated relation row 'id' which
+                    # the local client doesn't have.
+                    
                     # Sync Agent-Skill relationships (if changed)
                     if 'skills' in agent_data:
-                        _sync_agent_skill_relations(updated_agent_data, agent_data.get('skills', []), sync_operation)
+                        _sync_agent_skill_relations(updated_agent_data, agent_data.get('skills', []), Operation.ADD)
                     
                     # Sync Agent-Task relationships (if changed)
                     if 'tasks' in agent_data:
-                        _sync_agent_task_relations(updated_agent_data, agent_data.get('tasks', []), sync_operation)
+                        _sync_agent_task_relations(updated_agent_data, agent_data.get('tasks', []), Operation.ADD)
                     
                     # Sync Agent-Tool relationships (if changed)
                     if 'tools' in agent_data:
-                        _sync_agent_tool_relations(updated_agent_data, agent_data.get('tools', []), sync_operation)
+                        _sync_agent_tool_relations(updated_agent_data, agent_data.get('tools', []), Operation.ADD)
+                    
+                    # Sync Agent-Org relationships (if changed)
+                    if 'org_id' in agent_data or 'org_ids' in agent_data:
+                        org_ids = agent_data.get('org_ids', [])
+                        if not org_ids and agent_data.get('org_id'):
+                            org_ids = [agent_data['org_id']]
+                        _sync_agent_org_relations(updated_agent_data, org_ids, Operation.ADD)
                     
                     # Sync Agent's Avatar resource to cloud (if avatar changed)
                     if 'avatar_id' in agent_data:
@@ -726,6 +737,12 @@ def handle_new_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPCRes
         
         # Sync Agent-Tool relationships
         _sync_agent_tool_relations(created_agent, agent_data.get('tools', []), Operation.ADD)
+        
+        # Sync Agent-Org relationships
+        org_ids = agent_data.get('org_ids', [])
+        if not org_ids and agent_data.get('org_id'):
+            org_ids = [agent_data['org_id']]
+        _sync_agent_org_relations(created_agent, org_ids, Operation.ADD)
         
         # Sync Agent's Avatar resource to cloud (if has custom avatar)
         _sync_agent_avatar_to_cloud(created_agent, Operation.ADD, request, params)
@@ -1086,6 +1103,47 @@ def _sync_agent_tool_relations(agent_data: Dict[str, Any], tool_ids: list, opera
                 logger.error(f"[agent_handler] ❌ Failed to sync tool relation: {error_msg or result}")
         
         manager.sync_to_cloud_async(DataType.AGENT_TOOL, tool_relation_data, operation, callback=_log_result)
+
+
+def _sync_agent_org_relations(agent_data: Dict[str, Any], org_ids: list, operation: 'Operation') -> None:
+    """Sync Agent-Organization relationships to cloud (async, non-blocking)
+    
+    Args:
+        agent_data: Agent data (must contain 'agid' or 'id')
+        org_ids: List of organization IDs
+        operation: Operation type (ADD/UPDATE/DELETE)
+    """
+    if not org_ids:
+        return
+    
+    from agent.cloud_api.offline_sync_manager import get_sync_manager
+    from agent.cloud_api.constants import DataType
+    
+    manager = get_sync_manager()
+    agent_id = agent_data.get('agid') or agent_data.get('id')
+    
+    logger.info(f"[agent_handler] Syncing {len(org_ids)} org relationships for agent: {agent_id}")
+    
+    for org_id in org_ids:
+        org_relation_data = {
+            'agent_id': agent_id,
+            'org_id': org_id,
+        }
+        
+        def _log_result(result: Dict[str, Any]):
+            error_msg = result.get('error')
+            if not error_msg:
+                errors = result.get('errors')
+                if isinstance(errors, list) and errors:
+                    error_msg = '; '.join([str(e) for e in errors if e])
+            if result.get('synced'):
+                logger.info(f"[agent_handler] ✅ Org relation synced: {org_id}")
+            elif result.get('cached'):
+                logger.info(f"[agent_handler] 💾 Org relation cached: {org_id}")
+            else:
+                logger.error(f"[agent_handler] ❌ Failed to sync org relation: {error_msg or result}")
+        
+        manager.sync_to_cloud_async(DataType.AGENT_ORG, org_relation_data, operation, callback=_log_result)
 
 
 def _sync_agent_avatar_to_cloud(agent_data: Dict[str, Any], operation: 'Operation', request=None, params=None) -> None:

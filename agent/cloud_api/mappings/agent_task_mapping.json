@@ -1,23 +1,33 @@
 {
   "data_type": "agent_task",
   "version": "1.0.0",
-  "description": "Agent-Task relationship field mapping",
-  "last_updated": "2025-10-14",
+  "description": "Agent-Task relationship field mapping (matches AgentTaskRelInput)",
+  "last_updated": "2026-02-23",
   
-  "field_mapping": {},
-  
-  "cloud_required_fields": {
-    "agid": "",
-    "task_id": "",
-    "owner": "",
-    "status": "assigned"
+  "field_mapping": {
+    "agid": "agent_id"
   },
   
-  "json_serialize_fields": [],
+  "cloud_required_fields": {
+    "agent_id": "",
+    "task_id": ""
+  },
+  
+  "json_serialize_fields": [
+    "result",
+    "execution_context"
+  ],
+  
+  "aws_datetime_fields": [
+    "scheduled_start",
+    "actual_start",
+    "estimated_end",
+    "actual_end"
+  ],
   
   "notes": [
-    "✨ This is for AgentTaskRelation (relationship table), not AgentTask (entity)",
-    "Only contains relationship metadata: agid, task_id, owner, status, vehicle_id, assigned_at",
-    "Do NOT include entity fields like name, description, objectives, schedule, metadata, priority"
+    "Matches AppSync AgentTaskRelInput: agent_id!, task_id!, vehicle_id, status, priority, progress, scheduled_start, actual_start, estimated_end, actual_end, result(AWSJSON), error_message, logs, cpu_usage, memory_usage, execution_time, execution_context(AWSJSON), retry_count, max_retries",
+    "field_mapping renames legacy local field (agid->agent_id) to match cloud schema",
+    "Update input: AgentTaskRelUpdateInput requires id!"
   ]
 }

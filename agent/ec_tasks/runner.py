@@ -131,6 +131,10 @@ class TaskRunner(Generic[Context]):
         # Message sender
         self._message_sender: Optional[ChatMessageSender] = None
         
+        # Active hybrid cloud subscriptions keyed by run_id
+        # Each entry: {"passive_service": PassiveCommandService, "status_cancel": asyncio.Task, "task_id": str}
+        self._active_subscriptions: Dict[str, dict] = {}
+        
         # Register with global registry
         TaskRunnerRegistry.register(self)
     
@@ -1766,6 +1770,7 @@ class TaskRunner(Generic[Context]):
         (message, interaction, etc.).
         """
         import requests
+        import socket
 
         skill_name = getattr(task.skill, 'name', 'unknown') if task.skill else 'unknown'
         logger.info(f"[PureCloud] Launching cloud task on-demand: task={task.name}, skill={skill_name}, trigger={trigger_type}")
@@ -1781,6 +1786,7 @@ class TaskRunner(Generic[Context]):
 
             token = login.access_token
             endpoint = get_appsync_endpoint()
+            host_name = socket.gethostname()
         except Exception as e:
             logger.error(f"[PureCloud] Failed to get auth credentials: {e}")
             return {"success": False, "error": f"Auth error: {e}"}, True
@@ -1789,7 +1795,8 @@ class TaskRunner(Generic[Context]):
             from agent.cloud_api.cloud_api import run_cloud_tasks
 
             session = requests.Session()
-            result = run_cloud_tasks(session, token, [task.id], endpoint=endpoint)
+            result = run_cloud_tasks(session, token, [task.id], endpoint=endpoint,
+                                     options={"host_name": host_name})
 
             if not result.get("success"):
                 error_msg = result.get("error", "runCloudTasks failed")
@@ -1892,7 +1899,8 @@ class TaskRunner(Generic[Context]):
             try:
                 from agent.cloud_api.cloud_api import run_cloud_tasks
 
-                result = run_cloud_tasks(session, token, [task.id], endpoint=endpoint)
+                result = run_cloud_tasks(session, token, [task.id], endpoint=endpoint,
+                                         options={"host_name": host_name})
 
                 if not result.get("success"):
                     error_msg = result.get("error", "runCloudTasks failed")
@@ -1935,8 +1943,29 @@ class TaskRunner(Generic[Context]):
         task.state["is_hybrid_cloud"] = True
         task.state["client_id"] = client_id
 
-        # Step 4: Execute the local helper skill normally
-        logger.info(f"[HybridCloud] Step 3: Executing local helper skill: {skill_name}")
+        # Step 4: Register run_id in event-task routing so incoming passive commands
+        # can be routed to the correct task
+        try:
+            self._global_event_routing[f"passive_command_{cloud_run_id}"] = {
+                "routing_key": "data.run_id",
+                "task_selector": f"id:{task.id}",
+            }
+            logger.info(f"[HybridCloud] Step 4: Registered event routing for run_id={cloud_run_id} → task={task.name}")
+        except Exception as e:
+            logger.warning(f"[HybridCloud] Failed to register event routing: {e}")
+
+        # Step 5: Find or create companion local task for passive command execution
+        # The cloud skill's local_helper_skill_id points to a local skill that handles
+        # passive commands (e.g., browser automation on the local machine)
+        companion_task = None
+        local_helper_skill_id = getattr(skill, 'local_helper_skill_id', None)
+        if local_helper_skill_id:
+            companion_task = self._ensure_companion_local_task(
+                task, local_helper_skill_id, cloud_run_id, client_id
+            )
+
+        # Step 6: Execute the local helper skill normally
+        logger.info(f"[HybridCloud] Step 6: Executing local skill: {skill_name}")
         return self._execute_skill(task, msg, trigger_type, is_initial_run, dev_init_state)
     
     def _get_client_id(self) -> str:
@@ -1982,6 +2011,10 @@ class TaskRunner(Generic[Context]):
                 return
 
             service = PassiveCommandService(config=config, route_command=route_fn)
+
+            # Track the service for cleanup on task completion
+            sub_entry = self._active_subscriptions.setdefault(run_id, {})
+            sub_entry["passive_service"] = service
 
             import asyncio as _asyncio
 
@@ -2050,14 +2083,20 @@ class TaskRunner(Generic[Context]):
 
             import asyncio as _asyncio
 
+            # Track the subscription future for cleanup
+            sub_entry = self._active_subscriptions.setdefault(run_id, {})
+            sub_entry["task_id"] = task.id
+
             loop = getattr(mainwin, '_async_loop', None)
             if loop and loop.is_running():
-                _asyncio.run_coroutine_threadsafe(_run_subscription(), loop)
+                future = _asyncio.run_coroutine_threadsafe(_run_subscription(), loop)
+                sub_entry["status_future"] = future
             else:
                 def _run():
                     _asyncio.run(_run_subscription())
-                t = threading.Thread(target=_run, daemon=True)
+                t = threading.Thread(target=_run, daemon=True, name=f"TaskStatus-{run_id[:8]}")
                 t.start()
+                sub_entry["status_thread"] = t
 
             logger.info(f"[TaskStatus] onTaskStatus subscription started: task={task.name}, run_id={run_id}")
         except Exception as e:
@@ -2093,8 +2132,177 @@ class TaskRunner(Generic[Context]):
             if success is False and error:
                 logger.error(f"[TaskStatus] Cloud-side failure for task={task.name}: {error}")
 
+            # On terminal status, clean up subscriptions for this run
+            terminal_statuses = {"complete", "completed", "failed", "cancelled", "canceled", "error"}
+            status_str = str(status).lower() if status else ""
+            if status_str in terminal_statuses:
+                logger.info(f"[TaskStatus] Terminal status '{status_str}' for run_id={run_id}, cleaning up subscriptions")
+                self._cleanup_hybrid_subscriptions(run_id)
+
         except Exception as e:
             logger.warning(f"[TaskStatus] Error processing status envelope: {e}")
+
+    def _cleanup_hybrid_subscriptions(self, run_id: str) -> None:
+        """Stop onPassiveCommand and onTaskStatus subscriptions for a completed cloud run."""
+        sub_entry = self._active_subscriptions.pop(run_id, None)
+        if not sub_entry:
+            logger.debug(f"[HybridCloud] No active subscriptions to clean up for run_id={run_id}")
+            return
+
+        # Stop passive command service
+        passive_service = sub_entry.get("passive_service")
+        if passive_service:
+            try:
+                import asyncio as _asyncio
+                mainwin = self.agent.mainwin
+                loop = getattr(mainwin, '_async_loop', None)
+
+                async def _stop():
+                    await passive_service.stop()
+
+                if loop and loop.is_running():
+                    _asyncio.run_coroutine_threadsafe(_stop(), loop)
+                else:
+                    def _run():
+                        _asyncio.run(_stop())
+                    t = threading.Thread(target=_run, daemon=True)
+                    t.start()
+                logger.info(f"[HybridCloud] Stopped passive command subscription for run_id={run_id}")
+            except Exception as e:
+                logger.warning(f"[HybridCloud] Error stopping passive subscription: {e}")
+
+        # Cancel task status subscription future
+        status_future = sub_entry.get("status_future")
+        if status_future and hasattr(status_future, 'cancel'):
+            try:
+                status_future.cancel()
+                logger.info(f"[HybridCloud] Cancelled task status subscription for run_id={run_id}")
+            except Exception as e:
+                logger.warning(f"[HybridCloud] Error cancelling status subscription: {e}")
+
+        # Remove event routing entry for this run
+        routing_key = f"passive_command_{run_id}"
+        self._global_event_routing.pop(routing_key, None)
+
+        logger.info(f"[HybridCloud] Cleanup complete for run_id={run_id}")
+
+    def _ensure_companion_local_task(
+        self,
+        parent_task: ManagedTask,
+        local_helper_skill_id: str,
+        cloud_run_id: str,
+        client_id: str,
+    ) -> Optional[ManagedTask]:
+        """Find or create a companion local task for hybrid cloud passive command execution.
+        
+        Looks for an existing running task that uses the companion skill.
+        If found and already running, returns it (no-op).
+        If not found, creates a new task and starts its execution loop.
+        
+        Args:
+            parent_task: The hybrid cloud parent task
+            local_helper_skill_id: Skill ID (or name) of the local companion skill
+            cloud_run_id: The cloud task's run ID
+            client_id: Client ID for passive command routing
+            
+        Returns:
+            The companion ManagedTask, or None if skill not found.
+        """
+        agent = self.agent
+        tasks = getattr(agent, "tasks", []) or []
+        skills = getattr(agent, "skills", []) or []
+
+        # Resolve the companion skill object
+        companion_skill = None
+        for sk in skills:
+            if getattr(sk, "id", "") == local_helper_skill_id or getattr(sk, "name", "") == local_helper_skill_id:
+                companion_skill = sk
+                break
+
+        if not companion_skill:
+            logger.warning(
+                f"[HybridCloud] Companion skill not found: {local_helper_skill_id}. "
+                f"Available: {[getattr(s, 'name', '?') for s in skills[:10]]}"
+            )
+            return None
+
+        companion_skill_name = getattr(companion_skill, "name", local_helper_skill_id)
+
+        # Check if a task using this companion skill is already running
+        for t in tasks:
+            t_skill = getattr(t, "skill", None)
+            if t_skill is None:
+                continue
+            if getattr(t_skill, "id", "") == getattr(companion_skill, "id", "") or \
+               getattr(t_skill, "name", "") == companion_skill_name:
+                logger.info(
+                    f"[HybridCloud] Companion task already exists: {t.name} (id={t.id}), "
+                    f"skill={companion_skill_name} — no action needed"
+                )
+                # Inject cloud context into existing companion task state
+                t.state["cloud_run_id"] = cloud_run_id
+                t.state["client_id"] = client_id
+                t.state["is_helper_skill"] = True
+                t.state["parent_cloud_task_id"] = parent_task.id
+                return t
+
+        # No existing task — create and start one
+        logger.info(f"[HybridCloud] Creating companion local task for skill: {companion_skill_name}")
+        try:
+            new_id = str(uuid.uuid4())
+            companion_state = {
+                "is_helper_skill": True,
+                "parent_cloud_task_id": parent_task.id,
+                "cloud_run_id": cloud_run_id,
+                "client_id": client_id,
+            }
+
+            from a2a.types import TaskState, TaskStatus as A2ATaskStatus
+
+            new_task = ManagedTask(
+                id=new_id,
+                run_id=str(uuid.uuid4()),
+                name=f"{companion_skill_name}_helper_{new_id[:8]}",
+                description=f"Companion local task for hybrid cloud run {cloud_run_id[:8]}",
+                source="hybrid_cloud",
+                status=A2ATaskStatus(state=TaskState.submitted),
+                sessionId="",
+                skill=companion_skill,
+                metadata={"state": companion_state},
+                state=companion_state,
+                trigger=["message"],
+                agent_id=getattr(getattr(agent, "card", None), "id", "") or "",
+            )
+
+            # Add to agent tasks
+            if getattr(agent, "tasks", None) is None:
+                agent.tasks = []
+            agent.tasks.append(new_task)
+
+            # Start execution loop
+            mainwin = getattr(agent, "mainwin", None)
+            thread_pool = getattr(mainwin, "threadPoolExecutor", None) if mainwin else None
+            if not thread_pool:
+                thread_pool = getattr(agent, "thread_pool_executor", None)
+            if not thread_pool:
+                from concurrent.futures import ThreadPoolExecutor
+                thread_pool = ThreadPoolExecutor(max_workers=4)
+
+            future = thread_pool.submit(self.launch_unified_run, new_task, ["message"])
+            if hasattr(agent, "active_tasks") and hasattr(agent, "task_lock"):
+                with agent.task_lock:
+                    agent.active_tasks[new_task.run_id] = future
+
+            logger.info(
+                f"[HybridCloud] Companion task created and started: {new_task.name} "
+                f"(id={new_id}, skill={companion_skill_name}, run_id={new_task.run_id})"
+            )
+            return new_task
+
+        except Exception as e:
+            logger.error(f"[HybridCloud] Failed to create companion task: {e}")
+            logger.error(traceback.format_exc())
+            return None
 
     def _extract_waiter_task_id(self, msg: Any) -> Optional[str]:
         """Extract waiter task ID from message."""

@@ -255,6 +255,26 @@ class SchemaRegistry:
             self.register_schema(DataType.AVATAR_RESOURCE, "1.0", avatar_resource_schema_v1)
             logger.info(f"[SchemaRegistry] ✅ Registered Avatar Resource entity schema with {len(avatar_resource_schema_v1.transformers)} transformers")
             
+            # Agent-Org Relationship Schema v1.0
+            agent_org_schema_v1 = builder.build_schema(DataType.AGENT_ORG, version="1.0")
+            self.register_schema(DataType.AGENT_ORG, "1.0", agent_org_schema_v1)
+            logger.info(f"[SchemaRegistry] ✅ Registered Agent-Org relationship schema with {len(agent_org_schema_v1.transformers)} transformers")
+            
+            # Skill-Tool Relationship Schema v1.0
+            skill_tool_schema_v1 = builder.build_schema(DataType.SKILL_TOOL, version="1.0")
+            self.register_schema(DataType.SKILL_TOOL, "1.0", skill_tool_schema_v1)
+            logger.info(f"[SchemaRegistry] ✅ Registered Skill-Tool relationship schema with {len(skill_tool_schema_v1.transformers)} transformers")
+            
+            # Skill-Knowledge Relationship Schema v1.0
+            skill_knowledge_schema_v1 = builder.build_schema(DataType.SKILL_KNOWLEDGE, version="1.0")
+            self.register_schema(DataType.SKILL_KNOWLEDGE, "1.0", skill_knowledge_schema_v1)
+            logger.info(f"[SchemaRegistry] ✅ Registered Skill-Knowledge relationship schema with {len(skill_knowledge_schema_v1.transformers)} transformers")
+            
+            # Task-Skill Relationship Schema v1.0
+            task_skill_schema_v1 = builder.build_schema(DataType.TASK_SKILL, version="1.0")
+            self.register_schema(DataType.TASK_SKILL, "1.0", task_skill_schema_v1)
+            logger.info(f"[SchemaRegistry] ✅ Registered Task-Skill relationship schema with {len(task_skill_schema_v1.transformers)} transformers")
+            
             logger.info("[SchemaRegistry] ✅ All default schemas registered successfully")
         except Exception as e:
             logger.error(f"[SchemaRegistry] ❌ Failed to register schemas: {e}")
