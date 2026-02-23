@@ -627,6 +627,13 @@ class LightragClient:
                 if key in options:
                     payload[key] = options[key]
         
+        # Log query parameters for debugging
+        logger.info(f"[Stream Query] Payload: query='{text[:50]}...', mode={payload.get('mode')}, "
+                   f"only_need_context={payload.get('only_need_context')}, "
+                   f"only_need_prompt={payload.get('only_need_prompt')}, "
+                   f"enable_rerank={payload.get('enable_rerank')}, "
+                   f"stream={payload.get('stream')}")
+        
         headers = {
             'Content-Type': 'application/json',
             # LightRAG's /query/stream endpoint uses NDJSON streaming
@@ -651,10 +658,18 @@ class LightragClient:
                     )
 
                 r.raise_for_status()
+                line_count = 0
+                logger.debug(f"[Stream] Starting to read response stream...")
                 for line in r.iter_lines():
                     if line:
+                        line_count += 1
                         line_str = line.decode('utf-8')
                         # /query/stream returns pure NDJSON lines, no 'data: ' prefix
+                        
+                        # Log all chunks for debugging (limit to first 10)
+                        if line_count <= 10:
+                            logger.debug(f"[Stream] Chunk {line_count}: {line_str[:200]}...")
+                        
                         yield line_str
                         
                         # Accumulate response for confidence calculation
@@ -667,6 +682,15 @@ class LightragClient:
                                 accumulated_response['references'] = chunk_data.get('references', [])
                         except json.JSONDecodeError:
                             accumulated_response['response'] += line_str
+                
+                logger.debug(f"[Stream] Finished reading stream, total chunks: {line_count}")
+                
+                # Log stream statistics
+                logger.info(
+                    f"📊 Stream completed: {line_count} lines, "
+                    f"response_length={len(accumulated_response['response'])}, "
+                    f"references_count={len(accumulated_response.get('references', []))}"
+                )
                 
                 # Calculate and yield confidence as final chunk
                 try:

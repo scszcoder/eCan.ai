@@ -283,15 +283,59 @@ def patch_rerank_binding_for_proxy():
             return
         
         if not is_native_rerank_provider(rerank_binding):
-            logger.info(f'[Launcher] Converting non-native provider for LightRAG compatibility:')
-            logger.info(f'[Launcher]   Before: RERANK_BINDING = "{rerank_binding}"')
+            logger.info(f'')
+            logger.info(f'🔄🔄🔄 [Launcher] Converting non-native provider for LightRAG compatibility 🔄🔄🔄')
+            logger.info(f'[Launcher]   User Config (from lightrag.env):')
+            logger.info(f'[Launcher]     RERANK_BINDING = "{rerank_binding}"')
+            logger.info(f'[Launcher]     RERANK_MODEL = "{os.environ.get("RERANK_MODEL", "")}"')
+            logger.info(f'[Launcher]     RERANK_BINDING_HOST = "{os.environ.get("RERANK_BINDING_HOST", "")}"')
+            
+            # Get target service URL from rerank manager
+            target_service_url = "Unknown"
+            try:
+                from app_context import AppContext
+                app_context = AppContext.get_instance()
+                if app_context and app_context.main_window:
+                    rerank_manager = app_context.main_window.config_manager.rerank_manager
+                    provider_config = rerank_manager.get_provider(rerank_binding)
+                    if provider_config:
+                        base_url = provider_config.get('base_url', '')
+                        if base_url:
+                            # Determine the actual endpoint based on provider type
+                            provider_type = provider_config.get('provider', '').lower()
+                            if provider_type == 'ryoais':
+                                target_service_url = f"{base_url.rstrip('/')}/v1/rerank"
+                            elif provider_type == 'ollama':
+                                target_service_url = f"{base_url.rstrip('/')}/api/embed"
+                            else:
+                                target_service_url = f"{base_url.rstrip('/')}/rerank"
+            except Exception as e:
+                logger.debug(f'[Launcher] Could not determine target service URL: {e}')
             
             # Convert to jina format for LightRAG
-            # Note: Proxy will read original binding directly from config file
+            # IMPORTANT: Keep RERANK_BINDING_HOST as-is (should point to local proxy)
+            # This ensures LightRAG's jina provider calls our proxy instead of jina API
             os.environ['RERANK_BINDING'] = DEFAULT_PROXY_RERANK_BINDING
             
-            logger.info(f'[Launcher]   After:  RERANK_BINDING = "{DEFAULT_PROXY_RERANK_BINDING}"')
-            logger.info(f'[Launcher] ✅ Conversion complete - proxy reads from config file')
+            # Verify RERANK_BINDING_HOST points to local proxy
+            rerank_host = os.environ.get('RERANK_BINDING_HOST', '')
+            if not rerank_host or 'localhost' not in rerank_host:
+                logger.warning(f'[Launcher] ⚠️  RERANK_BINDING_HOST does not point to localhost proxy!')
+                logger.warning(f'[Launcher] ⚠️  Current value: "{rerank_host}"')
+                logger.warning(f'[Launcher] ⚠️  Expected: http://localhost:4668/api/rerank')
+            else:
+                logger.info(f'[Launcher] ✅ RERANK_BINDING_HOST points to local proxy: {rerank_host}')
+            
+            logger.info(f'')
+            logger.info(f'[Launcher]   ⬇️  Converted Config (passed to LightRAG):')
+            logger.info(f'[Launcher]     RERANK_BINDING = "{DEFAULT_PROXY_RERANK_BINDING}" ← LightRAG native provider')
+            logger.info(f'[Launcher]     RERANK_MODEL = "{os.environ.get("RERANK_MODEL", "")}" ← Generic model name')
+            logger.info(f'[Launcher]     RERANK_BINDING_HOST = "{os.environ.get("RERANK_BINDING_HOST", "")}" ← Proxy URL')
+            logger.info(f'')
+            logger.info(f'[Launcher] 🎯 Final Target Service: {target_service_url}')
+            logger.info(f'[Launcher] ✅ LightRAG will call jina_rerank() → proxy → {target_service_url}')
+            logger.info(f'🔄🔄🔄 [Launcher] ================================================== 🔄🔄🔄')
+            logger.info(f'')
         else:
             logger.info(f'[Launcher] "{rerank_binding}" is native provider, no conversion needed')
         
