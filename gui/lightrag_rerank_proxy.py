@@ -164,6 +164,14 @@ class LightRAGRerankProxy:
             JSONResponse with rerank results
         """
         try:
+            # Log incoming request for debugging
+            logger.info(f"[Rerank Proxy] ========== INCOMING RERANK REQUEST ==========")
+            logger.info(f"[Rerank Proxy] Request keys: {list(request.keys())}")
+            logger.info(f"[Rerank Proxy] Model: {request.get('model', 'NOT SET')}")
+            logger.info(f"[Rerank Proxy] Query: {request.get('query', '')[:50]}...")
+            logger.info(f"[Rerank Proxy] Documents count: {len(request.get('documents', []))}")
+            logger.info(f"[Rerank Proxy] ================================================")
+            
             # Parse request body
             body = await request.json()
             
@@ -224,7 +232,20 @@ class LightRAGRerankProxy:
             if not base_url:
                 return JSONResponse({"error": f"Provider '{original_binding}' has no base_url configured"}, status_code=400)
             
-            logger.debug(f"[Rerank Proxy] Using provider from RERANK_BINDING: {provider_type}, base_url={base_url}")
+            # Log detailed routing information with VERY OBVIOUS markers
+            logger.info(f"")
+            logger.info(f"🔥🔥🔥 [Rerank Proxy] ========== PROXY CALLED ========== 🔥🔥🔥")
+            logger.info(f"[Rerank Proxy] User Config (from lightrag.env):")
+            logger.info(f"[Rerank Proxy]   RERANK_BINDING = {original_binding}")
+            logger.info(f"[Rerank Proxy] Actual Provider (for routing):")
+            logger.info(f"[Rerank Proxy]   Provider Type = {provider_type}")
+            logger.info(f"[Rerank Proxy]   Base URL = {base_url}")
+            logger.info(f"[Rerank Proxy] Request Info:")
+            logger.info(f"[Rerank Proxy]   Model (from LightRAG) = {model}")
+            logger.info(f"[Rerank Proxy]   Query = {query[:50]}..." if len(query) > 50 else f"[Rerank Proxy]   Query = {query}")
+            logger.info(f"[Rerank Proxy]   Documents = {len(documents)} items")
+            logger.info(f"🔥🔥🔥 [Rerank Proxy] ================================== 🔥🔥🔥")
+            logger.info(f"")
             
             # Verify model exists by calling provider's model list API if needed
             # Note: Some providers' /models API may only return embedding models, not rerank models
@@ -285,6 +306,11 @@ class LightRAGRerankProxy:
         Implementation based on ollama_proxy.py for compatibility.
         """
         logger.info(f"[Rerank Proxy] Using Ollama provider: {base_url}, model: {model}")
+        
+        # Log target service URL
+        embed_url = f"{base_url.rstrip('/')}/api/embed"
+        logger.info(f"[Rerank Proxy] 🎯 Target Service URL: {embed_url}")
+        logger.info(f"[Rerank Proxy] 📦 Payload: model={model}, query_len={len(query)}, docs={len(documents)}")
         
         async with httpx.AsyncClient(timeout=60.0) as client:
             async def get_rerank_score(idx: int, doc: str) -> Optional[Dict[str, Any]]:
@@ -358,6 +384,23 @@ class LightRAGRerankProxy:
             
             return valid_results
     
+    def _normalize_scores_batch(self, results_list: List[Dict[str, Any]], model_name: str = "unknown") -> List[Dict[str, Any]]:
+        """
+        Normalize rerank scores using shared normalization module.
+        
+        This is a wrapper around the shared normalize_rerank_scores function
+        to maintain backward compatibility with existing code.
+        
+        Args:
+            results_list: List of result dicts with 'relevance_score' and 'index'
+            model_name: Model name (for logging only)
+            
+        Returns:
+            List of results with normalized scores in [0, 1] range
+        """
+        from knowledge.rerank_score_normalizer import normalize_rerank_scores
+        return normalize_rerank_scores(results_list, model_name, log_prefix="[Rerank Proxy]")
+    
     async def _rerank_ryoais(
         self,
         base_url: str,
@@ -370,30 +413,156 @@ class LightRAGRerankProxy:
         
         RyoAIS uses standard Jina/Cohere format: /v1/rerank
         """
+        # Map generic model names to RyoAIS actual models
+        # LightRAG sends generic names like "jina-reranker-v2-base-multilingual"
+        # We need to map them to RyoAIS's actual BGE model
+        MODEL_MAPPING = {
+            'jina-reranker-v2-base-multilingual': 'bge-reranker-v2-m3-GGUF/bge-reranker-v2-m3-Q6_K.gguf',
+            'jina-reranker-v1-base-en': 'bge-reranker-v2-m3-GGUF/bge-reranker-v2-m3-Q6_K.gguf',
+            'jina-reranker-v3': 'bge-reranker-v2-m3-GGUF/bge-reranker-v2-m3-Q6_K.gguf',
+        }
+        
+        original_model = model
+        if model in MODEL_MAPPING:
+            model = MODEL_MAPPING[model]
+            logger.info(f"[Rerank Proxy] Mapped model: {original_model} → {model}")
+        
         logger.info(f"[Rerank Proxy] Using RyoAIS provider: {base_url}, model: {model}")
         
-        # Normalize base_url
+        # Normalize base_url - remove trailing slash
         base_url = base_url.rstrip('/')
-        if not base_url.endswith('/v1'):
-            base_url = f"{base_url}/v1"
         
-        rerank_url = f"{base_url}/rerank"
+        # Build rerank URL
+        # If base_url already ends with /v1, just append /rerank
+        # Otherwise, append /v1/rerank
+        if base_url.endswith('/v1'):
+            rerank_url = f"{base_url}/rerank"
+        else:
+            rerank_url = f"{base_url}/v1/rerank"
+        
+        # Log target service URL
+        logger.info(f"[Rerank Proxy] 🎯 Target Service URL: {rerank_url}")
+        logger.info(f"[Rerank Proxy] 📦 Payload: model={model}, query_len={len(query)}, docs={len(documents)}")
         
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
+                # Smart document reduction to avoid context size limits
+                # Jina Reranker v3 has 1024 token limit (~4096 chars total)
+                # Instead of truncating (losing info), reduce document count if needed
+                
+                # Estimate total tokens: ~4 chars per token
+                total_chars = sum(len(doc) for doc in documents)
+                query_tokens = len(query) // 4
+                doc_tokens = total_chars // 4
+                total_tokens = query_tokens + doc_tokens
+                max_tokens = 1024  # Jina v3 limit
+                
+                final_documents = documents
+                
+                if total_tokens > max_tokens:
+                    # Calculate how many docs we can fit
+                    available_tokens = max_tokens - query_tokens - 50  # 50 token buffer
+                    avg_doc_tokens = doc_tokens / len(documents)
+                    max_docs = max(1, int(available_tokens / avg_doc_tokens))
+                    
+                    logger.info(
+                        f"[Rerank Proxy] 📊 Context optimization: {total_tokens} tokens > {max_tokens} tokens "
+                        f"(query: {query_tokens}, docs: {doc_tokens})"
+                    )
+                    logger.info(
+                        f"[Rerank Proxy] 🔄 Smart reduction: keeping top {max_docs}/{len(documents)} documents "
+                        f"(NO truncation, preserving full content)"
+                    )
+                    
+                    final_documents = documents[:max_docs]
+                else:
+                    logger.debug(
+                        f"[Rerank Proxy] ✅ All {len(documents)} documents fit within context "
+                        f"({total_tokens}/{max_tokens} tokens)"
+                    )
+                
                 # RyoAIS uses Jina-compatible format
                 payload = {
                     "model": model,
                     "query": query,
-                    "documents": documents,
+                    "documents": final_documents,
                     "return_documents": True
                 }
+                
+                logger.debug(f"[Rerank Proxy] Sending {len(final_documents)} documents to rerank (query: {len(query)} chars)")
                 
                 response = await client.post(rerank_url, json=payload)
                 
                 if response.status_code != 200:
-                    logger.error(f"[Rerank Proxy] RyoAIS API error {response.status_code}: {response.text}")
+                    error_text = response.text
+                    logger.error(f"[Rerank Proxy] RyoAIS API error {response.status_code}: {error_text}")
+                    
+                    # Check if error is due to context size limit
+                    if "exceed_context_size_error" in error_text or "larger than the max context size" in error_text:
+                        # Extract token info from error message
+                        import re
+                        token_match = re.search(r'input \((\d+) tokens\).*max context size \((\d+) tokens\)', error_text)
+                        if token_match:
+                            input_tokens = int(token_match.group(1))
+                            max_tokens = int(token_match.group(2))
+                            logger.error(
+                                f"[Rerank Proxy] ❌ Context limit exceeded: "
+                                f"input={input_tokens} tokens > max={max_tokens} tokens "
+                                f"(overflow: {input_tokens - max_tokens} tokens)"
+                            )
+                        
+                        # Auto-retry with fewer documents
+                        max_docs = len(documents) // 2  # Try with half the documents
+                        if max_docs >= 1:
+                            logger.warning(
+                                f"[Rerank Proxy] 🔄 Auto-retry strategy: "
+                                f"reducing from {len(documents)} → {max_docs} documents "
+                                f"(keeping top {max_docs} by retrieval order)"
+                            )
+                            
+                            # Use reduced document set (no truncation)
+                            retry_docs = documents[:max_docs]
+                            
+                            retry_payload = {
+                                "model": model,
+                                "query": query,
+                                "documents": retry_docs,
+                                "return_documents": True
+                            }
+                            
+                            retry_response = await client.post(rerank_url, json=retry_payload)
+                            
+                            if retry_response.status_code == 200:
+                                result = retry_response.json()
+                                results_list = result.get("results", [])
+                                
+                                # Add document content
+                                for item in results_list:
+                                    if "document" not in item:
+                                        doc_index = item.get("index", 0)
+                                        item["document"] = retry_docs[doc_index]
+                                
+                                # Normalize and return
+                                normalized_results = self._normalize_scores_batch(results_list, model)
+                                logger.info(
+                                    f"[Rerank Proxy] ✅ Retry succeeded: "
+                                    f"reranked {len(normalized_results)}/{len(documents)} documents "
+                                    f"({len(documents) - len(normalized_results)} docs dropped)"
+                                )
+                                return normalized_results
+                            else:
+                                logger.error(
+                                    f"[Rerank Proxy] ❌ Retry also failed ({retry_response.status_code}): {retry_response.text}"
+                                )
+                        else:
+                            logger.error(f"[Rerank Proxy] ❌ Cannot retry: already at minimum document count")
+                    
                     # Fallback: return documents with equal scores
+                    logger.warning(
+                        f"[Rerank Proxy] ⚠️  Fallback mode activated: "
+                        f"returning {len(documents)} documents with uniform score=0.5 "
+                        f"(reranking failed, using original retrieval order)"
+                    )
                     return [
                         {"index": idx, "relevance_score": 0.5, "document": doc}
                         for idx, doc in enumerate(documents)
@@ -407,25 +576,16 @@ class LightRAGRerankProxy:
                 # Parse RyoAIS response (Jina-compatible format)
                 results_list = result.get("results", [])
                 
-                parsed_results = []
+                # Add document content to results if not present
                 for item in results_list:
-                    score = item.get("relevance_score", 0.0)
-                    
-                    # Note: Some rerank models return scores in 0-1 range (already normalized)
-                    # If scores look like they need normalization, you can enable sigmoid here
-                    # Uncomment the following lines if scores are too low:
-                    # import math
-                    # if score < 0 or score > 1:  # Looks like logits
-                    #     score = 1 / (1 + math.exp(-score))  # Sigmoid normalization
-                    
-                    parsed_results.append({
-                        "index": item.get("index", 0),
-                        "relevance_score": score,
-                        "document": item.get("document", documents[item.get("index", 0)])
-                    })
-                    logger.info(f"[Rerank Proxy] Document {item.get('index', 0)}: raw_score={score:.4f}")
+                    if "document" not in item:
+                        doc_index = item.get("index", 0)
+                        item["document"] = documents[doc_index]
                 
-                return parsed_results
+                # Normalize scores using batch normalization
+                normalized_results = self._normalize_scores_batch(results_list, model)
+                
+                return normalized_results
                 
             except Exception as e:
                 logger.error(f"[Rerank Proxy] RyoAIS error: {e}")
@@ -453,6 +613,10 @@ class LightRAGRerankProxy:
         base_url = base_url.rstrip('/')
         rerank_url = f"{base_url}/rerank" if not base_url.endswith('/rerank') else base_url
         
+        # Log target service URL
+        logger.info(f"[Rerank Proxy] 🎯 Target Service URL: {rerank_url}")
+        logger.info(f"[Rerank Proxy] 📦 Payload: model={model}, query_len={len(query)}, docs={len(documents)}")
+        
         async with httpx.AsyncClient(timeout=60.0) as client:
             try:
                 payload = {
@@ -474,15 +638,16 @@ class LightRAGRerankProxy:
                 result = response.json()
                 results_list = result.get("results", [])
                 
-                parsed_results = []
+                # Add document content to results if not present
                 for item in results_list:
-                    parsed_results.append({
-                        "index": item.get("index", 0),
-                        "relevance_score": item.get("relevance_score", 0.0),
-                        "document": item.get("document", documents[item.get("index", 0)])
-                    })
+                    if "document" not in item:
+                        doc_index = item.get("index", 0)
+                        item["document"] = documents[doc_index]
                 
-                return parsed_results
+                # Normalize scores using batch normalization
+                normalized_results = self._normalize_scores_batch(results_list, model)
+                
+                return normalized_results
                 
             except Exception as e:
                 logger.error(f"[Rerank Proxy] OpenAI-compatible error: {e}")
