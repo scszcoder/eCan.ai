@@ -2,7 +2,6 @@ import traceback
 from mcp.client.session import ClientSession
 from langchain_core.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
-from langchain.agents import create_agent
 from langgraph.graph import END, StateGraph, START
 from agent.ec_skills.dev_defs import BreakpointManager
 from agent.ec_skills.build_node import build_pend_event_node, build_llm_node, build_chat_node
@@ -30,7 +29,6 @@ async def create_rpa_helper_chatter_skill(mainwin):
         # print("helper # tools ", len(all_tools), type(all_tools[-1]), all_tools[-1])
         # Use mainwin's llm object instead of hardcoded ChatOpenAI
         helper_tools = []
-        helper_agent = create_agent(llm, helper_tools)
         # Prompt Template
         prompt = ChatPromptTemplate.from_messages([
             ("system", """

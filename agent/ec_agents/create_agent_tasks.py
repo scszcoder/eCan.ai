@@ -140,7 +140,7 @@ def create_my_twin_chat_task(mainwin: 'MainWindow'):
         skill_matcher="chatter for my digital twin",
         task_name="chat:Human Chatter Relay Task",
         description="Represent human to chat with others",
-        trigger="interaction"
+        trigger="message"
     )
 
 
@@ -215,7 +215,7 @@ def create_ec_procurement_chat_task(mainwin):
         skill_matcher="search_digikey_chatter",
         task_name="chat:eCan.ai Procurement Chatter Task",
         description="chat with human user about anything related to e-commerce procurement work.",
-        trigger="interaction",
+        trigger="message",
         schedule_kwargs=schedule_kwargs
     )
 
@@ -346,7 +346,7 @@ def create_ec_self_tester_work_task(mainwin):
 
 
 
-def _convert_db_agent_task_to_object(db_agent_task_dict):
+def _convert_db_agent_task_to_object(db_agent_task_dict, main_win=None):
     """Convert database agent task dictionary to ManagedTask object"""
     try:
         # Create agent task status
@@ -393,6 +393,20 @@ def _convert_db_agent_task_to_object(db_agent_task_dict):
         skill_info = _get_task_skill_info(db_agent_task_dict.get('id'), request=None, params=None)
         skill_name = skill_info['name'] if skill_info else ''
         
+        # Resolve skill name to compiled EC_Skill object from mainwin.agent_skills
+        resolved_skill = None
+        if skill_name and main_win:
+            compiled_skills = getattr(main_win, 'agent_skills', None) or []
+            for sk in compiled_skills:
+                sk_name = (getattr(sk, 'name', '') or '').lower().strip()
+                if sk_name == skill_name.lower().strip():
+                    resolved_skill = sk
+                    has_runnable = getattr(sk, 'runnable', None) is not None
+                    logger.info(f"[create_agent_tasks] ✅ Resolved skill '{skill_name}' to compiled object (runnable: {has_runnable})")
+                    break
+            if not resolved_skill:
+                logger.warning(f"[create_agent_tasks] ⚠️ Skill '{skill_name}' not found in compiled pool — task will have skill as string")
+
         task_id = db_agent_task_dict.get('id', f"agent_task_{uuid.uuid4().hex[:16]}")
         agent_task = ManagedTask(
             id=task_id,
@@ -403,17 +417,23 @@ def _convert_db_agent_task_to_object(db_agent_task_dict):
             owner=db_agent_task_dict.get('owner', ''),
             status=status,
             sessionId='',
-            skill=skill_name,  # Use skill name from metadata
+            skill=resolved_skill if resolved_skill else skill_name,  # Prefer compiled object
             schedule=schedule,
             resumeFrom='',
             state={},
             metadata=metadata,
-            trigger=db_agent_task_dict.get('trigger', 'manual'),
+            trigger=db_agent_task_dict.get('trigger', 'auto'),
             priority=priority_value
         )
 
         # Note: task_type, objectives, progress, result, error_message are not fields in ManagedTask
         # They are stored in the database but not needed for the ManagedTask object
+        
+        # Ensure chat tasks have 'message' trigger so the execution loop polls the queue
+        task_name_lower = (agent_task.name or '').lower()
+        if 'chat' in task_name_lower and 'message' not in agent_task.trigger:
+            agent_task.trigger = list(agent_task.trigger) + ['message']
+            logger.info(f"[create_agent_tasks] Added 'message' trigger to chat task '{agent_task.name}' → {agent_task.trigger}")
         
         return agent_task
 
@@ -456,7 +476,7 @@ async def _load_agent_tasks_from_database_async(main_win):
             task_name = agent_task_dict.get('name', 'Unknown')
             
             if task_owner == username:
-                agent_task_obj = _convert_db_agent_task_to_object(agent_task_dict)
+                agent_task_obj = _convert_db_agent_task_to_object(agent_task_dict, main_win)
                 if agent_task_obj:
                     db_agent_tasks.append(agent_task_obj)
                     logger.info(f"[create_agent_tasks] ✅ Loaded task: {task_name} (owner: {task_owner})")
@@ -501,7 +521,7 @@ async def _build_local_agent_tasks_async(main_win):
         # In the future, this will be removed entirely
         local_agent_tasks = []
         # for now just build a few agents.
-        local_agent_tasks.append(create_my_twin_chat_task(main_win))
+        # local_agent_tasks.append(create_my_twin_chat_task(main_win))  # Removed: twin agent eliminated
         local_agent_tasks.append(create_ec_helper_chat_task(main_win))
         local_agent_tasks.append(create_ec_helper_work_task(main_win))
         # local_agent_tasks.append(create_ec_customer_support_chat_task(main_win))

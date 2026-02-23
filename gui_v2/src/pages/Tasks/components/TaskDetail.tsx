@@ -55,9 +55,8 @@ const DEFAULT_TASK = {
 const PRIORITY_OPTIONS = ['none', 'low', 'medium', 'high', 'urgent'];
 const TRIGGER_OPTIONS = [
   'schedule',
-  'human chat',
-  'agent message',
-  'manual',
+  'message',
+  'auto',
 ];
 const REPEAT_OPTIONS = [
   'none',
@@ -242,6 +241,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         owner: taskOwner,
         name: taskName,
         description: taskDescription,
+        cloud_based: !!(metadata?.cloud_run),
         skills: taskSkills,  // Multiple skills support
         metadata_text: metaStr,
         agent_id: taskAgentId,
@@ -333,7 +333,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         cloud_based: !!(values as any).cloud_based,
         latest_version: (values as any).latest_version || '1.0.0',
         priority: (values as any).priority || 'medium',
-        trigger: ((values as any).trigger || ['manual']).join(','),
+        trigger: ((values as any).trigger || ['auto']).join(','),
         skills: skillNames,  // Pass skills array
         skill_ids: skillObjs.map((s: any) => s?.id).filter(Boolean),  // Pass skill IDs for backend
         schedule: {
@@ -348,8 +348,10 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
             null,
           time_out: (values as any).schedule?.time_out || 3600,
         },
-        metadata: (values as any).metadata_text ?
-          JSON.parse((values as any).metadata_text) : {},
+        metadata: {
+          ...((values as any).metadata_text ? JSON.parse((values as any).metadata_text) : {}),
+          cloud_run: !!(values as any).cloud_based,
+        },
       };
 
       if (!payload || typeof payload !== 'object' || !payload.name) {

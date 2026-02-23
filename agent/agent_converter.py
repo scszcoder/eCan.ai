@@ -83,6 +83,8 @@ def _convert_dict_to_task(task_dict: Dict[str, Any]) -> ManagedTask:
             source=task_dict.get('source', 'ui'),
             status=status,
             priority=task_dict.get('priority'),  # Validator will handle 'none' -> None
+            trigger=task_dict.get('trigger') or [],  # field_validator normalizes str/list/None
+            agent_id=task_dict.get('agent_id') or '',
         )
     except Exception as e:
         logger.error(f"[AgentConverter] Failed to convert task dict to object: {e}")
@@ -172,6 +174,67 @@ def _validate_and_filter_entities(data_list, entity_type, agent_id, agent_name):
             )
     
     return valid_entities
+
+
+def _resolve_from_compiled_pool(stubs, compiled_pool, entity_type, agent_name):
+    """Replace stub objects with compiled versions from the global pool.
+    
+    Matches by ID first, then by name (case-insensitive).
+    If no compiled match is found, keeps the stub.
+    
+    Args:
+        stubs: List of stub EC_Skill or ManagedTask objects (no runnable)
+        compiled_pool: List of compiled objects from mainwin.agent_skills or agent_tasks
+        entity_type: 'skill' or 'task' for logging
+        agent_name: Agent name for logging
+        
+    Returns:
+        List of resolved objects (compiled where possible, stubs as fallback)
+    """
+    if not stubs:
+        return []
+    if not compiled_pool:
+        logger.warning(f"[AgentConverter] No compiled {entity_type}s available for agent '{agent_name}' — using stubs")
+        return stubs
+    
+    # Build lookup indices for the compiled pool
+    by_id = {}
+    by_name = {}
+    for obj in compiled_pool:
+        obj_id = getattr(obj, 'id', None)
+        obj_name = (getattr(obj, 'name', '') or '').lower().strip()
+        if obj_id:
+            by_id[str(obj_id)] = obj
+        if obj_name:
+            by_name[obj_name] = obj
+    
+    resolved = []
+    for stub in stubs:
+        stub_id = str(getattr(stub, 'id', '') or '')
+        stub_name = (getattr(stub, 'name', '') or '').lower().strip()
+        
+        # Match by ID first
+        match = by_id.get(stub_id)
+        # Then by name
+        if not match:
+            match = by_name.get(stub_name)
+        
+        if match:
+            has_runnable = entity_type == 'skill' and getattr(match, 'runnable', None) is not None
+            logger.info(
+                f"[AgentConverter] ✅ Resolved {entity_type} '{getattr(stub, 'name', '?')}' "
+                f"for agent '{agent_name}' from compiled pool"
+                f"{' (has runnable)' if has_runnable else ''}"
+            )
+            resolved.append(match)
+        else:
+            logger.warning(
+                f"[AgentConverter] ⚠️ No compiled {entity_type} found for "
+                f"'{getattr(stub, 'name', '?')}' (id={stub_id}) in agent '{agent_name}' — using stub"
+            )
+            resolved.append(stub)
+    
+    return resolved
 
 
 def convert_agent_dict_to_ec_agent(
@@ -293,11 +356,47 @@ def convert_agent_dict_to_ec_agent(
             tasks_data, 'task', agent_data.get('id'), agent_data.get('name')
         )
         
-        # Convert dictionaries to objects
-        skill_objects = [_convert_dict_to_skill(s) for s in filtered_skills_dicts]
-        task_objects = [_convert_dict_to_task(t) for t in filtered_tasks_dicts]
+        # Convert dictionaries to stub objects
+        skill_stubs = [_convert_dict_to_skill(s) for s in filtered_skills_dicts]
+        task_stubs = [_convert_dict_to_task(t) for t in filtered_tasks_dicts]
         
-        # Update EC_Agent with converted objects
+        # ✅ Replace stubs with compiled versions from mainwin.agent_skills / agent_tasks
+        # DB-loaded stubs have no runnable; the compiled pool does.
+        compiled_skills = getattr(main_window, 'agent_skills', None) or []
+        compiled_tasks = getattr(main_window, 'agent_tasks', None) or []
+        
+        skill_objects = _resolve_from_compiled_pool(
+            skill_stubs, compiled_skills, 'skill', agent_data.get('name')
+        )
+        task_objects = _resolve_from_compiled_pool(
+            task_stubs, compiled_tasks, 'task', agent_data.get('name')
+        )
+        
+        # For tasks that resolved from the compiled pool, attach the matching skill
+        # and ensure chat tasks have the correct trigger
+        for task_obj in task_objects:
+            task_name_lower = (getattr(task_obj, 'name', '') or '').lower()
+            is_chat_task = 'chat' in task_name_lower
+            
+            # Attach chat skill if task has no skill
+            if not getattr(task_obj, 'skill', None) and skill_objects and is_chat_task:
+                chat_skill = next(
+                    (sk for sk in skill_objects if 'chat' in (getattr(sk, 'name', '') or '').lower()),
+                    None,
+                )
+                if chat_skill:
+                    task_obj.skill = chat_skill
+                    logger.debug(f"[AgentConverter] Attached skill '{chat_skill.name}' to task '{task_obj.name}'")
+            
+            # Ensure chat tasks have 'message' trigger so the execution loop polls the queue
+            if is_chat_task:
+                triggers = getattr(task_obj, 'trigger', []) or []
+                if 'message' not in triggers:
+                    triggers = list(triggers) + ['message']
+                    task_obj.trigger = triggers
+                    logger.info(f"[AgentConverter] Added 'message' trigger to chat task '{task_obj.name}' → {triggers}")
+        
+        # Update EC_Agent with resolved objects
         ec_agent.skills = skill_objects
         ec_agent.tasks = task_objects
         

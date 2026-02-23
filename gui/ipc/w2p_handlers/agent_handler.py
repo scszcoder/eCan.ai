@@ -836,17 +836,25 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
                     db_agents = db_result.get('data') or []
                     logger.info(f"[agent_handler] Retrieved {len(db_agents)} agents from database")
                     
-                    # Convert to EC_Agent and add to memory
+                    # Convert to EC_Agent and add to memory — but only if skills are
+                    # already compiled.  During startup the build pipeline hasn't
+                    # finished yet, so mainwin.agent_skills is empty and converting
+                    # here would produce broken stubs that overwrite the real agents.
                     converter = _get_converter()
-                    if not converter:
-                        logger.error("[agent_handler] Agent converter unavailable; returning DB agent dicts")
+                    main_win = ctx.main_window
+                    skills_ready = bool(getattr(main_win, 'agent_skills', None))
+                    if not converter or not skills_ready:
+                        if not converter:
+                            logger.error("[agent_handler] Agent converter unavailable; returning DB agent dicts")
+                        else:
+                            logger.warning("[agent_handler] Skills not compiled yet; returning DB agent dicts without converting to EC_Agent")
                         all_agents.extend(db_agents)
                     else:
                         agents = ctx.get_agents()
                         agents.clear()
                         for db_agent_dict in db_agents:
                             try:
-                                ec_agent = converter(db_agent_dict, ctx.main_window)
+                                ec_agent = converter(db_agent_dict, main_win)
                                 if ec_agent:
                                     agents.append(ec_agent)
                                     all_agents.append(ec_agent.to_dict(owner=username))

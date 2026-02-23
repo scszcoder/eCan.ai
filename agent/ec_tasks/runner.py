@@ -629,7 +629,22 @@ class TaskRunner(Generic[Context]):
             wf = diagram.get("workFlow") or diagram
             nodes = wf.get("nodes") or diagram.get("nodes") or []
             
-            for node in nodes:
+            def _collect_all_nodes(node_list: list) -> list:
+                """Recursively collect all nodes, including those nested in blocks (loop, conditional)."""
+                all_nodes = []
+                for node in node_list:
+                    if not isinstance(node, dict):
+                        continue
+                    all_nodes.append(node)
+                    # Recurse into blocks (loop nodes, conditional nodes, etc.)
+                    blocks = node.get("blocks") or []
+                    if isinstance(blocks, list):
+                        all_nodes.extend(_collect_all_nodes(blocks))
+                return all_nodes
+            
+            all_nodes = _collect_all_nodes(nodes)
+            
+            for node in all_nodes:
                 if not isinstance(node, dict):
                     continue
                 ntype = node.get("type") or ""
@@ -1023,8 +1038,8 @@ class TaskRunner(Generic[Context]):
     # ==================== Task Finding ====================
     
     def find_chatter_tasks(self) -> Optional[ManagedTask]:
-        """Find a chatter task."""
-        found = [task for task in self.agent.tasks if 'chatter' in task.name.lower()]
+        """Find a chat task (task name contains 'chat')."""
+        found = [task for task in self.agent.tasks if 'chat' in task.name.lower()]
         if found:
             logger.debug(f"[find_chatter_tasks] Found: {found[0].id}")
             return found[0]
@@ -1038,9 +1053,15 @@ class TaskRunner(Generic[Context]):
             return existing
 
         skills = getattr(self.agent, "skills", []) or []
-        chatter_skill = next((sk for sk in skills if sk and "chatter" in (getattr(sk, "name", "")).lower()), None)
+        chat_candidates = [sk for sk in skills if sk and "chat" in (getattr(sk, "name", "")).lower()]
+        if not chat_candidates:
+            logger.error("[ensure_chatter_task] No chat skill found; cannot auto-create chatter task")
+            return None
+        # Prefer a skill that has a compiled runnable
+        chatter_skill = next((sk for sk in chat_candidates if getattr(sk, "runnable", None) is not None), None)
         if not chatter_skill:
-            logger.error("[ensure_chatter_task] No chatter skill found; cannot auto-create chatter task")
+            logger.error(f"[ensure_chatter_task] Found {len(chat_candidates)} chat skill(s) but none have a compiled runnable: "
+                         f"{[getattr(sk, 'name', '?') for sk in chat_candidates]}")
             return None
 
         task_id = f"auto-chatter-{uuid.uuid4()}"
@@ -1064,6 +1085,22 @@ class TaskRunner(Generic[Context]):
             self.agent.tasks = []
         self.agent.tasks.append(task)
         logger.info(f"[ensure_chatter_task] Auto-created chatter task: {task.name}")
+
+        # Start the execution loop for this new task so it can consume from its queue
+        try:
+            mainwin = getattr(self.agent, "mainwin", None)
+            thread_pool = getattr(mainwin, "threadPoolExecutor", None) if mainwin else None
+            if thread_pool and hasattr(task, "run_id") and task.run_id:
+                future = thread_pool.submit(self.launch_unified_run, task, ["message"])
+                if hasattr(self.agent, "active_tasks") and hasattr(self.agent, "task_lock"):
+                    with self.agent.task_lock:
+                        self.agent.active_tasks[task.run_id] = future
+                logger.info(f"[ensure_chatter_task] Started execution loop for task: {task.name}, run_id={task.run_id}")
+            else:
+                logger.warning(f"[ensure_chatter_task] Could not start execution loop (no thread pool or run_id)")
+        except Exception as e:
+            logger.error(f"[ensure_chatter_task] Failed to start execution loop: {e}")
+
         return task
     
     def find_suitable_tasks(self, msg) -> List[ManagedTask]:
@@ -1075,7 +1112,7 @@ class TaskRunner(Generic[Context]):
             name_filter = (((msg_js.get('metadata') or {}).get('task') or {}).get('name') or '')
             found = [task for task in self.agent.tasks if name_filter.lower() in (task.name or "").lower()]
         elif msg_js['metadata']["mtype"] == "send_chat":
-            found = [task for task in self.agent.tasks if "chatter task" in (task.name or "").lower()]
+            found = [task for task in self.agent.tasks if "chat" in (task.name or "").lower()]
         
         return found
     
@@ -1396,8 +1433,9 @@ class TaskRunner(Generic[Context]):
         Args:
             task2run: ManagedTask to execute.
             trigger_type: str or list of str, e.g. "schedule", ["schedule", "message"]
-                          Supported values: "schedule", "a2a_queue", "chat_queue",
-                          "message", "interaction", "dev"
+                          Supported values: "schedule", "message", "auto", "dev"
+                          Legacy values (a2a_queue, chat_queue, interaction) are
+                          treated as "message".
             dev_init_state: Initial state for dev runs.
             dev_single_run: If True, exit after one run.
         """
@@ -1414,7 +1452,9 @@ class TaskRunner(Generic[Context]):
         
         current_task = task2run
         consecutive_errors = 0
+        consecutive_validation_failures = 0
         max_errors = 10
+        max_validation_failures = 5
         loop_count = 0
         
         # Cache agent type check
@@ -1453,6 +1493,13 @@ class TaskRunner(Generic[Context]):
                 
                 # Validate task
                 if not self._validate_task_for_execution(current_task):
+                    consecutive_validation_failures += 1
+                    if consecutive_validation_failures >= max_validation_failures:
+                        logger.error(f"[WORKER] Task '{current_task.name}' failed validation {consecutive_validation_failures} times, stopping execution loop")
+                        break
+                    backoff = min(2 ** consecutive_validation_failures, 30)
+                    if self._stop_event.wait(timeout=backoff):
+                        break
                     continue
                 
                 # Determine the effective trigger for this execution
@@ -1462,6 +1509,7 @@ class TaskRunner(Generic[Context]):
                 self._submit_task_execution(current_task, msg, effective_trigger, dev_init_state)
                 
                 consecutive_errors = 0
+                consecutive_validation_failures = 0
                 
             except Exception as e:
                 consecutive_errors += 1
@@ -1516,8 +1564,10 @@ class TaskRunner(Generic[Context]):
         """
         has_schedule = "schedule" in triggers
         has_dev = "dev" in triggers
-        queue_triggers = [t for t in triggers if t in ("a2a_queue", "chat_queue", "message", "interaction")]
-        has_queue = bool(queue_triggers) or has_dev
+        has_auto = "auto" in triggers
+        # Consolidate all message-based triggers (message, a2a_queue, chat_queue, interaction) into one
+        has_message = "message" in triggers or any(t in triggers for t in ("a2a_queue", "chat_queue", "interaction"))
+        has_queue = has_message or has_dev
         
         # --- Dev mode: initial kickoff ---
         if has_dev and current_task:
@@ -1529,13 +1579,23 @@ class TaskRunner(Generic[Context]):
                 state['dev_auto_started'] = True
                 return current_task, {"__dev_kickoff__": True, "__trigger_source__": "dev"}, False
         
+        # --- Auto trigger: fire once on startup ---
+        if has_auto and current_task:
+            if current_task.id not in self._task_states:
+                self._task_states[current_task.id] = {'justStarted': True}
+            
+            state = self._task_states[current_task.id]
+            if not state.get('auto_started'):
+                state['auto_started'] = True
+                return current_task, {"__auto_kickoff__": True, "__trigger_source__": "auto"}, False
+        
         # --- Schedule check (non-blocking) ---
         if has_schedule:
             sched_task = find_tasks_ready_to_run(self.agent.tasks)
             if sched_task:
                 return sched_task, {"__trigger_source__": "schedule"}, False
         
-        # --- Queue-based triggers ---
+        # --- Message queue triggers ---
         if has_queue and current_task:
             try:
                 timeout = DEV_EVENT_POLL_INTERVAL_SEC if has_dev else 0.5
@@ -1543,32 +1603,21 @@ class TaskRunner(Generic[Context]):
                 
                 # Tag the message with trigger source
                 if isinstance(msg, dict):
-                    if "chat_queue" in triggers:
-                        msg["__trigger_source__"] = "chat_queue"
-                    elif "a2a_queue" in triggers:
-                        msg["__trigger_source__"] = "a2a_queue"
-                    else:
-                        msg["__trigger_source__"] = queue_triggers[0] if queue_triggers else "message"
-                
-                # Handle chat_queue task finding
-                if "chat_queue" in triggers:
-                    chatter = self.find_chatter_tasks()
-                    if chatter:
-                        current_task = chatter
+                    msg["__trigger_source__"] = "message"
                 
                 return current_task, msg, True
                 
             except Empty:
                 # Check timeout for pending tasks
-                primary_trigger = "dev" if has_dev else (queue_triggers[0] if queue_triggers else triggers[0])
+                primary_trigger = "dev" if has_dev else "message" if has_message else triggers[0]
                 self._check_pending_timeout(current_task, primary_trigger)
                 
                 # For schedule-only: already checked above, return None
                 # For multi-trigger with schedule: no queue msg, no schedule ready
                 return current_task, None, False
         
-        # Schedule-only path: already checked above, nothing ready
-        if has_schedule:
+        # Schedule-only or auto-only path: already checked above, nothing ready
+        if has_schedule or has_auto:
             return None, None, False
         
         return None, None, False
@@ -1612,6 +1661,11 @@ class TaskRunner(Generic[Context]):
         A task without a skill cannot be scheduled or launched.
         """
         logger.info(f"[VALIDATE] Task: {task.id}, name: {task.name}")
+        
+        # Stop tasks that have hit max consecutive failures
+        if hasattr(task, 'is_max_failures_reached') and task.is_max_failures_reached():
+            logger.warning(f"[VALIDATE] Task '{task.name}' reached max failures ({task.consecutive_failures}), skipping")
+            return False
         
         if task.skill is None:
             logger.error(f"[SKILL_MISSING] Task '{task.name}' (id={task.id}) has no skill attached — cannot determine execution mode. Skipping.")
@@ -2284,16 +2338,25 @@ class TaskRunner(Generic[Context]):
                 except Exception:
                     pass
 
+                # Track consecutive failures on the task
+                if hasattr(task, 'record_failure'):
+                    fail_count = task.record_failure()
+                    if hasattr(task, 'is_max_failures_reached') and task.is_max_failures_reached():
+                        logger.error(f"[COMPLETE] Task '{task.name}' reached max failures ({fail_count}), will not be re-submitted")
+
                 if trigger_type == "schedule":
                     from datetime import datetime
                     task.last_run_datetime = datetime.now()
                     task.already_run_flag = True
                     logger.warning(f"[SCHEDULE] Task '{task.name}' failed, updated last_run_datetime")
                     self.agent.a2a_server.task_manager.set_exception(task.id, RuntimeError(err_text))
-                elif trigger_type in ("a2a_queue", "chat_queue") and waiter_task_id:
+                elif trigger_type == "message" and waiter_task_id:
                     self.agent.a2a_server.task_manager.resolve_waiter(waiter_task_id, response)
                 return
 
+            # Reset failure counter on success
+            if hasattr(task, 'reset_failures'):
+                task.reset_failures()
             logger.info(f"[COMPLETE] Skill completed for waiter={waiter_task_id}")
 
             self._log_task_node_timings(task, waiter_task_id, response)
@@ -2306,14 +2369,9 @@ class TaskRunner(Generic[Context]):
                 
                 if isinstance(step, dict) and '__interrupt__' in step:
                     task_interrupted = True
-                    interrupt_obj = step["__interrupt__"][0]
-                    if "prompt_to_human" in interrupt_obj.value or "prompt_to_agent" in interrupt_obj.value:
-                        try:
-                            chatId = current_state.values.get("messages")[1]
-                            if chatId:
-                                send_response_back(current_state.values)
-                        except Exception:
-                            pass
+                    # Note: send_response_back removed here — chat_node now sends
+                    # the LLM response directly to GUI via ChatMessageSender.
+                    # Keeping the interrupt detection for task state management.
             
             # Update task state
             state = self._task_states.setdefault(task.id, {})
@@ -2338,7 +2396,7 @@ class TaskRunner(Generic[Context]):
                     self.agent.a2a_server.task_manager.set_result(task.id, response)
                 else:
                     self.agent.a2a_server.task_manager.set_exception(task.id, RuntimeError("Task failed"))
-            elif trigger_type in ("a2a_queue", "chat_queue") and waiter_task_id:
+            elif trigger_type == "message" and waiter_task_id:
                 self.agent.a2a_server.task_manager.resolve_waiter(waiter_task_id, response)
                 
         except Exception as e:
@@ -2361,14 +2419,14 @@ class TaskRunner(Generic[Context]):
         self.launch_unified_run(task2run=task, trigger_type="schedule")
     
     def launch_reacted_run(self, task2run=None):
-        """DEPRECATED: Use launch_unified_run(trigger_type="a2a_queue")."""
-        logger.warning("[DEPRECATED] Use launch_unified_run(trigger_type='a2a_queue')")
-        self.launch_unified_run(task2run=task2run, trigger_type="a2a_queue")
+        """DEPRECATED: Use launch_unified_run(trigger_type="message")."""
+        logger.warning("[DEPRECATED] Use launch_unified_run(trigger_type='message')")
+        self.launch_unified_run(task2run=task2run, trigger_type="message")
     
     def launch_interacted_run(self, task2run=None):
-        """DEPRECATED: Use launch_unified_run(trigger_type="chat_queue")."""
-        logger.warning("[DEPRECATED] Use launch_unified_run(trigger_type='chat_queue')")
-        self.launch_unified_run(task2run=task2run, trigger_type="chat_queue")
+        """DEPRECATED: Use launch_unified_run(trigger_type="message")."""
+        logger.warning("[DEPRECATED] Use launch_unified_run(trigger_type='message')")
+        self.launch_unified_run(task2run=task2run, trigger_type="message")
     
     def update_event_handler(self, event_type="", event_queue=None):
         """DEPRECATED: No-op for backward compatibility."""

@@ -312,6 +312,18 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
                 "senderName": meta_params.get("senderName") if isinstance(meta_params, dict) else metadata.get("senderName"),
             })
 
+            # Fallback: legacy dict messages store chatId directly in msg["params"]
+            if not event["context"].get("chatId") and isinstance(msg, dict):
+                raw_params = msg.get("params", {})
+                if isinstance(raw_params, dict):
+                    event["context"]["chatId"] = raw_params.get("chatId")
+                    if not event["context"].get("msgId"):
+                        event["context"]["msgId"] = msg.get("id")
+                    if not event["context"].get("senderId"):
+                        event["context"]["senderId"] = raw_params.get("senderId")
+                    if not event["context"].get("senderName"):
+                        event["context"]["senderName"] = raw_params.get("senderName")
+
             # Event type/source best-effort
             mtype = metadata.get("mtype")
             if not event["type"]:
@@ -336,6 +348,14 @@ def normalize_event(event_type: str, msg: Any, src="", tag="", ctx={}) -> Dict[s
                     first = p[0]
                     if isinstance(first, dict):
                         human_text = first.get("text")
+
+        # Fallback: chat messages store content directly in params.content
+        if not human_text and isinstance(msg, dict):
+            raw_params = msg.get("params", {})
+            if isinstance(raw_params, dict):
+                content = raw_params.get("content")
+                if isinstance(content, str) and content:
+                    human_text = content
 
         data: Dict[str, Any] = {}
         if human_text is not None:
@@ -962,12 +982,44 @@ def build_general_resume_payload(task: Any, msg: Any) -> Tuple[Json, Any, Json]:
             if chat_attrs:
                 resume_payload.setdefault("chat_attributes", {}).update(chat_attrs)
 
+        # Enrich state_patch with chatId from event context when not already set
+        # This ensures human chat messages propagate chatId into the running state
+        evt_ctx = event.get("context", {}) if isinstance(event, dict) else {}
+        evt_chat_id = evt_ctx.get("chatId")
+        if evt_chat_id and not _safe_get(state_patch, "attributes.chat_id"):
+            _write(state_patch, "attributes.chat_id", evt_chat_id, on_conflict="overwrite")
+        if evt_chat_id and not _safe_get(state_patch, "messages"):
+            # messages[1] is the chat_id slot in the baseline state
+            existing_msgs = current_state.get("messages", [])
+            if isinstance(existing_msgs, list) and len(existing_msgs) > 1 and not existing_msgs[1]:
+                new_msgs = list(existing_msgs)
+                new_msgs[1] = evt_chat_id
+                _write(state_patch, "messages", new_msgs, on_conflict="overwrite")
+
         event_data = event.get("data", {}) if isinstance(event, dict) else {}
         human_text = event_data.get("human_text")
         if human_text and not resume_payload.get("human_text"):
             resume_payload["human_text"] = human_text
         if human_text and not _safe_get(state_patch, "attributes.human.last_message"):
             _write(state_patch, "attributes.human.last_message", human_text, on_conflict="overwrite")
+
+        # Append the user's chat message to history so the LLM sees it in conversation context
+        if human_text:
+            try:
+                from langchain_core.messages import HumanMessage
+                existing_history = current_state.get("history") or []
+                # Only add if not already the last message in history (avoid duplicates)
+                already_present = (
+                    existing_history
+                    and hasattr(existing_history[-1], "content")
+                    and existing_history[-1].content == human_text
+                )
+                if not already_present:
+                    new_history = list(existing_history) + [HumanMessage(content=human_text)]
+                    _write(state_patch, "history", new_history, on_conflict="overwrite")
+                    logger.info(f"[resume] Added user message to history: len={len(human_text)}")
+            except Exception as hist_err:
+                logger.debug(f"[resume] Could not add user message to history: {hist_err}")
 
         metadata = event_data.get("metadata") if isinstance(event_data, dict) else None
         if metadata and not _safe_get(state_patch, "attributes.debug.last_event_metadata"):

@@ -306,24 +306,29 @@ def _load_prompt_data(selection: str) -> tuple[dict | None, Any]:
         return None, None
 
 
-def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_user: str) -> tuple[str, str]:
-    """Resolve system/user prompt templates based on selection."""
+def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_user: str) -> tuple[str, str, dict]:
+    """Resolve system/user prompt templates based on selection.
+
+    Returns:
+        (system_text, user_text, prompt_variables) where prompt_variables is
+        a dict of variable declarations from the prompt JSON's "variables" field.
+    """
     selection = (prompt_selection or "inline").strip()
     if selection in ("", "inline"):
-        return inline_system, inline_user
+        return inline_system, inline_user, {}
 
     # Load prompt data from cloud or local
     prompt_data, normalizer = _load_prompt_data(selection)
     
     if not prompt_data:
         logger.warning(f"Prompt selection '{selection}' not found. Falling back to inline prompts.")
-        return inline_system, inline_user
+        return inline_system, inline_user, {}
 
     normalized = prompt_data
     if not isinstance(normalized, dict) or "sections" not in normalized:
         if normalizer is None:
             logger.warning(f"No normalizer available for prompt '{selection}'. Falling back to inline prompts.")
-            return inline_system, inline_user
+            return inline_system, inline_user, {}
         try:
             normalized = normalizer._normalize_prompt(
                 prompt_data,
@@ -333,7 +338,7 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
             )
         except Exception as exc:  # pragma: no cover - defensive fallback
             logger.warning(f"Failed to normalize prompt '{selection}': {exc}")
-            return inline_system, inline_user
+            return inline_system, inline_user, {}
 
     def _join_list(items: list[str]) -> str:
         lines = []
@@ -573,7 +578,19 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
 
     user_text = "\n\n".join(part for part in user_parts if part) or inline_user
 
-    return system_text, user_text
+    # Extract prompt-level variable declarations for cascading resolution
+    prompt_variables = {}
+    raw_vars = normalized.get("variables") or prompt_data.get("variables") or []
+    if isinstance(raw_vars, list):
+        for v in raw_vars:
+            if isinstance(v, dict) and v.get("name"):
+                prompt_variables[v["name"]] = v
+    elif isinstance(raw_vars, dict):
+        prompt_variables = raw_vars
+    if prompt_variables:
+        logger.debug(f"[_resolve_prompt_templates] Extracted {len(prompt_variables)} prompt-level variables: {list(prompt_variables.keys())}")
+
+    return system_text, user_text, prompt_variables
 
 
 def _escape_positional_placeholders(template: str) -> str:
@@ -699,7 +716,7 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
     logger.debug("[LLMNode]inline_user_prompt:", inline_user_prompt)
 
     # Resolve prompt templates based on the selected prompt id first for initial config preview
-    resolved_system_prompt, resolved_user_prompt = _resolve_prompt_templates(
+    resolved_system_prompt, resolved_user_prompt, prompt_level_variables = _resolve_prompt_templates(
         prompt_selection,
         inline_system_prompt,
         inline_user_prompt,
@@ -853,17 +870,41 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
         # Find all variable placeholders (e.g., {{var_name}}) in the prompts
         variables = re.findall(r'\{\{(\w+)\}\}', active_system_prompt + active_user_prompt)
 
-        # Get attributes from state, default to an empty dict if not present
-        prompt_refs = state.get("prompt_refs", {})
+        # --- Cascading variable resolution ---
+        # Priority: prompt_refs → prompt-level vars → skill-level vars → built-in providers → ""
+        _mainwin = None
+        try:
+            from app_context import AppContext
+            _mainwin = AppContext.get_main_window()
+        except Exception:
+            pass
 
-        # Prepare the context for formatting the prompts by pulling values from the state
-        format_context = {}
-        for var in variables:
-            if var in prompt_refs:
-                format_context[var] = prompt_refs[var]
-            else:
-                logger.warning(f"Warning: Variable '{{{{{{var}}}}}}' not found in state prompt_refs. Using empty string.")
-                format_context[var] = ""
+        # Extract skill-level prompt_variables from the running skill's mapping_rules
+        skill_prompt_variables = {}
+        try:
+            agent_id = state.get("messages", [""])[0] if state.get("messages") else ""
+            if agent_id and _mainwin:
+                from agent.agent_service import get_agent_by_id
+                _agent = get_agent_by_id(agent_id)
+                if _agent:
+                    _skill = next(
+                        (sk for sk in getattr(_agent, "skills", []) or []
+                         if getattr(sk, "name", "") == skill_name),
+                        None,
+                    )
+                    if _skill and getattr(_skill, "mapping_rules", None):
+                        skill_prompt_variables = _skill.mapping_rules.get("prompt_variables", {}) or {}
+        except Exception as _spv_err:
+            logger.debug(f"[LLM] Could not load skill prompt_variables: {_spv_err}")
+
+        from agent.ec_skills.prompt_variable_providers import resolve_prompt_variables
+        format_context = resolve_prompt_variables(
+            variable_names=variables,
+            state=state,
+            mainwin=_mainwin,
+            prompt_variables=prompt_level_variables,
+            skill_prompt_variables=skill_prompt_variables,
+        )
 
         # Substitute {{var_name}} with values from format_context
         try:
@@ -3354,7 +3395,7 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
     msg_tpl = (config_metadata or {}).get("message") or ""
     wait_for_reply = bool((config_metadata or {}).get("wait_for_reply", False))
     def _chat(state: dict, *, runtime=None, store=None, **kwargs):
-        from agent.ec_skills.llm_utils.llm_utils import send_response_back
+        from agent.ec_tasks.message_sender import ChatMessageSender
         attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
         log_msg = f"🤖 Executing node Chat node: {node_name}"
         logger.debug(log_msg)
@@ -3363,22 +3404,64 @@ def build_chat_node(config_metadata: dict, node_name: str, skill_name: str, owne
         logger.debug("in chat node....", state)
 
 
-        # Try to deliver to GUI via TaskRunner helpers
+        # Try to deliver to GUI via ChatMessageSender (direct to GUI, no twin agent needed)
         try:
             llm_output = state["result"].get("llm_result", {})
-            # Extract next_prompt for display but preserve full llm_result for downstream conditions
+            # Extract displayable text from llm_result
             if isinstance(llm_output, dict):
-                response = llm_output.get("next_prompt", "some is not right....")
+                response = (
+                    llm_output.get("message") or
+                    llm_output.get("next_prompt") or
+                    llm_output.get("content") or
+                    llm_output.get("text") or
+                    ""
+                )
             else:
-                response = str(llm_output) if llm_output else "some is not right...."
+                response = str(llm_output) if llm_output else ""
 
             state["job_related"] = state["result"].get("job_related", False)
             # DO NOT overwrite llm_result - downstream condition nodes need the full dict
             # state["result"]["llm_result"] = response  # REMOVED: this was destroying condition data
 
-            # Clean up the response
-            # send_result = send_response_back(state)
-            logger.debug("just sent response back to GUI....")
+            # Send response directly to GUI via ChatMessageSender
+            chat_id = None
+            try:
+                # 1) attributes.chat_id (set by _node_state_baseline)
+                chat_id = attrs.get("chat_id") or None
+                # 2) attributes.params.chatId (legacy direct param)
+                if not chat_id:
+                    params = attrs.get("params", {})
+                    if isinstance(params, dict):
+                        chat_id = params.get("chatId")
+                        # 3) attributes.params.metadata.params.chatId (new A2A SDK)
+                        if not chat_id:
+                            meta_params = (params.get("metadata") or {}).get("params", {})
+                            if isinstance(meta_params, dict):
+                                chat_id = meta_params.get("chatId")
+                # 4) messages[1] (baseline stores chat_id there)
+                if not chat_id and isinstance(state.get("messages"), list) and len(state["messages"]) > 1:
+                    chat_id = state["messages"][1]
+            except Exception:
+                if isinstance(state.get("messages"), list) and len(state["messages"]) > 1:
+                    chat_id = state["messages"][1]
+
+            if chat_id and response and str(response).strip():
+                agent_id = state.get("messages", [""])[0] if isinstance(state.get("messages"), list) else ""
+                agent_obj = None
+                if agent_id:
+                    try:
+                        from agent.agent_service import get_agent_by_id
+                        agent_obj = get_agent_by_id(agent_id)
+                    except Exception:
+                        pass
+                sender = ChatMessageSender(agent_obj)
+                sender.send_text(chat_id, response)
+                logger.info(f"[chat_node] Sent response to GUI chat={chat_id}, len={len(response)}")
+                send_skill_editor_log("log", f"[chat_node] Sent response to GUI chat={chat_id}")
+            elif not response or not str(response).strip():
+                logger.debug("[chat_node] Skipping send: response text is empty")
+            else:
+                logger.warning(f"[chat_node] No chatId found, cannot send response to GUI")
 
         except Exception as e:
             err_msg = get_traceback(e, "ErrorBuildChatNode")
@@ -3593,7 +3676,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
     send_skill_editor_log("log", log_msg)
     # Load prompts using prompt loader (handles both inline and saved prompts)
     # Resolve prompt templates based on the selected prompt id first for initial config preview
-    resolved_system_prompt, resolved_user_prompt = _resolve_prompt_templates(
+    resolved_system_prompt, resolved_user_prompt, _browser_prompt_vars = _resolve_prompt_templates(
         prompt_selection,
         inline_system_prompt,
         inline_user_prompt,
@@ -4607,14 +4690,21 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
 
         # Find all variable placeholders (e.g., {{var_name}}) in the prompts
         variables = re.findall(r'\{\{(\w+)\}\}', active_system_prompt + active_user_prompt)
-        prompt_refs = state.get("prompt_refs", {}) if isinstance(state, dict) else {}
-        format_context = {}
-        for var in variables:
-            if var in prompt_refs:
-                format_context[var] = prompt_refs[var]
-            else:
-                logger.warning(f"[build_browser_automation_node] Variable '{{{{{{var}}}}}}' missing in prompt_refs; using empty string.")
-                format_context[var] = ""
+
+        # Use cascading variable resolution
+        _ba_mainwin = None
+        try:
+            from app_context import AppContext
+            _ba_mainwin = AppContext.get_main_window()
+        except Exception:
+            pass
+        from agent.ec_skills.prompt_variable_providers import resolve_prompt_variables
+        format_context = resolve_prompt_variables(
+            variable_names=variables,
+            state=state if isinstance(state, dict) else {},
+            mainwin=_ba_mainwin,
+            prompt_variables=_browser_prompt_vars,
+        )
 
         # Substitute {{var_name}} with values from format_context
         try:

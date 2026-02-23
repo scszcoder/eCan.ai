@@ -36,7 +36,7 @@ class DBAgentTask(BaseModel, TimestampMixin, ExtensibleMixin):
     # Task execution
     objectives = Column(JSON)    # List of objectives
     schedule = Column(JSON)      # Schedule configuration
-    trigger = Column(String(64)) # trigger type: manual, scheduled, event
+    trigger = Column(String(64)) # trigger type: schedule, message, auto
 
     # Task results
     progress = Column(Float, default=0.0)  # 0.0 to 1.0

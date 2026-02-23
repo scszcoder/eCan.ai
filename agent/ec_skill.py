@@ -396,8 +396,22 @@ def node_wrapper(fn, node_name, skill_name, owner):
     def wrapped(state, *, runtime: Runtime[WorkFlowContext], store: BaseStore, **kwargs):
         # Inject node name into context or config
         runtime.context["this_node"] = {"name": node_name, "skill_name": skill_name, "owner": owner}
-        return fn(state, runtime=runtime, store=store, **kwargs)
+        return _call_node_fn(fn, state, runtime, store)
     return wrapped
+
+
+def _call_node_fn(node_fn, state, runtime, store):
+    """Call node_fn with runtime/store kwargs if supported, else state-only.
+    
+    User-defined code nodes (build_basic_node) only accept state,
+    while LangGraph-aware nodes accept runtime/store kwargs.
+    """
+    try:
+        return node_fn(state, runtime=runtime, store=store)
+    except TypeError as te:
+        if "unexpected keyword argument" in str(te):
+            return node_fn(state)
+        raise
 
 
 def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retries=3, base_delay=1, jitter=0.5):
@@ -759,7 +773,7 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                 state["attributes"]["__this_node__"] = {"name": node_name, "skill_name": skill_name, "owner": owner}
                 
                 # Execute the actual node function
-                result = node_fn(state, runtime=runtime, store=store)
+                result = _call_node_fn(node_fn, state, runtime, store)
                 break  # success - exit retry loop
                 
             except Exception as e:

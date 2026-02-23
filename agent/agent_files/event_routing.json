@@ -1,0 +1,58 @@
+{
+  "_comment": "Global agent-level event routing. Single source of truth for event-to-task routing.",
+  "_schema": {
+    "task_selector": "Static match: 'id:<id>', 'name:<name>', 'name_contains:<substr>'",
+    "routing_key": "Legacy shorthand: dot-path to extract from event, auto-compared to task.id / skill.id",
+    "match_fields": "Array of {event_path, task_path, transform?} — declarative multi-field matching",
+    "match_mode": "'all' (default, AND) or 'any' (OR) — controls how match_fields pairs combine",
+    "transforms": "lower, upper, strip, str, int, prefix:<X>, suffix:<X>",
+    "queue": "Optional queue name hint"
+  },
+  "_example_match_fields": {
+    "_note": "Route websocket order updates to the task whose state.account_id matches the event's data.account_id",
+    "match_fields": [
+      {"event_path": "data.account_id", "task_path": "state.account_id"},
+      {"event_path": "data.store_id", "task_path": "state.store_id", "transform": "lower"}
+    ],
+    "match_mode": "all"
+  },
+  "event_routing": {
+    "human_chat": {
+      "task_selector": "name_contains:chat",
+      "queue": "chat_queue"
+    },
+    "dev_human_chat": {
+      "task_selector": "name_contains:development",
+      "queue": "chat_queue"
+    },
+    "a2a": {
+      "task_selector": "name_contains:chat",
+      "queue": "a2a_queue"
+    },
+    "api_response": {
+      "task_selector": "",
+      "queue": "",
+      "routing_key": "command.run_id"
+    },
+    "web_hook": {
+      "task_selector": "",
+      "queue": "",
+      "routing_key": "command.run_id"
+    },
+    "cloud_websocket": {
+      "task_selector": "",
+      "queue": "",
+      "routing_key": "command.run_id"
+    },
+    "web_sse": {
+      "task_selector": "",
+      "queue": "",
+      "routing_key": "command.run_id"
+    },
+    "passive_command": {
+      "task_selector": "",
+      "queue": "",
+      "routing_key": "command.run_id"
+    }
+  }
+}

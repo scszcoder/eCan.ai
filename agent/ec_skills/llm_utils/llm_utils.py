@@ -2429,11 +2429,6 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
             return state
             
         opposite_agent = find_opposite_agent(self_agent, chat_id)
-        
-        # If chat not found, log error and skip response
-        if opposite_agent is None:
-            logger.error(f"Cannot send response: chat {chat_id} not found or has no opposite agent")
-            return state
             
         msg_type = "text"
         qa_form = state["metadata"].get("qa_form", {})
@@ -2452,27 +2447,8 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
                 i_tag = ""
 
         msg_id = str(uuid.uuid4())
-        # send self a message to trigger the real component search work-flow
 
-        # The goal here is facilitate fomulating the message to be as close to this format as possible:
-        # frontend_message = {
-        #                 "content": {
-        #                     "type": dtype,
-        #                     "text": state["messages"][-1],
-        #                     "card": card,
-        #                     "i_tag": i_tag,
-        #                     "code": code,
-        #                     "form": form,
-        #                     "notification": notification,
-        #                 },
-        #                 "role": role,
-        #                 "senderId": senderId,
-        #                 "createAt": createAt,
-        #                 "senderName": senderName,
-        #                 "status": status,
-        #                 "ext": ext,
-        #             }
-        # as this is the format the GUI will take and display.
+        # Extract displayable message text from state result
         logger.debug("state result:",state["result"])
         if isinstance(state["result"], str):
             next_msg = state["messages"][-1]
@@ -2488,6 +2464,7 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
                         llm_result.get("next_prompt") or 
                         llm_result.get("content") or 
                         llm_result.get("text") or 
+                        llm_result.get("casual_chat_response") or
                         ""
                     )
                 else:
@@ -2501,27 +2478,37 @@ def send_response_back(state: "NodeState", force_send: bool = False) -> "NodeSta
             logger.debug("[send_response_back] Skipping send: message text is empty")
             return state
 
-        # Use standardized message builder
-        agent_response_message = build_a2a_response_message(
-            agent_id=agent_id,
-            chat_id=chat_id,
-            msg_id=msg_id,
-            task_id="",
-            msg_text=next_msg,
-            sender_name=self_agent.card.name,
-            msg_type=msg_type,
-            i_tag=i_tag,
-            attachments=state.get("attachments", []),
-            form=qa_form if qa_form else None,
-            notification=notification if notification else None,
-        )
-        logger.debug(f"sending response msg back to twin: {agent_response_message}")
-        # Use non-blocking send to avoid deadlock:
-        # A waits for B's response, B executes skill and sends response back to A
-        # If B uses blocking send, both A and B will wait for each other = DEADLOCK
-        send_result = self_agent.a2a_send_chat_message_async(opposite_agent, agent_response_message)
-        # state.result = result
-        return send_result
+        # If opposite agent exists (agent-to-agent chat), send via A2A
+        if opposite_agent is not None:
+            agent_response_message = build_a2a_response_message(
+                agent_id=agent_id,
+                chat_id=chat_id,
+                msg_id=msg_id,
+                task_id="",
+                msg_text=next_msg,
+                sender_name=self_agent.card.name,
+                msg_type=msg_type,
+                i_tag=i_tag,
+                attachments=state.get("attachments", []),
+                form=qa_form if qa_form else None,
+                notification=notification if notification else None,
+            )
+            logger.debug(f"[send_response_back] Sending response via A2A to {opposite_agent.card.name}")
+            send_result = self_agent.a2a_send_chat_message_async(opposite_agent, agent_response_message)
+            return send_result
+        else:
+            # No opposite agent found (human user chat) — send directly to GUI
+            from agent.ec_tasks.message_sender import ChatMessageSender
+            logger.info(f"[send_response_back] No opposite agent, sending directly to GUI chat={chat_id}")
+            sender = ChatMessageSender(self_agent)
+            content_type = msg_type
+            if msg_type == "form" and qa_form:
+                sender.send_form(chat_id, qa_form)
+            elif msg_type == "notification" and notification:
+                sender.send_notification(chat_id, notification)
+            else:
+                sender.send_text(chat_id, next_msg)
+            return state
     except Exception as e:
         err_trace = get_traceback(e, "ErrorSendResponseBack")
         logger.debug(err_trace)
