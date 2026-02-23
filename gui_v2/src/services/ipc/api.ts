@@ -141,7 +141,7 @@ export class IPCAPI {
      */
     public async executeRequest<T>(method: string, params?: unknown, timeout?: number): Promise<APIResponse<T>> {
         const startTs = Date.now();
-        console.log('[IPCAPI] executeRequest:start', method, { params, timeout });
+        // Removed verbose logging - errors and important events are still logged
         try {
             // All requests now go directly through IPC (Web Bridge deprecated)
             await this.ensureInitialized();
@@ -183,6 +183,14 @@ export class IPCAPI {
                         const { userStorageManager } = await import('../storage/UserStorageManager');
                         userStorageManager.removeToken();
                         logger.info('[IPCAPI] Cleared invalid token from storage');
+
+                        // Reset InitializationProgressManager singleton state so the login page
+                        // does not inherit a stale fully_ready=true from the previous session
+                        try {
+                            const { forceCleanupInitializationProgress } = await import('../../hooks/useInitializationProgress');
+                            forceCleanupInitializationProgress();
+                            logger.info('[IPCAPI] Cleared stale initialization progress state due to invalid token');
+                        } catch { /* ignore */ }
                         
                         // Show user notification (only once)
                         if (!sessionStorage.getItem('token_expired_notification_shown')) {

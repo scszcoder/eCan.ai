@@ -1,0 +1,269 @@
+name: 'Azure Trusted Signing'
+description: 'Sign Windows binaries using Azure Trusted Signing (cloud HSM, no private key on disk)'
+author: 'eCan.ai Team'
+
+inputs:
+  azure-tenant-id:
+    description: 'Azure AD Tenant ID'
+    required: true
+  azure-client-id:
+    description: 'Azure AD Application (Client) ID'
+    required: true
+  azure-client-secret:
+    description: 'Azure AD Client Secret'
+    required: true
+  endpoint:
+    description: 'Azure Trusted Signing endpoint URL (e.g. https://eus.codesigning.azure.net)'
+    required: true
+  account-name:
+    description: 'Trusted Signing account name'
+    required: true
+  certificate-profile-name:
+    description: 'Certificate profile name in the Trusted Signing account'
+    required: true
+  files-folder:
+    description: 'Folder containing files to sign'
+    required: true
+  files-folder-filter:
+    description: 'Glob filter for files to sign (e.g. exe,dll)'
+    required: false
+    default: 'exe,dll'
+  files-folder-recurse:
+    description: 'Recurse into subdirectories'
+    required: false
+    default: 'true'
+  timestamp-rfc3161:
+    description: 'RFC 3161 timestamp server URL'
+    required: false
+    default: 'http://timestamp.acs.microsoft.com'
+  timestamp-digest:
+    description: 'Timestamp digest algorithm'
+    required: false
+    default: 'SHA256'
+  file-digest:
+    description: 'File digest algorithm'
+    required: false
+    default: 'SHA256'
+  exclude-environment-credential:
+    description: 'Exclude environment credential from Azure auth'
+    required: false
+    default: 'false'
+
+outputs:
+  signing-result:
+    description: 'Result of signing operation (success or skipped)'
+    value: ${{ steps.sign.outputs.result }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Azure Trusted Signing client
+      id: install
+      shell: powershell
+      run: |
+        Write-Host "[AZURE-SIGN] Installing Azure Trusted Signing NuGet package..." -ForegroundColor Cyan
+
+        # Install NuGet CLI if not available
+        $nugetPath = "$env:RUNNER_TEMP\nuget.exe"
+        if (-not (Test-Path $nugetPath)) {
+          Write-Host "[AZURE-SIGN] Downloading NuGet CLI..." -ForegroundColor Yellow
+          Invoke-WebRequest -Uri "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe" `
+            -OutFile $nugetPath -UseBasicParsing
+        }
+
+        # Install Microsoft.Trusted.Signing.Client package
+        $packageDir = "$env:RUNNER_TEMP\trusted-signing"
+        New-Item -ItemType Directory -Force -Path $packageDir | Out-Null
+
+        Write-Host "[AZURE-SIGN] Installing Microsoft.Trusted.Signing.Client..." -ForegroundColor Yellow
+        & $nugetPath install Microsoft.Trusted.Signing.Client `
+          -OutputDirectory $packageDir `
+          -NonInteractive `
+          -Verbosity quiet
+
+        if ($LASTEXITCODE -ne 0) {
+          Write-Host "[AZURE-SIGN] [ERROR] Failed to install NuGet package" -ForegroundColor Red
+          exit 1
+        }
+
+        # Find the installed package and dlib path
+        $packagePath = Get-ChildItem -Path $packageDir -Filter "Microsoft.Trusted.Signing.Client.*" -Directory |
+          Sort-Object Name -Descending | Select-Object -First 1
+
+        if (-not $packagePath) {
+          Write-Host "[AZURE-SIGN] [ERROR] Package directory not found" -ForegroundColor Red
+          exit 1
+        }
+
+        # Find the signing dlib (platform-specific)
+        $dlibPath = Get-ChildItem -Path $packagePath.FullName -Filter "Azure.CodeSigning.Dlib.dll" -Recurse |
+          Where-Object { $_.FullName -match "win-x64" } |
+          Select-Object -First 1
+
+        if (-not $dlibPath) {
+          # Fallback: find any dlib
+          $dlibPath = Get-ChildItem -Path $packagePath.FullName -Filter "Azure.CodeSigning.Dlib.dll" -Recurse |
+            Select-Object -First 1
+        }
+
+        if (-not $dlibPath) {
+          Write-Host "[AZURE-SIGN] [ERROR] Azure.CodeSigning.Dlib.dll not found" -ForegroundColor Red
+          exit 1
+        }
+
+        Write-Host "[AZURE-SIGN] [OK] Found dlib: $($dlibPath.FullName)" -ForegroundColor Green
+        "dlib-path=$($dlibPath.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        "package-dir=$($packagePath.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+    - name: Create signing metadata file
+      id: metadata
+      shell: powershell
+      run: |
+        Write-Host "[AZURE-SIGN] Creating signing metadata..." -ForegroundColor Cyan
+
+        $metadataPath = "$env:RUNNER_TEMP\trusted-signing-metadata.json"
+
+        $metadata = @{
+          Endpoint = "${{ inputs.endpoint }}"
+          CodeSigningAccountName = "${{ inputs.account-name }}"
+          CertificateProfileName = "${{ inputs.certificate-profile-name }}"
+          ExcludeCredentials = @()
+        }
+
+        if ("${{ inputs.exclude-environment-credential }}" -eq "true") {
+          $metadata.ExcludeCredentials += "EnvironmentCredential"
+        }
+
+        $metadata | ConvertTo-Json -Depth 5 | Set-Content -Path $metadataPath -Encoding UTF8
+
+        Write-Host "[AZURE-SIGN] [OK] Metadata file created: $metadataPath" -ForegroundColor Green
+        Write-Host "[AZURE-SIGN] Endpoint: ${{ inputs.endpoint }}" -ForegroundColor Gray
+        Write-Host "[AZURE-SIGN] Account: ${{ inputs.account-name }}" -ForegroundColor Gray
+        Write-Host "[AZURE-SIGN] Profile: ${{ inputs.certificate-profile-name }}" -ForegroundColor Gray
+
+        "metadata-path=$metadataPath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+    - name: Sign files with Azure Trusted Signing
+      id: sign
+      shell: powershell
+      env:
+        AZURE_TENANT_ID: ${{ inputs.azure-tenant-id }}
+        AZURE_CLIENT_ID: ${{ inputs.azure-client-id }}
+        AZURE_CLIENT_SECRET: ${{ inputs.azure-client-secret }}
+      run: |
+        Write-Host "[AZURE-SIGN] Starting Azure Trusted Signing..." -ForegroundColor Cyan
+
+        $dlibPath = "${{ steps.install.outputs.dlib-path }}"
+        $metadataPath = "${{ steps.metadata.outputs.metadata-path }}"
+        $filesFolder = "${{ inputs.files-folder }}"
+        $filter = "${{ inputs.files-folder-filter }}"
+        $recurse = "${{ inputs.files-folder-recurse }}" -eq "true"
+        $timestampUrl = "${{ inputs.timestamp-rfc3161 }}"
+        $timestampDigest = "${{ inputs.timestamp-digest }}"
+        $fileDigest = "${{ inputs.file-digest }}"
+
+        # Find signtool
+        $signtool = Get-Command signtool -ErrorAction SilentlyContinue
+        if (-not $signtool) {
+          $sdkPaths = @(
+            "${env:ProgramFiles(x86)}\Windows Kits\10\bin",
+            "${env:ProgramFiles}\Windows Kits\10\bin"
+          )
+          foreach ($sdkPath in $sdkPaths) {
+            if (Test-Path $sdkPath) {
+              $found = Get-ChildItem -Path $sdkPath -Recurse -Filter "signtool.exe" -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -match "x64" } | Select-Object -First 1
+              if ($found) {
+                $signtool = $found.FullName
+                break
+              }
+            }
+          }
+        } else {
+          $signtool = $signtool.Source
+        }
+
+        if (-not $signtool) {
+          Write-Host "[AZURE-SIGN] [ERROR] signtool.exe not found" -ForegroundColor Red
+          exit 1
+        }
+
+        Write-Host "[AZURE-SIGN] Using signtool: $signtool" -ForegroundColor Gray
+
+        # Collect files to sign
+        $extensions = $filter -split "," | ForEach-Object { "*.$($_.Trim())" }
+        $filesToSign = @()
+
+        foreach ($ext in $extensions) {
+          if ($recurse) {
+            $filesToSign += Get-ChildItem -Path $filesFolder -Filter $ext -Recurse -File -ErrorAction SilentlyContinue
+          } else {
+            $filesToSign += Get-ChildItem -Path $filesFolder -Filter $ext -File -ErrorAction SilentlyContinue
+          }
+        }
+
+        # Filter out system DLLs (already signed by Microsoft)
+        $systemPatterns = @('api-ms-win-', 'ucrtbase', 'vcruntime', 'msvcp', 'concrt', 'vccorlib')
+        $thirdPartyPaths = @('ms-playwright', 'third_party')
+
+        $filesToSign = $filesToSign | Where-Object {
+          $name = $_.Name.ToLower()
+          $path = $_.FullName.ToLower()
+          $isSystem = $systemPatterns | Where-Object { $name.StartsWith($_) }
+          $isThirdParty = $thirdPartyPaths | Where-Object { $path -match $_ }
+          -not $isSystem -and -not $isThirdParty
+        }
+
+        if ($filesToSign.Count -eq 0) {
+          Write-Host "[AZURE-SIGN] No files found to sign in: $filesFolder" -ForegroundColor Yellow
+          "result=skipped" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          exit 0
+        }
+
+        Write-Host "[AZURE-SIGN] Files to sign: $($filesToSign.Count)" -ForegroundColor Cyan
+
+        $successCount = 0
+        $failCount = 0
+
+        foreach ($file in $filesToSign) {
+          Write-Host "[AZURE-SIGN] Signing: $($file.Name)" -ForegroundColor Yellow
+
+          # Build signtool command with Azure dlib
+          $signArgs = @(
+            "sign",
+            "/v",
+            "/fd", $fileDigest,
+            "/p7ce", "DetachedSignedData",
+            "/dlib", $dlibPath,
+            "/dmdf", $metadataPath,
+            "/tr", $timestampUrl,
+            "/td", $timestampDigest,
+            $file.FullName
+          )
+
+          $result = & $signtool @signArgs 2>&1
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "[AZURE-SIGN] [OK] Signed: $($file.Name)" -ForegroundColor Green
+            $successCount++
+          } else {
+            Write-Host "[AZURE-SIGN] [ERROR] Failed: $($file.Name)" -ForegroundColor Red
+            Write-Host $result -ForegroundColor Red
+            $failCount++
+          }
+        }
+
+        Write-Host ""
+        Write-Host "[AZURE-SIGN] ============================================" -ForegroundColor Cyan
+        Write-Host "[AZURE-SIGN] Signing complete: $successCount OK, $failCount FAILED" -ForegroundColor $(if ($failCount -eq 0) { "Green" } else { "Red" })
+        Write-Host "[AZURE-SIGN] ============================================" -ForegroundColor Cyan
+
+        if ($failCount -gt 0) {
+          "result=failed" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          exit 1
+        }
+
+        "result=success" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+branding:
+  icon: 'shield'
+  color: 'blue'

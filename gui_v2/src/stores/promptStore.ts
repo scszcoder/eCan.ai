@@ -19,26 +19,17 @@ export const usePromptStore = create<PromptStoreState>((set, get) => ({
   error: null,
   fetched: false,
   fetch: async (username: string, force = false) => {
-    console.log(`[promptStore] fetch called: username='${username}', force=${force}, loading=${get().loading}`);
     if (get().loading && !force) {
-      console.log('[promptStore] Skipping fetch - already loading');
       return;
     }
     set({ loading: true, error: null });
     try {
-      // Use getPrompts which routes through GraphQL getAllMine.prompts for web app
-      console.log('[promptStore] Calling IPCAPI.getPrompts...');
       const res: APIResponse<Prompt[] | { prompts: Prompt[] }> = await IPCAPI.getInstance().getPrompts(username);
-      console.log('[promptStore] getPrompts response:', JSON.stringify(res, null, 2));
       if (!res.success) throw new Error(res.error?.message || 'Failed to fetch prompts');
       // Handle both formats: direct array (from resultPath extraction) or { prompts: [...] }
       const rawPrompts = Array.isArray(res.data) 
         ? res.data 
         : (res.data as { prompts: Prompt[] })?.prompts ?? [];
-      console.log(`[promptStore] rawPrompts count: ${rawPrompts.length}`);
-      if (rawPrompts.length > 0) {
-        console.log('[promptStore] First raw prompt:', JSON.stringify(rawPrompts[0], null, 2));
-      }
       
       // Transform GraphQL format to frontend format
       // GraphQL returns: { id, owner, prompt: { title, sections, ... }, version }
@@ -70,7 +61,6 @@ export const usePromptStore = create<PromptStoreState>((set, get) => ({
         return p;
       });
       
-      console.log(`[promptStore] Processed ${incoming.length} prompts`);
       set({ prompts: incoming, loading: false, fetched: true });
     } catch (e: any) {
       console.error('[promptStore] Fetch error:', e);

@@ -5,6 +5,7 @@ import {
   UserOutlined,
   PlayCircleOutlined,
 } from '@ant-design/icons';
+import { useTranslation } from 'react-i18next';
 import styled from '@emotion/styled';
 import type { AvatarItem, AvatarSearchField, AvatarViewMode } from '../types';
 
@@ -193,6 +194,7 @@ const AvatarList: React.FC<AvatarListProps> = ({
   viewMode,
   onSelect,
 }) => {
+  const { t } = useTranslation();
   const [searchText, setSearchText] = useState('');
   const [searchField, setSearchField] = useState<AvatarSearchField>('name');
 
@@ -240,12 +242,12 @@ const AvatarList: React.FC<AvatarListProps> = ({
         )}
       </Thumb>
       <CardBody>
-        <AvatarName>{a.name || 'Untitled'}</AvatarName>
+        <AvatarName>{a.name || t('avatar.untitled')}</AvatarName>
         <AvatarId>{a.id}</AvatarId>
         <Rate disabled allowHalf value={a.rating ?? 0} style={{ fontSize: 12 }} />
         <MetaRow>
-          <Price free={!a.price}>{a.price ? `$${a.price.toFixed(2)}` : 'Free'}</Price>
-          <UserCount>{a.subscribers ?? 0} users</UserCount>
+          <Price free={!a.price}>{a.price ? `$${a.price.toFixed(2)}` : t('avatar.free')}</Price>
+          <UserCount>{a.subscribers ?? 0} {t('avatar.users')}</UserCount>
         </MetaRow>
       </CardBody>
     </Card>
@@ -261,14 +263,14 @@ const AvatarList: React.FC<AvatarListProps> = ({
         )}
       </ListThumb>
       <ListInfo>
-        <AvatarName>{a.name || 'Untitled'}</AvatarName>
+        <AvatarName>{a.name || t('avatar.untitled')}</AvatarName>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Rate disabled allowHalf value={a.rating ?? 0} style={{ fontSize: 11 }} />
-          <Price free={!a.price}>{a.price ? `$${a.price.toFixed(2)}` : 'Free'}</Price>
-          <UserCount>{a.subscribers ?? 0} users</UserCount>
+          <Price free={!a.price}>{a.price ? `$${a.price.toFixed(2)}` : t('avatar.free')}</Price>
+          <UserCount>{a.subscribers ?? 0} {t('avatar.users')}</UserCount>
         </div>
       </ListInfo>
-      {a.is_public && <Tag color="blue" style={{ marginLeft: 'auto', alignSelf: 'center' }}>Public</Tag>}
+      {a.is_public && <Tag color="blue" style={{ marginLeft: 'auto', alignSelf: 'center' }}>{t('avatar.public')}</Tag>}
     </ListRow>
   );
 
@@ -282,13 +284,13 @@ const AvatarList: React.FC<AvatarListProps> = ({
           style={{ width: 120 }}
           popupMatchSelectWidth={false}
         >
-          <Option value="name">Name</Option>
-          <Option value="artist">Author</Option>
-          <Option value="style">Style</Option>
-          <Option value="popularity">Popularity</Option>
+          <Option value="name">{t('avatar.search_field_name')}</Option>
+          <Option value="artist">{t('avatar.search_field_author')}</Option>
+          <Option value="style">{t('avatar.search_field_style')}</Option>
+          <Option value="popularity">{t('avatar.search_field_popularity')}</Option>
         </Select>
         <Input
-          placeholder={`Search by ${searchField}…`}
+          placeholder={t('avatar.search_placeholder', { field: t(`avatar.search_field_${searchField}`) })}
           prefix={<SearchOutlined style={{ color: 'rgba(148,163,184,0.5)' }} />}
           size="small"
           allowClear
@@ -302,7 +304,7 @@ const AvatarList: React.FC<AvatarListProps> = ({
         {loading ? (
           <div style={{ textAlign: 'center', padding: 48 }}><Spin /></div>
         ) : sorted.length === 0 ? (
-          <Empty description="No avatars found" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ marginTop: 48 }} />
+          <Empty description={t('avatar.no_avatars_found')} image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ marginTop: 48 }} />
         ) : viewMode === 'grid' ? (
           <GridContainer>
             {sorted.map(renderGridCard)}

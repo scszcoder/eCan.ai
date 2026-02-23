@@ -167,6 +167,10 @@ deploy_frontend() {
     fi
 
     export NODE_OPTIONS="--max-old-space-size=3072"
+    # Web deployment: set VITE_TARGET=web so vite.config.ts uses '/app/gui-v2/' as base
+    # Desktop/PyInstaller builds omit this (defaults to VITE_TARGET=desktop → './')
+    export VITE_TARGET="web"
+
     if command -v pnpm &> /dev/null; then
         pnpm run build
     elif [ -f "$HOME/.local/share/pnpm/pnpm" ]; then

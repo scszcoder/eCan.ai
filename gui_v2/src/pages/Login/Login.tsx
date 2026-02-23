@@ -8,7 +8,7 @@ import { APIResponse, IPCAPI } from '../../services/ipc/api';
 import { get_ipc_api } from '../../services/ipc_api';
 import { userStorageManager, type LoginSession } from '../../services/storage/UserStorageManager';
 import { pageRefreshManager } from '../../services/events/PageRefreshManager';
-import { useInitializationProgress } from '../../hooks/useInitializationProgress';
+import { useInitializationProgress, forceCleanupInitializationProgress } from '../../hooks/useInitializationProgress';
 import { tokenRefreshService } from '../../services/auth/tokenRefreshService';
 import LoadingProgress from '../../components/LoadingProgress/LoadingProgress';
 import { isWebPlatform } from '../../config/platform';
@@ -62,6 +62,12 @@ const Login: React.FC = () => {
 
 	// Poll backend initialization progress during login
 	const { progress: initProgress } = useInitializationProgress(loading || showInitProgress);
+
+	// On mount: reset stale singleton state from previous session so that a cached
+	// fully_ready=true cannot cause an immediate redirect before the user logs in.
+	useEffect(() => {
+		forceCleanupInitializationProgress();
+	}, []);
 
 	// 标准跳转逻辑：仅当系统初始化就绪且登录成功时才跳转到主页面
 	useEffect(() => {

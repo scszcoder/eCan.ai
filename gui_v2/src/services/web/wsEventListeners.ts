@@ -18,16 +18,12 @@ let listenersInitialized = false;
  */
 export function initWebSocketEventListeners(): void {
   if (listenersInitialized) {
-    console.log('[WSListeners] Already initialized');
     return;
   }
-
-  console.log('[WSListeners] Initializing WebSocket event listeners...');
 
   // ==================== Chat Events ====================
 
   eventBus.on('ws:push_chat_message', (data: any) => {
-    console.log('[WSListeners] Received push_chat_message:', data);
     const chatStore = useChatStore.getState();
     if (data.chatId && data.message) {
       chatStore.addMessage(data.chatId, data.message);
@@ -39,11 +35,6 @@ export function initWebSocketEventListeners(): void {
   // ==================== Skill Run Events ====================
 
   eventBus.on('ws:update_skill_run_stat', (data: any) => {
-    console.log('[WSListeners] Received update_skill_run_stat:', {
-      agentTaskId: data.agentTaskId,
-      currentNode: data.currentNode || data.current_node,
-      status: data.status
-    });
     
     const runningNodeStore = useRunningNodeStore.getState();
     const runtimeStateStore = useRuntimeStateStore.getState();
@@ -68,7 +59,6 @@ export function initWebSocketEventListeners(): void {
   // No store updates needed here.
 
   listenersInitialized = true;
-  console.log('[WSListeners] ✅ WebSocket event listeners initialized');
 }
 
 /**
@@ -78,5 +68,4 @@ export function cleanupWebSocketEventListeners(): void {
   // Note: eventBus.off would need to be implemented to properly clean up
   // For now, we just mark as not initialized
   listenersInitialized = false;
-  console.log('[WSListeners] Cleaned up WebSocket event listeners');
 }

@@ -574,11 +574,22 @@
       "sign": {
         "enabled": true,
         "tool": "signtool",
-        "certificate": "build_system/certificates/test_certificate.pfx",
-        "password": "${CERT_PASSWORD}",
-        "default_password": "test123",
         "algorithm": "SHA256",
-        "timestamp_url": "http://timestamp.digicert.com"
+        "azure_trusted_signing": {
+          "enabled": true,
+          "note": "Primary method. Private key stays in Azure HSM. Set env vars: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, AZURE_SIGNING_ENDPOINT, AZURE_SIGNING_ACCOUNT, AZURE_SIGNING_PROFILE",
+          "timestamp_url": "http://timestamp.acs.microsoft.com",
+          "endpoint": "${AZURE_SIGNING_ENDPOINT}",
+          "account": "${AZURE_SIGNING_ACCOUNT}",
+          "profile": "${AZURE_SIGNING_PROFILE}"
+        },
+        "pfx_fallback": {
+          "enabled": true,
+          "note": "Fallback when Azure Trusted Signing is not configured. Set env vars: WIN_CERT_PFX (base64), WIN_CERT_PASSWORD",
+          "certificate": "${WIN_CERT_PFX}",
+          "password": "${WIN_CERT_PASSWORD}",
+          "timestamp_url": "http://timestamp.digicert.com"
+        }
       }
     },
     "linux": {
