@@ -729,12 +729,44 @@ class LightragServer:
                 # Embedding
                 embed_provider = env.get('EMBEDDING_BINDING', 'Unknown')
                 embed_model = env.get('EMBEDDING_MODEL', 'Unknown')
+                embed_dim = env.get('EMBEDDING_DIM', 'Unknown')
                 summary.append(f"🧠 Embedding Provider: {embed_provider}")
                 summary.append(f"   Embedding Model:   {embed_model}")
+                summary.append(f"   Embedding Dim:     {embed_dim}")
                 if env.get('EMBEDDING_BINDING_HOST'):
                     summary.append(f"   Embedding Host:    {env.get('EMBEDDING_BINDING_HOST')}")
                 if env.get('EMBEDDING_BINDING_API_KEY'):
                     summary.append(f"   Embedding Key:     {self._mask_env_value('EMBEDDING_API_KEY', env['EMBEDDING_BINDING_API_KEY'])}")
+                
+                # Check FAISS index dimension mismatch
+                try:
+                    working_dir = env.get('WORKING_DIR')
+                    workspace = env.get('WORKSPACE')
+                    if working_dir and workspace:
+                        faiss_index_path = os.path.join(working_dir, workspace, 'vdb_entities.index')
+                        if os.path.exists(faiss_index_path):
+                            # Try to read FAISS index dimension
+                            try:
+                                import struct
+                                with open(faiss_index_path, 'rb') as f:
+                                    # FAISS index format: first 4 bytes are dimension (little-endian int)
+                                    f.seek(0)
+                                    header = f.read(8)
+                                    if len(header) >= 4:
+                                        existing_dim = struct.unpack('<i', header[:4])[0]
+                                        if existing_dim > 0 and existing_dim < 100000:  # Sanity check
+                                            if str(existing_dim) != str(embed_dim):
+                                                summary.append(f"   ⚠️  WARNING: Dimension mismatch detected!")
+                                                summary.append(f"       Config dimension:   {embed_dim}")
+                                                summary.append(f"       Existing FAISS dim: {existing_dim}")
+                                                summary.append(f"       → Please clear cache to rebuild index with correct dimension")
+                                                logger.warning(f"[LightRAG] Embedding dimension mismatch: config={embed_dim}, existing FAISS={existing_dim}")
+                                            else:
+                                                summary.append(f"   ✅ FAISS index dimension matches config ({existing_dim})")
+                            except Exception as e:
+                                logger.debug(f"[LightRAG] Could not read FAISS index dimension: {e}")
+                except Exception as e:
+                    logger.debug(f"[LightRAG] Error checking FAISS dimension: {e}")
 
                 # Rerank
                 rerank_provider = env.get('RERANK_BINDING', 'null')
@@ -751,7 +783,8 @@ class LightragServer:
 
                 # Storage
                 summary.append("-" * 20 + " Storage " + "-" * 20)
-                summary.append(f"📦 KV Storage:        {env.get('LIGHTRAG_KV_STORAGE', 'Default')}")
+                summary.append(f"� Workspace:         {env.get('WORKSPACE', 'Unknown')}")
+                summary.append(f"�📦 KV Storage:        {env.get('LIGHTRAG_KV_STORAGE', 'Default')}")
                 summary.append(f"📊 Vector Storage:    {env.get('LIGHTRAG_VECTOR_STORAGE', 'Default')}")
                 summary.append(f"🕸️ Graph Storage:     {env.get('LIGHTRAG_GRAPH_STORAGE', 'Default')}")
                 summary.append(f"📄 Doc Status:        {env.get('LIGHTRAG_DOC_STATUS_STORAGE', 'Default')}")

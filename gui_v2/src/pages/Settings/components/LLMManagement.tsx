@@ -958,10 +958,11 @@ const LLMManagement = React.forwardRef<
   // Initialize loading - wait for settings to load before loading providers
   useEffect(() => {
     if (username && settingsLoaded) {
+      console.log('🔄 [LLMManagement] Conditions met, loading providers...');
       loadProviders();
       // No longer call loadDefaultLLM() as defaultLLM is passed from Settings page
     }
-  }, [username, settingsLoaded]);
+  }, [username, settingsLoaded, loadProviders]);
 
   // If user is not logged in
   if (!username) {
@@ -981,12 +982,13 @@ const LLMManagement = React.forwardRef<
       dataIndex: "display_name",
       key: "display_name",
       width: 150,
+      ellipsis: true,
     },
     {
       title: t("pages.settings.status"),
       dataIndex: "api_key_configured",
       key: "status",
-      width: 100,
+      width: 120,
       render: (isConfigured: boolean) => (
         <span style={{ color: isConfigured ? "#52c41a" : "#ff4d4f" }}>
           {isConfigured
@@ -999,7 +1001,8 @@ const LLMManagement = React.forwardRef<
       title: t("pages.settings.api_key"),
       dataIndex: "api_key",
       key: "api_key",
-      width: 350,
+      minWidth: 200,
+      ellipsis: true,
       render: (_: any, record: LLMProvider) => {
         const isEditing = editingProvider === record.name;
 
@@ -1333,7 +1336,8 @@ const LLMManagement = React.forwardRef<
     {
       title: t("pages.settings.llm_model"),
       key: "model",
-      width: 250,
+      width: 220,
+      ellipsis: true,
       render: (_: any, record: LLMProvider) => {
         // Check if this is Ollama provider
         if (isOllamaProvider(record)) {
@@ -1502,7 +1506,7 @@ const LLMManagement = React.forwardRef<
       title: t("pages.settings.default"),
       dataIndex: "name",
       key: "default",
-      width: 80,
+      width: 90,
       render: (name: string, record: LLMProvider) => {
         // Compare defaultLLM against all known identifiers for this provider
         // (settings may store class_name like "ChatOpenAI", provider id like "openai", or display name like "OpenAI")
@@ -1535,7 +1539,8 @@ const LLMManagement = React.forwardRef<
     {
       title: t("pages.settings.actions"),
       key: "actions",
-      width: "15%",
+      width: 140,
+      fixed: 'right' as const,
       render: (_: any, record: LLMProvider) => {
         // Ollama specific actions
         if (isOllamaProvider(record)) {
@@ -1690,7 +1695,8 @@ const LLMManagement = React.forwardRef<
         loading={loading}
         pagination={false}
         size="small"
-        scroll={{ y: 'calc(100vh - 280px)', x: undefined }}
+        scroll={{ y: 'calc(100vh - 280px)', x: 'max-content' }}
+        style={{ minWidth: '100%' }}
       />
     </div>
   );

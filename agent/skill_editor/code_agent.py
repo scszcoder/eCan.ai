@@ -809,15 +809,28 @@ class CodeAgent:
                     masked_key = api_key[:8] + "..." + api_key[-4:] if len(api_key) > 12 else "***"
                     logger.info(f"[CodeAgent] Provider '{name}': API key = {masked_key}")
             
-            # For skill editor, prefer OpenAI for complex flowgram generation
-            # Override default if OpenAI is available
-            skill_editor_llm = default_llm
-            if any(p.get('name', '').lower() == 'openai' for p in llm_providers):
-                skill_editor_llm = 'openai'
-                logger.info(f"[CodeAgent] Overriding default LLM '{default_llm}' with 'openai' for skill editor")
-            
+            # TODO: QUESTIONABLE CODE - Currently commented out, pending review
+            # This code was originally intended to prefer OpenAI for complex flowgram generation,
+            # but it has several issues:
+            # 1. It forcibly overrides user's LLM configuration choice
+            # 2. It caused RyoAIS and other custom LLMs to be ignored even when explicitly configured
+            # 3. It assumes OpenAI is always better for skill editor tasks (not necessarily true)
+            # 
+            # Decision: Keep code commented for now, review later to determine if:
+            # - This optimization is actually needed for flowgram generation quality
+            # - If needed, implement it in a way that respects user configuration
+            # - Or delete if proven unnecessary
+            #
+            # Related issue: RyoAIS was being forced to OpenAI, causing 5+ minute response times
+            # 
+            # # For skill editor, prefer OpenAI for complex flowgram generation
+            # # Override default if OpenAI is available
+            # skill_editor_llm = default_llm
+            # if any(p.get('name', '').lower() == 'openai' for p in llm_providers):
+            #     skill_editor_llm = 'openai'
+            #     logger.info(f"[CodeAgent] Overriding default LLM '{default_llm}' with 'openai' for skill editor")
             llm_instance = pick_llm(
-                default_llm=skill_editor_llm,
+                default_llm=default_llm,
                 llm_providers=llm_providers,
                 config_manager=config_manager,
                 allow_fallback=True

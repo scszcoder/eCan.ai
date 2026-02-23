@@ -474,9 +474,11 @@ def handle_clear_cache(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
     """
     Handle clear cache request.
     Clears LLM cache and deletes all storage data files (vector DB, graph DB, etc.).
+    After deletion, automatically recreates the necessary initialization files.
     """
     try:
         import shutil
+        import json
         from pathlib import Path
         from knowledge.lightrag_config_manager import get_config_manager
         
@@ -515,9 +517,67 @@ def handle_clear_cache(request: IPCRequest, params: Optional[Dict[str, Any]]) ->
             
             logger.info(f"[ClearCache] Deleted {len(deleted_items)} items")
             
+            # Step 3: Recreate necessary initialization files for the working directory
+            try:
+                logger.info(f"[ClearCache] Recreating initialization files in: {working_dir}")
+                
+                # Create the working directory if it doesn't exist
+                os.makedirs(working_dir, exist_ok=True)
+                
+                # Create essential KV store files with empty JSON objects
+                kv_files = [
+                    'kv_store_doc_status.json',
+                    'kv_store_full_docs.json', 
+                    'kv_store_llm_response_cache.json'
+                ]
+                
+                for kv_file in kv_files:
+                    kv_path = os.path.join(working_dir, kv_file)
+                    with open(kv_path, 'w', encoding='utf-8') as f:
+                        json.dump({}, f)
+                    logger.info(f"[ClearCache] Created: {kv_file}")
+                
+                logger.info(f"[ClearCache] ✅ Initialization files recreated successfully")
+                
+            except Exception as e:
+                error_msg = f"Failed to recreate initialization files: {str(e)}"
+                errors.append(error_msg)
+                logger.error(f"[ClearCache] {error_msg}")
+            
+            # Step 4: Restart LightRAG server to clear all in-memory state
+            try:
+                logger.info(f"[ClearCache] Restarting LightRAG server to clear in-memory state...")
+                from app_context import AppContext
+                main_window = AppContext.get_main_window()
+                
+                if main_window and hasattr(main_window, 'lightrag_server') and main_window.lightrag_server:
+                    # Stop the server
+                    main_window.lightrag_server.stop()
+                    logger.info(f"[ClearCache] LightRAG server stopped")
+                    
+                    # Wait a moment for cleanup
+                    import time
+                    time.sleep(1)
+                    
+                    # Start the server again
+                    success = main_window.lightrag_server.start(wait_ready=True)
+                    if success:
+                        logger.info(f"[ClearCache] ✅ LightRAG server restarted successfully")
+                    else:
+                        error_msg = "Failed to restart LightRAG server"
+                        errors.append(error_msg)
+                        logger.error(f"[ClearCache] {error_msg}")
+                else:
+                    logger.warning(f"[ClearCache] LightRAG server not found, skipping restart")
+                    
+            except Exception as e:
+                error_msg = f"Failed to restart LightRAG server: {str(e)}"
+                errors.append(error_msg)
+                logger.error(f"[ClearCache] {error_msg}")
+            
             return create_success_response(request, {
                 'status': 'success',
-                'message': f'Successfully cleared cache and deleted {len(deleted_items)} items',
+                'message': f'Successfully cleared cache, deleted {len(deleted_items)} items, and recreated initialization files',
                 'deleted_items': deleted_items,
                 'errors': errors
             })

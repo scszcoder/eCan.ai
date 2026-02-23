@@ -136,7 +136,7 @@ def handle_get_agent_skills(request: IPCRequest, params: Optional[Dict[str, Any]
             cloud_sk['_source'] = 'cloud'
             skills_dicts.append(cloud_sk)
             cloud_added += 1
-        
+
         if cloud_skipped_deleted > 0:
             logger.info(f"[skill_handler] Skipped {cloud_skipped_deleted} cloud skills that were deleted locally")
 
@@ -232,6 +232,74 @@ def _fetch_cloud_skills(request=None, params=None) -> list:
                     f"name={sample.get('name')}, owner={sample.get('owner')}")
 
     return result
+
+
+
+@IPCHandlerRegistry.handler('get_subscribed_skill_ids')
+def handle_get_subscribed_skill_ids(request: IPCRequest, params: Optional[Dict[str, Any]]) -> IPCResponse:
+    """Get list of subscribed skill IDs for a user
+
+    Args:
+        request: IPC request object
+        params: Request parameters containing 'owner' or 'username'
+
+    Returns:
+        List of skill IDs that the user has subscribed to
+    """
+    try:
+        # Resolve username from params
+        username = resolve_username(request, params)
+        if not username:
+            logger.warning(f"Invalid parameters for get subscribed skill IDs: Missing username")
+            return create_error_response(
+                request,
+                'INVALID_PARAMS',
+                'Missing required parameter: username (or owner/userId)'
+            )
+
+        logger.info(f"Getting subscribed skill IDs for user: {username}")
+
+        # Get context to access database
+        ctx = get_handler_context(request, params)
+        if not ctx:
+            logger.warning("[skill_handler] No context available for get_subscribed_skill_ids")
+            return create_success_response(request, [])
+
+        ec_db_mgr = ctx.get_ec_db_mgr()
+        if not ec_db_mgr:
+            logger.warning("[skill_handler] No database manager available")
+            return create_success_response(request, [])
+
+        # Get skill service
+        skill_service = ec_db_mgr.skill_service
+        if not skill_service:
+            logger.warning("[skill_handler] No skill service available")
+            return create_success_response(request, [])
+
+        # Get all skills for the user
+        skills_result = skill_service.get_skills_by_owner(username)
+        if not skills_result.get('success'):
+            logger.warning(f"[skill_handler] Failed to get skills: {skills_result.get('error')}")
+            return create_success_response(request, [])
+
+        skills = skills_result.get('data', [])
+
+        # Extract skill IDs from subscribed skills
+        # For now, return all skill IDs as we don't have a separate subscription mechanism
+        # In the future, this could filter based on a subscription status field
+        skill_ids = [skill.get('id') for skill in skills if skill.get('id')]
+
+        logger.info(f"[skill_handler] Found {len(skill_ids)} subscribed skill IDs for user {username}")
+        return create_success_response(request, skill_ids)
+
+    except Exception as e:
+        logger.error(f"[skill_handler] Error getting subscribed skill IDs: {e}")
+        traceback.print_exc()
+        return create_error_response(
+            request,
+            'GET_SUBSCRIBED_SKILL_IDS_ERROR',
+            f"Error getting subscribed skill IDs: {str(e)}"
+        )
 
 
 @IPCHandlerRegistry.handler('get_public_skills')
