@@ -9,6 +9,7 @@ import { useAdStore } from '@/stores/adStore';
 import { localWebSocketClient } from './localWebSocketClient';
 import { initWebSocketEventListeners } from './wsEventListeners';
 import { unifiedEventHandler, createStandardizedEvent } from '@/services/events/unifiedEventHandler';
+import { detectPlatform } from '@/config/platform';
 
 const DEFAULT_WS_ENDPOINT = 'wss://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-realtime-api.us-east-1.amazonaws.com/graphql';
 const DEFAULT_WS_HOST = '3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com';
@@ -31,7 +32,7 @@ let userStoreUnsubscribe: (() => void) | null = null;
 let currentA2AChannelId: string | null = null;
 let a2aSubscriptionId: string | null = null;
 
-const getEnv = () => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {});
+const getEnv = () => (typeof import.meta !== 'undefined' && import.meta.env ? import.meta.env : {}) as Record<string, string | undefined>;
 
 const toBase64 = (value: string) => {
   try {
@@ -190,10 +191,16 @@ const connectWebSocket = (owner: string) => {
   });
 
   if (!apiKey) {
-    logger.warn('[AppSyncSubscriptions] Missing API key; AppSync subscriptions disabled');
+    const platform = detectPlatform();
+    if (platform === 'web') {
+      // In web mode, missing API key is a real configuration problem
+      logger.warn('[AppSyncSubscriptions] Missing API key in web mode; AppSync subscriptions disabled');
+    } else {
+      // In desktop mode, no API key is expected - use local WebSocket instead
+      logger.debug('[AppSyncSubscriptions] No API key - desktop mode, using local WebSocket instead');
+    }
     
-    // In desktop mode (no API key), connect to local WebSocket instead
-    // The Python backend subscribes to AppSync and forwards notifications via local WebSocket
+    // Connect to local WebSocket (desktop mode: primary channel; web mode: fallback)
     console.log('[AppSyncSubscriptions] Attempting to connect local WebSocket for desktop mode...');
     initWebSocketEventListeners();
     // Force=true to bypass shouldUseLocalWebSocket check - we already know we need it

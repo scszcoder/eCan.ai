@@ -13,6 +13,230 @@ import re
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+def _is_system_dll(file_path: Path) -> bool:
+    """Module-level helper: return True for system/third-party DLLs that must not be re-signed."""
+    path_str = str(file_path).lower()
+    filename = file_path.name.lower()
+    third_party_paths = ['third_party\\', 'third_party/', 'ms-playwright\\', 'ms-playwright/']
+    if any(tp in path_str for tp in third_party_paths):
+        return True
+    system_patterns = ['api-ms-win-', 'api-ms-win-crt-', 'ucrtbase', 'vcruntime', 'msvcp', 'concrt', 'vccorlib']
+    third_party_apps = ['chrome.exe', 'chrome.dll', 'firefox.exe', 'webkit.exe']
+    if any(filename.startswith(p) for p in system_patterns):
+        return True
+    if any(app in filename for app in third_party_apps):
+        return True
+    return False
+
+
+class AzureTrustedSigningManager:
+    """
+    Azure Trusted Signing (cloud HSM) manager for Windows code signing.
+    
+    Private key never leaves Azure HSM. Uses service principal authentication.
+    
+    Required environment variables:
+        AZURE_TENANT_ID        - Azure AD Tenant ID
+        AZURE_CLIENT_ID        - Service Principal Application ID
+        AZURE_CLIENT_SECRET    - Service Principal Secret
+        AZURE_SIGNING_ENDPOINT - e.g. https://eus.codesigning.azure.net
+        AZURE_SIGNING_ACCOUNT  - Trusted Signing account name
+        AZURE_SIGNING_PROFILE  - Certificate profile name
+    """
+
+    TIMESTAMP_URL = "http://timestamp.acs.microsoft.com"
+    NUGET_PACKAGE = "Microsoft.Trusted.Signing.Client"
+
+    def __init__(self, project_root: Path = None):
+        self.project_root = project_root or Path.cwd()
+        self.dist_dir = self.project_root / "dist"
+        self._package_dir: Optional[Path] = None
+        self._dlib_path: Optional[Path] = None
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def is_configured(self) -> bool:
+        """Return True when all required env vars are present."""
+        required = [
+            "AZURE_TENANT_ID",
+            "AZURE_CLIENT_ID",
+            "AZURE_CLIENT_SECRET",
+            "AZURE_SIGNING_ENDPOINT",
+            "AZURE_SIGNING_ACCOUNT",
+            "AZURE_SIGNING_PROFILE",
+        ]
+        missing = [k for k in required if not os.getenv(k)]
+        if missing:
+            print(f"[AZURE-SIGN] Missing env vars: {', '.join(missing)}")
+            return False
+        return True
+
+    def sign_windows_artifacts(self, files_folder: Optional[Path] = None) -> bool:
+        """Sign all EXE/DLL files in *files_folder* (default: dist/)."""
+        if not self.is_configured():
+            print("[AZURE-SIGN] Azure Trusted Signing not configured – skipping")
+            return False
+
+        folder = files_folder or self.dist_dir
+        print(f"[AZURE-SIGN] Signing artifacts in: {folder}")
+
+        if not self._ensure_dlib():
+            return False
+
+        metadata_path = self._write_metadata()
+        if not metadata_path:
+            return False
+
+        signtool = self._find_signtool()
+        if not signtool:
+            print("[AZURE-SIGN] signtool.exe not found")
+            return False
+
+        files = self._collect_files(folder)
+        if not files:
+            print("[AZURE-SIGN] No files to sign")
+            return True
+
+        ok = sum(1 for f in files if self._sign_one(f, signtool, metadata_path))
+        print(f"[AZURE-SIGN] Done: {ok}/{len(files)} files signed")
+        return ok == len(files)
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _ensure_dlib(self) -> bool:
+        """Install NuGet package and locate the signing dlib."""
+        if self._dlib_path and self._dlib_path.exists():
+            return True
+
+        import tempfile, shutil
+        tmp = Path(tempfile.gettempdir()) / "azure-trusted-signing"
+        tmp.mkdir(parents=True, exist_ok=True)
+
+        nuget = self._get_nuget(tmp)
+        if not nuget:
+            return False
+
+        pkg_dir = tmp / "packages"
+        pkg_dir.mkdir(exist_ok=True)
+
+        print(f"[AZURE-SIGN] Installing {self.NUGET_PACKAGE}...")
+        result = subprocess.run(
+            [str(nuget), "install", self.NUGET_PACKAGE,
+             "-OutputDirectory", str(pkg_dir),
+             "-NonInteractive", "-Verbosity", "quiet"],
+            capture_output=True, text=True, timeout=120
+        )
+        if result.returncode != 0:
+            print(f"[AZURE-SIGN] NuGet install failed: {result.stderr.strip()}")
+            return False
+
+        # Locate dlib (prefer win-x64)
+        candidates = list(pkg_dir.rglob("Azure.CodeSigning.Dlib.dll"))
+        preferred = [c for c in candidates if "win-x64" in str(c)]
+        dlib = (preferred or candidates)
+        if not dlib:
+            print("[AZURE-SIGN] Azure.CodeSigning.Dlib.dll not found in package")
+            return False
+
+        self._dlib_path = dlib[0]
+        print(f"[AZURE-SIGN] dlib: {self._dlib_path}")
+        return True
+
+    def _get_nuget(self, tmp: Path) -> Optional[Path]:
+        """Download nuget.exe if not present."""
+        nuget = tmp / "nuget.exe"
+        if nuget.exists():
+            return nuget
+        try:
+            import urllib.request
+            print("[AZURE-SIGN] Downloading nuget.exe...")
+            urllib.request.urlretrieve(
+                "https://dist.nuget.org/win-x86-commandline/latest/nuget.exe",
+                str(nuget)
+            )
+            return nuget
+        except Exception as e:
+            print(f"[AZURE-SIGN] Failed to download nuget.exe: {e}")
+            return None
+
+    def _write_metadata(self) -> Optional[Path]:
+        """Write the JSON metadata file consumed by the dlib."""
+        import tempfile
+        meta = {
+            "Endpoint": os.getenv("AZURE_SIGNING_ENDPOINT", ""),
+            "CodeSigningAccountName": os.getenv("AZURE_SIGNING_ACCOUNT", ""),
+            "CertificateProfileName": os.getenv("AZURE_SIGNING_PROFILE", ""),
+            "ExcludeCredentials": [],
+        }
+        path = Path(tempfile.gettempdir()) / "azure-signing-metadata.json"
+        try:
+            path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+            return path
+        except Exception as e:
+            print(f"[AZURE-SIGN] Failed to write metadata: {e}")
+            return None
+
+    def _find_signtool(self) -> Optional[str]:
+        """Locate signtool.exe on the system."""
+        try:
+            result = subprocess.run(["signtool"], capture_output=True, timeout=5)
+            return "signtool"
+        except FileNotFoundError:
+            pass
+
+        sdk_roots = [
+            r"C:\Program Files (x86)\Windows Kits\10\bin",
+            r"C:\Program Files\Windows Kits\10\bin",
+        ]
+        for root in sdk_roots:
+            root_path = Path(root)
+            if not root_path.exists():
+                continue
+            for candidate in sorted(root_path.iterdir(), reverse=True):
+                st = candidate / "x64" / "signtool.exe"
+                if st.exists():
+                    return str(st)
+        return None
+
+    def _collect_files(self, folder: Path):
+        """Collect EXE/DLL files, excluding system and third-party binaries."""
+        all_files = list(folder.rglob("*.exe")) + list(folder.rglob("*.dll"))
+        return [f for f in all_files if not _is_system_dll(f)]
+
+    def _sign_one(self, file_path: Path, signtool: str, metadata_path: Path) -> bool:
+        """Sign a single file via Azure Trusted Signing dlib."""
+        env = os.environ.copy()
+        env.update({
+            "AZURE_TENANT_ID": os.getenv("AZURE_TENANT_ID", ""),
+            "AZURE_CLIENT_ID": os.getenv("AZURE_CLIENT_ID", ""),
+            "AZURE_CLIENT_SECRET": os.getenv("AZURE_CLIENT_SECRET", ""),
+        })
+        cmd = [
+            signtool, "sign",
+            "/fd", "SHA256",
+            "/p7ce", "DetachedSignedData",
+            "/dlib", str(self._dlib_path),
+            "/dmdf", str(metadata_path),
+            "/tr", self.TIMESTAMP_URL,
+            "/td", "SHA256",
+            str(file_path),
+        ]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=120, env=env)
+            if result.returncode == 0:
+                print(f"[AZURE-SIGN] [OK] {file_path.name}")
+                return True
+            print(f"[AZURE-SIGN] [ERROR] {file_path.name}: {result.stderr.strip()}")
+            return False
+        except Exception as e:
+            print(f"[AZURE-SIGN] [ERROR] {file_path.name}: {e}")
+            return False
+
+
 class SigningManager:
     """Code signing manager"""
     
@@ -634,6 +858,33 @@ def create_signing_manager(project_root: Path = None, config: Dict[str, Any] = N
 def create_ota_signing_manager(project_root: Path = None) -> OTASigningManager:
     """Create OTA signing manager instance"""
     return OTASigningManager(project_root)
+
+def create_azure_signing_manager(project_root: Path = None) -> AzureTrustedSigningManager:
+    """Create Azure Trusted Signing manager instance (cloud HSM, preferred for Windows)"""
+    return AzureTrustedSigningManager(project_root)
+
+def sign_windows_with_best_available(project_root: Path = None, config: Dict[str, Any] = None) -> bool:
+    """
+    Sign Windows artifacts using the best available method:
+      1. Azure Trusted Signing (cloud HSM) — if env vars configured
+      2. PFX certificate file              — if WIN_CERT_PFX / WIN_CERT_PASSWORD set
+      3. Skip (return True)                — no credentials available
+
+    Returns True if signing succeeded or was intentionally skipped.
+    """
+    azure_mgr = AzureTrustedSigningManager(project_root)
+    if azure_mgr.is_configured():
+        print("[SIGN] Using Azure Trusted Signing (cloud HSM)")
+        return azure_mgr.sign_windows_artifacts()
+
+    pfx = os.getenv("WIN_CERT_PFX", "")
+    if pfx and pfx != "NOT_SET":
+        print("[SIGN] Azure not configured – falling back to PFX certificate")
+        mgr = SigningManager(project_root, config or {})
+        return mgr._sign_windows_artifacts()
+
+    print("[SIGN] No signing credentials configured – skipping Windows signing")
+    return True
 
 def sign_single_file_ed25519(file_path: str, private_key_path: str, output_sig_path: str = None) -> bool:
     """

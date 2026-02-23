@@ -457,7 +457,7 @@ class InstallerBuilder:
             const_userdesktop = "{userdesktop}"
             const_app = "{app}"
 
-            iss_content = f"""
+            iss_content = rf"""
 ; eCan Installer Script
 ; Compression: LZMA2 + Non-Solid + Normal level (with splash screen, 4-6s startup)
 ; OTA Update Installation: /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /DIR="C:\\Path"
