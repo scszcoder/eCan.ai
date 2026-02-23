@@ -113,6 +113,43 @@ function AgentCard({ agent, onChat }: AgentCardProps) {
      mediaUrl.includes('.mp4'))
   );
 
+  // Ensure video autoplay when component mounts or mediaUrl changes
+  React.useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !isVideo || !mediaUrl) return;
+
+    // Try to play the video
+    const playVideo = async () => {
+      try {
+        // Don't interrupt if already playing
+        if (!video.paused) {
+          console.log('[AgentCard] Video already playing, skipping autoplay');
+          return;
+        }
+        
+        video.muted = true; // Ensure muted for autoplay policy
+        video.loop = true; // Ensure loop is enabled
+        await video.play();
+        console.log('[AgentCard] Video autoplay started successfully');
+      } catch (error) {
+        console.warn('[AgentCard] Video autoplay failed:', error);
+        // Autoplay was prevented, video will play on user interaction
+      }
+    };
+
+    // Play when video is ready
+    if (video.readyState >= 3) {
+      // HAVE_FUTURE_DATA or greater
+      playVideo();
+    } else {
+      video.addEventListener('loadeddata', playVideo, { once: true });
+    }
+
+    return () => {
+      video.removeEventListener('loadeddata', playVideo);
+    };
+  }, [mediaUrl, isVideo]);
+
   // Handle scene playback by replacing video src
   React.useEffect(() => {
     const video = videoRef.current;

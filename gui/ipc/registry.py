@@ -447,10 +447,11 @@ class IPCHandlerRegistry:
         logger.info("[registry] Cleared all handlers")
 
     @classmethod
-    def handle_graphql_request(cls, method: str, variables: Dict[str, Any]) -> Any:
+    async def handle_graphql_request(cls, method: str, variables: Dict[str, Any]) -> Any:
         """Handle GraphQL request from LocalServer or AppSync Lambda
         
         Converts GraphQL request to IPC format, processes it, and returns result directly.
+        Background handlers are executed in a thread pool to avoid blocking.
         
         Args:
             method: API method name (e.g., 'readSkillFile', 'getAgents')
@@ -479,9 +480,17 @@ class IPCHandlerRegistry:
             
             handler, handler_type = handler_info
             
-            # Execute handler
+            # Execute handler - background handlers run in thread pool to avoid blocking
             logger.debug(f"[registry] Executing {handler_type} handler for GraphQL method: {method}")
-            ipc_response = handler(ipc_request, variables)
+            
+            if handler_type == 'background':
+                # Run blocking handler in thread pool
+                import asyncio
+                loop = asyncio.get_event_loop()
+                ipc_response = await loop.run_in_executor(None, handler, ipc_request, variables)
+            else:
+                # Sync handler runs directly
+                ipc_response = handler(ipc_request, variables)
             
             # For GraphQL, return data directly or raise exception
             if ipc_response.get('status') == 'success':

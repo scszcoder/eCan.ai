@@ -44,7 +44,11 @@ export class UnifiedEventHandler {
   handle(event: StandardizedEvent): void {
     const { type, source } = event;
     
-    logger.debug(`[UnifiedEventHandler] Processing event: ${type} from ${source}`);
+    // Only log non-routine events to reduce noise
+    const routineEvents = ['skill_editor_log', 'update_skill_run_stat', 'subscribed'];
+    if (!routineEvents.includes(type)) {
+      logger.debug(`[UnifiedEventHandler] Processing event: ${type} from ${source}`);
+    }
 
     // Route to specific handler based on event type
     switch (type) {
@@ -107,6 +111,16 @@ export class UnifiedEventHandler {
         this.handleOrgAgentsUpdate(event);
         break;
       
+      // Account Info (routine event, no action needed)
+      case 'push_account_info':
+        logger.debug('[UnifiedEventHandler] push_account_info event received and handled (routine heartbeat)');
+        // This is a routine heartbeat/info event from backend, no further action needed
+        break;
+      
+      // WebSocket subscription confirmation - no action needed
+      case 'subscribed':
+        break;
+      
       default:
         logger.warn(`[UnifiedEventHandler] Unknown event type: ${type}`);
     }
@@ -116,6 +130,11 @@ export class UnifiedEventHandler {
 
   private handleSkillEditorChatChunk(event: StandardizedEvent): void {
     const { sessionId, messageId, chunk, chunkIndex } = event.payload;
+    
+    // Skip empty chunks (e.g. "streaming started" signals with no content)
+    if (!chunk && !messageId) {
+      return;
+    }
     
     eventBus.emit('skill_editor:chat:stream_chunk', {
       sessionId: sessionId || event.sessionId,

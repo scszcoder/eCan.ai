@@ -398,7 +398,14 @@ jobs:
       (github.event.inputs.arch == 'amd64' || github.event.inputs.arch == 'all')
     runs-on: windows-latest
     env:
-      # Expose secrets to env for conditional checks without referencing `secrets` in `if:`
+      # ── Azure Trusted Signing (cloud HSM, preferred) ──────────────────────
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID || 'NOT_SET' }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID || 'NOT_SET' }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET || 'NOT_SET' }}
+      AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT || 'NOT_SET' }}
+      AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT || 'NOT_SET' }}
+      AZURE_SIGNING_PROFILE: ${{ secrets.AZURE_SIGNING_PROFILE || 'NOT_SET' }}
+      # ── PFX fallback (traditional certificate file) ───────────────────────
       WIN_CERT_PFX: ${{ secrets.WIN_CERT_PFX || 'NOT_SET' }}
       WIN_CERT_PASSWORD: ${{ secrets.WIN_CERT_PASSWORD || 'NOT_SET' }}
       # Set build architecture for the build process (Windows only supports amd64)
@@ -835,82 +842,117 @@ jobs:
 
 
     # ------------------------------------------------------------------------
-    # Step Group 7: Code Signing (Optional)
+    # Step Group 7: Code Signing
+    # Priority: Azure Trusted Signing (cloud HSM) → PFX fallback → unsigned
     # ------------------------------------------------------------------------
-    - name: Check Windows code signing requirements
-      if: |
-        (needs.validate-tag.outputs.environment == 'production' || 
-         needs.validate-tag.outputs.environment == 'staging') &&
-        (env.WIN_CERT_PFX == 'NOT_SET' || env.WIN_CERT_PASSWORD == 'NOT_SET')
+    - name: Check Windows code signing configuration
+      id: check_signing
+      shell: pwsh
       run: |
-        echo "======================================================"
-        echo "WARNING: Code signing certificates not configured"
-        echo "======================================================"
-        echo "Environment: ${{ needs.validate-tag.outputs.environment }}"
-        echo "WIN_CERT_PFX: ${{ env.WIN_CERT_PFX != 'NOT_SET' && 'Configured' || 'MISSING' }}"
-        echo "WIN_CERT_PASSWORD: ${{ env.WIN_CERT_PASSWORD != 'NOT_SET' && 'Configured' || 'MISSING' }}"
-        echo ""
-        echo "Building unsigned Windows package (not recommended for production)."
-        echo "To enable code signing, configure the following GitHub Secrets:"
-        echo "  - WIN_CERT_PFX (base64-encoded certificate)"
-        echo "  - WIN_CERT_PASSWORD (certificate password)"
-        echo "======================================================"
-    
-    - name: Code sign Windows artifacts (execute)
-      if: ${{ env.WIN_CERT_PFX != 'NOT_SET' && env.WIN_CERT_PASSWORD != 'NOT_SET' }}
+        Write-Host "=== Checking Windows Code Signing Configuration ===" -ForegroundColor Cyan
+
+        $azureConfigured = (
+          $env:AZURE_TENANT_ID -ne 'NOT_SET' -and
+          $env:AZURE_CLIENT_ID -ne 'NOT_SET' -and
+          $env:AZURE_CLIENT_SECRET -ne 'NOT_SET' -and
+          $env:AZURE_SIGNING_ENDPOINT -ne 'NOT_SET' -and
+          $env:AZURE_SIGNING_ACCOUNT -ne 'NOT_SET' -and
+          $env:AZURE_SIGNING_PROFILE -ne 'NOT_SET'
+        )
+
+        $pfxConfigured = (
+          $env:WIN_CERT_PFX -ne 'NOT_SET' -and
+          $env:WIN_CERT_PASSWORD -ne 'NOT_SET'
+        )
+
+        Write-Host "Azure Trusted Signing: $(if ($azureConfigured) { '✅ Configured' } else { '❌ Not configured' })" -ForegroundColor $(if ($azureConfigured) { 'Green' } else { 'Yellow' })
+        Write-Host "PFX Fallback:          $(if ($pfxConfigured) { '✅ Configured' } else { '❌ Not configured' })" -ForegroundColor $(if ($pfxConfigured) { 'Green' } else { 'Yellow' })
+
+        if ($azureConfigured) {
+          Write-Host "[INFO] Will use Azure Trusted Signing (cloud HSM - preferred)" -ForegroundColor Cyan
+          "method=azure" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        } elseif ($pfxConfigured) {
+          Write-Host "[INFO] Will use PFX certificate (fallback)" -ForegroundColor Yellow
+          "method=pfx" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        } else {
+          Write-Host "[WARN] No signing credentials configured – build will be unsigned" -ForegroundColor Yellow
+          Write-Host ""
+          Write-Host "To enable Azure Trusted Signing (recommended), add GitHub Secrets:" -ForegroundColor Gray
+          Write-Host "  AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET" -ForegroundColor Gray
+          Write-Host "  AZURE_SIGNING_ENDPOINT, AZURE_SIGNING_ACCOUNT, AZURE_SIGNING_PROFILE" -ForegroundColor Gray
+          Write-Host ""
+          Write-Host "To enable PFX fallback, add GitHub Secrets:" -ForegroundColor Gray
+          Write-Host "  WIN_CERT_PFX (base64-encoded .pfx), WIN_CERT_PASSWORD" -ForegroundColor Gray
+          "method=none" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+        }
+
+    # ── Method 1: Azure Trusted Signing (cloud HSM, no private key on disk) ──
+    - name: Code sign Windows artifacts (Azure Trusted Signing)
+      if: steps.check_signing.outputs.method == 'azure'
+      uses: ./.github/actions/azure-code-signing
+      with:
+        azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+        endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+        account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+        certificate-profile-name: ${{ secrets.AZURE_SIGNING_PROFILE }}
+        files-folder: dist/eCan
+        files-folder-filter: exe,dll
+        files-folder-recurse: 'true'
+
+    - name: Sign installers (Azure Trusted Signing)
+      if: steps.check_signing.outputs.method == 'azure'
+      uses: ./.github/actions/azure-code-signing
+      with:
+        azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+        azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+        azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+        endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+        account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+        certificate-profile-name: ${{ secrets.AZURE_SIGNING_PROFILE }}
+        files-folder: dist
+        files-folder-filter: exe,msi
+        files-folder-recurse: 'false'
+
+    # ── Method 2: PFX certificate fallback ────────────────────────────────────
+    - name: Code sign Windows artifacts (PFX fallback)
+      if: steps.check_signing.outputs.method == 'pfx'
       env:
         WIN_CERT_PFX: ${{ env.WIN_CERT_PFX }}
         WIN_CERT_PASSWORD: ${{ env.WIN_CERT_PASSWORD }}
+      shell: pwsh
       run: |
-        echo "=== Code signing Windows artifacts ==="
-        echo "Certificate status: Available"
-        echo "Password status: Available"
+        Write-Host "=== Code signing Windows artifacts (PFX) ===" -ForegroundColor Cyan
         $pfxPath = "$env:RUNNER_TEMP\codesign.pfx"
         [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WIN_CERT_PFX))
         $signtool = "C:\Program Files (x86)\Windows Kits\10\bin\x64\signtool.exe"
         if (-not (Test-Path $signtool)) { $signtool = "signtool.exe" }
 
-        # Step 1: Sign internal application files first (before they are packaged into installer)
-        Write-Host "=== Step 1: Signing internal application files ==="
+        # Step 1: Sign internal application files
+        Write-Host "=== Step 1: Signing internal application files ===" -ForegroundColor Yellow
         if (Test-Path "dist/eCan") {
           $internalFiles = Get-ChildItem -Path "dist/eCan" -Recurse -Include "*.exe","*.dll" -File -ErrorAction SilentlyContinue
           foreach ($f in $internalFiles) {
-            Write-Host "Signing internal file: $($f.FullName)"
             & $signtool sign /fd SHA256 /f $pfxPath /p $env:WIN_CERT_PASSWORD /tr http://timestamp.digicert.com /td SHA256 $f.FullName
-            if ($LASTEXITCODE -ne 0) {
-              Write-Host "Sign failed: $($f.FullName)" -ForegroundColor Red
-              exit 1
-            }
+            if ($LASTEXITCODE -ne 0) { Write-Host "Sign failed: $($f.FullName)" -ForegroundColor Red; exit 1 }
           }
-          Write-Host "Internal files signed: $($internalFiles.Count) files" -ForegroundColor Green
-        } else {
-          Write-Host "Warning: dist/eCan directory not found, skipping internal file signing" -ForegroundColor Yellow
+          Write-Host "Internal files signed: $($internalFiles.Count)" -ForegroundColor Green
         }
 
-        # Step 2: Sign distribution installers (Setup.exe, MSI)
-        Write-Host ""
-        Write-Host "=== Step 2: Signing distribution installers ==="
+        # Step 2: Sign distribution installers
+        Write-Host "=== Step 2: Signing distribution installers ===" -ForegroundColor Yellow
         $installers = @()
-        # Sign Setup.exe installers
-        $setupFiles = Get-ChildItem -Path "dist" -Filter "*-Setup.exe" -File -ErrorAction SilentlyContinue
-        foreach ($sf in $setupFiles) { $installers += $sf.FullName }
-        # Sign MSI installers if present
-        $msiFiles = Get-ChildItem -Path "dist" -Filter "*.msi" -File -ErrorAction SilentlyContinue
-        foreach ($mf in $msiFiles) { $installers += $mf.FullName }
-
+        Get-ChildItem -Path "dist" -Filter "*-Setup.exe" -File -ErrorAction SilentlyContinue | ForEach-Object { $installers += $_.FullName }
+        Get-ChildItem -Path "dist" -Filter "*.msi" -File -ErrorAction SilentlyContinue | ForEach-Object { $installers += $_.FullName }
         foreach ($installer in $installers) {
-          Write-Host "Signing installer: $installer"
           & $signtool sign /fd SHA256 /f $pfxPath /p $env:WIN_CERT_PASSWORD /tr http://timestamp.digicert.com /td SHA256 $installer
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "Sign failed: $installer" -ForegroundColor Red
-            exit 1
-          }
+          if ($LASTEXITCODE -ne 0) { Write-Host "Sign failed: $installer" -ForegroundColor Red; exit 1 }
         }
 
-        Write-Host ""
-        Write-Host "✅ Windows code signing completed successfully" -ForegroundColor Green
-        Write-Host "   Internal files signed: $(if (Test-Path 'dist/eCan') { (Get-ChildItem -Path 'dist/eCan' -Recurse -Include '*.exe','*.dll' -File).Count } else { 0 })" -ForegroundColor Gray
-        Write-Host "   Installers signed: $($installers.Count)" -ForegroundColor Gray
+        Write-Host "✅ PFX signing completed: $($installers.Count) installers" -ForegroundColor Green
+        # Clean up PFX from disk immediately
+        Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
 
     - name: Check build result
       shell: pwsh
