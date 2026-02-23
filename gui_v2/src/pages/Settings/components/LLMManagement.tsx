@@ -1557,20 +1557,6 @@ const LLMManagement = React.forwardRef<
                   }}
                 />
               </Tooltip>
-              <Tooltip title={t("common.refresh")}>
-                <Button
-                  size="small"
-                  type="text"
-                  icon={<ReloadOutlined />}
-                  loading={ollamaLoading}
-                  onClick={async () => {
-                    const success = await fetchOllamaModels();
-                    if (success) {
-                      await loadProviders();
-                    }
-                  }}
-                />
-              </Tooltip>
               <Tooltip title={t("pages.settings.open_ollama")}>
                 <Button
                   size="small"
@@ -1604,20 +1590,6 @@ const LLMManagement = React.forwardRef<
                   onClick={() => {
                     setTempRyoaisHost(ryoaisHost);
                     setEditingRyoaisHost(true);
-                  }}
-                />
-              </Tooltip>
-              <Tooltip title={t("common.refresh")}>
-                <Button
-                  size="small"
-                  type="text"
-                  icon={<ReloadOutlined />}
-                  loading={ryoaisLoading}
-                  onClick={async () => {
-                    const success = await fetchRyoAISModels();
-                    if (success) {
-                      await loadProviders();
-                    }
                   }}
                 />
               </Tooltip>
