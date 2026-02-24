@@ -350,9 +350,13 @@ class LightragServer:
         _map_binding(env.get('EMBEDDING_BINDING'), LIGHTRAG_EMBED_SUPPORTED, 'EMBEDDING_BINDING')
         
         # Rerank binding: map non-native providers to 'jina' (launcher may further process)
+        # IMPORTANT: Do NOT map ryoais/ollama here - let launcher handle the conversion
+        # This ensures launcher can properly set up the proxy routing
         rerank_binding = env.get('RERANK_BINDING')
         if rerank_binding and rerank_binding.lower() not in ('null', 'none', ''):
-            _map_binding(rerank_binding, LIGHTRAG_RERANK_SUPPORTED, 'RERANK_BINDING', default='jina')
+            # Skip mapping for proxy providers (ryoais, ollama) - launcher will handle them
+            if rerank_binding.lower() not in ('ryoais', 'ollama'):
+                _map_binding(rerank_binding, LIGHTRAG_RERANK_SUPPORTED, 'RERANK_BINDING', default='jina')
         
         # 7. Add SSL/TLS configuration to fix certificate errors
         # Disable SSL verification for development/testing (can be overridden by extra_env)
@@ -768,23 +772,70 @@ class LightragServer:
                 except Exception as e:
                     logger.debug(f"[LightRAG] Error checking FAISS dimension: {e}")
 
-                # Rerank
+                # Rerank - show both original and converted provider
+                original_rerank_provider = "Unknown"
+                try:
+                    from knowledge.lightrag_config_manager import get_config_manager
+                    config_manager = get_config_manager()
+                    original_config = config_manager.get_effective_config()
+                    original_rerank_provider = original_config.get('RERANK_BINDING', 'null')
+                except Exception:
+                    pass
+                
                 rerank_provider = env.get('RERANK_BINDING', 'null')
                 rerank_model = env.get('RERANK_MODEL', '')
                 rerank_enabled = env.get('RERANK_BY_DEFAULT', 'false')
-                summary.append(f"🔄 Rerank Provider:    {rerank_provider} (from config)")
+                
+                # Show original provider if different from converted
+                if original_rerank_provider != rerank_provider and original_rerank_provider != "Unknown":
+                    summary.append(f"🔄 Rerank Provider:    {original_rerank_provider} (user config) → {rerank_provider} (passed to LightRAG)")
+                else:
+                    summary.append(f"🔄 Rerank Provider:    {rerank_provider}")
+                
                 summary.append(f"   Rerank Model:      {rerank_model if rerank_model else 'N/A'}")
                 summary.append(f"   Enabled by Default: {rerank_enabled}")
                 if env.get('RERANK_BINDING_HOST'):
                     summary.append(f"   Rerank Host:       {env.get('RERANK_BINDING_HOST')}")
-                summary.append(f"   Note: Non-native providers will be converted by launcher")
+                
+                # Show target service URL (where proxy will forward requests)
+                target_service_url = "Unknown"
+                try:
+                    from app_context import AppContext
+                    app_context = AppContext.get_instance()
+                    if app_context and app_context.main_window:
+                        rerank_manager = app_context.main_window.config_manager.rerank_manager
+                        # Use original provider to get target URL
+                        provider_to_check = original_rerank_provider if original_rerank_provider != "Unknown" else rerank_provider
+                        provider_config = rerank_manager.get_provider(provider_to_check)
+                        if provider_config:
+                            base_url = provider_config.get('base_url', '').rstrip('/')
+                            if base_url:
+                                provider_type = provider_config.get('provider', '').lower()
+                                # Build URL correctly - check if base_url already has /v1
+                                if provider_type == 'ryoais':
+                                    if base_url.endswith('/v1'):
+                                        target_service_url = f"{base_url}/rerank"
+                                    else:
+                                        target_service_url = f"{base_url}/v1/rerank"
+                                elif provider_type == 'ollama':
+                                    target_service_url = f"{base_url}/api/embed"
+                                else:
+                                    target_service_url = f"{base_url}/rerank"
+                except Exception:
+                    pass
+                
+                if target_service_url != "Unknown":
+                    summary.append(f"   🎯 Target Host:    {target_service_url} (final destination)")
+                
+                if original_rerank_provider != rerank_provider and original_rerank_provider != "Unknown":
+                    summary.append(f"   Note: Non-native provider '{original_rerank_provider}' converted to '{rerank_provider}' by launcher")
                 if env.get('RERANK_BINDING_API_KEY'):
                     summary.append(f"   Rerank Key:        {self._mask_env_value('RERANK_API_KEY', env['RERANK_BINDING_API_KEY'])}")
 
                 # Storage
                 summary.append("-" * 20 + " Storage " + "-" * 20)
                 summary.append(f"� Workspace:         {env.get('WORKSPACE', 'Unknown')}")
-                summary.append(f"�📦 KV Storage:        {env.get('LIGHTRAG_KV_STORAGE', 'Default')}")
+                summary.append(f"� KV Storage:        {env.get('LIGHTRAG_KV_STORAGE', 'Default')}")
                 summary.append(f"📊 Vector Storage:    {env.get('LIGHTRAG_VECTOR_STORAGE', 'Default')}")
                 summary.append(f"🕸️ Graph Storage:     {env.get('LIGHTRAG_GRAPH_STORAGE', 'Default')}")
                 summary.append(f"📄 Doc Status:        {env.get('LIGHTRAG_DOC_STATUS_STORAGE', 'Default')}")
@@ -956,47 +1007,148 @@ class LightragServer:
             except Exception as e: logger.debug(f"[LightragServer] Error removing script: {e}")
         
         if self.proc:
-            if force:
-                logger.info("[LightragServer] Force stopping server (killing process group)...")
-                try:
+            try:
+                # Get PID and PGID while process is still alive
+                pid = self.proc.pid
+                pgid = None
+                if sys.platform != 'win32' and self.proc.poll() is None:
+                    try:
+                        pgid = os.getpgid(pid)
+                        logger.info(f"[LightragServer] Process {pid} is in process group {pgid}")
+                    except (ProcessLookupError, OSError) as e:
+                        logger.warning(f"[LightragServer] Could not get process group: {e}")
+                
+                if force:
+                    logger.info("[LightragServer] Force stopping server...")
+                    self._kill_process_tree(pid, pgid, force=True)
+                else:
+                    logger.info("[LightragServer] Stopping server...")
+                    # Try graceful termination first
                     if self.proc.poll() is None:
-                        pid = self.proc.pid
-                        if sys.platform == 'win32':
-                            # Windows: use taskkill to kill process tree
-                            import subprocess as sp
-                            sp.run(['taskkill', '/F', '/T', '/PID', str(pid)], 
-                                   capture_output=True, timeout=5)
-                        else:
-                            # Unix: kill entire process group
-                            import signal
+                        if sys.platform != 'win32' and pgid:
                             try:
-                                pgid = os.getpgid(pid)
-                                os.killpg(pgid, signal.SIGKILL)
-                                logger.info(f"[LightragServer] Killed process group {pgid}")
-                            except ProcessLookupError:
-                                pass  # Process already dead
-                        # Wait briefly for process to die
-                        try: self.proc.wait(timeout=2)
-                        except: pass
-                except Exception as e:
-                    logger.error(f"[LightragServer] Error force stopping process: {e}")
-                finally: self.proc = None
-            else:
-                logger.info("[LightragServer] Stopping server...")
-                try:
-                    if self.proc.poll() is None:
-                        self.proc.terminate()
-                        try: self.proc.wait(timeout=5)
-                        except: 
-                            logger.warning("[LightragServer] Process unresponsive, killing...")
-                            self.proc.kill()
-                except Exception as e:
-                    logger.error(f"[LightragServer] Error stopping process: {e}")
-                finally: self.proc = None
+                                os.killpg(pgid, signal.SIGTERM)
+                                logger.info(f"[LightragServer] Sent SIGTERM to process group {pgid}")
+                            except (ProcessLookupError, OSError) as e:
+                                logger.warning(f"[LightragServer] Could not send SIGTERM to process group: {e}")
+                                self.proc.terminate()
+                        else:
+                            self.proc.terminate()
+                        
+                        # Wait for graceful shutdown
+                        try:
+                            self.proc.wait(timeout=5)
+                            logger.info("[LightragServer] Process terminated gracefully")
+                        except subprocess.TimeoutExpired:
+                            logger.warning("[LightragServer] Process unresponsive, force killing...")
+                            self._kill_process_tree(pid, pgid, force=True)
+                    
+                    # Final verification: ensure all child processes are gone
+                    self._verify_cleanup(pid)
+                    
+            except Exception as e:
+                logger.error(f"[LightragServer] Error stopping process: {e}")
+            finally:
+                self.proc = None
             
         self._close_log_files()
         self._remove_pid_file()
         logger.info("[LightragServer] Server stopped")
+    
+    def _kill_process_tree(self, pid, pgid=None, force=False):
+        """Kill a process and all its children recursively."""
+        try:
+            import psutil
+            
+            # Try to get the process
+            try:
+                parent = psutil.Process(pid)
+            except psutil.NoSuchProcess:
+                logger.info(f"[LightragServer] Process {pid} already terminated")
+                return
+            
+            # Get all children recursively
+            children = parent.children(recursive=True)
+            logger.info(f"[LightragServer] Found {len(children)} child processes")
+            
+            # Terminate children first
+            signal_type = signal.SIGKILL if force else signal.SIGTERM
+            signal_name = "SIGKILL" if force else "SIGTERM"
+            
+            for child in children:
+                try:
+                    logger.debug(f"[LightragServer] Sending {signal_name} to child process {child.pid}")
+                    child.send_signal(signal_type)
+                except psutil.NoSuchProcess:
+                    pass
+            
+            # Terminate parent
+            try:
+                logger.info(f"[LightragServer] Sending {signal_name} to parent process {pid}")
+                parent.send_signal(signal_type)
+            except psutil.NoSuchProcess:
+                pass
+            
+            # Wait for all processes to terminate
+            gone, alive = psutil.wait_procs(children + [parent], timeout=3)
+            
+            if alive:
+                logger.warning(f"[LightragServer] {len(alive)} processes still alive after {signal_name}, force killing...")
+                for p in alive:
+                    try:
+                        logger.debug(f"[LightragServer] Force killing process {p.pid}")
+                        p.kill()
+                    except psutil.NoSuchProcess:
+                        pass
+                
+                # Final wait
+                psutil.wait_procs(alive, timeout=2)
+            
+            logger.info(f"[LightragServer] Successfully terminated process tree (root: {pid})")
+            
+        except ImportError:
+            # Fallback to process group kill if psutil not available
+            logger.warning("[LightragServer] psutil not available, using fallback process group kill")
+            if sys.platform != 'win32' and pgid:
+                try:
+                    os.killpg(pgid, signal.SIGKILL if force else signal.SIGTERM)
+                    logger.info(f"[LightragServer] Sent {'SIGKILL' if force else 'SIGTERM'} to process group {pgid}")
+                except (ProcessLookupError, OSError) as e:
+                    logger.warning(f"[LightragServer] Could not kill process group: {e}")
+            
+            # Try to kill the main process
+            try:
+                if self.proc and self.proc.poll() is None:
+                    if force:
+                        self.proc.kill()
+                    else:
+                        self.proc.terminate()
+                    self.proc.wait(timeout=2)
+            except Exception as e:
+                logger.warning(f"[LightragServer] Error in fallback kill: {e}")
+    
+    def _verify_cleanup(self, pid):
+        """Verify that all child processes have been cleaned up."""
+        try:
+            import psutil
+            
+            # Check if any child processes are still running
+            try:
+                parent = psutil.Process(pid)
+                children = parent.children(recursive=True)
+                if children:
+                    logger.warning(f"[LightragServer] {len(children)} child processes still running after cleanup:")
+                    for child in children:
+                        try:
+                            logger.warning(f"  - PID {child.pid}: {child.name()} (status: {child.status()})")
+                        except psutil.NoSuchProcess:
+                            pass
+            except psutil.NoSuchProcess:
+                logger.info(f"[LightragServer] Process {pid} confirmed terminated")
+        except ImportError:
+            logger.debug("[LightragServer] psutil not available, skipping cleanup verification")
+        except Exception as e:
+            logger.debug(f"[LightragServer] Error verifying cleanup: {e}")
 
     def is_running(self):
         return self.proc is not None and self.proc.poll() is None

@@ -364,25 +364,14 @@ def handle_set_llm_provider_model(request: IPCRequest, params: Optional[Dict[str
 
         updated_provider = llm_manager.get_provider(provider_name)
         
-        # If this is the current default LLM, also update default_llm_model in general_settings (case-insensitive)
-        current_default = (ctx.get_config_manager().general_settings.default_llm or "").lower()
-        if current_default == (provider_name or "").lower():
-            ctx.get_config_manager().general_settings.default_llm_model = model_name
-            ctx.get_config_manager().general_settings.save()
-            logger.info(f"[LLM] Updated default_llm_model to {model_name} for current provider {provider_name}")
-            
-            # Hot-update: Use unified method to update all LLMs (including browser_use)
-            try:
-                provider_info = f"{updated_provider.get('display_name', provider_name)}, Model: {model_name}"
-                update_success = ctx.main_window.update_all_llms(reason=f"Model changed to {provider_info}")
-                
-                if not update_success:
-                    logger.warning(f"Failed to update LLM instances after model change, but settings were saved")
-                    # Still return success since the model setting was saved
-                    
-            except Exception as update_error:
-                logger.error(f"Error during hot-update of LLM instances: {update_error}")
-                logger.warning(f"Model settings updated but hot-update failed. Restart may be required for full effect.")
+        # Use unified handler for model update (local provider persistence, default model update, hot-update)
+        from gui.manager.provider_settings_helper import handle_provider_model_update
+        success, error_msg = handle_provider_model_update(
+            ctx, provider_name, model_name, 'llm', llm_manager, updated_provider
+        )
+        
+        if not success:
+            logger.warning(f"[LLM] Model update handler reported issue: {error_msg}")
 
         return create_success_response(request, {
             'message': f'Default model for {provider_name} updated successfully',

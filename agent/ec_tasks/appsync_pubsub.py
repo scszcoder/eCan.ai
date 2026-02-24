@@ -299,7 +299,7 @@ async def _subscribe(
     ws_url = _mk_ws_url(ws_endpoint, host=host, api_key=config.api_key, auth_token=config.auth_token)
 
     retry = 0
-    base_backoff = 2
+    base_backoff = 3  # Increased from 2 to 3 seconds
 
     while retry < max_retries:
         try:
@@ -322,8 +322,13 @@ async def _subscribe(
                         msg = await websocket.receive()
                         if msg.type == aiohttp.WSMsgType.TEXT:
                             response_data = json.loads(msg.data)
-                            if response_data.get("type") == "connection_ack":
+                            msg_type = response_data.get('type')
+                            
+                            if msg_type == "connection_ack":
                                 break
+                            elif msg_type == "connection_error":
+                                error_payload = response_data.get('payload', {})
+                                logger.error(f"[AppSync] Connection error: {error_payload}")
                         elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
                             raise RuntimeError("connection closed during ack")
 
@@ -353,6 +358,8 @@ async def _subscribe(
                             response_data = json.loads(msg.data)
                             if response_data.get("type") == "start_ack":
                                 break
+                            elif response_data.get("type") == "error":
+                                logger.error(f"[AppSync] Subscription error: {response_data}")
                         elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
                             raise RuntimeError("connection closed during start_ack")
 
@@ -405,20 +412,28 @@ def start_task_status_streams_for_runs(
         runner_from_run_id = lambda rid: rid
 
     tasks: list[asyncio.Task] = []
-    for rid in run_ids or []:
+    for idx, rid in enumerate(run_ids or []):
         rid = (rid or "").strip()
         if not rid:
             continue
         runner = runner_from_run_id(rid)
-        tasks.append(
-            asyncio.create_task(
-                subscribe_task_status(
-                    config=config,
-                    runner=runner,
-                    on_envelope=on_envelope,
-                    max_retries=max_retries,
-                )
+        
+        # Add staggered delay to avoid AppSync rate limiting
+        # First subscription starts immediately, subsequent ones delayed
+        delay = idx * 1.5  # 1.5s between each subscription (increased from 500ms)
+        
+        async def delayed_subscribe(runner_val, delay_val):
+            if delay_val > 0:
+                await asyncio.sleep(delay_val)
+            return await subscribe_task_status(
+                config=config,
+                runner=runner_val,
+                on_envelope=on_envelope,
+                max_retries=max_retries,
             )
+        
+        tasks.append(
+            asyncio.create_task(delayed_subscribe(runner, delay))
         )
     return tasks
 

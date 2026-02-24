@@ -503,3 +503,102 @@ def merge_ryoais_models_to_config_providers(
         logger.debug(f"[RyoAIS] No RyoAIS provider found in {provider_type} config providers dict")
     
     return providers
+
+
+# ==================== RyoAIS Current Model Detection ====================
+
+def get_ryoais_current_model(host: str, api_key: str = None, model_type: str = 'llm') -> Optional[str]:
+    """
+    Get the current running model from RyoAIS API.
+    
+    This function attempts to detect which model is currently active by:
+    1. Making a test request to the appropriate endpoint (chat/embeddings/rerank)
+    2. Extracting the model name from the response
+    
+    Args:
+        host: RyoAIS API host (e.g., 'http://localhost:1434/v1')
+        api_key: Optional API key for authentication
+        model_type: Type of model to check ('llm', 'embedding', 'rerank')
+    
+    Returns:
+        Model name/ID if detected, None otherwise
+    """
+    import requests
+    
+    try:
+        # Normalize host - remove trailing slash
+        host = host.rstrip('/')
+        
+        # Prepare headers
+        headers = {'Content-Type': 'application/json'}
+        if api_key:
+            headers['Authorization'] = f'Bearer {api_key}'
+        
+        # For all model types, use /models endpoint to get current running model
+        # This is more reliable than making actual API calls
+        models_endpoint = f"{host}/models"
+        
+        logger.debug(f"[RyoAIS] Fetching models list from {models_endpoint} to detect current {model_type} model")
+        
+        try:
+            # Get models list with short timeout to avoid blocking startup
+            response = requests.get(models_endpoint, headers=headers, timeout=2)
+            
+            if response.status_code != 200:
+                logger.debug(f"[RyoAIS] Failed to fetch models list: HTTP {response.status_code}")
+                return None
+            
+            models_data = response.json()
+            models_list = models_data.get('data', [])
+            
+            if not models_list:
+                logger.debug(f"[RyoAIS] No models found in /models response")
+                return None
+            
+            # Filter models by type if possible
+            # For now, assume the first model is the current one
+            # TODO: Improve this logic if RyoAIS provides a way to identify current model
+            current_model = None
+            
+            # Try to find a model matching the type
+            for model_info in models_list:
+                model_id = model_info.get('id', '')
+                if not model_id:
+                    continue
+                
+                # Simple heuristic: match model type by name
+                model_id_lower = model_id.lower()
+                if model_type == 'llm' and not ('embed' in model_id_lower or 'rerank' in model_id_lower):
+                    current_model = model_id
+                    break
+                elif model_type == 'embedding' and 'embed' in model_id_lower:
+                    current_model = model_id
+                    break
+                elif model_type == 'rerank' and 'rerank' in model_id_lower:
+                    current_model = model_id
+                    break
+            
+            # If no type-specific model found, use the first model
+            if not current_model and models_list:
+                current_model = models_list[0].get('id', '')
+            
+            if current_model:
+                logger.info(f"[RyoAIS] Detected current {model_type} model from /models: {current_model}")
+                return current_model
+            else:
+                logger.debug(f"[RyoAIS] Could not determine current {model_type} model from /models list")
+                return None
+                
+        except Exception as e:
+            logger.debug(f"[RyoAIS] Error fetching models list: {e}")
+            return None
+            
+    except requests.exceptions.ConnectionError:
+        logger.debug(f"[RyoAIS] Cannot connect to RyoAIS at {host} for {model_type} model detection")
+        return None
+    except requests.exceptions.Timeout:
+        logger.debug(f"[RyoAIS] Timeout detecting current {model_type} model from {host}")
+        return None
+    except Exception as e:
+        logger.debug(f"[RyoAIS] Error detecting current {model_type} model: {e}")
+        return None

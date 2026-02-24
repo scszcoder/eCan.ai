@@ -287,30 +287,14 @@ def handle_set_rerank_provider_model(request: IPCRequest, params: Optional[Dict[
 
         updated_provider = rerank_manager.get_provider(provider_identifier)
         
-        # If this is the current default rerank, also update default_rerank_model in general_settings (case-insensitive)
-        current_default = (ctx.get_config_manager().general_settings.default_rerank or "").lower()
-        if current_default == (provider_identifier or "").lower():
-            ctx.get_config_manager().general_settings.default_rerank_model = model_name
-            ctx.get_config_manager().general_settings.save()
-            logger.info(f"[Rerank] Updated default_rerank_model to {model_name} for current provider {provider_identifier}")
-            
-            # Hot-update: Update all agents' memoryManager reranks (similar to update_all_llms)
-            if ctx.get_agents():
-                try:
-                    updated_agents = 0
-                    for agent in ctx.get_agents():
-                        # Update memoryManager reranks
-                        if hasattr(agent, 'mem_manager') and agent.mem_manager:
-                            try:
-                                agent.mem_manager.update_reranks(provider_name=provider_identifier, model_name=model_name)
-                                updated_agents += 1
-                                logger.debug(f"[Rerank] Updated reranks for agent: {agent.card.name}")
-                            except Exception as e:
-                                logger.warning(f"[Rerank] Failed to update reranks for agent {agent.card.name}: {e}")
-                    
-                    logger.info(f"[Rerank] ✅ Updated reranks for {updated_agents} agents (model change)")
-                except Exception as e:
-                    logger.error(f"[Rerank] ❌ Error updating agent reranks: {e}")
+        # Use unified handler for model update (local provider persistence, default model update, hot-update)
+        from gui.manager.provider_settings_helper import handle_provider_model_update
+        success, error_msg = handle_provider_model_update(
+            ctx, provider_identifier, model_name, 'rerank', rerank_manager, updated_provider
+        )
+        
+        if not success:
+            logger.warning(f"[Rerank] Model update handler reported issue: {error_msg}")
 
         return create_success_response(request, {
             'message': f'Default model for {provider_identifier} updated successfully',

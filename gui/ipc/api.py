@@ -277,12 +277,12 @@ class IPCAPI:
             'timestamp': timestamp,
         }
         try:
-            # Clear, distinguishable backend log for IPC emission
+            # Only log at DEBUG level for routine status updates
             try:
                 node_keys = list(langgraph_state.keys()) if isinstance(langgraph_state, dict) else []
             except Exception:
                 node_keys = []
-            logger.info(f"[SIM][BE] sending update_skill_run_stat: agentTaskId={agent_task_id}, current_node={current_node}, status={status}, nodeState.keys={node_keys}")
+            logger.debug(f"[BE] update_skill_run_stat: task={agent_task_id}, node={current_node}, status={status}")
         except Exception:
             pass
         
