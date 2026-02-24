@@ -287,7 +287,7 @@ class EmbeddingFactory:
                 # RyoAIS embeddings (uses OpenAI-compatible API)
                 try:
                     # Get base_url and API key using common helper functions
-                    from gui.manager.provider_settings_helper import get_ryoais_base_url, get_ryoais_api_key
+                    from gui.manager.provider_settings_helper import get_ollama_base_url, get_ollama_api_key
                     
                     # Convert provider_config to dict if it's an object
                     provider_config_dict = None
@@ -299,8 +299,8 @@ class EmbeddingFactory:
                         except Exception:
                             pass
                     
-                    base_url = get_ryoais_base_url('embedding', provider_config_dict)
-                    ryoais_api_key = get_ryoais_api_key('embedding')
+                    base_url = get_ollama_base_url('embedding', provider_config_dict, provider_identifier='ryoais')
+                    ryoais_api_key = get_ollama_api_key('embedding', provider_identifier='ryoais')
                     
                     # Ensure /v1 endpoint for OpenAI compatibility
                     base_url = base_url.rstrip('/')
