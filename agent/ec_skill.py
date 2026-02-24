@@ -601,7 +601,7 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                     # Desktop mode: use IPC
                     from gui.ipc.api import IPCAPI
                     ipc = IPCAPI.get_instance()
-                    logger.info(f"[SIM][node_builder] sending {status_label} status for node={node_name}, run_id={run_id}")
+                    logger.debug(f"[node_builder] node={node_name} status={status_label} run_id={run_id}")
                     ipc.update_run_stat(
                         agent_task_id=run_id,
                         current_node=node_name,
@@ -609,7 +609,6 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                         langgraph_state=st,
                         timestamp=int(time_mod.time() * 1000)
                     )
-                    logger.info(f"[SIM][node_builder] status update sent successfully for node={node_name}, status={status_label}")
                 
                 # For "running" we keep a tiny delay to ensure the frontend
                 # sees the node enter the running state before completion.
