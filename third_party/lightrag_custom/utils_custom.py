@@ -11,12 +11,60 @@ Date: 2025-12-20
 from lightrag.utils import logger
 
 
+def _deduplicate_filename(filename: str) -> str:
+    """
+    Detect and fix duplicated filenames with multiple pattern support.
+    
+    Handles:
+    - Extension duplication: "file.docx.docx" -> "file.docx"
+    - Name duplication: "产品产品说明书说明书.docx" -> "产品说明书.docx"
+    - Multiple extensions: "file.tar.gz.tar.gz" -> "file.tar.gz"
+    
+    Args:
+        filename: The filename to check and fix
+        
+    Returns:
+        str: Deduplicated filename
+    """
+    if not filename or filename == "unknown_source":
+        return filename
+    
+    original = filename
+    
+    # 1. Fix extension duplication (e.g., ".docx.docx" -> ".docx")
+    while True:
+        parts = filename.split('.')
+        if len(parts) >= 3 and parts[-1] == parts[-2]:
+            filename = '.'.join(parts[:-1])
+        else:
+            break
+    
+    # 2. Fix name duplication (e.g., "产品产品说明书说明书" -> "产品说明书")
+    name_parts = filename.rsplit('.', 1)
+    if len(name_parts) == 2:
+        name, ext = name_parts
+        name_len = len(name)
+        
+        # Try different division points to find duplication
+        for div in range(1, name_len // 2 + 1):
+            if name_len % div == 0:
+                pattern = name[:div]
+                if pattern * (name_len // div) == name:
+                    filename = f"{pattern}.{ext}"
+                    break
+    
+    if filename != original:
+        logger.info(f"[utils_custom] Deduplicated: {original} -> {filename}")
+    
+    return filename
+
+
 def generate_reference_list_from_chunks_with_scores(chunks: list[dict]) -> tuple[list[dict], list[dict]]:
     """
     Generate reference list from chunks, prioritizing by occurrence frequency.
     
     This is a patched version that includes score fields in references
-    for confidence scoring.
+    for confidence scoring and fixes duplicate filenames.
 
     Args:
         chunks: List of chunk dictionaries with file_path information
@@ -30,11 +78,17 @@ def generate_reference_list_from_chunks_with_scores(chunks: list[dict]) -> tuple
         return [], []
 
     # 1. Extract all valid file_paths, count their occurrences, and collect scores
+    # IMPORTANT: Deduplicate filenames to fix issues like "产品产品说明书说明书.docx.docx"
     file_path_counts = {}
     file_path_scores = {}  # Collect scores for each file_path
     chunks_with_scores = 0
     for chunk in chunks:
         file_path = chunk.get("file_path", "")
+        # Deduplicate filename before processing
+        file_path = _deduplicate_filename(file_path)
+        # Update the chunk with the deduplicated filename
+        chunk["file_path"] = file_path
+        
         if file_path and file_path != "unknown_source":
             file_path_counts[file_path] = file_path_counts.get(file_path, 0) + 1
             # Collect rerank_score or other score fields
