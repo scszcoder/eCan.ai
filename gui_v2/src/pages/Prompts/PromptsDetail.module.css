@@ -68,12 +68,10 @@
   border: 1px solid rgba(148, 163, 184, 0.15) !important;
   border-radius: 8px !important;
   margin-bottom: 16px;
-  transition: all 0.2s ease;
 }
 
 .sectionContainer:hover {
   border-color: rgba(148, 163, 184, 0.25) !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .sectionTitle {
@@ -95,20 +93,17 @@
   font-size: 14px !important;
   line-height: 1.6 !important;
   padding: 10px 14px !important;
-  transition: all 0.2s ease;
 }
 
 .titleInput:hover,
 .topicInput:hover {
   border-color: rgba(148, 163, 184, 0.35) !important;
-  background: rgba(30, 41, 59, 0.7) !important;
 }
 
 .titleInput:focus,
 .topicInput:focus {
   border-color: #3b82f6 !important;
-  background: rgba(30, 41, 59, 0.8) !important;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15) !important;
 }
 
 .titleInput::placeholder,
@@ -122,12 +117,10 @@
   border: 1px solid rgba(148, 163, 184, 0.18) !important;
   border-radius: 6px !important;
   margin-bottom: 12px;
-  transition: all 0.2s ease;
 }
 
 .sectionCard:hover {
   border-color: rgba(148, 163, 184, 0.3) !important;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
 }
 
 .sectionCardTitle {
@@ -145,18 +138,15 @@
   font-size: 13px !important;
   line-height: 1.5 !important;
   padding: 8px 12px !important;
-  transition: all 0.2s ease;
 }
 
 .itemTextarea:hover {
   border-color: rgba(148, 163, 184, 0.25) !important;
-  background: rgba(30, 41, 59, 0.6) !important;
 }
 
 .itemTextarea:focus {
   border-color: #3b82f6 !important;
-  background: rgba(30, 41, 59, 0.7) !important;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.08) !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1) !important;
 }
 
 /* ========== Preview Styles ========== */
@@ -212,11 +202,10 @@
 .scrollContainer::-webkit-scrollbar-thumb {
   background: rgba(148, 163, 184, 0.3);
   border-radius: 4px;
-  transition: background 0.2s ease;
 }
 
 .scrollContainer::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.5);
+  background: rgba(148, 163, 184, 0.45);
 }
 
 /* ========== Empty State ========== */

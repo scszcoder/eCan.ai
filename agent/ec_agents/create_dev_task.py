@@ -1,6 +1,7 @@
 import uuid
 from a2a.types import TaskStatus, TaskState
 from agent.ec_tasks import ManagedTask, TaskSchedule, RepeatType
+from utils.logger_helper import logger_helper as logger
 
 def create_skill_dev_task(mainwin):
     agent_skills = mainwin.agent_skills
@@ -8,7 +9,7 @@ def create_skill_dev_task(mainwin):
 
     dev_skill = next((sk for sk in agent_skills if sk.name == "test skill under development"), None)
     run_task = next((task for task in agent_tasks if task.name == "dev:run task for skill under development"), None)
-    print("dev task dev_skill: ", dev_skill)
+    logger.debug(f"dev task dev_skill: {dev_skill}")
 
     # Auto-create a minimal dev skill if one doesn't exist yet
     if dev_skill is None:
@@ -19,7 +20,7 @@ def create_skill_dev_task(mainwin):
             source="code",
         )
         agent_skills.append(dev_skill)
-        print("dev task dev_skill auto-created: ", dev_skill)
+        logger.info(f"dev task dev_skill auto-created: {dev_skill}")
     if not run_task:
         task_schedule = TaskSchedule(
             repeat_type=RepeatType.BY_DAYS,
