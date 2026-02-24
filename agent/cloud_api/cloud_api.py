@@ -918,6 +918,70 @@ def send_account_info_request_to_cloud(session, acct_ops, token, endpoint):
     return jresponse
 
 
+def req_api_key(session, token, endpoint, customer='guest'):
+    """Request a new API key from cloud via reqApiKey mutation.
+
+    Args:
+        session: requests.Session
+        token: Cognito auth token
+        endpoint: AppSync endpoint URL
+        customer: customer identifier (default 'guest')
+
+    Returns:
+        dict with apiKey, apiKeyId, message on success, or error dict
+    """
+    query = f'''mutation {{
+        reqApiKey(input: {{customer: "{customer}"}}) {{
+            apiKey
+            apiKeyId
+            message
+        }}
+    }}'''
+    jresp = appsync_http_request(query, session, token, endpoint)
+    logger_helper.debug(f"reqApiKey response: {json.dumps(jresp)}")
+    if "errors" in jresp:
+        error_obj = jresp["errors"][0]
+        error_type = error_obj.get("errorType", error_obj.get("type", "Unknown"))
+        error_msg = error_obj.get("message", str(error_obj))
+        logger_helper.error(f"[reqApiKey] ERROR Type: {error_type} Info: {error_msg}")
+        return {"errorType": error_type, "message": error_msg}
+    data = jresp.get("data", {}).get("reqApiKey", {})
+    return data
+
+
+def remove_api_key(session, token, endpoint, masked_keys):
+    """Remove API key(s) via removeApiKey mutation.
+
+    Args:
+        session: requests.Session
+        token: Cognito auth token
+        endpoint: AppSync endpoint URL
+        masked_keys: list of masked key strings (first6 + '*' + last6)
+
+    Returns:
+        parsed response dict or error dict
+    """
+    keys_str = ', '.join(f'"{k}"' for k in masked_keys)
+    query = f'''mutation {{
+        removeApiKey(input: [{keys_str}])
+    }}'''
+    jresp = appsync_http_request(query, session, token, endpoint)
+    logger_helper.debug(f"removeApiKey response: {json.dumps(jresp)}")
+    if "errors" in jresp:
+        error_obj = jresp["errors"][0]
+        error_type = error_obj.get("errorType", error_obj.get("type", "Unknown"))
+        error_msg = error_obj.get("message", str(error_obj))
+        logger_helper.error(f"[removeApiKey] ERROR Type: {error_type} Info: {error_msg}")
+        return {"errorType": error_type, "message": error_msg}
+    raw = jresp.get("data", {}).get("removeApiKey", "{}")
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except Exception:
+            return {"result": raw}
+    return raw
+
+
 def send_reg_steps_to_cloud(session, localSteps, token, endpoint):
     queryInfo = gen_query_reg_steps_string(localSteps)
 
@@ -7213,22 +7277,17 @@ def query_cloud_task_run_id(session, token, task_id: str, host_name: str = None,
     Returns:
         dict with {success, data: {id, runID, runner, status, error}}
     """
-    meta_json = json.dumps(meta_data or {})
+    meta_json = json.dumps(meta_data or {}).replace('"', '\\"')
+    host = (host_name or '').replace('"', '\\"')
+    tid = (task_id or '').replace('"', '\\"')
 
-    query_string = json.dumps({
-        "query": """query QueryCloudTaskRunId($input: TaskRunQueryInput!) {
-            queryCloudTaskRunId(input: $input) {
-                id runID runner status success error timestamp
-            }
-        }""",
-        "variables": {
-            "input": {
-                "task_id": task_id,
-                "host_name": host_name,
-                "meta_data": meta_json
-            }
-        }
-    })
+    query_string = (
+        'query { queryCloudTaskRunId(input: {'
+        f'task_id: "{tid}", '
+        f'host_name: "{host}", '
+        f'meta_data: "{meta_json}"'
+        '}) { id runID runner status success error timestamp } }'
+    )
 
     logger.info(f"[CloudAPI] queryCloudTaskRunId: task_id={task_id}, host_name={host_name}")
 
@@ -7308,7 +7367,7 @@ def run_cloud_tasks(session, token, task_ids: list, endpoint=None, timeout=60,
     in the response (no polling needed).
 
     Schema:
-        input CloudTaskInput { agent_id: String, task_id: String, task_name: String, options: AWSJSON! }
+        input CloudTaskInput { options: AWSJSON!, task_id: String, task_name: String }
         runCloudTasks(input: [CloudTaskInput]!): AWSJSON!
 
     Args:
@@ -7327,27 +7386,20 @@ def run_cloud_tasks(session, token, task_ids: list, endpoint=None, timeout=60,
     if not task_ids:
         return {"success": False, "error": "No task IDs provided"}
 
-    # Build CloudTaskInput list
-    cloud_task_inputs = []
-    for tid in task_ids:
-        entry = {
-            "task_id": tid,
-            "options": json.dumps(options or {}),
-        }
-        if agent_id:
-            entry["agent_id"] = agent_id
-        if task_name:
-            entry["task_name"] = task_name
-        cloud_task_inputs.append(entry)
+    # Schema: runCloudTasks(input: [CloudTaskInput]!): AWSJSON!
+    # CloudTaskInput { options: AWSJSON!, task_id: String, task_name: String }
+    # Build inline GraphQL — appsync_http_request wraps as json={'query': string}
+    options_json = json.dumps(options or {}).replace('"', '\\"')
 
-    query_string = json.dumps({
-        "query": """mutation RunCloudTasks($input: [CloudTaskInput]!) {
-            runCloudTasks(input: $input)
-        }""",
-        "variables": {
-            "input": cloud_task_inputs
-        }
-    })
+    input_items = []
+    for tid in task_ids:
+        parts = [f'task_id: "{tid}"', f'options: "{options_json}"']
+        if task_name:
+            parts.append(f'task_name: "{task_name}"')
+        input_items.append('{' + ', '.join(parts) + '}')
+
+    input_list = '[' + ', '.join(input_items) + ']'
+    query_string = f'mutation {{ runCloudTasks(input: {input_list}) }}'
 
     logger.info(f"[CloudAPI] runCloudTasks: task_ids={task_ids}, agent_id={agent_id}")
 
@@ -7360,12 +7412,15 @@ def run_cloud_tasks(session, token, task_ids: list, endpoint=None, timeout=60,
     try:
         raw = jresp.get("data", {}).get("runCloudTasks")
 
-        # runCloudTasks returns AWSJSON — may be a JSON string
+        # runCloudTasks returns AWSJSON — may be a JSON string (sometimes double-encoded)
+        if isinstance(raw, str):
+            raw = json.loads(raw)
         if isinstance(raw, str):
             raw = json.loads(raw)
 
         # Normalize various response shapes into {task_id: run_id}
         mapping = {}
+        extras = {}  # per-task extra fields (e.g. local_helper_skill_name)
         if isinstance(raw, dict) and "items" in raw:
             raw = raw["items"]
 
@@ -7377,14 +7432,25 @@ def run_cloud_tasks(session, token, task_ids: list, endpoint=None, timeout=60,
                 rid = item.get("runId") or item.get("runID") or item.get("run_id")
                 if tid and rid:
                     mapping[str(tid)] = str(rid)
+                # Extract optional fields from response
+                helper_name = item.get("local_helper_skill_name") or item.get("localHelperSkillName")
+                if tid and helper_name:
+                    extras.setdefault(str(tid), {})["local_helper_skill_name"] = helper_name
         elif isinstance(raw, dict):
+            # Check for top-level local_helper_skill_name
+            top_helper = raw.pop("local_helper_skill_name", None) or raw.pop("localHelperSkillName", None)
             for k, v in raw.items():
                 if k and v:
                     mapping[str(k)] = str(v)
+            if top_helper:
+                extras["_default"] = {"local_helper_skill_name": top_helper}
 
         if mapping:
             logger.info(f"[CloudAPI] runCloudTasks success: {mapping}")
-            return {"success": True, "run_ids": mapping}
+            result = {"success": True, "run_ids": mapping}
+            if extras:
+                result["extras"] = extras
+            return result
 
         logger.warning(f"[CloudAPI] runCloudTasks: no run_id mapping in response: {raw}")
         return {"success": False, "error": f"Unexpected response: {raw}"}
