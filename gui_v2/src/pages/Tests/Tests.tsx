@@ -656,6 +656,27 @@ const Tests: React.FC = () => {
         }
     };
 
+    const handleTestHybridCloud = async () => {
+        setTestOutput('');
+        appendTestOutput('Hybrid Cloud Test: Calling launch_agent_task for test_hybrid_worker...');
+        const port = settings?.local_server_port || '4668';
+        const testUrl = `http://localhost:${port}/api/test-hybrid-cloud`;
+        try {
+            const response = await fetch(testUrl, { method: 'GET' });
+            const result = await response.json();
+            appendTestOutput(`Hybrid Cloud Test: Response ${response.status}`);
+            appendTestOutput(JSON.stringify(result, null, 2));
+            if (result.status === 'ok' && result.result?.success) {
+                message.success(`Hybrid cloud task launched: ${result.result.message}`);
+            } else {
+                message.error(`Failed: ${result.result?.error || result.error || 'Unknown error'}`);
+            }
+        } catch (error) {
+            appendTestOutput(`Hybrid Cloud Test: ERROR - ${error instanceof Error ? error.message : String(error)}`);
+            message.error('Failed to call test-hybrid-cloud endpoint');
+        }
+    };
+
     const handleLocalWebsocketTest = async () => {
         setTestOutput('');
         appendTestOutput('Local WS Test: Starting...');
@@ -1584,6 +1605,20 @@ const Tests: React.FC = () => {
                             }}
                         >
                             {t('pages.tests.flowTest')}
+                        </Button>
+                    </Space>
+
+                    {/* Hybrid Cloud Test */}
+                    <Space style={{ marginBottom: '16px' }}>
+                        <Button
+                            type="primary"
+                            onClick={handleTestHybridCloud}
+                            style={{
+                                background: '#722ed1',
+                                borderColor: '#722ed1',
+                            }}
+                        >
+                            Test Hybrid Cloud
                         </Button>
                     </Space>
 

@@ -391,6 +391,22 @@ export const GRAPHQL_MUTATIONS = {
     }
   `,
 
+  // ==================== API Key Management (Account Page) ====================
+  REQ_API_KEY_V2: `
+    mutation ReqApiKey($input: CustomerInput) {
+      reqApiKey(input: $input) {
+        apiKey
+        apiKeyId
+        message
+      }
+    }
+  `,
+  REMOVE_API_KEY: `
+    mutation RemoveApiKey($input: [String!]!) {
+      removeApiKey(input: $input)
+    }
+  `,
+
   // ==================== Agent Management ====================
   ADD_AGENTS: `
     mutation AddAgents($input: [AgentInput!]!) {

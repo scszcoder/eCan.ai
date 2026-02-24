@@ -552,6 +552,28 @@ async def local_ws_test(request):
         }, status_code=500)
 
 
+async def test_hybrid_cloud(request):
+    """Test endpoint: directly calls launch_agent_task for test_hybrid_worker.
+    Bypasses the LLM to test the hybrid cloud task plumbing end-to-end."""
+    import time
+    import traceback as tb
+    try:
+        from agent.ec_tasks.task_mcp_tools import launch_agent_task
+        from app_context import AppContext
+        mainwin = AppContext.get_main_window()
+        if mainwin is None:
+            return JSONResponse({"status": "error", "error": "MainWindow not available"}, status_code=500)
+
+        config = {"task_name": "test_hybrid_worker"}
+        logger.info(f"[TestHybridCloud] Calling launch_agent_task with config={config}")
+        result = launch_agent_task(mainwin, config)
+        logger.info(f"[TestHybridCloud] Result: {result}")
+        return JSONResponse({"status": "ok", "result": result})
+    except Exception as e:
+        logger.error(f"[TestHybridCloud] Error: {e}\n{tb.format_exc()}")
+        return JSONResponse({"status": "error", "error": str(e), "traceback": tb.format_exc()}, status_code=500)
+
+
 async def c2l_ws_test(request):
     """C2L (Cloud to Local) WebSocket Test endpoint.
     
@@ -774,6 +796,7 @@ class RouteBuilder:
             Mount("/mcp", app=mcp_asgi),
             Route("/healthz", health_check),
             Route("/api/local-ws-test", local_ws_test, methods=['GET', 'POST']),
+            Route("/api/test-hybrid-cloud", test_hybrid_cloud, methods=['GET', 'POST']),
             Route("/api/c2l-ws-test", c2l_ws_test, methods=['GET', 'POST']),
             Route("/graphql", self.request_handlers.graphql_handler, methods=['POST']),
             WebSocketRoute("/ws/skill-editor", self.request_handlers.skill_editor_websocket),

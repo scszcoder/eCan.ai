@@ -395,8 +395,8 @@ def _convert_db_agent_task_to_object(db_agent_task_dict, main_win=None):
         
         # Resolve skill name to compiled EC_Skill object from mainwin.agent_skills
         resolved_skill = None
-        if skill_name and main_win:
-            compiled_skills = getattr(main_win, 'agent_skills', None) or []
+        compiled_skills = (getattr(main_win, 'agent_skills', None) or []) if main_win else []
+        if skill_name and compiled_skills:
             for sk in compiled_skills:
                 sk_name = (getattr(sk, 'name', '') or '').lower().strip()
                 if sk_name == skill_name.lower().strip():
@@ -406,6 +406,23 @@ def _convert_db_agent_task_to_object(db_agent_task_dict, main_win=None):
                     break
             if not resolved_skill:
                 logger.warning(f"[create_agent_tasks] ⚠️ Skill '{skill_name}' not found in compiled pool — task will have skill as string")
+        
+        # Fallback: if no task-skill relationship in DB, try matching task name to a skill name
+        # Strip trailing digits from skill name for fuzzy matching (e.g. passive0 → passive)
+        if not resolved_skill and not skill_name and compiled_skills:
+            import re
+            task_name = db_agent_task_dict.get('name', '')
+            task_name_lower = task_name.lower().strip().replace('_', '').replace('-', '').replace(' ', '')
+            for sk in compiled_skills:
+                sk_name_raw = (getattr(sk, 'name', '') or '').strip()
+                sk_name_normalized = sk_name_raw.lower().replace('_', '').replace('-', '').replace(' ', '')
+                sk_name_base = re.sub(r'\d+$', '', sk_name_normalized)  # strip trailing digits
+                if sk_name_base and sk_name_base in task_name_lower:
+                    resolved_skill = sk
+                    has_runnable = getattr(sk, 'runnable', None) is not None
+                    logger.info(f"[create_agent_tasks] ✅ Fallback: matched task '{task_name}' to skill '{sk_name_raw}' by name substring (runnable: {has_runnable})")
+                    skill_name = sk_name_raw
+                    break
 
         task_id = db_agent_task_dict.get('id', f"agent_task_{uuid.uuid4().hex[:16]}")
         agent_task = ManagedTask(

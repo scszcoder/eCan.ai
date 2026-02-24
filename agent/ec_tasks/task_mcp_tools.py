@@ -347,15 +347,19 @@ def _enqueue_task_inputs(task, task_inputs: dict, run_id: str):
 
     from a2a.types import MessageSendParams, Message, TextPart
 
+    message_id = str(uuid.uuid4())
     msg = MessageSendParams(
         id=str(uuid.uuid4()),
         message=Message(
+            messageId=message_id,
             role="user",
             parts=[TextPart(type="text", text=json.dumps(task_inputs) if task_inputs else "launch")],
         ),
         metadata={
             "mtype": "launch_task",
             "run_id": run_id,
+            "task_id": getattr(task, "id", ""),
+            "task_name": getattr(task, "name", ""),
             "task_inputs": task_inputs,
         },
     )

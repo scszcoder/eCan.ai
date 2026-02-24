@@ -1485,10 +1485,20 @@ class TaskRunner(Generic[Context]):
                         break
                     continue
                 
-                if msg is None and "schedule" not in triggers:
-                    if self._stop_event.wait(timeout=0.5):
-                        break
-                    continue
+                if msg is None:
+                    # No work item available.  Only fall through to execution
+                    # for *pure* schedule tasks (schedule is the ONLY trigger).
+                    # Multi-trigger tasks that also have "message" must wait for
+                    # an explicit queue message — otherwise the schedule path
+                    # keeps re-executing them with empty input every cycle.
+                    has_message_trigger = "message" in triggers or any(
+                        t in triggers for t in ("a2a_queue", "chat_queue", "interaction")
+                    )
+                    is_pure_schedule = "schedule" in triggers and not has_message_trigger
+                    if not is_pure_schedule:
+                        if self._stop_event.wait(timeout=0.5):
+                            break
+                        continue
                 
                 # Handle shutdown signal
                 if isinstance(msg, dict) and msg.get("__shutdown__"):
@@ -1506,8 +1516,15 @@ class TaskRunner(Generic[Context]):
                         break
                     continue
                 
-                # Determine the effective trigger for this execution
-                effective_trigger = triggers[0] if len(triggers) == 1 else (msg or {}).get("__trigger_source__", triggers[0]) if isinstance(msg, dict) else triggers[0]
+                # Determine the effective trigger for this execution.
+                # If the message came from the queue (message_taken=True), it's always
+                # a "message" trigger regardless of what other triggers the task has.
+                if message_taken:
+                    effective_trigger = "message"
+                elif isinstance(msg, dict) and "__trigger_source__" in msg:
+                    effective_trigger = msg["__trigger_source__"]
+                else:
+                    effective_trigger = triggers[0]
                 
                 # Submit execution
                 self._submit_task_execution(current_task, msg, effective_trigger, dev_init_state)
@@ -1594,7 +1611,11 @@ class TaskRunner(Generic[Context]):
                 return current_task, {"__auto_kickoff__": True, "__trigger_source__": "auto"}, False
         
         # --- Schedule check (non-blocking) ---
-        if has_schedule:
+        # Only use schedule-driven execution for *pure* schedule tasks.
+        # Multi-trigger tasks (schedule + message) should wait for queue messages
+        # to avoid re-executing with empty input every cycle.
+        is_pure_schedule = has_schedule and not has_message
+        if is_pure_schedule:
             sched_task = find_tasks_ready_to_run(self.agent.tasks)
             if sched_task:
                 return sched_task, {"__trigger_source__": "schedule"}, False
@@ -1666,6 +1687,12 @@ class TaskRunner(Generic[Context]):
         """
         logger.info(f"[VALIDATE] Task: {task.id}, name: {task.name}")
         
+        # Skip hybrid cloud tasks that already have an active cloud run
+        # (subscriptions are live, waiting for cloud completion)
+        if task.state.get("cloud_run_active"):
+            logger.debug(f"[VALIDATE] Task '{task.name}' has active cloud run (run_id={task.state.get('cloud_run_id', '?')}), skipping re-execution")
+            return False
+        
         # Stop tasks that have hit max consecutive failures
         if hasattr(task, 'is_max_failures_reached') and task.is_max_failures_reached():
             logger.warning(f"[VALIDATE] Task '{task.name}' reached max failures ({task.consecutive_failures}), skipping")
@@ -1710,6 +1737,12 @@ class TaskRunner(Generic[Context]):
         # Pure cloud + schedule: cloud scheduler handles it, nothing to do locally
         if is_pure_cloud and trigger_type == "schedule":
             logger.info(f"[SUBMIT] Pure cloud task '{task.name}' with schedule trigger — cloud scheduler handles, skipping local execution")
+            return
+        
+        # Hybrid cloud tasks must only be launched on-demand (via message/MCP tool call),
+        # never by the local schedule loop.  The cloud side owns scheduling.
+        if is_hybrid and trigger_type == "schedule":
+            logger.debug(f"[SUBMIT] Hybrid cloud task '{task.name}' ignoring schedule trigger — only runs on explicit message")
             return
         
         # Amend global event routing with entries from this task's skill
@@ -1777,7 +1810,7 @@ class TaskRunner(Generic[Context]):
 
         try:
             from app_context import AppContext
-            from config.app_settings import get_appsync_endpoint
+            from agent.cloud_api.cloud_api import get_appsync_endpoint
 
             login = AppContext.get_login()
             if not login or not login.access_token:
@@ -1795,8 +1828,9 @@ class TaskRunner(Generic[Context]):
             from agent.cloud_api.cloud_api import run_cloud_tasks
 
             session = requests.Session()
+            client_id = self._get_client_id()
             result = run_cloud_tasks(session, token, [task.id], endpoint=endpoint,
-                                     options={"host_name": host_name})
+                                     options={"host_name": host_name, "passive_client_id": client_id})
 
             if not result.get("success"):
                 error_msg = result.get("error", "runCloudTasks failed")
@@ -1848,7 +1882,7 @@ class TaskRunner(Generic[Context]):
         # Get auth credentials
         try:
             from app_context import AppContext
-            from config.app_settings import get_appsync_endpoint
+            from agent.cloud_api.cloud_api import get_appsync_endpoint
 
             login = AppContext.get_login()
             if not login or not login.access_token:
@@ -1864,13 +1898,45 @@ class TaskRunner(Generic[Context]):
             return {"success": False, "error": f"Auth error: {e}"}, True
 
         # Step 1: Obtain cloud task's runID
-        # - Schedule trigger: cloud task is already running, poll for its runID
-        # - On-demand trigger (message/interaction): launch cloud task now via runCloudTasks, get runID directly
+        # Always try runCloudTasks first — it usually returns the runID directly.
+        # Fall back to queryCloudTaskRunId polling only for scheduled triggers
+        # where runCloudTasks didn't return a runID.
         session = requests.Session()
         cloud_run_id = None
+        client_id = self._get_client_id()
 
-        if trigger_type == "schedule":
-            logger.info(f"[HybridCloud] Step 1: Polling for cloud runID (task_id={task.id}, host={host_name})")
+        cloud_helper_skill_name = None  # may be set from runCloudTasks response
+
+        logger.info(f"[HybridCloud] Step 1: Launching cloud task via runCloudTasks (task_id={task.id}, trigger={trigger_type})")
+        try:
+            from agent.cloud_api.cloud_api import run_cloud_tasks
+
+            result = run_cloud_tasks(session, token, [task.id], endpoint=endpoint,
+                                     options={"host_name": host_name, "passive_client_id": client_id})
+
+            if result.get("success"):
+                run_ids = result.get("run_ids", {})
+                cloud_run_id = run_ids.get(task.id)
+                if not cloud_run_id:
+                    cloud_run_id = next(iter(run_ids.values()), None)
+
+                # Extract local_helper_skill_name from response extras
+                extras = result.get("extras", {})
+                task_extras = extras.get(task.id) or extras.get("_default") or {}
+                cloud_helper_skill_name = task_extras.get("local_helper_skill_name")
+                if cloud_helper_skill_name:
+                    logger.info(f"[HybridCloud] Cloud returned local_helper_skill_name: {cloud_helper_skill_name}")
+
+            if cloud_run_id:
+                logger.info(f"[HybridCloud] Got cloud runID from runCloudTasks: {cloud_run_id}")
+            else:
+                logger.warning(f"[HybridCloud] runCloudTasks did not return a runID: {result.get('error', result)}")
+        except Exception as e:
+            logger.warning(f"[HybridCloud] runCloudTasks call failed (will try polling): {e}")
+
+        # Fall back to polling for scheduled triggers if runCloudTasks didn't yield a runID
+        if not cloud_run_id and trigger_type == "schedule":
+            logger.info(f"[HybridCloud] Step 1b: Falling back to polling for cloud runID (task_id={task.id}, host={host_name})")
             try:
                 from agent.cloud_api.cloud_api import query_cloud_task_run_id_with_retry
 
@@ -1882,46 +1948,21 @@ class TaskRunner(Generic[Context]):
                     poll_interval=5,
                 )
 
-                if not run_id_result.get("success"):
+                if run_id_result.get("success"):
+                    cloud_run_id = run_id_result["run_id"]
+                    logger.info(f"[HybridCloud] Got cloud runID via polling: {cloud_run_id}")
+                else:
                     error_msg = run_id_result.get("error", "Failed to get cloud runID")
                     logger.error(f"[HybridCloud] Failed to get cloud runID: {error_msg}")
                     return {"success": False, "error": error_msg}, True
-
-                cloud_run_id = run_id_result["run_id"]
-                logger.info(f"[HybridCloud] Got cloud runID via polling: {cloud_run_id}")
             except Exception as e:
                 logger.error(f"[HybridCloud] Error polling for cloud runID: {e}")
                 logger.error(traceback.format_exc())
                 return {"success": False, "error": f"RunID poll error: {e}"}, True
-        else:
-            # On-demand: launch cloud task and get runID from response
-            logger.info(f"[HybridCloud] Step 1: Launching cloud task via runCloudTasks (task_id={task.id}, trigger={trigger_type})")
-            try:
-                from agent.cloud_api.cloud_api import run_cloud_tasks
 
-                result = run_cloud_tasks(session, token, [task.id], endpoint=endpoint,
-                                         options={"host_name": host_name})
-
-                if not result.get("success"):
-                    error_msg = result.get("error", "runCloudTasks failed")
-                    logger.error(f"[HybridCloud] runCloudTasks failed: {error_msg}")
-                    return {"success": False, "error": error_msg}, True
-
-                run_ids = result.get("run_ids", {})
-                cloud_run_id = run_ids.get(task.id)
-                if not cloud_run_id:
-                    # Try first available run_id if task.id key doesn't match exactly
-                    cloud_run_id = next(iter(run_ids.values()), None)
-
-                if not cloud_run_id:
-                    logger.error(f"[HybridCloud] runCloudTasks returned no runID for task {task.id}")
-                    return {"success": False, "error": "No runID in runCloudTasks response"}, True
-
-                logger.info(f"[HybridCloud] Got cloud runID from runCloudTasks: {cloud_run_id}")
-            except Exception as e:
-                logger.error(f"[HybridCloud] Error calling runCloudTasks: {e}")
-                logger.error(traceback.format_exc())
-                return {"success": False, "error": f"runCloudTasks error: {e}"}, True
+        if not cloud_run_id:
+            logger.error(f"[HybridCloud] Could not obtain cloud runID for task {task.id}")
+            return {"success": False, "error": "No cloud runID obtained"}, True
 
         # Step 2a: Start onTaskStatus subscription for this cloud run
         try:
@@ -1954,19 +1995,57 @@ class TaskRunner(Generic[Context]):
         except Exception as e:
             logger.warning(f"[HybridCloud] Failed to register event routing: {e}")
 
-        # Step 5: Find or create companion local task for passive command execution
-        # The cloud skill's local_helper_skill_id points to a local skill that handles
-        # passive commands (e.g., browser automation on the local machine)
+        # Step 5: Find or create companion local task for passive command execution.
+        # Resolution order:
+        #   1. local_helper_skill_name from runCloudTasks response
+        #   2. skill.local_helper_skill_id attribute on the cloud skill object
+        #   3. Fallback: first local skill whose name contains "passive"
         companion_task = None
-        local_helper_skill_id = getattr(skill, 'local_helper_skill_id', None)
-        if local_helper_skill_id:
-            companion_task = self._ensure_companion_local_task(
-                task, local_helper_skill_id, cloud_run_id, client_id
-            )
+        helper_skill_key = cloud_helper_skill_name  # from runCloudTasks response (may be None)
 
-        # Step 6: Execute the local helper skill normally
-        logger.info(f"[HybridCloud] Step 6: Executing local skill: {skill_name}")
-        return self._execute_skill(task, msg, trigger_type, is_initial_run, dev_init_state)
+        if not helper_skill_key:
+            helper_skill_key = getattr(skill, 'local_helper_skill_id', None)
+            if helper_skill_key:
+                logger.info(f"[HybridCloud] Using skill.local_helper_skill_id: {helper_skill_key}")
+
+        if not helper_skill_key:
+            # Fallback: find any skill with "passive" in its name (agent skills + global pool)
+            all_skills = list(getattr(self.agent, "skills", []) or [])
+            try:
+                from app_context import AppContext
+                main_win = AppContext.get_main_window()
+                if main_win:
+                    for gsk in (getattr(main_win, "agent_skills", []) or []):
+                        if gsk not in all_skills:
+                            all_skills.append(gsk)
+            except Exception:
+                pass
+            for sk in all_skills:
+                sk_name = getattr(sk, "name", "") or ""
+                if "passive" in sk_name.lower():
+                    helper_skill_key = getattr(sk, "id", "") or sk_name
+                    logger.info(f"[HybridCloud] Fallback: found passive skill '{sk_name}' (id={helper_skill_key})")
+                    break
+
+        if helper_skill_key:
+            companion_task = self._ensure_companion_local_task(
+                task, helper_skill_key, cloud_run_id, client_id
+            )
+        else:
+            logger.warning(f"[HybridCloud] No companion skill found — no local_helper_skill_name in response, "
+                           f"no local_helper_skill_id on skill, and no skill with 'passive' in name")
+
+        # Step 6: The cloud is running the main skill; the local side just waits.
+        # Mark task as having an active cloud run to prevent re-scheduling.
+        task.state["cloud_run_active"] = True
+
+        if companion_task:
+            logger.info(f"[HybridCloud] Step 6: Cloud task launched, companion task '{companion_task.name}' ready. "
+                        f"Waiting for cloud completion via onTaskStatus subscription.")
+        else:
+            logger.info(f"[HybridCloud] Step 6: Cloud task launched (no companion task). "
+                        f"Waiting for cloud completion via onTaskStatus subscription.")
+        return {"success": True, "cloud_run_id": cloud_run_id, "hybrid": True}, True
     
     def _get_client_id(self) -> str:
         """Get the client ID (acctSiteID) for passive command subscription."""
@@ -2137,6 +2216,8 @@ class TaskRunner(Generic[Context]):
             status_str = str(status).lower() if status else ""
             if status_str in terminal_statuses:
                 logger.info(f"[TaskStatus] Terminal status '{status_str}' for run_id={run_id}, cleaning up subscriptions")
+                # Clear the active cloud run flag so the task can be re-scheduled
+                task.state.pop("cloud_run_active", None)
                 self._cleanup_hybrid_subscriptions(run_id)
 
         except Exception as e:
@@ -2212,12 +2293,26 @@ class TaskRunner(Generic[Context]):
         tasks = getattr(agent, "tasks", []) or []
         skills = getattr(agent, "skills", []) or []
 
-        # Resolve the companion skill object
+        # Resolve the companion skill object — search agent skills first, then global pool
         companion_skill = None
         for sk in skills:
             if getattr(sk, "id", "") == local_helper_skill_id or getattr(sk, "name", "") == local_helper_skill_id:
                 companion_skill = sk
                 break
+
+        if not companion_skill:
+            # Fallback: search global compiled skills pool (mainwin.agent_skills)
+            try:
+                from app_context import AppContext
+                main_win = AppContext.get_main_window()
+                global_skills = getattr(main_win, "agent_skills", []) or [] if main_win else []
+                for sk in global_skills:
+                    if getattr(sk, "id", "") == local_helper_skill_id or getattr(sk, "name", "") == local_helper_skill_id:
+                        companion_skill = sk
+                        logger.info(f"[HybridCloud] Found companion skill '{local_helper_skill_id}' in global pool")
+                        break
+            except Exception as e:
+                logger.debug(f"[HybridCloud] Could not search global skills pool: {e}")
 
         if not companion_skill:
             logger.warning(
@@ -2261,6 +2356,7 @@ class TaskRunner(Generic[Context]):
 
             new_task = ManagedTask(
                 id=new_id,
+                context_id=new_id,
                 run_id=str(uuid.uuid4()),
                 name=f"{companion_skill_name}_helper_{new_id[:8]}",
                 description=f"Companion local task for hybrid cloud run {cloud_run_id[:8]}",
