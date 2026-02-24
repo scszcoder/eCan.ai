@@ -283,6 +283,40 @@ class EmbeddingFactory:
                     logger.error(f"[EmbeddingFactory] Ollama embeddings failed: {e}")
                     return FakeEmbeddings(size=768)  # Ollama default dimension
                 
+            elif provider_enum_value == "ryoais":
+                # RyoAIS embeddings (uses OpenAI-compatible API)
+                try:
+                    # Get base_url and API key using common helper functions
+                    from gui.manager.provider_settings_helper import get_ryoais_base_url, get_ryoais_api_key
+                    
+                    # Convert provider_config to dict if it's an object
+                    provider_config_dict = None
+                    if provider_config:
+                        try:
+                            # If it's an EmbeddingProviderConfig object, extract base_url
+                            if hasattr(provider_config, 'base_url'):
+                                provider_config_dict = {'base_url': provider_config.base_url}
+                        except Exception:
+                            pass
+                    
+                    base_url = get_ryoais_base_url('embedding', provider_config_dict)
+                    ryoais_api_key = get_ryoais_api_key('embedding')
+                    
+                    # Ensure /v1 endpoint for OpenAI compatibility
+                    base_url = base_url.rstrip('/')
+                    if not base_url.endswith('/v1'):
+                        base_url = f"{base_url}/v1"
+                    
+                    logger.debug(f"[EmbeddingFactory] Creating RyoAIS embeddings with model={model_name}, base_url={base_url}")
+                    return OpenAIEmbeddings(
+                        model=model_name,
+                        api_key=ryoais_api_key,
+                        base_url=base_url
+                    )
+                except Exception as e:
+                    logger.error(f"[EmbeddingFactory] RyoAIS embeddings failed: {e}")
+                    return FakeEmbeddings(size=1024)  # RyoAIS default dimension
+                
             else:
                 # Default to FakeEmbeddings for unknown providers
                 logger.warning(f"[EmbeddingFactory] Unknown provider {provider_name}, using FakeEmbeddings")
