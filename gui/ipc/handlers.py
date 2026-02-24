@@ -537,5 +537,7 @@ def handle_window_get_fullscreen_state(request: IPCRequest, params: Optional[Dic
         )
 
 
-# Print all registered handlers
-logger.info(f"Registered handlers: {IPCHandlerRegistry.list_handlers()}")
+# Log registered handlers at DEBUG level to reduce startup noise
+handler_count = len(IPCHandlerRegistry.list_handlers())
+logger.info(f"[IPC] Registered {handler_count} handlers")
+logger.debug(f"[IPC] Handler list: {IPCHandlerRegistry.list_handlers()}")

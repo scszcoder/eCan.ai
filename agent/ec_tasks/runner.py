@@ -1775,11 +1775,11 @@ class TaskRunner(Generic[Context]):
             from config.app_settings import get_appsync_endpoint
 
             login = AppContext.get_login()
-            if not login or not login.access_token:
-                logger.error("[PureCloud] Not authenticated — no access token")
-                return {"success": False, "error": "Not authenticated"}, True
-
-            token = login.access_token
+            tokens = login.auth_manager.get_tokens()
+            token = tokens.get('access_token')
+            if not token:
+                logger.error("[PureCloud] No access token available")
+                return {"success": False, "error": "No access token"}, True
             endpoint = get_appsync_endpoint()
         except Exception as e:
             logger.error(f"[PureCloud] Failed to get auth credentials: {e}")
@@ -1844,11 +1844,11 @@ class TaskRunner(Generic[Context]):
             from config.app_settings import get_appsync_endpoint
 
             login = AppContext.get_login()
-            if not login or not login.access_token:
-                logger.error("[HybridCloud] Not authenticated - no access token")
-                return {"success": False, "error": "Not authenticated"}, True
-
-            token = login.access_token
+            tokens = login.auth_manager.get_tokens()
+            token = tokens.get('access_token')
+            if not token:
+                logger.error("[HybridCloud] No access token available")
+                return {"success": False, "error": "No access token"}, True
             endpoint = get_appsync_endpoint()
             username = login.auth_manager.current_user if login.auth_manager else "unknown"
             host_name = socket.gethostname()
@@ -2011,28 +2011,20 @@ class TaskRunner(Generic[Context]):
         """
         try:
             from app_context import AppContext
-            from agent.cloud_api.cloud_api import get_appsync_endpoint
             from .appsync_pubsub import AppSyncApiKeyConfig, subscribe_task_status
 
             login = AppContext.get_login()
-            if not login or not login.access_token:
-                logger.warning(f"[TaskStatus] Not authenticated, skipping onTaskStatus subscription for run_id={run_id}")
-                return
-
-            mainwin = self.agent.mainwin
-            endpoint = get_appsync_endpoint()
-            api_key = ""
-            if hasattr(mainwin, 'getWanApiKey'):
-                api_key = mainwin.getWanApiKey() or ""
-
-            if not endpoint:
-                logger.warning(f"[TaskStatus] No AppSync endpoint, skipping onTaskStatus subscription for run_id={run_id}")
-                return
-
+            tokens = login.auth_manager.get_tokens()
+            auth_token = tokens.get('access_token')
+            
+            mainwin = AppContext.get_main_window()
+            api_key = mainwin.getWanApiKey() if mainwin else ""
+            endpoint = mainwin.getWanApiEndpoint() if mainwin else ""
+            
             config = AppSyncApiKeyConfig(
                 http_endpoint=endpoint,
                 api_key=api_key,
-                auth_token=login.access_token,
+                auth_token=auth_token,
             )
 
             task_ref = task  # capture for callback closure

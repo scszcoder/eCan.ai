@@ -473,14 +473,19 @@ const RetrievalTab: React.FC = () => {
           });
 
           // Remove existing references section from LLM response and add our version with download links
-          // Match "References", "参考文献", etc. ONLY when it's on its own line as a heading
-          // Use \n to ensure it's at the start of a new line, and require it to be followed by newline or colon
-          const referenceSectionRegex = /\n+(#{1,3}\s*)?(参考文献|参考文档|参考资料|References?)\s*([:：])?\s*\n[\s\S]*$/i;
+          // Match "References", "参考文献", etc. as a heading (with or without leading newlines)
+          // Match from the heading to the end of content
+          const referenceSectionRegex = /(\n+|^)(#{1,3}\s*)?(参考文献|参考文档|参考资料|References?)\s*([:：])?\s*\n[\s\S]*$/i;
           
           console.log('[RetrievalTab] 📝 Original content length:', m.content?.length);
           console.log('[RetrievalTab] 📝 Content has </think>:', m.content?.includes('</think>'));
           
-          let baseContent = (m.content || '').replace(referenceSectionRegex, '').trim();
+          // Remove LLM-generated duplicate words (e.g., "References References" → "References")
+          const deduplicateWords = (text: string): string => {
+            return text.replace(/\b(\w+)\s+\1\b/gi, '$1');
+          };
+          
+          let baseContent = deduplicateWords((m.content || '')).replace(referenceSectionRegex, '').trim();
           
           console.log('[RetrievalTab] 📝 After regex, content length:', baseContent.length);
           console.log('[RetrievalTab] 📝 After regex, has </think>:', baseContent.includes('</think>'));
@@ -661,9 +666,16 @@ const RetrievalTab: React.FC = () => {
                 });
 
                 // Remove existing references section from LLM response and add our version with download links
-                // Match "References", "参考文献", etc. followed by optional colon and everything after
-                const referenceSectionRegex = /(\n+\s*)?(#{1,3}\s*)?(参考文献|参考文档|参考资料|references?)\s*([:：])?[\s\S]*$/i;
-                const baseContent = base.replace(referenceSectionRegex, '').trim();
+                // Match "References", "参考文献", etc. as a heading (with or without leading newlines)
+                // Match from the heading to the end of content
+                const referenceSectionRegex = /(\n+|^)(#{1,3}\s*)?(参考文献|参考文档|参考资料|References?)\s*([:：])?\s*\n[\s\S]*$/i;
+                
+                // Remove LLM-generated duplicate words (e.g., "References References" → "References")
+                const deduplicateWords = (text: string): string => {
+                  return text.replace(/\b(\w+)\s+\1\b/gi, '$1');
+                };
+                
+                const baseContent = deduplicateWords(base).replace(referenceSectionRegex, '').trim();
                 
                 content = `${baseContent}\n\n${t('pages.knowledge.retrieval.referenceDocs')}\n${refLines.join('\n')}`;
               } else {
