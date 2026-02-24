@@ -449,8 +449,10 @@ def handle_run_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]])
 
             from agent.cloud_api.cloud_api import run_skill_in_cloud, get_appsync_endpoint
             login = AppContext.get_login()
-            if not login or not login.access_token:
-                return create_error_response(request, 'TOKEN_REQUIRED', 'Not authenticated - no access token')
+            tokens = login.auth_manager.get_tokens()
+            token = tokens.get('access_token')
+            if not token:
+                return create_error_response(request, 'TOKEN_REQUIRED', 'No access token available')
 
             skill_dict = skill_obj.to_dict() if hasattr(skill_obj, 'to_dict') else skill_obj
             skill_json = json.dumps(skill_dict)
@@ -462,7 +464,7 @@ def handle_run_agent_task(request: IPCRequest, params: Optional[Dict[str, Any]])
 
             session = requests.Session()
             endpoint = get_appsync_endpoint()
-            result = run_skill_in_cloud(session, login.access_token, skill_json, username, metadata, endpoint)
+            result = run_skill_in_cloud(session, access_token, skill_json, username, metadata, endpoint)
 
             if not result.get('success'):
                 return create_error_response(request, 'RUN_TASK_ERROR', str(result.get('error') or result.get('errors') or 'Cloud run failed'))

@@ -49,15 +49,81 @@ name: Release Build eCan
 #   Beta Release:        v1.0.0-beta.1, v1.0.0-beta.2
 #   Alpha Release:       v1.0.0-alpha.1
 #
-# ENVIRONMENT AUTO-DETECTION:
-#   v1.0.0           → production environment, stable channel
-#   v1.0.0-rc.1      → staging environment, stable channel
-#   v1.0.0-beta.1    → test environment, beta channel
-#   v1.0.0-alpha.1   → development environment, dev channel
-#   staging branch   → staging environment, stable channel
-#   main/master      → production environment, stable channel
-#   develop/dev      → development environment, dev channel
-#   other branches   → development environment, dev channel
+# ============================================================================
+# ENVIRONMENT & CHANNEL MAPPING (Standard Industry Practice)
+# ============================================================================
+#
+# Git Ref              → Environment    → Channel   → S3 Path
+# ─────────────────────────────────────────────────────────────────────────
+# v1.0.0               → production     → stable    → production/channels/stable/
+# v1.0.0-rc.1          → production     → beta      → production/channels/beta/
+# v1.0.0-beta.1        → staging        → beta      → staging/channels/beta/
+# v1.0.0-alpha.1       → test           → dev       → test/channels/dev/
+# main/master branch   → production     → nightly   → production/channels/nightly/
+# staging branch       → staging        → stable    → staging/channels/stable/
+# develop/dev branch   → development    → dev       → development/channels/dev/
+# feature/* branches   → development    → dev       → development/channels/dev/
+#
+# ============================================================================
+# KEY CONCEPTS
+# ============================================================================
+#
+# ENVIRONMENT (部署环境级别):
+#   - production:   生产环境 - 最高质量标准，面向所有用户
+#   - staging:      预发布环境 - 生产前最后验证
+#   - test:         测试环境 - 内部测试
+#   - development:  开发环境 - 开发和调试
+#
+# CHANNEL (更新渠道):
+#   - stable:   稳定版本 - 经过充分测试，推荐所有用户使用
+#   - beta:     测试版本 - 功能完整，可能有 bug，适合尝鲜用户
+#   - nightly:  每日构建 - 最新功能，来自 main 分支，适合开发者
+#   - dev:      开发版本 - 不稳定，仅供开发测试
+#
+# ============================================================================
+# PRODUCTION ENVIRONMENT RULES
+# ============================================================================
+#
+# Production 环境包含两个渠道：
+#   1. stable channel  (production/channels/stable/)
+#      - 来源：正式版本 tag (v1.0.0)
+#      - 用户：所有用户（默认更新渠道）
+#      - 特点：经过完整测试，最稳定
+#
+#   2. nightly channel (production/channels/nightly/)
+#      - 来源：main/master 分支的每日构建
+#      - 用户：尝鲜用户、开发者
+#      - 特点：最新功能，质量达到生产级别但未经长期验证
+#
+#   3. beta channel    (production/channels/beta/)
+#      - 来源：RC tag (v1.0.0-rc.1)
+#      - 用户：测试用户
+#      - 特点：候选版本，即将成为 stable
+#
+# 为什么 main/master 是 production environment？
+#   ✅ main 分支应该始终保持生产级别的代码质量
+#   ✅ 符合 CI/CD 最佳实践：main = production-ready
+#   ✅ 与主流软件一致（Chrome/VS Code/Firefox 等）
+#   ✅ 通过 channel 区分稳定性，而不是通过 environment
+#
+# ============================================================================
+# PROTECTION RULES
+# ============================================================================
+#
+# 1. production/stable channel 保护：
+#    ⚠️  ONLY 正式版本 tag (v1.0.0) 可以部署
+#    ⚠️  任何分支（包括 main/master）都不能部署到 stable channel
+#    ⚠️  防止意外覆盖稳定版本
+#
+# 2. production/nightly channel：
+#    ✅ 只接受 main/master 分支
+#    ✅ 每次提交自动构建
+#    ✅ 不会影响 stable channel
+#
+# 3. 其他环境：
+#    - staging: 接受 staging 分支和 beta/rc tags
+#    - test: 接受 alpha tags 和测试分支
+#    - development: 接受所有开发分支
 #
 # HOW TO CREATE A RELEASE:
 #
@@ -92,11 +158,70 @@ name: Release Build eCan
 #   - Example: Use workflow from=main, ref=v1.0.0 → builds v1.0.0 tag
 #   - Example: Use workflow from=feature/fix, ref=main → test new workflow
 #
-# EXAMPLES:
-#   Production:  git tag v1.0.0 && git push origin v1.0.0
-#   RC:          git tag v1.0.0-rc.1 && git push origin v1.0.0-rc.1
-#   Beta:        git tag v1.0.0-beta.1 && git push origin v1.0.0-beta.1
-#   Branch:      Manual trigger with ref=gui-v2
+# ============================================================================
+# USAGE EXAMPLES (使用示例)
+# ============================================================================
+#
+# 场景 1: 发布正式版本 (Stable Release)
+#   操作：git tag v1.0.0 && git push origin v1.0.0
+#   结果：production/stable/appcast-*.xml
+#   用户：所有用户（默认更新渠道）
+#
+# 场景 2: 发布候选版本 (Release Candidate)
+#   操作：git tag v1.0.0-rc.1 && git push origin v1.0.0-rc.1
+#   结果：production/beta/appcast-*.xml
+#   用户：测试用户
+#
+# 场景 3: main/master 分支每日构建 (Nightly Build)
+#   操作：git push origin main
+#   结果：production/nightly/appcast-*.xml
+#   用户：开发者、尝鲜用户
+#   说明：自动触发，无需手动操作
+#
+# 场景 4: 测试新功能 (Feature Branch)
+#   操作：Manual trigger with ref=feature/new-ui
+#   结果：development/dev/appcast-*.xml
+#   用户：内部开发测试
+#
+# 场景 5: 预发布验证 (Staging)
+#   操作：git push origin staging
+#   结果：staging/stable/appcast-*.xml
+#   用户：预发布测试团队
+#
+# ============================================================================
+# MANUAL TRIGGER GUIDE (手动触发指南)
+# ============================================================================
+#
+# 在 GitHub Actions 界面选择参数时：
+#
+# 1. 构建 main 分支的 nightly 版本（推荐 - 自动检测）：
+#    - ref: (留空或填 main)
+#    - environment: (留空 - 自动检测为 production)
+#    - channel: (留空 - 自动检测为 nightly)
+#    ✅ 结果：production/nightly/
+#
+# 2. 构建正式版本（推荐 - 自动检测）：
+#    - ref: v1.0.0
+#    - environment: (留空 - 自动检测为 production)
+#    - channel: (留空 - 自动检测为 stable)
+#    ✅ 结果：production/stable/
+#
+# 3. 测试功能分支（推荐 - 自动检测）：
+#    - ref: feature/my-feature
+#    - environment: (留空 - 自动检测为 development)
+#    - channel: (留空 - 自动检测为 dev)
+#    ✅ 结果：development/dev/
+#
+# 4. 强制指定环境和渠道（高级用户 - 手动覆盖）：
+#    - ref: main
+#    - environment: production
+#    - channel: nightly
+#    ✅ 结果：production/nightly/
+#
+# ⚠️  注意：
+#    - 如果手动选择 production + stable，必须使用 tag (v1.0.0)
+#    - main/master 分支不能使用 stable channel
+#    - 推荐留空让系统自动检测（更安全、更准确）
 #
 # VERSION CALCULATION:
 #   - Tag (v1.0.0):           → 1.0.0
@@ -144,24 +269,55 @@ on:
         type: string
       
       environment:
-        description: 'Target environment'
+        description: |
+          Target environment (目标环境):
+          📋 自动检测规则：
+          • v1.0.0 → production/stable
+          • v1.0.0-rc.1 → production/beta
+          • main/master → production/nightly
+          • staging branch → staging/stable
+          • develop/dev → development/dev
+          
+          ⚠️ 环境说明：
+          - production: 生产环境 (仅限 tags + main/master)
+          - staging: 预发布环境
+          - test: 测试环境
+          - development: 开发环境
+          - (留空): 自动检测
         required: false
         default: 'production'
         type: choice
         options:
           - production
+          - ''
           - staging
           - test
           - development
       
       channel:
-        description: 'Release channel'
+        description: |
+          Release channel (更新渠道):
+          📋 自动检测规则：
+          • v1.0.0 → stable
+          • v1.0.0-rc.1 → beta
+          • main/master → nightly
+          • develop/dev → dev
+          
+          ⚠️ 渠道说明：
+          - stable: 稳定版本 (仅限正式 tag)
+          - beta: 测试版本
+          - nightly: 每日构建
+          - dev: 开发版本
+          - (留空): 自动检测
         required: false
         default: 'stable'
         type: choice
         options:
           - stable
+          - ''
           - beta
+          - nightly
+          - dev
 
       upload_artifacts:
         description: 'Upload build artifacts to GitHub Artifacts (for debugging only, costs extra storage). S3 upload always happens regardless of this setting.'
@@ -267,25 +423,60 @@ jobs:
         echo "Input Environment: $INPUT_ENV"
         echo "Input Channel: $INPUT_CHANNEL"
         
-        # Determine if this is a production-eligible ref (for safety checks)
-        IS_PRODUCTION_ELIGIBLE=false
-        if [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+.*$ ]] || \
-           [[ "$REF_NAME" == "main" ]] || [[ "$REF_NAME" == "master" ]]; then
-          IS_PRODUCTION_ELIGIBLE=true
+        # Determine if this is a tag (version tag)
+        IS_TAG=false
+        if [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
+          IS_TAG=true
         fi
         
-        # Use manual selection if provided
+        # Determine if this is a production-eligible ref (for staging checks)
+        IS_STAGING_ELIGIBLE=false
+        if [[ "$IS_TAG" == "true" ]] || \
+           [[ "$REF_NAME" == "main" ]] || [[ "$REF_NAME" == "master" ]]; then
+          IS_STAGING_ELIGIBLE=true
+        fi
+        
+        # Use manual selection if provided (skip if empty)
         if [[ -n "$INPUT_ENV" ]]; then
           ENV="$INPUT_ENV"
           
-          # Safety check: Prevent feature branches from using production/staging
-          if [[ "$IS_PRODUCTION_ELIGIBLE" == "false" ]] && [[ "$ENV" == "production" || "$ENV" == "staging" ]]; then
+          # CRITICAL SAFETY CHECK: Production environment with specific channel restrictions
+          if [[ "$ENV" == "production" ]]; then
+            # Production environment is allowed for both tags and main/master branches
+            # But they use DIFFERENT channels to prevent conflicts
+            if [[ "$IS_TAG" == "false" ]]; then
+              # Branches in production: only main/master allowed
+              if [[ "$REF_NAME" != "main" && "$REF_NAME" != "master" ]]; then
+                echo "======================================================"
+                echo "❌ ERROR: Only main/master branches can use production environment"
+                echo "======================================================"
+                echo "Current ref: $REF_NAME"
+                echo "Requested environment: production"
+                echo ""
+                echo "Production environment accepts:"
+                echo "  ✅ Version tags (v1.0.0, v1.0.0-rc.1) → stable/beta channels"
+                echo "  ✅ main/master branches → nightly channel"
+                echo "  ❌ Other branches → use development/test/staging"
+                echo ""
+                echo "Allowed environments for branch '$REF_NAME':"
+                echo "  - development"
+                echo "  - test"
+                echo "  - staging (if eligible)"
+                echo "======================================================"
+                exit 1
+              fi
+            fi
+          fi
+          
+          # Safety check: Prevent feature branches from using staging
+          if [[ "$IS_STAGING_ELIGIBLE" == "false" ]] && [[ "$ENV" == "staging" ]]; then
             echo "======================================================"
-            echo "❌ ERROR: Branch '$REF_NAME' cannot use '$ENV' environment"
+            echo "❌ ERROR: Branch '$REF_NAME' cannot use staging environment"
             echo "======================================================"
-            echo "Only the following refs can use production/staging:"
+            echo "Only the following refs can use staging:"
             echo "  - Version tags: v1.0.0, v1.0.0-rc.1, v1.0.0-beta.1"
             echo "  - Main branches: main, master"
+            echo "  - Staging branch: staging"
             echo ""
             echo "Current ref: $REF_NAME (feature branch)"
             echo "Requested environment: $ENV"
@@ -294,7 +485,7 @@ jobs:
             echo "  - development"
             echo "  - test"
             echo ""
-            echo "💡 Tip: Create a version tag to enable production/staging deployment"
+            echo "💡 Tip: Create a version tag to enable staging deployment"
             echo "======================================================"
             exit 1
           fi
@@ -306,20 +497,23 @@ jobs:
             # Production: Clean version tag (e.g., v1.0.0)
             ENV="production"
           elif [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\. ]]; then
-            # Staging: Release candidate (e.g., v1.0.0-rc.1)
-            ENV="staging"
+            # Production: Release candidate (e.g., v1.0.0-rc.1)
+            ENV="production"
           elif [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta ]]; then
-            # Test: Beta version (e.g., v1.0.0-beta.1)
+            # Staging: Beta version (e.g., v1.0.0-beta.1)
+            ENV="staging"
+          elif [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha ]]; then
+            # Test: Alpha version (e.g., v1.0.0-alpha.1)
             ENV="test"
-          elif [[ "$REF_NAME" == "develop" || "$REF_NAME" == "dev" ]]; then
-            # Development: develop branch
-            ENV="development"
+          elif [[ "$REF_NAME" == "main" || "$REF_NAME" == "master" ]]; then
+            # Production: main/master branch (nightly builds)
+            ENV="production"
           elif [[ "$REF_NAME" == "staging" ]]; then
             # Staging: staging branch
             ENV="staging"
-          elif [[ "$REF_NAME" == "main" || "$REF_NAME" == "master" ]]; then
-            # Production: main/master branch
-            ENV="production"
+          elif [[ "$REF_NAME" == "develop" || "$REF_NAME" == "dev" ]]; then
+            # Development: develop branch
+            ENV="development"
           else
             # Other branches: default to development
             ENV="development"
@@ -327,50 +521,89 @@ jobs:
           echo "Auto-detected environment: $ENV"
         fi
         
-        # Use manual channel if provided
+        # Use manual channel if provided (skip if empty)
         if [[ -n "$INPUT_CHANNEL" ]]; then
           CHANNEL="$INPUT_CHANNEL"
           echo "Using manual channel: $CHANNEL"
         else
-          # Auto-detect channel based on environment
-          case "$ENV" in
-            production)
-              CHANNEL="stable"
-              ;;
-            staging)
-              CHANNEL="stable"
-              ;;
-            test)
-              CHANNEL="beta"
-              ;;
-            development)
-              CHANNEL="beta"
-              ;;
-            *)
-              CHANNEL="stable"
-              ;;
-          esac
+          # Auto-detect channel based on ref type and environment
+          if [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            # Clean version tag → stable channel
+            CHANNEL="stable"
+          elif [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\. ]]; then
+            # RC tag → beta channel
+            CHANNEL="beta"
+          elif [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta ]]; then
+            # Beta tag → beta channel
+            CHANNEL="beta"
+          elif [[ "$REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-alpha ]]; then
+            # Alpha tag → dev channel
+            CHANNEL="dev"
+          elif [[ "$REF_NAME" == "main" || "$REF_NAME" == "master" ]]; then
+            # main/master branch → nightly channel
+            CHANNEL="nightly"
+          elif [[ "$REF_NAME" == "staging" ]]; then
+            # staging branch → stable channel
+            CHANNEL="stable"
+          elif [[ "$REF_NAME" == "develop" || "$REF_NAME" == "dev" ]]; then
+            # develop branch → dev channel
+            CHANNEL="dev"
+          else
+            # Other branches → dev channel
+            CHANNEL="dev"
+          fi
           echo "Auto-detected channel: $CHANNEL"
         fi
         
-        # Safety check: Prevent non-production-eligible branch builds in production/staging
-        # Note: main/master branches are production-eligible and allowed
+        # FINAL SAFETY CHECK: Enforce channel restrictions for production/stable
         IS_BRANCH="${{ steps.validate.outputs.is_branch }}"
-        if [[ "$IS_BRANCH" == "true" ]] && [[ "$IS_PRODUCTION_ELIGIBLE" == "false" ]] && [[ "$ENV" == "production" || "$ENV" == "staging" ]]; then
+        
+        # Production/stable channel protection: ONLY version tags allowed
+        if [[ "$ENV" == "production" ]] && [[ "$CHANNEL" == "stable" ]] && [[ "$IS_TAG" == "false" ]]; then
           echo "======================================================"
-          echo "❌ ERROR: Branch builds cannot be deployed to $ENV"
+          echo "❌ CRITICAL ERROR: production/stable requires version tags"
           echo "======================================================"
           echo "Current ref: $REF_NAME (branch)"
-          echo "Target environment: $ENV"
+          echo "Target: production/stable"
           echo ""
-          echo "Production and staging environments require version tags."
+          echo "⚠️  PROTECTION: To prevent overwriting stable releases,"
+          echo "    ONLY version tags (v1.0.0) can use production/stable."
           echo ""
-          echo "To fix:"
+          echo "Options for branch '$REF_NAME':"
+          if [[ "$REF_NAME" == "main" || "$REF_NAME" == "master" ]]; then
+            echo "  ✅ production/nightly (auto-detected for main/master)"
+            echo "  ✅ Change channel to 'nightly' or 'auto'"
+          else
+            echo "  ✅ development/dev"
+            echo "  ✅ test/dev"
+          fi
+          echo ""
+          echo "To deploy to production/stable:"
           echo "  1. Create a version tag: git tag v1.0.1"
           echo "  2. Push the tag: git push origin v1.0.1"
-          echo "  3. Use the tag as ref: v1.0.1"
+          echo "  3. Trigger build with tag v1.0.1"
+          echo "======================================================"
+          exit 1
+        fi
+        
+        # Staging environment requires tags or main/master/staging branches
+        if [[ "$ENV" == "staging" ]] && [[ "$IS_STAGING_ELIGIBLE" == "false" ]]; then
+          echo "======================================================"
+          echo "❌ ERROR: Staging requires tags or main/master/staging branches"
+          echo "======================================================"
+          echo "Current ref: $REF_NAME (feature branch)"
+          echo "Target environment: staging"
           echo ""
-          echo "Or change environment to 'development' or 'test' for branch builds."
+          echo "Allowed refs for staging:"
+          echo "  - Version tags: v1.0.0, v1.0.0-rc.1, v1.0.0-beta.1"
+          echo "  - Main branches: main, master"
+          echo "  - Staging branch: staging"
+          echo ""
+          echo "To deploy to staging:"
+          echo "  1. Create a version tag, OR"
+          echo "  2. Merge to main/master/staging branch"
+          echo ""
+          echo "Or change environment to 'development' or 'test' for feature branches."
           echo "======================================================"
           exit 1
         fi
