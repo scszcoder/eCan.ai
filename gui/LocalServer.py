@@ -18,6 +18,51 @@ from utils.gui_dispatch import run_on_main_thread
 if typing.TYPE_CHECKING:
     from gui.MainGUI import MainWindow
 
+# ==================== Log Filter Configuration ====================
+# 配置需要屏蔽的日志类型，减少日志噪音
+LOG_FILTER_CONFIG = {
+    # 包含这些关键字的消息类型会被屏蔽
+    'contains': [
+        'queryStream',      # 所有查询流相关消息（chunk, done, start等）
+        'agentStream',      # Agent流式消息
+    ],
+    # 以这些后缀结尾的消息类型会被屏蔽
+    'endswith': [
+        '.chunk',           # 所有chunk消息
+        'Stream.chunk',     # 流式chunk消息
+    ],
+    # 完全匹配的消息类型会被屏蔽
+    'exact': [
+        # 'some.exact.type',  # 示例：精确匹配
+    ]
+}
+
+def should_filter_log(msg_type: str) -> bool:
+    """
+    检查消息类型是否应该被过滤（屏蔽日志）
+    
+    Args:
+        msg_type: 消息类型字符串
+        
+    Returns:
+        True 表示应该屏蔽日志，False 表示应该记录日志
+    """
+    # 检查精确匹配
+    if msg_type in LOG_FILTER_CONFIG['exact']:
+        return True
+    
+    # 检查包含关键字
+    for keyword in LOG_FILTER_CONFIG['contains']:
+        if keyword in msg_type:
+            return True
+    
+    # 检查后缀匹配
+    for suffix in LOG_FILTER_CONFIG['endswith']:
+        if msg_type.endswith(suffix):
+            return True
+    
+    return False
+
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse, FileResponse, StreamingResponse
 from starlette.staticfiles import StaticFiles
@@ -120,18 +165,24 @@ class AppWebSocketManager:
         message_str = json.dumps(message)
         msg_type = message.get('type', 'unknown')
         
+        # Check if this message type should be filtered
+        is_filtered = should_filter_log(msg_type)
+        
         if channel_id and channel_id in self._connections and self._connections[channel_id]:
             targets = self._connections[channel_id]
-            logger.info(f"[AppWS] 📤 broadcast: {msg_type} → channel '{channel_id}' ({len(targets)} subscribers)")
+            if not is_filtered:
+                logger.info(f"[AppWS] 📤 broadcast: {msg_type} → channel '{channel_id}' ({len(targets)} subscribers)")
         else:
             targets = self._all_connections
-            logger.info(f"[AppWS] 📤 broadcast: {msg_type} → ALL ({len(targets)} clients), channel_id={channel_id}")
+            if not is_filtered:
+                logger.info(f"[AppWS] 📤 broadcast: {msg_type} → ALL ({len(targets)} clients), channel_id={channel_id}")
         
         disconnected = []
         for websocket in targets:
             try:
                 await websocket.send_text(message_str)
-                logger.info(f"[AppWS] ✉️  sent {msg_type} ({len(message_str)} bytes) to ws={id(websocket)}, state={websocket.client_state}")
+                if not is_filtered:
+                    logger.debug(f"[AppWS] ✉️  sent {msg_type} ({len(message_str)} bytes) to ws={id(websocket)}, state={websocket.client_state}")
             except Exception as e:
                 logger.warning(f"[AppWS] ❌ Failed to send {msg_type}: {e}")
                 disconnected.append(websocket)
@@ -140,7 +191,8 @@ class AppWebSocketManager:
         for ws in disconnected:
             self.disconnect(ws, channel_id)
         
-        logger.info(f"[AppWS] ✅ broadcast done: {msg_type}, sent to {len(targets) - len(disconnected)}/{len(targets)} clients")
+        if not is_filtered:
+            logger.debug(f"[AppWS] ✅ broadcast done: {msg_type}, sent to {len(targets) - len(disconnected)}/{len(targets)} clients")
 
     
     # ==================== Ad Banner Events ====================
@@ -171,6 +223,9 @@ class AppWebSocketManager:
             "payload": payload
         }
         
+        # Check if this event type should be filtered
+        is_filtered = should_filter_log(event_type)
+        
         if self._event_loop and self._event_loop.is_running():
             # Schedule the coroutine on the event loop (fire-and-forget)
             # Don't wait for completion to avoid blocking the caller thread
@@ -180,7 +235,8 @@ class AppWebSocketManager:
                     self.broadcast(message, channel_id),
                     self._event_loop
                 )
-                logger.info(f"[AppWS] 📤 Broadcast scheduled: {event_type}, channel={channel_id}, clients={len(self._all_connections)}")
+                if not is_filtered:
+                    logger.debug(f"[AppWS] 📤 Broadcast scheduled: {event_type}, channel={channel_id}, clients={len(self._all_connections)}")
             except Exception as e:
                 logger.warning(f"[AppWS] ❌ Failed to schedule broadcast for event {event_type}: {e}")
         else:
@@ -568,8 +624,9 @@ async def c2l_ws_test(request):
     
     try:
         # Get auth token from app context
-        from app_context import AppContext
-        main_window = AppContext.get_main_window()
+        from config.app_settings import AppSettings
+        
+        main_window = AppSettings.get_main_window()
         
         if not main_window:
             return JSONResponse({
