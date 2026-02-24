@@ -666,10 +666,6 @@ class LightragClient:
                         line_str = line.decode('utf-8')
                         # /query/stream returns pure NDJSON lines, no 'data: ' prefix
                         
-                        # Log all chunks for debugging (limit to first 10)
-                        if line_count <= 10:
-                            logger.debug(f"[Stream] Chunk {line_count}: {line_str[:200]}...")
-                        
                         yield line_str
                         
                         # Accumulate response for confidence calculation
