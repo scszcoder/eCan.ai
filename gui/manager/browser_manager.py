@@ -143,6 +143,7 @@ def _get_windows_creation_flags():
 def _create_webdriver_for_cdp(webdriver_path: str, cdp_address: str) -> Any:
     """
     Create a Selenium WebDriver connected to an existing Chrome via CDP.
+    Automatically downloads matching ChromeDriver if version mismatch detected.
     
     Args:
         webdriver_path: Path to chromedriver executable
@@ -154,15 +155,17 @@ def _create_webdriver_for_cdp(webdriver_path: str, cdp_address: str) -> Any:
     from selenium import webdriver
     from selenium.webdriver.chrome.service import Service
     from selenium.webdriver.chrome.options import Options
-    from selenium.common.exceptions import InvalidArgumentException, WebDriverException
+    from selenium.common.exceptions import InvalidArgumentException, WebDriverException, SessionNotCreatedException
     
     driver = None
+    current_webdriver_path = webdriver_path
+    
     try:
         chrome_options = Options()
         chrome_options.add_experimental_option("debuggerAddress", cdp_address)
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         
-        service = Service(executable_path=webdriver_path, log_output=subprocess.DEVNULL)
+        service = Service(executable_path=current_webdriver_path, log_output=subprocess.DEVNULL)
         if sys.platform == "win32":
             try:
                 service.creationflags = _get_windows_creation_flags()
@@ -176,17 +179,77 @@ def _create_webdriver_for_cdp(webdriver_path: str, cdp_address: str) -> Any:
             chrome_options_fallback = Options()
             chrome_options_fallback.add_experimental_option("debuggerAddress", cdp_address)
             driver = webdriver.Chrome(service=service, options=chrome_options_fallback)
+        except SessionNotCreatedException as e:
+            # Check if it's a version mismatch error
+            error_msg = str(e)
+            if "This version of ChromeDriver only supports Chrome version" in error_msg:
+                logger.warning(f"[WebDriver] Version mismatch detected: {error_msg}")
+                logger.info(f"[WebDriver] Attempting to download matching ChromeDriver...")
+                
+                # Try to download matching ChromeDriver
+                try:
+                    from gui.webdriver.utils import detect_chrome_version
+                    from gui.webdriver.downloader import WebDriverDownloader
+                    from gui.webdriver.config import get_webdriver_dir
+                    
+                    # Detect Chrome version
+                    chrome_version = detect_chrome_version()
+                    if chrome_version:
+                        logger.info(f"[WebDriver] Detected Chrome version: {chrome_version}")
+                        
+                        # Download matching ChromeDriver
+                        downloader = WebDriverDownloader()
+                        webdriver_dir = get_webdriver_dir()
+                        
+                        # Use asyncio to run the async download function
+                        import asyncio
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            new_driver_path = loop.run_until_complete(
+                                downloader.download_webdriver(chrome_version, webdriver_dir)
+                            )
+                        finally:
+                            loop.close()
+                        
+                        if new_driver_path:
+                            logger.info(f"[WebDriver] ✅ Downloaded matching ChromeDriver: {new_driver_path}")
+                            current_webdriver_path = new_driver_path
+                            
+                            # Retry with new ChromeDriver
+                            service = Service(executable_path=current_webdriver_path, log_output=subprocess.DEVNULL)
+                            if sys.platform == "win32":
+                                try:
+                                    service.creationflags = _get_windows_creation_flags()
+                                except Exception:
+                                    pass
+                            
+                            driver = webdriver.Chrome(service=service, options=chrome_options)
+                            logger.info(f"[WebDriver] ✅ Successfully connected with new ChromeDriver")
+                        else:
+                            logger.error(f"[WebDriver] Failed to download matching ChromeDriver")
+                            raise
+                    else:
+                        logger.error(f"[WebDriver] Could not detect Chrome version")
+                        raise
+                        
+                except Exception as download_error:
+                    logger.error(f"[WebDriver] Auto-download failed: {download_error}")
+                    raise e  # Re-raise original error
+            else:
+                raise  # Re-raise if not a version mismatch error
         
         # Inject stealth script
-        try:
-            driver.execute_cdp_cmd(
-                "Page.addScriptToEvaluateOnNewDocument",
-                {"source": "Object.defineProperty(navigator, 'webdriver', {get: () => false})"}
-            )
-        except WebDriverException:
-            pass
-        
-        logger.info(f"[WebDriver] Connected to CDP at {cdp_address}")
+        if driver:
+            try:
+                driver.execute_cdp_cmd(
+                    "Page.addScriptToEvaluateOnNewDocument",
+                    {"source": "Object.defineProperty(navigator, 'webdriver', {get: () => false})"}
+                )
+            except WebDriverException:
+                pass
+            
+            logger.info(f"[WebDriver] Connected to CDP at {cdp_address}")
         
     except Exception as e:
         logger.error(f"[WebDriver] Failed to connect: {e}")

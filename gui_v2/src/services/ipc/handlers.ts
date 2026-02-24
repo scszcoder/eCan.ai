@@ -58,8 +58,7 @@ export class IPCHandlers {
         this.registerHandler('push_chat_notification', this.pushChatNotification);
         this.registerHandler('update_screens', this.updateScreens);
         this.registerHandler('onboarding_message', this.onboardingMessage);
-        // Skill editor log push
-        this.registerHandler('skill_editor_log', this.pushSkillEditorLog);
+        // Note: skill_editor_log is now sent via WebSocket only (not IPC) to avoid duplicates
         // Context panel
         this.registerHandler('send_all_contexts', handleSendAllContexts);
         this.registerHandler('update_contexts', handleUpdateContexts);
@@ -729,22 +728,6 @@ export class IPCHandlers {
         // logger.info('Received updateTasksStat request:', request.params);
         eventBus.emit('ws:update_tasks_stat', request.params);
         return { success: true };
-    }
-
-    async pushSkillEditorLog(request: IPCRequest): Promise<{ success: boolean }>{
-        try {
-            const p = (request.params as any) || {};
-            // Accept either { type, text } or nested { message: { type, text } }
-            const payload = p.message && typeof p.message === 'object' ? p.message : p;
-            const t = String(payload.type || 'log').toLowerCase();
-            const text = typeof payload.text === 'string' ? payload.text : JSON.stringify(payload.text ?? payload);
-            const entry = { type: t as 'log' | 'warning' | 'error', text, timestamp: Date.now() };
-            eventBus.emit('skill-editor:log', entry);
-            return { success: true };
-        } catch (e) {
-            eventBus.emit('skill-editor:log', { type: 'error', text: `malformed log payload: ${String(e)}`, timestamp: Date.now() });
-            return { success: true };
-        }
     }
 
     async updateScreens(request: IPCRequest): Promise<{ success: boolean }> {
