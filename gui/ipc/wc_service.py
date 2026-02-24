@@ -219,8 +219,16 @@ class IPCWCService(QObject):
     def _do_emit_to_web(self, request_json: str):
         """Slot that runs in main thread — safely emits python_to_web signal.
         Called via _emit_to_web signal from background threads."""
-        is_main = QThread.currentThread() == self.thread()
-        logger.info(f"[IPCWCService] _do_emit_to_web: len={len(request_json)}, is_main_thread={is_main}")
+        # Skip logging for stream chunk messages to reduce noise
+        try:
+            request = json.loads(request_json)
+            method = request.get('method', '')
+            if not method.endswith('.chunk') and not method.endswith('Stream.chunk'):
+                is_main = QThread.currentThread() == self.thread()
+                logger.info(f"[IPCWCService] _do_emit_to_web: method={method}, len={len(request_json)}, is_main_thread={is_main}")
+        except:
+            pass  # If parsing fails, just skip logging
+        
         self.python_to_web.emit(request_json)
 
     def _handle_response(self, response: IPCResponse) -> None:
@@ -270,7 +278,11 @@ class IPCWCService(QObject):
             # Send request — marshal to main thread if called from background thread
             request_json = json.dumps(request)
             is_main = QThread.currentThread() == self.thread()
-            logger.info(f"[IPCWCService] Emitting python_to_web signal: method={method}, len={len(request_json)}, main_thread={is_main}")
+            
+            # Skip logging for stream chunk messages to reduce noise
+            if not method.endswith('.chunk') and not method.endswith('Stream.chunk'):
+                logger.info(f"[IPCWCService] Emitting python_to_web signal: method={method}, len={len(request_json)}, main_thread={is_main}")
+            
             if is_main:
                 self.python_to_web.emit(request_json)
             else:
