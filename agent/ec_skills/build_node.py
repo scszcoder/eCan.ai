@@ -1346,9 +1346,25 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                             logger.debug(log_msg)
                             send_skill_editor_log("log", log_msg)
                         except Exception as e:
-                            err_msg = get_traceback(e, "ErrorInvokeWithThread❌")
-                            logger.error(err_msg)
-                            send_skill_editor_log("error", err_msg)
+                            # Log detailed error context at ERROR level for quick problem identification
+                            error_type = type(e).__name__
+                            error_msg = str(e)
+                            
+                            logger.error(
+                                f"❌ LLM Invocation Failed in Thread\n"
+                                f"   Provider: {llm_provider}\n"
+                                f"   Model: {model_name}\n"
+                                f"   Base URL: {api_host or 'default'}\n"
+                                f"   Error Type: {error_type}\n"
+                                f"   Error Message: {error_msg}"
+                            )
+                            
+                            # Technical details in debug
+                            import traceback
+                            logger.debug(f"LLM invocation traceback: {traceback.format_exc()}")
+                            
+                            # Send concise message to skill editor
+                            send_skill_editor_log("error", f"LLM error: {error_type}: {error_msg}")
                             exception_queue.put(e)
 
                     start_time = time.time()
@@ -1358,10 +1374,13 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                     elapsed = time.time() - start_time
 
                     if th.is_alive():
-                        err_msg = f"⏱️ LLM request timed out after {timeout_sec}s (thread still running)"
-                        logger.error(err_msg)
-                        send_skill_editor_log("error", err_msg)
-                        raise TimeoutError(err_msg)
+                        # Get LLM info for detailed error message
+                        llm_info = f"{llm_provider}/{model_name}"
+                        base_url_info = f" (base_url: {api_host})" if api_host else ""
+                        timeout_msg = f"⏱️ LLM request timed out after {timeout_sec}s: {llm_info}{base_url_info} - thread still running"
+                        logger.error(timeout_msg)
+                        send_skill_editor_log("error", timeout_msg)
+                        raise TimeoutError(timeout_msg)
                     if not exception_queue.empty():
                         raise exception_queue.get()
                     if result_queue.empty():
@@ -1393,10 +1412,13 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
                         return result
                         
                     except asyncio.TimeoutError:
-                        err_msg = f"⏱️ LLM async request timed out after {timeout_sec}s"
-                        logger.error(err_msg)
-                        send_skill_editor_log("error", err_msg)
-                        raise TimeoutError(err_msg)
+                        # Get LLM info for detailed error message
+                        llm_info = f"{llm_provider}/{model_name}"
+                        base_url_info = f" (base_url: {api_host})" if api_host else ""
+                        timeout_msg = f"⏱️ LLM async request timed out after {timeout_sec}s: {llm_info}{base_url_info}"
+                        logger.error(timeout_msg)
+                        send_skill_editor_log("error", timeout_msg)
+                        raise TimeoutError(timeout_msg)
 
                 def _invoke_hybrid(llm_to_use, timeout_sec: float):
                     """
@@ -1568,60 +1590,112 @@ def build_llm_node(config_metadata: dict, node_name, skill_name, owner, bp_manag
 
             except Exception as e:
                 error_type = type(e).__name__
-                error_str = get_traceback(e, "ErrorLLMNodeCallable")
+                error_msg = str(e)
+
+                # Log complete error context at ERROR level for quick problem identification
+                import traceback
+                logger.error(
+                    f"❌ LLM Node Callable Failed\n"
+                    f"   Provider: {llm_provider}\n"
+                    f"   Model: {model_name}\n"
+                    f"   Base URL: {api_host or 'default'}\n"
+                    f"   Error Type: {error_type}\n"
+                    f"   Error Message: {error_msg}"
+                )
+                logger.debug(f"Traceback: {traceback.format_exc()}")
 
                 # Detect specific error types and provide helpful messages
-                if "AuthenticationError" in error_type or "authentication" in error_str.lower():
-                    err_msg = (f"❌ LLM Authentication Failed: Invalid API key for {llm_provider}. "
-                                     "Please check your API key configuration.")
-                    logger.error(f"{err_msg} | Original error: {error_str}")
-                    send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
-                elif "Error code: 402" in error_str or "Insufficient Balance" in error_str or "insufficient balance" in error_str.lower():
-                    err_msg = (f"💰 {llm_provider} 余额不足 (Insufficient Balance): "
-                                     f"您的 {llm_provider} API 账户余额已用尽，无法继续调用。"
-                                     f"请前往 {llm_provider} 平台充值后再试。")
-                    logger.error(f"{err_msg}")
-                    logger.error(f"[BALANCE_ERROR] Provider: {llm_provider}, Model: {model_name}")
-                    logger.error(f"[BALANCE_ERROR] API Host: {api_host or 'default'}")
-                    send_skill_editor_log("error", err_msg)
-                elif "RateLimitError" in error_type or "rate limit" in error_str.lower() or "quota" in error_str.lower():
-                    err_msg = (f"❌ LLM Rate Limit Exceeded: {llm_provider} quota exhausted or rate limit reached. "
-                                     "Please check your usage limits.")
-                    logger.error(f"{err_msg} | Original error: {error_str}")
-                    send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
-                elif "timeout" in error_str.lower() or "timed out" in error_str.lower():
-                    err_msg = (f"⏱️ LLM Request Timeout: Connection to {llm_provider} timed out. "
-                                     "This may be due to network issues or API endpoint unreachable.")
-                    logger.error(f"{err_msg} | Original error: {error_str}")
-                    send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
-                elif "connection" in error_str.lower() or "network" in error_str.lower():
-                    err_msg = (f"🌐 LLM Connection Error: Cannot connect to {llm_provider} API. "
-                                     "Please check your network connection and API endpoint configuration.")
-                    logger.error(f"{err_msg} | Original error: {error_str}")
-                    send_skill_editor_log("error", f"{err_msg} | Original error: {error_str}")
-                elif "InvalidRequestError" in error_type or "invalid" in error_str.lower() or "model" in error_str.lower():
-                    err_msg = (f"⚠️ LLM Invalid Request: The request to {llm_provider} was invalid. "
-                                     f"Model: '{model_name}'. Error: {error_str}")
-                    logger.error(f"{err_msg}")
-                    send_skill_editor_log("error", err_msg)
+                if "AuthenticationError" in error_type or "authentication" in error_msg.lower():
+                    user_msg = (
+                        f"🔑 LLM Authentication Failed: Invalid API key for {llm_provider}\n"
+                        f"   Provider: {llm_provider}\n"
+                        f"   Model: {model_name}\n"
+                        f"   Base URL: {api_host or 'default'}\n"
+                        f"   Error: {error_type}: {error_msg}\n"
+                        f"   💡 Action: Check your API key configuration in settings"
+                    )
+                    logger.error(user_msg)
+                    send_skill_editor_log("error", user_msg)
+                elif "Error code: 402" in error_msg or "Insufficient Balance" in error_msg or "insufficient balance" in error_msg.lower():
+                    user_msg = (
+                        f"💰 {llm_provider} 余额不足 (Insufficient Balance)\n"
+                        f"   Provider: {llm_provider}\n"
+                        f"   Model: {model_name}\n"
+                        f"   Base URL: {api_host or 'default'}\n"
+                        f"   Error: {error_type}: {error_msg}\n"
+                        f"   💡 说明: 您的 {llm_provider} API 账户余额已用尽，无法继续调用\n"
+                        f"   💡 Action: 请前往 {llm_provider} 平台充值后再试"
+                    )
+                    logger.error(user_msg)
+                    send_skill_editor_log("error", user_msg)
+                elif "RateLimitError" in error_type or "rate limit" in error_msg.lower() or "quota" in error_msg.lower():
+                    user_msg = (
+                        f"🚫 LLM Rate Limit: {llm_provider} quota exceeded\n"
+                        f"   Provider: {llm_provider}\n"
+                        f"   Model: {model_name}\n"
+                        f"   Base URL: {api_host or 'default'}\n"
+                        f"   Error: {error_type}: {error_msg}\n"
+                        f"   💡 Action: Wait a few minutes and retry, or upgrade your API plan"
+                    )
+                    logger.error(user_msg)
+                    send_skill_editor_log("error", user_msg)
+                elif "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
+                    user_msg = (
+                        f"⏱️ LLM Request Timeout: {llm_provider} connection timed out\n"
+                        f"   Provider: {llm_provider}\n"
+                        f"   Model: {model_name}\n"
+                        f"   Base URL: {api_host or 'default'}\n"
+                        f"   Error: {error_type}: {error_msg}\n"
+                        f"   💡 Troubleshooting:\n"
+                        f"      - Check your network connection\n"
+                        f"      - Verify the service is responding\n"
+                        f"      - Try increasing the timeout setting"
+                    )
+                    logger.error(user_msg)
+                    send_skill_editor_log("error", user_msg)
+                elif "connection" in error_msg.lower() or "network" in error_msg.lower():
                     # Check if it's a model not found error
-                    if "model" in error_str.lower() and ("not found" in error_str.lower() or "does not exist" in error_str.lower()):
-                        err_msg = f"💡 Hint: Model '{model_name}' does not exist. Common OpenAI models: gpt-5.2, gpt-5-mini, gpt-4o, gpt-4o-mini"
-                        logger.error(err_msg)
-                        send_skill_editor_log("error", err_msg)
+                    if "model" in error_msg.lower() and ("not found" in error_msg.lower() or "does not exist" in error_msg.lower()):
+                        user_msg = f"💡 Hint: Model '{model_name}' does not exist. Common OpenAI models: gpt-5.2, gpt-5-mini, gpt-4o, gpt-4o-mini"
+                    else:
+                        # Detailed connection error with all diagnostic information
+                        base_url_info = f" at {api_host}" if api_host else " (using default URL)"
+                        user_msg = (
+                            f"🔌 Connection Error: Cannot connect to {llm_provider}{base_url_info}\n"
+                            f"   Provider: {llm_provider}\n"
+                            f"   Model: {model_name}\n"
+                            f"   Base URL: {api_host or 'default'}\n"
+                            f"   Error Type: {error_type}\n"
+                            f"   Error Message: {error_msg}\n"
+                            f"   💡 Troubleshooting:\n"
+                            f"      - Check if {llm_provider} service is running\n"
+                            f"      - Verify the base URL is correct\n"
+                            f"      - Ensure network connectivity"
+                        )
+                    logger.error(user_msg)
+                    send_skill_editor_log("error", user_msg)
                 else:
                     # Generic error with full details
-                    err_msg = f"❌ LLM Invocation Failed  for {llm_provider}/{model_name}: ({error_type}): {error_str}"
-                    logger.error(err_msg)
-                    send_skill_editor_log("error", err_msg)
-                state['error'] = err_msg
+                    user_msg = (
+                        f"❌ LLM Invocation Failed\n"
+                        f"   Provider: {llm_provider}\n"
+                        f"   Model: {model_name}\n"
+                        f"   Base URL: {api_host or 'default'}\n"
+                        f"   Error Type: {error_type}\n"
+                        f"   Error Message: {error_msg}\n"
+                        f"   💡 Check the error message above for specific details"
+                    )
+                    logger.error(user_msg)
+                    send_skill_editor_log("error", user_msg)
+                
+                state['error'] = user_msg
 
                 # Add detailed error info for debugging
                 state['error_details'] = {
                     'error_type': error_type,
                     'provider': llm_provider,
                     'model': model_name,
-                    'original_error': error_str
+                    'error_message': error_msg
                 }
         else:
             logger.error("ERROR LLM NODE: messages empty ")

@@ -787,8 +787,11 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
 
                 attempts += 1
                 last_exc = e
-                err_msg = get_traceback(e, "ErrorNode")
-                logger.warning(f"[{node_name}] failed (attempt {attempts}/{retries}): {err_msg}")
+                error_type = type(e).__name__
+                error_msg = str(e)
+                logger.warning(f"[{node_name}] failed (attempt {attempts}/{retries}): {error_type}: {error_msg}")
+                import traceback
+                logger.debug(f"[{node_name}] Traceback: {traceback.format_exc()}")
                 if attempts < retries:
                     delay = base_delay * (2 ** (attempts - 1)) + random.uniform(0, jitter)
                     time.sleep(delay)

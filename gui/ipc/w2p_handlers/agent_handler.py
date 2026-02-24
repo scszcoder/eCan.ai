@@ -816,7 +816,7 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
             logger.info(f"[agent_handler] Retrieved {len(all_agents)} agents from memory")
         else:
             # Memory empty, sync from database (ensure data availability)
-            logger.warning(f"[agent_handler] Memory cache empty, syncing from database...")
+            logger.info(f"[agent_handler] Memory cache empty, syncing from database...")
             try:
                 # Get database service from ctx (ec_db_mgr already retrieved above)
                 if not ec_db_mgr or not ec_db_mgr.agent_service:
@@ -847,7 +847,7 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
                         if not converter:
                             logger.error("[agent_handler] Agent converter unavailable; returning DB agent dicts")
                         else:
-                            logger.warning("[agent_handler] Skills not compiled yet; returning DB agent dicts without converting to EC_Agent")
+                            logger.info("[agent_handler] Skills not compiled yet during startup; returning DB agent dicts without converting to EC_Agent")
                         all_agents.extend(db_agents)
                     else:
                         agents = ctx.get_agents()

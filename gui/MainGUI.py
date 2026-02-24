@@ -394,16 +394,34 @@ class MainWindow:
             logger.warning(f"[MainWindow] Failed to register proxy change callback: {e}")
 
     def _schedule_delayed_metrics_update(self, vehicle, retry_count=0, max_retries=5):
-        """Schedule delayed performance monitoring update, waiting for event loop availability"""
+        """Schedule delayed performance monitoring update using thread-safe approach"""
         try:
             logger.debug(f"[MainWindow] 🔄 Attempting delayed metrics update for vehicle: {vehicle.getName()} (retry {retry_count}/{max_retries})")
 
-            # Try to get event loop again
+            # Get the event loop from the application (thread-safe)
             try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(self._update_vehicle_metrics_async(vehicle))
-                logger.debug(f"[MainWindow] ✅ Successfully scheduled delayed metrics update for vehicle: {vehicle.getName()}")
-            except RuntimeError as e:
+                # Try to get event loop from QApplication if available
+                loop = None
+                if hasattr(self, '_event_loop') and self._event_loop:
+                    loop = self._event_loop
+                else:
+                    # Try to get the default event loop
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        loop = None
+                
+                if loop and not loop.is_closed():
+                    # Use run_coroutine_threadsafe for thread-safe task submission
+                    asyncio.run_coroutine_threadsafe(
+                        self._update_vehicle_metrics_async(vehicle),
+                        loop
+                    )
+                    logger.debug(f"[MainWindow] ✅ Successfully scheduled delayed metrics update for vehicle: {vehicle.getName()}")
+                else:
+                    raise RuntimeError("Event loop not available or closed")
+                    
+            except Exception as e:
                 # If event loop is still not available, retry with exponential backoff
                 if retry_count < max_retries:
                     delay = 2.0 * (1.5 ** retry_count)  # Exponential backoff: 2s, 3s, 4.5s, 6.75s, 10.125s
