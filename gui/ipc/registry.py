@@ -38,6 +38,10 @@ class IPCHandlerRegistry:
     _handlers: ClassVar[Dict[str, SyncHandlerFunc]] = {}
     _background_handlers: ClassVar[Dict[str, BackgroundHandlerFunc]] = {}
     _handlers_loaded: ClassVar[bool] = False  # Track if all handlers have been loaded
+    
+    # Unified deduplication mechanism
+    _registered_methods: ClassVar[Set[str]] = set()  # Track all registered method names
+    _registration_lock: ClassVar[bool] = False  # Lock to prevent concurrent registration
 
     # Performance optimization: cache system ready status
     _system_ready_cache: ClassVar[Optional[bool]] = None
@@ -348,12 +352,11 @@ class IPCHandlerRegistry:
                         f"Error in sync handler {method}: {str(e)}"
                     )
 
-            # Register handler
-            if method in cls._handlers or method in cls._background_handlers:
-                logger.warning(f"[registry] Handler for method {method} already exists, overwriting")
+            # Use unified registration mechanism
+            if not cls._register_method(method, 'sync'):
+                return func
 
             cls._handlers[method] = wrapper
-
             # logger.info(f"[registry] Registered sync handler for method: {method}")
             return func
 
@@ -393,8 +396,10 @@ class IPCHandlerRegistry:
                         f"Error in background handler {method}: {str(e)}"
                     )
 
-            if method in cls._handlers or method in cls._background_handlers:
-                logger.warning(f"[registry] Handler for method {method} already exists, overwriting")
+            # Use unified registration mechanism
+            if not cls._register_method(method, 'background'):
+                return func
+            
             cls._background_handlers[method] = wrapper
             logger.info(f"[registry] Registered background handler for method: {method}")
             return func
@@ -444,7 +449,65 @@ class IPCHandlerRegistry:
         """Clear all registered handlers"""
         cls._handlers.clear()
         cls._background_handlers.clear()
+        cls._registered_methods.clear()
         logger.info("[registry] Cleared all handlers")
+    
+    @classmethod
+    def reset_registration_state(cls) -> None:
+        """Reset registration state - useful when reloading handlers
+        
+        This should be called before reloading handler modules to allow re-registration.
+        """
+        cls._registered_methods.clear()
+        cls._handlers_loaded = False
+        logger.info("[registry] Reset registration state - handlers can be re-registered")
+    
+    @classmethod
+    def is_method_registered(cls, method: str) -> bool:
+        """Check if a method is already registered
+        
+        Args:
+            method: Method name to check
+            
+        Returns:
+            bool: True if method is already registered
+        """
+        return method in cls._registered_methods
+    
+    @classmethod
+    def _register_method(cls, method: str, handler_type: str) -> bool:
+        """Unified method registration with deduplication
+        
+        Args:
+            method: Method name to register
+            handler_type: Type of handler ('sync' or 'background')
+            
+        Returns:
+            True if registration should proceed, False if already registered
+        """
+        # Check if method already registered
+        if method in cls._registered_methods:
+            logger.warning(f"[registry]  DUPLICATE REGISTRATION DETECTED: Method '{method}' (type: {handler_type}) already registered, skipping")
+            import traceback
+            logger.warning(f"[registry] Call stack:\n{''.join(traceback.format_stack()[-5:-1])}")
+            return False
+        
+        # Check for type conflicts
+        if method in cls._handlers and handler_type == 'background':
+            logger.warning(f"[registry]  TYPE CONFLICT: Method '{method}' already registered as sync handler, cannot register as background")
+            import traceback
+            logger.warning(f"[registry] Call stack:\n{''.join(traceback.format_stack()[-5:-1])}")
+            return False
+        
+        if method in cls._background_handlers and handler_type == 'sync':
+            logger.warning(f"[registry]  TYPE CONFLICT: Method '{method}' already registered as background handler, cannot register as sync")
+            import traceback
+            logger.warning(f"[registry] Call stack:\n{''.join(traceback.format_stack()[-5:-1])}")
+            return False
+        
+        # Mark as registered
+        cls._registered_methods.add(method)
+        return True
 
     @classmethod
     async def handle_graphql_request(cls, method: str, variables: Dict[str, Any]) -> Any:
