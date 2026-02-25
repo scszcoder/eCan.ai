@@ -6,9 +6,9 @@
  * Instead, it gets the workflow document from the global store,
  * which is set by the Open button when the picker is opened.
  */
-import React, { useCallback, useMemo, useState, useEffect } from 'react';
+import { useCallback, useMemo, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Toast, Modal, Input, List } from '@douyinfe/semi-ui';
+import { Toast, Modal, Input } from '@douyinfe/semi-ui';
 import { useSkillInfoStore } from '../../stores/skill-info-store';
 import { useRecentFilesStore, createRecentFile } from '../../stores/recent-files-store';
 import { useSheetsStore } from '../../stores/sheets-store';
@@ -97,10 +97,11 @@ const OpenPickerModalContent = () => {
           setHasUnsavedChanges(false);
           
           // Restore cloud execution settings from saved skill
-          setRunInCloud((data as any).run_in_cloud === true);
-          setHybridCloudMode((data as any).hybrid_cloud_mode === true);
-          setLocalHelperSkillId((data as any).local_helper_skill_id || null);
-          setLocalHelperMachine((data as any).local_helper_machine || null);
+          const cfg: any = (data as any).config || {};
+          setRunInCloud((data as any).run_in_cloud === true || cfg.run_in_cloud === true);
+          setHybridCloudMode((data as any).hybrid_cloud_mode === true || cfg.hybrid_cloud_mode === true);
+          setLocalHelperSkillId((data as any).local_helper_skill_id || cfg.local_helper_skill_id || null);
+          setLocalHelperMachine((data as any).local_helper_machine || cfg.local_helper_machine || null);
           
           const breakpointIds = diagram.nodes
             .filter((node: any) => node.data?.break_point)

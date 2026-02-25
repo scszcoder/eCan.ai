@@ -104,11 +104,12 @@ export const Open = ({ disabled }: OpenProps) => {
           setCurrentFilePath(filePath);
           setHasUnsavedChanges(false);
           
-          // Restore run_in_cloud setting from saved skill
-          setRunInCloud((data as any).run_in_cloud === true);
-          setHybridCloudMode((data as any).hybrid_cloud_mode === true);
-          setLocalHelperSkillId((data as any).local_helper_skill_id || null);
-          setLocalHelperMachine((data as any).local_helper_machine || null);
+          // Restore cloud execution settings from saved skill
+          const cfg: any = (data as any).config || {};
+          setRunInCloud((data as any).run_in_cloud === true || cfg.run_in_cloud === true);
+          setHybridCloudMode((data as any).hybrid_cloud_mode === true || cfg.hybrid_cloud_mode === true);
+          setLocalHelperSkillId((data as any).local_helper_skill_id || cfg.local_helper_skill_id || null);
+          setLocalHelperMachine((data as any).local_helper_machine || cfg.local_helper_machine || null);
           
           const breakpointIds = diagram.nodes
             .filter((node: any) => node.data?.break_point)

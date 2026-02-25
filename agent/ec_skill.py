@@ -582,12 +582,27 @@ def node_builder(node_fn, node_name, skill_name, owner, bp_manager, default_retr
                 from agent.cloud_worker.cloud_logger import is_cloud_mode, send_skill_editor_log
                 import time as time_mod
                 
-                # Get run_id from runtime context if available
-                run_id = "0123456789"  # default for dev runs
+                # Get canonical run_id from runtime context/state
+                run_id = ""
                 try:
-                    run_id = runtime.context.get("run_id", "0123456789")
+                    context_run_id = runtime.context.get("run_id")
+                    context_id = runtime.context.get("id")
+                    run_id = (context_run_id or context_id or "")
                 except Exception:
                     pass
+                if not run_id and isinstance(st, dict):
+                    attrs = st.get("attributes") if isinstance(st.get("attributes"), dict) else {}
+                    md = st.get("metadata") if isinstance(st.get("metadata"), dict) else {}
+                    run_id = (
+                        attrs.get("chat_id")
+                        or attrs.get("run_id")
+                        or attrs.get("passive_run_id")
+                        or md.get("run_id")
+                        or md.get("passive_run_id")
+                        or ""
+                    )
+                if not run_id:
+                    run_id = "0123456789"
                 
                 if is_cloud_mode():
                     # Cloud mode: use cloud logger (publishes to AppSync or just logs)

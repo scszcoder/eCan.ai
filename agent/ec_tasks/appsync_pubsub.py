@@ -116,6 +116,14 @@ def _graphql_run_cloud_tasks_direct() -> str:
     """
 
 
+def _graphql_run_cloud_tasks_cloudtaskinput() -> str:
+        return """
+        mutation RunCloudTasks($input: [CloudTaskInput]!) {
+            runCloudTasks(input: $input)
+        }
+        """
+
+
 def _graphql_run_cloud_tasks_input() -> str:
     return """
     mutation RunCloudTasks($input: [CloudTaskInput]!) {
@@ -259,9 +267,12 @@ async def run_cloud_tasks(
 
     last_exc: Optional[Exception] = None
 
+    cloudtask_input = [{"task_id": str(tid), "options": {}} for tid in task_ids]
+
     for query, variables in (
-        (_graphql_run_cloud_tasks_direct(), {"input": cloud_task_inputs}),
-        (_graphql_run_cloud_tasks_input(), {"input": cloud_task_inputs}),
+        (_graphql_run_cloud_tasks_cloudtaskinput(), {"input": cloudtask_input}),
+        (_graphql_run_cloud_tasks_direct(), {"taskIds": task_ids}),
+        (_graphql_run_cloud_tasks_input(), {"input": {"taskIds": task_ids}}),
     ):
         try:
             resp = await _post_graphql(config.http_endpoint, api_key=config.api_key, query=query, variables=variables)
