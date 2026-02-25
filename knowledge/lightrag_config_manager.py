@@ -420,6 +420,11 @@ class LightRAGConfigManager:
         Get the effective configuration for LightRAG.
         This merges the .env file configuration with the system API keys.
         This is the source of truth for both the Server process and the UI display.
+        
+        IMPORTANT: This method also performs RyoAIS model synchronization.
+        If any provider (LLM/Embedding/Rerank) is configured to use RyoAIS,
+        it will fetch the current running model from RyoAIS API and update
+        the configuration if changes are detected.
         """
         # 1. Read from file
         config = self.read_config()
@@ -428,6 +433,37 @@ class LightRAGConfigManager:
         # This ensures we always use the latest keys from the system settings
         system_keys = self.get_system_api_keys()
         config.update(system_keys)
+        
+        # 3. Synchronize RyoAIS models (if any provider uses RyoAIS)
+        # This ensures we always use the latest running model from RyoAIS
+        try:
+            from knowledge.lightrag_ryoais_sync import sync_ryoais_models_for_lightrag
+            
+            # Check if any provider is using RyoAIS
+            has_ryoais = (
+                config.get('LLM_BINDING', '').lower() == 'ryoais' or
+                config.get('EMBEDDING_BINDING', '').lower() == 'ryoais' or
+                config.get('RERANK_BINDING', '').lower() == 'ryoais'
+            )
+            
+            if has_ryoais:
+                logger.info("[LightRAGConfig] 🔄 RyoAIS provider detected, attempting quick model sync (2s timeout)...")
+                updated, synced_config = sync_ryoais_models_for_lightrag(config)
+                
+                if updated:
+                    # Save the updated configuration back to file
+                    logger.info("[LightRAGConfig] 💾 Saving synchronized RyoAIS models to lightrag.env...")
+                    self.write_config(synced_config, merge=False)
+                    config = synced_config
+                    logger.info("[LightRAGConfig] ✅ RyoAIS model synchronization completed and saved")
+                else:
+                    logger.info("[LightRAGConfig] ✅ RyoAIS models are up-to-date, no changes needed")
+            else:
+                logger.debug("[LightRAGConfig] No RyoAIS providers configured, skipping model synchronization")
+                
+        except Exception as e:
+            logger.warning(f"[LightRAGConfig] ⚠️  RyoAIS model sync failed: {e}")
+            logger.info("[LightRAGConfig] ✅ Using existing configuration to continue startup")
         
         return config
 

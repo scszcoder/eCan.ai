@@ -503,6 +503,24 @@ class GeneralSettings:
         self._data["ryoais_llm_base_url"] = value
 
     @property
+    def ollama_llm_model(self) -> str:
+        """Ollama selected model for LLM (user preference, persists across restarts)"""
+        return self._data.get("ollama_llm_model", "")
+
+    @ollama_llm_model.setter
+    def ollama_llm_model(self, value: str):
+        self._data["ollama_llm_model"] = value
+
+    @property
+    def ryoais_llm_model(self) -> str:
+        """RyoAIS selected model for LLM (user preference, persists across restarts)"""
+        return self._data.get("ryoais_llm_model", "")
+
+    @ryoais_llm_model.setter
+    def ryoais_llm_model(self, value: str):
+        self._data["ryoais_llm_model"] = value
+
+    @property
     def llm_provider_settings(self) -> dict:
         """Per-provider LLM settings (e.g., enable_thinking for Qwen)"""
         return self._data.get("llm_provider_settings", {})
@@ -549,6 +567,24 @@ class GeneralSettings:
     def ryoais_embedding_base_url(self, value: str):
         self._data["ryoais_embedding_base_url"] = value
 
+    @property
+    def ollama_embedding_model(self) -> str:
+        """Ollama selected model for Embedding (user preference, persists across restarts)"""
+        return self._data.get("ollama_embedding_model", "")
+
+    @ollama_embedding_model.setter
+    def ollama_embedding_model(self, value: str):
+        self._data["ollama_embedding_model"] = value
+
+    @property
+    def ryoais_embedding_model(self) -> str:
+        """RyoAIS selected model for Embedding (user preference, persists across restarts)"""
+        return self._data.get("ryoais_embedding_model", "")
+
+    @ryoais_embedding_model.setter
+    def ryoais_embedding_model(self, value: str):
+        self._data["ryoais_embedding_model"] = value
+
     # ==================== Rerank Settings ====================
     
     @property
@@ -588,6 +624,24 @@ class GeneralSettings:
         self._data["ryoais_rerank_base_url"] = value
 
     @property
+    def ollama_rerank_model(self) -> str:
+        """Ollama selected model for Rerank (user preference, persists across restarts)"""
+        return self._data.get("ollama_rerank_model", "")
+
+    @ollama_rerank_model.setter
+    def ollama_rerank_model(self, value: str):
+        self._data["ollama_rerank_model"] = value
+
+    @property
+    def ryoais_rerank_model(self) -> str:
+        """RyoAIS selected model for Rerank (user preference, persists across restarts)"""
+        return self._data.get("ryoais_rerank_model", "")
+
+    @ryoais_rerank_model.setter
+    def ryoais_rerank_model(self, value: str):
+        self._data["ryoais_rerank_model"] = value
+
+    @property
     def skill_use_git(self) -> bool:
         """Whether skills use git"""
         return self._data.get("skill_use_git", False)
@@ -609,6 +663,19 @@ class GeneralSettings:
 
     def update_data(self, data: dict):
         """Batch update settings data"""
+        # IMPORTANT: If data contains nested 'settings' object, flatten it first
+        # This handles the case where frontend sends { username, settings: { ... } }
+        if 'settings' in data and isinstance(data['settings'], dict):
+            # Merge nested settings into top level
+            flattened_data = {**data}
+            nested_settings = flattened_data.pop('settings')
+            # Add nested settings to top level (but don't override existing top-level values)
+            for key, value in nested_settings.items():
+                if key not in flattened_data:
+                    flattened_data[key] = value
+            data = flattened_data
+            logger.info(f"Flattened nested 'settings' object, now have {len(data)} top-level fields")
+        
         # Filter out fields that should not be saved to settings.json
         # These fields are handled separately by their respective managers
         filtered_data = {

@@ -19,7 +19,13 @@ export const usePromptStore = create<PromptStoreState>((set, get) => ({
   error: null,
   fetched: false,
   fetch: async (username: string, force = false) => {
-    if (get().loading && !force) {
+    const state = get();
+    if (state.loading && !force) {
+      console.warn('[promptStore] Fetch already in progress, skipping duplicate request');
+      return;
+    }
+    if (state.fetched && !force) {
+      console.log('[promptStore] Prompts already fetched, skipping duplicate request (use force=true to reload)');
       return;
     }
     set({ loading: true, error: null });
@@ -61,7 +67,20 @@ export const usePromptStore = create<PromptStoreState>((set, get) => ({
         return p;
       });
       
-      set({ prompts: incoming, loading: false, fetched: true });
+      // Deduplicate prompts by ID to prevent rendering duplicates
+      const uniquePrompts = incoming.reduce((acc: Prompt[], current: Prompt) => {
+        const exists = acc.find(p => p.id === current.id);
+        if (!exists) {
+          acc.push(current);
+        } else {
+          console.warn(`[promptStore] Duplicate prompt ID detected: ${current.id}, skipping duplicate`);
+        }
+        return acc;
+      }, []);
+      
+      console.log(`[promptStore] Loaded ${uniquePrompts.length} unique prompts (${incoming.length - uniquePrompts.length} duplicates removed)`);
+      
+      set({ prompts: uniquePrompts, loading: false, fetched: true });
     } catch (e: any) {
       console.error('[promptStore] Fetch error:', e);
       set({ loading: false, error: e?.message || 'Unknown error' });

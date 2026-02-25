@@ -271,29 +271,30 @@ def patch_rerank_binding_for_proxy():
         
         rerank_binding = os.environ.get('RERANK_BINDING', '').lower()
         
-        # Log rerank configuration from environment
+        # Log simplified configuration
         logger.info(f'[Launcher] ========== Rerank Configuration ==========')
-        logger.info(f'[Launcher] Original Config (from lightrag.env):')
-        logger.info(f'[Launcher]   RERANK_BINDING: "{rerank_binding}"')
-        logger.info(f'[Launcher]   RERANK_MODEL: "{os.environ.get("RERANK_MODEL", "")}"')
-        logger.info(f'[Launcher]   RERANK_BINDING_HOST: "{os.environ.get("RERANK_BINDING_HOST", "")}"')
+        logger.info(f'[Launcher] Provider: {rerank_binding} | Model: {os.environ.get("RERANK_MODEL", "N/A")}')
         
         if not rerank_binding:
             logger.warning('[Launcher] RERANK_BINDING is empty, skipping conversion')
             return
         
         if not is_native_rerank_provider(rerank_binding):
-            logger.info(f'[Launcher] Converting non-native provider for LightRAG compatibility:')
-            logger.info(f'[Launcher]   Before: RERANK_BINDING = "{rerank_binding}"')
-            
             # Convert to jina format for LightRAG
-            # Note: Proxy will read original binding directly from config file
             os.environ['RERANK_BINDING'] = DEFAULT_PROXY_RERANK_BINDING
             
-            logger.info(f'[Launcher]   After:  RERANK_BINDING = "{DEFAULT_PROXY_RERANK_BINDING}"')
-            logger.info(f'[Launcher] ✅ Conversion complete - proxy reads from config file')
+            # Verify proxy configuration
+            rerank_host = os.environ.get('RERANK_BINDING_HOST', '')
+            if not rerank_host or 'localhost' not in rerank_host:
+                logger.warning(f'[Launcher] ⚠️  RERANK_BINDING_HOST should point to localhost proxy: {rerank_host}')
+            
+            logger.info(f'[Launcher] Using Proxy: {rerank_host}')
+            logger.info(f'[Launcher] LightRAG will use: {DEFAULT_PROXY_RERANK_BINDING} provider')
         else:
-            logger.info(f'[Launcher] "{rerank_binding}" is native provider, no conversion needed')
+            # Native provider
+            rerank_host = os.environ.get('RERANK_BINDING_HOST', 'N/A')
+            logger.info(f'[Launcher] Direct Service: {rerank_host}')
+            logger.info(f'[Launcher] Native provider, no proxy needed')
         
         logger.info(f'[Launcher] =============================================')
     except Exception as e:

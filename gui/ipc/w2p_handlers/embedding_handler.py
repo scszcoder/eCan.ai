@@ -287,30 +287,14 @@ def handle_set_embedding_provider_model(request: IPCRequest, params: Optional[Di
 
         updated_provider = embedding_manager.get_provider(provider_identifier)
         
-        # If this is the current default embedding, also update default_embedding_model in general_settings (case-insensitive)
-        current_default = (ctx.get_config_manager().general_settings.default_embedding or "").lower()
-        if current_default == (provider_identifier or "").lower():
-            ctx.get_config_manager().general_settings.default_embedding_model = model_name
-            ctx.get_config_manager().general_settings.save()
-            logger.info(f"[Embedding] Updated default_embedding_model to {model_name} for current provider {provider_identifier}")
-            
-            # Hot-update: Update all agents' memoryManager embeddings (similar to update_all_llms)
-            if ctx.get_agents():
-                try:
-                    updated_agents = 0
-                    for agent in ctx.get_agents():
-                        # Update memoryManager embeddings
-                        if hasattr(agent, 'mem_manager') and agent.mem_manager:
-                            try:
-                                agent.mem_manager.update_embeddings(provider_name=provider_identifier, model_name=model_name)
-                                updated_agents += 1
-                                logger.debug(f"[Embedding] Updated embeddings for agent: {agent.card.name}")
-                            except Exception as e:
-                                logger.warning(f"[Embedding] Failed to update embeddings for agent {agent.card.name}: {e}")
-                    
-                    logger.info(f"[Embedding] ✅ Updated embeddings for {updated_agents} agents (model change)")
-                except Exception as e:
-                    logger.error(f"[Embedding] ❌ Error updating agent embeddings: {e}")
+        # Use unified handler for model update (local provider persistence, default model update, hot-update)
+        from gui.manager.provider_settings_helper import handle_provider_model_update
+        success, error_msg = handle_provider_model_update(
+            ctx, provider_identifier, model_name, 'embedding', embedding_manager, updated_provider
+        )
+        
+        if not success:
+            logger.warning(f"[Embedding] Model update handler reported issue: {error_msg}")
 
         return create_success_response(request, {
             'message': f'Default model for {provider_identifier} updated successfully',

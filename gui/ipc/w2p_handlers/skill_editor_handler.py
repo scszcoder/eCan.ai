@@ -142,12 +142,12 @@ def _run_skill_in_cloud(ctx, skill: dict, meta_data: dict) -> dict:
         
         # Get auth token and endpoint
         login = AppContext.get_login()
-        if not login or not login.access_token:
-            return {"success": False, "error": "Not authenticated - no access token", "run_status": None}
-        
-        token = login.access_token
+        tokens = login.auth_manager.get_tokens()
+        token = tokens.get('access_token')
+        if not token:
+            return {"success": False, "error": "No access token available", "run_status": None}
         endpoint = get_appsync_endpoint()
-        username = login.auth_manager.current_user if login.auth_manager else "unknown"
+        username = login.auth_manager.current_user
         
         # Check for hybrid cloud mode
         hybrid_cloud_mode = meta_data.get("hybrid_cloud_mode", False) if meta_data else False
