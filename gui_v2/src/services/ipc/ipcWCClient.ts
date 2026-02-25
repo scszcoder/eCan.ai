@@ -455,7 +455,7 @@ export class IPCWCClient {
  * @param request - Request对象
  */
 private async handleRequest(request: IPCRequest): Promise<void> {
-    console.log('[IPCWCClient] handleRequest called for method:', request.method, 'Available handlers:', Object.keys(this.requestHandlers));
+    console.log('[IPCWCClient] handleRequest called for method:', request.method);
     const handler = this.requestHandlers[request.method];
     if (!handler) {
         logger.warn(`No handler registered for method '${request.method}'`);
