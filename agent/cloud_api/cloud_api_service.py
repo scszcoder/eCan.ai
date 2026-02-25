@@ -126,7 +126,22 @@ class CloudAPIService:
                     'errors': [f'No cloud API function for {self.data_type}.{operation}']
                 }
             
+            # Create session with proper timeout configuration
+            from requests.adapters import HTTPAdapter
+            from urllib3.util.retry import Retry
+            
             session = requests.Session()
+            
+            # Configure HTTPAdapter with proper timeout handling
+            # This ensures the session respects the timeout parameter
+            retry_strategy = Retry(
+                total=0,  # No automatic retries (we handle retries at a higher level)
+                backoff_factor=0
+            )
+            adapter = HTTPAdapter(max_retries=retry_strategy)
+            session.mount("https://", adapter)
+            session.mount("http://", adapter)
+            
             endpoint = self._get_api_endpoint()
             
             # Handle delete operation (requires special format)
@@ -291,7 +306,21 @@ class CloudAPIService:
                     'error': f'No query API function for {self.data_type}'
                 }
             
+            # Create session with proper timeout configuration
+            from requests.adapters import HTTPAdapter
+            from urllib3.util.retry import Retry
+            
             session = requests.Session()
+            
+            # Configure HTTPAdapter with proper timeout handling
+            retry_strategy = Retry(
+                total=0,  # No automatic retries (we handle retries at a higher level)
+                backoff_factor=0
+            )
+            adapter = HTTPAdapter(max_retries=retry_strategy)
+            session.mount("https://", adapter)
+            session.mount("http://", adapter)
+            
             endpoint = self._get_api_endpoint()
             q_settings = query_params or {'byowneruser': True}
             

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { List, Input, Badge, Typography, Button, Dropdown, Tooltip, Tag, Space } from 'antd';
 import { SearchOutlined, PlusOutlined, MoreOutlined, ReloadOutlined, CopyOutlined } from '@ant-design/icons';
 import type { MenuProps } from 'antd';
@@ -19,6 +19,18 @@ interface PromptsListProps {
 
 const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect, search, onSearchChange, onAdd, onDelete, onRefresh, onClone }) => {
   const { t } = useTranslation();
+  
+  // Memoize menu items generator to avoid recreating on every render
+  const createMenuItems = useMemo(() => (item: Prompt): MenuProps['items'] => [
+    { key: 'copy', label: t('pages.prompts.copyCreate', { defaultValue: 'Copy & create' }), icon: <CopyOutlined /> },
+    {
+      key: 'delete',
+      label: t('common.delete'),
+      danger: true,
+      disabled: !!item.readOnly,
+    },
+  ], [t]);
+  
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ padding: 12, display: 'flex', gap: 8 }}>
@@ -37,6 +49,7 @@ const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         <List
           dataSource={prompts}
+          pagination={prompts.length > 50 ? { pageSize: 50, showSizeChanger: false } : false}
           renderItem={(item) => (
             <Tooltip
               key={item.id}
@@ -48,37 +61,26 @@ const PromptsList: React.FC<PromptsListProps> = ({ prompts, selectedId, onSelect
               <List.Item
                 onClick={() => onSelect(item.id)}
                 style={{ cursor: 'pointer', paddingLeft: 16, paddingRight: 8, background: selectedId === item.id ? 'rgba(255,255,255,0.06)' : 'transparent' }}
-                actions={(() => {
-                  const menuItems: MenuProps['items'] = [
-                    { key: 'copy', label: t('pages.prompts.copyCreate', { defaultValue: 'Copy & create' }), icon: <CopyOutlined /> },
-                    {
-                      key: 'delete',
-                      label: t('common.delete'),
-                      danger: true,
-                      disabled: !!item.readOnly,
-                    },
-                  ];
-                  return [
-                    <Dropdown
-                      key="menu"
-                      menu={{
-                        items: menuItems,
-                        onClick: ({ key }) => {
-                          if (key === 'delete') {
-                            if (item.readOnly) return;
-                            onDelete(item.id);
-                          } else if (key === 'copy') {
-                            onClone(item);
-                          }
-                        },
-                      }}
-                      trigger={['click']}
-                      placement="bottomRight"
-                    >
-                      <Button type="text" size="small" onClick={(e) => e.stopPropagation()} icon={<MoreOutlined />} />
-                    </Dropdown>,
-                  ];
-                })()}
+                actions={[
+                  <Dropdown
+                    key="menu"
+                    menu={{
+                      items: createMenuItems(item),
+                      onClick: ({ key }) => {
+                        if (key === 'delete') {
+                          if (item.readOnly) return;
+                          onDelete(item.id);
+                        } else if (key === 'copy') {
+                          onClone(item);
+                        }
+                      },
+                    }}
+                    trigger={['click']}
+                    placement="bottomRight"
+                  >
+                    <Button type="text" size="small" onClick={(e) => e.stopPropagation()} icon={<MoreOutlined />} />
+                  </Dropdown>,
+                ]}
               >
                 <List.Item.Meta
                   title={

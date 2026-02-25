@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { message as antMessage } from 'antd';
+import { App } from 'antd';
 import ChatList from './components/ChatList';
 const ChatDetail = lazy(() => import('./components/ChatDetail'));
 import { Chat, Message, Attachment } from './types/chat';
@@ -9,7 +9,6 @@ import { logger } from '@/utils/logger';
 import ChatLayout from './components/ChatLayout';
 const ChatNotification = lazy(() => import('./components/ChatNotification'));
 import AgentFilterModal from './components/AgentFilterModal';
-import { get_ipc_api } from '@/services/ipc_api';
 import { unifiedChatService } from '@/services/chat/unifiedChatService';
 import { cloudChatApi } from '@/services/api/cloudChatApi';
 import { isWebPlatform } from '@/config/platform';
@@ -29,6 +28,7 @@ import { subscribeToA2AChannel } from '@/services/web/appSyncSubscriptions';
 
 const ChatPage: React.FC = () => {
     const { t } = useTranslation();
+    const { message } = App.useApp();
     const [searchParams, setSearchParams] = useSearchParams();
     const agentIdFromUrl = searchParams.get('agentId');
     const username = useUserStore(state => state.username) || 'default_user';
@@ -1042,12 +1042,12 @@ const ChatPage: React.FC = () => {
         
         if (!channelId) {
             logger.warn('[handleCloudRefresh] No channelId available');
-            antMessage.warning('Please select a chat or filter by agent first');
+            message.warning('Please select a chat or filter by agent first');
             return;
         }
         
         try {
-            antMessage.loading({ content: 'Fetching messages from cloud...', key: 'cloudRefresh' });
+            message.loading({ content: 'Fetching messages from cloud...', key: 'cloudRefresh' });
             
             logger.info('[handleCloudRefresh] Calling cloudChatApi.getA2AMessages for channel:', channelId);
             const result = await cloudChatApi.getA2AMessages(channelId, 50);
@@ -1055,7 +1055,7 @@ const ChatPage: React.FC = () => {
             logger.info('[handleCloudRefresh] Got result:', JSON.stringify(result, null, 2));
             
             if (result.items && result.items.length > 0) {
-                antMessage.success({ content: `Found ${result.items.length} messages`, key: 'cloudRefresh' });
+                message.success({ content: `Found ${result.items.length} messages`, key: 'cloudRefresh' });
                 
                 // Convert A2A messages to local message format and update
                 const messages: Message[] = result.items.map((a2aMsg, index) => {
@@ -1106,12 +1106,12 @@ const ChatPage: React.FC = () => {
                 
                 logger.info('[handleCloudRefresh] Updated messages for chat:', channelId, 'count:', messages.length);
             } else {
-                antMessage.info({ content: 'No messages found in cloud', key: 'cloudRefresh' });
+                message.info({ content: 'No messages found in cloud', key: 'cloudRefresh' });
                 logger.info('[handleCloudRefresh] No messages found for channel:', channelId);
             }
         } catch (error) {
             logger.error('[handleCloudRefresh] Error fetching from cloud:', error);
-            antMessage.error({ content: `Error: ${error}`, key: 'cloudRefresh' });
+            message.error({ content: `Error: ${error}`, key: 'cloudRefresh' });
         }
     }, [activeChatId, agentId, updateMessages, chats]);
 

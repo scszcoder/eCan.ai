@@ -1284,7 +1284,7 @@ export class IPCAPI {
           resultPath: 'removeAgents'
         }
       },
-      { username, input: agent_id }
+      { username, agent_id }
     );
     }
 
