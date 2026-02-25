@@ -287,13 +287,21 @@ def standard_post_llm_hook(askid, node_name, agent, state, response):
         # we really shouldn't send the reponse back here, instead we should update state and other node takes care of what to do with the results.
         post_hook_result = None
         state["result"] = response
+        # Promote tool_name/tool_input to top level of state["result"] so condition edges
+        # like state["result"]["tool_name"] can find them (they live inside llm_result)
+        _llm_res = response.get("llm_result") or {}
+        if isinstance(_llm_res, dict) and _llm_res.get("tool_name"):
+            response["tool_name"] = _llm_res["tool_name"]
+            if _llm_res.get("tool_input"):
+                response["tool_input"] = _llm_res["tool_input"]
         logger.debug(f"[STANDARD_LLM_POST_HOOKS] post llm hook input response: {type(response)} {response}")
         state["metadata"] = _deep_merge(state["metadata"], response["llm_result"].get("meta_data", {}))
         state["messages"].append(f"llm:{response['llm_result'].get('next_prompt', '')}")
 
         # Add AI response to chat history
         from langchain_core.messages import AIMessage
-        next_prompt_text = response['llm_result'].get('next_prompt', '')
+        next_prompt_text = (response['llm_result'].get('next_prompt', '')
+                            or response['llm_result'].get('message', ''))
         work_related = response['llm_result'].get('work_related', False)
         prelim = response['llm_result'].get('preliminary_info', [{}])[0]
         tool_name = response['llm_result'].get('tool_name', '')

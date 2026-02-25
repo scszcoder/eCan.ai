@@ -521,6 +521,24 @@ def _resolve_prompt_templates(prompt_selection: str, inline_system: str, inline_
             if joined:
                 _add_section(sys_parts, label, joined)
 
+    # When tools are provided, append structured output format instructions so the LLM
+    # returns JSON with tool_name instead of hallucinating tool calls as free-form text.
+    if tools_to_use_added:
+        _tool_output_format = (
+            "[Output Format]\n"
+            "You MUST always respond with valid JSON (no markdown fences, no extra text outside the JSON).\n"
+            "When you want to call a tool, return:\n"
+            '{"message": "<brief explanation to the user>", "tool_name": "<exact tool name from the list above>", '
+            '"tool_input": {"input": {<tool parameters>}}}\n'
+            "When you are just chatting (no tool call), return:\n"
+            '{"message": "<your response to the user>"}\n'
+            "CRITICAL RULES:\n"
+            "- NEVER fabricate or imagine tool results. You MUST return the tool_name and tool_input and WAIT for the system to execute the tool.\n"
+            "- NEVER include fake tool output in your message. The system will run the tool and provide the real result.\n"
+            "- If the user confirms an action (e.g. says 'proceed', 'yes', 'go ahead'), call the tool immediately — do NOT describe what you would do."
+        )
+        sys_parts.append(_tool_output_format)
+
     system_text = "\n\n".join(part for part in sys_parts if part) or inline_system
 
     user_parts: list[str] = []
@@ -2738,9 +2756,9 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                     else:
                         idx = start_idx + 1
                 
-                # Find the object with next_tool_name
+                # Find the object with next_tool_name or tool_name
                 for obj in parsed_objects:
-                    if isinstance(obj, dict) and 'next_tool_name' in obj:
+                    if isinstance(obj, dict) and ('next_tool_name' in obj or 'tool_name' in obj):
                         llm_result = obj
                         logger.debug(f"[MCP Auto-Select] Found target JSON with next_tool_name: {obj}")
                         # Update state so loop condition can properly check work_done
@@ -2750,8 +2768,11 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         break
             
             work_done = llm_result.get('work_done', False)
-            next_tool_name = llm_result.get('next_tool_name', '')
-            next_tool_input = llm_result.get('next_tool_input', {})
+            next_tool_name = (llm_result.get('next_tool_name', '')
+                              or llm_result.get('tool_name', ''))
+            next_tool_input = (llm_result.get('next_tool_input')
+                               or llm_result.get('tool_input')
+                               or {})
             
             log_msg = f"[MCP Auto-Select] work_done={work_done}, next_tool_name='{next_tool_name}', next_tool_input={next_tool_input}"
             logger.debug(log_msg)
