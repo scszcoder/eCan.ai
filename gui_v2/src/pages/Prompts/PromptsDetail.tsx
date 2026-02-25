@@ -207,11 +207,15 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
     cancelAutosave();
   }, [prompt?.id, cancelAutosave]);
 
+  // Cleanup: Only flush autosave when component unmounts (not on every prompt?.id change)
   useEffect(() => {
     return () => {
-      flushAutosave();
+      // Only flush if we're actually editing and have pending changes
+      if (editingRef.current && hasPendingChangesRef.current && !promptReadOnlyRef.current) {
+        flushAutosave();
+      }
     };
-  }, [prompt?.id, flushAutosave]);
+  }, []); // Empty deps - only run on mount/unmount
 
   useEffect(() => {
     latestDraftRef.current = draft;
@@ -227,12 +231,6 @@ const PromptsDetail: React.FC<PromptsDetailProps> = ({ prompt, onChange, initial
   useEffect(() => {
     promptReadOnlyRef.current = !!(draft?.readOnly);
   }, [draft]);
-
-  useEffect(() => {
-    return () => {
-      flushAutosave();
-    };
-  }, [flushAutosave]);
 
   // Enable TextArea autoSize only after the container has a measurable layout
   useEffect(() => {
