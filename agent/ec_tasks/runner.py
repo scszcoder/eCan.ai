@@ -2498,6 +2498,42 @@ class TaskRunner(Generic[Context]):
                             continue
                     break
 
+                # If the initial run interrupted (pend_event waiting for input) and the
+                # original message is an async_callback (e.g., passive command from cloud),
+                # immediately resume with the callback data so pend_event can resolve.
+                # Without this, the callback data is lost because prep_skills_run doesn't
+                # understand async_callback format — the graph pauses and never resumes.
+                _is_interrupted = (
+                    isinstance(response, dict)
+                    and response.get("success") is False
+                    and isinstance(response.get("step"), dict)
+                    and "__interrupt__" in response.get("step", {})
+                )
+                _is_async_callback = isinstance(msg, dict) and msg.get("type") == "async_callback"
+
+                if _is_interrupted and _is_async_callback:
+                    logger.info(f"[EXECUTOR] Initial run interrupted at pend_event with async_callback message — auto-resuming")
+                    resume_payload, cp = self._build_resume_payload(task, msg)
+                    resume_cmd = Command(resume=resume_payload)
+                    resume_tag = None
+                    if isinstance(resume_payload, dict):
+                        resume_tag = resume_payload.get("_resuming_from")
+                    if not resume_tag and cp:
+                        resume_tag = _safe_get(cp, "values.attributes.i_tag") or _safe_get(cp, "values.attributes.tag")
+                    resume_context = {"skip_bp_once": [resume_tag]} if resume_tag else None
+
+                    if cp:
+                        response = execute_task_hybrid(
+                            task, resume_cmd, use_async=use_async,
+                            checkpoint=cp, context=resume_context,
+                        )
+                    else:
+                        response = execute_task_hybrid(
+                            task, resume_cmd, use_async=use_async,
+                            context=resume_context,
+                        )
+                    logger.info(f"[EXECUTOR] Auto-resume completed: success={response.get('success') if isinstance(response, dict) else '?'}")
+
                 return response, True
             else:
                 # Resume run
