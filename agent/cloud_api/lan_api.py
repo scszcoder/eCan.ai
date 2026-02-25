@@ -75,18 +75,33 @@ async def req_lan_read_screen8(session, request, token, api_key, local_info, img
         from utils.logger_helper import truncate_for_log
         logger.debug(f"lan jresp: {truncate_for_log(jresp, 300)}")
     except Exception as e:
-        logger.error(f"Failed to parse JSON from response: {e}")
+        error_msg = f"Failed to parse JSON from OCR response: {e}"
+        logger.error(error_msg)
         logger.error(f"Raw response: {jresp.text}")
-        return None
+        raise ValueError(error_msg) from e
 
     if "errors" in jresp:
+        # Standard GraphQL error response
         screen_error = True
-        logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(
-            jresp["errors"][0]["message"]))
-        jresponse = jresp["errors"][0]
-    else:
-        # print("jresp:", jresp)
+        error_type = jresp["errors"][0].get("errorType", "Unknown")
+        error_msg = jresp["errors"][0].get("message", "Unknown error")
+        logger.error(f"OCR GraphQL Error - Type: {error_type}, Message: {error_msg}")
+        raise RuntimeError(f"OCR request failed: {error_type} - {error_msg}")
+    elif "data" in jresp and "reqScreenTxtRead" in jresp["data"]:
+        # Standard GraphQL success response
         jresponse = jresp["data"]["reqScreenTxtRead"]
+    elif "detail" in jresp:
+        # Non-GraphQL error response (e.g., FastAPI error)
+        error_detail = jresp.get("detail", "Unknown error")
+        logger.error(f"OCR service error: {error_detail}")
+        logger.error(f"Full response: {json.dumps(jresp, indent=2)}")
+        raise RuntimeError(f"OCR service error: {error_detail}")
+    else:
+        # Unexpected response format
+        error_msg = f"Unexpected OCR response format. Response keys: {list(jresp.keys())}"
+        logger.error(error_msg)
+        logger.error(f"Full response: {json.dumps(jresp, indent=2)}")
+        raise ValueError(error_msg)
 
     return jresponse
 
@@ -101,8 +116,13 @@ def req_lan_read_screen(session, request, token, local_info, imgs, lan_endpoint)
         logger.error("ERROR Type: " + json.dumps(jresp["errors"][0]["errorType"]) + " ERROR Info: " + json.dumps(
             jresp["errors"][0]["message"]))
         jresponse = jresp["errors"][0]
-    else:
+    elif "data" in jresp and "reqScreenTxtRead" in jresp["data"]:
         jresponse = json.loads(jresp["data"]["reqScreenTxtRead"])
+    else:
+        # Handle unexpected response format
+        logger.error(f"Unexpected GraphQL response format. Response keys: {list(jresp.keys())}")
+        logger.error(f"Full response: {json.dumps(jresp, indent=2)}")
+        return None
 
     return jresponse
 

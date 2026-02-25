@@ -162,32 +162,34 @@ class LightRAGConfidenceScorer:
             logger.debug(f"Filtered references: {len(valid_references)} unique valid out of {len(response_data.get('references', []))} total")
 
             # Extract retrieval scores from multiple sources:
-            # 1. First try references (may have score from /query/data endpoint)
-            # 2. Then try chunks (may have rerank_score from reranking)
+            # Priority: rerank_score (most accurate) > reference score > similarity
             scores: List[float] = []
             
-            # Try to get scores from references first
-            for ref in references:
-                if isinstance(ref, dict):
-                    score_val = ref.get('score') or ref.get('similarity') or ref.get('relevance')
-                    if score_val is not None:
-                        try:
-                            scores.append(float(score_val))
-                        except (ValueError, TypeError):
-                            pass
-            
-            # If no scores from references, try to get from chunks (rerank_score)
-            if not scores and chunks:
+            # PRIORITY 1: Try to get rerank_score from chunks (most accurate, normalized)
+            if chunks:
                 for chunk in chunks:
                     if isinstance(chunk, dict):
-                        # Try rerank_score first (from reranking), then other score fields
-                        score_val = chunk.get('rerank_score') or chunk.get('score') or chunk.get('similarity')
+                        rerank_score = chunk.get('rerank_score')
+                        if rerank_score is not None:
+                            try:
+                                scores.append(float(rerank_score))
+                            except (ValueError, TypeError):
+                                pass
+                if scores:
+                    logger.debug(f"✅ Using {len(scores)} rerank_score values from chunks (normalized, high quality)")
+            
+            # PRIORITY 2: If no rerank scores, try references
+            if not scores:
+                for ref in references:
+                    if isinstance(ref, dict):
+                        score_val = ref.get('score') or ref.get('similarity') or ref.get('relevance')
                         if score_val is not None:
                             try:
                                 scores.append(float(score_val))
                             except (ValueError, TypeError):
                                 pass
-                logger.debug(f"Extracted {len(scores)} scores from chunks (rerank_score)")
+                if scores:
+                    logger.debug(f"Using {len(scores)} scores from references (fallback)")
 
             scores_sorted = sorted(scores, reverse=True)
             top1 = scores_sorted[0] if len(scores_sorted) >= 1 else None
@@ -241,8 +243,9 @@ class LightRAGConfidenceScorer:
             if len(references) == 0:
                 should_answer = False
                 no_answer_reason = "no_references"
-            elif overall < 0.25:
-                # Only decline if overall confidence is very low
+            elif overall < 0.20:
+                # Lower threshold to 0.20 to allow single high-quality document answers
+                # Single doc with rerank=1.0 gives: 0.8*0.3 = 0.24 > 0.20
                 should_answer = False
                 no_answer_reason = "overall_too_low"
             # Note: Removed strict retrieval_below_threshold check
@@ -253,6 +256,13 @@ class LightRAGConfidenceScorer:
                 "should_answer": bool(should_answer),
                 "no_answer_reason": no_answer_reason,
             }
+            
+            # Log decision for debugging
+            logger.info(
+                f"📊 Confidence Decision: should_answer={should_answer}, "
+                f"overall={overall:.2f}, threshold=0.20, "
+                f"reason={no_answer_reason or 'pass'}"
+            )
             
             # Determine confidence level
             confidence_level = self._determine_confidence_level(overall)
@@ -359,6 +369,16 @@ class LightRAGConfidenceScorer:
         # If we have similarity scores, adjust the confidence
         if scores:
             avg_similarity = sum(scores) / len(scores)
+            
+            # Special handling for single document with high rerank score
+            # If only 1 doc but rerank score is very high (>= 0.9), treat it as highly relevant
+            if ref_count == 1 and avg_similarity >= 0.9:
+                # Single document with very high rerank score should be trusted
+                # Use 0.85 to ensure overall score > 0.25 threshold even with other scores at 0
+                # 0.85 * 0.3 = 0.255 > 0.25
+                final_score = 0.85  # High confidence for single highly relevant doc
+                logger.debug(f"Reference score: single doc with high rerank score ({avg_similarity:.3f}) → {final_score:.3f}")
+                return final_score
             
             # Adjusted thresholds for rerank scores (typically lower than embedding similarity):
             # >= 0.70: strong match

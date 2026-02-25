@@ -409,9 +409,14 @@ def _write_prompt_to_file(prompt: Dict[str, Any]) -> Dict[str, Any]:
 def _bootstrap_prompts() -> List[Dict[str, Any]]:
     prompts = _load_all_prompts()
     if prompts:
+        logger.info(f"[prompts] Loaded {len(prompts)} prompts from disk")
+        # Log prompt IDs for debugging
+        prompt_ids = [p.get('id', 'unknown') for p in prompts]
+        logger.debug(f"[prompts] Prompt IDs: {prompt_ids}")
         return prompts
 
     # No prompts found on disk – fall back to defaults (read-only, sample source)
+    logger.warning("[prompts] No prompts found on disk, using default prompts")
     fallback: List[Dict[str, Any]] = []
     for default_prompt in DEFAULT_PROMPTS:
         normalized = _normalize_prompt(
@@ -422,6 +427,7 @@ def _bootstrap_prompts() -> List[Dict[str, Any]]:
         )
         normalized["readOnly"] = True
         fallback.append(normalized)
+    logger.info(f"[prompts] Created {len(fallback)} default prompts")
     return fallback
 
 

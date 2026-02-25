@@ -298,7 +298,7 @@ class RerankManager:
             # Validate configuration
             validation = rerank_config.validate_provider_config(provider_name)
             
-            # For Ollama and RyoAIS, use base_url from settings.json if available (user preference)
+            # For Ollama and RyoAIS, use base_url and model from settings.json if available (user preference)
             base_url = provider_config.base_url
             if 'ollama' in provider_config.name.lower() or 'ollama' in provider_config.provider.value.lower():
                 try:
@@ -306,6 +306,9 @@ class RerankManager:
                     settings_base_url = get_ollama_base_url('rerank', provider_config, provider_identifier='ollama')
                     if settings_base_url and settings_base_url.strip():
                         base_url = settings_base_url
+                    # Also read saved model selection for Ollama
+                    if main_window and general_settings.ollama_rerank_model:
+                        preferred_model = general_settings.ollama_rerank_model
                 except Exception:
                     pass
             elif 'ryoais' in provider_config.name.lower() or 'ryoais' in provider_config.provider.value.lower():
@@ -314,6 +317,9 @@ class RerankManager:
                     settings_base_url = get_ollama_base_url('rerank', provider_config, provider_identifier='ryoais')
                     if settings_base_url and settings_base_url.strip():
                         base_url = settings_base_url
+                    # Also read saved model selection for RyoAIS
+                    if main_window and general_settings.ryoais_rerank_model:
+                        preferred_model = general_settings.ryoais_rerank_model
                 except Exception:
                     pass  # Use default base_url if settings retrieval fails
             

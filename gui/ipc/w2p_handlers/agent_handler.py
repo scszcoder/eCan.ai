@@ -514,15 +514,24 @@ def handle_delete_agent(request: IPCRequest, params: Optional[list[Any]]) -> IPC
         str: JSON formatted response message
     """
     try:
+        # 🔍 DEBUG: Log received parameters
+        logger.info(f"[agent_handler] delete_agent called with params: {params}")
+        logger.info(f"[agent_handler] params type: {type(params)}")
+        
         # Get username
-        username = params.get('username')
+        username = params.get('username') if params else None
+        logger.info(f"[agent_handler] Extracted username: {username}")
+        
         if not username:
+            logger.error(f"[agent_handler] Missing username parameter, params={params}")
             return create_error_response(request, 'INVALID_PARAMS', 'Missing username parameter')
         
         # Get agent_id parameter (can be a single string or array)
         agent_id_param = params.get('agent_id')
+        logger.info(f"[agent_handler] Extracted agent_id_param: {agent_id_param}")
         
         if not agent_id_param:
+            logger.error(f"[agent_handler] Missing agent_id parameter, params={params}")
             return create_error_response(request, 'INVALID_PARAMS', 'Missing agent_id parameter')
         
         # Normalize to array
@@ -833,7 +842,7 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
             logger.info(f"[agent_handler] Retrieved {len(all_agents)} agents from memory")
         else:
             # Memory empty, sync from database (ensure data availability)
-            logger.warning(f"[agent_handler] Memory cache empty, syncing from database...")
+            logger.info(f"[agent_handler] Memory cache empty, syncing from database...")
             try:
                 # Get database service from ctx (ec_db_mgr already retrieved above)
                 if not ec_db_mgr or not ec_db_mgr.agent_service:
@@ -864,7 +873,7 @@ def handle_get_all_org_agents(request: IPCRequest, params: Optional[list[Any]]) 
                         if not converter:
                             logger.error("[agent_handler] Agent converter unavailable; returning DB agent dicts")
                         else:
-                            logger.warning("[agent_handler] Skills not compiled yet; returning DB agent dicts without converting to EC_Agent")
+                            logger.info("[agent_handler] Skills not compiled yet during startup; returning DB agent dicts without converting to EC_Agent")
                         all_agents.extend(db_agents)
                     else:
                         agents = ctx.get_agents()
