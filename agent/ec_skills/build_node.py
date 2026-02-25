@@ -3000,19 +3000,28 @@ def build_mcp_tool_calling_node(config_metadata: dict, node_name: str, skill_nam
                         "run_local requires running from cloud worker with passive transport configured."
                     )
                 
-                # Get run_id from state (same pattern as browser_use cloud agent)
+                # Get canonical run_id from state/runtime context
                 run_id = None
                 try:
                     if isinstance(state, dict):
                         run_id = state.get("browser_use_run_id")
                         if not run_id:
                             attrs = state.get("attributes", {})
-                            run_id = attrs.get("chat_id") or attrs.get("run_id") or attrs.get("thread_id")
+                            run_id = attrs.get("chat_id") or attrs.get("run_id") or attrs.get("passive_run_id")
                         if not run_id:
                             meta = state.get("metadata", {})
-                            run_id = meta.get("run_id") if isinstance(meta, dict) else None
+                            run_id = (
+                                (meta.get("run_id") or meta.get("passive_run_id"))
+                                if isinstance(meta, dict)
+                                else None
+                            )
                 except Exception:
                     pass
+                if not isinstance(run_id, str) or not run_id.strip():
+                    run_id = (
+                        (os.environ.get("ECAN_RUN_ID") or "").strip()
+                        or (os.environ.get("EC_BROWSER_PASSIVE_RUN_ID") or "").strip()
+                    )
                 if not isinstance(run_id, str) or not run_id.strip():
                     run_id = _uuid.uuid4().hex
                 logger.debug(f"[RUN_LOCAL] resolved run_id={run_id}")
@@ -4340,7 +4349,7 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                             if not run_id:
                                 # Third priority: other run_id fields
                                 attrs = state.get("attributes", {})
-                                run_id = attrs.get("run_id") or attrs.get("thread_id")
+                                run_id = attrs.get("run_id") or attrs.get("passive_run_id")
                             if not run_id:
                                 # Fourth priority: metadata.run_id (used by some runners)
                                 md = state.get("metadata", {})
@@ -4360,6 +4369,12 @@ def build_browser_automation_node(config_metadata: dict, node_name: str, skill_n
                     if dev_mode and not browser_use_run_id_explicit:
                         dev_run_id = (os.environ.get("EC_BROWSER_PASSIVE_RUN_ID") or "").strip()
                         run_id = dev_run_id or "0123456789"
+
+                    if not isinstance(run_id, str) or not run_id.strip():
+                        run_id = (
+                            (os.environ.get("ECAN_RUN_ID") or "").strip()
+                            or (os.environ.get("EC_BROWSER_PASSIVE_RUN_ID") or "").strip()
+                        )
                     
                     if not isinstance(run_id, str) or not run_id.strip():
                         run_id = uuid.uuid4().hex

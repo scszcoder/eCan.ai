@@ -36,6 +36,7 @@ from agent.cloud.s3_settings_loader import (
     DEFAULT_ECAN_SKILLS_BUCKET,
     DEFAULT_USER_BASE_PREFIX,
     S3SettingsLoader,
+    normalize_user_email_for_s3_prefix,
     build_user_skills_s3_prefix,
     load_appsync_a2a_worker_config_from_s3_for_user,
     build_appsync_a2a_worker_config,
@@ -70,6 +71,12 @@ def clear_global_passive_transport() -> None:
     """Clear the global passive transport."""
     global _global_passive_transport
     _global_passive_transport = None
+
+
+def _ecs_task_id_from_arn(task_arn: Optional[str]) -> str:
+    if not task_arn or not isinstance(task_arn, str):
+        return ""
+    return task_arn.split("/")[-1] if "/" in task_arn else task_arn
 
 
 # =============================================================================
@@ -333,6 +340,7 @@ class PassiveStepResultListener:
         self.auth_token = auth_token
         self.on_result = on_result
         self._task: Optional[asyncio.Task] = None
+        self._thread: Optional[threading.Thread] = None
         # Event that signals first result received (for L2C test mode)
         self.first_result_received: asyncio.Event = asyncio.Event()
         self._subscription_ready: asyncio.Event = asyncio.Event()
@@ -434,17 +442,45 @@ class PassiveStepResultListener:
             logger.error(f"[PassiveStepResultListener] Subscription error: {e}")
     
     def start_background(self, loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
-        """Start the listener in the background."""
-        if loop is None:
-            loop = asyncio.get_event_loop()
-        self._task = loop.create_task(self.start())
-        logger.info(f"[PassiveStepResultListener] Started background listener for client={self.client_id}, run={self.run_id}")
+        """Start the listener in a DEDICATED DAEMON THREAD with its own event loop.
+
+        CRITICAL: Must NOT share the main event loop.  When a LangGraph sync node
+        calls run_async_in_sync() it blocks the current thread (which is the main
+        event loop's thread).  If the subscription ran as a task on that same loop,
+        websocket.receive() would stall for the entire timeout+grace window — exactly
+        the bug observed where the result always arrives ~108 ms after grace expires.
+        A dedicated thread+loop receives AppSync messages in real-time regardless of
+        what the main loop is doing.
+        """
+        def _run_in_thread() -> None:
+            thread_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(thread_loop)
+            try:
+                thread_loop.run_until_complete(self.start())
+            except Exception as exc:
+                logger.error(f"[PassiveStepResultListener] Dedicated thread loop error: {exc}")
+            finally:
+                try:
+                    thread_loop.close()
+                except Exception:
+                    pass
+
+        self._thread = threading.Thread(
+            target=_run_in_thread,
+            daemon=True,
+            name=f"passive-listener-{self.run_id[-8:]}",
+        )
+        self._thread.start()
+        logger.info(f"[PassiveStepResultListener] Started DEDICATED THREAD listener for client={self.client_id}, run={self.run_id}")
     
     def stop(self) -> None:
         """Stop the listener."""
+        # The thread is daemon=True so it exits with the process automatically.
+        # We cancel the asyncio task if it exists (for cases where start_background
+        # was called with loop= and used the old create_task path).
         if self._task and not self._task.done():
             self._task.cancel()
-            logger.info("[PassiveStepResultListener] Stopped listener")
+        logger.info("[PassiveStepResultListener] Stopped listener")
 
 
 # =============================================================================
@@ -561,12 +597,13 @@ async def _publish_event(
         )
 
 
-def _download_s3_prefix_to_dir(*, bucket: str, prefix: str, dest_dir: Path, region: str) -> None:
+def _download_s3_prefix_to_dir(*, bucket: str, prefix: str, dest_dir: Path, region: str) -> int:
     import boto3
     from botocore.config import Config
 
     client = boto3.client("s3", config=Config(region_name=region, retries={"max_attempts": 5, "mode": "standard"}))
 
+    downloaded = 0
     continuation_token: Optional[str] = None
     while True:
         kwargs: Dict[str, Any] = {"Bucket": bucket, "Prefix": prefix}
@@ -585,11 +622,49 @@ def _download_s3_prefix_to_dir(*, bucket: str, prefix: str, dest_dir: Path, regi
             local_path = dest_dir / rel
             local_path.parent.mkdir(parents=True, exist_ok=True)
             client.download_file(bucket, key, str(local_path))
+            downloaded += 1
 
         if resp.get("IsTruncated"):
             continuation_token = resp.get("NextContinuationToken")
             continue
         break
+
+    return downloaded
+
+
+def _derive_fallback_skill_prefixes(*, username: str, skill_folder_name: str, skill_data: Dict[str, Any]) -> List[str]:
+    safe_user = normalize_user_email_for_s3_prefix(username)
+
+    prefixes: List[str] = []
+
+    raw_path = (skill_data.get("path") or "").strip()
+    if raw_path and "/my_skills/" in raw_path:
+        # Example:
+        #   songc_yahoo_com/my_skills/test_local_tool_skill/diagram_dir/...
+        parts = [p for p in raw_path.split("/") if p]
+        try:
+            idx = parts.index("my_skills")
+            if idx + 1 < len(parts):
+                prefixes.append("/".join(parts[: idx + 2]))
+        except ValueError:
+            pass
+
+    # Legacy layout observed in ecan-skills bucket root
+    prefixes.append(f"{safe_user}/my_skills/{skill_folder_name}")
+    # Some older clients store without _skill suffix
+    if skill_folder_name.endswith("_skill"):
+        prefixes.append(f"{safe_user}/my_skills/{skill_folder_name[:-6]}")
+
+    # De-dupe while preserving order
+    seen = set()
+    out: List[str] = []
+    for p in prefixes:
+        p2 = (p or "").strip().strip("/")
+        if not p2 or p2 in seen:
+            continue
+        seen.add(p2)
+        out.append(p2)
+    return out
 
 
 def _find_skill_folder(root: Path) -> Path:
@@ -654,6 +729,7 @@ def _run_skill_once(*, msg: WorkerMessage, skill_root: Path) -> Dict[str, Any]:
 
     # Create task with required a2a.types.Task fields
     task = ManagedTask(
+        run_id=msg.chat_id,
         name=skill.name or msg.skill_name,
         description="cloud_worker_run",
         skill=skill,
@@ -663,6 +739,19 @@ def _run_skill_once(*, msg: WorkerMessage, skill_root: Path) -> Dict[str, Any]:
     )
 
     state = prep_skills_run(skill, agent, task.id, in_msg, None)
+    if isinstance(state, dict):
+        attrs = state.get("attributes") if isinstance(state.get("attributes"), dict) else {}
+        attrs["chat_id"] = msg.chat_id
+        attrs["run_id"] = msg.chat_id
+        attrs["passive_run_id"] = msg.chat_id
+        state["attributes"] = attrs
+
+        meta = state.get("metadata") if isinstance(state.get("metadata"), dict) else {}
+        meta["run_id"] = msg.chat_id
+        meta["passive_run_id"] = msg.chat_id
+        state["metadata"] = meta
+
+        state["browser_use_run_id"] = msg.chat_id
     task.metadata["state"] = state
 
     return execute_task_hybrid(task, state, use_async=True)
@@ -702,7 +791,18 @@ async def handle_one_message(
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="ecan_skill_"))
     try:
-        _download_s3_prefix_to_dir(bucket=bucket, prefix=skill_prefix, dest_dir=tmp_dir, region=region)
+        downloaded = _download_s3_prefix_to_dir(bucket=bucket, prefix=skill_prefix, dest_dir=tmp_dir, region=region)
+        if downloaded == 0:
+            safe_user = normalize_user_email_for_s3_prefix(msg.user_email)
+            legacy_prefixes = [
+                f"{safe_user}/my_skills/{msg.skill_name}",
+                f"{safe_user}/my_skills/{msg.skill_name}_skill",
+            ]
+            for p in legacy_prefixes:
+                logger.warning(f"[cloud_worker] No files found under {skill_prefix}; trying legacy prefix: {p}")
+                downloaded = _download_s3_prefix_to_dir(bucket=bucket, prefix=p, dest_dir=tmp_dir, region=region)
+                if downloaded > 0:
+                    break
         skill_folder = _find_skill_folder(tmp_dir)
 
         await _publish_event(
@@ -809,6 +909,17 @@ async def run_long_poll(*, queue_url: str, bucket: str, base_prefix: str, region
                 username = username or msg_data.get("username")
                 skill_id = skill_id or msg_data.get("skill_id")
                 skill_name = msg_data.get("skill_name", "unnamed")
+
+                ecs_task_id = _ecs_task_id_from_arn(ecs_task_arn)
+                if ecs_task_id:
+                    if run_id and str(run_id) != ecs_task_id:
+                        logger.warning(
+                            "[cloud_worker] Overriding launch run_id with ECS task id "
+                            f"for canonical passive routing (launch_run_id={run_id}, ecs_task_id={ecs_task_id})"
+                        )
+                    run_id = ecs_task_id
+                    msg_data["run_id"] = run_id
+                    msg_data["passive_run_id"] = run_id
                 
                 logger.info(f"[cloud_worker] Processing skill run: run_id={run_id}, skill={skill_name}")
                 
@@ -1076,7 +1187,13 @@ async def handle_skill_run_message(
             
             tmp_dir = Path(tempfile.mkdtemp(prefix="ecan_skill_"))
             try:
-                _download_s3_prefix_to_dir(bucket=bucket, prefix=skill_prefix, dest_dir=tmp_dir, region=region)
+                downloaded = _download_s3_prefix_to_dir(bucket=bucket, prefix=skill_prefix, dest_dir=tmp_dir, region=region)
+                if downloaded == 0:
+                    for p in _derive_fallback_skill_prefixes(username=username, skill_folder_name=skill_folder_name, skill_data=skill_data):
+                        logger.warning(f"[cloud_worker] No files found under {skill_prefix}; trying fallback prefix: {p}")
+                        downloaded = _download_s3_prefix_to_dir(bucket=bucket, prefix=p, dest_dir=tmp_dir, region=region)
+                        if downloaded > 0:
+                            break
                 skill_folder = _find_skill_folder(tmp_dir)
                 
                 # Create a compatible WorkerMessage for the skill runner
@@ -1303,6 +1420,9 @@ async def _run_skill_dev_mode(
         # Runtime context required by node_wrapper (ec_skill.py) for runtime.context
         graph_context = {
             "id": run_state.run_id,
+            "run_id": run_state.run_id,
+            "chat_id": run_state.run_id,
+            "passive_run_id": run_state.run_id,
             "topic": "",
             "summary": "",
             "msg_thread_id": "",
@@ -1426,6 +1546,17 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
         username = msg_data.get("username", "")
         skill_id = msg_data.get("skill_id", "")
         skill_name = msg_data.get("skill_name", "unnamed")
+
+        ecs_task_id = _ecs_task_id_from_arn(ecs_task_arn)
+        if ecs_task_id:
+            if run_id and str(run_id) != ecs_task_id:
+                logger.warning(
+                    "[cloud_worker] Overriding launch run_id with ECS task id "
+                    f"for canonical passive routing (launch_run_id={run_id}, ecs_task_id={ecs_task_id})"
+                )
+            run_id = ecs_task_id
+            msg_data["run_id"] = run_id
+            msg_data["passive_run_id"] = run_id
         
         logger.info(f"[cloud_worker] Processing skill run: run_id={run_id}, skill={skill_name}")
         
@@ -1549,7 +1680,12 @@ async def run_single(*, message_json: str, bucket: str, base_prefix: str, region
                     except Exception as e:
                         logger.error(f"[cloud_worker] Failed to deliver result to transport: {e}")
                 
-                listener_run_id = passive_run_id or run_id
+                if passive_run_id and str(passive_run_id) != str(run_id):
+                    logger.warning(
+                        "[cloud_worker] passive_run_id differs from run_id; forcing canonical run_id for listener "
+                        f"(passive_run_id={passive_run_id}, run_id={run_id})"
+                    )
+                listener_run_id = run_id
                 logger.info(
                     f"[cloud_worker] Passive listener identifiers: client_id={passive_client_id}, run_id={listener_run_id}"
                 )

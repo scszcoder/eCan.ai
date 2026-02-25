@@ -365,6 +365,48 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
         ? await api.newAgentTask(username, payload)
         : await api.saveAgentTask(username, payload);
 
+      const syncTaskSkillRels = async (taskId: string, desiredSkillIds: string[]) => {
+        const safeTaskId = String(taskId || '').trim();
+        if (!safeTaskId) return;
+
+        const desired = Array.from(new Set((desiredSkillIds || []).map((s) => String(s || '').trim()).filter(Boolean)));
+        const q = await api.queryAgentTaskSkillRels({ task_id: safeTaskId, limit: 500, offset: 0 });
+        if (!q.success) {
+          console.warn('[TaskDetail] queryAgentTaskSkillRels failed:', q.error);
+          return;
+        }
+
+        const existing = Array.isArray(q.data) ? q.data : [];
+        const existingBySkill = new Map<string, any>();
+        for (const rel of existing) {
+          const sid = String(rel?.skill_id || '').trim();
+          if (sid) existingBySkill.set(sid, rel);
+        }
+
+        const toAdd = desired.filter((sid) => !existingBySkill.has(sid)).map((sid) => ({
+          task_id: safeTaskId,
+          skill_id: sid,
+        }));
+
+        const desiredSet = new Set(desired);
+        const toRemove = existing
+          .filter((rel: any) => {
+            const sid = String(rel?.skill_id || '').trim();
+            return sid && !desiredSet.has(sid);
+          })
+          .map((rel: any) => ({ id: String(rel?.id || '').trim() }))
+          .filter((x: any) => x.id);
+
+        if (toAdd.length) {
+          const r = await api.addAgentTaskSkillRels(toAdd);
+          if (!r.success) console.warn('[TaskDetail] addAgentTaskSkillRels failed:', r.error);
+        }
+        if (toRemove.length) {
+          const r = await api.removeAgentTaskSkillRels(toRemove);
+          if (!r.success) console.warn('[TaskDetail] removeAgentTaskSkillRels failed:', r.error);
+        }
+      };
+
       if (response.success) {
         message.success(t(isNew ? 'common.createSuccess' : 'common.saveSuccess'));
         setEditMode(false);
@@ -389,6 +431,17 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
           }
           console.log('[TaskDetail] ä¿å­˜æˆåŠŸï¼ŒTask ID:', newTaskId);
           console.log('[TaskDetail] APIå"åº"æ•°æ®:', responseData);
+
+          // Web app: keep task↔skills relations in agent_task_skill_rels.
+          // If this call fails (e.g., local dev GraphQL schema), we don't block saving the task itself.
+          try {
+            const finalTaskId = String(newTaskId || payload.id || '').trim();
+            const desiredSkillIds = (payload.skill_ids || []).map((x: any) => String(x || '').trim()).filter(Boolean);
+            await syncTaskSkillRels(finalTaskId, desiredSkillIds);
+          } catch (e) {
+            console.warn('[TaskDetail] syncTaskSkillRels error:', e);
+          }
+
           onSave(newTaskId);
         }
       } else {
@@ -475,6 +528,25 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({ task: rawTask = {} as an
       onOk: async () => {
         try {
           const api = get_ipc_api();
+
+          // Best-effort: remove task↔skill relations first (keeps relation table clean in web mode)
+          try {
+            const taskId = String((task as any).id || '').trim();
+            if (taskId) {
+              const q = await api.queryAgentTaskSkillRels({ task_id: taskId, limit: 500, offset: 0 });
+              if (q.success && Array.isArray(q.data) && q.data.length) {
+                const relIds = q.data
+                  .map((r: any) => ({ id: String(r?.id || '').trim() }))
+                  .filter((x: any) => x.id);
+                if (relIds.length) {
+                  await api.removeAgentTaskSkillRels(relIds);
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('[TaskDetail] cleanup AgentTaskSkillRels before delete failed:', e);
+          }
+
           const resp = await api.deleteAgentTask(username, String((task as any).id));
           
           if (resp.success) {

@@ -1215,9 +1215,111 @@ const AgentDetails: React.FC = () => {
       const res = isNew
         ? await api.newAgent(username, [payload])
         : await api.saveAgent(username, [payload]);
+
+      const syncAgentRels = async (agentId: string, orgId: string | null, skillIdsIn: string[], taskIdsIn: string[]) => {
+        const aId = String(agentId || '').trim();
+        if (!aId) return;
+
+        const desiredOrgId = (orgId || '').trim();
+        const desiredSkillIds = Array.from(new Set((skillIdsIn || []).map((s) => String(s || '').trim()).filter(Boolean)));
+        const desiredTaskIds = Array.from(new Set((taskIdsIn || []).map((s) => String(s || '').trim()).filter(Boolean)));
+
+        // agent_org_rels (single org in this UI)
+        try {
+          const q = await api.queryAgentOrgRels({ agent_id: aId, limit: 500, offset: 0 });
+          if (q.success) {
+            const existing = Array.isArray(q.data) ? q.data : [];
+            const toRemove = existing
+              .filter((rel: any) => {
+                const oid = String(rel?.org_id || '').trim();
+                return !desiredOrgId || oid !== desiredOrgId;
+              })
+              .map((rel: any) => ({ id: String(rel?.id || '').trim() }))
+              .filter((x: any) => x.id);
+            if (toRemove.length) await api.removeAgentOrgRels(toRemove);
+
+            if (desiredOrgId) {
+              const has = existing.some((rel: any) => String(rel?.org_id || '').trim() === desiredOrgId);
+              if (!has) {
+                await api.addAgentOrgRels([{ agent_id: aId, org_id: desiredOrgId }]);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('[AgentDetails] sync agent_org_rels error:', e);
+        }
+
+        // agent_skill_rels
+        try {
+          const q = await api.queryAgentSkillRels({ agent_id: aId, limit: 500, offset: 0 });
+          if (q.success) {
+            const existing = Array.isArray(q.data) ? q.data : [];
+            const existingBySkill = new Map<string, any>();
+            for (const rel of existing) {
+              const sid = String(rel?.skill_id || '').trim();
+              if (sid) existingBySkill.set(sid, rel);
+            }
+            const toAdd = desiredSkillIds
+              .filter((sid) => !existingBySkill.has(sid))
+              .map((sid) => ({ agent_id: aId, skill_id: sid }));
+
+            const desiredSet = new Set(desiredSkillIds);
+            const toRemove = existing
+              .filter((rel: any) => {
+                const sid = String(rel?.skill_id || '').trim();
+                return sid && !desiredSet.has(sid);
+              })
+              .map((rel: any) => ({ id: String(rel?.id || '').trim() }))
+              .filter((x: any) => x.id);
+
+            if (toAdd.length) await api.addAgentSkillRels(toAdd);
+            if (toRemove.length) await api.removeAgentSkillRels(toRemove);
+          }
+        } catch (e) {
+          console.warn('[AgentDetails] sync agent_skill_rels error:', e);
+        }
+
+        // agent_task_rels
+        try {
+          const q = await api.queryAgentTaskRels({ agent_id: aId, limit: 500, offset: 0 });
+          if (q.success) {
+            const existing = Array.isArray(q.data) ? q.data : [];
+            const existingByTask = new Map<string, any>();
+            for (const rel of existing) {
+              const tid = String(rel?.task_id || '').trim();
+              if (tid) existingByTask.set(tid, rel);
+            }
+            const toAdd = desiredTaskIds
+              .filter((tid) => !existingByTask.has(tid))
+              .map((tid) => ({ agent_id: aId, task_id: tid }));
+
+            const desiredSet = new Set(desiredTaskIds);
+            const toRemove = existing
+              .filter((rel: any) => {
+                const tid = String(rel?.task_id || '').trim();
+                return tid && !desiredSet.has(tid);
+              })
+              .map((rel: any) => ({ id: String(rel?.id || '').trim() }))
+              .filter((x: any) => x.id);
+
+            if (toAdd.length) await api.addAgentTaskRels(toAdd);
+            if (toRemove.length) await api.removeAgentTaskRels(toRemove);
+          }
+        } catch (e) {
+          console.warn('[AgentDetails] sync agent_task_rels error:', e);
+        }
+      };
       
       if (res.success) {
         message.success(t('common.saved_successfully') || 'Saved');
+
+        // Web app: keep agent relations in RDS rel tables (excluding task-skill rels).
+        // If this fails (e.g., local dev GraphQL schema), don't block saving the agent itself.
+        try {
+          await syncAgentRels(String(payload.id || ''), payload.org_id || null, skillIds, taskIds);
+        } catch (e) {
+          console.warn('[AgentDetails] syncAgentRels error:', e);
+        }
         
         // 策略：先用返回的DataFastUpdate UI，然后Refresh完整Data确保一致性
         let savedAgentData: any = null;

@@ -33,6 +33,7 @@ const avatarService = require("./services/avatarService");
 const promptService = require("./services/promptService");
 const settingsService = require("./services/settingsService");
 const cloudTaskRunService = require("./services/cloudTaskRunService");
+const relationService = require("./services/relationService");
 
 // const axios = require('axios');
 
@@ -49,7 +50,7 @@ const { DynamoDBClient, GetItemCommand } = require("@aws-sdk/client-dynamodb");
 const dynClient = new DynamoDBClient({ region: "us-east-1" });
 const { SQSClient, SendMessageCommand, ReceiveMessageCommand, DeleteMessageCommand, GetQueueAttributesCommand } = require('@aws-sdk/client-sqs');
 const { S3Client, GetObjectCommand, PutObjectCommand, HeadObjectCommand, ListObjectsV2Command, CopyObjectCommand } = require("@aws-sdk/client-s3");
-const { ECSClient, RunTaskCommand } = require("@aws-sdk/client-ecs");
+const { ECSClient, RunTaskCommand, DescribeTasksCommand } = require("@aws-sdk/client-ecs");
 const ecsClient = new ECSClient({ region: "us-east-1" });
 
 // EventBridge Scheduler is optional at runtime (must exist in Lambda layer/package)
@@ -190,8 +191,9 @@ const queueUrl = process.env.LabelQueueArn;
 
 
 const APPSYNC_URL = 'https://3oqwpjy5jzal7ezkxrxxmnt6tq.appsync-api.us-east-1.amazonaws.com/graphql';
-// const APPSYNC_API_KEY = process.env.GQL_API_KEY;
-const APPSYNC_API_KEY = "da2-hwmqigvtbfai7pbl7zfah76fly";
+// NOTE: APPSYNC_API_KEY should be the AppSync API Key (for x-api-key auth).
+// GQL_API_KEY has historically been overloaded; prefer APPSYNC_API_KEY when present.
+const APPSYNC_API_KEY = (process.env.APPSYNC_API_KEY || process.env.GQL_API_KEY || "").trim();
 const AVATAR_BUCKET = process.env.AVATAR_BUCKET || "ecan-avatars";
 const AVATAR_ROOT_PREFIX = process.env.AVATAR_ROOT_PREFIX || "avatars";
 const SKILL_BUCKET = process.env.SKILL_BUCKET || "ecan-skills";
@@ -579,6 +581,20 @@ async function launchCloudTaskAndRecord(payload) {
     schedule: schedule,
     meta_data: meta,
   });
+
+  // Immutable history row (for audit / run list UI).
+  try {
+    await cloudTaskRunService.appendTaskRunHistory({
+      owner_id: String(ownerId),
+      task_id: String(taskId),
+      task_arn: String(taskArn),
+      run_started_at: new Date().toISOString(),
+      schedule,
+      meta_data: meta,
+    });
+  } catch (e) {
+    console.warn("[agentScheduler] launchCloudTaskAndRecord: failed to write history:", e.message);
+  }
 
   return {
     task_id: String(taskId),
@@ -4765,6 +4781,67 @@ async function processEvent(event, context, callback, test_stub) {
               returnData = deleted;
             }
             break;
+
+          // ==================== Relation tables (RDS) CRUD ====================
+          case "addAgentOrgRels":
+            returnData = await relationService.addRels("agent_org_rels", event.arguments?.input);
+            break;
+          case "updateAgentOrgRels":
+            returnData = await relationService.updateRels("agent_org_rels", event.arguments?.input);
+            break;
+          case "removeAgentOrgRels":
+            returnData = await relationService.removeRels("agent_org_rels", event.arguments?.input);
+            break;
+
+          case "addAgentSkillRels":
+            returnData = await relationService.addRels("agent_skill_rels", event.arguments?.input);
+            break;
+          case "updateAgentSkillRels":
+            returnData = await relationService.updateRels("agent_skill_rels", event.arguments?.input);
+            break;
+          case "removeAgentSkillRels":
+            returnData = await relationService.removeRels("agent_skill_rels", event.arguments?.input);
+            break;
+
+          case "addAgentSkillToolRels":
+            returnData = await relationService.addRels("agent_skill_tool_rels", event.arguments?.input);
+            break;
+          case "updateAgentSkillToolRels":
+            returnData = await relationService.updateRels("agent_skill_tool_rels", event.arguments?.input);
+            break;
+          case "removeAgentSkillToolRels":
+            returnData = await relationService.removeRels("agent_skill_tool_rels", event.arguments?.input);
+            break;
+
+          case "addAgentSkillKnowledgeRels":
+            returnData = await relationService.addRels("agent_skill_knowledge_rels", event.arguments?.input);
+            break;
+          case "updateAgentSkillKnowledgeRels":
+            returnData = await relationService.updateRels("agent_skill_knowledge_rels", event.arguments?.input);
+            break;
+          case "removeAgentSkillKnowledgeRels":
+            returnData = await relationService.removeRels("agent_skill_knowledge_rels", event.arguments?.input);
+            break;
+
+          case "addAgentTaskRels":
+            returnData = await relationService.addRels("agent_task_rels", event.arguments?.input);
+            break;
+          case "updateAgentTaskRels":
+            returnData = await relationService.updateRels("agent_task_rels", event.arguments?.input);
+            break;
+          case "removeAgentTaskRels":
+            returnData = await relationService.removeRels("agent_task_rels", event.arguments?.input);
+            break;
+
+          case "addAgentTaskSkillRels":
+            returnData = await relationService.addRels("agent_task_skill_rels", event.arguments?.input);
+            break;
+          case "updateAgentTaskSkillRels":
+            returnData = await relationService.updateRels("agent_task_skill_rels", event.arguments?.input);
+            break;
+          case "removeAgentTaskSkillRels":
+            returnData = await relationService.removeRels("agent_task_skill_rels", event.arguments?.input);
+            break;
           // NOTE: getAllMine is a Query (not Mutation) - handler is in the Query switch block below
           case "addAgentSkills":
             {
@@ -5765,6 +5842,372 @@ async function processEvent(event, context, callback, test_stub) {
               returnData = await skillEditorService.cancelRunSkill(event.arguments?.input || {});
             }
             break;
+          case "runCloudTasks":
+            {
+              // Emergency kill switch
+              try {
+                const disabled = String(process.env.RUN_CLOUD_TASKS_DISABLED || "").trim().toLowerCase();
+                if (disabled === "1" || disabled === "true" || disabled === "yes" || disabled === "on") {
+                  throw new Error("runCloudTasks is temporarily disabled by RUN_CLOUD_TASKS_DISABLED");
+                }
+              } catch (e) {
+                // if we threw above, let it bubble
+                throw e;
+              }
+
+              // New schema:
+              //   input CloudTaskInput { agent_id, task_id, task_name, options: AWSJSON! }
+              //   runCloudTasks(input: [CloudTaskInput]!): AWSJSON!
+              // Legacy schema variants (still handled best-effort): taskIDs/taskIds.
+
+              // Cloud worker ECS config (separate from RAG worker ECS config)
+              const cloudCluster = (process.env.CLOUD_ECS_CLUSTER || process.env.ECS_CLUSTER || RAG_ECS_CLUSTER || "").trim();
+              const cloudTaskDef = (process.env.CLOUD_ECS_TASK_DEFINITION || process.env.CLOUD_ECS_TASK_DEF || process.env.ECS_TASK_DEFINITION || process.env.ECS_TASK_DEF || "").trim();
+              const cloudSubnets = (process.env.CLOUD_ECS_SUBNETS || process.env.ECS_SUBNETS || process.env.RAG_ECS_SUBNETS || "").split(",").filter(Boolean);
+              const cloudSecurityGroups = (process.env.CLOUD_ECS_SECURITY_GROUPS || process.env.ECS_SECURITY_GROUPS || process.env.RAG_ECS_SECURITY_GROUPS || "").split(",").filter(Boolean);
+              const cloudContainerName = (process.env.CLOUD_ECS_CONTAINER_NAME || process.env.ECS_CONTAINER_NAME || ECS_CONTAINER_NAME || "ecan-cloud-worker").trim();
+
+              if (!cloudCluster || !cloudTaskDef) {
+                throw new Error(
+                  "Cloud worker ECS is not configured. Set CLOUD_ECS_CLUSTER and CLOUD_ECS_TASK_DEF (or ECS_CLUSTER/ECS_TASK_DEFINITION)."
+                );
+              }
+              if (!cloudSubnets.length) {
+                throw new Error(
+                  "Cloud worker ECS networking is not configured. Set CLOUD_ECS_SUBNETS (or ECS_SUBNETS/RAG_ECS_SUBNETS)."
+                );
+              }
+
+              const rawInput = event.arguments?.input;
+              const items = Array.isArray(rawInput)
+                ? rawInput
+                : (rawInput ? [rawInput] : []);
+
+              const legacyIds = event.arguments?.taskIDs || event.arguments?.taskIds || event.arguments?.task_ids;
+              const legacyList = Array.isArray(legacyIds) ? legacyIds : (legacyIds ? [legacyIds] : []);
+
+              const normalizedItems = items.length > 0
+                ? items
+                : legacyList.map((tid) => ({ task_id: String(tid), options: {} }));
+
+              const ownerId = String(ownerSub || ownerEmail || owner || "").trim();
+              const username = String(ownerEmail || owner || ownerSub || "").trim() || "unknown";
+              const safeUserDir = (ownerSub || normalizeEmailForPath(ownerEmail || owner || "unknown")).toString();
+
+              const networkConfig = {
+                awsvpcConfiguration: {
+                  subnets: cloudSubnets,
+                  assignPublicIp: "ENABLED",
+                },
+              };
+              if (cloudSecurityGroups.length > 0) {
+                networkConfig.awsvpcConfiguration.securityGroups = cloudSecurityGroups;
+              }
+
+              const results = [];
+              const mapping = {};
+
+              // Safety backstop: throttle repeated launches for the same (owner_id, task_id).
+              // This protects ECS from runaway client loops.
+              const throttleSecondsEnv = process.env.RUN_CLOUD_TASKS_THROTTLE_SECONDS;
+              const throttleSeconds = throttleSecondsEnv != null
+                ? Number(String(throttleSecondsEnv).trim())
+                : null;
+
+              // Optional: enforce only one RUNNING task at a time for the same (owner_id, task_id).
+              const oneAtATimeEnv = String(process.env.RUN_CLOUD_TASKS_ONE_AT_A_TIME || "").trim().toLowerCase();
+              const oneAtATimeEnabled = (oneAtATimeEnv === "1" || oneAtATimeEnv === "true" || oneAtATimeEnv === "yes" || oneAtATimeEnv === "on");
+
+
+              const getTaskStatusByArn = async ({ cluster, taskArn }) => {
+                if (!cluster || !taskArn) return null;
+                const resp = await ecsClient.send(new DescribeTasksCommand({
+                  cluster,
+                  tasks: [String(taskArn)],
+                  include: ["TAGS"],
+                }));
+                const t = (resp.tasks && resp.tasks.length > 0) ? resp.tasks[0] : null;
+                if (!t) return null;
+                return {
+                  lastStatus: t.lastStatus || null,
+                  desiredStatus: t.desiredStatus || null,
+                  stoppedReason: t.stoppedReason || null,
+                };
+              };
+
+              for (const item of normalizedItems) {
+                const agentId = item?.agent_id || item?.agentId || null;
+                let taskId = item?.task_id || item?.taskId || item?.id || null;
+                const taskName = item?.task_name || item?.taskName || item?.name || null;
+                const options = _decodeAwsJson(item?.options ?? item?.params ?? item?.parameters ?? {}) || {};
+
+                try {
+                  // Resolve taskId by name if needed.
+                  if (!taskId && taskName) {
+                    const byName = await taskService.queryTasks({ name: String(taskName) });
+                    const first = Array.isArray(byName) && byName.length > 0 ? byName[0] : null;
+                    taskId = first?.id || null;
+                  }
+                  if (!taskId) {
+                    results.push({ task_id: null, run_id: null, success: false, error: "Missing task_id/task_name" });
+                    continue;
+                  }
+
+                  const taskRecord = await taskService.getTaskById(String(taskId));
+                  if (!taskRecord) {
+                    results.push({ task_id: String(taskId), run_id: null, success: false, error: "Task not found" });
+                    continue;
+                  }
+
+                  // Find skill(s) related to this task.
+                  const rels = await taskService.getTaskSkills(String(taskId), "primary");
+                  const rel = (Array.isArray(rels) && rels.length > 0) ? rels[0] : null;
+                  const skillId = rel?.skill_id || null;
+
+                  if (!skillId) {
+                    results.push({ task_id: String(taskId), run_id: null, success: false, error: "No primary skill linked to task" });
+                    continue;
+                  }
+
+                  const skillRecord = await skillService.getSkillById(String(skillId));
+
+                  // Throttle before doing any heavy work (S3 writes / ECS RunTask).
+                  const passiveForThrottle = String(options?.passive_client_id || options?.passiveClientId || "").trim();
+
+                  // For passive/hybrid runs, a single runaway loop can easily accumulate long-running tasks.
+                  // Keep a short lease window (seconds) and rely on "one-at-a-time" logic using the last taskArn.
+                  const effectiveThrottleSeconds = (Number.isFinite(throttleSeconds) && throttleSeconds > 0)
+                    ? throttleSeconds
+                    : (passiveForThrottle ? 60 : 20);
+
+                  // For passive runs (or when explicitly enabled), refuse to launch if an identical task is already RUNNING.
+                  if (passiveForThrottle || oneAtATimeEnabled) {
+                    try {
+                      const existing = await cloudTaskRunService.getTaskRun({
+                        owner_id: String(ownerId || username),
+                        task_id: String(taskId),
+                      });
+
+                      const existingArn = existing?.run_id ? String(existing.run_id) : "";
+                      if (existingArn.startsWith("arn:aws:ecs:")) {
+                        const st = await getTaskStatusByArn({ cluster: cloudCluster, taskArn: existingArn });
+                        if (st && (st.lastStatus === "RUNNING" || st.lastStatus === "PENDING")) {
+                          results.push({
+                            task_id: String(taskId),
+                            run_id: null,
+                            success: false,
+                            error: "Refusing to launch: previous run is still RUNNING/PENDING for this task.",
+                            retry_after_seconds: 30,
+                            skill_id: String(skillId),
+                          });
+                          continue;
+                        }
+
+                        // If we have a stale lease but the previous task is STOPPED, clear the lease so reruns work.
+                        const nowSec = Math.floor(Date.now() / 1000);
+                        const leaseUntil = Number(existing?.launch_lease_until || 0);
+                        if (Number.isFinite(leaseUntil) && leaseUntil > nowSec && st && st.lastStatus === "STOPPED") {
+                          await cloudTaskRunService.clearLaunchLease({
+                            owner_id: String(ownerId || username),
+                            task_id: String(taskId),
+                          });
+                        }
+                      }
+                    } catch (e) {
+                      console.warn("[agentScheduler] runCloudTasks: one-at-a-time check failed (continuing):", e.message);
+                    }
+                  }
+
+                  // Throttle before doing any heavy work (S3 writes / ECS RunTask).
+                  if (Number.isFinite(effectiveThrottleSeconds) && effectiveThrottleSeconds > 0) {
+                    try {
+                      const leaseOwner = ownerId || username;
+                      const lease = await cloudTaskRunService.acquireLaunchLease({
+                        owner_id: String(leaseOwner),
+                        task_id: String(taskId),
+                        lease_seconds: effectiveThrottleSeconds,
+                        reason: `runCloudTasks:${passiveForThrottle}`,
+                      });
+                      if (!lease.ok) {
+                        results.push({
+                          task_id: String(taskId),
+                          run_id: null,
+                          success: false,
+                          error: `Throttled: a run was started recently for this task. Try again in ~${effectiveThrottleSeconds}s.`,
+                          retry_after_seconds: effectiveThrottleSeconds,
+                          skill_id: String(skillId),
+                        });
+                        continue;
+                      }
+                    } catch (e) {
+                      console.warn("[agentScheduler] runCloudTasks: throttle check failed (continuing without throttle):", e.message);
+                    }
+                  }
+
+                  // Local-helper skill (hybrid cloud mode) metadata for client UX.
+                  // Note: current skills store this under `config.local_helper_skill_id` (sometimes as a skill id, sometimes as a short name like "passive0").
+                  let localHelperSkillId = null;
+                  let localHelperSkillName = null;
+                  try {
+                    const cfg = (skillRecord && typeof skillRecord === "object") ? (skillRecord.config || null) : null;
+                    const diagram = (skillRecord && typeof skillRecord === "object") ? (skillRecord.diagram || null) : null;
+                    const helperRaw =
+                      (cfg && typeof cfg === "object" && (cfg.local_helper_skill_id || cfg.localHelperSkillId || cfg.local_helper_skill_name || cfg.localHelperSkillName)) ||
+                      (diagram && typeof diagram === "object" && (diagram.local_helper_skill_id || diagram.localHelperSkillId || diagram.local_helper_skill_name || diagram.localHelperSkillName)) ||
+                      null;
+
+                    if (helperRaw) {
+                      const helperStr = String(helperRaw).trim();
+                      if (helperStr.startsWith("skill_")) {
+                        localHelperSkillId = helperStr;
+                        const helperSkill = await skillService.getSkillById(helperStr);
+                        localHelperSkillName = helperSkill?.name || null;
+                      } else {
+                        // Treat as a name/alias (e.g. "passive0").
+                        localHelperSkillName = helperStr;
+                      }
+                    }
+                  } catch (_e) {
+                    // best-effort only
+                  }
+
+                  // Optional: enable hybrid cloud mode / RUN_LOCAL by providing a passive client id.
+                  // IMPORTANT: do NOT trust caller-provided passive_run_id. Canonical run_id should
+                  // correlate to the ECS/Fargate task id on the cloud side.
+                  const passiveClientId = (options && (options.passive_client_id || options.passiveClientId)) || null;
+                  const launchRunId = `launch_${crypto.randomBytes(8).toString("hex")}`;
+                  const createdAt = new Date().toISOString();
+
+                  // Store a full payload in S3 (avoid ECS env 8KB limits).
+                  const payloadKey = `${safeUserDir}/cloud_task_payloads/${launchRunId}.json`;
+                  const fullPayload = {
+                    run_id: launchRunId,
+                    created_at: createdAt,
+                    username,
+                    owner_id: ownerId,
+                    agent_id: agentId,
+                    task_id: String(taskId),
+                    task_name: taskName || taskRecord?.name || null,
+                    task: taskRecord,
+                    skill_id: String(skillId),
+                    skill_name: skillRecord?.name || null,
+                    skill: skillRecord || null,
+                    options,
+                  };
+                  await s3.send(new PutObjectCommand({
+                    Bucket: SKILL_BUCKET,
+                    Key: payloadKey,
+                    Body: JSON.stringify(fullPayload),
+                    ContentType: "application/json",
+                  }));
+
+                  // Small reference payload for worker.
+                  const refPayload = {
+                    run_id: launchRunId,
+                    created_at: createdAt,
+                    username,
+                    owner_id: ownerId,
+                    agent_id: agentId,
+                    task_id: String(taskId),
+                    task_name: taskName || taskRecord?.name || null,
+                    skill_id: String(skillId),
+                    skill_name: skillRecord?.name || null,
+                    payload_s3_bucket: SKILL_BUCKET,
+                    payload_s3_key: payloadKey,
+                  };
+                  if (passiveClientId) {
+                    refPayload.passive_client_id = String(passiveClientId);
+                  }
+
+                  const containerEnv = [
+                    { name: "ECAN_WORKER_MODE", value: "single" },
+                    { name: "ECAN_WORKER_MESSAGE_JSON", value: JSON.stringify(refPayload) },
+                    { name: "ECAN_RUN_ID", value: launchRunId },
+                    { name: "ECAN_USERNAME", value: username },
+                    { name: "ECAN_TASK_ID", value: String(taskId) },
+                    { name: "ECAN_TASK_OWNER", value: ownerId || username },
+                    { name: "ECAN_TASK_PARAMS", value: JSON.stringify(options) },
+                    { name: "APPSYNC_API_URL", value: APPSYNC_URL },
+                    { name: "APPSYNC_API_KEY", value: APPSYNC_API_KEY },
+                  ];
+
+                  if (passiveClientId) {
+                    containerEnv.push({ name: "EC_BROWSER_PASSIVE_CLIENT_ID", value: String(passiveClientId) });
+                  }
+
+                  const response = await ecsClient.send(new RunTaskCommand({
+                    cluster: cloudCluster,
+                    taskDefinition: cloudTaskDef,
+                    launchType: "FARGATE",
+                    networkConfiguration: networkConfig,
+                    overrides: {
+                      containerOverrides: [{
+                        name: cloudContainerName,
+                        environment: containerEnv,
+                      }],
+                    },
+                    tags: [
+                      { key: "task_id", value: String(taskId) },
+                      { key: "skill_id", value: String(skillId) },
+                      { key: "owner_id", value: ownerId || username },
+                      { key: "run_id", value: launchRunId },
+                    ],
+                  }));
+
+                  const tasks = response.tasks || [];
+                  const taskArn = tasks.length > 0 ? tasks[0].taskArn : null;
+                  const taskArnStr = taskArn ? String(taskArn) : "";
+                  const taskRunId = taskArnStr.includes("/") ? taskArnStr.split("/").pop() : taskArnStr;
+                  if (!taskArn) {
+                    const failures = response.failures || [];
+                    const reason = failures.length > 0 ? failures[0].reason : "Unknown";
+                    results.push({ task_id: String(taskId), run_id: null, success: false, error: `Failed to start Fargate task: ${reason}` });
+                    continue;
+                  }
+
+                  // Record run_id for later lookup (queryCloudTaskRunId).
+                  try {
+                    await cloudTaskRunService.upsertTaskRun({
+                      owner_id: ownerId || username,
+                      task_id: String(taskId),
+                      run_id: String(taskArn),
+                      schedule: "now",
+                      meta_data: { ...options, agent_id: agentId, skill_id: String(skillId), launch_run_id: launchRunId, run_id: taskRunId || launchRunId },
+                    });
+
+                    // Also append an immutable history record.
+                    await cloudTaskRunService.appendTaskRunHistory({
+                      owner_id: ownerId || username,
+                      task_id: String(taskId),
+                      task_arn: String(taskArn),
+                      run_started_at: createdAt,
+                      schedule: "now",
+                      meta_data: { ...options, agent_id: agentId, skill_id: String(skillId), launch_run_id: launchRunId, run_id: taskRunId || launchRunId },
+                    });
+                  } catch (e) {
+                    console.warn("[agentScheduler] runCloudTasks: failed to record run_id:", e.message);
+                  }
+
+                  mapping[String(taskId)] = taskRunId || String(taskArn);
+                  results.push({
+                    task_id: String(taskId),
+                    run_id: taskRunId || String(taskArn),
+                    task_arn: String(taskArn),
+                    success: true,
+                    skill_id: String(skillId),
+                    local_helper_skill_id: localHelperSkillId ? String(localHelperSkillId) : null,
+                    local_helper_skill_name: localHelperSkillName,
+                  });
+                } catch (err) {
+                  console.error("[agentScheduler] runCloudTasks item error:", err);
+                  results.push({ task_id: taskId ? String(taskId) : null, run_id: null, success: false, error: err.message || String(err) });
+                }
+              }
+
+              // Return AWSJSON; keep backward compatibility with existing clients.
+              returnData = JSON.stringify({ items: results, run_ids: mapping });
+            }
+            break;
           case "setupSimStep":
             {
               returnData = await skillEditorService.setupSimStep(event.arguments?.bundle || event.arguments?.input || null);
@@ -6232,45 +6675,20 @@ async function processEvent(event, context, callback, test_stub) {
           case "queryCloudTaskRunId":
             {
               const input = event.arguments?.input || {};
-              const ownerId = normalizeEmailForPath(ownerEmail || owner || "");
-              const taskId = input.task_id || input.taskId;
-              const hostName = input.host_name || input.hostName;
-
-              let record = null;
-              if (taskId) {
-                record = await cloudTaskRunService.getTaskRun({ owner_id: ownerId, task_id: String(taskId) });
-              } else if (hostName) {
-                record = await cloudTaskRunService.findTaskRunByHostName({ owner_id: ownerId, host_name: String(hostName) });
-              }
-
-              if (!record) {
-                returnData = {
-                  success: false,
-                  error: "NOT_FOUND: No run id recorded",
-                  id: taskId || null,
-                  runID: null,
-                  runner: hostName || null,
-                  status: input.meta_data || {},
-                  timestamp: new Date().toISOString(),
-                };
-                break;
-              }
-
-              returnData = {
-                success: true,
-                error: null,
-                id: record.task_id || taskId || null,
-                runID: record.run_id || null,
-                runner: record.host_name || hostName || null,
-                status: {
-                  owner_id: record.owner_id,
-                  task_id: record.task_id,
-                  run_id: record.run_id,
-                  schedule: record.schedule,
-                  meta_data: record.meta_data || null,
-                },
-                timestamp: record.updated_at || new Date().toISOString(),
+              const metaParsed = _safeParseAwsJson(input.meta_data || "{}") || {};
+              const metaObj = (metaParsed && typeof metaParsed === "object") ? metaParsed : {};
+              const enrichedMeta = {
+                ...metaObj,
+                owner_id: metaObj.owner_id || ownerSub || event.identity?.claims?.sub || null,
+                owner: metaObj.owner || ownerEmail || owner || null,
+                email: metaObj.email || ownerEmail || event.identity?.claims?.email || null,
               };
+
+              returnData = await skillEditorService.queryCloudTaskRunId(
+                input.task_id || input.taskId || null,
+                input.host_name || input.hostName || null,
+                JSON.stringify(enrichedMeta)
+              );
             }
             break;
           case "getAgents":
@@ -6388,6 +6806,26 @@ async function processEvent(event, context, callback, test_stub) {
               const filtered = owner ? result.filter(k => k.owner === owner) : result;
               returnData = filtered;
             }
+            break;
+
+          // ==================== Relation tables (RDS) queries ====================
+          case "queryAgentOrgRels":
+            returnData = await relationService.queryRels("agent_org_rels", event.arguments?.input);
+            break;
+          case "queryAgentSkillRels":
+            returnData = await relationService.queryRels("agent_skill_rels", event.arguments?.input);
+            break;
+          case "queryAgentSkillToolRels":
+            returnData = await relationService.queryRels("agent_skill_tool_rels", event.arguments?.input);
+            break;
+          case "queryAgentSkillKnowledgeRels":
+            returnData = await relationService.queryRels("agent_skill_knowledge_rels", event.arguments?.input);
+            break;
+          case "queryAgentTaskRels":
+            returnData = await relationService.queryRels("agent_task_rels", event.arguments?.input);
+            break;
+          case "queryAgentTaskSkillRels":
+            returnData = await relationService.queryRels("agent_task_skill_rels", event.arguments?.input);
             break;
           case "queryKnowledges":
               util.log("DEBUG", "querying knowledges....!", api_caller, "processEvent", logFlag);
@@ -6529,7 +6967,20 @@ async function processEvent(event, context, callback, test_stub) {
           case "queryCloudTaskRunId":
             {
               const qInput = event.arguments?.input || {};
-              returnData = await skillEditorService.queryCloudTaskRunId(qInput.task_id || null, qInput.host_name || null, qInput.meta_data || "{}");
+              const metaParsed = _safeParseAwsJson(qInput.meta_data || "{}") || {};
+              const metaObj = (metaParsed && typeof metaParsed === "object") ? metaParsed : {};
+              // Prefer Cognito sub as owner_id (this is what runCloudTasks uses when available).
+              const enrichedMeta = {
+                ...metaObj,
+                owner_id: metaObj.owner_id || ownerSub || event.identity?.claims?.sub || null,
+                owner: metaObj.owner || ownerEmail || owner || null,
+                email: metaObj.email || ownerEmail || event.identity?.claims?.email || null,
+              };
+              returnData = await skillEditorService.queryCloudTaskRunId(
+                qInput.task_id || null,
+                qInput.host_name || null,
+                JSON.stringify(enrichedMeta)
+              );
             }
             break;
           case "getSkillEditorEvents":

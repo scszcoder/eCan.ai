@@ -98,6 +98,44 @@ export const GRAPHQL_QUERIES = {
     }
   `,
 
+  // ==================== Relation Tables (RDS) ====================
+  QUERY_AGENT_ORG_RELS: `
+    query QueryAgentOrgRels($input: AWSJSON) {
+      queryAgentOrgRels(input: $input)
+    }
+  `,
+
+  QUERY_AGENT_SKILL_RELS: `
+    query QueryAgentSkillRels($input: AWSJSON) {
+      queryAgentSkillRels(input: $input)
+    }
+  `,
+
+  QUERY_AGENT_TASK_RELS: `
+    query QueryAgentTaskRels($input: AWSJSON) {
+      queryAgentTaskRels(input: $input)
+    }
+  `,
+
+  QUERY_AGENT_TASK_SKILL_RELS: `
+    query QueryAgentTaskSkillRels($input: AWSJSON) {
+      queryAgentTaskSkillRels(input: $input)
+    }
+  `,
+
+  // Placeholders (not currently used by web UI)
+  QUERY_AGENT_SKILL_TOOL_RELS: `
+    query QueryAgentSkillToolRels($input: AWSJSON) {
+      queryAgentSkillToolRels(input: $input)
+    }
+  `,
+
+  QUERY_AGENT_SKILL_KNOWLEDGE_RELS: `
+    query QueryAgentSkillKnowledgeRels($input: AWSJSON) {
+      queryAgentSkillKnowledgeRels(input: $input)
+    }
+  `,
+
   // ==================== Skills Store ====================
   GET_PUBLIC_SKILLS: `
     query GetPublicSkills($owner: String) {
@@ -386,6 +424,7 @@ export const GRAPHQL_MUTATIONS = {
     mutation ReqApiKey($input: CustomerInput) {
       reqApiKey(input: $input) {
         apiKey
+        apiKeyId
         message
       }
     }
@@ -398,6 +437,15 @@ export const GRAPHQL_MUTATIONS = {
         apiKey
         apiKeyId
         message
+      }
+    }
+  `,
+
+  QUERY_API_KEYS: `
+    query QueryApiKeys($input: QueryApiKeyInput) {
+      queryApiKeys(input: $input) {
+        customerEmail
+        status
       }
     }
   `,
@@ -473,6 +521,80 @@ export const GRAPHQL_MUTATIONS = {
   REMOVE_AGENT_TASKS: `
     mutation RemoveAgentTasks($input: [ID!]!) {
       removeAgentTasks(input: $input) { id success error }
+    }
+  `,
+
+  // ==================== Relation Tables (RDS) CRUD ====================
+  ADD_AGENT_ORG_RELS: `
+    mutation AddAgentOrgRels($input: [AgentOrgRelInput!]!) {
+      addAgentOrgRels(input: $input)
+    }
+  `,
+
+  REMOVE_AGENT_ORG_RELS: `
+    mutation RemoveAgentOrgRels($input: [RelationIdInput!]!) {
+      removeAgentOrgRels(input: $input)
+    }
+  `,
+
+  ADD_AGENT_SKILL_RELS: `
+    mutation AddAgentSkillRels($input: [AgentSkillRelInput!]!) {
+      addAgentSkillRels(input: $input)
+    }
+  `,
+
+  REMOVE_AGENT_SKILL_RELS: `
+    mutation RemoveAgentSkillRels($input: [RelationIdInput!]!) {
+      removeAgentSkillRels(input: $input)
+    }
+  `,
+
+  ADD_AGENT_TASK_RELS: `
+    mutation AddAgentTaskRels($input: [AgentTaskRelInput!]!) {
+      addAgentTaskRels(input: $input)
+    }
+  `,
+
+  REMOVE_AGENT_TASK_RELS: `
+    mutation RemoveAgentTaskRels($input: [RelationIdInput!]!) {
+      removeAgentTaskRels(input: $input)
+    }
+  `,
+
+  ADD_AGENT_TASK_SKILL_RELS: `
+    mutation AddAgentTaskSkillRels($input: [AgentTaskSkillRelInput!]!) {
+      addAgentTaskSkillRels(input: $input)
+    }
+  `,
+
+  REMOVE_AGENT_TASK_SKILL_RELS: `
+    mutation RemoveAgentTaskSkillRels($input: [RelationIdInput!]!) {
+      removeAgentTaskSkillRels(input: $input)
+    }
+  `,
+
+  // Placeholders (not currently used by web UI)
+  ADD_AGENT_SKILL_TOOL_RELS: `
+    mutation AddAgentSkillToolRels($input: [AgentSkillToolRelInput!]!) {
+      addAgentSkillToolRels(input: $input)
+    }
+  `,
+
+  REMOVE_AGENT_SKILL_TOOL_RELS: `
+    mutation RemoveAgentSkillToolRels($input: [RelationIdInput!]!) {
+      removeAgentSkillToolRels(input: $input)
+    }
+  `,
+
+  ADD_AGENT_SKILL_KNOWLEDGE_RELS: `
+    mutation AddAgentSkillKnowledgeRels($input: [AgentSkillKnowledgeRelInput!]!) {
+      addAgentSkillKnowledgeRels(input: $input)
+    }
+  `,
+
+  REMOVE_AGENT_SKILL_KNOWLEDGE_RELS: `
+    mutation RemoveAgentSkillKnowledgeRels($input: [RelationIdInput!]!) {
+      removeAgentSkillKnowledgeRels(input: $input)
     }
   `,
 
